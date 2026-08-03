@@ -21,12 +21,18 @@ export interface RestaurantConfig {
   opening_hours: string | null;
 }
 
+export interface Translations {
+  [lang: string]: { name?: string; description?: string } | undefined;
+}
+
 export interface MenuCategory {
   id: string;
   restaurant_id: string;
   name: string;
   display_order: number;
   is_active: boolean;
+  /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
+  translations?: Translations;
   menu_items: MenuItem[];
 }
 
@@ -39,10 +45,15 @@ export interface MenuItem {
   image_url: string | null;
   display_order: number;
   is_available: boolean;
+  /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
+  translations?: Translations;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug
 export interface RestaurantFull extends Restaurant {
   config: RestaurantConfig;
+  /** Catégories affichées au menu */
   categories: MenuCategory[];
+  /** Catégories masquées (is_active = false) : réservoirs de choix */
+  hiddenCategories: MenuCategory[];
 }

@@ -10,7 +10,8 @@
 -- publiques du bucket, sans toucher au code (consigne CTO).
 -- ============================================================
 
--- Logo (affiché dans la bannière)
+-- Logo (affiché dans la bannière ; la bannière elle-même est
+-- servie par l'application : public/banners/illico-presto.jpg)
 update restaurant_configs
 set logo_url = '/logo.png'
 where restaurant_id = (select id from restaurants where slug = 'illico-presto');

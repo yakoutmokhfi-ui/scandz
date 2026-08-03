@@ -1,11 +1,18 @@
+import { useI18n } from "@/lib/i18n-context";
 import type { RestaurantFull } from "@/lib/types";
 import LanguageSelector from "@/components/LanguageSelector";
+import type { Lang } from "@/lib/i18n";
 
 export default function RestaurantHeader({
   restaurant,
+  lang,
+  onChangeLang,
 }: {
   restaurant: RestaurantFull;
+  lang: Lang;
+  onChangeLang: (lang: Lang) => void;
 }) {
+  const { t } = useI18n();
   const { config } = restaurant;
 
   const mapsUrl =
@@ -19,13 +26,14 @@ export default function RestaurantHeader({
       style={{
         // La photo /banner.jpg (dossier public) est optionnelle :
         // si elle est absente, le dégradé assure seul le fond.
+        // Bannière propre à l'établissement : /banners/<slug>.jpg
         backgroundImage:
-          "linear-gradient(rgba(23,13,9,0.55), rgba(23,13,9,0.8)), url('/banner.jpg')",
+          `linear-gradient(rgba(23,13,9,0.55), rgba(23,13,9,0.8)), url('/banners/${restaurant.slug}.jpg')`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
-      <LanguageSelector />
+      <LanguageSelector active={lang} onChange={onChangeLang} />
 
       {/* Contenu centré verticalement avec espacements réguliers */}
       <div className="flex min-h-[21rem] flex-col items-center justify-center gap-3 px-4 py-12">
@@ -37,24 +45,17 @@ export default function RestaurantHeader({
           />
         )}
 
-        <div>
-          <h1 className="font-serif text-3xl font-bold italic tracking-wide">
-            {restaurant.name.replace(" Coffee", "")}
-          </h1>
-          <p className="mt-1 text-[0.7rem] font-semibold uppercase tracking-[0.45em] text-gold">
-            Coffee
-          </p>
-        </div>
+        <h1 className="font-serif text-3xl font-bold italic tracking-wide">
+          {restaurant.name}
+        </h1>
 
         <div className="h-px w-16 bg-gold/60" />
 
         <div>
           <p className="text-sm text-crema/90">
-            Bienvenue chez {restaurant.name}
+            {t("welcome", { name: restaurant.name })}
           </p>
-          <p className="mt-1 text-xs text-crema/70">
-            Choisissez vos produits et passez votre commande
-          </p>
+          <p className="mt-1 text-xs text-crema/70">{t("subtitle")}</p>
         </div>
 
         {mapsUrl && (
@@ -64,7 +65,7 @@ export default function RestaurantHeader({
             rel="noopener noreferrer"
             className="mt-2 inline-flex items-center gap-2 rounded-full border border-gold/60 bg-espresso/40 px-4 py-2 text-xs font-semibold text-gold"
           >
-            📍 Voir sur Google Maps
+            📍 {t("viewOnMaps")}
           </a>
         )}
       </div>

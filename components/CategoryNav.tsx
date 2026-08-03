@@ -1,3 +1,5 @@
+import { useI18n } from "@/lib/i18n-context";
+import { tName } from "@/lib/menu-i18n";
 import type { MenuCategory } from "@/lib/types";
 
 /**
@@ -16,6 +18,8 @@ export default function CategoryNav({
   activeId: string;
   onSelect: (id: string) => void;
 }) {
+  const { lang } = useI18n();
+
   return (
     <nav className="sticky top-0 z-30 border-b border-espresso/10 bg-crema/95 backdrop-blur">
       <div className="flex flex-wrap justify-center gap-2 px-4 py-3">
@@ -33,7 +37,7 @@ export default function CategoryNav({
                   : "bg-white text-espresso/80 shadow-sm")
               }
             >
-              {category.name}
+              {tName(category, lang)}
             </button>
           );
         })}

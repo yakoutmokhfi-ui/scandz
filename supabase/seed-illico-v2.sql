@@ -3,10 +3,8 @@
 -- Prix validés par le CTO le 25/07/2026.
 -- Remplace toute version précédente (temp ou v1).
 --
--- Numéro WhatsApp : le seed utilise le numéro de TEST français
--- de Yakout. Pour basculer vers le numéro du restaurant à Oran,
--- exécuter l'UPDATE en fin de fichier (après vérification du
--- numéro).
+-- Numéro WhatsApp : numéro du restaurant à Oran
+-- (+213 666 51 09 01), confirmé par Yakout.
 -- Les photos (image_url) seront ajoutées ensuite via Supabase
 -- Storage, par simple UPDATE, sans toucher au code.
 -- ============================================================
@@ -24,7 +22,7 @@ config as (
      address, latitude, longitude)
   select
     id, 15, 'DZD',
-    '+33663602803',             -- Numéro de TEST (Yakout, FR)
+    '+213666510901',            -- Numéro du restaurant (Oran)
     'Oran, Algérie',
     35.70296000, -0.64530300    -- coordonnées Google Maps fournies
   from resto
@@ -92,13 +90,3 @@ union all select id, 'Sprite', 'Citron-citron vert', 180.00, 7 from c5
 union all select id, 'Fanta', 'Orange pétillante', 180.00, 8 from c5
 union all select id, 'Eau gazeuse', 'Finement pétillante', 120.00, 9 from c5;
 
--- ============================================================
--- BASCULE VERS LE NUMÉRO DU RESTAURANT (à exécuter plus tard)
--- Numéro confirmé par Yakout le 25/07/2026 : +213 666 51 09 01.
--- Décommenter et exécuter l'UPDATE ci-dessous pour basculer les
--- commandes vers le restaurant. Faire un test WhatsApp réel vers
--- ce numéro avant toute impression de QR code.
--- ============================================================
--- update restaurant_configs
--- set whatsapp_number = '+213666510901'
--- where restaurant_id = (select id from restaurants where slug = 'illico-presto');

@@ -16,7 +16,7 @@ export async function getRestaurantBySlug(
       id, name, slug, is_active, created_at,
       restaurant_configs ( * ),
       menu_categories (
-        id, restaurant_id, name, display_order, is_active,
+        *,
         menu_items ( * )
       )
     `
@@ -35,8 +35,7 @@ export async function getRestaurantBySlug(
 
   // Filtrage et tri côté service pour garder des composants
   // de présentation purs.
-  const categories: MenuCategory[] = (data.menu_categories ?? [])
-    .filter((c: MenuCategory) => c.is_active)
+  const prepared: MenuCategory[] = (data.menu_categories ?? [])
     .sort((a: MenuCategory, b: MenuCategory) => a.display_order - b.display_order)
     .map((c: MenuCategory) => ({
       ...c,
@@ -45,6 +44,11 @@ export async function getRestaurantBySlug(
         .sort((a, b) => a.display_order - b.display_order),
     }))
     .filter((c: MenuCategory) => c.menu_items.length > 0);
+
+  // Une catégorie inactive n'apparaît pas au menu, mais reste
+  // disponible comme réservoir de choix (goûts, pâtisseries…).
+  const categories = prepared.filter((c) => c.is_active);
+  const hiddenCategories = prepared.filter((c) => !c.is_active);
 
   return {
     id: data.id,
@@ -56,5 +60,6 @@ export async function getRestaurantBySlug(
       ? data.restaurant_configs[0]
       : data.restaurant_configs,
     categories,
+    hiddenCategories,
   };
 }

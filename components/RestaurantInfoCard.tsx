@@ -1,38 +1,52 @@
 import type { ReactNode } from "react";
 import type { RestaurantFull } from "@/lib/types";
-import { DEMO_PHONE } from "@/lib/demo";
+import { getSettings } from "@/lib/restaurants-config";
+import { useI18n } from "@/lib/i18n-context";
+import Ltr from "@/components/Bidi";
 
 export default function RestaurantInfoCard({
   restaurant,
 }: {
   restaurant: RestaurantFull;
 }) {
+  const { t } = useI18n();
   const { config } = restaurant;
+  const phone = getSettings(restaurant.slug).phone;
 
   const rows = [
     config.address && {
       icon: "📍",
-      label: "Adresse",
-      content: <span>{config.address}</span>,
+      label: t("labelAddress"),
+      content: <Ltr>{config.address}</Ltr>,
     },
-    {
+    phone && {
       icon: "📞",
-      label: "Téléphone",
+      label: t("labelPhone"),
       content: (
         <a
-          href={`tel:${DEMO_PHONE.replace(/\s/g, "")}`}
+          href={`tel:${phone.replace(/[\s.]/g, "")}`}
           className="font-medium text-caramel-dark underline-offset-2 hover:underline"
         >
-          {DEMO_PHONE}
+          <Ltr>{phone}</Ltr>
         </a>
       ),
     },
     config.opening_hours && {
       icon: "🕒",
-      label: "Horaires",
-      content: <span>{config.opening_hours}</span>,
+      label: t("labelHours"),
+      // Horaires purement numériques ("07:00 – 23:00") : on préfixe
+      // avec un libellé traduit. Sinon, texte affiché tel quel.
+      content: /[A-Za-zÀ-ÿ]/.test(config.opening_hours) ? (
+        <Ltr>{config.opening_hours}</Ltr>
+      ) : (
+        <>
+          {t("openEveryDay")} <Ltr>{config.opening_hours}</Ltr>
+        </>
+      ),
     },
   ].filter(Boolean) as { icon: string; label: string; content: ReactNode }[];
+
+  if (rows.length === 0) return null;
 
   return (
     <div className="relative z-10 -mt-5 px-4">
