@@ -90,3 +90,15 @@ scan avec deux téléphones différents avant impression.
 > Le point 3 impose un déploiement pour chaque nouveau client. C'est une
 > dette assumée du MVP : l'évolution proposée est de faire passer ces
 > réglages en base (voir l'en-tête de `lib/restaurants-config.ts`).
+
+## V29 - Espace commerçant
+
+1. Run `supabase/migration-v29-merchant-dashboard.sql` in the Supabase SQL Editor.
+2. Create merchant users in Supabase Authentication.
+3. Link each Auth user to a restaurant in `public.restaurant_users`.
+4. Run the isolation procedure in `supabase/tests/v29-isolation-tests.md`.
+5. Open `/dashboard/login`.
+
+The dashboard reads orders through RLS and changes status only through
+`public.update_order_status`. Receipt printing is available on every order and
+uses the per-restaurant `public.receipt_settings` profile (58 or 80 mm).

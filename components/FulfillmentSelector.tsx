@@ -1,11 +1,9 @@
 "use client";
 
-import type { RestaurantSettings } from "@/lib/restaurants-config";
+import type { RestaurantSettings, ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
 import { useI18n } from "@/lib/i18n-context";
-
-export type FulfillmentType = "pickup" | "delivery";
 
 type Errors = Partial<Record<keyof CustomerInfo, string>>;
 
@@ -33,7 +31,7 @@ function Field({
   onChange: (v: string) => void;
 }) {
   return (
-    <div>
+    <div className="scroll-mt-4">
       <label htmlFor={id} className="block text-xs font-semibold text-espresso/70">
         {label}
       </label>
@@ -48,7 +46,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
         className={
-          "mt-1 w-full rounded-xl border bg-white p-3 text-sm outline-none focus:border-caramel " +
+          "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base outline-none focus:border-caramel sm:text-sm " +
           (error ? "border-amber-400" : "border-espresso/15")
         }
       />
@@ -69,19 +67,22 @@ export default function FulfillmentSelector({
   customer,
   errors,
   showErrors,
-  onSelectType,
+  requiredFields,
   onChangeCustomer,
+  onSelectFulfillment,
 }: {
   settings: RestaurantSettings;
   status: DeliveryStatus;
-  type: FulfillmentType | null;
+  type: ServiceMode | null;
   customer: CustomerInfo;
   errors: Errors;
   showErrors: boolean;
-  onSelectType: (t: FulfillmentType) => void;
+  requiredFields: (keyof CustomerInfo)[];
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
+  onSelectFulfillment: (type: ServiceMode) => void;
 }) {
   const { t } = useI18n();
+  const need = (f: keyof CustomerInfo) => requiredFields.includes(f);
   const err = (k: keyof CustomerInfo) =>
     showErrors && errors[k] ? t(errors[k]!) : undefined;
 
@@ -128,10 +129,44 @@ export default function FulfillmentSelector({
         : "bg-white text-espresso/70";
 
   return (
-    <div className="mt-6">
-      <h3 className="font-semibold">{t("yourDetails")}</h3>
+    <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">
+      <h3 className="font-semibold">
+        {t(type === "delivery" ? "deliveryDetails" : "yourDetails")}
+      </h3>
+
+      {settings.allowedServiceModes.includes("delivery") && message && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mt-3 max-w-full break-words rounded-xl p-3 text-sm ${toneClass}`}
+        >
+          <p>{message.text}</p>
+          {type === "delivery" && status.block === "out-of-zone" && (
+            <button
+              type="button"
+              onClick={() => onSelectFulfillment("pickup")}
+              className="mt-3 w-full rounded-lg border border-amber-700/30 bg-white px-3 py-2 text-base font-semibold text-amber-900 shadow-sm sm:text-sm"
+            >
+              {t("choosePickupAction")}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 space-y-3">
+        {need("name") && (
+          <Field
+            id="name"
+            label={t("fieldName")}
+            value={customer.name}
+            error={err("name")}
+            placeholder="Yakout"
+            autoComplete="given-name"
+            onChange={(v) => onChangeCustomer({ name: v })}
+          />
+        )}
+
+        {need("street") && (
         <Field
           id="street"
           label={t("fieldStreet")}
@@ -141,7 +176,9 @@ export default function FulfillmentSelector({
           autoComplete="street-address"
           onChange={(v) => onChangeCustomer({ street: v })}
         />
+        )}
 
+        {need("postalCode") && (
         <div className="grid grid-cols-[7rem_1fr] gap-3">
           <Field
             id="postalCode"
@@ -166,7 +203,9 @@ export default function FulfillmentSelector({
             onChange={(v) => onChangeCustomer({ city: v })}
           />
         </div>
+        )}
 
+        {need("phone") && (
         <Field
           id="phone"
           label={t("fieldPhone")}
@@ -178,7 +217,9 @@ export default function FulfillmentSelector({
           autoComplete="tel"
           onChange={(v) => onChangeCustomer({ phone: v })}
         />
+        )}
 
+        {need("email") && (
         <Field
           id="email"
           label={t("fieldEmail")}
@@ -190,50 +231,12 @@ export default function FulfillmentSelector({
           autoComplete="email"
           onChange={(v) => onChangeCustomer({ email: v })}
         />
+        )}
       </div>
 
       <p className="mt-2 text-xs text-espresso/55">
         {t("privacyNote")}
       </p>
-
-      {message && (
-        <p className={`mt-4 rounded-xl p-3 text-sm ${toneClass}`}>{message.text}</p>
-      )}
-
-      <h3 className="mt-5 font-semibold">
-        {t("howToReceive")}
-      </h3>
-      <div className="mt-2 flex gap-2">
-        {settings.pickup && (
-          <button
-            onClick={() => onSelectType("pickup")}
-            aria-pressed={type === "pickup"}
-            className={
-              "flex-1 rounded-xl py-3 text-sm font-semibold " +
-              (type === "pickup"
-                ? "bg-caramel text-white"
-                : "bg-white text-espresso shadow-sm")
-            }
-          >
-            {t("pickup")}
-          </button>
-        )}
-        <button
-          onClick={() => status.eligible && onSelectType("delivery")}
-          disabled={!status.eligible}
-          aria-pressed={type === "delivery"}
-          className={
-            "flex-1 rounded-xl py-3 text-sm font-semibold " +
-            (!status.eligible
-              ? "cursor-not-allowed bg-espresso/10 text-espresso/40"
-              : type === "delivery"
-                ? "bg-caramel text-white"
-                : "bg-white text-espresso shadow-sm")
-          }
-        >
-          {t("delivery")}
-        </button>
-      </div>
 
       {type === "pickup" && (
         <p className="mt-3 text-sm text-espresso/60">

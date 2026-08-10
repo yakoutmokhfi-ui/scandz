@@ -1,4 +1,5 @@
 import type { MenuItem, RestaurantFull } from "@/lib/types";
+import type { Lang } from "@/lib/i18n";
 
 /**
  * Réglages par établissement qui ne tiennent pas encore dans le
@@ -14,7 +15,10 @@ import type { MenuItem, RestaurantFull } from "@/lib/types";
  * Tant que ce fichier existe, ajouter un client impose un déploiement.
  */
 
-export type ServiceMode = "table" | "fulfillment";
+export type ServiceMode = "table" | "pickup" | "delivery";
+
+export type CustomerField =
+  | "name" | "street" | "postalCode" | "city" | "phone" | "email";
 
 export interface DeliveryZone {
   code: string;
@@ -31,7 +35,13 @@ export interface OptionGroup {
 }
 
 export interface RestaurantSettings {
-  serviceMode: ServiceMode;
+  /**
+   * Modes activés pour cet établissement, parmi les trois que
+   * propose Scanym. Miroir de restaurant_configs.allowed_service_modes.
+   */
+  allowedServiceModes: ServiceMode[];
+  /** Champs client exigés, par mode */
+  requiredCustomerFields?: Partial<Record<ServiceMode, CustomerField[]>>;
   /**
    * Présentation des options : "modal" ouvre une fenêtre (adapté aux
    * cartes longues), "inline" affiche les goûts sur la carte produit
@@ -40,9 +50,20 @@ export interface RestaurantSettings {
   optionsDisplay?: "modal" | "inline";
   /** Téléphone affiché sur la fiche (pas de colonne dédiée en base) */
   phone?: string;
-  /** Retrait sur place proposé (mode fulfillment uniquement) */
-  pickup?: boolean;
-  /** Zones livrées (mode fulfillment uniquement) */
+  /** Thème visuel (voir lib/themes.ts) */
+  theme?: string;
+  /** Bannière par défaut dans /banners (sinon le slug) */
+  banner?: string;
+  /** Motif de fond (voir lib/pattern.ts) */
+  pattern?: "girih" | "zellige" | "diamond" | "none";
+  /**
+   * Langue du message de commande envoyé au commerçant. Elle ne
+   * dépend PAS de la langue choisie par le client : c'est le
+   * personnel qui lit le ticket, et les noms de produits doivent
+   * correspondre à la carte en cuisine.
+   */
+  staffLanguage?: Lang;
+  /** Zones livrées (mode delivery uniquement) */
   deliveryZones?: DeliveryZone[];
   /** Nombre d'articles minimum pour bénéficier de la livraison */
   deliveryMinItems?: number;
@@ -54,7 +75,12 @@ export interface RestaurantSettings {
 
 const SETTINGS: Record<string, RestaurantSettings> = {
   "illico-presto": {
-    serviceMode: "table",
+    allowedServiceModes: ["table", "pickup"],
+    theme: "cafe",
+    // Le personnel d'Oran lit le ticket en arabe, quelle que soit la
+    // langue choisie par le client.
+    staffLanguage: "ar",
+    requiredCustomerFields: { pickup: ["name"] },
     phone: "+213 41 55 12 34",
     optionGroups: {
       "Formule Prestigio": {
@@ -64,10 +90,14 @@ const SETTINGS: Record<string, RestaurantSettings> = {
     },
   },
   "sanaa-cookies": {
-    serviceMode: "fulfillment",
+    allowedServiceModes: ["pickup", "delivery"],
+    staffLanguage: "fr",
+    requiredCustomerFields: {
+      pickup: ["name", "phone", "email"],
+      delivery: ["street", "postalCode", "city", "phone", "email"],
+    },
     optionsDisplay: "inline",
     phone: "06 60 27 31 54",
-    pickup: true,
     // Toute l'Île-de-France. Le libellé par département est repris
     // dans le message WhatsApp pour situer la course.
     deliveryZones: [
@@ -95,9 +125,19 @@ const SETTINGS: Record<string, RestaurantSettings> = {
       },
     },
   },
+  // Établissement de DÉMONSTRATION — bar d'hôtel fictif, créé pour
+  // montrer qu'une autre identité visuelle est possible.
+  "le-sirocco": {
+    allowedServiceModes: ["table"],
+    theme: "nuit",
+    banner: "sirocco-nuit",
+    pattern: "girih",
+    staffLanguage: "fr",
+    phone: "+213 41 00 00 00",
+  },
 };
 
-const DEFAULT_SETTINGS: RestaurantSettings = { serviceMode: "table" };
+const DEFAULT_SETTINGS: RestaurantSettings = { allowedServiceModes: ["table"] };
 
 export function getSettings(slug: string): RestaurantSettings {
   return SETTINGS[slug] ?? DEFAULT_SETTINGS;

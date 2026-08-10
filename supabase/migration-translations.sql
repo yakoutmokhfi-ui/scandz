@@ -28,11 +28,11 @@ alter table menu_items      add column if not exists translations jsonb;
 update menu_categories mc
 set translations = jsonb_build_object('ar', jsonb_build_object('name', v.ar))
 from (values
-  ('🍳 Formules petit-déjeuner', '🍳 عروض الفطور'),
-  ('☕ Boissons chaudes',        '☕ المشروبات الساخنة'),
-  ('🥐 Viennoiseries',           '🥐 المعجنات'),
-  ('🍰 Pâtisseries',             '🍰 الحلويات'),
-  ('🥤 Jus & boissons',          '🥤 العصائر والمشروبات')
+  ('Formules petit-déjeuner', 'عروض الفطور'),
+  ('Boissons chaudes',        'المشروبات الساخنة'),
+  ('Viennoiseries',           'المعجنات'),
+  ('Pâtisseries',             'الحلويات'),
+  ('Jus & boissons',          'العصائر والمشروبات')
 ) as v(fr, ar),
 restaurants r
 where mc.restaurant_id = r.id

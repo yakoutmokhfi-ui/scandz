@@ -1,5 +1,6 @@
 /** Coordonnées saisies par le client (modes retrait / livraison). */
 export interface CustomerInfo {
+  name: string;
   street: string;
   postalCode: string;
   city: string;
@@ -8,6 +9,7 @@ export interface CustomerInfo {
 }
 
 export const EMPTY_CUSTOMER: CustomerInfo = {
+  name: "",
   street: "",
   postalCode: "",
   city: "",
@@ -32,17 +34,32 @@ export function isValidPostalCode(value: string): boolean {
 /** Clés de traduction des erreurs, par champ. */
 export function getCustomerErrors(
   c: CustomerInfo,
-  needsAddress: boolean
+  required: (keyof CustomerInfo)[]
 ): Partial<Record<keyof CustomerInfo, string>> {
   const errors: Partial<Record<keyof CustomerInfo, string>> = {};
 
-  if (needsAddress) {
-    if (c.street.trim().length < 5) errors.street = "errStreet";
-    if (!isValidPostalCode(c.postalCode)) errors.postalCode = "errPostalCode";
-    if (c.city.trim().length < 2) errors.city = "errCity";
+  for (const field of required) {
+    switch (field) {
+      case "name":
+        if (c.name.trim().length < 2) errors.name = "errName";
+        break;
+      case "street":
+        if (c.street.trim().length < 5) errors.street = "errStreet";
+        break;
+      case "postalCode":
+        if (!isValidPostalCode(c.postalCode)) errors.postalCode = "errPostalCode";
+        break;
+      case "city":
+        if (c.city.trim().length < 2) errors.city = "errCity";
+        break;
+      case "phone":
+        if (!isValidPhone(c.phone)) errors.phone = "errPhone";
+        break;
+      case "email":
+        if (!isValidEmail(c.email)) errors.email = "errEmail";
+        break;
+    }
   }
-  if (!isValidPhone(c.phone)) errors.phone = "errPhone";
-  if (!isValidEmail(c.email)) errors.email = "errEmail";
 
   return errors;
 }

@@ -1,19 +1,31 @@
 import { useI18n } from "@/lib/i18n-context";
 import type { RestaurantFull } from "@/lib/types";
 import LanguageSelector from "@/components/LanguageSelector";
+import { Ornament } from "@/components/Icons";
+import RestaurantInfoBar from "@/components/RestaurantInfoBar";
 import type { Lang } from "@/lib/i18n";
 
 export default function RestaurantHeader({
   restaurant,
   lang,
   onChangeLang,
+  theme,
+  banner,
 }: {
   restaurant: RestaurantFull;
   lang: Lang;
   onChangeLang: (lang: Lang) => void;
+  theme?: string;
+  /** Nom de fichier dans /banners, sinon celui du slug */
+  banner?: string;
 }) {
   const { t } = useI18n();
   const { config } = restaurant;
+
+  // Le motif n'est plus posé sur la bannière : par-dessus une
+  // photo il la salit au lieu de l'habiller. Il reste en fond de
+  // page, sous les cartes, où il donne sa texture sans nuire à la
+  // lisibilité.
 
   const mapsUrl =
     config.latitude !== null && config.longitude !== null
@@ -24,11 +36,12 @@ export default function RestaurantHeader({
     <header
       className="relative overflow-hidden text-center text-crema"
       style={{
-        // La photo /banner.jpg (dossier public) est optionnelle :
-        // si elle est absente, le dégradé assure seul le fond.
-        // Bannière propre à l'établissement : /banners/<slug>.jpg
-        backgroundImage:
-          `linear-gradient(rgba(23,13,9,0.55), rgba(23,13,9,0.8)), url('/banners/${restaurant.slug}.jpg')`,
+        // Photo propre à l'établissement, facultative :
+        // /banners/<slug>.jpg. En son absence, le dégradé du thème
+        // assure seul le fond — d'où une couleur de repli qui suit
+        // l'identité de l'établissement et non celle d'un autre.
+        backgroundColor: "var(--sc-ink, #221510)",
+        backgroundImage: `linear-gradient(var(--sc-veil-soft, rgba(23,13,9,0.2)), var(--sc-veil-strong, rgba(23,13,9,0.32))), url('/banners/${banner ?? restaurant.slug}.jpg')`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
@@ -36,7 +49,12 @@ export default function RestaurantHeader({
       <LanguageSelector active={lang} onChange={onChangeLang} />
 
       {/* Contenu centré verticalement avec espacements réguliers */}
-      <div className="flex min-h-[21rem] flex-col items-center justify-center gap-3 px-4 py-12">
+      {/* L'ombre portée garde le texte lisible sur les zones claires
+          de la photo, sans avoir à assombrir l'ensemble. */}
+      <div
+        className="flex min-h-[15rem] flex-col items-center justify-center gap-3 px-4 pb-6 pt-12 sm:min-h-[17rem]"
+        style={{ textShadow: "0 1px 12px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.6)" }}
+      >
         {config.logo_url && (
           <img
             src={config.logo_url}
@@ -49,7 +67,9 @@ export default function RestaurantHeader({
           {restaurant.name}
         </h1>
 
-        <div className="h-px w-16 bg-gold/60" />
+        <span className="text-gold/80">
+          <Ornament />
+        </span>
 
         <div>
           <p className="text-sm text-crema/90">
@@ -69,6 +89,10 @@ export default function RestaurantHeader({
           </a>
         )}
       </div>
+
+      {/* Informations pratiques compactes, au bas du hero : elles
+          n'occupent plus un bloc entier avant les catégories. */}
+      <RestaurantInfoBar restaurant={restaurant} />
     </header>
   );
 }

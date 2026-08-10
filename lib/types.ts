@@ -19,6 +19,8 @@ export interface RestaurantConfig {
   longitude: number | null;
   logo_url: string | null;
   opening_hours: string | null;
+  /** Langue du ticket destiné au personnel (V39) */
+  staff_receipt_language?: string | null;
 }
 
 export interface Translations {
@@ -45,6 +47,8 @@ export interface MenuItem {
   image_url: string | null;
   display_order: number;
   is_available: boolean;
+  /** Renseigné quand le produit a été retiré de la carte (V31) */
+  archived_at?: string | null;
   /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
   translations?: Translations;
 }

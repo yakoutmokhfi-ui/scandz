@@ -5,6 +5,11 @@ import type { RestaurantFull, MenuCategory } from "@/lib/types";
  * Service unique d'accès aux données du restaurant.
  * Règle d'architecture : le frontend ne dialogue jamais directement
  * avec Supabase, tout passe par ce service.
+ *
+ * NOTE : menu_items est lié DEUX FOIS à menu_categories, par
+ * category_id et par option_source_category_id (ajoutée pour les
+ * options). Le nom de la contrainte doit donc être précisé, sans
+ * quoi Supabase répond « more than one relationship was found ».
  */
 export async function getRestaurantBySlug(
   slug: string
@@ -17,7 +22,7 @@ export async function getRestaurantBySlug(
       restaurant_configs ( * ),
       menu_categories (
         *,
-        menu_items ( * )
+        menu_items!menu_items_category_id_fkey ( * )
       )
     `
     )
@@ -40,7 +45,10 @@ export async function getRestaurantBySlug(
     .map((c: MenuCategory) => ({
       ...c,
       menu_items: (c.menu_items ?? [])
-        .filter((i) => i.is_available)
+        // Un produit archivé quitte la carte publique ; un produit
+        // simplement indisponible aussi, mais il reste restaurable
+        // d'un geste par le commerçant.
+        .filter((i) => i.is_available && !i.archived_at)
         .sort((a, b) => a.display_order - b.display_order),
     }))
     .filter((c: MenuCategory) => c.menu_items.length > 0);

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import type { MenuItem } from "@/lib/types";
 import { formatPrice } from "@/lib/whatsapp";
 import QuantityControl from "@/components/QuantityControl";
@@ -27,6 +26,7 @@ export default function MenuItemCard({
   onAdd,
   onRemove,
   onChangeChoice,
+  variant = "classic",
 }: {
   item: MenuItem;
   currency: string;
@@ -35,23 +35,28 @@ export default function MenuItemCard({
   /** Goûts affichés sur la carte (mode "inline") */
   inlineChoices?: MenuItem[];
   inlineCounts?: Record<string, number>;
-  onAdd: (quantity: number) => void;
+  onAdd: () => void;
   onRemove: () => void;
   onChangeChoice?: (choice: MenuItem, delta: number) => void;
+  variant?: "classic" | "editorial";
 }) {
   const { t, lang } = useI18n();
   const isInline = Boolean(inlineChoices && onChangeChoice);
-  const [pending, setPending] = useState(1);
+  const cardClasses =
+    variant === "editorial"
+      ? "rounded-lg border border-gold/20 bg-white p-3 shadow-sm shadow-espresso/5"
+      : "rounded-2xl bg-white p-3 shadow-md shadow-espresso/5";
+  const imageRadius = variant === "editorial" ? "rounded-md" : "rounded-xl";
 
   if (isInline) {
     return (
-      <article className="rounded-2xl bg-white p-3 shadow-sm">
+      <article className={cardClasses}>
         <div className="flex gap-3">
           {item.image_url && (
             <img
               src={item.image_url}
               alt={item.name}
-              className="h-24 w-24 shrink-0 rounded-xl object-cover"
+              className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -86,12 +91,12 @@ export default function MenuItemCard({
   }
 
   return (
-    <article className="flex gap-3 rounded-2xl bg-white p-3 shadow-sm">
+    <article className={`flex gap-3 ${cardClasses}`}>
       {item.image_url && (
         <img
           src={item.image_url}
           alt={item.name}
-          className="h-28 w-28 shrink-0 rounded-xl object-cover"
+          className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
         />
       )}
 
@@ -110,37 +115,45 @@ export default function MenuItemCard({
             </span>
 
             {requiresChoice ? (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 rounded-full bg-crema px-2 py-1">
+              /*
+               * Produit à options : la carte reflète le panier, jamais
+               * un état local. À zéro on propose "Ajouter", qui ouvre
+               * la fenêtre de choix ; rien n'entre au panier avant
+               * confirmation. Au-delà, le compteur agit sur le panier
+               * et le retrait de la dernière unité ramène au bouton.
+               */
+              quantity === 0 ? (
+                <button
+                  onClick={onAdd}
+                  className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-white active:bg-caramel-dark"
+                >
+                  {t("add")}
+                </button>
+              ) : (
+                <div className="flex items-center gap-3 rounded-full bg-crema px-2 py-1">
                   <button
-                    onClick={() => setPending((q) => Math.max(1, q - 1))}
+                    onClick={onRemove}
                     aria-label={t("ariaDecrease")}
                     className="h-7 w-7 rounded-full bg-white font-bold shadow-sm"
                   >
                     −
                   </button>
-                  <span className="min-w-5 text-center font-semibold">
-                    {pending}
+                  <span className="min-w-4 text-center font-semibold">
+                    {quantity}
                   </span>
                   <button
-                    onClick={() => setPending((q) => Math.min(99, q + 1))}
+                    onClick={onAdd}
                     aria-label={t("ariaIncrease")}
                     className="h-7 w-7 rounded-full bg-caramel font-bold text-white"
                   >
                     +
                   </button>
                 </div>
-                <button
-                  onClick={() => onAdd(pending)}
-                  className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-white active:bg-caramel-dark"
-                >
-                  {t("add")}
-                </button>
-              </div>
+              )
             ) : (
               <QuantityControl
                 quantity={quantity}
-                onChange={(delta) => (delta > 0 ? onAdd(1) : onRemove())}
+                onChange={(delta) => (delta > 0 ? onAdd() : onRemove())}
               />
             )}
           </div>

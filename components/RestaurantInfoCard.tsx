@@ -3,6 +3,7 @@ import type { RestaurantFull } from "@/lib/types";
 import { getSettings } from "@/lib/restaurants-config";
 import { useI18n } from "@/lib/i18n-context";
 import Ltr from "@/components/Bidi";
+import { ClockIcon, PhoneIcon, PinIcon } from "@/components/Icons";
 
 export default function RestaurantInfoCard({
   restaurant,
@@ -15,12 +16,12 @@ export default function RestaurantInfoCard({
 
   const rows = [
     config.address && {
-      icon: "📍",
+      icon: <PinIcon />,
       label: t("labelAddress"),
       content: <Ltr>{config.address}</Ltr>,
     },
     phone && {
-      icon: "📞",
+      icon: <PhoneIcon />,
       label: t("labelPhone"),
       content: (
         <a
@@ -32,7 +33,7 @@ export default function RestaurantInfoCard({
       ),
     },
     config.opening_hours && {
-      icon: "🕒",
+      icon: <ClockIcon />,
       label: t("labelHours"),
       // Horaires purement numériques ("07:00 – 23:00") : on préfixe
       // avec un libellé traduit. Sinon, texte affiché tel quel.
@@ -44,7 +45,7 @@ export default function RestaurantInfoCard({
         </>
       ),
     },
-  ].filter(Boolean) as { icon: string; label: string; content: ReactNode }[];
+  ].filter(Boolean) as { icon: ReactNode; label: string; content: ReactNode }[];
 
   if (rows.length === 0) return null;
 
@@ -53,7 +54,8 @@ export default function RestaurantInfoCard({
       <div className="divide-y divide-espresso/5 rounded-2xl bg-white shadow-md">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-3 px-4 py-3">
-            <span aria-hidden className="text-lg">
+            {/* Laiton du thème : accent discret, sans aplat */}
+            <span aria-hidden className="shrink-0 text-gold">
               {row.icon}
             </span>
             <div className="min-w-0 text-sm">
