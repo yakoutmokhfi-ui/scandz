@@ -1,8 +1,19 @@
 import { supabase } from "@/lib/supabase";
 import type { MenuItem } from "@/lib/types";
 import type { CartLine, OrderContext } from "@/lib/whatsapp";
-import { formatAddress } from "@/lib/customer";
 import type { Lang } from "@/lib/i18n";
+import { buildCreateOrderPayload } from "@/lib/services/order-payload";
+import {
+  isOrderNoteTooLongError,
+  OrderNoteTooLongError,
+  ORDER_NOTE_TOO_LONG_CODE,
+} from "@/lib/services/order-error";
+
+// Réexportés pour compatibilité : components/MenuView.tsx importe ces
+// symboles depuis "@/lib/services/orders". La classification elle-même
+// vit dans lib/services/order-error.ts (fonction pure, testable sans
+// dépendance Supabase — voir tests/v65-order-note.test.ts).
+export { OrderNoteTooLongError, ORDER_NOTE_TOO_LONG_CODE };
 
 export interface CreatedOrder {
   orderId: string;
@@ -19,44 +30,31 @@ export interface CreatedOrder {
  * Les montants sont recalculés en base à partir de menu_items, et
  * les règles métier (mode autorisé, zone de livraison, minimum
  * d'articles, validité des options) y sont vérifiées.
+ *
+ * La construction de la charge est déléguée à buildCreateOrderPayload
+ * (fonction pure, sans dépendance Supabase) : createOrder se limite à
+ * l'appel réseau et à la traduction des erreurs.
  */
 export async function createOrder(params: {
   slug: string;
   context: OrderContext;
   lines: CartLine[];
   lang: Lang;
+  note?: string | null;
 }): Promise<CreatedOrder> {
-  const { slug, context, lines, lang } = params;
+  const payload = buildCreateOrderPayload(params);
 
-  const items = lines.map((l) => ({
-    menu_item_id: l.item.id,
-    quantity: l.quantity,
-    option_item_id: l.option ? l.option.id : null,
-  }));
-
-  const customer =
-    context.mode === "table"
-      ? {}
-      : {
-          name: context.customer.name || null,
-          phone: context.customer.phone || null,
-          email: context.customer.email || null,
-          address:
-            context.mode === "delivery" ? formatAddress(context.customer) : null,
-        };
-
-  const { data, error } = await supabase.rpc("create_order", {
-    p_slug: slug,
-    p_service_mode: context.mode,
-    p_items: items,
-    p_table_number: context.mode === "table" ? context.tableNumber : null,
-    p_customer: customer,
-    p_note: null,
-    p_language: lang,
-  });
+  const { data, error } = await supabase.rpc("create_order", payload);
 
   if (error) {
     console.error("createOrder:", error.message);
+    // Classification stricte (code ET message) : voir
+    // lib/services/order-error.ts. Une erreur 22001 sans rapport avec
+    // la note (ex. une autre colonne trop longue pour son domaine)
+    // ne doit jamais être requalifiée en "note trop longue".
+    if (isOrderNoteTooLongError(error)) {
+      throw new OrderNoteTooLongError();
+    }
     throw new Error(error.message);
   }
 
