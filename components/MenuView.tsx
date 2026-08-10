@@ -31,7 +31,11 @@ import OrderConfirmation from "@/components/OrderConfirmation";
 import { I18nProvider } from "@/lib/i18n-context";
 import { getTheme, themeStyle } from "@/lib/themes";
 import { patternUrl } from "@/lib/pattern";
-import { createOrder, markWhatsappOpened } from "@/lib/services/orders";
+import {
+  createOrder,
+  markWhatsappOpened,
+  OrderNoteTooLongError,
+} from "@/lib/services/orders";
 import {
   addToCart,
   cartLines,
@@ -112,6 +116,8 @@ export default function MenuView({
   );
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
   const [showErrors, setShowErrors] = useState(false);
+  // Note générale de commande (V65) : une seule note, aucune par ligne.
+  const [note, setNote] = useState("");
 
   // Fenêtre de choix (goût, pâtisserie…)
   const [choiceItem, setChoiceItem] = useState<MenuItem | null>(null);
@@ -286,6 +292,7 @@ export default function MenuView({
         context: orderContext,
         lines,
         lang,
+        note,
       });
 
       const url = buildWhatsAppUrl(
@@ -297,7 +304,8 @@ export default function MenuView({
         (restaurant.config.staff_receipt_language as Lang | undefined) ??
           settings.staffLanguage ??
           "fr",
-        order.orderNumber
+        order.orderNumber,
+        note
       );
 
       // Ouverture en onglet si possible ; si le navigateur la bloque,
@@ -323,8 +331,14 @@ export default function MenuView({
       );
       setCustomer(EMPTY_CUSTOMER);
       setShowErrors(false);
-    } catch {
-      setSubmitError(t("orderFailed"));
+      setNote("");
+    } catch (err) {
+      // Le rejet serveur de note trop longue (V65) a un message dédié ;
+      // toute autre erreur (réseau, règle métier, etc.) reste générique.
+      // Le message Postgres brut n'est jamais affiché tel quel.
+      setSubmitError(
+        err instanceof OrderNoteTooLongError ? t("noteTooLong") : t("orderFailed")
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -477,6 +491,7 @@ export default function MenuView({
           customer={customer}
           customerErrors={customerErrors}
           showErrors={showErrors}
+          note={note}
           canSubmit={canSubmit}
           isSubmitting={isSubmitting}
           submitError={submitError}
@@ -491,6 +506,7 @@ export default function MenuView({
           onChangeCustomer={(patch) =>
             setCustomer((prev) => ({ ...prev, ...patch }))
           }
+          onChangeNote={setNote}
           onSendOrder={handleSendOrder}
           onClose={() => setIsCartOpen(false)}
         />
