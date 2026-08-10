@@ -12,6 +12,7 @@ import Ltr from "@/components/Bidi";
 import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
 import type { ServiceMode } from "@/lib/restaurants-config";
+import { normalizeOrderNote, ORDER_NOTE_MAX_LENGTH } from "@/lib/order-note";
 
 interface CartEntry extends CartLine {
   key: string;
@@ -30,6 +31,7 @@ export default function CartPanel({
   customer,
   customerErrors,
   showErrors,
+  note,
   canSubmit,
   isSubmitting,
   submitError,
@@ -37,6 +39,7 @@ export default function CartPanel({
   onSelectTable,
   onSelectFulfillment,
   onChangeCustomer,
+  onChangeNote,
   onSendOrder,
   onClose,
 }: {
@@ -52,6 +55,8 @@ export default function CartPanel({
   customer: CustomerInfo;
   customerErrors: Partial<Record<keyof CustomerInfo, string>>;
   showErrors: boolean;
+  /** Note générale de commande (V65), unique, facultative — pas de note par ligne. */
+  note: string;
   canSubmit: boolean;
   isSubmitting: boolean;
   submitError: string | null;
@@ -59,11 +64,17 @@ export default function CartPanel({
   onSelectTable: (table: number) => void;
   onSelectFulfillment: (t: ServiceMode) => void;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
+  onChangeNote: (value: string) => void;
   onSendOrder: () => void;
   onClose: () => void;
 }) {
   const { t, lang } = useI18n();
   const { currency, max_tables } = restaurant.config;
+
+  // Compteur et validation alignés sur le comptage serveur (voir
+  // lib/order-note.ts) : ni note.length ni maxLength natif seuls, pour
+  // rester cohérent avec des emojis / caractères arabes.
+  const noteState = normalizeOrderNote(note);
 
   const missing = !serviceMode
     ? t("missingFulfillment")
@@ -145,6 +156,40 @@ export default function CartPanel({
                   onSelectFulfillment={onSelectFulfillment}
                 />
               )}
+
+              <div className="mt-4">
+                <label
+                  htmlFor="order-note"
+                  className="text-xs font-semibold uppercase tracking-wide text-espresso/60"
+                >
+                  {t("noteLabel")}
+                </label>
+                <textarea
+                  id="order-note"
+                  rows={2}
+                  value={note}
+                  onChange={(e) => onChangeNote(e.target.value)}
+                  placeholder={t("notePlaceholder")}
+                  aria-invalid={!noteState.isValid || undefined}
+                  className={
+                    "mt-1.5 w-full resize-none rounded-xl border bg-white p-3 text-sm " +
+                    (noteState.isValid
+                      ? "border-espresso/10"
+                      : "border-amber-500 bg-amber-50")
+                  }
+                />
+                <p
+                  className={
+                    "mt-1 text-right text-xs " +
+                    (noteState.isValid ? "text-espresso/50" : "font-semibold text-amber-700")
+                  }
+                >
+                  {t("noteCounter", {
+                    count: noteState.length,
+                    max: ORDER_NOTE_MAX_LENGTH,
+                  })}
+                </p>
+              </div>
             </>
           )}
         </div>
@@ -210,7 +255,7 @@ export default function CartPanel({
               </p>
             )}
 
-            {canSubmit ? (
+            {canSubmit && noteState.isValid ? (
               <>
                 <p className="mb-2 text-center text-sm text-espresso/70">
                   {t("whatsappNotice")}
@@ -231,7 +276,7 @@ export default function CartPanel({
               </>
             ) : (
               <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-espresso/60">
-                {missing}
+                {!noteState.isValid ? t("noteTooLong") : missing}
               </p>
             )}
           </div>

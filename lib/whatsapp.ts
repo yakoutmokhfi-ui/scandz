@@ -3,6 +3,7 @@ import type { CustomerInfo } from "@/lib/customer";
 import { formatAddress } from "@/lib/customer";
 import { translate, type Lang } from "@/lib/i18n";
 import { tName } from "@/lib/menu-i18n";
+import { normalizeOrderNote } from "@/lib/order-note";
 
 export interface CartLine {
   item: MenuItem;
@@ -116,7 +117,8 @@ export function buildWhatsAppUrl(
   lines: CartLine[],
   ctx: OrderContext,
   staffLang: Lang = "fr",
-  orderNumber?: number
+  orderNumber?: number,
+  note?: string | null
 ): string {
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(staffLang, k, p);
@@ -142,6 +144,12 @@ export function buildWhatsAppUrl(
     })
     .join("\n");
 
+  // Note générale (V65) : uniquement si non vide après normalisation.
+  // Toujours en français dans le message (voir remarque ci-dessus sur
+  // la langue du personnel) — c'est le texte saisi par le client, il
+  // n'est pas traduit, seul le libellé "waNote" l'est.
+  const { value: noteValue, isEmpty: noteEmpty } = normalizeOrderNote(note);
+
   const message = [
     orderNumber !== undefined
       ? t("waHeaderNumbered", { n: orderNumber, name: restaurant.name })
@@ -149,6 +157,7 @@ export function buildWhatsAppUrl(
     ...contextLines(ctx, staffLang),
     "",
     orderLines,
+    ...(noteEmpty ? [] : ["", t("waNote", { note: noteValue })]),
     "",
     t("waTotal", { amount: formatPrice(total, currency) }),
   ].join("\n");
