@@ -1,0 +1,109 @@
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import { signOut } from "@/lib/services/auth";
+import type { MerchantRestaurant } from "@/lib/dashboard-types";
+import { translate, type Lang } from "@/lib/i18n";
+
+/**
+ * Barre de navigation partagée par les pages commerçant.
+ *
+ * Collée en haut et toujours visible : le commerçant passe des
+ * commandes à sa carte sans jamais dépendre du bouton retour du
+ * navigateur, y compris sur un téléphone tenu d'une main.
+ *
+ * L'établissement sélectionné est transmis dans l'URL, ce qui le
+ * conserve d'une page à l'autre.
+ */
+export default function DashboardNav({
+  restaurantName,
+  restaurantId,
+  mappings,
+  onSelectRestaurant,
+  staffLanguage = "fr",
+  children,
+}: {
+  restaurantName: string;
+  restaurantId: string;
+  mappings: MerchantRestaurant[];
+  onSelectRestaurant: (id: string) => void;
+  staffLanguage?: string;
+  /** Actions propres à la page (son, historique…) */
+  children?: React.ReactNode;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const onCatalogue = pathname?.startsWith("/dashboard/catalogue");
+  const onSettings = pathname?.startsWith("/dashboard/settings");
+  const t = (k: string) => translate(staffLanguage as Lang, k);
+
+  const href = (base: string) =>
+    restaurantId ? `${base}?r=${restaurantId}` : base;
+
+  async function logout() {
+    await signOut();
+    router.replace("/dashboard/login");
+  }
+
+  const tab = (active: boolean) =>
+    "flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-bold sm:flex-none " +
+    (active
+      ? "bg-stone-900 text-white"
+      : "border border-stone-300 bg-white text-stone-800");
+
+  return (
+    <header className="sticky top-0 z-20 border-b border-stone-200 bg-white/95 px-4 py-3 backdrop-blur">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-widest text-amber-700">
+              Scanym commerçant
+            </p>
+            <h1 className="truncate text-xl font-black text-stone-900">
+              {restaurantName}
+            </h1>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {mappings.length > 1 && (
+              <select
+                value={restaurantId}
+                onChange={(e) => onSelectRestaurant(e.target.value)}
+                className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+              >
+                {mappings.map((m) => (
+                  <option key={m.restaurant_id} value={m.restaurant_id}>
+                    {m.restaurants?.name ?? m.restaurant_id}
+                  </option>
+                ))}
+              </select>
+            )}
+            {children}
+            <button
+              onClick={logout}
+              className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-stone-800"
+            >
+              {t("dsLogout")}
+            </button>
+          </div>
+        </div>
+
+        {/* Onglets : pleine largeur sur mobile, accessibles au pouce */}
+        <nav className="mt-3 flex gap-2">
+          <a
+            href={href("/dashboard")}
+            className={tab(!onCatalogue && !onSettings)}
+          >
+            {t("dsOrders")}
+          </a>
+          <a href={href("/dashboard/catalogue")} className={tab(!!onCatalogue)}>
+            {t("mcTitle")}
+          </a>
+          <a href={href("/dashboard/settings")} className={tab(!!onSettings)}>
+            {t("mcSettings")}
+          </a>
+        </nav>
+      </div>
+    </header>
+  );
+}

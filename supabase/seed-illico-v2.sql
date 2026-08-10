@@ -29,23 +29,23 @@ config as (
 ),
 c1 as (
   insert into menu_categories (restaurant_id, name, display_order)
-  select id, '🍳 Formules petit-déjeuner', 1 from resto returning id
+  select id, 'Formules petit-déjeuner', 1 from resto returning id
 ),
 c2 as (
   insert into menu_categories (restaurant_id, name, display_order)
-  select id, '☕ Boissons chaudes', 2 from resto returning id
+  select id, 'Boissons chaudes', 2 from resto returning id
 ),
 c3 as (
   insert into menu_categories (restaurant_id, name, display_order)
-  select id, '🥐 Viennoiseries', 3 from resto returning id
+  select id, 'Viennoiseries', 3 from resto returning id
 ),
 c4 as (
   insert into menu_categories (restaurant_id, name, display_order)
-  select id, '🍰 Pâtisseries', 4 from resto returning id
+  select id, 'Pâtisseries', 4 from resto returning id
 ),
 c5 as (
   insert into menu_categories (restaurant_id, name, display_order)
-  select id, '🥤 Jus & boissons', 5 from resto returning id
+  select id, 'Jus & boissons', 5 from resto returning id
 )
 insert into menu_items (category_id, name, description, price, display_order)
 -- ---------- Formules ----------

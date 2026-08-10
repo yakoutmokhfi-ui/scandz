@@ -2,8 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --sc-ink: #221510;
+  --sc-bg: #F6F2EC;
+  --sc-accent: #A3651F;
+  --sc-accent-dark: #8A5322;
+  --sc-highlight: #C6A15B;
+}
+
 body {
   @apply bg-crema text-espresso antialiased;
+}
+
+/* Typographie éditoriale du template Luxe. La pile repose sur des
+   fontes système élégantes et conserve des replis lisibles pour le
+   français, l'anglais et l'arabe, sans téléchargement externe. */
+.sc-template-editorial {
+  font-family: "Iowan Old Style", Baskerville, "Baskerville Old Face",
+    "Palatino Linotype", "Book Antiqua", Georgia, serif;
+}
+
+.sc-template-editorial .font-serif {
+  font-family: inherit;
 }
 
 /* Barre de catégories : défilement horizontal sans scrollbar visible */

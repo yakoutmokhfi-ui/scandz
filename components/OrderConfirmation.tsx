@@ -33,11 +33,13 @@ function contextSummary(ctx: OrderContext | null, t: Translator): string[] {
 export default function OrderConfirmation({
   restaurant,
   context,
+  orderNumber,
   onBackToMenu,
   onNewOrder,
 }: {
   restaurant: RestaurantFull;
   context: OrderContext | null;
+  orderNumber: number | null;
   onBackToMenu: () => void;
   onNewOrder: () => void;
 }) {
@@ -57,6 +59,12 @@ export default function OrderConfirmation({
         <p className="mt-2 text-sm text-espresso/70">
           {t("confirmSubtitle", { name: restaurant.name })}
         </p>
+
+        {orderNumber !== null && (
+          <p className="mt-4 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-white">
+            {t("orderNumber", { n: orderNumber })}
+          </p>
+        )}
 
         <div className="mt-6 space-y-2 rounded-2xl bg-white p-4 text-left text-sm shadow-sm">
           {contextSummary(context, t).map((line) => (
