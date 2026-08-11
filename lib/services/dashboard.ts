@@ -127,6 +127,8 @@ export interface CatalogueProduct {
   archived_at: string | null;
   display_order: number;
   is_option_source: boolean;
+  /** Photo produit (V67), Supabase Storage ou ancienne image statique. `null` si aucune photo. */
+  image_url: string | null;
 }
 
 /**
@@ -165,6 +167,7 @@ export async function getMerchantCatalogue(
     archived_at: string | null;
     display_order: number | null;
     is_option_source: boolean | null;
+    image_url: string | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -198,6 +201,7 @@ export async function getMerchantCatalogue(
       archived_at: r.archived_at,
       display_order: r.display_order as number,
       is_option_source: r.is_option_source as boolean,
+      image_url: r.image_url,
     });
   }
   return categories;
@@ -294,6 +298,23 @@ export async function updateCategory(
     if (isCategoryDuplicateNameError(error)) throw new CategoryDuplicateNameError();
     throw new Error(error.message);
   }
+}
+
+/**
+ * Photo produit (V67). `imageUrl = null` retire la photo. Ne parle
+ * jamais directement à Storage — c'est le rôle exclusif de
+ * lib/services/product-photo.ts, qui appelle cette fonction une fois
+ * l'upload/la suppression Storage effectué(e).
+ */
+export async function setProductPhoto(
+  productId: string,
+  imageUrl: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("set_product_photo", {
+    p_product_id: productId,
+    p_image_url: imageUrl,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function archiveProduct(productId: string): Promise<void> {

@@ -1,0 +1,62 @@
+============================================================
+Scanym V67 — Journal réel du harnais d'isolation Storage
+(photo produit), complété après audit Work (M-02)
+
+Exécuté réellement le 11 août 2026, PostgreSQL 16.13, via :
+  su postgres -c "bash supabase/tests/v67-storage-policy-check.sh"
+
+17/17 assertions réussies (contre 10/10 précédemment), sur les
+policies RÉELLEMENT livrées dans migration-v67-product-photos.sql.
+Ajouts M-02 : SELECT autorisé/refusé (own restaurant / autre
+restaurant / anon), UPDATE autorisé/refusé (avec preuve de
+non-altération en cas de refus), conformité du flag "public" du
+bucket. Conservés inchangés : INSERT, DELETE, isolation stricte entre
+deux établissements, refus staff, refus anon en écriture.
+============================================================
+
+NOTICE:  database "scanym_v67_storage_6766" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+psql:/workspace/scandz/supabase/migration-orders.sql:192: NOTICE:  trigger "trg_orders_touch" for relation "public.orders" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-orders.sql:442: NOTICE:  policy "membre lit son rattachement" for relation "public.restaurant_users" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-orders.sql:446: NOTICE:  policy "personnel lit ses commandes" for relation "public.orders" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-orders.sql:450: NOTICE:  policy "personnel modifie ses commandes" for relation "public.orders" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-orders.sql:455: NOTICE:  policy "personnel lit les lignes" for relation "public.order_items" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-orders.sql:465: NOTICE:  policy "gerant modifie ses produits" for relation "public.menu_items" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:12: NOTICE:  policy "merchant reads own mappings" for relation "public.restaurant_users" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:99: NOTICE:  policy "merchant reads restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:114: NOTICE:  policy "merchant updates restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:118: NOTICE:  policy "merchant reads restaurant order items" for relation "public.order_items" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:135: NOTICE:  function public.update_order_status(uuid,text) does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v29-merchant-dashboard.sql:253: NOTICE:  policy "merchant reads receipt settings" for relation "public.receipt_settings" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurants" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurant_configs" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_categories" does not exist, skipping
+psql:/workspace/scandz/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_items" does not exist, skipping
+[19:13:55] === Application de la migration V67 réelle (bucket, policies, RPC) ===
+[19:13:55] PASS: migration V67 appliquée sans erreur sur le stand-in storage
+[19:13:56] === Isolation multi-établissement (le point critique) ===
+[19:13:56] PASS: owner A écrit sous son propre restaurant A (succès) (=0)
+[19:13:56] PASS: owner A NE PEUT PAS écrire sous le restaurant B (refus) (=1)
+[19:13:56] PASS: manager B écrit sous son propre restaurant B (succès) (=0)
+[19:13:56] PASS: manager B NE PEUT PAS écrire sous le restaurant A (refus) (=1)
+[19:13:56] === Restriction de rôle ===
+[19:13:56] PASS: staff A NE PEUT PAS écrire (owner/manager seulement) (=1)
+[19:13:56] === Accès anonyme ===
+[19:13:56] PASS: anon NE PEUT PAS écrire (=1)
+[19:13:56] === SELECT (M-02) ===
+[19:13:56] PASS: SELECT autorisé : owner A voit un fichier de son propre restaurant A (=1)
+[19:13:56] PASS: SELECT refusé : manager B ne voit AUCUNE ligne d'un fichier du restaurant A (=0)
+[19:13:56] PASS: SELECT refusé : anon ne voit AUCUNE ligne via SQL (le bucket public sert les fichiers via l'API HTTP dédiée, jamais via une policy SQL permissive pour anon) (=0)
+[19:13:56] === UPDATE (M-02) ===
+[19:13:56] PASS: UPDATE autorisé : owner A modifie un fichier de son propre restaurant A (1 ligne affectée) (=UPDATE 1)
+[19:13:56] PASS: UPDATE refusé : manager B ne peut pas modifier un fichier du restaurant A (0 ligne affectée) (=UPDATE 0)
+[19:13:56] PASS: le fichier du restaurant A n'a pas été modifié par la tentative refusée (=1a3cccc1-6b93-4f90-abd1-8956457c815a)
+[19:13:56] === Lecture publique du bucket (M-02) ===
+[19:13:56] PASS: le bucket product-photos est public (condition du design retenu : lecture via l'URL publique, sans policy SQL) (=t)
+[19:13:56] === Update / delete suivent la même règle (échantillon) ===
+[19:13:56] PASS: manager B NE PEUT PAS supprimer un fichier du restaurant A (0 ligne affectée) (=DELETE 0)
+[19:13:56] PASS: le fichier du restaurant A est toujours là après la tentative refusée (=1)
+[19:13:56] PASS: owner A PEUT supprimer un fichier de son propre restaurant (1 ligne affectée) (=DELETE 1)
+[19:13:56] === RÉSULTAT FINAL : 17 réussis, 0 échoués ===
+TOUTES LES VÉRIFICATIONS D'ISOLATION STORAGE ONT RÉUSSI

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { MenuItem } from "@/lib/types";
 import { formatPrice } from "@/lib/whatsapp";
 import QuantityControl from "@/components/QuantityControl";
@@ -42,6 +43,11 @@ export default function MenuItemCard({
   variant?: "classic" | "editorial";
 }) {
   const { t, lang } = useI18n();
+  // Photo cassée (URL présente mais 404/erreur réseau, V67) : jamais
+  // affichée, jamais de bloc vide à sa place — la carte revient au
+  // rendu "sans photo" dès le premier échec de chargement.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const hasPhoto = Boolean(item.image_url) && !photoFailed;
   const isInline = Boolean(inlineChoices && onChangeChoice);
   const cardClasses =
     variant === "editorial"
@@ -53,10 +59,11 @@ export default function MenuItemCard({
     return (
       <article className={cardClasses}>
         <div className="flex gap-3">
-          {item.image_url && (
+          {hasPhoto && (
             <img
-              src={item.image_url}
+              src={item.image_url!}
               alt={item.name}
+              onError={() => setPhotoFailed(true)}
               className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
             />
           )}
@@ -104,10 +111,11 @@ export default function MenuItemCard({
 
   return (
     <article className={`flex gap-3 ${cardClasses}`}>
-      {item.image_url && (
+      {hasPhoto && (
         <img
-          src={item.image_url}
+          src={item.image_url!}
           alt={item.name}
+          onError={() => setPhotoFailed(true)}
           className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
         />
       )}
