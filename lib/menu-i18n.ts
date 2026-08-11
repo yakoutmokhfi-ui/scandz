@@ -22,3 +22,14 @@ export function tDescription(item: MenuItem, lang: Lang): string | null {
   if (lang === "fr") return item.description;
   return item.translations?.[lang]?.description ?? item.description;
 }
+
+/**
+ * Description courte (V66) — même repli sur le français que
+ * tDescription : tant qu'aucune traduction n'existe pour la langue
+ * active, on retombe sur la valeur de base plutôt que d'afficher un
+ * vide.
+ */
+export function tShortDescription(item: MenuItem, lang: Lang): string | null {
+  if (lang === "fr") return item.short_description;
+  return item.translations?.[lang]?.short_description ?? item.short_description;
+}

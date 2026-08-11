@@ -1,0 +1,155 @@
+============================================================
+Scanym V66 — Journal brut réel, harnais principal
+(2e passage audit Work du 11 août 2026 : compatibilité Python 3.11)
+
+Exécuté réellement le 11 août 2026, PostgreSQL 16.13, Python 3.11.15,
+via :
+  su postgres -c "bash supabase/tests/v66-integration-test.sh"
+
+Remplace le journal précédent, capturé avec une f-string (étape 18)
+invalide avant Python 3.12 — le harnais s'arrêtait alors en erreur de
+syntaxe Python à cette étape dans tout environnement Python < 3.12.
+Corrigé (voir l'en-tête du script) ; rejoué intégralement jusqu'au
+rollback sous Python 3.11.15 : 33/33 assertions réussies.
+============================================================
+
+[12:32:28] === 1. Création de la base éphémère scanym_v66_ci_10021 ===
+[12:32:28] === 2. Stubs auth.users / auth.uid() / rôles anon,authenticated,service_role ===
+CREATE SCHEMA
+CREATE TABLE
+CREATE FUNCTION
+CREATE EXTENSION
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+CREATE PUBLICATION
+DO
+[12:32:28] === 3. Reconstruction de la chaîne V65 (ordre exact des migrations) ===
+[12:32:28]   -> schema.sql
+[12:32:28]   -> migration-orders.sql
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:192: NOTICE:  trigger "trg_orders_touch" for relation "public.orders" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:442: NOTICE:  policy "membre lit son rattachement" for relation "public.restaurant_users" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:446: NOTICE:  policy "personnel lit ses commandes" for relation "public.orders" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:450: NOTICE:  policy "personnel modifie ses commandes" for relation "public.orders" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:455: NOTICE:  policy "personnel lit les lignes" for relation "public.order_items" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-orders.sql:465: NOTICE:  policy "gerant modifie ses produits" for relation "public.menu_items" does not exist, skipping
+[12:32:28]   -> migration-orders-lang.sql
+[12:32:28]   -> migration-v29-merchant-dashboard.sql
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:12: NOTICE:  policy "merchant reads own mappings" for relation "public.restaurant_users" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:99: NOTICE:  policy "merchant reads restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:114: NOTICE:  policy "merchant updates restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:118: NOTICE:  policy "merchant reads restaurant order items" for relation "public.order_items" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:135: NOTICE:  function public.update_order_status(uuid,text) does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v29-merchant-dashboard.sql:253: NOTICE:  policy "merchant reads receipt settings" for relation "public.receipt_settings" does not exist, skipping
+[12:32:28]   -> migration-v31-catalogue.sql
+[12:32:29]   -> migration-translations.sql
+[12:32:29]   -> migration-v39-settings.sql
+[12:32:29]   -> migration-v43-catalogue-i18n.sql
+[12:32:29]   -> migration-v55-updated-at.sql
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurants" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurant_configs" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_categories" does not exist, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_items" does not exist, skipping
+[12:32:29]   -> migration-v64-dashboard-auth-whatsapp.sql
+[12:32:29]   -> migration-v65-order-note.sql
+[12:32:29] PASS: chaîne V65 appliquée sans erreur
+[12:32:29] === 4. Simulation de l'état réel des droits Supabase (SELECT au niveau schéma) ===
+[12:32:29] === 5. Chargement des données réelles (seed Illico Presto + traductions AR) ===
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-translations.sql:21: NOTICE:  column "translations" of relation "menu_categories" already exists, skipping
+psql:/tmp/claude-0/-home-user-scandz/a69d5830-5100-58c0-97ee-166d677d7627/scratchpad/v66work/repo/supabase/migration-translations.sql:22: NOTICE:  column "translations" of relation "menu_items" already exists, skipping
+[12:32:29] PASS: 36 traductions arabes Illico Presto (avant V66) (=36)
+[12:32:29] === 6. Application de migration-v66-categories-descriptions.sql ===
+DO
+BEGIN
+REVOKE
+DO
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+DROP FUNCTION
+DROP FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+GRANT
+GRANT
+DROP FUNCTION
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+REVOKE
+GRANT
+GRANT
+CREATE INDEX
+COMMIT
+[12:32:29] PASS: migration V66 appliquée sans erreur
+[12:32:29] === 7. Signatures et droits post-migration ===
+[12:32:29] PASS: ancienne signature create_product(4) absente (=0)
+[12:32:29] PASS: nouvelle signature create_product(5) présente (=1)
+[12:32:29] PASS: aucune surcharge ambiguë pour create_product (=1)
+[12:32:29] PASS: aucune surcharge ambiguë pour update_product (=1)
+[12:32:29] PASS: aucune surcharge ambiguë pour get_merchant_catalogue (=1)
+[12:32:29] PASS: aucune surcharge ambiguë pour create_category (=1)
+[12:32:29] PASS: aucune surcharge ambiguë pour update_category (=1)
+[12:32:30] PASS: anon NE PEUT PAS exécuter create_product (=f)
+[12:32:30] PASS: authenticated PEUT exécuter create_product (=t)
+[12:32:30] PASS: anon NE PEUT PAS exécuter update_product (=f)
+[12:32:30] PASS: authenticated PEUT exécuter update_product (=t)
+[12:32:30] PASS: anon NE PEUT PAS exécuter get_merchant_catalogue (=f)
+[12:32:30] PASS: authenticated PEUT exécuter get_merchant_catalogue (=t)
+[12:32:30] === 8. Traductions Illico Presto conservées après V66 ===
+[12:32:30] PASS: 36 traductions arabes Illico Presto (après V66) (=36)
+[12:32:30] === 9. Données de test (restaurants, rôles) ===
+[12:32:30] PASS: données de test insérées
+[12:32:30] === 10. staff refusé pour create_category ===
+[12:32:30] PASS: staff refusé (create_category)
+[12:32:30] === 11. owner autorisé pour create_category ===
+[12:32:30] PASS: owner autorisé (create_category), id=fea31235-c07f-4c7d-91aa-f9829954e489
+[12:32:30] === 12. manager autorisé pour update_category ===
+[12:32:30] PASS: manager autorisé (update_category)
+[12:32:30] === 13. isolation inter-restaurant ===
+[12:32:30] PASS: isolation inter-restaurant respectée
+[12:32:30] === 14. doublon de catégorie active refusé ===
+[12:32:30] PASS: doublon refusé (casse/espaces normalisés)
+[12:32:30] === 15. catégorie technique reste inactive après création ===
+[12:32:30] PASS: catégorie technique reste inactive (=f)
+[12:32:30] === 16. description courte : 100 accepté, 101 refusé ===
+[12:32:30] PASS: description courte 100 caractères acceptée
+[12:32:30] PASS: description courte 101 caractères refusée
+[12:32:30] === 17. description longue : 500 accepté, 501 refusé ===
+[12:32:30] PASS: description longue 500 caractères acceptée
+[12:32:31] PASS: description longue 501 caractères refusée
+[12:32:31] === 18. prix recalculé serveur, faux prix client ignoré ===
+[12:32:31] PASS: total recalculé serveur (faux unit_price ignoré) (=700.00)
+[12:32:31] === 19. Rollback : migration-v66-rollback.sql ===
+DO
+BEGIN
+DROP FUNCTION
+DROP FUNCTION
+DROP FUNCTION
+DROP FUNCTION
+DROP FUNCTION
+DROP FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+REVOKE
+REVOKE
+GRANT
+GRANT
+REVOKE
+GRANT
+DO
+COMMIT
+[12:32:31] PASS: rollback appliqué sans erreur
+[12:32:31] PASS: signature V65 de create_product restaurée après rollback (=1)
+[12:32:31] PASS: aucune RPC de catégories V66 ne subsiste après rollback (=0)
+[12:32:31] PASS: short_description conservée après rollback (non destructif) (=1)
+[12:32:31] === RÉSULTAT FINAL : 33 réussis, 0 échoués ===
+TOUS LES TESTS ONT REUSSI
+[12:32:31] Nettoyage : suppression de la base éphémère scanym_v66_ci_10021

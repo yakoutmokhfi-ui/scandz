@@ -24,7 +24,7 @@ export interface RestaurantConfig {
 }
 
 export interface Translations {
-  [lang: string]: { name?: string; description?: string } | undefined;
+  [lang: string]: { name?: string; description?: string; short_description?: string } | undefined;
 }
 
 export interface MenuCategory {
@@ -43,6 +43,8 @@ export interface MenuItem {
   category_id: string;
   name: string;
   description: string | null;
+  /** Description courte (V66), affichée directement sur la fiche/carte. */
+  short_description: string | null;
   price: number;
   image_url: string | null;
   display_order: number;

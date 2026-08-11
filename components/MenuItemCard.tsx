@@ -5,8 +5,9 @@ import { formatPrice } from "@/lib/whatsapp";
 import QuantityControl from "@/components/QuantityControl";
 import InlineOptions from "@/components/InlineOptions";
 import Ltr from "@/components/Bidi";
+import ProductInfoButton from "@/components/ProductInfoButton";
 import { useI18n } from "@/lib/i18n-context";
-import { tName, tDescription } from "@/lib/menu-i18n";
+import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 
 /**
  * Carte produit compacte horizontale : photo à gauche, informations à
@@ -61,10 +62,17 @@ export default function MenuItemCard({
           )}
           <div className="flex min-w-0 flex-1 flex-col">
             <h3 className="font-semibold leading-snug">{tName(item, lang)}</h3>
-            {tDescription(item, lang) && (
+            {tShortDescription(item, lang) && (
               <p className="mt-0.5 text-sm text-espresso/60">
-                {tDescription(item, lang)}
+                {tShortDescription(item, lang)}
               </p>
+            )}
+            {tDescription(item, lang) && (
+              <ProductInfoButton
+                description={tDescription(item, lang)!}
+                triggerLabel={t("moreInfoAbout", { name: tName(item, lang) })}
+                closeLabel={t("close")}
+              />
             )}
             <div className="mt-auto flex items-baseline justify-between gap-2 pt-2">
               <span className="font-bold text-caramel-dark">
@@ -102,10 +110,17 @@ export default function MenuItemCard({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <h3 className="font-semibold leading-snug">{tName(item, lang)}</h3>
-        {tDescription(item, lang) && (
+        {tShortDescription(item, lang) && (
           <p className="mt-0.5 line-clamp-2 text-sm text-espresso/60">
-            {tDescription(item, lang)}
+            {tShortDescription(item, lang)}
           </p>
+        )}
+        {tDescription(item, lang) && (
+          <ProductInfoButton
+            description={tDescription(item, lang)!}
+            triggerLabel={t("moreInfoAbout", { name: tName(item, lang) })}
+            closeLabel={t("close")}
+          />
         )}
 
         <div className="mt-auto pt-2">

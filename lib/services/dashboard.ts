@@ -5,6 +5,20 @@ import type {
   OrderStatus,
   ReceiptSettings,
 } from "@/lib/dashboard-types";
+import {
+  isShortDescriptionTooLongError,
+  isDescriptionTooLongError,
+  isCategoryDuplicateNameError,
+  ShortDescriptionTooLongError,
+  DescriptionTooLongError,
+  CategoryDuplicateNameError,
+} from "@/lib/services/catalogue-error";
+
+export {
+  ShortDescriptionTooLongError,
+  DescriptionTooLongError,
+  CategoryDuplicateNameError,
+} from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
   const { data, error } = await supabase
@@ -81,7 +95,21 @@ export async function getReceiptSettings(
 // rattachement à l'établissement et le rôle.
 // ------------------------------------------------------------------
 
-type Translations = Record<string, { name?: string; description?: string }>;
+type Translations = Record<
+  string,
+  { name?: string; description?: string; short_description?: string }
+>;
+
+/** Catégorie du catalogue commerçant, avec ou sans produits. */
+export interface CatalogueCategory {
+  category_id: string;
+  category_name: string;
+  category_translations: Translations | null;
+  category_display_order: number;
+  /** true si au moins un produit référence cette catégorie comme source d'options. */
+  category_is_option_source: boolean;
+  products: CatalogueProduct[];
+}
 
 export interface CatalogueProduct {
   product_id: string;
@@ -89,6 +117,9 @@ export interface CatalogueProduct {
   category_name: string;
   category_translations: Translations | null;
   name: string;
+  /** Description courte (V66), affichée directement — max 100 caractères. */
+  short_description: string | null;
+  /** Description longue (existant), affichée via le bouton (i) — max 500 caractères. */
   description: string | null;
   translations: Translations | null;
   price: number;
@@ -98,16 +129,78 @@ export interface CatalogueProduct {
   is_option_source: boolean;
 }
 
+/**
+ * Lit le catalogue et le regroupe par catégorie.
+ *
+ * get_merchant_catalogue (V66) renvoie désormais une ligne par
+ * catégorie même sans aucun produit (LEFT JOIN) : sans cela, une
+ * catégorie tout juste créée resterait invisible tant qu'aucun
+ * produit n'y est ajouté. Ce regroupement filtre les colonnes produit
+ * nulles pour construire `products`, tout en conservant la catégorie
+ * elle-même dans le résultat.
+ */
 export async function getMerchantCatalogue(
   restaurantId: string,
   archived = false
-): Promise<CatalogueProduct[]> {
+): Promise<CatalogueCategory[]> {
   const { data, error } = await supabase.rpc("get_merchant_catalogue", {
     p_restaurant_id: restaurantId,
     p_archived: archived,
   });
   if (error) throw new Error(error.message);
-  return (data ?? []) as CatalogueProduct[];
+
+  type Row = {
+    product_id: string | null;
+    category_id: string;
+    category_name: string;
+    category_translations: Translations | null;
+    category_display_order: number;
+    category_is_option_source: boolean;
+    name: string | null;
+    short_description: string | null;
+    description: string | null;
+    translations: Translations | null;
+    price: number | null;
+    is_available: boolean | null;
+    archived_at: string | null;
+    display_order: number | null;
+    is_option_source: boolean | null;
+  };
+
+  const rows = (data ?? []) as Row[];
+  const categories: CatalogueCategory[] = [];
+  for (const r of rows) {
+    let cat = categories.find((c) => c.category_id === r.category_id);
+    if (!cat) {
+      cat = {
+        category_id: r.category_id,
+        category_name: r.category_name,
+        category_translations: r.category_translations,
+        category_display_order: r.category_display_order,
+        category_is_option_source: r.category_is_option_source,
+        products: [],
+      };
+      categories.push(cat);
+    }
+    // Catégorie vide : la ligne LEFT JOIN n'a pas de produit associé.
+    if (r.product_id === null) continue;
+    cat.products.push({
+      product_id: r.product_id,
+      category_id: r.category_id,
+      category_name: r.category_name,
+      category_translations: r.category_translations,
+      name: r.name as string,
+      short_description: r.short_description,
+      description: r.description,
+      translations: r.translations,
+      price: r.price as number,
+      is_available: r.is_available as boolean,
+      archived_at: r.archived_at,
+      display_order: r.display_order as number,
+      is_option_source: r.is_option_source as boolean,
+    });
+  }
+  return categories;
 }
 
 export async function setProductAvailability(
@@ -125,31 +218,82 @@ export async function updateProduct(
   productId: string,
   name: string,
   description: string | null,
-  price: number
+  price: number,
+  shortDescription: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("update_product", {
     p_product_id: productId,
     p_name: name,
     p_description: description,
     p_price: price,
+    p_short_description: shortDescription,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
+    if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
+    throw new Error(error.message);
+  }
 }
 
 export async function createProduct(
   categoryId: string,
   name: string,
   description: string | null,
-  price: number
+  price: number,
+  shortDescription: string | null = null
 ): Promise<string> {
   const { data, error } = await supabase.rpc("create_product", {
     p_category_id: categoryId,
     p_name: name,
     p_description: description,
     p_price: price,
+    p_short_description: shortDescription,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
+    if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
+    throw new Error(error.message);
+  }
   return data as string;
+}
+
+/**
+ * Crée une catégorie. Toujours active à la création : le serveur
+ * impose is_active = true, aucun paramètre ne permet de créer
+ * directement une catégorie technique inactive depuis cet écran.
+ */
+export async function createCategory(
+  restaurantId: string,
+  name: string,
+  displayOrder: number | null = null
+): Promise<string> {
+  const { data, error } = await supabase.rpc("create_category", {
+    p_restaurant_id: restaurantId,
+    p_name: name,
+    p_display_order: displayOrder,
+  });
+  if (error) {
+    if (isCategoryDuplicateNameError(error)) throw new CategoryDuplicateNameError();
+    throw new Error(error.message);
+  }
+  return data as string;
+}
+
+/** Modifie le nom et l'ordre d'affichage d'une catégorie. Ne touche jamais son état actif/inactif. */
+export async function updateCategory(
+  categoryId: string,
+  name: string,
+  displayOrder: number
+): Promise<void> {
+  const { error } = await supabase.rpc("update_category", {
+    p_category_id: categoryId,
+    p_name: name,
+    p_display_order: displayOrder,
+  });
+  if (error) {
+    if (isCategoryDuplicateNameError(error)) throw new CategoryDuplicateNameError();
+    throw new Error(error.message);
+  }
 }
 
 export async function archiveProduct(productId: string): Promise<void> {
