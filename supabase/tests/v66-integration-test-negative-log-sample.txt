@@ -1,0 +1,88 @@
+============================================================
+Scanym V66 — Journal brut réel, harnais négatif/positif corrigé
+(2e passage audit Work du 11 août 2026 : cleanup du rôle
+scanym_v66_role_tiers + preuve ACL catalogue avant/après échec)
+
+Exécuté réellement le 11 août 2026, PostgreSQL 16.13, via :
+  su postgres -c "bash supabase/tests/v66-integration-test-negative.sh"
+
+Remplace le journal précédent (29/29, 2 positifs + 5 négatifs). Ce
+journal couvre désormais 2 scénarios POSITIFS + 6 scénarios NÉGATIFS
+(ajout de N6, preuve ACL au niveau catalogue) + 3 vérifications de
+nettoyage distinctes (bases, rôle, appartenance) = 38 assertions.
+============================================================
+
+[12:32:05] === Scénario positif P1/2 : état A (SELECT+REFERENCES+TRIGGER+TRUNCATE) -> succès attendu ===
+NOTICE:  database "scanym_v66_pos_a_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:06] PASS: P1 état A : migration réussit (code retour) (=0)
+[12:32:06] PASS: P1 état A : COMMIT atteint
+[12:32:06] === Scénario positif P2/2 : état B (SELECT seul) -> succès attendu ===
+NOTICE:  database "scanym_v66_pos_b_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:07] PASS: P2 état B : migration réussit (code retour) (=0)
+[12:32:07] PASS: P2 état B : COMMIT atteint
+[12:32:07] === Scénario négatif N1/6 : aucun droit SELECT -> échec attendu, état inchangé ===
+NOTICE:  database "scanym_v66_neg_noselect_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:08] PASS: N1 absence de SELECT : la migration échoue (code retour) (=1)
+[12:32:08] PASS: N1 absence de SELECT : message explicite
+[12:32:08] PASS: N1 absence de SELECT : mentionne SELECT
+[12:32:08] PASS: N1 absence de SELECT : signature V65 inchangée après l'échec (=1)
+[12:32:08] === Scénario négatif N2/6 (SA3-B01) : INSERT accordé à PUBLIC -> échec attendu, état inchangé ===
+NOTICE:  database "scanym_v66_neg_public_insert_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:10] PASS: N2 grants directs semblent conformes (SELECT seul) (=SELECT)
+[12:32:10] PASS: N2 PUBLIC INSERT : la migration échoue (code retour) (=1)
+[12:32:10] PASS: N2 PUBLIC INSERT : message explicite
+[12:32:10] PASS: N2 PUBLIC INSERT : mentionne INSERT
+[12:32:10] PASS: N2 PUBLIC INSERT : signature V65 inchangée après l'échec (=1)
+[12:32:10] === Scénario négatif N3/6 (SA3-B01) : TRUNCATE accordé à PUBLIC -> échec attendu, état inchangé ===
+NOTICE:  database "scanym_v66_neg_public_truncate_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:11] PASS: N3 grants directs semblent conformes (SELECT seul) (=SELECT)
+[12:32:11] PASS: N3 PUBLIC TRUNCATE : la migration échoue (code retour) (=1)
+[12:32:11] PASS: N3 PUBLIC TRUNCATE : message explicite
+[12:32:11] PASS: N3 PUBLIC TRUNCATE : mentionne TRUNCATE
+[12:32:11] PASS: N3 PUBLIC TRUNCATE : signature V65 inchangée après l'échec (=1)
+[12:32:11] === Scénario négatif N4/6 (SA3-B01) : TRUNCATE via un rôle hérité -> échec attendu, état inchangé ===
+NOTICE:  database "scanym_v66_neg_inherited_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+NOTICE:  role "anon" has already been granted membership in role "scanym_v66_role_tiers" by role "postgres"
+[12:32:12] PASS: N4 grants directs semblent conformes (SELECT seul) (=SELECT)
+[12:32:12] PASS: N4 TRUNCATE effectif pour anon via le rôle hérité (contrôle indépendant) (=t)
+[12:32:12] PASS: N4 privilège hérité : la migration échoue (code retour) (=1)
+[12:32:12] PASS: N4 privilège hérité : message explicite
+[12:32:12] PASS: N4 privilège hérité : mentionne TRUNCATE
+[12:32:12] PASS: N4 privilège hérité : signature V65 inchangée après l'échec (=1)
+[12:32:12] === Scénario négatif N5/6 (SA3-M01) : index homonyme sur une autre table -> échec attendu, état inchangé ===
+NOTICE:  database "scanym_v66_neg_idx_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:14] PASS: N5 collision d'index : la migration échoue (code retour) (=1)
+[12:32:14] PASS: N5 collision d'index : message explicite
+[12:32:14] PASS: N5 collision d'index : mentionne idx_menu_categories_unique_active_name
+[12:32:14] PASS: N5 collision d'index : signature V65 inchangée après l'échec (=1)
+[12:32:14] === Scénario négatif N6/6 (preuve ACL avant/après REVOKE annulé) : état A + privilège hérité -> échec attendu, ACL catalogue inchangée ===
+NOTICE:  database "scanym_v66_neg_acl_proof_8856" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:32:15] PASS: N6 état initial : anon a TRUNCATE direct avant la tentative
+[12:32:15] PASS: N6 état initial : authenticated a TRUNCATE direct avant la tentative
+[12:32:15] PASS: N6 preuve ACL : la migration échoue (code retour) (=1)
+[12:32:15] PASS: N6 preuve ACL : message explicite
+[12:32:15] PASS: N6 preuve ACL : mentionne TRUNCATE
+[12:32:15] PASS: N6 preuve ACL : signature V65 inchangée après l'échec (=1)
+[12:32:15] PASS: N6 preuve ACL : ACL catalogue de menu_categories strictement identique avant/après l'échec (=anon:REFERENCES,anon:SELECT,anon:TRIGGER,anon:TRUNCATE,authenticated:REFERENCES,authenticated:SELECT,authenticated:TRIGGER,authenticated:TRUNCATE)
+[12:32:15] === Nettoyage : suppression des 8 bases et 1 rôle(s) temporaires créés par ce run ===
+[12:32:16] PASS: Nettoyage : aucune base scanym_v66% ne subsiste (=0)
+[12:32:16] PASS: Nettoyage : le rôle scanym_v66_role_tiers ne subsiste pas (=0)
+[12:32:16] PASS: Nettoyage : aucune appartenance résiduelle à scanym_v66_role_tiers (=0)
+[12:32:16] === RÉSULTAT FINAL : 38 réussis, 0 échoués (2 scénarios positifs, 6 scénarios négatifs, 3 vérifications de nettoyage) ===
+TOUS LES SCÉNARIOS (POSITIFS ET NÉGATIFS) ET LE NETTOYAGE (BASES + RÔLES) ONT RÉUSSI

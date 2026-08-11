@@ -15,12 +15,36 @@ import {
   type Cart,
 } from "../lib/cart.ts";
 import { formatPrice } from "../lib/whatsapp.ts";
+import type { MenuItem } from "../lib/types.ts";
 
-// --- Jeux d'essai ---------------------------------------------------
-const cappuccino = { id: "cap", name: "Cappuccino", price: 250 } as never;
-const prestigio = { id: "pres", name: "Formule Prestigio", price: 550 } as never;
-const tiramisu = { id: "tir", name: "Tiramisu", price: 450 } as never;
-const millefeuille = { id: "mil", name: "Mille-feuille", price: 250 } as never;
+// --- Jeux d'essai -----------------------------------------------------
+// Corrigé (Definition of Done Scanym, 11 août 2026) : ni `as never` ni
+// `as unknown as MenuItem` — les deux contournent le contrôle
+// structurel de TypeScript au lieu de produire des fixtures
+// réellement conformes à MenuItem. `createMenuItem()` complète les
+// champs hors sujet pour ces tests (category_id, description,
+// short_description, image_url, display_order, is_available) avec
+// des valeurs neutres, sans assertion de type d'aucune sorte : le
+// compilateur vérifie réellement que le résultat est un MenuItem
+// complet.
+function createMenuItem(
+  overrides: Partial<MenuItem> & Pick<MenuItem, "id" | "name" | "price">
+): MenuItem {
+  return {
+    category_id: "test-category",
+    description: null,
+    short_description: null,
+    image_url: null,
+    display_order: 0,
+    is_available: true,
+    ...overrides,
+  };
+}
+
+const cappuccino = createMenuItem({ id: "cap", name: "Cappuccino", price: 250 });
+const prestigio = createMenuItem({ id: "pres", name: "Formule Prestigio", price: 550 });
+const tiramisu = createMenuItem({ id: "tir", name: "Tiramisu", price: 450 });
+const millefeuille = createMenuItem({ id: "mil", name: "Mille-feuille", price: 250 });
 
 // ====================================================================
 // BUG 1 — formatage des prix partagé
