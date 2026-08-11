@@ -20,6 +20,14 @@ import {
   type CatalogueCategory,
   type CatalogueProduct,
 } from "@/lib/services/dashboard";
+import {
+  addOrReplaceProductPhoto,
+  removeProductPhoto,
+  InvalidFileTypeError,
+  FileTooLargeError,
+  PhotoUploadError,
+  PhotoRemoveError,
+} from "@/lib/services/product-photo";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { formatPrice } from "@/lib/whatsapp";
 import { canEditProducts, canToggleAvailability } from "@/lib/roles";
@@ -201,6 +209,19 @@ export default function CataloguePage() {
         setError(t("mcDescriptionTooLong"));
       } else if (e instanceof CategoryDuplicateNameError) {
         setError(t("mcCategoryDuplicate"));
+      } else if (e instanceof InvalidFileTypeError) {
+        setError(t("mcPhotoInvalidType"));
+      } else if (e instanceof FileTooLargeError) {
+        setError(t("mcPhotoTooLarge"));
+      } else if (e instanceof PhotoUploadError) {
+        // Le message technique (Storage/RPC, souvent en anglais brut)
+        // n'est jamais affiché à l'utilisateur -- seulement journalisé
+        // pour le débogage (corrigé après audit Work, M-01).
+        console.error("Photo upload failed:", e.cause);
+        setError(t("mcPhotoUploadError"));
+      } else if (e instanceof PhotoRemoveError) {
+        console.error("Photo remove failed:", e.cause);
+        setError(t("mcPhotoRemoveError"));
       } else {
         setError(e instanceof Error ? e.message : t("mcRefused"));
       }
@@ -420,30 +441,64 @@ export default function CataloguePage() {
                     }
                   >
                     {editingId === p.product_id ? (
-                      <ProductForm
-                        labels={productLabels}
-                        draft={draft}
-                        setDraft={setDraft}
-                        submitLabel={t("mcSave")}
-                        onCancel={() => setEditingId(null)}
-                        t={t}
-                        onSubmit={() =>
-                          run(p.product_id, async () => {
-                            await updateProduct(
-                              p.product_id,
-                              draft.name,
-                              draft.description || null,
-                              Number(draft.price),
-                              draft.shortDescription || null
-                            );
-                            setEditingId(null);
-                          })
-                        }
-                      />
+                      <>
+                        <ProductPhotoField
+                          productId={p.product_id}
+                          imageUrl={p.image_url}
+                          productName={shown(p.name, p.translations, "name") ?? p.name}
+                          busy={busyId === p.product_id}
+                          t={t}
+                          onAddOrReplace={(file) =>
+                            run(p.product_id, async () => {
+                              await addOrReplaceProductPhoto(
+                                restaurantId,
+                                p.product_id,
+                                file,
+                                p.image_url
+                              );
+                            })
+                          }
+                          onRemove={() =>
+                            run(p.product_id, async () => {
+                              await removeProductPhoto(p.product_id, p.image_url);
+                            })
+                          }
+                        />
+                        <ProductForm
+                          labels={productLabels}
+                          draft={draft}
+                          setDraft={setDraft}
+                          submitLabel={t("mcSave")}
+                          onCancel={() => setEditingId(null)}
+                          t={t}
+                          onSubmit={() =>
+                            run(p.product_id, async () => {
+                              await updateProduct(
+                                p.product_id,
+                                draft.name,
+                                draft.description || null,
+                                Number(draft.price),
+                                draft.shortDescription || null
+                              );
+                              setEditingId(null);
+                            })
+                          }
+                        />
+                      </>
                     ) : (
                       <>
                         <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
+                          {p.image_url && (
+                            <img
+                              src={p.image_url}
+                              alt=""
+                              className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                              }}
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
                             <p className="font-semibold text-stone-900">
                               {shown(p.name, p.translations, "name")}
                             </p>
@@ -545,6 +600,88 @@ export default function CataloguePage() {
         ))}
       </main>
     </>
+  );
+}
+
+/**
+ * Zone photo produit (V67). Disponible en édition uniquement (pas à
+ * la création : le chemin de stockage exige un product_id, qui
+ * n'existe qu'une fois le produit créé — décision documentée dans le
+ * rapport de livraison). La validation réelle du fichier (taille,
+ * signature binaire) a lieu dans lib/services/product-photo.ts, pas
+ * ici : ce composant ne fait que déclencher l'action et refléter son
+ * état (busy), sans dupliquer de logique de validation.
+ */
+function ProductPhotoField({
+  productId,
+  imageUrl,
+  productName,
+  busy,
+  t,
+  onAddOrReplace,
+  onRemove,
+}: {
+  productId: string;
+  imageUrl: string | null;
+  productName: string;
+  busy: boolean;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  onAddOrReplace: (file: File) => void;
+  onRemove: () => void;
+}) {
+  const inputId = `product-photo-${productId}`;
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permet de re-choisir le même fichier ensuite
+    if (file) onAddOrReplace(file);
+  }
+
+  return (
+    <div className="mb-2 flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={t("ariaProductPhotoPreview", { name: productName })}
+          className="h-14 w-14 shrink-0 rounded-lg object-cover"
+        />
+      ) : (
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-stone-300 text-[10px] text-stone-400">
+          {t("mcPhotoNone")}
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <label
+          htmlFor={inputId}
+          aria-disabled={busy}
+          className={
+            "cursor-pointer rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold " +
+            (busy ? "pointer-events-none opacity-40" : "")
+          }
+        >
+          {busy ? t("mcPhotoUploading") : imageUrl ? t("mcPhotoReplace") : t("mcPhotoAdd")}
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          disabled={busy}
+          onChange={handleFileChange}
+        />
+        {imageUrl && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            className="rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-40"
+          >
+            {t("mcPhotoRemove")}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
