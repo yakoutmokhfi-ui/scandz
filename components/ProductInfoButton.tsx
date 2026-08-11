@@ -85,7 +85,7 @@ export default function ProductInfoButton({
   }, [open]);
 
   return (
-    <div className="relative mt-1 inline-flex">
+    <div className="relative inline-flex shrink-0">
       <button
         ref={triggerRef}
         type="button"
