@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "@/lib/services/auth";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { translate, type Lang } from "@/lib/i18n";
+import { publicMenuHref as getPublicMenuHref } from "@/lib/dashboard-nav";
 
 /**
  * Barre de navigation partagée par les pages commerçant.
@@ -39,6 +40,13 @@ export default function DashboardNav({
 
   const href = (base: string) =>
     restaurantId ? `${base}?r=${restaurantId}` : base;
+
+  // Dérivé de `mappings` (jamais codé en dur) : c'est la même source
+  // que le sélecteur d'établissement ci-dessous. `null` tant que
+  // l'établissement courant n'a pas de slug exploitable — le bouton
+  // "Voir le menu" reste alors masqué plutôt que de générer
+  // /r/undefined ou /r/null (voir lib/dashboard-nav.ts).
+  const publicMenuHref = getPublicMenuHref(restaurantId, mappings);
 
   async function logout() {
     await signOut();
@@ -77,6 +85,16 @@ export default function DashboardNav({
                   </option>
                 ))}
               </select>
+            )}
+            {publicMenuHref && (
+              <a
+                href={publicMenuHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-stone-800"
+              >
+                {t("dsViewMenu")}
+              </a>
             )}
             {children}
             <button
