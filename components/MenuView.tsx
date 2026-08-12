@@ -27,6 +27,7 @@ import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import OptionModal from "@/components/OptionModal";
 import OrderConfirmation from "@/components/OrderConfirmation";
+import ProductInfoButton from "@/components/ProductInfoButton";
 
 import { I18nProvider } from "@/lib/i18n-context";
 import { getTheme, themeStyle } from "@/lib/themes";
@@ -46,7 +47,7 @@ import {
   type Cart,
 } from "@/lib/cart";
 import { dirOf, translate, type Lang } from "@/lib/i18n";
-import { tName } from "@/lib/menu-i18n";
+import { tName, tCategoryDescription } from "@/lib/menu-i18n";
 import Ltr from "@/components/Bidi";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
@@ -408,9 +409,18 @@ export default function MenuView({
       <main className="px-4">
         {activeCategory && (
           <section className="mt-7">
-            <h2 className="text-lg font-bold uppercase tracking-wide text-caramel-dark">
-              {tName(activeCategory, lang)}
-            </h2>
+            <div className="flex items-start gap-1.5">
+              <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-caramel-dark">
+                {tName(activeCategory, lang)}
+              </h2>
+              {tCategoryDescription(activeCategory, lang) && (
+                <ProductInfoButton
+                  description={tCategoryDescription(activeCategory, lang)!}
+                  triggerLabel={t("moreInfoAbout", { name: tName(activeCategory, lang) })}
+                  closeLabel={t("close")}
+                />
+              )}
+            </div>
             {/* Filet laiton : marque la section sans aplat doré */}
             <div className="mt-1.5 h-px w-12 bg-gold" />
             <div className="mt-4 space-y-4">

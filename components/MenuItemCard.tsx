@@ -7,6 +7,7 @@ import QuantityControl from "@/components/QuantityControl";
 import InlineOptions from "@/components/InlineOptions";
 import Ltr from "@/components/Bidi";
 import ProductInfoButton from "@/components/ProductInfoButton";
+import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 
@@ -59,12 +60,16 @@ export default function MenuItemCard({
     return (
       <article className={cardClasses}>
         <div className="flex gap-3">
-          {hasPhoto && (
+          {hasPhoto ? (
             <img
               src={item.image_url!}
               alt={item.name}
               onError={() => setPhotoFailed(true)}
               className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
+            />
+          ) : (
+            <ProductPhotoPlaceholder
+              className={`h-24 w-24 shrink-0 ${imageRadius}`}
             />
           )}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -111,13 +116,15 @@ export default function MenuItemCard({
 
   return (
     <article className={`flex gap-3 ${cardClasses}`}>
-      {hasPhoto && (
+      {hasPhoto ? (
         <img
           src={item.image_url!}
           alt={item.name}
           onError={() => setPhotoFailed(true)}
           className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
         />
+      ) : (
+        <ProductPhotoPlaceholder className={`h-28 w-28 shrink-0 ${imageRadius}`} />
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">

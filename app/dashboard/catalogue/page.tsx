@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import {
@@ -12,9 +12,11 @@ import {
   getRestaurantSettings,
   restoreProduct,
   setProductAvailability,
+  setProductOrder,
   updateCategory,
   updateProduct,
   CategoryDuplicateNameError,
+  CategoryDescriptionTooLongError,
   DescriptionTooLongError,
   ShortDescriptionTooLongError,
   type CatalogueCategory,
@@ -23,11 +25,13 @@ import {
 import {
   addOrReplaceProductPhoto,
   removeProductPhoto,
+  validateProductPhotoFile,
   InvalidFileTypeError,
   FileTooLargeError,
   PhotoUploadError,
   PhotoRemoveError,
 } from "@/lib/services/product-photo";
+import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { formatPrice } from "@/lib/whatsapp";
 import { canEditProducts, canToggleAvailability } from "@/lib/roles";
@@ -46,11 +50,17 @@ type ProductDraft = {
   shortDescription: string;
   description: string;
   price: string;
+  /** Photo choisie pendant la création (V67b) — jamais envoyée telle
+   *  quelle à create_product : uploadée séparément une fois le vrai
+   *  product_id obtenu. `null` : aucune photo choisie, la création
+   *  reste possible (facultatif). */
+  photoFile: File | null;
 };
 
 type CategoryDraft = {
   name: string;
   displayOrder: string;
+  description: string;
 };
 
 const EMPTY_PRODUCT_DRAFT: ProductDraft = {
@@ -58,6 +68,7 @@ const EMPTY_PRODUCT_DRAFT: ProductDraft = {
   shortDescription: "",
   description: "",
   price: "",
+  photoFile: null,
 };
 
 export default function CataloguePage() {
@@ -78,6 +89,7 @@ export default function CataloguePage() {
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>({
     name: "",
     displayOrder: "",
+    description: "",
   });
   const [creatingCategory, setCreatingCategory] = useState(false);
 
@@ -172,7 +184,7 @@ export default function CataloguePage() {
     setEditingCategoryId(null);
     setCreatingCategory(false);
     setDraft(EMPTY_PRODUCT_DRAFT);
-    setCategoryDraft({ name: "", displayOrder: "" });
+    setCategoryDraft({ name: "", displayOrder: "", description: "" });
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
@@ -196,12 +208,26 @@ export default function CataloguePage() {
     };
   }, [restaurantId]);
 
-  async function run(id: string, action: () => Promise<void>) {
+  /**
+   * `action` peut retourner `true` pour signaler qu'un message
+   * post-action a déjà été posé (via setError) et doit être PRÉSERVÉ :
+   * dans ce cas, run() n'exécute pas son reload() automatique, qui
+   * effacerait sinon ce message via reload()'s propre setError(null).
+   * Corrigé après audit Work (bug reproductible : le message
+   * "mcProductCreatedPhotoFailed" posé par tryAttachPhotoAfterCreate
+   * était immédiatement effacé par ce second reload()). Toutes les
+   * autres actions existantes retournent `void`/`undefined`
+   * (falsy) : leur comportement — reload automatique après succès —
+   * reste strictement inchangé.
+   */
+  async function run(id: string, action: () => Promise<boolean | void>) {
     setBusyId(id);
     setError(null);
     try {
-      await action();
-      await reload(restaurantId, showArchived);
+      const preserveMessage = await action();
+      if (!preserveMessage) {
+        await reload(restaurantId, showArchived);
+      }
     } catch (e) {
       if (e instanceof ShortDescriptionTooLongError) {
         setError(t("mcShortDescriptionTooLong"));
@@ -209,6 +235,8 @@ export default function CataloguePage() {
         setError(t("mcDescriptionTooLong"));
       } else if (e instanceof CategoryDuplicateNameError) {
         setError(t("mcCategoryDuplicate"));
+      } else if (e instanceof CategoryDescriptionTooLongError) {
+        setError(t("mcCategoryDescriptionTooLong"));
       } else if (e instanceof InvalidFileTypeError) {
         setError(t("mcPhotoInvalidType"));
       } else if (e instanceof FileTooLargeError) {
@@ -230,6 +258,45 @@ export default function CataloguePage() {
     }
   }
 
+  /**
+   * Tentative de photo pendant la CRÉATION d'un produit (V67b).
+   *
+   * Appelée UNIQUEMENT après que create_product a déjà réussi (le
+   * `productId` réel est requis par l'architecture Storage existante,
+   * voir lib/services/product-photo.ts). Ne relance JAMAIS l'erreur :
+   * un échec ici ne doit jamais faire croire que le produit n'a pas
+   * été créé — il l'a été, et reste visible après reload(). Message
+   * dédié, jamais générique, jamais le message technique brut.
+   *
+   * Retourne `true` en cas d'échec photo : signale à run() de NE PAS
+   * exécuter son propre reload() automatique après cette fonction,
+   * qui effacerait sinon le message qu'on vient de poser (bug
+   * corrigé après audit Work — le reload() de run() appelait
+   * setError(null) juste après que ce message ait été affiché).
+   */
+  async function tryAttachPhotoAfterCreate(
+    productId: string,
+    file: File
+  ): Promise<boolean> {
+    try {
+      await addOrReplaceProductPhoto(restaurantId, productId, file, null);
+      await reload(restaurantId, showArchived);
+      return false;
+    } catch (photoErr) {
+      if (photoErr instanceof PhotoUploadError) {
+        console.error("Photo upload failed after product creation:", photoErr.cause);
+      } else if (
+        !(photoErr instanceof InvalidFileTypeError) &&
+        !(photoErr instanceof FileTooLargeError)
+      ) {
+        console.error("Photo upload failed after product creation:", photoErr);
+      }
+      await reload(restaurantId, showArchived);
+      setError(t("mcProductCreatedPhotoFailed"));
+      return true;
+    }
+  }
+
   function startEdit(p: CatalogueProduct) {
     setEditingId(p.product_id);
     setCreatingIn(null);
@@ -238,6 +305,7 @@ export default function CataloguePage() {
       shortDescription: p.short_description ?? "",
       description: p.description ?? "",
       price: String(p.price),
+      photoFile: null,
     });
   }
 
@@ -253,13 +321,14 @@ export default function CataloguePage() {
     setCategoryDraft({
       name: cat.category_name,
       displayOrder: String(cat.category_display_order),
+      description: cat.category_description ?? "",
     });
   }
 
   function startCreateCategory() {
     setCreatingCategory(true);
     setEditingCategoryId(null);
-    setCategoryDraft({ name: "", displayOrder: "" });
+    setCategoryDraft({ name: "", displayOrder: "", description: "" });
   }
 
   if (loading) {
@@ -386,7 +455,8 @@ export default function CataloguePage() {
                       await updateCategory(
                         cat.category_id,
                         categoryDraft.name,
-                        Number(categoryDraft.displayOrder)
+                        Number(categoryDraft.displayOrder),
+                        categoryDraft.description || null
                       );
                       setEditingCategoryId(null);
                     })
@@ -403,18 +473,36 @@ export default function CataloguePage() {
                   draft={draft}
                   setDraft={setDraft}
                   submitLabel={t("mcCreate")}
-                  onCancel={() => setCreatingIn(null)}
+                  submitting={busyId === "new"}
+                  showPhotoPicker
                   t={t}
+                  onCancel={() => setCreatingIn(null)}
                   onSubmit={() =>
                     run("new", async () => {
-                      await createProduct(
+                      const productId = await createProduct(
                         cat.category_id,
                         draft.name,
                         draft.description || null,
                         Number(draft.price),
                         draft.shortDescription || null
                       );
+                      const photoFile = draft.photoFile;
                       setCreatingIn(null);
+                      setDraft(EMPTY_PRODUCT_DRAFT);
+                      // Photo facultative (V67b) : uploadée SEULEMENT
+                      // une fois le vrai product_id obtenu (le chemin
+                      // Storage l'exige, voir lib/services/product-photo.ts).
+                      // Gérée hors du catch de run() : un échec ici ne
+                      // doit jamais faire croire que la création a
+                      // échoué, le produit est déjà créé à ce stade.
+                      // La valeur de retour (true en cas d'échec photo)
+                      // indique à run() de préserver le message déjà
+                      // posé par tryAttachPhotoAfterCreate, au lieu de
+                      // l'effacer via son propre reload().
+                      if (photoFile) {
+                        return await tryAttachPhotoAfterCreate(productId, photoFile);
+                      }
+                      return false;
                     })
                   }
                 />
@@ -469,6 +557,7 @@ export default function CataloguePage() {
                           draft={draft}
                           setDraft={setDraft}
                           submitLabel={t("mcSave")}
+                          submitting={busyId === p.product_id}
                           onCancel={() => setEditingId(null)}
                           t={t}
                           onSubmit={() =>
@@ -549,7 +638,7 @@ export default function CataloguePage() {
                         </div>
 
                         {canEdit && (
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
                             {!p.archived_at ? (
                               <>
                                 <button
@@ -574,6 +663,16 @@ export default function CataloguePage() {
                                 >
                                   {t("mcArchive")}
                                 </button>
+                                <OrderField
+                                  label={t("mcProductOrder")}
+                                  value={p.display_order}
+                                  disabled={busy}
+                                  onSave={(order) =>
+                                    run(p.product_id, () =>
+                                      setProductOrder(p.product_id, order)
+                                    )
+                                  }
+                                />
                               </>
                             ) : (
                               <button
@@ -604,13 +703,20 @@ export default function CataloguePage() {
 }
 
 /**
- * Zone photo produit (V67). Disponible en édition uniquement (pas à
- * la création : le chemin de stockage exige un product_id, qui
- * n'existe qu'une fois le produit créé — décision documentée dans le
- * rapport de livraison). La validation réelle du fichier (taille,
- * signature binaire) a lieu dans lib/services/product-photo.ts, pas
- * ici : ce composant ne fait que déclencher l'action et refléter son
- * état (busy), sans dupliquer de logique de validation.
+ * Zone photo produit (V67), pour un produit EXISTANT (product_id
+ * réel requis pour construire le chemin de stockage). Toujours
+ * réservée à l'édition — depuis V67b, la CRÉATION dispose de son
+ * propre sélecteur de photo (voir showPhotoPicker dans ProductForm) :
+ * le fichier choisi est mémorisé côté client, puis uploadé séparément
+ * une fois le vrai product_id obtenu après création (voir
+ * tryAttachPhotoAfterCreate). Les deux mécanismes restent distincts
+ * parce que le chemin de stockage multi-tenant exige un product_id
+ * réel, jamais un identifiant temporaire côté client.
+ *
+ * La validation réelle du fichier (taille, signature binaire) a lieu
+ * dans lib/services/product-photo.ts, pas ici : ce composant ne fait
+ * que déclencher l'action et refléter son état (busy), sans dupliquer
+ * de logique de validation.
  */
 function ProductPhotoField({
   productId,
@@ -701,10 +807,12 @@ function CategoryForm({
   t: (k: string, p?: Record<string, string | number>) => string;
 }) {
   const nameState = normalizeText(draft.name, CATEGORY_NAME_MAX_LENGTH);
+  const descriptionState = normalizeText(draft.description, LONG_DESCRIPTION_MAX_LENGTH);
   const orderValid =
     mode === "create" ||
     (draft.displayOrder.trim() !== "" && Number.isFinite(Number(draft.displayOrder)));
-  const valid = !nameState.isEmpty && nameState.isValid && orderValid;
+  const valid =
+    !nameState.isEmpty && nameState.isValid && orderValid && descriptionState.isValid;
 
   return (
     <div className="space-y-2">
@@ -722,6 +830,36 @@ function CategoryForm({
       >
         {t("mcCounter", { count: nameState.length, max: CATEGORY_NAME_MAX_LENGTH })}
       </p>
+
+      {/* Description longue de catégorie (V67b) — facultative, jamais
+          pré-remplie depuis une autre donnée : startEditCategory ne
+          lit que menu_categories.description telle qu'elle est, sans
+          reclasser une description produit ou toute autre valeur
+          historique. Édition uniquement : create_category reste à 3
+          paramètres (décision documentée dans la migration), la
+          description s'ajoute après coup, pas à la création. */}
+      {mode === "edit" && (
+        <div>
+          <textarea
+            value={draft.description}
+            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+            placeholder={t("mcCategoryDescription")}
+            rows={2}
+            className={
+              "w-full rounded-xl border p-2.5 text-sm " +
+              (descriptionState.isValid ? "border-stone-300" : "border-amber-500 bg-amber-50")
+            }
+          />
+          <p
+            className={
+              "mt-0.5 text-right text-xs " +
+              (descriptionState.isValid ? "text-stone-400" : "font-semibold text-amber-700")
+            }
+          >
+            {t("mcCounter", { count: descriptionState.length, max: LONG_DESCRIPTION_MAX_LENGTH })}
+          </p>
+        </div>
+      )}
       {mode === "edit" && (
         <input
           value={draft.displayOrder}
@@ -758,6 +896,8 @@ function ProductForm({
   onSubmit,
   onCancel,
   t,
+  submitting = false,
+  showPhotoPicker = false,
 }: {
   draft: ProductDraft;
   setDraft: (d: ProductDraft) => void;
@@ -773,15 +913,52 @@ function ProductForm({
   onSubmit: () => void;
   onCancel: () => void;
   t: (k: string, p?: Record<string, string | number>) => string;
+  /** Empêche le double-clic pendant qu'une soumission est déjà en vol. */
+  submitting?: boolean;
+  /** Sélecteur de photo (V67b) — création uniquement. En édition, la
+   *  photo se gère via ProductPhotoField (product_id déjà réel). */
+  showPhotoPicker?: boolean;
 }) {
   const shortState = normalizeText(draft.shortDescription, SHORT_DESCRIPTION_MAX_LENGTH);
   const longState = normalizeText(draft.description, LONG_DESCRIPTION_MAX_LENGTH);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const valid =
     draft.name.trim().length > 0 &&
     Number(draft.price) >= 0 &&
     draft.price.trim() !== "" &&
     shortState.isValid &&
-    longState.isValid;
+    longState.isValid &&
+    !submitting;
+
+  const previewUrl = useMemo(
+    () => (draft.photoFile ? URL.createObjectURL(draft.photoFile) : null),
+    [draft.photoFile]
+  );
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoError(null);
+    try {
+      // Validation immédiate côté client (taille + signature binaire
+      // réelle, jamais l'extension ni file.type) : même logique que
+      // l'upload réel, réutilisée pour ne jamais dupliquer les règles
+      // — un fichier qui échoue ici échouerait de toute façon à
+      // l'upload, autant le dire avant de créer le produit.
+      await validateProductPhotoFile(file);
+      setDraft({ ...draft, photoFile: file });
+    } catch (err) {
+      if (err instanceof InvalidFileTypeError) setPhotoError(t("mcPhotoInvalidType"));
+      else if (err instanceof FileTooLargeError) setPhotoError(t("mcPhotoTooLarge"));
+      else setPhotoError(t("mcPhotoInvalidType"));
+    }
+  }
 
   return (
     <div className="space-y-2">
@@ -790,6 +967,49 @@ function ProductForm({
           {labels.baseHint}
         </p>
       )}
+
+      {showPhotoPicker && (
+        <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+          {previewUrl ? (
+            <img
+              src={previewUrl}
+              alt={t("mcPhotoPreviewAlt")}
+              className="h-14 w-14 shrink-0 rounded-lg object-cover"
+            />
+          ) : (
+            <ProductPhotoPlaceholder className="h-14 w-14 shrink-0 rounded-lg" />
+          )}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <label
+              htmlFor="new-product-photo"
+              className="w-fit cursor-pointer rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold"
+            >
+              {draft.photoFile ? t("mcPhotoReplace") : t("mcPhotoAdd")}
+            </label>
+            <input
+              id="new-product-photo"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <p className="text-[11px] text-stone-400">{t("mcPhotoOptionalHint")}</p>
+            {photoError && (
+              <p className="text-xs font-semibold text-amber-700">{photoError}</p>
+            )}
+          </div>
+          {draft.photoFile && (
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, photoFile: null })}
+              className="shrink-0 rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700"
+            >
+              {t("mcPhotoRemove")}
+            </button>
+          )}
+        </div>
+      )}
+
       <input
         value={draft.name}
         onChange={(e) => setDraft({ ...draft, name: e.target.value })}
@@ -851,17 +1071,63 @@ function ProductForm({
         <button
           onClick={onSubmit}
           disabled={!valid}
+          aria-busy={submitting}
           className="flex-1 rounded-xl bg-stone-900 py-2.5 text-sm font-bold text-white disabled:opacity-40"
         >
-          {submitLabel}
+          {submitting ? t("mcSaving") : submitLabel}
         </button>
         <button
           onClick={onCancel}
-          className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold"
+          disabled={submitting}
+          className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
         >
           {labels.cancel}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Contrôle d'ordre numérique réutilisable (V67b) — catégories et
+ * produits. Pas de glisser-déposer (hors périmètre V67b, un contrôle
+ * numérique suffit). La valeur locale n'est envoyée qu'au clic sur
+ * "Enregistrer", jamais à chaque frappe.
+ */
+function OrderField({
+  label,
+  value,
+  disabled,
+  onSave,
+}: {
+  label: string;
+  value: number;
+  disabled?: boolean;
+  onSave: (order: number) => void;
+}) {
+  const [local, setLocal] = useState(String(value));
+  const changed = local.trim() !== "" && Number(local) !== value && Number.isFinite(Number(local));
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <label className="text-xs font-medium text-stone-500">{label}</label>
+      <input
+        type="number"
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        disabled={disabled}
+        className="w-16 rounded-lg border border-stone-300 p-1.5 text-center text-xs"
+      />
+      {changed && (
+        <button
+          type="button"
+          onClick={() => onSave(Number(local))}
+          disabled={disabled}
+          className="rounded-lg bg-stone-900 px-2 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+        >
+          ✓
+        </button>
+      )}
     </div>
   );
 }

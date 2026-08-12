@@ -33,6 +33,11 @@ export interface MenuCategory {
   name: string;
   display_order: number;
   is_active: boolean;
+  /** Description longue de catégorie (V67b), optionnelle. Colonne
+   *  additive : absente/`null` pour toute catégorie existante tant
+   *  qu'un commerçant ne l'a pas renseignée explicitement — jamais
+   *  déduite ou migrée automatiquement depuis une autre donnée. */
+  description?: string | null;
   /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
   translations?: Translations;
   menu_items: MenuItem[];

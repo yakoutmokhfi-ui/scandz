@@ -9,15 +9,18 @@ import {
   isShortDescriptionTooLongError,
   isDescriptionTooLongError,
   isCategoryDuplicateNameError,
+  isCategoryDescriptionTooLongError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
+  CategoryDescriptionTooLongError,
 } from "@/lib/services/catalogue-error";
 
 export {
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
+  CategoryDescriptionTooLongError,
 } from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
@@ -108,6 +111,8 @@ export interface CatalogueCategory {
   category_display_order: number;
   /** true si au moins un produit référence cette catégorie comme source d'options. */
   category_is_option_source: boolean;
+  /** Description longue de catégorie (V67b), optionnelle. */
+  category_description: string | null;
   products: CatalogueProduct[];
 }
 
@@ -158,6 +163,7 @@ export async function getMerchantCatalogue(
     category_translations: Translations | null;
     category_display_order: number;
     category_is_option_source: boolean;
+    category_description: string | null;
     name: string | null;
     short_description: string | null;
     description: string | null;
@@ -181,6 +187,7 @@ export async function getMerchantCatalogue(
         category_translations: r.category_translations,
         category_display_order: r.category_display_order,
         category_is_option_source: r.category_is_option_source,
+        category_description: r.category_description,
         products: [],
       };
       categories.push(cat);
@@ -283,21 +290,50 @@ export async function createCategory(
   return data as string;
 }
 
-/** Modifie le nom et l'ordre d'affichage d'une catégorie. Ne touche jamais son état actif/inactif. */
+/**
+ * Modifie le nom, l'ordre d'affichage et la description longue
+ * d'une catégorie. Ne touche jamais son état actif/inactif.
+ *
+ * `description` reste optionnel et ne réinterprète jamais une donnée
+ * existante : appeler cette fonction sans description explicite
+ * (`undefined`/non fourni) l'efface (RPC : `null`) — c'est un choix
+ * du commerçant à chaque appel, jamais une migration automatique.
+ */
 export async function updateCategory(
   categoryId: string,
   name: string,
-  displayOrder: number
+  displayOrder: number,
+  description: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("update_category", {
     p_category_id: categoryId,
     p_name: name,
     p_display_order: displayOrder,
+    p_description: description,
   });
   if (error) {
     if (isCategoryDuplicateNameError(error)) throw new CategoryDuplicateNameError();
+    if (isCategoryDescriptionTooLongError(error)) throw new CategoryDescriptionTooLongError();
     throw new Error(error.message);
   }
+}
+
+/**
+ * Modifie l'ordre d'affichage d'un produit au sein de sa catégorie
+ * (V67b). RPC dédiée (même patron que setProductAvailability/
+ * setProductPhoto) — owner/manager uniquement : réordonner le
+ * catalogue est une décision de merchandising, pas un geste
+ * opérationnel ouvert à staff.
+ */
+export async function setProductOrder(
+  productId: string,
+  displayOrder: number
+): Promise<void> {
+  const { error } = await supabase.rpc("set_product_order", {
+    p_product_id: productId,
+    p_display_order: displayOrder,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /**
