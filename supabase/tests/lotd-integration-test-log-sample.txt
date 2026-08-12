@@ -1,0 +1,287 @@
+============================================================
+Scanym LOT D -- Journal brut d'exécution du harnais PostgreSQL
+VERSION FINALE après 4 tours d'audit Work
+============================================================
+Commande : su postgres -c "bash supabase/tests/lotd-integration-test.sh"
+Résultat de cette exécution : 132/132 assertions réussies, 0 échec.
+
+4e tour : correctif RLS séparé pour scanym_supported_countries et
+scanym_supported_currencies (RLS jamais activée dans la migration Lot
+D initiale, malgré le REVOKE/GRANT corrects -- finding Security
+Advisor 0013_rls_disabled_in_public). Bug confirmé AVANT correctif
+(relrowsecurity=false), correctif appliqué, RLS confirmée activée,
+lecture authenticated/anon testée, écriture bloquée pour tous les
+rôles, create_establishment (SECURITY DEFINER) confirmé fonctionnel
+sous RLS, aucun autre objet touché, rollback testé, double
+application bloquée explicitement.
+============================================================
+
+[15:01:56] === 1. Base éphémère scanym_lotd_ci_713 ===
+[15:01:56] === 2. Stubs auth + storage ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[15:01:56] === 3. Chaîne réelle jusqu'à V67b, avec de VRAIES données historiques (Illico Presto + Le Sirocco) ===
+[15:01:58] PASS: chaîne V65..V67b appliquée sans erreur, données historiques réelles chargées (Illico Presto + Le Sirocco)
+[15:01:58] === 4. SCÉNARIO D'HÉRITAGE DANGEREUX (sens correct) : authenticated hérite d'INSERT sur restaurants via un rôle parent ===
+[15:01:58] PASS: authenticated a bien un droit INSERT effectif via héritage, AVANT toute tentative de migration (=t)
+[15:01:58] === 5. La migration Lot D DOIT échouer explicitement face à ce droit hérité (jamais de correction automatique) ===
+[15:01:58] PASS: la migration échoue (code de sortie non nul) face au droit hérité (=1)
+[15:01:58] PASS: message explicite identifiant le rôle parent comme cause
+[15:01:58] PASS: le message mentionne authenticated et le droit INSERT
+[15:01:58] PASS: AUCUNE modification appliquée après l'échec (rollback complet, colonne status absente) (=0)
+[15:01:58] === 6. Nettoyage du rôle de test (jamais une correction automatique par la migration elle-même) ===
+[15:01:58] PASS: après nettoyage manuel du rôle de test, le droit hérité a disparu (=f)
+[15:01:58] PASS: rôle de test entièrement nettoyé
+[15:01:58] === 7. Application RÉELLE de migration-lotd-establishment-creation.sql (chemin normal, sans dérive) ===
+DO
+BEGIN
+REVOKE
+DO
+ALTER TABLE
+UPDATE 2
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+CREATE TABLE
+REVOKE
+GRANT
+CREATE TABLE
+REVOKE
+GRANT
+INSERT 0 4
+INSERT 0 5
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+REVOKE
+CREATE TABLE
+CREATE INDEX
+ALTER TABLE
+REVOKE
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+DROP POLICY
+CREATE POLICY
+CREATE POLICY
+COMMIT
+[15:01:58] PASS: migration Lot D appliquée sans erreur
+[15:01:58] === 8. RÉGRESSION HISTORIQUE : Illico Presto reste active et accessible publiquement ===
+[15:01:58] PASS: Illico Presto : status = active (=active)
+[15:01:58] PASS: Illico Presto : lisible publiquement (rôle anon) (=1)
+[15:01:58] === 9. RÉGRESSION HISTORIQUE : Le Sirocco reste active et accessible publiquement ===
+[15:01:58] PASS: Le Sirocco : status = active (=active)
+[15:01:58] PASS: Le Sirocco : lisible publiquement (rôle anon) (=1)
+[15:01:58] === 10. Préparation : un opérateur + un utilisateur par rôle (staff/manager/owner) ===
+[15:01:59] PASS: un établissement de référence + un utilisateur par rôle préparés
+[15:01:59] === 11. AUTORISATION : anon (non authentifié) refusé pour create_establishment ===
+[15:01:59] PASS: anon (non authentifié) refusé
+[15:01:59] === 12. AUTORISATION : staff refusé pour create_establishment ===
+[15:01:59] PASS: staff refusé
+[15:01:59] === 13. AUTORISATION : manager refusé pour create_establishment ===
+[15:01:59] PASS: manager refusé
+[15:01:59] === 14. AUTORISATION : owner refusé pour create_establishment (pas opérateur Scanym) ===
+[15:01:59] PASS: owner refusé
+[15:01:59] === 15. AUTORISATION : opérateur Scanym accepté pour create_establishment ===
+[15:01:59] PASS: opérateur Scanym accepté, établissement créé
+[15:01:59] PASS: created_by tracé (auditabilité) (=11111111-1111-1111-1111-111111111111)
+[15:01:59] PASS: catégorie initiale créée (=1)
+[15:01:59] === 16. RATTACHEMENT : aucun membership préalable -> owner créé ===
+[15:01:59] PASS: aucun membership avant rattachement (=0)
+[15:01:59] PASS: owner créé (aucun membership préalable) (=owner)
+[15:01:59] PASS: statut passé à active (=active)
+[15:01:59] === 17. RATTACHEMENT : staff PRÉALABLE sur le même établissement -> devient owner ===
+[15:01:59] PASS: staff préalable devient réellement owner (=owner)
+[15:01:59] === 18. RATTACHEMENT : manager PRÉALABLE sur le même établissement -> devient owner ===
+[15:02:00] PASS: manager préalable devient réellement owner (=owner)
+[15:02:00] === 19. RATTACHEMENT : owner PRÉALABLE sur le même établissement -> reste owner, sans doublon ===
+[15:02:00] PASS: owner préalable reste owner (=owner)
+[15:02:00] PASS: aucun doublon (exactement 1 ligne) (=1)
+[15:02:00] === 20. RATTACHEMENT : VRAI second appel après succès -> même état, aucune erreur (B-02) ===
+[15:02:00] PASS: second appel après succès renvoie linked=true (=t)
+[15:02:00] PASS: toujours exactement 1 ligne après le second appel (=1)
+[15:02:00] === 21. RATTACHEMENT : membership sur un AUTRE établissement conservé (aucune fuite) ===
+[15:02:00] PASS: rôle sur l'établissement de référence inchangé (manager, pas owner) (=manager)
+[15:02:00] === 22. CYCLE DE VIE : onboarding -> lecture publique refusée ===
+[15:02:00] PASS: onboarding : lecture publique refusée (=0)
+[15:02:00] === 23. CYCLE DE VIE : onboarding -> create_order refusé ===
+[15:02:00] PASS: onboarding : create_order refusé
+[15:02:00] === 24. CYCLE DE VIE : active -> lecture publique autorisée ===
+[15:02:00] PASS: active : lecture publique autorisée après rattachement (=1)
+[15:02:00] === 25. CYCLE DE VIE : active -> create_order autorisé (passe le contrôle restaurant) ===
+[15:02:00] PASS: active : create_order dépasse le contrôle restaurant (échoue plus loin, sur commande vide)
+[15:02:00] === 26. CYCLE DE VIE : suspended -> lecture publique refusée ===
+[15:02:00] PASS: suspended : lecture publique refusée (=0)
+[15:02:00] === 27. CYCLE DE VIE : suspended -> create_order refusé ===
+[15:02:01] PASS: suspended : create_order refusé
+[15:02:01] === 28. CYCLE DE VIE : inactive -> lecture publique refusée ===
+[15:02:01] PASS: inactive : lecture publique refusée (=0)
+[15:02:01] === 29. CYCLE DE VIE : inactive -> create_order refusé ===
+[15:02:01] PASS: inactive : create_order refusé
+[15:02:01] === 30. CYCLE DE VIE : le propriétaire voit TOUJOURS son établissement au tableau de bord, quel que soit le statut ===
+[15:02:01] PASS: propriétaire voit son établissement inactive (tableau de bord préservé) (=1)
+[15:02:01] === 31. CYCLE DE VIE : un tiers non membre ne voit PAS l'établissement inactive ===
+[15:02:01] PASS: tiers non membre : lecture refusée (=0)
+[15:02:01] === 40. Préparation : catégorie + produit pour RID_LC (tables enfant) ===
+[15:02:01] PASS: catégorie + produit insérés pour RID_LC (actuellement status=inactive à ce stade)
+[15:02:01] === 41. TABLES ENFANT : inactive (état courant de RID_LC) -> anon 0/0/0 ===
+[15:02:01] PASS: inactive : configs/categories/items refusés à anon (=0/0/0)
+[15:02:01] === 42. TABLES ENFANT : inactive -> tiers non membre 0/0/0 ===
+[15:02:01] PASS: inactive : configs/categories/items refusés au tiers non membre (=0/0/0)
+[15:02:01] === 43. TABLES ENFANT : inactive -> membre (propriétaire) lecture autorisée sur les 3 tables ===
+[15:02:01] PASS: inactive : configs/categories/items lisibles par le propriétaire (=1/1/1)
+[15:02:01] === 44. TABLES ENFANT : suspended -> anon 0/0/0, membre 1/1/1 ===
+[15:02:01] PASS: suspended : configs/categories/items refusés à anon (=0/0/0)
+[15:02:02] PASS: suspended : configs/categories/items lisibles par le propriétaire (=1/1/1)
+[15:02:02] === 45. TABLES ENFANT : onboarding -> anon 0/0/0, membre 1/1/1 ===
+[15:02:02] PASS: onboarding : configs/categories/items refusés à anon (=0/0/0)
+[15:02:02] PASS: onboarding : configs/categories/items lisibles par le propriétaire (=1/1/1)
+[15:02:02] === 46. TABLES ENFANT : active -> anon 1/1/1 (rétabli), membre 1/1/1 ===
+[15:02:02] PASS: active : configs/categories/items lisibles par anon (=1/1/1)
+[15:02:02] PASS: active : configs/categories/items lisibles par le propriétaire (=1/1/1)
+[15:02:02] === 47. RÉGRESSION : Illico Presto (active, historique réel) -> configs/categories/items lisibles par anon ===
+[15:02:02] PASS: Illico Presto : configs lisible (au moins 1)
+[15:02:02] PASS: Illico Presto : restaurant_configs lisible par anon (=1)
+[15:02:02] PASS: Illico Presto : menu_categories lisibles par anon (5)
+[15:02:02] PASS: Illico Presto : menu_items lisibles par anon (36)
+[15:02:02] === 48. RÉGRESSION : Le Sirocco (active, historique réel) -> configs/categories/items lisibles par anon ===
+[15:02:03] PASS: Le Sirocco : restaurant_configs lisible par anon (=1)
+[15:02:03] === 49. RÉGRESSION : getRestaurantSettings (lecture directe réelle) fonctionne pour un établissement non-active ===
+[15:02:03] PASS: getRestaurantSettings simulé : currency lisible pour établissement suspended (=EUR)
+[15:02:03] === 50. B-05 : pays fictif ZZ refusé ===
+[15:02:03] PASS: pays fictif ZZ refusé
+[15:02:03] === 51. B-05 : devise fictive ZZZ refusée ===
+[15:02:03] PASS: devise fictive ZZZ refusée
+[15:02:03] === 52. B-05 : aucun couplage pays -> devise (Maroc + EUR accepté) ===
+[15:02:03] PASS: Maroc + EUR accepté (aucun couplage forcé)
+[15:02:03] === 53. Doublon de slug refusé ===
+[15:02:03] PASS: doublon de slug refusé
+[15:02:03] === 54. Création sans catégorie initiale (facultatif) ===
+[15:02:03] PASS: aucune catégorie créée quand non fournie (=0)
+[15:02:03] === 55. B-04 : droits DML directs (anon/authenticated) sur les tables sensibles ===
+[15:02:03] PASS: anon ne peut PAS INSERT sur public.restaurants (=f)
+[15:02:03] PASS: anon ne peut PAS UPDATE sur public.restaurants (=f)
+[15:02:03] PASS: anon ne peut PAS DELETE sur public.restaurants (=f)
+[15:02:03] PASS: authenticated ne peut PAS INSERT sur public.restaurants (=f)
+[15:02:03] PASS: authenticated ne peut PAS UPDATE sur public.restaurants (=f)
+[15:02:03] PASS: authenticated ne peut PAS DELETE sur public.restaurants (=f)
+[15:02:03] PASS: anon ne peut PAS INSERT sur public.restaurant_configs (=f)
+[15:02:03] PASS: anon ne peut PAS UPDATE sur public.restaurant_configs (=f)
+[15:02:04] PASS: anon ne peut PAS DELETE sur public.restaurant_configs (=f)
+[15:02:04] PASS: authenticated ne peut PAS INSERT sur public.restaurant_configs (=f)
+[15:02:04] PASS: authenticated ne peut PAS UPDATE sur public.restaurant_configs (=f)
+[15:02:04] PASS: authenticated ne peut PAS DELETE sur public.restaurant_configs (=f)
+[15:02:04] PASS: anon ne peut PAS INSERT sur public.scanym_operators (=f)
+[15:02:04] PASS: anon ne peut PAS UPDATE sur public.scanym_operators (=f)
+[15:02:04] PASS: anon ne peut PAS DELETE sur public.scanym_operators (=f)
+[15:02:04] PASS: authenticated ne peut PAS INSERT sur public.scanym_operators (=f)
+[15:02:04] PASS: authenticated ne peut PAS UPDATE sur public.scanym_operators (=f)
+[15:02:04] PASS: authenticated ne peut PAS DELETE sur public.scanym_operators (=f)
+[15:02:04] PASS: anon ne peut PAS INSERT sur public.establishment_owner_invitations (=f)
+[15:02:04] PASS: anon ne peut PAS UPDATE sur public.establishment_owner_invitations (=f)
+[15:02:04] PASS: anon ne peut PAS DELETE sur public.establishment_owner_invitations (=f)
+[15:02:04] PASS: authenticated ne peut PAS INSERT sur public.establishment_owner_invitations (=f)
+[15:02:04] PASS: authenticated ne peut PAS UPDATE sur public.establishment_owner_invitations (=f)
+[15:02:04] PASS: authenticated ne peut PAS DELETE sur public.establishment_owner_invitations (=f)
+[15:02:04] === 56. B-04 : PUBLIC lui-même n'a aucun droit DML effectif sur restaurants ===
+[15:02:04] PASS: PUBLIC ne peut PAS INSERT sur restaurants (=f)
+[15:02:04] PASS: PUBLIC ne peut PAS UPDATE sur restaurants (=f)
+[15:02:04] PASS: PUBLIC ne peut PAS DELETE sur restaurants (=f)
+[15:02:04] === 57. anon ne peut exécuter aucune RPC Lot D ===
+[15:02:04] PASS: anon ne peut PAS exécuter is_scanym_operator (=f)
+[15:02:04] PASS: anon ne peut PAS exécuter create_establishment (=f)
+[15:02:04] PASS: anon ne peut PAS exécuter link_pending_owner (=f)
+[15:02:04] PASS: anon ne peut PAS exécuter get_establishment_summary (=f)
+[15:02:04] === 58. AVANT correctif : RLS désactivée sur les 2 tables de référence (bug confirmé) ===
+[15:02:05] PASS: scanym_supported_countries : RLS désactivée avant correctif (=f)
+[15:02:05] PASS: scanym_supported_currencies : RLS désactivée avant correctif (=f)
+[15:02:05] === 59. Application du correctif migration-lotd-rls-reference-tables-fix.sql ===
+DO
+BEGIN
+ALTER TABLE
+ALTER TABLE
+CREATE POLICY
+CREATE POLICY
+REVOKE
+REVOKE
+REVOKE
+REVOKE
+GRANT
+GRANT
+COMMIT
+[15:02:05] PASS: correctif RLS appliqué sans erreur
+[15:02:05] === 60. APRÈS correctif : relrowsecurity = true sur les 2 tables ===
+[15:02:05] PASS: scanym_supported_countries : RLS activée après correctif (=t)
+[15:02:05] PASS: scanym_supported_currencies : RLS activée après correctif (=t)
+[15:02:05] === 61. authenticated peut lire les 4 pays et les 5 devises ===
+[15:02:05] PASS: authenticated lit les 4 pays supportés (=4)
+[15:02:05] PASS: authenticated lit les 5 devises supportées (=5)
+[15:02:05] === 62. anon ne peut lire aucune des deux tables ===
+[15:02:05] PASS: anon refusé sur scanym_supported_countries
+[15:02:05] PASS: anon refusé sur scanym_supported_currencies
+[15:02:05] === 63. Aucun droit d'écriture (anon/authenticated/PUBLIC) sur les 2 tables ===
+[15:02:05] PASS: anon ne peut PAS INSERT sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: anon ne peut PAS UPDATE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: anon ne peut PAS DELETE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: authenticated ne peut PAS INSERT sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: authenticated ne peut PAS UPDATE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: authenticated ne peut PAS DELETE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: public ne peut PAS INSERT sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: public ne peut PAS UPDATE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: public ne peut PAS DELETE sur public.scanym_supported_countries (=f)
+[15:02:05] PASS: anon ne peut PAS INSERT sur public.scanym_supported_currencies (=f)
+[15:02:05] PASS: anon ne peut PAS UPDATE sur public.scanym_supported_currencies (=f)
+[15:02:05] PASS: anon ne peut PAS DELETE sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: authenticated ne peut PAS INSERT sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: authenticated ne peut PAS UPDATE sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: authenticated ne peut PAS DELETE sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: public ne peut PAS INSERT sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: public ne peut PAS UPDATE sur public.scanym_supported_currencies (=f)
+[15:02:06] PASS: public ne peut PAS DELETE sur public.scanym_supported_currencies (=f)
+[15:02:06] === 64. create_establishment (SECURITY DEFINER) continue de valider pays/devise sous RLS ===
+[15:02:06] PASS: create_establishment réussit toujours avec un pays/devise valides, sous RLS
+[15:02:06] PASS: create_establishment rejette toujours un pays fictif, sous RLS
+[15:02:06] === 65. Aucun autre objet Lot D modifié (RLS des autres tables inchangée) ===
+[15:02:06] PASS: scanym_operators : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] PASS: establishment_owner_invitations : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] PASS: restaurants : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] PASS: restaurant_configs : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] PASS: menu_categories : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] PASS: menu_items : RLS toujours activée (inchangé par ce correctif) (=t)
+[15:02:06] === 66. Rollback testé : retire la policy et désactive RLS proprement ===
+BEGIN
+DROP POLICY
+DROP POLICY
+ALTER TABLE
+ALTER TABLE
+COMMIT
+[15:02:06] PASS: rollback : RLS désactivée à nouveau (=f)
+[15:02:06] === 67. Réapplication après rollback réussit, double application (sans rollback) est bloquée ===
+[15:02:06] PASS: réapplication après rollback réussie
+[15:02:06] PASS: double application (sans rollback) bloquée (=1)
+[15:02:06] PASS: message explicite sur la double application
+[15:02:06] === RÉSULTAT FINAL : 132 réussis, 0 échoués ===
+TOUS LES TESTS LOT D ONT REUSSI

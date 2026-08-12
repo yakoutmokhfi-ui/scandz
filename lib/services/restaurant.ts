@@ -28,6 +28,15 @@ export async function getRestaurantBySlug(
     )
     .eq("slug", slug)
     .eq("is_active", true)
+    // Corrige la décision produit tranchée après l'audit Work (Lot D) :
+    // un établissement dont le cycle de vie n'est pas 'active'
+    // (onboarding, suspended, inactive) n'est JAMAIS accessible
+    // publiquement, même en connaissant son slug exact. is_active
+    // (bascule manuelle préexistante) et status (cycle de vie Lot D)
+    // sont deux mécanismes distincts, TOUS DEUX requis : is_active
+    // reste la bascule d'urgence déjà utilisée, status protège
+    // spécifiquement les établissements en cours d'intégration.
+    .eq("status", "active")
     .maybeSingle();
 
   if (error) {
