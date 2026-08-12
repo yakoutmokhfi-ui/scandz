@@ -10,6 +10,8 @@
 export const SHORT_DESCRIPTION_TOO_LONG_CODE = "SCANYM_SHORT_DESCRIPTION_TOO_LONG";
 export const DESCRIPTION_TOO_LONG_CODE = "SCANYM_DESCRIPTION_TOO_LONG";
 export const CATEGORY_DUPLICATE_NAME_CODE = "SCANYM_CATEGORY_DUPLICATE_NAME";
+/** V67b — description longue de catégorie. */
+export const CATEGORY_DESCRIPTION_TOO_LONG_CODE = "SCANYM_CATEGORY_DESCRIPTION_TOO_LONG";
 
 export class ShortDescriptionTooLongError extends Error {
   constructor() {
@@ -29,6 +31,13 @@ export class CategoryDuplicateNameError extends Error {
   constructor() {
     super(CATEGORY_DUPLICATE_NAME_CODE);
     this.name = "CategoryDuplicateNameError";
+  }
+}
+
+export class CategoryDescriptionTooLongError extends Error {
+  constructor() {
+    super(CATEGORY_DESCRIPTION_TOO_LONG_CODE);
+    this.name = "CategoryDescriptionTooLongError";
   }
 }
 
@@ -63,4 +72,11 @@ export function isCategoryDuplicateNameError(
 ): boolean {
   if (!error) return false;
   return error.code === "23505" && error.message === CATEGORY_DUPLICATE_NAME_CODE;
+}
+
+export function isCategoryDescriptionTooLongError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "22001" && error.message === CATEGORY_DESCRIPTION_TOO_LONG_CODE;
 }

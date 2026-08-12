@@ -1,0 +1,59 @@
+============================================================
+Scanym V67b -- Journal brut d'exécution du harnais PostgreSQL
+============================================================
+Commande : su postgres -c "bash supabase/tests/v67b-integration-test.sh"
+Résultat de cette exécution : 15/15 assertions réussies, 0 échec.
+Un premier passage avait révélé 2 échecs cosmétiques (pollution
+"SET\n" dans la sortie -t -A d'un appel combiné set+select) --
+corrigés dans le script lui-même avant cette exécution propre.
+============================================================
+
+[07:06:32] === 1. Base éphémère scanym_v67b_ci_1477 ===
+[07:06:32] === 2. Stubs auth + storage (Supabase) ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[07:06:32] === 3. Chaîne réelle jusqu'à V67 ===
+[07:06:33] PASS: chaîne V65+V66+V67 appliquée sans erreur
+[07:06:33] === 4. Application de migration-v67b-category-description-product-order.sql ===
+DO
+BEGIN
+ALTER TABLE
+ALTER TABLE
+DROP FUNCTION
+CREATE FUNCTION
+REVOKE
+GRANT
+DROP FUNCTION
+CREATE FUNCTION
+REVOKE
+GRANT
+CREATE FUNCTION
+REVOKE
+GRANT
+COMMIT
+[07:06:33] PASS: migration V67b appliquée sans erreur
+[07:06:33] === 5. Signatures finales ===
+[07:06:33] PASS: signature create_category (=p_restaurant_id uuid, p_name text, p_display_order integer)
+[07:06:33] PASS: signature update_category (=p_category_id uuid, p_name text, p_display_order integer, p_description text)
+[07:06:33] PASS: signature set_product_order (=p_product_id uuid, p_display_order integer)
+[07:06:33] === 6. Colonne menu_categories.description présente ===
+[07:06:33] PASS: colonne description sur menu_categories (=1)
+[07:06:33] === 7. Données de test ===
+[07:06:33] PASS: données de test insérées
+[07:06:33] === 8. Description de catégorie : round-trip ===
+[07:06:33] PASS: description de catégorie round-trip (=Fromages onctueux à croûte fleurie.)
+[07:06:33] === 9. Limites 500/501 sur la description de catégorie ===
+[07:06:33] PASS: description catégorie 500 caractères acceptée
+[07:06:33] PASS: description catégorie 501 caractères refusée
+[07:06:33] === 10. Ordre produit : override explicite ===
+[07:06:33] PASS: produit en première position après réordonnancement explicite (=Camembert)
+[07:06:33] === 11. Nouveau produit se positionne en dernier par défaut ===
+[07:06:33] PASS: nouveau produit en position 3 (dernier) (=3)
+[07:06:33] === 12. staff refusé pour set_product_order ===
+[07:06:33] PASS: staff refusé (set_product_order)
+[07:06:33] === 13. isolation inter-restaurant (set_product_order) ===
+[07:06:33] PASS: isolation inter-restaurant (set_product_order)
+[07:06:33] === 14. RÈGLE HISTORIQUE : les traductions/descriptions Illico Presto existantes restent intactes ===
+[07:06:33] PASS: hash témoin des descriptions Illico Presto capturé (non vide) (=1)
+[07:06:33] === RÉSULTAT FINAL : 15 réussis, 0 échoués ===
+TOUS LES TESTS V67b ONT REUSSI

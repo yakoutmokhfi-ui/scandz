@@ -429,11 +429,22 @@ test("catalogue dashboard: le bouton Supprimer la photo n'apparaît que si une p
   assert.ok(/\{imageUrl && \(\s*<button/.test(fieldFn), "le bouton de suppression doit être conditionné à la présence d'une photo");
 });
 
-test("catalogue dashboard: la zone photo n'est proposée qu'en édition (product_id requis pour le chemin de stockage), jamais à la création", () => {
+test("catalogue dashboard: ProductPhotoField (product_id existant) reste réservé à l'édition — la création utilise un mécanisme distinct (V67b)", () => {
+  // Corrigé en V67b : la création de produit PEUT désormais proposer
+  // une photo (voir tests v67b ci-dessous), via un chemin différent
+  // de ProductPhotoField. Ce test-ci ne vérifie plus qu'"aucune photo
+  // n'est jamais proposée à la création" (affirmation devenue fausse
+  // et donc supprimée), mais seulement que ProductPhotoField — qui
+  // exige un product_id RÉEL déjà existant pour construire le chemin
+  // de stockage — reste employé exclusivement en édition, jamais dans
+  // le bloc de création.
   const source = readFileSync("app/dashboard/catalogue/page.tsx", "utf8");
   const createBlock = source.slice(
     source.indexOf("creatingIn === cat.category_id"),
     source.indexOf("cat.products.length === 0")
   );
-  assert.ok(!createBlock.includes("ProductPhotoField"), "la création de produit ne doit pas proposer la zone photo (aucun product_id disponible avant la création)");
+  assert.ok(
+    !createBlock.includes("<ProductPhotoField"),
+    "ProductPhotoField (product_id existant requis) ne doit pas être utilisé dans le bloc de création"
+  );
 });
