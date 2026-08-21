@@ -24,12 +24,13 @@ export default function RestaurantInfoBar({
   const { config } = restaurant;
   const phone = getSettings(restaurant.slug).phone;
 
-  // Lien Maps construit depuis les coordonnées enregistrées. Absentes,
-  // l'adresse s'affiche sans lien plutôt que de pointer vers rien.
-  const mapsUrl =
-    config.latitude !== null && config.longitude !== null
-      ? `https://www.google.com/maps/search/?api=1&query=${config.latitude},${config.longitude}`
-      : null;
+  // Corrige V70-06 (décision CTO) : plus de lien Maps fabriqué depuis
+  // les coordonnées. latitude/longitude restent des données neutres
+  // (simplement non lues ici) ; seul un maps_url explicitement
+  // renseigné par le commerçant rend l'adresse cliquable. Absent,
+  // l'adresse s'affiche en texte seul plutôt que de pointer vers un
+  // lien Google construit à sa place.
+  const mapsUrl = config.maps_url ?? null;
 
   const hours = config.opening_hours;
   const hoursContent = hours
@@ -84,22 +85,33 @@ export default function RestaurantInfoBar({
 
   return (
     <div className="px-4 pb-5">
-      <div className="rounded-xl border border-gold/25 bg-espresso/55 p-1 backdrop-blur-sm">
+      {/* Corrige V72-02 (contre-audit Work, 3e tour) : fond ENTIÈREMENT
+          OPAQUE (plus de "/55"), positionné sur la photo de bannière.
+          La lisibilité ne doit pas dépendre de la luminosité de la
+          photo téléchargée -- voir LanguageSelector.tsx pour le même
+          raisonnement. */}
+      <div className="rounded-xl border border-gold/25 bg-espresso p-1">
         {/* Mobile : l'adresse sur toute la largeur, téléphone et
             horaires côte à côte. Tablette et ordinateur : trois
-            colonnes égales. */}
+            colonnes égales.
+            Corrige V73-02 (contre-audit Work, 4e tour) : le libellé
+            (ADRESSE/TÉLÉPHONE/HORAIRES) utilisait
+            text-highlight-on-ink/80 -- une opacité sur une valeur déjà
+            calculée en dégrade la garantie (même raisonnement que
+            RestaurantHeader.tsx). Icône aria-hidden inchangée
+            (décorative, hors champ WCAG). */}
         <div className="grid grid-cols-2 gap-px sm:grid-cols-3">
           {cells.map((cell) => {
             const inner = (
               <>
-                <span aria-hidden className="mt-0.5 shrink-0 text-gold">
+                <span aria-hidden className="mt-0.5 shrink-0 text-highlight-on-ink">
                   {cell.icon}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[0.6rem] font-semibold uppercase tracking-wider text-gold/80">
+                  <span className="block text-[0.6rem] font-semibold uppercase tracking-wider text-highlight-on-ink">
                     {cell.label}
                   </span>
-                  <span className="block truncate text-xs text-crema sm:whitespace-normal">
+                  <span className="block truncate text-xs text-ink-text sm:whitespace-normal">
                     {cell.content}
                   </span>
                 </span>
@@ -117,7 +129,7 @@ export default function RestaurantInfoBar({
                 target={cell.href.startsWith("http") ? "_blank" : undefined}
                 rel={cell.href.startsWith("http") ? "noopener noreferrer" : undefined}
                 aria-label={cell.aria}
-                className={classes + "rounded-lg hover:bg-espresso/40"}
+                className={classes + "rounded-lg hover:bg-black/10"}
               >
                 {inner}
               </a>

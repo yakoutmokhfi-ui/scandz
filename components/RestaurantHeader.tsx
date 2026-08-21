@@ -27,65 +27,93 @@ export default function RestaurantHeader({
   // page, sous les cartes, où il donne sa texture sans nuire à la
   // lisibilité.
 
-  const mapsUrl =
-    config.latitude !== null && config.longitude !== null
-      ? `https://www.google.com/maps/search/?api=1&query=${config.latitude},${config.longitude}`
-      : null;
+  // Cover uploadée par l'établissement (V68, Storage) prioritaire sur
+  // le repli /banners/<slug>.jpg statique — absente/`null` pour tout
+  // établissement n'ayant pas encore renseigné de cover : le rendu
+  // reste alors exactement celui d'avant V68, sans placeholder cassé.
+  const coverUrl = config.cover_url ?? null;
+
+  // Corrige V70-06 (décision CTO) : plus aucun lien vers un
+  // fournisseur de cartographie n'est fabriqué implicitement depuis
+  // latitude/longitude. Ces coordonnées restent des données neutres
+  // (elles ne sont simplement plus lues ici) ; seul un maps_url
+  // explicitement renseigné par le commerçant produit un CTA externe
+  // — absent, aucun CTA n'est affiché plutôt que de retomber sur un
+  // lien Google construit à sa place.
+  const directionsUrl = config.maps_url ?? null;
 
   return (
     <header
-      className="relative overflow-hidden text-center text-crema"
+      className="relative overflow-hidden text-center text-ink-text"
       style={{
         // Photo propre à l'établissement, facultative :
         // /banners/<slug>.jpg. En son absence, le dégradé du thème
         // assure seul le fond — d'où une couleur de repli qui suit
         // l'identité de l'établissement et non celle d'un autre.
         backgroundColor: "var(--sc-ink, #221510)",
-        backgroundImage: `linear-gradient(var(--sc-veil-soft, rgba(23,13,9,0.2)), var(--sc-veil-strong, rgba(23,13,9,0.32))), url('/banners/${banner ?? restaurant.slug}.jpg')`,
+        backgroundImage: `linear-gradient(var(--sc-veil-soft, rgba(23,13,9,0.2)), var(--sc-veil-strong, rgba(23,13,9,0.32))), url('${coverUrl ?? `/banners/${banner ?? restaurant.slug}.jpg`}')`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
     >
       <LanguageSelector active={lang} onChange={onChangeLang} />
 
-      {/* Contenu centré verticalement avec espacements réguliers */}
-      {/* L'ombre portée garde le texte lisible sur les zones claires
-          de la photo, sans avoir à assombrir l'ensemble. */}
-      <div
-        className="flex min-h-[15rem] flex-col items-center justify-center gap-3 px-4 pb-6 pt-12 sm:min-h-[17rem]"
-        style={{ textShadow: "0 1px 12px rgba(0,0,0,0.75), 0 1px 3px rgba(0,0,0,0.6)" }}
-      >
+      {/* Contenu centré verticalement avec espacements réguliers.
+          Corrige V72-02 (contre-audit Work, 3e tour) : le titre et le
+          sous-titre reposent désormais sur un panneau ENTIÈREMENT
+          OPAQUE (bg-espresso, sans opacité), pas seulement sur une
+          ombre portée -- l'ombre seule ne garantissait AUCUN contraste
+          déterministe (dépendait de la luminosité de la photo
+          téléchargée, jamais calculable à l'avance). Le logo reste
+          hors panneau (une image, pas du texte, aucune préoccupation
+          de contraste applicable).
+          Corrige V73-02 (contre-audit Work, 4e tour) : le message de
+          bienvenue et le sous-titre utilisaient text-ink-text/90 et
+          text-ink-text/70 -- une opacité Tailwind APPLIQUÉE À UNE
+          VALEUR DÉJÀ CALCULÉE (noir ou blanc pur, choisie
+          spécifiquement pour un contraste optimal) la fait retomber
+          vers la couleur du fond en la mélangeant partiellement avec
+          lui, DÉGRADANT la garantie de contraste qu'elle était censée
+          fournir -- exactement le même piège que les fonds
+          translucides (V72-02), mais côté texte. Texte désormais à
+          pleine opacité ; la hiérarchie visuelle (message principal
+          vs sous-titre) reste assurée par la taille (text-sm vs
+          text-xs), pas par l'opacité. L'ornement décoratif
+          (aria-hidden, voir components/Icons.tsx) reste inchangé :
+          purement décoratif, hors du champ des exigences de contraste
+          de texte WCAG. */}
+      <div className="flex min-h-[15rem] flex-col items-center justify-center gap-3 px-4 pb-6 pt-12 sm:min-h-[17rem]">
         {config.logo_url && (
           <img
             src={config.logo_url}
             alt={`Logo ${restaurant.name}`}
-            className="h-20 w-20 rounded-full border-2 border-gold/60 object-cover shadow-lg"
+            className="h-20 w-20 rounded-full border-2 border-ink-text/60 object-cover shadow-lg"
           />
         )}
 
-        <h1 className="font-serif text-3xl font-bold italic tracking-wide">
-          {restaurant.name}
-        </h1>
+        <div className="rounded-2xl bg-espresso px-6 py-4 shadow-lg">
+          <h1 className="font-serif text-3xl font-bold italic tracking-wide text-ink-text">
+            {restaurant.name}
+          </h1>
 
-        <span className="text-gold/80">
-          <Ornament />
-        </span>
+          <span className="mt-1 inline-block text-ink-text/80">
+            <Ornament />
+          </span>
 
-        <div>
-          <p className="text-sm text-crema/90">
+          <p className="mt-2 text-sm text-ink-text">
             {t("welcome", { name: restaurant.name })}
           </p>
-          <p className="mt-1 text-xs text-crema/70">{t("subtitle")}</p>
+          <p className="mt-1 text-xs text-ink-text">{t("subtitle")}</p>
         </div>
 
-        {mapsUrl && (
+        {directionsUrl && (
           <a
-            href={mapsUrl}
+            href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-2 rounded-full border border-gold/60 bg-espresso/40 px-4 py-2 text-xs font-semibold text-gold"
+            className="mt-2 inline-flex items-center gap-2 rounded-full border border-ink-text/60 bg-espresso px-4 py-2 text-xs font-semibold text-ink-text"
           >
-            📍 {t("viewOnMaps")}
+            📍 {t("directions")}
           </a>
         )}
       </div>

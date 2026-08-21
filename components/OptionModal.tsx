@@ -92,7 +92,7 @@ export default function OptionModal({
           <button
             onClick={onClose}
             aria-label={t("close")}
-            className="rounded-full px-3 py-1 text-sm font-medium text-espresso/60"
+            className="rounded-full px-3 py-1 text-sm font-medium text-ink-on-bg-muted"
           >
             {t("close")} ✕
           </button>
@@ -114,8 +114,8 @@ export default function OptionModal({
                   className={
                     "rounded-full px-4 py-2 text-sm font-semibold " +
                     (total === n
-                      ? "bg-caramel text-white"
-                      : "bg-white text-espresso shadow-sm")
+                      ? "bg-caramel text-caramel-ink"
+                      : "bg-white text-ink-on-bg shadow-sm")
                   }
                 >
                   {n}
@@ -137,12 +137,12 @@ export default function OptionModal({
               <button
                 onClick={() => setTotalSafe(total + 1)}
                 aria-label={t("ariaIncrease")}
-                className="h-9 w-9 rounded-full bg-caramel text-lg font-bold text-white"
+                className="h-9 w-9 rounded-full bg-caramel text-lg font-bold text-caramel-ink"
               >
                 +
               </button>
             </div>
-            <span className="font-bold text-caramel-dark">
+            <span className="font-bold text-accent-dark-on-bg">
               <Ltr>{formatPrice(item.price * total, currency)}</Ltr>
             </span>
           </div>
@@ -153,7 +153,7 @@ export default function OptionModal({
             <span
               className={
                 "text-sm font-semibold " +
-                (complete ? "text-green-700" : "text-caramel-dark")
+                (complete ? "text-green-700" : "text-accent-dark-on-bg")
               }
             >
               {complete
@@ -196,7 +196,7 @@ export default function OptionModal({
                       disabled={remaining <= 0}
                       aria-label={t("ariaAddOne", { name: tName(choice, lang) })}
                       className={
-                        "h-7 w-7 rounded-full font-bold text-white " +
+                        "h-7 w-7 rounded-full font-bold text-caramel-ink " +
                         (remaining <= 0 ? "bg-caramel/30" : "bg-caramel")
                       }
                     >
@@ -214,8 +214,10 @@ export default function OptionModal({
             onClick={confirm}
             disabled={!complete}
             className={
-              "w-full rounded-xl py-3.5 text-center font-bold text-white " +
-              (complete ? "bg-caramel" : "cursor-not-allowed bg-espresso/20")
+              "w-full rounded-xl py-3.5 text-center font-bold " +
+              (complete
+                ? "bg-caramel text-caramel-ink"
+                : "cursor-not-allowed bg-espresso/20 text-ink-text-on-bg-20")
             }
           >
             {complete

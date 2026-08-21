@@ -22,7 +22,7 @@ export default function PastryModal({
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="rounded-full px-3 py-1 text-sm font-medium text-espresso/60"
+            className="rounded-full px-3 py-1 text-sm font-medium text-ink-on-bg-muted"
           >
             Fermer ✕
           </button>
@@ -66,8 +66,10 @@ export default function PastryModal({
             onClick={() => selected && onConfirm(selected)}
             disabled={!selected}
             className={
-              "w-full rounded-xl py-3.5 text-center font-bold text-white " +
-              (selected ? "bg-caramel" : "cursor-not-allowed bg-espresso/20")
+              "w-full rounded-xl py-3.5 text-center font-bold " +
+              (selected
+                ? "bg-caramel text-caramel-ink"
+                : "cursor-not-allowed bg-espresso/20 text-ink-text-on-bg-20")
             }
           >
             {selected

@@ -353,6 +353,18 @@ export default function MenuView({
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(lang, key, params);
 
+  // Surcharges de couleur établissement (V69) — voir
+  // restaurant_configs.primary_color/secondary_color/accent_color et
+  // lib/themes.ts (ThemeColorOverrides). Absentes/null pour tout
+  // établissement n'ayant jamais renseigné de couleur : themeStyle()
+  // retombe alors intégralement sur le thème statique existant, rendu
+  // strictement inchangé.
+  const colorOverrides = {
+    primary: restaurant.config.primary_color ?? null,
+    secondary: restaurant.config.secondary_color ?? null,
+    accent: restaurant.config.accent_color ?? null,
+  };
+
   /**
    * Les variables sont aussi posées sur <html> : sans cela, le fond
    * du body resterait celui du thème par défaut au-delà du
@@ -361,14 +373,15 @@ export default function MenuView({
    */
   useEffect(() => {
     const root = document.documentElement;
-    const vars = themeStyle(settings.theme);
+    const vars = themeStyle(settings.theme, colorOverrides);
     for (const [key, value] of Object.entries(vars)) {
       root.style.setProperty(key, value);
     }
     return () => {
       for (const key of Object.keys(vars)) root.style.removeProperty(key);
     };
-  }, [settings.theme]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.theme, colorOverrides.primary, colorOverrides.secondary, colorOverrides.accent]);
 
   return (
     <I18nProvider lang={lang}>
@@ -379,11 +392,11 @@ export default function MenuView({
       dir={dirOf(lang)}
       style={
         {
-          ...themeStyle(settings.theme),
+          ...themeStyle(settings.theme, colorOverrides),
           // Motif sous les cartes, jamais derrière du texte.
           backgroundImage: patternUrl(
             settings.pattern,
-            getTheme(settings.theme).ink,
+            colorOverrides.secondary ?? getTheme(settings.theme).ink,
             0.05
           ),
         } as React.CSSProperties
@@ -410,7 +423,7 @@ export default function MenuView({
         {activeCategory && (
           <section className="mt-7">
             <div className="flex items-start gap-1.5">
-              <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-caramel-dark">
+              <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
                 {tName(activeCategory, lang)}
               </h2>
               {tCategoryDescription(activeCategory, lang) && (
@@ -459,7 +472,7 @@ export default function MenuView({
       {totalCount > 0 && (
         <button
           onClick={() => setIsCartOpen(true)}
-          className="fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-lg items-center justify-between border-t-2 border-gold bg-espresso px-6 py-4 text-crema"
+          className="fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-lg items-center justify-between border-t-2 border-gold bg-espresso px-6 py-4 text-ink-text"
         >
           <span className="font-medium">
             🛒{" "}

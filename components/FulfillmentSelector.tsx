@@ -32,7 +32,7 @@ function Field({
 }) {
   return (
     <div className="scroll-mt-4">
-      <label htmlFor={id} className="block text-xs font-semibold text-espresso/70">
+      <label htmlFor={id} className="block text-xs font-semibold text-ink-on-bg-muted">
         {label}
       </label>
       <input
@@ -126,7 +126,7 @@ export default function FulfillmentSelector({
       ? "bg-green-50 text-green-800"
       : message?.tone === "warn"
         ? "bg-amber-50 text-amber-900"
-        : "bg-white text-espresso/70";
+        : "bg-white text-ink-on-bg-muted";
 
   return (
     <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">
@@ -234,17 +234,17 @@ export default function FulfillmentSelector({
         )}
       </div>
 
-      <p className="mt-2 text-xs text-espresso/55">
+      <p className="mt-2 text-xs text-ink-on-bg-muted">
         {t("privacyNote")}
       </p>
 
       {type === "pickup" && (
-        <p className="mt-3 text-sm text-espresso/60">
+        <p className="mt-3 text-sm text-ink-on-bg-muted">
           {t("pickupNote")}
         </p>
       )}
       {type === "delivery" && status.eligible && (
-        <p className="mt-3 text-sm text-espresso/60">
+        <p className="mt-3 text-sm text-ink-on-bg-muted">
           {t("deliveryNote")}
         </p>
       )}

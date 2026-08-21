@@ -1,0 +1,313 @@
+============================================================
+Scanym V79 -- Journal brut d'exécution du harnais PostgreSQL
+(supabase/tests/v68-storage-policy-check.sh, étendu V79)
+============================================================
+Commande : su postgres -c "bash supabase/tests/v68-storage-policy-check.sh"
+Résultat de cette exécution : 183/183 assertions réussies, 0 échec
+(confirmé stable sur 2 exécutions consécutives).
+
+Correction ciblée unique de ce tour : le contrôle structurel complet
+de l'état V70 (signature exacte, absence de surcharge, type de
+retour, volatilité, SECURITY DEFINER, search_path, propriétaire,
+marqueur caractéristique du corps) vivait UNIQUEMENT dans
+migration-v71-hardening.sql -- trop tard, puisque
+migration-v76-storage-origin-config.sql est la première migration
+réellement exécutée depuis l'état production actuel (V70 installée).
+Ce même contrôle est désormais placé EN TOUT PREMIER dans ce fichier,
+avant toute création de schéma/fonction/table.
+
+7 scénarios de dérive testés RÉELLEMENT contre
+migration-v76-storage-origin-config.sql elle-même (pas seulement
+contre V71 comme précédemment) : mauvaise signature, overload,
+mauvais type de retour, non SECURITY DEFINER, mauvais search_path,
+mauvaise volatilité, corps V70 dérivé. Pour chacun, vérifié
+explicitement que scanym_internal N'EXISTE PAS après l'échec --
+pas seulement que l'exception est levée.
+
+Le contrôle de migration-v71-hardening.sql reste en place comme
+défense en profondeur, inchangé.
+============================================================
+
+NOTICE:  database "scanym_v68_storage_4701" does not exist, skipping
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:192: NOTICE:  trigger "trg_orders_touch" for relation "public.orders" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:442: NOTICE:  policy "membre lit son rattachement" for relation "public.restaurant_users" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:446: NOTICE:  policy "personnel lit ses commandes" for relation "public.orders" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:450: NOTICE:  policy "personnel modifie ses commandes" for relation "public.orders" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:455: NOTICE:  policy "personnel lit les lignes" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-orders.sql:465: NOTICE:  policy "gerant modifie ses produits" for relation "public.menu_items" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:12: NOTICE:  policy "merchant reads own mappings" for relation "public.restaurant_users" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:99: NOTICE:  policy "merchant reads restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:114: NOTICE:  policy "merchant updates restaurant orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:118: NOTICE:  policy "merchant reads restaurant order items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:135: NOTICE:  function public.update_order_status(uuid,text) does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v29-merchant-dashboard.sql:253: NOTICE:  policy "merchant reads receipt settings" for relation "public.receipt_settings" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurants" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.restaurant_configs" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_categories" does not exist, skipping
+psql:/home/claude/scandz_v74/supabase/migration-v55-updated-at.sql:53: NOTICE:  trigger "trg_touch_updated_at" for relation "public.menu_items" does not exist, skipping
+[20:29:37] PASS: chaîne de migrations réelle appliquée jusqu'au Lot D création d'établissement (déjà en production)
+[20:29:37] === Application de la migration V68 réelle (bucket, policies, RPC) ===
+[20:29:37] PASS: migration V68 appliquée sans erreur sur le stand-in storage
+[20:29:37] === Application de la migration V69 réelle (couleurs, lien Maps, durcissement logo/cover) ===
+[20:29:37] PASS: migration V69 appliquée sans erreur sur le stand-in storage
+[20:29:37] === Application de la migration V70 réelle (F-01/F-02/F-04 : Super Admin, maps_url, hardening host) ===
+psql:/home/claude/scandz_v74/supabase/migration-v70-identity-corrections.sql:141: NOTICE:  constraint "restaurant_configs_maps_url_format" of relation "restaurant_configs" does not exist, skipping
+[20:29:37] PASS: migration V70 appliquée sans erreur sur le stand-in storage
+[20:29:37] === V78-01 : 7 scénarios de dérive V70, chacun testé AVANT toute création par migration-v76-storage-origin-config.sql ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[20:29:39] PASS: V78-01: mauvaise signature (arité différente) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:39] PASS: V78-01: overload (deuxième fonction du même nom) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] PASS: V78-01: mauvais type de retour (boolean au lieu de void) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] PASS: V78-01: non SECURITY DEFINER -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] PASS: V78-01: mauvais search_path (absent) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] PASS: V78-01: mauvaise volatilité (volatile au lieu de stable) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] PASS: V78-01: corps V70 dérivé (marqueur caractéristique absent) -- SCANYM_SCHEMA_DRIFT levé par migration-v76-storage-origin-config.sql ET scanym_internal absent (rien créé)
+[20:29:40] === V76/1 : reproduction de l'échec ALTER DATABASE ... SET avec un rôle non-superutilisateur (simule fidèlement Supabase hébergé) ===
+[20:29:40] PASS: V76: ALTER DATABASE ... SET échoue avec un rôle non-superutilisateur (reproduit le comportement réel Supabase hébergé) (=1)
+[20:29:40] === V76/2 : application de migration-v76-storage-origin-config.sql ===
+[20:29:41] PASS: migration V76 appliquée sans erreur sur le stand-in storage
+[20:29:41] === V76/3 : configuration de la valeur via INSERT ordinaire, avec le rôle NON-SUPERUTILISATEUR -- preuve centrale de V76 ===
+[20:29:41] PASS: V76: configuration réussie via INSERT ordinaire avec un rôle non-superutilisateur (là où ALTER DATABASE échoue) (=0)
+[20:29:41] === V76/4 : origine invalide/vide -> REFUS par la contrainte CHECK ===
+[20:29:41] PASS: V76: origine invalide refusée par la contrainte CHECK (=1)
+[20:29:41] PASS: V76: origine vide refusée par la contrainte CHECK (=1)
+[20:29:41] === V76/5 : singleton -- une seconde ligne est refusée ===
+[20:29:41] PASS: V76: une seconde ligne (id=false) refusée par la contrainte singleton (=1)
+[20:29:41] === V76/6 : anon/authenticated ne peuvent ni lire ni écrire la config, ni exécuter le helper ===
+[20:29:41] PASS: V76: anon ne peut PAS SELECT sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: anon ne peut PAS INSERT sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: anon ne peut PAS UPDATE sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: anon ne peut PAS DELETE sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: anon ne peut PAS exécuter get_storage_public_origin() (=f)
+[20:29:41] PASS: V76: authenticated ne peut PAS SELECT sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: authenticated ne peut PAS INSERT sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: authenticated ne peut PAS UPDATE sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: authenticated ne peut PAS DELETE sur scanym_internal.storage_config (=f)
+[20:29:41] PASS: V76: authenticated ne peut PAS exécuter get_storage_public_origin() (=f)
+[20:29:41] === Préflight historique (preflight-historical-uuid-check.sql) -- doit s'exécuter ICI, avant V71, corrige V72-04 ===
+psql:/home/claude/scandz_v74/supabase/preflight-historical-uuid-check.sql:107: NOTICE:  SCANYM_HISTORICAL_DATA_CHECK: OK -- 0 restaurants, 0 objets establishment-assets, tous conformes au format UUID v4 attendu. migration-v71-hardening.sql peut être exécutée en toute sécurité.
+[20:29:41] PASS: préflight historique réussi (aucune donnée non conforme) -- positionné AVANT V71, comme l'exige V72-04
+[20:29:41] === Application de la migration V71 réelle -- ÉDITÉE par V76 (V70-01/04/05/07 : host fail-closed via scanym_internal, maps_url structurel, double colonne, UUID v4 strict) ===
+[20:29:41] PASS: migration V71 (éditée V76) appliquée sans erreur sur le stand-in storage
+[20:29:41] === Application de la migration V72 réelle (V71-03 : grammaire HTTPS commune stricte ; V71-07 : préflight données historiques) ===
+[20:29:41] PASS: migration V72 appliquée sans erreur sur le stand-in storage (aucune donnée historique non conforme sur ce stand-in propre)
+[20:29:41] === Application de la migration V73 réelle (V72-05 : chemin Storage complet ; V72-06 : chaîne brute maps_url ; V72-07 : port borné) ===
+[20:29:41] PASS: migration V73 appliquée sans erreur sur le stand-in storage
+[20:29:42] PASS: les 4 policies product_photos_* (V67) existent toujours, non modifiées par V68/V69/V70 (=4)
+[20:29:42] PASS: F-02: google_maps_url n'existe plus après V70 (renommage réel) (=0)
+[20:29:42] PASS: F-02: maps_url existe après V70 (=1)
+[20:29:42] PASS: scanym_internal.storage_config mis à jour pour la suite de ce harnais (https://fake.supabase.co) via UPDATE ordinaire, comme le ferait le CIO en production
+[20:29:42] === Scénario 1 : owner écrit sous son propre établissement (logo ET cover) ===
+[20:29:42] PASS: scénario 1a: owner A écrit dans A/logo/... (succès) (=0)
+[20:29:42] PASS: scénario 1b: owner A écrit dans A/cover/... (succès) (=0)
+[20:29:42] === Scénario 2 : owner A NE PEUT PAS écrire chez B ===
+[20:29:42] PASS: scénario 2: owner A NE PEUT PAS écrire dans B/logo/... (refus) (=1)
+[20:29:42] PASS: manager B écrit sous son propre établissement B (succès) (=0)
+[20:29:42] PASS: manager B NE PEUT PAS écrire chez A (refus) (=1)
+[20:29:42] === Scénario 3 : un opérateur Scanym administre A ET B (aucun rôle restaurant_users requis) ===
+[20:29:42] PASS: scénario 3a: opérateur Scanym écrit chez A (succès, sans être owner/manager de A) (=0)
+[20:29:42] PASS: scénario 3b: opérateur Scanym écrit chez B (succès, sans être owner/manager de B) (=0)
+[20:29:42] === Restriction de rôle : staff refusé ===
+[20:29:43] PASS: staff A NE PEUT PAS écrire (owner/manager/opérateur seulement) (=1)
+[20:29:43] === Scénario 4 : accès anonyme ===
+[20:29:43] PASS: scénario 4: anon NE PEUT PAS écrire (=1)
+[20:29:43] === SELECT ===
+[20:29:43] PASS: SELECT autorisé : owner A voit un fichier de son propre établissement A (=1)
+[20:29:43] PASS: SELECT refusé : manager B ne voit AUCUNE ligne d'un fichier de l'établissement A (=0)
+[20:29:43] PASS: SELECT autorisé : l'opérateur Scanym voit un fichier de N'IMPORTE QUEL établissement (=1)
+[20:29:43] PASS: SELECT refusé : anon ne voit AUCUNE ligne via SQL (lecture publique via l'URL HTTP dédiée uniquement) (=0)
+[20:29:43] === UPDATE ===
+[20:29:43] PASS: UPDATE autorisé : owner A modifie un fichier de son propre établissement A (1 ligne) (=UPDATE 1)
+[20:29:43] PASS: UPDATE refusé : manager B ne peut pas modifier un fichier de l'établissement A (0 ligne) (=UPDATE 0)
+[20:29:43] PASS: le fichier de l'établissement A n'a pas été modifié par la tentative refusée (=76a6f998-a038-459d-8a65-ccc701e563db)
+[20:29:43] === DELETE ===
+[20:29:43] PASS: manager B NE PEUT PAS supprimer un fichier de l'établissement A (0 ligne) (=DELETE 0)
+[20:29:43] PASS: le fichier de l'établissement A est toujours là après la tentative refusée (=1)
+[20:29:43] PASS: l'opérateur Scanym PEUT supprimer un fichier de N'IMPORTE QUEL établissement (1 ligne) (=DELETE 1)
+[20:29:43] === Configuration du bucket (scénarios 5/6 — limite Storage, hors portée RLS) ===
+[20:29:43] PASS: le bucket establishment-assets est public (lecture via l'URL publique, sans policy SQL) (=t)
+[20:29:43] PASS: scénario 5: file_size_limit = 5 Mo (5242880 octets) (=5242880)
+[20:29:43] PASS: scénario 6: allowed_mime_types = jpeg/png/webp uniquement (={image/jpeg,image/png,image/webp})
+[20:29:43] === RPC set_restaurant_logo / set_restaurant_cover (scénarios 7/8/10) ===
+[20:29:43] PASS: scénario 7: owner A peut appeler set_restaurant_logo pour son établissement, chemin conforme (succès) (=0)
+[20:29:43] PASS: scénario 7: logo_url mis à jour en base après succès de la RPC (=https://fake.supabase.co/storage/v1/object/public/establishment-assets/7d15bde4-9d8c-4721-bf7f-c103c64c4909/logo/11111111-1111-4111-8111-111111111111.jpg)
+[20:29:43] PASS: scénario 8: owner A peut appeler set_restaurant_cover pour son établissement, chemin conforme (succès) (=0)
+[20:29:43] PASS: scénario 8: cover_url mis à jour en base après succès de la RPC (=https://fake.supabase.co/storage/v1/object/public/establishment-assets/7d15bde4-9d8c-4721-bf7f-c103c64c4909/cover/22222222-2222-4222-8222-222222222222.jpg)
+[20:29:43] PASS: manager B NE PEUT PAS appeler set_restaurant_logo pour l'établissement A (refus) (=1)
+[20:29:44] PASS: logo_url de l'établissement A inchangé après la tentative refusée (=https://fake.supabase.co/storage/v1/object/public/establishment-assets/7d15bde4-9d8c-4721-bf7f-c103c64c4909/logo/11111111-1111-4111-8111-111111111111.jpg)
+[20:29:44] PASS: scénario 3 (RPC): l'opérateur Scanym peut appeler set_restaurant_cover pour N'IMPORTE QUEL établissement (B, succès) (=0)
+[20:29:44] PASS: staff A NE PEUT PAS appeler set_restaurant_logo (réservé owner/manager/opérateur) (=1)
+[20:29:44] PASS: appel anonyme (rôle anon, aucun EXECUTE accordé) à set_restaurant_logo refusé (permission denied) (=1)
+[20:29:44] === Scénario 10 : p_url = null réinitialise la colonne à NULL ===
+[20:29:44] PASS: scénario 10: cover_url réinitialisée à NULL après set_restaurant_cover(null) (=<NULL>)
+[20:29:44] PASS: logo_url n'est PAS affectée par la réinitialisation de cover_url (colonnes indépendantes) (=https://fake.supabase.co/storage/v1/object/public/establishment-assets/7d15bde4-9d8c-4721-bf7f-c103c64c4909/logo/11111111-1111-4111-8111-111111111111.jpg)
+[20:29:44] === Scénario 13 : établissement préexistant sans cover_url renseignée reste fonctionnel ===
+[20:29:44] PASS: établissement C créé après V68 sans logo/cover -- logo_url NULL par défaut (aucune régression) (=<NULL>)
+[20:29:44] PASS: établissement C créé après V68 sans logo/cover -- cover_url NULL par défaut (colonne additive, sans effet de bord) (=<NULL>)
+[20:29:44] === V69 section 8 : restriction du 2e segment de chemin à {logo, cover} ===
+[20:29:44] PASS: V69: owner A NE PEUT PAS écrire sous {restaurant_id}/other/... (2e segment non autorisé) (=1)
+[20:29:44] PASS: V69: owner A NE PEUT PAS écrire sous {restaurant_id}/menu/... (2e segment non autorisé) (=1)
+[20:29:44] PASS: V69: même l'opérateur Scanym NE PEUT PAS écrire sous un 2e segment hors {logo,cover} (=1)
+[20:29:44] PASS: V69: {restaurant_id}/logo/... toujours accepté après durcissement (non-régression) (=0)
+[20:29:44] PASS: V69: {restaurant_id}/cover/... toujours accepté après durcissement (non-régression) (=0)
+[20:29:44] === V69 section 7 : validation du chemin d'URL dans set_restaurant_logo/_cover ===
+[20:29:44] PASS: V69: set_restaurant_logo refuse une URL sans le chemin Storage attendu (aucune structure de chemin correspondante) (=1)
+[20:29:44] PASS: V69: set_restaurant_logo refuse une URL dont le restaurant_id du chemin diffère du restaurant appelé (owner A tente de pointer vers B) (=1)
+[20:29:44] PASS: V69: set_restaurant_logo refuse une URL /cover/ (mauvais type d'asset pour cette RPC) (=1)
+[20:29:44] PASS: V69: set_restaurant_logo refuse un nom de fichier qui n'est pas un UUID (=1)
+[20:29:45] PASS: V69: logo_url de A inchangé après toutes les tentatives d'URL non conformes ci-dessus (=https://fake.supabase.co/storage/v1/object/public/establishment-assets/7d15bde4-9d8c-4721-bf7f-c103c64c4909/logo/11111111-1111-4111-8111-111111111111.jpg)
+[20:29:45] === V69 : update_restaurant_colors ===
+[20:29:45] PASS: couleurs #RRGGBB valides acceptées par owner A (succès) (=0)
+[20:29:45] PASS: les 3 couleurs sont bien persistées en base (=#5C3A21,#F3E6D0,#C99A48)
+[20:29:45] PASS: couleur mal formée ('red', pas #RRGGBB) refusée (=1)
+[20:29:45] PASS: couleur mal formée (forme courte #FFF, pas #RRGGBB) refusée (=1)
+[20:29:45] PASS: les 3 couleurs NULL (réinitialisation) acceptées (=0)
+[20:29:45] PASS: les 3 couleurs sont bien réinitialisées à NULL en base (=<NULL>,<NULL>,<NULL>)
+[20:29:45] PASS: staff A NE PEUT PAS appeler update_restaurant_colors (=1)
+[20:29:45] PASS: manager B NE PEUT PAS appeler update_restaurant_colors pour l'établissement A (=1)
+[20:29:45] === V69/V70 : update_restaurant_maps_url (colonne maps_url après V70, F-02) ===
+[20:29:45] PASS: lien de localisation https valide accepté par owner A (succès) (=0)
+[20:29:45] PASS: maps_url mis à jour en base après succès de la RPC (=https://maps.app.goo.gl/abc123)
+[20:29:45] PASS: lien 'javascript:...' refusé (=1)
+[20:29:45] PASS: maps_url inchangé après la tentative refusée (=https://maps.app.goo.gl/abc123)
+[20:29:45] PASS: F-02: lien http:// désormais REFUSÉ (https strictement obligatoire) (=1)
+[20:29:45] PASS: maps_url inchangé après la tentative http:// refusée (=https://maps.app.goo.gl/abc123)
+[20:29:45] PASS: lien de localisation NULL (réinitialisation) accepté (=0)
+[20:29:45] PASS: maps_url réinitialisé à NULL en base (=<NULL>)
+[20:29:45] PASS: staff A NE PEUT PAS appeler update_restaurant_maps_url (=1)
+[20:29:45] === F-01 : opérateur Scanym peut appeler update_restaurant_colors ET update_restaurant_maps_url pour N'IMPORTE QUEL établissement ===
+[20:29:45] PASS: F-01: opérateur Scanym peut appeler update_restaurant_colors pour B (succès, sans rôle restaurant_users sur B) (=0)
+[20:29:45] PASS: F-01: couleurs de B mises à jour par l'opérateur (=#123456)
+[20:29:45] PASS: F-01: opérateur Scanym peut appeler update_restaurant_maps_url pour B (succès) (=0)
+[20:29:45] PASS: manager B NE PEUT PAS appeler update_restaurant_maps_url pour l'établissement A (=1)
+[20:29:45] === F-01 : lecture opérateur (SELECT restaurant_configs/restaurants), établissement 'onboarding' (pas encore public) ===
+[20:29:46] PASS: précondition : restaurant A est bien 'onboarding' (pas 'active'), donc pas lisible publiquement (=onboarding)
+[20:29:46] PASS: F-01: opérateur Scanym peut SELECT restaurant_configs de A, bien qu'onboarding et hors restaurant_users (=1)
+[20:29:46] PASS: F-01: opérateur Scanym peut SELECT restaurants (nom/slug) de A (=1)
+[20:29:46] PASS: manager B (non-opérateur) NE VOIT TOUJOURS PAS restaurant_configs de A (aucun élargissement d'accès pour les non-opérateurs) (=0)
+[20:29:46] === V70-01/4 : réglage CORRECT + URL Storage correcte -> PASS ===
+[20:29:46] PASS: V70-01: réglage correct + URL correcte -> succès (=0)
+[20:29:46] === V70-01/5 : MAUVAIS HOST avec un chemin PARFAITEMENT valide -> REFUS (exemple critique de l'audit) ===
+[20:29:46] PASS: V70-01: host malveillant avec chemin par ailleurs valide -> échec (exemple critique de l'audit) (=1)
+[20:29:46] === V70-01/6 : bon host + MAUVAIS restaurant_id dans le chemin -> REFUS ===
+[20:29:46] PASS: V70-01: bon host mais restaurant_id d'un AUTRE établissement dans le chemin -> échec (=1)
+[20:29:46] === V70-01/7 : bon host + MAUVAIS type d'asset (cover au lieu de logo) -> REFUS ===
+[20:29:46] PASS: V70-01: bon host, bon restaurant, mais 'cover' passé à set_restaurant_logo -> échec (=1)
+[20:29:46] === V70-07 : UUID de nom de fichier malformé -> REFUS (avec réglage host correct) ===
+[20:29:46] PASS: V70-07: UUID malformé (tirets mal placés) refusé (=1)
+[20:29:46] PASS: V70-07: UUID malformé (36 tirets) refusé (=1)
+[20:29:46] PASS: V70-07: UUID malformé (trop long) refusé (=1)
+[20:29:46] PASS: V70-07: UUID malformé (trop court) refusé (=1)
+[20:29:46] PASS: V70-07: UUID malformé (hex sans tiret) refusé (=1)
+[20:29:46] === V70-07 : UUID réel généré (gen_random_uuid) accepté ===
+[20:29:46] PASS: V70-07: UUID réel (gen_random_uuid) accepté (=0)
+[20:29:46] === V70-04 : maps_url structurellement invalide -> REFUS ===
+[20:29:46] PASS: V70-04: maps_url invalide (host vide) refusée (=1)
+[20:29:46] PASS: V70-04: maps_url invalide (schéma seul) refusée (=1)
+[20:29:46] PASS: V70-04: maps_url invalide (data) refusée (=1)
+[20:29:46] PASS: V70-04: maps_url invalide (javascript) refusée (=1)
+[20:29:46] PASS: V70-04: maps_url invalide (http) refusée (=1)
+[20:29:46] === V70-04 : maps_url https structurellement valide -> PASS, NULL toujours accepté ===
+[20:29:46] PASS: V70-04: maps_url https valide acceptée (=0)
+[20:29:47] PASS: V70-04: maps_url NULL toujours acceptée (retrait) (=0)
+[20:29:47] === V70-05 : double colonne google_maps_url + maps_url -> migration V71 refuse de s'appliquer ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[20:29:49] PASS: V70-05: migration V71 refuse explicitement l'état double-colonne (google_maps_url + maps_url)
+[20:29:49] PASS: V70-05: aucune modification appliquée après le refus (maps_url toujours présente, état inchangé) (=1)
+[20:29:49] === V71-01/1 : succès normal -- une valeur réelle est bien extraite ===
+[20:29:49] PASS: succès normal : valeur correctement extraite (=42)
+[20:29:49] === V71-01/2 : erreur SQL volontaire -- DOIT échouer, jamais un PASS ===
+[20:29:49] PASS: V71-01: erreur SQL volontaire (division par zéro) correctement détectée comme échec (code=1, jamais masqué par || true)
+[20:29:49] === V71-01/3 : connexion impossible (base inexistante) -- DOIT échouer ===
+[20:29:49] PASS: V71-01: connexion impossible correctement détectée comme échec (code=2)
+[20:29:49] === V71-01/4 : commande retournant ZÉRO ligne -- DOIT échouer (pas de valeur exploitable) ===
+[20:29:49] PASS: V71-01: commande à 0 ligne correctement détectée comme échec (jamais une valeur vide traitée comme un succès)
+[20:29:49] === V71-01/5 : sortie partielle SUIVIE d'une erreur -- DOIT échouer malgré la sortie déjà produite ===
+[20:29:49] PASS: V71-01: sortie partielle plausible + erreur réelle correctement détectée comme échec (code de sortie vérifié AVANT toute extraction de valeur)
+[20:29:49] === V71-01/6 : aucun SIGPIPE (psql_one ne pipe jamais directement depuis psql, sortie entièrement capturée en mémoire) ===
+[20:29:49] PASS: V71-01: 5 appels psql répétés sans SIGPIPE (=OK)
+[20:29:49] === V71-01/7 : re-confirmation -- l'ancien patron aurait laissé passer ce cas comme un succès, psql_one ne le fait plus ===
+[20:29:49] PASS: V71-01: re-confirmation -- erreur SQL volontaire toujours correctement détectée après plusieurs appels successifs
+[20:29:49] === V72-06/V72-07 : matrice partagée maps_url rejouée côté SQL (source unique avec tests/v73-hardening.test.ts, grammaire V73 -- espaces/retours ligne périphériques, port borné) ===
+[20:29:51] PASS: V71-03: toutes les lignes de la matrice partagée concordent entre TypeScript et SQL (=0)
+[20:29:51] PASS: V71-03: 24/24 lignes de la matrice partagée exécutées avec succès côté SQL
+[20:29:51] === V71-07/1 : restaurants.id historique non conforme au format UUID v4 -> migration V72 refuse de s'appliquer ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[20:29:53] PASS: V71-07: migration V72 refuse explicitement un restaurants.id historique non-v4, message exploitable
+[20:29:53] PASS: V71-07: aucune modification appliquée après le refus (contrainte reste sous forme V71, pas la forme stricte V72)
+[20:29:53] === V71-07/2 : chemin storage.objects historique non conforme au format attendu -> migration V72 refuse de s'appliquer ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[20:29:55] PASS: V71-07: migration V72 refuse explicitement un chemin storage.objects historique non conforme, message exploitable
+[20:29:55] === V71-07/3 : données propres (le cas normal de ce harnais, déjà passées par V72 plus haut) -> continue normalement (déjà confirmé) ===
+[20:29:55] PASS: V71-07: confirmé plus haut -- migration V72 appliquée sans erreur sur ce stand-in dont les données sont conformes
+[20:29:55] === V72-05/1 : chemin exact (uuid/logo/uuid.ext) -> ACCEPTÉ ===
+[20:29:55] PASS: V72-05: chemin exact accepté
+[20:29:55] === V72-05/2 : segment intermédiaire (uuid/logo/a/uuid.ext) -> REFUSÉ ===
+[20:29:55] PASS: V72-05: segment intermédiaire refusé
+[20:29:55] === V72-05/3 : segment avant le type (uuid/x/logo/uuid.ext) -> REFUSÉ ===
+[20:29:55] PASS: V72-05: segment avant le type refusé
+[20:29:55] === V72-05/4 : double slash (uuid//logo/uuid.ext) -> REFUSÉ ===
+[20:29:55] PASS: V72-05: double slash refusé
+[20:29:55] === V72-05/5 : chemin sans nom de fichier (uuid/logo/) -> REFUSÉ ===
+[20:29:55] PASS: V72-05: chemin sans nom de fichier refusé
+[20:29:55] === V72-05/6 : chemin à 5 segments (uuid/logo/a/b/c) -> REFUSÉ ===
+[20:29:55] PASS: V72-05: chemin à 5 segments refusé
+[20:29:55] === V72-05/7 : cover exact -> ACCEPTÉ ===
+[20:29:55] PASS: V72-05: chemin cover exact accepté
+[20:29:55] === V72-05/8 : restaurant_id d'un AUTRE établissement dans le chemin -> REFUSÉ ===
+[20:29:55] PASS: V72-05: restaurant_id d'un autre établissement refusé
+[20:29:55] === V76-01/1 : table de configuration VIDÉE (jamais configurée) -> appel RPC RÉEL doit échouer ===
+[20:29:55] PASS: V76-01: précondition -- la table est bien vide (0 ligne réelle, pas une valeur invalide) (=0)
+[20:29:55] PASS: V76-01: appel RPC réel refusé avec une table de configuration vide (fail-closed réellement démontré, pas seulement une contrainte)
+[20:29:55] === V76-01/2 : configuration VALIDE puis SUPPRIMÉE -> l'appel RPC redevient un échec ===
+[20:29:56] PASS: V76-01: précondition -- appel RPC réussit bien avec une configuration valide en place
+[20:29:56] PASS: V76-01: configuration valide puis supprimée -> l'appel RPC échoue à nouveau (fail-closed maintenu dans le temps, pas seulement à l'installation)
+[20:29:56] PASS: V76-01: configuration restaurée pour la suite du harnais
+[20:29:56] === V77-02 : matrice complète host + port (corrige le contournement rapporté par Work) ===
+[20:29:56] PASS: V77-02: https://127.0.0.1 seul (https://127.0.0.1) (=0)
+[20:29:56] PASS: V77-02: host DNS valide + port valide (sub.example.com:8443) (https://sub.example.com:8443) (=1)
+[20:29:56] PASS: V77-02: https://127.0.0.1:5432 (même piège avec port) (https://127.0.0.1:5432) (=0)
+[20:29:56] PASS: V77-02: https://1:443 (port ne doit PAS excuser un host numérique) (https://1:443) (=0)
+[20:29:56] PASS: V77-02: https://999.999.999.999:443 (même piège avec port) (https://999.999.999.999:443) (=0)
+[20:29:56] PASS: V77-02: valeur réelle de Production toujours acceptée (https://ctqfpszwunfomrbxgigu.supabase.co) (=1)
+[20:29:56] PASS: V77-02: host DNS valide + port valide (example.com:443) (https://example.com:443) (=1)
+[20:29:56] PASS: V77-02: https://999.999.999.999 seul (https://999.999.999.999) (=0)
+[20:29:56] PASS: V77-02: https://1 seul (https://1) (=0)
+[20:29:56] === V76-04 : matrice complète de validation d'origine (17 cas exigés) ===
+[20:29:56] PASS: V76-04: query (https://ctqfpszwunfomrbxgigu.supabase.co?x) (=0)
+[20:29:56] PASS: V76-04: host façon IP mal formée (999.999.999.999) (https://999.999.999.999) (=0)
+[20:29:56] PASS: V76-04: port 65536 (https://ctqfpszwunfomrbxgigu.supabase.co:65536) (=0)
+[20:29:56] PASS: V76-04: host numérique nu (https://1) (https://1) (=0)
+[20:29:56] PASS: V76-04: path (https://ctqfpszwunfomrbxgigu.supabase.co/path) (=0)
+[20:29:56] PASS: V76-04: fragment (https://ctqfpszwunfomrbxgigu.supabase.co#x) (=0)
+[20:29:57] PASS: V76-04: host débutant par un chiffre mais non purement numérique (https://3proxy.example.com) (=1)
+[20:29:57] PASS: V76-04: port 0 (https://ctqfpszwunfomrbxgigu.supabase.co:0) (=0)
+[20:29:57] PASS: V76-04: port valide 8443 (https://ctqfpszwunfomrbxgigu.supabase.co:8443) (=1)
+[20:29:57] PASS: V76-04: host vide (https://) (=0)
+[20:29:57] PASS: V76-04: slash final (https://ctqfpszwunfomrbxgigu.supabase.co/) (=0)
+[20:29:57] PASS: V76-04: HTTP (schéma refusé) (http://ctqfpszwunfomrbxgigu.supabase.co) (=0)
+[20:29:57] PASS: V76-04: origine Production valide (https://ctqfpszwunfomrbxgigu.supabase.co) (=1)
+[20:29:57] PASS: V76-04: port 99999 (https://ctqfpszwunfomrbxgigu.supabase.co:99999) (=0)
+[20:29:57] PASS: V76-04: espace en tête (=0)
+[20:29:57] PASS: V76-04: espace en fin (=0)
+[20:29:57] PASS: V76-04: retour ligne en fin (=0)
+[20:29:57] === V76-04 : V71 édité réutilise le MÊME helper (pas une regex divergente) ===
+[20:29:57] PASS: V76-04: migration-v71-hardening.sql appelle bien le helper partagé (=1)
+[20:29:57] === V77-03 : anti-dérive structurel complet (6 scénarios de dérive de assert_establishment_asset_url) ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[20:29:59] PASS: V77-03: mauvais type de retour (boolean au lieu de void) -- migration V71 refuse explicitement (dérive détectée)
+[20:29:59] PASS: V77-03: non SECURITY DEFINER -- migration V71 refuse explicitement (dérive détectée)
+[20:29:59] PASS: V77-03: mauvais search_path (absent) -- migration V71 refuse explicitement (dérive détectée)
+[20:29:59] PASS: V77-03: mauvaise volatilité (volatile au lieu de stable) -- migration V71 refuse explicitement (dérive détectée)
+[20:30:00] PASS: V77-03: overload (deuxième fonction du même nom, arité différente) -- migration V71 refuse explicitement (dérive détectée)
+[20:30:00] PASS: V77-03: corps V70 dérivé (marqueur caractéristique absent) -- migration V71 refuse explicitement (dérive détectée)
+[20:30:00] HARNESS SELF-TEST : journal indépendant vide et concordant avec FAIL_COUNT (0) -- aucun échec masqué possible.
+[20:30:00] === RÉSULTAT FINAL : 183 réussis, 0 échoués ===
+TOUTES LES VÉRIFICATIONS D'ISOLATION STORAGE ONT RÉUSSI

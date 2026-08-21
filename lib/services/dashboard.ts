@@ -398,6 +398,15 @@ export interface RestaurantSettingsRow {
   opening_hours: string | null;
   currency: string;
   whatsapp_number: string;
+  /** Identité visuelle (V68) — voir lib/services/establishment-assets.ts. */
+  logo_url: string | null;
+  cover_url: string | null;
+  /** Couleurs personnalisées + lien de localisation/itinéraire (V69,
+   *  corrigé V70 : nom de colonne indépendant du fournisseur). */
+  primary_color: string | null;
+  secondary_color: string | null;
+  accent_color: string | null;
+  maps_url: string | null;
 }
 
 export async function getRestaurantSettings(
@@ -406,7 +415,7 @@ export async function getRestaurantSettings(
   const { data, error } = await supabase
     .from("restaurant_configs")
     .select(
-      "staff_receipt_language, address, opening_hours, currency, whatsapp_number"
+      "staff_receipt_language, address, opening_hours, currency, whatsapp_number, logo_url, cover_url, primary_color, secondary_color, accent_color, maps_url"
     )
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
@@ -419,8 +428,85 @@ export async function getRestaurantSettings(
       opening_hours: null,
       currency: "DZD",
       whatsapp_number: "",
+      logo_url: null,
+      cover_url: null,
+      primary_color: null,
+      secondary_color: null,
+      accent_color: null,
+      maps_url: null,
     }
   );
+}
+
+// ------------------------------------------------------------------
+// Identité visuelle de l'établissement (V68) — logo & cover. Écriture
+// exclusivement via ces deux RPC (set_restaurant_logo/_cover,
+// restaurant_configs a toute écriture directe révoquée pour
+// anon/authenticated depuis migration-v39-settings.sql), chacune
+// réservée owner/manager du restaurant ou opérateur Scanym
+// (assert_restaurant_asset_role, migration-v68-establishment-assets.sql).
+// p_url = null retire l'asset (reset explicite de la colonne à NULL).
+// ------------------------------------------------------------------
+
+export async function setRestaurantLogo(
+  restaurantId: string,
+  url: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("set_restaurant_logo", {
+    p_restaurant_id: restaurantId,
+    p_url: url,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setRestaurantCover(
+  restaurantId: string,
+  url: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("set_restaurant_cover", {
+    p_restaurant_id: restaurantId,
+    p_url: url,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------------------------------
+// Couleurs personnalisées & lien de localisation/itinéraire (V69,
+// corrigé V70). Écriture exclusivement via ces deux RPC, réservées
+// owner/manager du restaurant OU opérateur Scanym (F-01, migration-v70 :
+// mêmes assert_restaurant_asset_role que set_restaurant_logo/_cover,
+// pour que le Super Admin puisse consulter/modifier ces réglages
+// exactement comme le logo et la cover, sans logique dupliquée).
+// Validation stricte (#RRGGBB / URL https) côté serveur ET côté UI
+// (lib/color-contrast.ts, lib/maps-url.ts) — le message d'erreur RPC
+// reste la source de vérité en cas de contournement de la validation
+// client.
+// ------------------------------------------------------------------
+
+export async function updateRestaurantColors(
+  restaurantId: string,
+  primaryColor: string | null,
+  secondaryColor: string | null,
+  accentColor: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_colors", {
+    p_restaurant_id: restaurantId,
+    p_primary_color: primaryColor,
+    p_secondary_color: secondaryColor,
+    p_accent_color: accentColor,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function updateRestaurantMapsUrl(
+  restaurantId: string,
+  mapsUrl: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_maps_url", {
+    p_restaurant_id: restaurantId,
+    p_maps_url: mapsUrl,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function updateRestaurantSettings(

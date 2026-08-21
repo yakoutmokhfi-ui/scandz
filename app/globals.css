@@ -8,10 +8,26 @@
   --sc-accent: #A3651F;
   --sc-accent-dark: #8A5322;
   --sc-highlight: #C6A15B;
+  --sc-accent-text: #ffffff;
+  --sc-ink-text: #ffffff;
+  --sc-ink-text-on-bg-20: #000000;
+  --sc-ink-on-bg: #221510;
+  --sc-highlight-on-ink: #C6A15B;
+  --sc-accent-dark-on-bg: #8A5322;
+  --sc-ink-on-bg-muted: #625752;
+  --sc-accent-dark-on-bg-muted: #8A5322;
 }
 
 body {
-  @apply bg-crema text-espresso antialiased;
+  /* Corrige V73-02 (contre-audit Work, 4e tour) : text-espresso ici
+     est la couleur de TEXTE PAR DÉFAUT héritée par tout élément de
+     l'application sans classe de couleur explicite -- --sc-ink
+     (espresso) est personnalisable via secondary_color, mais ce fond
+     de page (crema/--sc-bg) ne l'est jamais. text-ink-on-bg (calculée,
+     jamais choisie par le commerçant) remplace cette base pour que
+     TOUT texte hérité, pas seulement les classes explicites
+     corrigées composant par composant, reste garanti lisible. */
+  @apply bg-crema text-ink-on-bg antialiased;
 }
 
 /* Typographie éditoriale du template Luxe. La pile repose sur des
