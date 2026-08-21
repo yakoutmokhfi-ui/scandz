@@ -15,7 +15,7 @@ export default function QuantityControl({
     return (
       <button
         onClick={() => onChange(1)}
-        className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-white active:bg-caramel-dark"
+        className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-caramel-ink active:bg-caramel-dark"
       >
         {t("add")}
       </button>
@@ -35,7 +35,7 @@ export default function QuantityControl({
       <button
         onClick={() => onChange(1)}
         aria-label={t("ariaIncrease")}
-        className="h-7 w-7 rounded-full bg-caramel font-bold text-white"
+        className="h-7 w-7 rounded-full bg-caramel font-bold text-caramel-ink"
       >
         +
       </button>

@@ -45,8 +45,8 @@ export default function CategoryNav({
                 className={
                   "flex-1 basis-[8rem] rounded-xl px-4 py-3 text-center text-sm font-semibold transition-colors " +
                   (isActive
-                    ? "bg-caramel text-white shadow-sm"
-                    : "bg-white text-espresso/80 shadow-sm")
+                    ? "bg-caramel text-caramel-ink shadow-sm"
+                    : "bg-white text-ink-on-bg shadow-sm")
                 }
               >
                 {tName(category, lang)}
@@ -89,8 +89,8 @@ export default function CategoryNav({
                     className={
                       "text-center text-[0.7rem] leading-tight " +
                       (isActive
-                        ? "font-bold text-espresso"
-                        : "font-medium text-espresso/60")
+                        ? "font-bold text-ink-on-bg"
+                        : "font-medium text-ink-on-bg-muted")
                     }
                   >
                     {label}

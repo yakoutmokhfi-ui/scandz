@@ -26,7 +26,7 @@ export default function RestaurantInfoCard({
       content: (
         <a
           href={`tel:${phone.replace(/[\s.]/g, "")}`}
-          className="font-medium text-caramel-dark underline-offset-2 hover:underline"
+          className="font-medium text-accent-dark-on-bg underline-offset-2 hover:underline"
         >
           <Ltr>{phone}</Ltr>
         </a>
@@ -59,10 +59,10 @@ export default function RestaurantInfoCard({
               {row.icon}
             </span>
             <div className="min-w-0 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-espresso/50">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
                 {row.label}
               </p>
-              <p className="text-espresso/85">{row.content}</p>
+              <p className="text-ink-on-bg">{row.content}</p>
             </div>
           </div>
         ))}

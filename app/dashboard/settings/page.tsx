@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import {
@@ -8,12 +8,26 @@ import {
   getRestaurantSettings,
   updateRestaurantSettings,
   updateRestaurantWhatsapp,
+  updateRestaurantColors,
+  updateRestaurantMapsUrl,
 } from "@/lib/services/dashboard";
+import {
+  addOrReplaceEstablishmentAsset,
+  removeEstablishmentAsset,
+  validateEstablishmentAssetFile,
+  AssetUploadError,
+  AssetRemoveError,
+  InvalidFileTypeError,
+  FileTooLargeError,
+  type EstablishmentAssetKind,
+} from "@/lib/services/establishment-assets";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
-import { canEditProducts } from "@/lib/roles";
+import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { translate, type Lang } from "@/lib/i18n";
 import { isValidWhatsappNumber, normalizeWhatsappNumber } from "@/lib/whatsapp";
+import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
+import { isValidMapsUrl, normalizeMapsUrl, MAPS_URL_MAX_LENGTH } from "@/lib/maps-url";
 
 const LANGUAGES = [
   { code: "fr", label: "Français" },
@@ -29,13 +43,54 @@ export default function SettingsPage() {
   const [address, setAddress] = useState("");
   const [hours, setHours] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  // Couleurs personnalisées + lien de localisation/itinéraire (V69).
+  // Champ vide ("") = pas de valeur (NULL en base) : distinct d'une
+  // couleur/URL invalide, qui bloque l'enregistrement (voir submit()).
+  const [primaryColor, setPrimaryColor] = useState("");
+  const [secondaryColor, setSecondaryColor] = useState("");
+  const [accentColor, setAccentColor] = useState("");
+  const [mapsUrl, setMapsUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Accès Super Admin (F-01) : un opérateur Scanym (scanym_operators)
+  // n'a généralement AUCUNE ligne dans restaurant_users -- il consulte
+  // et modifie un établissement via un lien direct (?r=<restaurant_id>,
+  // ex. depuis la page de création d'établissement), pas via le
+  // sélecteur "mes établissements" ci-dessous. isScanymOperator()
+  // réutilise exactement le même service que app/admin/establishments/new
+  // (aucune logique dupliquée) ; get_establishment_summary de même.
+  const [isOperator, setIsOperator] = useState(false);
+  const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
 
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
-  const canEdit = canEditProducts(mapping?.role);
+  // Corrige V71-06 (contre-audit Work, 2e tour) : le mode d'édition
+  // doit se fonder sur les PERMISSIONS EFFECTIVES (le rôle réel
+  // restaurant_users), jamais sur la seule présence/absence d'un
+  // rattachement quelconque. Un opérateur ÉGALEMENT présent dans
+  // restaurant_users avec le rôle 'staff' n'obtient PAS le formulaire
+  // complet : mapping existe, mais son rôle n'autorise pas
+  // WhatsApp/adresse/horaires/langue (canEditFull = false pour staff,
+  // exactement comme pour un opérateur sans aucun rattachement). Les
+  // droits SQL du staff ne sont jamais élargis par ce correctif --
+  // seul le comportement d'AFFICHAGE et d'APPEL RPC change côté
+  // interface, pour rester cohérent avec ce que le staff pouvait déjà
+  // faire (ou pas) avant même l'existence du statut opérateur.
+  const canEditFull = mapping?.role === "owner" || mapping?.role === "manager";
+  // Un opérateur peut modifier N'IMPORTE QUEL établissement pour les
+  // champs logo/cover/couleurs/maps_url (assert_restaurant_asset_role
+  // côté SQL, voir migration-v70), MÊME sans rôle owner/manager réel.
+  const canEdit = isOperator || canEditFull;
+  // Mode opérateur restreint : opérateur ET rôle réel n'autorisant PAS
+  // le formulaire complet -- couvre à la fois "aucun rattachement" et
+  // "rattachement staff", les deux cas où canEditFull est faux. Un
+  // opérateur qui est PAR AILLEURS légitimement owner/manager
+  // (canEditFull=true) garde le formulaire complet : ce n'est pas son
+  // statut d'opérateur qui l'autorise alors, mais son rôle réel.
+  const isOperatorOnlyMode = isOperator && !canEditFull;
   // Les réglages s'affichent dans la langue enregistrée, pas dans
   // celle en cours d'édition : le libellé ne saute pas pendant le
   // choix, il suit après enregistrement.
@@ -52,6 +107,12 @@ export default function SettingsPage() {
       setAddress(s.address ?? "");
       setHours(s.opening_hours ?? "");
       setWhatsapp(s.whatsapp_number ?? "");
+      setLogoUrl(s.logo_url ?? null);
+      setCoverUrl(s.cover_url ?? null);
+      setPrimaryColor(s.primary_color ?? "");
+      setSecondaryColor(s.secondary_color ?? "");
+      setAccentColor(s.accent_color ?? "");
+      setMapsUrl(s.maps_url ?? "");
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("mcLoadFailed"));
@@ -66,15 +127,34 @@ export default function SettingsPage() {
         return;
       }
       try {
-        const next = await getMerchantRestaurants();
-        if (next.length === 0) {
+        const [next, opFlag] = await Promise.all([
+          getMerchantRestaurants(),
+          isScanymOperator(),
+        ]);
+        setIsOperator(opFlag);
+        setMappings(next);
+
+        const wanted = new URLSearchParams(window.location.search).get("r");
+        const match = wanted
+          ? next.find((m) => m.restaurant_id === wanted)
+          : undefined;
+
+        if (wanted && !match && opFlag) {
+          // Opérateur Scanym consultant un établissement hors de ses
+          // propres rattachements restaurant_users (F-01) : le lien
+          // ?r=<id> fait foi, la protection réelle reste côté RPC
+          // (assert_restaurant_asset_role côté SQL).
+          setRestaurantId(wanted);
+          try {
+            const summary = await getEstablishmentSummary(wanted);
+            setOperatorRestaurantName(summary.name);
+          } catch {
+            // Best-effort : un nom introuvable n'empêche pas de
+            // continuer, l'ID reste affiché par défaut (voir plus bas).
+          }
+        } else if (next.length === 0) {
           setError(t("mcNoRestaurant"));
         } else {
-          setMappings(next);
-          const wanted = new URLSearchParams(window.location.search).get("r");
-          const match = wanted
-            ? next.find((m) => m.restaurant_id === wanted)
-            : undefined;
           setRestaurantId((match ?? next[0]).restaurant_id);
         }
       } catch (e) {
@@ -94,42 +174,120 @@ export default function SettingsPage() {
     setError(null);
     setSaved(false);
 
+    // Couleurs et lien de localisation/itinéraire : toujours validés
+    // et enregistrés, pour owner/manager COMME pour un opérateur
+    // Scanym en mode opérateur seul (V70-02) -- ce sont exactement
+    // les champs qu'il est autorisé à modifier.
+    for (const c of [primaryColor, secondaryColor, accentColor]) {
+      if (c.trim() !== "" && !isValidHexColor(c.trim())) {
+        setError(t("stColorInvalid"));
+        return;
+      }
+    }
+    // Corrige V73-01 (contre-audit Work, 4e tour) : la chaîne BRUTE
+    // (`mapsUrl`, l'état du champ tel que saisi) est validée EN
+    // PREMIER, jamais une version déjà nettoyée par normalizeMapsUrl.
+    // L'ordre précédent (normaliser PUIS valider la valeur normalisée)
+    // laissait passer un espace/retour ligne en tête ou fin -- la
+    // normalisation les aurait silencieusement effacés avant même que
+    // isValidMapsUrl() ne les voie, alors que sa propre grammaire
+    // stricte est conçue pour les refuser explicitement (voir
+    // lib/maps-url.ts, corrige V72-06). Si la valeur brute est
+    // vide/blanche uniquement, c'est un champ vidé (traité comme
+    // NULL) ; sinon, elle doit passer isValidMapsUrl() TELLE QUELLE.
+    if (mapsUrl.trim() !== "" && !isValidMapsUrl(mapsUrl)) {
+      setError(t("stMapsInvalid"));
+      return;
+    }
+    // À ce stade, mapsUrl est soit vide/blanc (champ vidé), soit une
+    // valeur qui a déjà passé la validation SUR SA FORME BRUTE -- par
+    // construction, une valeur non vide qui valide n'a AUCUN espace
+    // périphérique (la grammaire stricte l'exclut), donc ce
+    // normalizeMapsUrl() ci-dessous ne fait plus qu'un trim
+    // strictement sans effet sur une valeur déjà validée -- jamais un
+    // moyen de transformer une entrée invalide en entrée valide.
+    const cleanMapsUrl = normalizeMapsUrl(mapsUrl);
+
     // Validation effective côté interface, avant tout appel réseau :
     // le SQL revalide de la même façon, mais on évite ici un
     // aller-retour serveur pour une saisie manifestement invalide,
     // et on affiche un message explicite plutôt que l'erreur brute
-    // renvoyée par la RPC.
-    const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
-    if (!isValidWhatsappNumber(cleanWhatsapp)) {
-      setError(t("stWhatsappInvalid"));
-      return;
+    // renvoyée par la RPC. UNIQUEMENT pour owner/manager (V70-02) :
+    // un opérateur en mode opérateur seul ne touche jamais à ces
+    // champs, valider une valeur qu'il n'a pas pu modifier n'aurait
+    // aucun sens et bloquerait inutilement l'enregistrement de ses
+    // propres champs autorisés.
+    if (!isOperatorOnlyMode) {
+      const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
+      if (!isValidWhatsappNumber(cleanWhatsapp)) {
+        setError(t("stWhatsappInvalid"));
+        return;
+      }
     }
 
     setSaving(true);
-    try {
-      // Le numéro WhatsApp est enregistré EN PREMIER et son échec
-      // interrompt l'enregistrement : cela évite qu'une adresse ou des
-      // horaires soient sauvegardés alors que le numéro WhatsApp,
-      // rejeté par la RPC dédiée (autorisation, format...), ne l'est
-      // pas — l'utilisateur verrait alors un message d'échec global
-      // alors qu'une partie des réglages aurait quand même changé.
-      await updateRestaurantWhatsapp(restaurantId, cleanWhatsapp);
-      setWhatsapp(cleanWhatsapp);
 
-      await updateRestaurantSettings(
-        restaurantId,
-        lang,
-        address.trim() || null,
-        hours.trim() || null
-      );
+    // Corrige V70-02 : WhatsApp/adresse/horaires/langue ne sont
+    // JAMAIS appelés en mode opérateur seul -- ni validés, ni
+    // enregistrés, ni même lus comme condition de blocage. Pour
+    // owner/manager (ou un opérateur qui est PAR AILLEURS
+    // légitimement owner/manager de cet établissement), le
+    // comportement reste EXACTEMENT celui d'avant V71 : ces RPC sont
+    // appelées en premier, un échec interrompt tout le reste (même
+    // raison qu'avant -- éviter qu'une partie des réglages change
+    // pendant qu'une autre échoue silencieusement).
+    if (!isOperatorOnlyMode) {
+      const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
+      try {
+        await updateRestaurantWhatsapp(restaurantId, cleanWhatsapp);
+        setWhatsapp(cleanWhatsapp);
 
-      setSaved(true);
-      setUiLang(lang as Lang);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("stSaveFailed"));
-    } finally {
-      setSaving(false);
+        await updateRestaurantSettings(
+          restaurantId,
+          lang,
+          address.trim() || null,
+          hours.trim() || null
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("stSaveFailed"));
+        setSaving(false);
+        return;
+      }
     }
+
+    try {
+      await updateRestaurantColors(
+        restaurantId,
+        primaryColor.trim() || null,
+        secondaryColor.trim() || null,
+        accentColor.trim() || null
+      );
+    } catch {
+      setError(t("stColorsSaveError"));
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await updateRestaurantMapsUrl(restaurantId, cleanMapsUrl || null);
+      setMapsUrl(cleanMapsUrl);
+    } catch {
+      setError(t("stMapsSaveError"));
+      setSaving(false);
+      return;
+    }
+
+    setSaved(true);
+    if (!isOperatorOnlyMode) {
+      setUiLang(lang as Lang);
+    }
+    setSaving(false);
+  }
+
+  function resetColors() {
+    setPrimaryColor("");
+    setSecondaryColor("");
+    setAccentColor("");
   }
 
   if (loading) {
@@ -139,7 +297,7 @@ export default function SettingsPage() {
   return (
     <>
       <DashboardNav
-        restaurantName={mapping?.restaurants?.name ?? t("stTitle")}
+        restaurantName={mapping?.restaurants?.name ?? operatorRestaurantName ?? t("stTitle")}
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}
@@ -165,6 +323,12 @@ export default function SettingsPage() {
           </p>
         )}
 
+        {canEdit && isOperatorOnlyMode && (
+          <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+            {t("stOperatorOnlyMode")}
+          </p>
+        )}
+
         {error && (
           <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
             {error}
@@ -172,6 +336,7 @@ export default function SettingsPage() {
         )}
 
         <form onSubmit={submit}>
+        {!isOperatorOnlyMode && (
         <section className="mt-5 rounded-2xl border border-stone-200 bg-white p-4">
           <h3 className="font-bold text-stone-900">{t("stLangTitle")}</h3>
           <p className="mt-1 text-sm text-stone-500">
@@ -199,7 +364,9 @@ export default function SettingsPage() {
             ))}
           </div>
         </section>
+        )}
 
+        {!isOperatorOnlyMode && (
         <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
           <h3 className="font-bold text-stone-900">{t("stInfoTitle")}</h3>
           <p className="mt-1 text-sm text-stone-500">
@@ -232,7 +399,47 @@ export default function SettingsPage() {
             {t("stHoursHint")}
           </p>
         </section>
+        )}
 
+        {/* Corrige V70-02 : maps_url a sa PROPRE section, distincte
+            d'adresse/horaires -- c'est un champ autorisé pour un
+            opérateur Scanym en mode opérateur seul, donc toujours
+            rendu quand canEdit, indépendamment de isOperatorOnlyMode. */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stMapsTitle")}</h3>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              value={mapsUrl}
+              onChange={(e) => setMapsUrl(e.target.value)}
+              disabled={!canEdit}
+              maxLength={MAPS_URL_MAX_LENGTH}
+              placeholder="https://maps.app.goo.gl/…"
+              dir="ltr"
+              className={
+                "min-w-0 flex-1 rounded-xl border p-2.5 text-sm disabled:bg-stone-50 " +
+                (mapsUrl.trim() === "" || isValidMapsUrl(mapsUrl)
+                  ? "border-stone-300"
+                  : "border-amber-500 bg-amber-50")
+              }
+            />
+            {mapsUrl.trim() !== "" && isValidMapsUrl(mapsUrl) && (
+              <a
+                href={normalizeMapsUrl(mapsUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 rounded-xl border border-stone-300 px-3 py-2.5 text-xs font-semibold text-stone-700"
+              >
+                {t("stMapsTest")}
+              </a>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-stone-500">{t("stMapsHint")}</p>
+          {mapsUrl.trim() !== "" && !isValidMapsUrl(mapsUrl) && (
+            <p className="mt-1 text-xs font-semibold text-amber-700">{t("stMapsInvalid")}</p>
+          )}
+        </section>
+
+        {!isOperatorOnlyMode && (
         <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
           <h3 className="font-bold text-stone-900">{t("stWhatsappTitle")}</h3>
           <p className="mt-1 text-sm text-stone-500">{t("stWhatsappHint")}</p>
@@ -249,6 +456,75 @@ export default function SettingsPage() {
             dir="ltr"
             className="mt-3 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
           />
+        </section>
+        )}
+
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stIdentityTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stIdentityHint")}</p>
+
+          <div className="mt-3">
+            <p className="mb-1.5 text-xs font-semibold text-stone-600">{t("stLogoTitle")}</p>
+            <AssetField
+              kind="logo"
+              restaurantId={restaurantId}
+              currentUrl={logoUrl}
+              disabled={!canEdit}
+              t={t}
+              onChanged={setLogoUrl}
+            />
+          </div>
+
+          <div className="mt-4">
+            <p className="mb-1.5 text-xs font-semibold text-stone-600">{t("stCoverTitle")}</p>
+            <AssetField
+              kind="cover"
+              restaurantId={restaurantId}
+              currentUrl={coverUrl}
+              disabled={!canEdit}
+              t={t}
+              onChanged={setCoverUrl}
+            />
+          </div>
+
+          <div className="mt-5 border-t border-stone-100 pt-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-stone-900">{t("stColorsTitle")}</h4>
+              {(primaryColor || secondaryColor || accentColor) && (
+                <button
+                  type="button"
+                  onClick={resetColors}
+                  disabled={!canEdit}
+                  className="text-xs font-semibold text-stone-500 underline disabled:opacity-40"
+                >
+                  {t("stColorsReset")}
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-stone-500">{t("stColorsHint")}</p>
+
+            <ColorField
+              label={t("stPrimaryColor")}
+              value={primaryColor}
+              onChange={setPrimaryColor}
+              disabled={!canEdit}
+              t={t}
+            />
+            <ColorField
+              label={t("stSecondaryColor")}
+              value={secondaryColor}
+              onChange={setSecondaryColor}
+              disabled={!canEdit}
+              t={t}
+            />
+            <ColorField
+              label={t("stAccentColor")}
+              value={accentColor}
+              onChange={setAccentColor}
+              disabled={!canEdit}
+              t={t}
+            />
+          </div>
         </section>
 
         {canEdit && (
@@ -270,5 +546,286 @@ export default function SettingsPage() {
         </form>
       </main>
     </>
+  );
+}
+
+/**
+ * Bloc logo OU cover (V68) — un seul composant générique paramétré par
+ * `kind`, réutilisé deux fois par SettingsPage. Flux : sélection d'un
+ * fichier -> validation immédiate côté client (taille, signature
+ * binaire réelle, la même que lib/services/establishment-assets.ts) ->
+ * aperçu local (URL.createObjectURL) AVANT tout appel réseau ->
+ * confirmation explicite ("Enregistrer") déclenche l'upload réel ;
+ * "Annuler" abandonne la sélection sans rien envoyer. Aucun appel
+ * réseau tant que l'utilisateur n'a pas confirmé.
+ */
+function AssetField({
+  kind,
+  restaurantId,
+  currentUrl,
+  disabled,
+  t,
+  onChanged,
+}: {
+  kind: EstablishmentAssetKind;
+  restaurantId: string;
+  currentUrl: string | null;
+  disabled: boolean;
+  t: (k: string, p?: Record<string, string | number>) => string;
+  onChanged: (url: string | null) => void;
+}) {
+  const inputId = `establishment-asset-${kind}`;
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
+
+  // Révoque l'aperçu local en quittant la page, pour ne pas fuir
+  // d'URL objet créée mais jamais confirmée ni annulée.
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
+  }, []);
+
+  function clearPending() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingFile(null);
+    setPreviewUrl(null);
+  }
+
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permet de re-choisir le même fichier ensuite
+    if (!file) return;
+    setLocalError(null);
+    try {
+      await validateEstablishmentAssetFile(file);
+    } catch (err) {
+      if (err instanceof InvalidFileTypeError) setLocalError(t("stAssetInvalidType"));
+      else if (err instanceof FileTooLargeError) setLocalError(t("stAssetTooLarge"));
+      else setLocalError(t("stAssetUploadError"));
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPendingFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  }
+
+  async function confirmUpload() {
+    if (!pendingFile) return;
+    setBusy(true);
+    setLocalError(null);
+    try {
+      const newUrl = await addOrReplaceEstablishmentAsset(
+        restaurantId,
+        kind,
+        pendingFile,
+        currentUrl
+      );
+      clearPending();
+      onChanged(newUrl);
+    } catch (err) {
+      if (err instanceof AssetUploadError) {
+        console.error(`Establishment ${kind} upload failed:`, err.cause);
+        setLocalError(t("stAssetUploadError"));
+      } else if (err instanceof InvalidFileTypeError) {
+        setLocalError(t("stAssetInvalidType"));
+      } else if (err instanceof FileTooLargeError) {
+        setLocalError(t("stAssetTooLarge"));
+      } else {
+        setLocalError(t("stAssetUploadError"));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    // Confirmation avant suppression : geste irréversible (le fichier
+    // Storage est ensuite nettoyé), même précédent qu'ailleurs dans le
+    // dashboard (window.confirm natif, aucun composant de dialogue
+    // dédié dans le projet à ce jour).
+    if (!window.confirm(deleteConfirmLabel)) return;
+    setBusy(true);
+    setLocalError(null);
+    try {
+      await removeEstablishmentAsset(restaurantId, kind, currentUrl);
+      onChanged(null);
+    } catch (err) {
+      if (err instanceof AssetRemoveError) {
+        console.error(`Establishment ${kind} remove failed:`, err.cause);
+      }
+      setLocalError(t("stAssetRemoveError"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const label = kind === "logo" ? t("stLogoTitle") : t("stCoverTitle");
+  const noneLabel = kind === "logo" ? t("stLogoNone") : t("stCoverNone");
+  const changeLabel = kind === "logo" ? t("stLogoChange") : t("stCoverChange");
+  const deleteConfirmLabel =
+    kind === "logo" ? t("stAssetDeleteLogoConfirm") : t("stAssetDeleteCoverConfirm");
+  const displayUrl = previewUrl ?? currentUrl;
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+      <div className="flex items-center gap-3">
+        {displayUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={displayUrl}
+            alt={t("stAssetPreviewAlt", { label })}
+            className={
+              kind === "logo"
+                ? "h-14 w-14 shrink-0 rounded-full object-cover"
+                : "h-14 w-24 shrink-0 rounded-lg object-cover"
+            }
+          />
+        ) : (
+          <div
+            className={
+              "flex shrink-0 items-center justify-center rounded-lg border border-dashed border-stone-300 text-[10px] text-stone-400 " +
+              (kind === "logo" ? "h-14 w-14 rounded-full" : "h-14 w-24")
+            }
+          >
+            {noneLabel}
+          </div>
+        )}
+
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {!pendingFile && (
+            <>
+              <label
+                htmlFor={inputId}
+                aria-disabled={disabled || busy}
+                className={
+                  "cursor-pointer rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold " +
+                  (disabled || busy ? "pointer-events-none opacity-40" : "")
+                }
+              >
+                {changeLabel}
+              </label>
+              <input
+                id={inputId}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={disabled || busy}
+                onChange={handleFileChange}
+              />
+              {currentUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemove}
+                  disabled={disabled || busy}
+                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-40"
+                >
+                  {t("stAssetRemove")}
+                </button>
+              )}
+            </>
+          )}
+
+          {pendingFile && (
+            <>
+              <button
+                type="button"
+                onClick={confirmUpload}
+                disabled={busy}
+                className="rounded-xl bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {busy ? t("stAssetSaving") : t("mcSave")}
+              </button>
+              <button
+                type="button"
+                onClick={clearPending}
+                disabled={busy}
+                className="rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-40"
+              >
+                {t("mcCancel")}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {localError && (
+        <p className="mt-2 text-xs font-semibold text-amber-700">{localError}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Un champ couleur personnalisée (V69) : color picker HTML natif
+ * synchronisé avec un champ texte #RRGGBB (les deux modifient le
+ * même état, aucune divergence possible), plus un aperçu ("Aa") qui
+ * réutilise EXACTEMENT readableTextColor (lib/color-contrast.ts) — la
+ * même fonction qui déterminera la couleur du texte réellement rendue
+ * sur la carte publique, pas une approximation visuelle séparée.
+ * Vide = pas de personnalisation (thème Scanym par défaut).
+ */
+function ColorField({
+  label,
+  value,
+  onChange,
+  disabled,
+  t,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  const trimmed = value.trim();
+  const valid = trimmed === "" || isValidHexColor(trimmed);
+  const pickerValue = valid && trimmed !== "" ? trimmed : "#ffffff";
+
+  return (
+    <div className="mt-3">
+      <label className="block text-xs font-semibold text-stone-600">{label}</label>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="color"
+          value={pickerValue}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-stone-300 disabled:cursor-not-allowed disabled:opacity-40"
+        />
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          maxLength={7}
+          placeholder="#RRGGBB"
+          dir="ltr"
+          className={
+            "w-28 rounded-xl border p-2 text-sm disabled:bg-stone-50 " +
+            (valid ? "border-stone-300" : "border-amber-500 bg-amber-50")
+          }
+        />
+        {trimmed !== "" && valid && (
+          <span
+            aria-hidden="true"
+            className="rounded-lg px-2.5 py-1.5 text-xs font-bold"
+            style={{ backgroundColor: trimmed, color: readableTextColor(trimmed) }}
+          >
+            Aa
+          </span>
+        )}
+      </div>
+      {!valid && (
+        <p className="mt-1 text-xs font-semibold text-amber-700">{t("stColorInvalid")}</p>
+      )}
+    </div>
   );
 }

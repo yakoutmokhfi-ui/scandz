@@ -86,16 +86,16 @@ export default function MenuItemCard({
               )}
             </div>
             {tShortDescription(item, lang) && (
-              <p className="mt-0.5 text-sm text-espresso/60">
+              <p className="mt-0.5 text-sm text-ink-on-bg-muted">
                 {tShortDescription(item, lang)}
               </p>
             )}
             <div className="mt-auto flex items-baseline justify-between gap-2 pt-2">
-              <span className="font-bold text-caramel-dark">
+              <span className="font-bold text-accent-dark-on-bg">
                 <Ltr>{formatPrice(item.price, currency)}</Ltr>
               </span>
               {quantity > 0 && (
-                <span className="text-sm font-semibold text-espresso">
+                <span className="text-sm font-semibold text-ink-on-bg">
                   <Ltr>
                     {quantity} × {formatPrice(item.price * quantity, currency)}
                   </Ltr>
@@ -141,14 +141,14 @@ export default function MenuItemCard({
           )}
         </div>
         {tShortDescription(item, lang) && (
-          <p className="mt-0.5 line-clamp-2 text-sm text-espresso/60">
+          <p className="mt-0.5 line-clamp-2 text-sm text-ink-on-bg-muted">
             {tShortDescription(item, lang)}
           </p>
         )}
 
         <div className="mt-auto pt-2">
           <div className="flex items-end justify-between gap-2">
-            <span className="font-bold text-caramel-dark">
+            <span className="font-bold text-accent-dark-on-bg">
               <Ltr>{formatPrice(item.price, currency)}</Ltr>
             </span>
 
@@ -163,7 +163,7 @@ export default function MenuItemCard({
               quantity === 0 ? (
                 <button
                   onClick={onAdd}
-                  className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-white active:bg-caramel-dark"
+                  className="rounded-full bg-caramel px-4 py-1.5 text-sm font-semibold text-caramel-ink active:bg-caramel-dark"
                 >
                   {t("add")}
                 </button>
@@ -182,7 +182,7 @@ export default function MenuItemCard({
                   <button
                     onClick={onAdd}
                     aria-label={t("ariaIncrease")}
-                    className="h-7 w-7 rounded-full bg-caramel font-bold text-white"
+                    className="h-7 w-7 rounded-full bg-caramel font-bold text-caramel-ink"
                   >
                     +
                   </button>
@@ -197,7 +197,7 @@ export default function MenuItemCard({
           </div>
 
           {requiresChoice && quantity > 0 && (
-            <p className="mt-2 text-right text-xs font-semibold text-caramel-dark">
+            <p className="mt-2 text-right text-xs font-semibold text-accent-dark-on-bg">
               {t("alreadyInCart", { n: quantity })}
             </p>
           )}

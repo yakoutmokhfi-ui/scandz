@@ -1,0 +1,63 @@
+# Scanym — matrice de test partagée maps_url (V73, corrige V72-06/V72-07)
+#
+# SOURCE UNIQUE consommée à l'identique par :
+#   - tests/v73-hardening.test.ts (isValidMapsUrl, TypeScript)
+#   - supabase/tests/v68-storage-policy-check.sh (update_restaurant_maps_url, SQL)
+#
+# Prouve la parité TypeScript/SQL PAR CONSTRUCTION (un seul jeu de cas,
+# consommé par les deux côtés), pas par ressemblance visuelle de deux
+# regex écrites séparément.
+#
+# Format : une ligne par cas, champs séparés par une tabulation :
+#   accepted(0|1)<TAB>description<TAB>valeur brute encodée en base64
+#
+# L'encodage base64 permet d'inclure sans ambiguïté des valeurs
+# contenant des espaces, tabulations ou retours ligne.
+#
+# Contrat V73 (corrige V71-03, V72-06, V72-07 -- sous-ensemble HTTPS
+# strict et commun, jamais la grammaire WHATWG complète) :
+#   - schéma https:// strictement obligatoire, minuscule ;
+#   - host non vide, débutant par un caractère alphanumérique,
+#     jamais par "/", "?", "#", ":" ni la fin de chaîne ;
+#   - port optionnel (:NNN), STRICTEMENT dans la plage 1-65535
+#     (corrige V72-07) ;
+#   - chemin optionnel après "/", sans espace ni retour ligne ;
+#   - la chaîne BRUTE est validée telle que reçue -- un espace ou
+#     retour ligne en tête/fin d'une valeur NON VIDE est refusé
+#     explicitement, jamais nettoyé silencieusement puis validé
+#     (corrige V72-06) ;
+#   - longueur raisonnable (≤ 500 caractères).
+
+1	basique, host simple	aHR0cHM6Ly9leGFtcGxlLmNvbQ==
+1	avec chemin	aHR0cHM6Ly9leGFtcGxlLmNvbS9wYXRo
+1	raccourcisseur de lien réel	aHR0cHM6Ly9tYXBzLmFwcC5nb28uZ2wvYWJj
+1	sous-domaine multiple	aHR0cHM6Ly9hLmIuZXhhbXBsZS5jb20vcGF0aA==
+1	port valide 443	aHR0cHM6Ly9leGFtcGxlLmNvbTo0NDM=
+1	port valide 8443 avec chemin	aHR0cHM6Ly9leGFtcGxlLmNvbTo4NDQzL2E=
+0	triple slash (host vide en pratique, refusé explicitement)	aHR0cHM6Ly8vcGF0aA==
+0	schéma seul, rien après	aHR0cHM6Ly8=
+0	query seule, pas de host	aHR0cHM6Ly8/eA==
+0	fragment seul, pas de host	aHR0cHM6Ly8jeA==
+0	port seul, pas de host	aHR0cHM6Ly86NDQz
+0	http (non https)	aHR0cDovL2V4YW1wbGUuY29t
+0	javascript:	amF2YXNjcmlwdDphbGVydCgxKQ==
+0	data:	ZGF0YTp0ZXh0L2h0bWwseA==
+0	espace au milieu du host	aHR0cHM6Ly9leGEgbXBsZS5jb20=
+0	retour ligne au milieu de l'URL	aHR0cHM6Ly9leGFtcGxlLmNvbS9wYQpoZWM=
+0	espace en tête (V72-06)	IGh0dHBzOi8vZXhhbXBsZS5jb20=
+0	espace en fin (V72-06)	aHR0cHM6Ly9leGFtcGxlLmNvbSA=
+0	retour ligne en tête (V72-06)	Cmh0dHBzOi8vZXhhbXBsZS5jb20=
+0	retour ligne en fin (V72-06)	aHR0cHM6Ly9leGFtcGxlLmNvbQo=
+0	port 0 invalide (V72-07)	aHR0cHM6Ly9leGFtcGxlLmNvbTow
+0	port 65536 hors plage (V72-07)	aHR0cHM6Ly9leGFtcGxlLmNvbTo2NTUzNg==
+0	port 99999 hors plage (V72-07)	aHR0cHM6Ly9leGFtcGxlLmNvbTo5OTk5OQ==
+0	port vide après deux-points (V72-07)	aHR0cHM6Ly9leGFtcGxlLmNvbTo=
+#
+# NOTE — chaîne vide / espaces seuls DÉLIBÉRÉMENT ABSENTS de cette
+# matrice : ce ne sont pas des cas de la grammaire HTTPS stricte, mais
+# une préoccupation DISTINCTE ("effacer le champ", traité comme
+# équivalent à NULL, TOUJOURS accepté côté RPC). isValidMapsUrl("")
+# renvoie néanmoins `false` en tant que fonction PURE de validation de
+# grammaire -- ce n'est pas contradictoire, c'est une couche
+# sémantique différente, testée séparément (voir
+# tests/v73-hardening.test.ts, section "NULL/vide = effacement").

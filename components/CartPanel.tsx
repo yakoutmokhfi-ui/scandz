@@ -90,7 +90,7 @@ export default function CartPanel({
           <button
             onClick={onClose}
             aria-label={t("ariaCloseCart")}
-            className="rounded-full px-3 py-1 text-sm font-medium text-espresso/60"
+            className="rounded-full px-3 py-1 text-sm font-medium text-ink-on-bg-muted"
           >
             {t("close")} ✕
           </button>
@@ -98,7 +98,7 @@ export default function CartPanel({
 
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-3 pb-6">
           {lines.length === 0 ? (
-            <p className="py-8 text-center text-sm text-espresso/60">
+            <p className="py-8 text-center text-sm text-ink-on-bg-muted">
               {t("cartEmpty")}
             </p>
           ) : (
@@ -113,12 +113,12 @@ export default function CartPanel({
                       {tName(item, lang)}
                     </p>
                     {option && (
-                      <p className="text-xs text-espresso/60">
+                      <p className="text-xs text-ink-on-bg-muted">
                         {t(optionKind === "flavor" ? "optFlavor" : "optPastry")} :{" "}
                         {tName(option, lang)}
                       </p>
                     )}
-                    <p className="mt-0.5 text-sm text-caramel-dark">
+                    <p className="mt-0.5 text-sm text-accent-dark-on-bg">
                       <Ltr>{formatPrice(item.price * quantity, currency)}</Ltr>
                     </p>
                   </div>
@@ -160,7 +160,7 @@ export default function CartPanel({
               <div className="mt-4">
                 <label
                   htmlFor="order-note"
-                  className="text-xs font-semibold uppercase tracking-wide text-espresso/60"
+                  className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted"
                 >
                   {t("noteLabel")}
                 </label>
@@ -181,7 +181,7 @@ export default function CartPanel({
                 <p
                   className={
                     "mt-1 text-right text-xs " +
-                    (noteState.isValid ? "text-espresso/50" : "font-semibold text-amber-700")
+                    (noteState.isValid ? "text-ink-on-bg-muted" : "font-semibold text-amber-700")
                   }
                 >
                   {t("noteCounter", {
@@ -198,7 +198,7 @@ export default function CartPanel({
           <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-espresso/10 bg-crema px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
             {settings.allowedServiceModes.length > 1 && (
               <div className="mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-espresso/60">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
                   {t("howToReceive")}
                 </p>
                 <div className="mt-2 flex gap-2">
@@ -224,8 +224,8 @@ export default function CartPanel({
                           (deliveryIncomplete
                             ? "border-amber-500 bg-amber-50 text-amber-900"
                             : selected
-                              ? "border-caramel bg-caramel text-white"
-                              : "border-transparent bg-white text-espresso shadow-sm")
+                              ? "border-caramel bg-caramel text-caramel-ink"
+                              : "border-transparent bg-white text-ink-on-bg shadow-sm")
                         }
                       >
                         <span className="block">
@@ -257,7 +257,7 @@ export default function CartPanel({
 
             {canSubmit && noteState.isValid ? (
               <>
-                <p className="mb-2 text-center text-sm text-espresso/70">
+                <p className="mb-2 text-center text-sm text-ink-on-bg-muted">
                   {t("whatsappNotice")}
                 </p>
                 <button
@@ -275,7 +275,7 @@ export default function CartPanel({
                 </button>
               </>
             ) : (
-              <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-espresso/60">
+              <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
                 {!noteState.isValid ? t("noteTooLong") : missing}
               </p>
             )}

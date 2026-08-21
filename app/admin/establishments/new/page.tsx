@@ -248,6 +248,14 @@ export default function CreateEstablishmentPage() {
           <p>
             {tAdmin("successStatusLabel")} {summary?.status ?? result.status}
           </p>
+          <p>
+            <a
+              href={`/dashboard/settings?r=${result.restaurantId}`}
+              className="text-emerald-700 underline"
+            >
+              {tAdmin("configureIdentity")}
+            </a>
+          </p>
         </div>
 
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4">

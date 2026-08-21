@@ -56,33 +56,33 @@ export default function OrderConfirmation({
         <h1 className="mt-6 text-2xl font-bold">
           {t("confirmTitle")}
         </h1>
-        <p className="mt-2 text-sm text-espresso/70">
+        <p className="mt-2 text-sm text-ink-on-bg-muted">
           {t("confirmSubtitle", { name: restaurant.name })}
         </p>
 
         {orderNumber !== null && (
-          <p className="mt-4 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-white">
+          <p className="mt-4 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink">
             {t("orderNumber", { n: orderNumber })}
           </p>
         )}
 
         <div className="mt-6 space-y-2 rounded-2xl bg-white p-4 text-left text-sm shadow-sm">
           {contextSummary(context, t).map((line) => (
-            <p key={line} className="text-espresso/80">
+            <p key={line} className="text-ink-on-bg">
               {line}
             </p>
           ))}
-          <p className="text-espresso/70">
+          <p className="text-ink-on-bg-muted">
             {t("confirmStaff")}
           </p>
           {isTable && (
-            <p className="text-espresso/70">
+            <p className="text-ink-on-bg-muted">
               {t("confirmServed")}
             </p>
           )}
         </div>
 
-        <p className="mt-6 text-sm italic text-caramel-dark">
+        <p className="mt-6 text-sm italic text-accent-dark-on-bg">
           {t("confirmThanks", { name: restaurant.name })}
           <br />
           {t("confirmEnjoy")}
@@ -91,13 +91,13 @@ export default function OrderConfirmation({
         <div className="mt-8 space-y-3">
           <button
             onClick={onBackToMenu}
-            className="w-full rounded-xl bg-caramel py-3.5 font-bold text-white"
+            className="w-full rounded-xl bg-caramel py-3.5 font-bold text-caramel-ink"
           >
             {t("backToMenu")}
           </button>
           <button
             onClick={onNewOrder}
-            className="w-full rounded-xl border border-caramel py-3.5 font-bold text-caramel-dark"
+            className="w-full rounded-xl border border-caramel py-3.5 font-bold text-accent-dark-on-bg"
           >
             {t("newOrder")}
           </button>

@@ -26,8 +26,8 @@ export default function TableSelector({
             className={
               "rounded-lg py-2 text-sm font-semibold " +
               (selected === n
-                ? "bg-caramel text-white"
-                : "bg-white text-espresso shadow-sm")
+                ? "bg-caramel text-caramel-ink"
+                : "bg-white text-ink-on-bg shadow-sm")
             }
           >
             {n}

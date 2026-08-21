@@ -96,7 +96,7 @@ export default function ProductInfoButton({
           e.stopPropagation();
           setOpen(true);
         }}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-espresso/30 text-xs font-bold text-espresso/70"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-espresso/30 text-xs font-bold text-ink-on-bg-muted"
       >
         i
       </button>
@@ -126,7 +126,7 @@ export default function ProductInfoButton({
         }}
         className="m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-espresso/10 bg-white p-4 shadow-lg backdrop:bg-espresso/20"
       >
-        <p className="whitespace-pre-line text-sm text-espresso/80">
+        <p className="whitespace-pre-line text-sm text-ink-on-bg">
           {description}
         </p>
         <button

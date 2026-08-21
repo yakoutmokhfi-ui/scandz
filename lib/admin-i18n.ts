@@ -89,6 +89,7 @@ const dict = {
   linkOwnerSuccess: "Propriétaire rattaché avec succès. Établissement actif.",
   createAnother: "Créer un autre établissement",
   viewPublicMenu: "Voir la carte publique",
+  configureIdentity: "Configurer l'identité visuelle (logo, couleurs, localisation)",
 } as const;
 
 export type AdminDictKey = keyof typeof dict;

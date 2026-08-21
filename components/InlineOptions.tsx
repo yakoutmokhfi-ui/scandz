@@ -22,7 +22,7 @@ export default function InlineOptions({
 
   return (
     <div className="mt-3 border-t border-espresso/10 pt-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-caramel-dark">
+      <p className="text-xs font-semibold uppercase tracking-wide text-accent-dark-on-bg">
         {t("ourFlavors")}
       </p>
 
@@ -56,7 +56,16 @@ export default function InlineOptions({
                 <span
                   className={
                     "min-w-4 text-center text-sm font-bold " +
-                    (n === 0 ? "text-espresso/30" : "text-espresso")
+                    // Corrige V73-02 (contre-audit Work, 4e tour) :
+                    // text-espresso -> text-ink-on-bg (calculée) pour
+                    // l'état ACTIF (n > 0, vrai texte lisible).
+                    // text-espresso/30 pour l'état à zéro reste
+                    // INCHANGÉ : exemption WCAG explicite pour les
+                    // composants d'interface désactivés/inactifs
+                    // (même état que le bouton "−" juste à côté,
+                    // disabled={n === 0}) -- ni du contenu à lire, ni
+                    // une action disponible.
+                    (n === 0 ? "text-espresso/30" : "text-ink-on-bg")
                   }
                 >
                   {n}
@@ -64,7 +73,7 @@ export default function InlineOptions({
                 <button
                   onClick={() => onChange(choice, 1)}
                   aria-label={t("ariaAddOne", { name: tName(choice, lang) })}
-                  className="h-7 w-7 rounded-full bg-caramel text-sm font-bold text-white"
+                  className="h-7 w-7 rounded-full bg-caramel text-sm font-bold text-caramel-ink"
                 >
                   +
                 </button>
