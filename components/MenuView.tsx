@@ -409,7 +409,7 @@ export default function MenuView({
   }, [settings.theme, colorOverrides.primary, colorOverrides.secondary, colorOverrides.accent, colorOverrides.bg]);
 
   return (
-    <I18nProvider lang={lang}>
+    <I18nProvider lang={lang} sourceLanguage={restaurant.config.source_language ?? "fr"} activeLanguages={restaurant.activeLanguages}>
     <div
       className={`mx-auto min-h-screen max-w-lg pb-28 ${
         menuVariant === "editorial" ? "sc-template-editorial" : ""
@@ -449,12 +449,12 @@ export default function MenuView({
           <section className="mt-7">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
-                {tName(activeCategory, lang)}
+                {tName(activeCategory, lang, restaurant.config.source_language ?? "fr")}
               </h2>
-              {tCategoryDescription(activeCategory, lang) && (
+              {tCategoryDescription(activeCategory, lang, restaurant.config.source_language ?? "fr") && (
                 <ProductInfoButton
-                  description={tCategoryDescription(activeCategory, lang)!}
-                  triggerLabel={t("moreInfoAbout", { name: tName(activeCategory, lang) })}
+                  description={tCategoryDescription(activeCategory, lang, restaurant.config.source_language ?? "fr")!}
+                  triggerLabel={t("moreInfoAbout", { name: tName(activeCategory, lang, restaurant.config.source_language ?? "fr") })}
                   closeLabel={t("close")}
                 />
               )}

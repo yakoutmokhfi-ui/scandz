@@ -43,7 +43,7 @@ export default function MenuItemCard({
   onChangeChoice?: (choice: MenuItem, delta: number) => void;
   variant?: "classic" | "editorial";
 }) {
-  const { t, lang } = useI18n();
+  const { t, lang, sourceLanguage } = useI18n();
   // Photo cassée (URL présente mais 404/erreur réseau, V67) : jamais
   // affichée, jamais de bloc vide à sa place — la carte revient au
   // rendu "sans photo" dès le premier échec de chargement.
@@ -75,19 +75,19 @@ export default function MenuItemCard({
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex items-start gap-1.5">
               <h3 className="min-w-0 font-semibold leading-snug">
-                {tName(item, lang)}
+                {tName(item, lang, sourceLanguage)}
               </h3>
-              {tDescription(item, lang) && (
+              {tDescription(item, lang, sourceLanguage) && (
                 <ProductInfoButton
-                  description={tDescription(item, lang)!}
-                  triggerLabel={t("moreInfoAbout", { name: tName(item, lang) })}
+                  description={tDescription(item, lang, sourceLanguage)!}
+                  triggerLabel={t("moreInfoAbout", { name: tName(item, lang, sourceLanguage) })}
                   closeLabel={t("close")}
                 />
               )}
             </div>
-            {tShortDescription(item, lang) && (
+            {tShortDescription(item, lang, sourceLanguage) && (
               <p className="mt-0.5 text-sm text-ink-on-bg-muted">
-                {tShortDescription(item, lang)}
+                {tShortDescription(item, lang, sourceLanguage)}
               </p>
             )}
             <div className="mt-auto flex items-baseline justify-between gap-2 pt-2">
@@ -130,19 +130,19 @@ export default function MenuItemCard({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-start gap-1.5">
           <h3 className="min-w-0 font-semibold leading-snug">
-            {tName(item, lang)}
+            {tName(item, lang, sourceLanguage)}
           </h3>
-          {tDescription(item, lang) && (
+          {tDescription(item, lang, sourceLanguage) && (
             <ProductInfoButton
-              description={tDescription(item, lang)!}
-              triggerLabel={t("moreInfoAbout", { name: tName(item, lang) })}
+              description={tDescription(item, lang, sourceLanguage)!}
+              triggerLabel={t("moreInfoAbout", { name: tName(item, lang, sourceLanguage) })}
               closeLabel={t("close")}
             />
           )}
         </div>
-        {tShortDescription(item, lang) && (
+        {tShortDescription(item, lang, sourceLanguage) && (
           <p className="mt-0.5 line-clamp-2 text-sm text-ink-on-bg-muted">
-            {tShortDescription(item, lang)}
+            {tShortDescription(item, lang, sourceLanguage)}
           </p>
         )}
 

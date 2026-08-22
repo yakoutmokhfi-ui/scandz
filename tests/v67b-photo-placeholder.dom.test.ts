@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -13,6 +13,37 @@ import * as esbuild from "esbuild";
 // visuel est rendu à la place — un <div> vide passerait ce test-là
 // tout autant qu'un placeholder correct). Même harnais de bundling
 // que V67 (esbuild.build() réel, alias "@/" -> racine du dépôt).
+//
+// ⚠️ CORRIGE L1B1-02 (contre-audit Work, tour LOT 1B.2) : Work a
+// reproduit une instabilité réelle de ces 4 tests sous charge (671/671
+// puis 667/671 avec ces 4 précis en échec, puis de nouveau 671/671).
+// Cause racine diagnostiquée AVANT toute modification (pas supposée) :
+//
+//   1. flush() attendait un DÉLAI FIXE arbitraire (10ms) avant de
+//      vérifier le DOM -- sous charge machine, le rendu React peut ne
+//      pas encore avoir eu lieu à cet instant précis, produisant un
+//      échec intermittent selon le timing exact de l'exécution.
+//      Remplacé par waitFor() : une attente CONDITIONNELLE déterministe,
+//      qui interroge l'état réel du DOM à intervalles courts jusqu'à
+//      ce que la condition attendue soit vraie (ou qu'un délai maximal
+//      généreux soit dépassé, auquel cas le test échoue légitimement
+//      avec un message clair) -- jamais un délai arbitraire qui masque
+//      le problème en espérant qu'il soit "assez long".
+//   2. requestAnimationFrame/cancelAnimationFrame étaient remplacés
+//      par un polyfill maison basé sur setTimeout brut, DÉCONNECTÉ du
+//      cycle de vie JSDOM -- même défaut déjà corrigé ailleurs (LOT
+//      1A.1, tests/v80-lot1a1-menuview-lang.dom.test.ts) mais jamais
+//      reporté sur ce fichier plus ancien. JSDOM fournit DÉJÀ
+//      requestAnimationFrame/cancelAnimationFrame nativement via
+//      pretendToBeVisual:true -- réutilisés tels quels.
+//   3. Aucun nettoyage (window.close(), esbuild.stop()) n'existait --
+//      ajouté dans un hook after() (node:test), même technique déjà
+//      éprouvée.
+//
+// Aucune assertion affaiblie, aucun scénario supprimé, aucun
+// --test-force-exit, aucun retry masquant un échec : la cause racine
+// (synchronisation) est corrigée, le comportement testé reste
+// strictement identique.
 // ====================================================================
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -28,9 +59,11 @@ Object.defineProperty(globalThis, "navigator", {
 });
 (globalThis as any).HTMLElement = window.HTMLElement;
 (globalThis as any).Event = window.Event;
-(globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) =>
-  setTimeout(() => cb(Date.now()), 0);
-(globalThis as any).cancelAnimationFrame = (id: number) => clearTimeout(id);
+// Corrige L1B1-02 : RAF/cancelRAF réels de JSDOM (pretendToBeVisual),
+// jamais un polyfill setTimeout brut déconnecté du cycle de vie de la
+// fenêtre.
+(globalThis as any).requestAnimationFrame = window.requestAnimationFrame.bind(window);
+(globalThis as any).cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
 
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -118,9 +151,37 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 10));
 }
 
+/**
+ * Corrige L1B1-02 : attente CONDITIONNELLE déterministe, jamais un
+ * délai fixe arbitraire. Interroge `condition()` à intervalles courts
+ * jusqu'à ce qu'elle devienne vraie, ou jusqu'à un délai maximal
+ * généreux (2s -- largement suffisant pour un rendu React réel, y
+ * compris sous charge machine) -- au-delà, le test échoue
+ * légitimement avec un message explicite, jamais un faux-positif
+ * masqué par un délai trop court ni un délai artificiellement
+ * allongé pour "faire passer" le test.
+ */
+async function waitFor(
+  condition: () => boolean,
+  description: string,
+  timeoutMs = 2000,
+  intervalMs = 5
+): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitFor: condition jamais vraie dans le délai imparti (${timeoutMs}ms) -- ${description}`);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 test("Placeholder (DOM réel) : rendu effectivement présent quand image_url est absent (pas seulement 'pas de <img>')", async () => {
   const { container, root } = render(baseItem({ image_url: null }));
-  await flush();
+  await waitFor(
+    () => container.querySelector('[role="img"][aria-hidden="true"]') !== null,
+    "le placeholder doit apparaître dans le DOM"
+  );
 
   const placeholder = container.querySelector('[role="img"][aria-hidden="true"]');
   assert.ok(placeholder, "un élément role=img aria-hidden doit être rendu à la place de la photo absente");
@@ -135,7 +196,10 @@ test("Placeholder (DOM réel) : disparaît et laisse place à une vraie <img> d�
   const { container, root } = render(
     baseItem({ image_url: "https://example.supabase.co/storage/v1/object/public/product-photos/r1/p1/abc.jpg" })
   );
-  await flush();
+  await waitFor(
+    () => container.querySelector("img") !== null,
+    "une <img> réelle doit apparaître dans le DOM"
+  );
 
   assert.equal(
     container.querySelector('[role="img"][aria-hidden="true"]'),
@@ -159,12 +223,15 @@ test("Placeholder (DOM réel) : revient après échec de chargement (photo cass�
   // une image dont le CHARGEMENT échoue doit elle aussi retomber sur
   // le placeholder, pas rester un <img> cassé indéfiniment.
   const { container, root } = render(baseItem({ image_url: "https://example.invalid/broken.jpg" }));
-  await flush();
+  await waitFor(() => container.querySelector("img") !== null, "l'<img> initiale doit apparaître avant l'échec simulé");
 
   const img = container.querySelector("img")!;
   assert.ok(img, "l'image doit être tentée avant l'échec");
   img.dispatchEvent(new window.Event("error"));
-  await flush();
+  await waitFor(
+    () => container.querySelector("img") === null && container.querySelector('[role="img"][aria-hidden="true"]') !== null,
+    "après l'échec de chargement, l'<img> cassée doit disparaître et le placeholder réapparaître"
+  );
 
   assert.equal(container.querySelector("img"), null, "l'<img> cassée doit disparaître du DOM");
   const placeholder = container.querySelector('[role="img"][aria-hidden="true"]');
@@ -176,11 +243,32 @@ test("Placeholder (DOM réel) : revient après échec de chargement (photo cass�
 
 test("Placeholder (DOM réel) : comportement identique dans la variante 'editorial' (pas seulement 'classic')", async () => {
   const { container, root } = render(baseItem({ image_url: null }), "editorial");
-  await flush();
+  await waitFor(
+    () => container.querySelector('[role="img"][aria-hidden="true"]') !== null,
+    "le placeholder doit apparaître dans le DOM (variante editorial)"
+  );
 
   const placeholder = container.querySelector('[role="img"][aria-hidden="true"]');
   assert.ok(placeholder, "le placeholder doit aussi être rendu dans la variante éditoriale");
 
   root.unmount();
   container.remove();
+});
+
+after(async () => {
+  // Corrige L1B1-02 : cycle de vie complet, même technique éprouvée
+  // qu'en LOT 1A.1 (tests/v80-lot1a1-menuview-lang.dom.test.ts).
+  await new Promise((r) => setTimeout(r, 50));
+  window.close();
+  await esbuild.stop();
+  for (const h of (process as any)._getActiveHandles?.() ?? []) {
+    if (typeof h.unref === "function") h.unref();
+  }
+  delete (globalThis as any).window;
+  delete (globalThis as any).document;
+  delete (globalThis as any).navigator;
+  delete (globalThis as any).HTMLElement;
+  delete (globalThis as any).Event;
+  delete (globalThis as any).requestAnimationFrame;
+  delete (globalThis as any).cancelAnimationFrame;
 });

@@ -33,7 +33,7 @@ export default function OptionModal({
   onConfirm: (distribution: { choice: MenuItem; quantity: number }[]) => void;
   onClose: () => void;
 }) {
-  const { t, lang } = useI18n();
+  const { t, lang, sourceLanguage } = useI18n();
   const [total, setTotal] = useState(Math.max(1, initialQuantity));
   const [counts, setCounts] = useState<Record<string, number>>({});
 
@@ -176,13 +176,13 @@ export default function OptionModal({
                   }
                 >
                   <span className="min-w-0 text-sm font-semibold leading-snug">
-                    {tName(choice, lang)}
+                    {tName(choice, lang, sourceLanguage)}
                   </span>
                   <div className="flex items-center gap-3 rounded-full bg-crema px-2 py-1">
                     <button
                       onClick={() => bump(choice.id, -1)}
                       disabled={n === 0}
-                      aria-label={t("ariaRemoveOne", { name: tName(choice, lang) })}
+                      aria-label={t("ariaRemoveOne", { name: tName(choice, lang, sourceLanguage) })}
                       className={
                         "h-7 w-7 rounded-full font-bold shadow-sm " +
                         (n === 0 ? "bg-white text-espresso/30" : "bg-white")
@@ -194,7 +194,7 @@ export default function OptionModal({
                     <button
                       onClick={() => bump(choice.id, 1)}
                       disabled={remaining <= 0}
-                      aria-label={t("ariaAddOne", { name: tName(choice, lang) })}
+                      aria-label={t("ariaAddOne", { name: tName(choice, lang, sourceLanguage) })}
                       className={
                         "h-7 w-7 rounded-full font-bold text-caramel-ink " +
                         (remaining <= 0 ? "bg-caramel/30" : "bg-caramel")
@@ -223,7 +223,7 @@ export default function OptionModal({
             {complete
               ? `${t("addTotal", {
                   n: total,
-                  name: tName(item, lang),
+                  name: tName(item, lang, sourceLanguage),
                 })} — ${formatPrice(item.price * total, currency)}`
               : remaining > 0
                 ? t("distributeRemaining", { n: remaining })

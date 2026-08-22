@@ -72,6 +72,12 @@ export interface RestaurantConfig {
    *  comportement V79 inchangé. Changement après création : Sous-lot
    *  C, pas encore livré. */
   source_language?: string;
+  /** LOT 1B — traductions de intro_text/announcement_text, même
+   *  format/mécanisme que menu_categories/menu_items.translations. */
+  translations?: Translations;
+  /** LOT 1B — hash canonique, colonnes GÉNÉRÉES par PostgreSQL. */
+  intro_text_hash?: string;
+  announcement_text_hash?: string;
 }
 
 /** LOT 1A — une langue du catalogue Scanym (supported_languages),
@@ -134,6 +140,12 @@ export interface MenuCategory {
   description?: string | null;
   /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
   translations?: Translations;
+  /** LOT 1B — hash canonique de name/description, colonnes GÉNÉRÉES
+   *  par PostgreSQL (jamais recalculées côté client). Comparer ces
+   *  valeurs à translations[lang].<field>_source_hash détermine la
+   *  fraîcheur d'une traduction (voir lib/translation-resolver.ts). */
+  name_hash?: string;
+  description_hash?: string;
   menu_items: MenuItem[];
 }
 
@@ -152,6 +164,10 @@ export interface MenuItem {
   archived_at?: string | null;
   /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
   translations?: Translations;
+  /** LOT 1B — hash canonique, colonnes GÉNÉRÉES par PostgreSQL. */
+  name_hash?: string;
+  short_description_hash?: string;
+  description_hash?: string;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug

@@ -335,7 +335,7 @@ test("ProductInfoButton: chaque rendu est garde par une verification de non-vide
   // (qui contient aussi le nom dans le chemin du module).
   const occurrences = (menuItemCardSource.match(/<ProductInfoButton/g) || []).length;
   const guardedOccurrences = (
-    menuItemCardSource.match(/\{tDescription\(item, lang\) && \(/g) || []
+    menuItemCardSource.match(/\{tDescription\(item, lang, sourceLanguage\) && \(/g) || []
   ).length;
   assert.ok(occurrences >= 2, "ProductInfoButton doit etre utilise dans les deux variantes de carte");
   assert.equal(

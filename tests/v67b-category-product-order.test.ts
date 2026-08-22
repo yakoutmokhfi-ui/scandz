@@ -253,7 +253,7 @@ test("non-régression : MenuItemCard utilise toujours tShortDescription et Produ
 
 test("non-régression : MenuView câble le (i) de catégorie sans dupliquer ProductInfoButton", () => {
   const source = readFileSync("components/MenuView.tsx", "utf8");
-  assert.ok(source.includes("tCategoryDescription(activeCategory, lang)"));
+  assert.ok(source.includes('tCategoryDescription(activeCategory, lang, restaurant.config.source_language ?? "fr")'));
   const occurrences = (source.match(/<ProductInfoButton/g) || []).length;
   assert.equal(occurrences, 1, "MenuView ne doit utiliser ProductInfoButton qu'une fois (catégorie), le composant est réutilisé tel quel");
 });

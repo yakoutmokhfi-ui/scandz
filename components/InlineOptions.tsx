@@ -18,7 +18,7 @@ export default function InlineOptions({
   counts: Record<string, number>;
   onChange: (choice: MenuItem, delta: number) => void;
 }) {
-  const { t, lang } = useI18n();
+  const { t, lang, sourceLanguage } = useI18n();
 
   return (
     <div className="mt-3 border-t border-espresso/10 pt-3">
@@ -38,14 +38,14 @@ export default function InlineOptions({
               }
             >
               <span className="min-w-0 text-sm font-medium leading-snug">
-                {tName(choice, lang)}
+                {tName(choice, lang, sourceLanguage)}
               </span>
 
               <div className="flex shrink-0 items-center gap-2.5">
                 <button
                   onClick={() => onChange(choice, -1)}
                   disabled={n === 0}
-                  aria-label={t("ariaRemoveOne", { name: tName(choice, lang) })}
+                  aria-label={t("ariaRemoveOne", { name: tName(choice, lang, sourceLanguage) })}
                   className={
                     "h-7 w-7 rounded-full text-sm font-bold shadow-sm " +
                     (n === 0 ? "bg-white text-espresso/25" : "bg-white")
@@ -72,7 +72,7 @@ export default function InlineOptions({
                 </span>
                 <button
                   onClick={() => onChange(choice, 1)}
-                  aria-label={t("ariaAddOne", { name: tName(choice, lang) })}
+                  aria-label={t("ariaAddOne", { name: tName(choice, lang, sourceLanguage) })}
                   className="h-7 w-7 rounded-full bg-caramel text-sm font-bold text-caramel-ink"
                 >
                   +
