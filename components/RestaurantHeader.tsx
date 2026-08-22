@@ -42,6 +42,22 @@ export default function RestaurantHeader({
   // lien Google construit à sa place.
   const directionsUrl = config.maps_url ?? null;
 
+  // LOT 1A — nom affiché personnalisable, jamais traduit (décision
+  // CIO). NULL = repli sur restaurants.name, rendu V79 inchangé.
+  const displayName = config.display_name ?? restaurant.name;
+
+  // LOT 1A — texte de présentation en langue source uniquement dans
+  // ce sous-lot (traductions : Sous-lot B, pas encore livré) --
+  // remplace le sous-titre générique SEULEMENT si renseigné, jamais
+  // supprimé sinon : établissement sans personnalisation -> rendu
+  // V79 strictement inchangé.
+  const introText = config.intro_text ?? null;
+
+  // LOT 1A — message temporaire/actualité, affiché uniquement si
+  // ACTIF et non vide : la bascule et le contenu sont indépendants
+  // (jamais supprimé/recréé, juste désactivé).
+  const showAnnouncement = Boolean(config.announcement_active && config.announcement_text);
+
   return (
     <header
       className="relative overflow-hidden text-center text-ink-text"
@@ -56,7 +72,7 @@ export default function RestaurantHeader({
         backgroundPosition: "center",
       }}
     >
-      <LanguageSelector active={lang} onChange={onChangeLang} />
+      <LanguageSelector active={lang} onChange={onChangeLang} languages={restaurant.activeLanguages} />
 
       {/* Contenu centré verticalement avec espacements réguliers.
           Corrige V72-02 (contre-audit Work, 3e tour) : le titre et le
@@ -86,14 +102,14 @@ export default function RestaurantHeader({
         {config.logo_url && (
           <img
             src={config.logo_url}
-            alt={`Logo ${restaurant.name}`}
+            alt={`Logo ${displayName}`}
             className="h-20 w-20 rounded-full border-2 border-ink-text/60 object-cover shadow-lg"
           />
         )}
 
         <div className="rounded-2xl bg-espresso px-6 py-4 shadow-lg">
           <h1 className="font-serif text-3xl font-bold italic tracking-wide text-ink-text">
-            {restaurant.name}
+            {displayName}
           </h1>
 
           <span className="mt-1 inline-block text-ink-text/80">
@@ -101,9 +117,11 @@ export default function RestaurantHeader({
           </span>
 
           <p className="mt-2 text-sm text-ink-text">
-            {t("welcome", { name: restaurant.name })}
+            {t("welcome", { name: displayName })}
           </p>
-          <p className="mt-1 text-xs text-ink-text">{t("subtitle")}</p>
+          <p className="mt-1 text-xs text-ink-text whitespace-pre-line">
+            {introText ?? t("subtitle")}
+          </p>
         </div>
 
         {directionsUrl && (
@@ -116,11 +134,73 @@ export default function RestaurantHeader({
             📍 {t("directions")}
           </a>
         )}
+
+        {/* LOT 1A — message temporaire/actualité : affiché uniquement
+            si actif ET non vide, jamais si l'un des deux manque.
+            Panneau opaque, même discipline de contraste déterministe
+            que le reste du header (V72-02) -- pas de dépendance à la
+            photo de fond. */}
+        {showAnnouncement && (
+          <p className="mt-2 max-w-xs rounded-xl bg-espresso px-4 py-2 text-xs text-ink-text whitespace-pre-line">
+            {config.announcement_text}
+          </p>
+        )}
       </div>
 
       {/* Informations pratiques compactes, au bas du hero : elles
           n'occupent plus un bloc entier avant les catégories. */}
       <RestaurantInfoBar restaurant={restaurant} />
+
+      {/* LOT 1A — réseaux sociaux : seules les icônes des réseaux
+          réellement renseignés s'affichent, jamais une icône morte.
+          URLs déjà validées serveur (HTTPS strict, domaine exact) par
+          update_restaurant_social_links -- ce composant ne fait
+          qu'afficher, aucune validation supplémentaire nécessaire ici. */}
+      {(config.instagram_url || config.tiktok_url || config.facebook_url) && (
+        <div className="flex items-center justify-center gap-4 pb-4">
+          {config.instagram_url && (
+            <a
+              href={config.instagram_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram"
+              className="text-ink-text"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                <rect x="3" y="3" width="18" height="18" rx="5" />
+                <circle cx="12" cy="12" r="4" />
+                <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
+              </svg>
+            </a>
+          )}
+          {config.tiktok_url && (
+            <a
+              href={config.tiktok_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="TikTok"
+              className="text-ink-text"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M16.5 3c.4 2.2 1.9 3.7 4 3.9v2.6c-1.4 0-2.7-.4-3.9-1.2v6.4c0 3.2-2.3 5.3-5.2 5.3-2.9 0-5.2-2.1-5.2-4.8 0-2.7 2.3-4.8 5.2-4.8.4 0 .8 0 1.2.1v2.7a2.6 2.6 0 0 0-1.2-.3c-1.4 0-2.5 1-2.5 2.3s1.1 2.3 2.5 2.3c1.5 0 2.6-1.1 2.6-2.6V3h2.5z" />
+              </svg>
+            </a>
+          )}
+          {config.facebook_url && (
+            <a
+              href={config.facebook_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Facebook"
+              className="text-ink-text"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M13.5 21v-8h2.7l.4-3.2h-3.1V7.7c0-.9.3-1.5 1.6-1.5h1.7V3.3C16.5 3.2 15.5 3 14.4 3c-2.4 0-4 1.5-4 4.2v2.6H7.7v3.2h2.7v8h3.1z" />
+              </svg>
+            </a>
+          )}
+        </div>
+      )}
     </header>
   );
 }

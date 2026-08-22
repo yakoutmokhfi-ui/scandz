@@ -24,7 +24,8 @@ import {
   InvalidOwnerEmailError,
   NotScanymOperatorError,
 } from "@/lib/services/establishments";
-import { suggestSlug, isValidSlug, COMMERCE_TYPES, LANGUAGES, SUPPORTED_COUNTRIES, SUPPORTED_CURRENCIES, isSupportedCountry, isSupportedCurrency } from "@/lib/establishment-text";
+import { suggestSlug, isValidSlug, COMMERCE_TYPES, SUPPORTED_COUNTRIES, SUPPORTED_CURRENCIES, isSupportedCountry, isSupportedCurrency } from "@/lib/establishment-text";
+import { getSupportedLanguages } from "@/lib/services/dashboard";
 import { tAdmin } from "@/lib/admin-i18n";
 
 type FormState = {
@@ -74,12 +75,6 @@ const COMMERCE_TYPE_LABEL_KEY: Record<CommerceType, Parameters<typeof tAdmin>[0]
   other: "commerceTypeOther",
 };
 
-const LANGUAGE_LABEL_KEY: Record<Lang, Parameters<typeof tAdmin>[0]> = {
-  fr: "langFr",
-  en: "langEn",
-  ar: "langAr",
-};
-
 export default function CreateEstablishmentPage() {
   const router = useRouter();
 
@@ -93,6 +88,16 @@ export default function CreateEstablishmentPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // LOT 1A — catalogue des langues supportées par Scanym, chargé
+  // dynamiquement (remplace l'ancienne constante figée LANGUAGES de
+  // lib/establishment-text.ts) : ajouter une langue au catalogue la
+  // rend immédiatement disponible ici, sans modification de ce
+  // fichier. Le libellé natif du catalogue (ex. "Nederlands",
+  // "العربية") est utilisé directement, jamais une clé de traduction
+  // par langue à maintenir séparément.
+  const [supportedLanguages, setSupportedLanguages] = useState<
+    Array<{ code: string; label: string; dir: "ltr" | "rtl" }>
+  >([]);
 
   const [result, setResult] = useState<CreateEstablishmentResult | null>(null);
   const [summary, setSummary] = useState<EstablishmentSummary | null>(null);
@@ -117,6 +122,18 @@ export default function CreateEstablishmentPage() {
       }
     })();
   }, [router]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setSupportedLanguages(await getSupportedLanguages());
+      } catch {
+        // Best-effort : sans catalogue, les sélecteurs de langue
+        // restent simplement vides plutôt que de bloquer toute la
+        // page de création d'établissement.
+      }
+    })();
+  }, []);
 
   function updateName(name: string) {
     setForm((f) => ({
@@ -407,9 +424,9 @@ export default function CreateEstablishmentPage() {
             onChange={(e) => setForm((f) => ({ ...f, sourceLanguage: e.target.value as Lang }))}
             className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
           >
-            {LANGUAGES.map((l) => (
-              <option key={l} value={l}>
-                {tAdmin(LANGUAGE_LABEL_KEY[l])}
+            {supportedLanguages.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
               </option>
             ))}
           </select>
@@ -417,14 +434,14 @@ export default function CreateEstablishmentPage() {
         <div>
           <label className="text-xs text-stone-500">{tAdmin("fieldEnabledLanguages")}</label>
           <div className="flex gap-3">
-            {LANGUAGES.map((l) => (
-              <label key={l} className="flex items-center gap-1.5 text-sm">
+            {supportedLanguages.map((l) => (
+              <label key={l.code} className="flex items-center gap-1.5 text-sm">
                 <input
                   type="checkbox"
-                  checked={form.enabledLanguages.includes(l)}
-                  onChange={() => toggleLanguage(l)}
+                  checked={form.enabledLanguages.includes(l.code)}
+                  onChange={() => toggleLanguage(l.code)}
                 />
-                {tAdmin(LANGUAGE_LABEL_KEY[l])}
+                {l.label}
               </label>
             ))}
           </div>

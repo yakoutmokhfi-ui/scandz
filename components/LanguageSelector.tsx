@@ -1,14 +1,36 @@
 "use client";
 
-import { LANGUAGES, type Lang } from "@/lib/i18n";
+import type { Lang } from "@/lib/i18n";
+
+export interface SelectableLanguage {
+  code: string;
+  label: string;
+}
 
 export default function LanguageSelector({
   active,
   onChange,
+  languages = [],
 }: {
   active: Lang;
   onChange: (lang: Lang) => void;
+  /** LOT 1A — langues actives de CET établissement, déjà triées par
+   *  display_order (voir lib/services/restaurant.ts). Remplace la
+   *  constante globale LANGUAGES : chaque établissement choisit ses
+   *  propres langues, jamais une liste identique pour tous. Défaut
+   *  défensif [] : un appelant qui omettrait cette prop (ne devrait
+   *  jamais arriver en production, getRestaurantBySlug garantit
+   *  toujours au moins ['fr']) voit simplement le sélecteur masqué,
+   *  jamais un plantage. */
+  languages?: SelectableLanguage[];
 }) {
+  // Corrige l'exigence explicite du Lot 1A : une seule langue active
+  // -> pas de sélecteur affiché (rien à choisir), jamais un élément
+  // d'interface inutile.
+  if (languages.length <= 1) {
+    return null;
+  }
+
   return (
     // Corrige V72-02 (contre-audit Work, 3e tour) : fond ENTIÈREMENT
     // OPAQUE (plus de "/50"), positionné sur la photo de bannière.
@@ -19,7 +41,7 @@ export default function LanguageSelector({
     // derrière. Un fond opaque rend --sc-ink-text (déjà calculée avec
     // précision) réellement garantie, indépendamment de l'image.
     <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-espresso p-1">
-      {LANGUAGES.map((lang) => (
+      {languages.map((lang) => (
         <button
           key={lang.code}
           onClick={() => onChange(lang.code)}

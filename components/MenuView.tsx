@@ -99,7 +99,27 @@ export default function MenuView({
   );
   const menuVariant = restaurant.slug === DEMO_SLUG ? "editorial" : "classic";
 
-  const [lang, setLang] = useState<Lang>("fr");
+  // Corrige L1A-02 (contre-audit Work, tour 1A.1) : la langue
+  // publique initiale suit désormais RÉELLEMENT la configuration de
+  // CET établissement -- plus jamais un "fr" figé indépendamment de
+  // source_language/langues actives. Priorité : (1) source_language,
+  // si elle appartient bien aux langues actives ; (2) sinon la
+  // première langue active selon display_order (déjà l'ordre de
+  // restaurant.activeLanguages, voir lib/services/restaurant.ts).
+  // Aucun repli global "fr" tant qu'une configuration établissement
+  // valide existe -- le "fr" ci-dessous n'est qu'un filet de sécurité
+  // TypeScript, jamais atteint en pratique (activeLanguages contient
+  // toujours au moins une langue, voir getRestaurantBySlug). Un
+  // établissement V79 migré (source_language='fr' par défaut) garde
+  // donc exactement son comportement historique.
+  const [lang, setLang] = useState<Lang>(() => {
+    const activeLanguages = restaurant.activeLanguages;
+    const source = restaurant.config.source_language;
+    if (source && activeLanguages.some((l) => l.code === source)) {
+      return source;
+    }
+    return activeLanguages[0]?.code ?? "fr";
+  });
   const [cart, setCart] = useState<Cart>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string>(
@@ -363,6 +383,11 @@ export default function MenuView({
     primary: restaurant.config.primary_color ?? null,
     secondary: restaurant.config.secondary_color ?? null,
     accent: restaurant.config.accent_color ?? null,
+    // LOT 1A — couleur de fond personnalisable, réutilise
+    // intégralement le mécanisme de contraste existant (aucune
+    // nouvelle logique). NULL = fond du thème par défaut, rendu V79
+    // strictement inchangé.
+    bg: restaurant.config.bg_color ?? null,
   };
 
   /**
@@ -381,7 +406,7 @@ export default function MenuView({
       for (const key of Object.keys(vars)) root.style.removeProperty(key);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.theme, colorOverrides.primary, colorOverrides.secondary, colorOverrides.accent]);
+  }, [settings.theme, colorOverrides.primary, colorOverrides.secondary, colorOverrides.accent, colorOverrides.bg]);
 
   return (
     <I18nProvider lang={lang}>
@@ -389,7 +414,7 @@ export default function MenuView({
       className={`mx-auto min-h-screen max-w-lg pb-28 ${
         menuVariant === "editorial" ? "sc-template-editorial" : ""
       }`}
-      dir={dirOf(lang)}
+      dir={dirOf(lang, restaurant.activeLanguages)}
       style={
         {
           ...themeStyle(settings.theme, colorOverrides),

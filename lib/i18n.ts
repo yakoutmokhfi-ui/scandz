@@ -6,10 +6,38 @@ export const LANGUAGES = [
   { code: "ar", label: "العربية", dir: "rtl" },
 ] as const;
 
-export type Lang = (typeof LANGUAGES)[number]["code"];
+// LOT 1A : Lang était un type union strict "fr"|"en"|"ar", codé en
+// dur. Élargi à `string` pour accepter toute langue du catalogue
+// Scanym (supported_languages), y compris NL et les langues futures,
+// sans modification ultérieure de ce fichier. Le repli gracieux
+// existait déjà partout (translate(): `DICTS[lang] ?? fr`, dirOf():
+// ternaire sur "ar" uniquement) -- vérifié qu'aucun switch/pattern
+// exhaustif sur ce type n'existe dans le codebase avant ce
+// changement. LANGUAGES/DICTS restent les 3 langues pour lesquelles
+// l'interface elle-même (libellés de bouton, etc.) est traduite ;
+// une langue active sans dictionnaire UI (ex. NL avant sa propre
+// traduction d'interface) affiche simplement l'interface en français,
+// jamais une erreur.
+export type Lang = string;
 
-export function dirOf(lang: Lang): "ltr" | "rtl" {
-  return lang === "ar" ? "rtl" : "ltr";
+/**
+ * Corrige L1A-03 (contre-audit Work, tour 1A.1) : la direction
+ * d'écriture est désormais dérivée du CATALOGUE (supported_languages.dir,
+ * transmis via `languages`), jamais d'une liste de langues RTL codée
+ * en dur ici. Ajouter une langue RTL future au catalogue (base de
+ * données) suffit à obtenir le bon rendu, sans aucune modification de
+ * ce fichier.
+ *
+ * `languages` : les langues actives de CET établissement (chacune
+ * porte déjà son propre `dir`, lu depuis supported_languages via la
+ * jointure de lib/services/restaurant.ts) -- jamais une liste
+ * générique partagée entre tous les établissements.
+ */
+export function dirOf(
+  lang: Lang,
+  languages: ReadonlyArray<{ code: string; dir: "ltr" | "rtl" }>
+): "ltr" | "rtl" {
+  return languages.find((l) => l.code === lang)?.dir ?? "ltr";
 }
 
 type Dict = Record<string, string>;
@@ -261,6 +289,32 @@ const fr: Dict = {
   stMapsInvalid: "Lien invalide (doit commencer par https://)",
   stMapsTest: "Tester le lien",
   stMapsSaveError: "Échec de l'enregistrement du lien de localisation",
+  // LOT 1A — identité, apparence, réseaux sociaux, langues.
+  stIdentityContentTitle: "Identité et présentation",
+  stDisplayName: "Nom affiché",
+  stDisplayNameHelp: "Laissez vide pour utiliser le nom de l'établissement.",
+  stDisplayNameTooLong: "Le nom affiché est trop long (255 caractères maximum)",
+  stIntroText: "Texte de présentation",
+  stIntroTooLong: "Le texte de présentation est trop long (2000 caractères maximum)",
+  stAnnouncementText: "Message temporaire",
+  stAnnouncementActive: "Afficher le message sur la carte",
+  stAnnouncementTooLong: "Le message temporaire est trop long (500 caractères maximum)",
+  stIdentitySaveError: "Échec de l'enregistrement de l'identité",
+  stBgColorLabel: "Couleur de fond",
+  stSocialTitle: "Réseaux sociaux",
+  stInstagramInvalid: "Lien Instagram invalide (ex. https://instagram.com/votrecompte)",
+  stTiktokInvalid: "Lien TikTok invalide (ex. https://tiktok.com/@votrecompte)",
+  stFacebookInvalid: "Lien Facebook invalide (ex. https://facebook.com/votrepage)",
+  stSocialSaveError: "Échec de l'enregistrement des réseaux sociaux",
+  stLanguagesTitle: "Langues",
+  stLanguagesHelp: "Choisissez les langues proposées à vos clients. La langue source ne peut pas être retirée.",
+  stSourceLanguage: "Langue source",
+  stSourceLanguageNotActive: "La langue source doit faire partie des langues actives",
+  stLanguagesSaveError: "Échec de l'enregistrement des langues",
+  stMoveLanguageUp: "Monter",
+  stMoveLanguageDown: "Descendre",
+  stRemoveLanguage: "Retirer",
+  stAddLanguage: "Ajouter une langue",
   dsLogout: "Déconnexion",
   dsViewMenu: "Voir le menu",
   mcEditBaseHint: "Vous modifiez la version originale de votre carte. Les traductions sont mises à jour ensuite par Scanym.",
@@ -544,6 +598,32 @@ const en: Dict = {
   stMapsInvalid: "Invalid link (must start with https://)",
   stMapsTest: "Test the link",
   stMapsSaveError: "Failed to save the location link",
+  // LOT 1A — identity, appearance, social links, languages.
+  stIdentityContentTitle: "Identity and presentation",
+  stDisplayName: "Display name",
+  stDisplayNameHelp: "Leave empty to use the restaurant's name.",
+  stDisplayNameTooLong: "Display name is too long (255 characters max)",
+  stIntroText: "Introduction text",
+  stIntroTooLong: "Introduction text is too long (2000 characters max)",
+  stAnnouncementText: "Temporary message",
+  stAnnouncementActive: "Show the message on the public menu",
+  stAnnouncementTooLong: "Temporary message is too long (500 characters max)",
+  stIdentitySaveError: "Failed to save the identity",
+  stBgColorLabel: "Background color",
+  stSocialTitle: "Social media",
+  stInstagramInvalid: "Invalid Instagram link (e.g. https://instagram.com/youraccount)",
+  stTiktokInvalid: "Invalid TikTok link (e.g. https://tiktok.com/@youraccount)",
+  stFacebookInvalid: "Invalid Facebook link (e.g. https://facebook.com/yourpage)",
+  stSocialSaveError: "Failed to save social media links",
+  stLanguagesTitle: "Languages",
+  stLanguagesHelp: "Choose the languages offered to your customers. The source language cannot be removed.",
+  stSourceLanguage: "Source language",
+  stSourceLanguageNotActive: "The source language must be part of the active languages",
+  stLanguagesSaveError: "Failed to save languages",
+  stMoveLanguageUp: "Move up",
+  stMoveLanguageDown: "Move down",
+  stRemoveLanguage: "Remove",
+  stAddLanguage: "Add a language",
   dsLogout: "Log out",
   dsViewMenu: "View menu",
   mcEditBaseHint: "You are editing the original version of your menu. Translations are updated afterwards by Scanym.",
@@ -827,6 +907,32 @@ const ar: Dict = {
   stMapsInvalid: "رابط غير صالح (يجب أن يبدأ بـ https://)",
   stMapsTest: "تجربة الرابط",
   stMapsSaveError: "فشل حفظ رابط الموقع",
+  // LOT 1A — الهوية والمظهر وشبكات التواصل واللغات.
+  stIdentityContentTitle: "الهوية والتقديم",
+  stDisplayName: "الاسم المعروض",
+  stDisplayNameHelp: "اتركه فارغاً لاستخدام اسم المطعم.",
+  stDisplayNameTooLong: "الاسم المعروض طويل جداً (255 حرفاً كحد أقصى)",
+  stIntroText: "نص التقديم",
+  stIntroTooLong: "نص التقديم طويل جداً (2000 حرف كحد أقصى)",
+  stAnnouncementText: "رسالة مؤقتة",
+  stAnnouncementActive: "إظهار الرسالة على القائمة العامة",
+  stAnnouncementTooLong: "الرسالة المؤقتة طويلة جداً (500 حرف كحد أقصى)",
+  stIdentitySaveError: "فشل حفظ الهوية",
+  stBgColorLabel: "لون الخلفية",
+  stSocialTitle: "شبكات التواصل الاجتماعي",
+  stInstagramInvalid: "رابط إنستغرام غير صالح (مثال: https://instagram.com/youraccount)",
+  stTiktokInvalid: "رابط تيك توك غير صالح (مثال: https://tiktok.com/@youraccount)",
+  stFacebookInvalid: "رابط فيسبوك غير صالح (مثال: https://facebook.com/yourpage)",
+  stSocialSaveError: "فشل حفظ روابط التواصل الاجتماعي",
+  stLanguagesTitle: "اللغات",
+  stLanguagesHelp: "اختر اللغات المتاحة لعملائك. لا يمكن إزالة اللغة المصدر.",
+  stSourceLanguage: "اللغة المصدر",
+  stSourceLanguageNotActive: "يجب أن تكون اللغة المصدر ضمن اللغات النشطة",
+  stLanguagesSaveError: "فشل حفظ اللغات",
+  stMoveLanguageUp: "تحريك للأعلى",
+  stMoveLanguageDown: "تحريك للأسفل",
+  stRemoveLanguage: "إزالة",
+  stAddLanguage: "إضافة لغة",
   dsLogout: "تسجيل الخروج",
   dsViewMenu: "عرض القائمة",
   mcEditBaseHint: "أنت تعدّل النسخة الأصلية من قائمتك. تُحدَّث الترجمات لاحقاً من طرف Scanym.",
