@@ -36,6 +36,11 @@ export default function DashboardNav({
   const pathname = usePathname();
   const onCatalogue = pathname?.startsWith("/dashboard/catalogue");
   const onSettings = pathname?.startsWith("/dashboard/settings");
+  /** Corrige L1B-02 (contre-audit Work, tour 1B.1) : sans cet état
+   *  dédié, l'onglet "Commandes" (repli générique !onCatalogue &&
+   *  !onSettings) se marquait à tort actif sur /dashboard/translations
+   *  -- reproduit avant correction. */
+  const onTranslations = pathname?.startsWith("/dashboard/translations");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -110,7 +115,7 @@ export default function DashboardNav({
         <nav className="mt-3 flex gap-2">
           <a
             href={href("/dashboard")}
-            className={tab(!onCatalogue && !onSettings)}
+            className={tab(!onCatalogue && !onSettings && !onTranslations)}
           >
             {t("dsOrders")}
           </a>
@@ -119,6 +124,9 @@ export default function DashboardNav({
           </a>
           <a href={href("/dashboard/settings")} className={tab(!!onSettings)}>
             {t("mcSettings")}
+          </a>
+          <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
+            {t("dsTranslations")}
           </a>
         </nav>
       </div>

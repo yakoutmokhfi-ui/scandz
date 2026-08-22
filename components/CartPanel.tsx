@@ -68,7 +68,7 @@ export default function CartPanel({
   onSendOrder: () => void;
   onClose: () => void;
 }) {
-  const { t, lang } = useI18n();
+  const { t, lang, sourceLanguage } = useI18n();
   const { currency, max_tables } = restaurant.config;
 
   // Compteur et validation alignés sur le comptage serveur (voir
@@ -110,12 +110,12 @@ export default function CartPanel({
                 >
                   <div className="min-w-0">
                     <p className="font-semibold leading-snug">
-                      {tName(item, lang)}
+                      {tName(item, lang, sourceLanguage)}
                     </p>
                     {option && (
                       <p className="text-xs text-ink-on-bg-muted">
                         {t(optionKind === "flavor" ? "optFlavor" : "optPastry")} :{" "}
-                        {tName(option, lang)}
+                        {tName(option, lang, sourceLanguage)}
                       </p>
                     )}
                     <p className="mt-0.5 text-sm text-accent-dark-on-bg">

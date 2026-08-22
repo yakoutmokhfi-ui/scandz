@@ -122,7 +122,8 @@ export function buildWhatsAppUrl(
 ): string {
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(staffLang, k, p);
-  const { currency, whatsapp_number } = restaurant.config;
+  const { currency, whatsapp_number, source_language } = restaurant.config;
+  const sourceLanguage: Lang = source_language ?? "fr";
 
   const total = lines.reduce((sum, l) => sum + l.item.price * l.quantity, 0);
 
@@ -130,11 +131,12 @@ export function buildWhatsAppUrl(
     .map((l) => {
       // Nom du produit dans la langue du personnel, pas dans celle
       // du client : le ticket doit correspondre à la carte en cuisine.
-      const name = tName(l.item, staffLang);
+      const name = tName(l.item, staffLang, sourceLanguage);
       const note = l.option
         ? ` (${t(l.optionKind === "flavor" ? "optFlavor" : "optPastry")} : ${tName(
             l.option,
-            staffLang
+            staffLang,
+            sourceLanguage
           )})`
         : "";
       return `• ${l.quantity}x ${name}${note} — ${formatPrice(

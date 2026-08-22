@@ -27,7 +27,7 @@ export default function CategoryNav({
   onSelect: (id: string) => void;
   variant?: "classic" | "editorial";
 }) {
-  const { lang } = useI18n();
+  const { lang, sourceLanguage } = useI18n();
 
   // Format historique conservé pour Illico Presto, Sanaa et les
   // futurs établissements tant qu'un template n'a pas été choisi.
@@ -49,7 +49,7 @@ export default function CategoryNav({
                     : "bg-white text-ink-on-bg shadow-sm")
                 }
               >
-                {tName(category, lang)}
+                {tName(category, lang, sourceLanguage)}
               </button>
             );
           })}
@@ -64,7 +64,7 @@ export default function CategoryNav({
         <ul className="flex min-w-full gap-1 px-2 py-2">
           {categories.map((category) => {
             const isActive = category.id === activeId;
-            const label = tName(category, lang);
+            const label = tName(category, lang, sourceLanguage);
             return (
               <li key={category.id} className="min-w-[5.5rem] flex-1">
                 <button

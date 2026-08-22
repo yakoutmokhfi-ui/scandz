@@ -1,4 +1,5 @@
 import { useI18n } from "@/lib/i18n-context";
+import { resolveTranslatedField } from "@/lib/translation-resolver";
 import type { RestaurantFull } from "@/lib/types";
 import LanguageSelector from "@/components/LanguageSelector";
 import { Ornament } from "@/components/Icons";
@@ -19,7 +20,7 @@ export default function RestaurantHeader({
   /** Nom de fichier dans /banners, sinon celui du slug */
   banner?: string;
 }) {
-  const { t } = useI18n();
+  const { t, sourceLanguage } = useI18n();
   const { config } = restaurant;
 
   // Le motif n'est plus posé sur la bannière : par-dessus une
@@ -51,12 +52,27 @@ export default function RestaurantHeader({
   // remplace le sous-titre générique SEULEMENT si renseigné, jamais
   // supprimé sinon : établissement sans personnalisation -> rendu
   // V79 strictement inchangé.
-  const introText = config.intro_text ?? null;
+  const introText = resolveTranslatedField(
+    config.intro_text,
+    config.intro_text_hash,
+    config.translations,
+    lang,
+    sourceLanguage,
+    "intro_text"
+  );
 
   // LOT 1A — message temporaire/actualité, affiché uniquement si
   // ACTIF et non vide : la bascule et le contenu sont indépendants
   // (jamais supprimé/recréé, juste désactivé).
-  const showAnnouncement = Boolean(config.announcement_active && config.announcement_text);
+  const announcementText = resolveTranslatedField(
+    config.announcement_text,
+    config.announcement_text_hash,
+    config.translations,
+    lang,
+    sourceLanguage,
+    "announcement_text"
+  );
+  const showAnnouncement = Boolean(config.announcement_active && announcementText);
 
   return (
     <header
@@ -142,7 +158,7 @@ export default function RestaurantHeader({
             photo de fond. */}
         {showAnnouncement && (
           <p className="mt-2 max-w-xs rounded-xl bg-espresso px-4 py-2 text-xs text-ink-text whitespace-pre-line">
-            {config.announcement_text}
+            {announcementText}
           </p>
         )}
       </div>

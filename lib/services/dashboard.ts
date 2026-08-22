@@ -107,12 +107,16 @@ type Translations = Record<
 export interface CatalogueCategory {
   category_id: string;
   category_name: string;
+  /** LOT 1B — hash canonique de category_name (colonne générée). */
+  category_name_hash: string;
   category_translations: Translations | null;
   category_display_order: number;
   /** true si au moins un produit référence cette catégorie comme source d'options. */
   category_is_option_source: boolean;
   /** Description longue de catégorie (V67b), optionnelle. */
   category_description: string | null;
+  /** LOT 1B — hash canonique de category_description. */
+  category_description_hash: string | null;
   products: CatalogueProduct[];
 }
 
@@ -122,10 +126,16 @@ export interface CatalogueProduct {
   category_name: string;
   category_translations: Translations | null;
   name: string;
+  /** LOT 1B — hash canonique de name. */
+  name_hash: string;
   /** Description courte (V66), affichée directement — max 100 caractères. */
   short_description: string | null;
+  /** LOT 1B — hash canonique de short_description. */
+  short_description_hash: string | null;
   /** Description longue (existant), affichée via le bouton (i) — max 500 caractères. */
   description: string | null;
+  /** LOT 1B — hash canonique de description. */
+  description_hash: string | null;
   translations: Translations | null;
   price: number;
   is_available: boolean;
@@ -160,13 +170,18 @@ export async function getMerchantCatalogue(
     product_id: string | null;
     category_id: string;
     category_name: string;
+    category_name_hash: string;
     category_translations: Translations | null;
     category_display_order: number;
     category_is_option_source: boolean;
     category_description: string | null;
+    category_description_hash: string | null;
     name: string | null;
+    name_hash: string | null;
     short_description: string | null;
+    short_description_hash: string | null;
     description: string | null;
+    description_hash: string | null;
     translations: Translations | null;
     price: number | null;
     is_available: boolean | null;
@@ -184,10 +199,12 @@ export async function getMerchantCatalogue(
       cat = {
         category_id: r.category_id,
         category_name: r.category_name,
+        category_name_hash: r.category_name_hash,
         category_translations: r.category_translations,
         category_display_order: r.category_display_order,
         category_is_option_source: r.category_is_option_source,
         category_description: r.category_description,
+        category_description_hash: r.category_description_hash,
         products: [],
       };
       categories.push(cat);
@@ -200,8 +217,11 @@ export async function getMerchantCatalogue(
       category_name: r.category_name,
       category_translations: r.category_translations,
       name: r.name as string,
+      name_hash: r.name_hash as string,
       short_description: r.short_description,
+      short_description_hash: r.short_description_hash,
       description: r.description,
+      description_hash: r.description_hash,
       translations: r.translations,
       price: r.price as number,
       is_available: r.is_available as boolean,
@@ -646,4 +666,55 @@ export async function updateRestaurantWhatsapp(
     p_whatsapp_number: whatsappNumber,
   });
   if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------------------------------
+// LOT 1B — traductions manuelles des contenus (write_translation RPC
+// unique, réutilisée pour les 3 types d'entité et les 7 champs --
+// aucun système parallèle par type d'objet). Réutilise
+// assert_restaurant_asset_role côté SQL (owner/manager/opérateur).
+// ------------------------------------------------------------------
+
+export type TranslationEntityType = "restaurant" | "category" | "item";
+export type TranslationWriteStatus = "to_review" | "validated";
+
+export async function writeTranslation(
+  restaurantId: string,
+  entityType: TranslationEntityType,
+  entityId: string,
+  field: string,
+  lang: string,
+  value: string,
+  status: TranslationWriteStatus
+): Promise<void> {
+  const { error } = await supabase.rpc("write_translation", {
+    p_restaurant_id: restaurantId,
+    p_entity_type: entityType,
+    p_entity_id: entityId,
+    p_field: field,
+    p_lang: lang,
+    p_value: value,
+    p_status: status,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export interface RestaurantTranslationSettingsRow {
+  source_language: string;
+  intro_text: string | null;
+  intro_text_hash: string | null;
+  announcement_text: string | null;
+  announcement_text_hash: string | null;
+  translations: Record<string, Record<string, string | undefined> | undefined> | null;
+}
+
+export async function getRestaurantTranslationSettings(
+  restaurantId: string
+): Promise<RestaurantTranslationSettingsRow | null> {
+  const { data, error } = await supabase.rpc("get_restaurant_translation_settings", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as RestaurantTranslationSettingsRow[];
+  return rows[0] ?? null;
 }
