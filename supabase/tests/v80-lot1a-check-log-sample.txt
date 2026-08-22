@@ -1,0 +1,133 @@
+============================================================
+Scanym LOT 1A.1 -- Journal brut d'exécution du harnais PostgreSQL
+(supabase/tests/v80-lot1a-check.sh, étendu 1A.1)
+============================================================
+Commande : su postgres -c "bash supabase/tests/v80-lot1a-check.sh"
+Résultat de cette exécution : 52/52 assertions réussies, 0 échec
+(confirmé stable sur 2 exécutions consécutives).
+
+Corrections de ce tour (les 4 findings Work) :
+
+L1A-01 (rollback) : trois défauts réels confirmés empiriquement AVANT
+correction (pas seulement les deux cités par Work) :
+  1. Échec brut (erreur PostgreSQL non préparée) face à un
+     établissement source_language='nl' créé via create_establishment
+     RÉEL après migration.
+  2. restaurant_configs_enabled_languages_chk n'était JAMAIS restaurée
+     (absence totale).
+  3. Découverte pendant la correction : une langue ajoutée via le
+     Dashboard (update_restaurant_languages) après création n'existe
+     QUE dans restaurant_active_languages, jamais dans l'ancien
+     enabled_languages -- perte silencieuse possible, non citée
+     explicitement par Work mais du même ordre.
+Corrigé : préflight transactionnel en lecture seule couvrant les 3
+sources, rapport nommant explicitement les établissements bloquants,
+aucune modification si blocage (vérifié : tables/fonctions LOT 1A
+toujours présentes après un refus). Testé avec de VRAIES RPC après
+migration (create_establishment, update_restaurant_languages), jamais
+seulement des fixtures statiques -- exigence explicite de Work.
+Comparaison structurelle post-rollback réussie confirmée contre le
+texte EXACT des contraintes Lot D.
+
+L1A-02 (initialisation langue publique) : MenuView initialise
+désormais lang selon source_language (si dans les langues actives),
+sinon la première langue active par ordre d'affichage -- testé par
+rendu DOM réel (jsdom), 6 scénarios (AR-only, FR-only, EN-only,
+priorité source, état invalide).
+
+L1A-03 (RTL depuis le catalogue) : dirOf() ne contient plus aucune
+règle "ar" codée en dur, dérive la direction du catalogue transmis en
+paramètre -- testé avec une langue RTL FICTIVE ajoutée dynamiquement
+(rendu DOM réel), fonctionne sans aucune modification de code.
+
+L1A-04 (ordre administrable) : boutons ↑/↓ ajoutés au Dashboard, logique
+factorisée (moveLanguageInList, testable indépendamment), persistance
+confirmée en base par le harnais.
+
+Aucune régression sur le harnais Storage/origin existant
+(v68-storage-policy-check.sh, 183/183, confirmé après ce tour).
+============================================================
+
+[12:31:00] === Construction de la baseline réelle (V70, production actuelle) ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:31:01] PASS: chaîne réelle appliquée jusqu'à V70 (Lot D inclus)
+[12:31:01] PASS: fixtures chargées (dont Sirocco : enabled_languages Lot D = {fr,ar})
+[12:31:01] === Application de migration-v80-lot1a-identity-social-languages.sql ===
+[12:31:01] PASS: migration LOT 1A appliquée sans erreur sur baseline V70 réelle
+[12:31:01] === Réconciliation Lot D : Sirocco (déjà fr+ar via enabled_languages) préservé ===
+[12:31:01] PASS: Sirocco conserve fr,ar dans l'ordre après migration (=fr,ar)
+[12:31:01] PASS: établissement classique (jamais créé via Lot D) -> fr seule (=fr)
+[12:31:01] === Contraintes CHECK figées de Lot D retirées, FK catalogue ajoutée ===
+[12:31:01] PASS: ancienne contrainte CHECK figée absente (=0)
+[12:31:02] PASS: nouvelle clé étrangère vers supported_languages présente (=1)
+[12:31:02] === create_establishment accepte désormais NL (catalogue, plus figé) ===
+[12:31:02] PASS: create_establishment avec NL réussit (=0)
+[12:31:02] PASS: restaurant_active_languages alimentée dans l'ordre fr,nl,en (=fr,nl,en)
+[12:31:02] === Lecture publique (anon) du catalogue et des langues actives (GRANT SELECT -- régression réelle corrigée pendant le développement) ===
+[12:31:02] PASS: anon peut lire supported_languages (GRANT SELECT + policy RLS, pas l'un sans l'autre) (=4)
+[12:31:02] PASS: anon peut lire restaurant_active_languages (=1)
+[12:31:02] === update_restaurant_identity : owner/manager/opérateur acceptés, staff/cross-tenant refusés ===
+[12:31:02] PASS: owner peut modifier l'identité (=0)
+[12:31:02] PASS: manager peut modifier l'identité (=0)
+[12:31:02] PASS: opérateur Scanym peut modifier l'identité de N'IMPORTE QUEL établissement (=0)
+[12:31:02] PASS: staff NE PEUT PAS modifier l'identité (=1)
+[12:31:02] PASS: owner d'un AUTRE établissement NE PEUT PAS (cross-tenant) (=1)
+[12:31:02] === bg_color : cas Au Lait Cru (fond noir), format invalide refusé ===
+[12:31:02] PASS: bg_color #000000 (Au Lait Cru) accepté (=0)
+[12:31:02] PASS: bg_color format invalide refusé (=1)
+[12:31:02] === réseaux sociaux : matrice adversariale complète (3 réseaux) ===
+[12:31:02] PASS: réseaux sociaux: Instagram valide (=0)
+[12:31:02] PASS: réseaux sociaux: Instagram port inhabituel (=1)
+[12:31:02] PASS: réseaux sociaux: Instagram credentials (=1)
+[12:31:02] PASS: réseaux sociaux: Facebook HTTP (=1)
+[12:31:02] PASS: réseaux sociaux: Facebook valide (=0)
+[12:31:02] PASS: réseaux sociaux: TikTok sous-domaine trompeur (=1)
+[12:31:02] PASS: réseaux sociaux: Instagram HTTP (=1)
+[12:31:02] PASS: réseaux sociaux: TikTok valide (=0)
+[12:31:02] PASS: réseaux sociaux: Instagram query string (=1)
+[12:31:02] PASS: réseaux sociaux: TikTok sans @ refusé (=1)
+[12:31:02] PASS: réseaux sociaux: Instagram sous-domaine trompeur (=1)
+[12:31:02] === langues : non supportée, retrait source, doublons refusés ; FR/EN/NL/AR + ordre acceptés ===
+[12:31:02] PASS: langue non supportée (de) refusée (=1)
+[12:31:02] PASS: retrait de la langue source (fr) refusé (=1)
+[12:31:02] PASS: doublons refusés (=1)
+[12:31:03] PASS: FR/EN/NL/AR ensemble accepté (=0)
+[12:31:03] PASS: ordre fr,en,nl,ar respecté après update_restaurant_languages (=fr,en,nl,ar)
+[12:31:03] === get_restaurant_active_languages : lecture ordonnée avec libellé/dir ===
+[12:31:03] PASS: AR a bien dir=rtl via get_restaurant_active_languages (=rtl)
+[12:31:03] === Non-régression : établissement sans personnalisation -> tous les champs LOT 1A NULL/défaut ===
+[12:31:03] PASS: Jamais Touché : tous les champs LOT 1A à leur valeur neutre (=t)
+[12:31:03] === HARNESS SELF-TEST : le journal de FAIL indépendant doit concorder avec FAIL_COUNT ===
+[12:31:03] HARNESS SELF-TEST : journal indépendant vide et concordant avec FAIL_COUNT (0) -- aucun échec masqué possible.
+[12:31:03] === ROLLBACK basique : application + annulation + réapplication propre sur environnement vierge (état compatible fr/en/ar) ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:31:04] PASS: rollback: migration LOT 1A appliquée sur environnement dédié
+psql:/home/claude/scandz_v74/supabase/migration-v80-rollback.sql:101: NOTICE:  SCANYM_ROLLBACK_PREFLIGHT: OK -- aucun établissement incompatible avec V79 détecté. Le rollback peut se poursuivre en toute sécurité.
+[12:31:04] PASS: rollback: annulation réussie sans erreur
+[12:31:04] PASS: rollback: les 2 nouvelles tables n'existent plus (=0)
+[12:31:04] PASS: rollback: les 8 colonnes LOT 1A n'existent plus (=0)
+[12:31:04] PASS: rollback: réapplication propre réussie sur le même environnement après annulation
+[12:31:04] === L1A-01/1 : établissement source_language='nl' (créé via create_establishment RÉEL après migration) -> rollback DOIT refuser explicitement, RIEN modifié ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:31:06] PASS: L1A-01: rollback refusé face à source_language='nl' réel (=1)
+[12:31:06] PASS: L1A-01: le rapport de blocage explicite est bien émis (=1)
+[12:31:06] PASS: L1A-01: l'établissement bloquant est nommément identifié dans le rapport (apparaît 3 fois -- légitimement incompatible sur les 3 dimensions à la fois)
+[12:31:06] PASS: L1A-01: aucune modification partielle -- les tables LOT 1A existent toujours après le refus (=2)
+[12:31:06] === L1A-01/2 : langue ajoutée UNIQUEMENT via update_restaurant_languages (Dashboard, jamais dans enabled_languages) -> rollback DOIT AUSSI refuser ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:31:08] PASS: L1A-01: precondition -- enabled_languages (Lot D) reste {fr}, jamais touché par update_restaurant_languages (={fr})
+[12:31:08] PASS: L1A-01: rollback refusé -- langue nl visible SEULEMENT dans restaurant_active_languages, pas dans enabled_languages (=1)
+[12:31:08] === L1A-01/3 : chaîne complète avec cas exigés (source FR+FR/NL, données historiques FR/AR) -> rollback réussit après nettoyage du seul établissement bloquant, comparaison structurelle avec V79 ===
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+[12:31:09] PASS: L1A-01: données historiques FR/AR bien migrées vers restaurant_active_languages (=fr,ar)
+[12:31:09] PASS: L1A-01: rollback réussit -- toutes les données sont compatibles fr/en/ar (source FR + historique FR/AR) (=0)
+[12:31:10] PASS: L1A-01: comparaison structurelle -- source_language_check restaurée EXACTEMENT comme Lot D (=CHECK ((source_language = ANY (ARRAY['fr'::text, 'en'::text, 'ar'::text]))))
+[12:31:10] PASS: L1A-01: comparaison structurelle -- enabled_languages_chk restaurée (absente à tort avant ce correctif) (=1)
+[12:31:10] PASS: L1A-01: données historiques FR/AR intactes après rollback réussi (=fr|{fr,ar})
+[12:31:10] === RÉSULTAT FINAL : 52 réussis, 0 échoués ===
+TOUTES LES VÉRIFICATIONS LOT 1A ONT RÉUSSI

@@ -101,7 +101,7 @@ test("V71-02: compositeOver() effectue un vrai mélange alpha canal par canal, p
 });
 
 test("V71-02: --sc-ink-text-on-bg-20 est calculée par composition RÉELLE (ink à 20% sur --sc-bg), jamais contre --sc-ink pur", () => {
-  assert.ok(themesSrc.includes('"--sc-ink-text-on-bg-20": readableTextColor(compositeOver(ink, t.bg, 0.2)),'));
+  assert.ok(themesSrc.includes('"--sc-ink-text-on-bg-20": readableTextColor(compositeOver(ink, bg, 0.2)),'));
 });
 
 test("V71-02: les DEUX boutons désactivés (PastryModal ET OptionModal) utilisent la couleur composée, plus text-white codé en dur", () => {

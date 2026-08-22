@@ -99,6 +99,8 @@ export interface ThemeColorOverrides {
   primary?: string | null;
   secondary?: string | null;
   accent?: string | null;
+  /** Corrige LOT 1A : couleur de fond personnalisée (restaurant_configs.bg_color), #RRGGBB. NULL/absent = fond du thème par défaut, rendu inchangé. Réutilise intégralement le mécanisme de contraste déjà audité (readableAccentOnBg/mutedOnBg) : aucune nouvelle logique de contraste. */
+  bg?: string | null;
 }
 
 /**
@@ -168,6 +170,7 @@ export function themeStyle(
   const accent = overrides?.primary ?? t.accent;
   const ink = overrides?.secondary ?? t.ink;
   const highlight = overrides?.accent ?? t.highlight;
+  const bg = overrides?.bg ?? t.bg;
   const accentDark = overrides?.primary ? darken(overrides.primary, 0.15) : t.accentDark;
   const [r, g, b] = rgbOf(ink);
   return {
@@ -181,7 +184,7 @@ export function themeStyle(
     "--sc-veil-soft": `rgba(${r}, ${g}, ${b}, 0.2)`,
     "--sc-veil-strong": `rgba(${r}, ${g}, ${b}, 0.32)`,
     "--sc-ink": ink,
-    "--sc-bg": t.bg,
+    "--sc-bg": bg,
     "--sc-accent": accent,
     "--sc-accent-dark": accentDark,
     "--sc-highlight": highlight,
@@ -189,12 +192,12 @@ export function themeStyle(
     "--sc-ink-text": readableTextColor(ink),
     // Composition RÉELLE ink à 20% sur --sc-bg (fond connu) — cas
     // exact des boutons désactivés de PastryModal/OptionModal.
-    "--sc-ink-text-on-bg-20": readableTextColor(compositeOver(ink, t.bg, 0.2)),
+    "--sc-ink-text-on-bg-20": readableTextColor(compositeOver(ink, bg, 0.2)),
     // Corrige V72-03 : --sc-ink utilisée comme COULEUR DE TEXTE sur
     // --sc-bg (fond fixe) -- conserve ink si son contraste est
     // suffisant, replie sur noir/blanc sinon. Cas exact :
     // LanguageSelector, pastille active.
-    "--sc-ink-on-bg": readableAccentOnBg(ink, t.bg),
+    "--sc-ink-on-bg": readableAccentOnBg(ink, bg),
     // Corrige V72-03 : --sc-highlight utilisée comme TEXTE sur un
     // fond --sc-ink désormais SOLIDE (RestaurantInfoBar, icônes et
     // libellés) -- conserve highlight si son contraste contre ink est
@@ -216,12 +219,12 @@ export function themeStyle(
     // est explicitement exclue des exigences de contraste de texte
     // WCAG 1.4.3/1.4.11 -- vérifié dans le code avant d'écarter ce
     // cas, pas supposé.
-    "--sc-accent-dark-on-bg": readableAccentOnBg(accentDark, t.bg),
+    "--sc-accent-dark-on-bg": readableAccentOnBg(accentDark, bg),
     // Variantes "atténuées" pour la hiérarchie visuelle (texte
     // secondaire/description) SANS opacité Tailwind -- corrige
     // V73-02. Reviennent à la pleine puissance si l'atténuation
     // ferait tomber le contraste sous 4.5:1 (voir mutedOnBg).
-    "--sc-ink-on-bg-muted": mutedOnBg(readableAccentOnBg(ink, t.bg), t.bg),
-    "--sc-accent-dark-on-bg-muted": mutedOnBg(readableAccentOnBg(accentDark, t.bg), t.bg),
+    "--sc-ink-on-bg-muted": mutedOnBg(readableAccentOnBg(ink, bg), bg),
+    "--sc-accent-dark-on-bg-muted": mutedOnBg(readableAccentOnBg(accentDark, bg), bg),
   };
 }

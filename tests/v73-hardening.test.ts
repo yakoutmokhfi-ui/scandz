@@ -109,7 +109,7 @@ test("V72-03: readableAccentOnBg() calcule un VRAI ratio de contraste WCAG (cont
 });
 
 test("V72-03: --sc-ink-on-bg et --sc-highlight-on-ink calculées dans themeStyle(), jamais choisies par le commerçant", () => {
-  assert.ok(themesSrc.includes('"--sc-ink-on-bg": readableAccentOnBg(ink, t.bg),'));
+  assert.ok(themesSrc.includes('"--sc-ink-on-bg": readableAccentOnBg(ink, bg),'));
   assert.ok(themesSrc.includes('"--sc-highlight-on-ink": readableAccentOnBg(highlight, ink),'));
 });
 

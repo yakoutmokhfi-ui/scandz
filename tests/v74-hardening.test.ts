@@ -87,7 +87,7 @@ test("V73-02: mutedOnBg() ne descend JAMAIS sous le seuil WCAG AA -- revient à 
 });
 
 test("V73-02: --sc-accent-dark-on-bg et les variantes muted calculées dans themeStyle(), jamais choisies par le commerçant", () => {
-  assert.ok(themesSrc.includes('"--sc-accent-dark-on-bg": readableAccentOnBg(accentDark, t.bg),'));
+  assert.ok(themesSrc.includes('"--sc-accent-dark-on-bg": readableAccentOnBg(accentDark, bg),'));
   assert.ok(themesSrc.includes('"--sc-ink-on-bg-muted": mutedOnBg('));
   assert.ok(themesSrc.includes('"--sc-accent-dark-on-bg-muted": mutedOnBg('));
 });

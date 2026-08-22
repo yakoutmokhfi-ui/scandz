@@ -27,7 +27,11 @@ export type CommerceType =
   | "bar"
   | "other";
 
-export type Lang = "fr" | "en" | "ar";
+/** LOT 1A — élargi de "fr"|"en"|"ar" (figé) à `string`, pour accepter
+ *  toute langue du catalogue Scanym (supported_languages), y compris
+ *  NL et les langues futures, sans modification ultérieure de ce
+ *  fichier -- même raisonnement que lib/i18n.ts. */
+export type Lang = string;
 
 export interface CreateEstablishmentInput {
   name: string;

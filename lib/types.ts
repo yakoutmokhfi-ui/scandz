@@ -43,6 +43,78 @@ export interface RestaurantConfig {
    *  latitude/longitude ne sont plus utilisées pour fabriquer un lien
    *  Google implicite en repli ; elles restent des données neutres. */
   maps_url?: string | null;
+  /** LOT 1A — nom affiché de l'établissement sur la carte publique.
+   *  NULL = repli sur Restaurant.name (comportement V79 inchangé).
+   *  Jamais traduit (décision CIO) : identique dans toutes les langues. */
+  display_name?: string | null;
+  /** LOT 1A — texte de présentation multiligne, langue source
+   *  uniquement. Traductions : Sous-lot B, pas encore livré. */
+  intro_text?: string | null;
+  /** LOT 1A — message temporaire/actualité, langue source uniquement.
+   *  Voir announcement_active pour l'état affiché/masqué. */
+  announcement_text?: string | null;
+  /** LOT 1A — bascule affiché/masqué du message temporaire,
+   *  indépendante du contenu : le texte n'est jamais supprimé/recréé. */
+  announcement_active?: boolean;
+  /** LOT 1A — couleur de fond personnalisée, #RRGGBB. NULL = fond du
+   *  thème par défaut (lib/themes.ts), rendu V79 strictement inchangé. */
+  bg_color?: string | null;
+  /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
+   *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
+   *  NULL = icône non affichée sur la carte publique. */
+  instagram_url?: string | null;
+  tiktok_url?: string | null;
+  facebook_url?: string | null;
+  /** LOT 1A — langue source du contenu de cet établissement. Colonne
+   *  héritée de Lot D (migration-lotd-establishment-creation.sql),
+   *  dont la contrainte figée fr/en/ar est remplacée par une
+   *  référence au catalogue supported_languages. FR par défaut :
+   *  comportement V79 inchangé. Changement après création : Sous-lot
+   *  C, pas encore livré. */
+  source_language?: string;
+}
+
+/** LOT 1A — une langue du catalogue Scanym (supported_languages),
+ *  distincte des langues ACTIVES d'un établissement donné (voir
+ *  RestaurantActiveLanguage) — ne jamais confondre les deux. */
+export interface SupportedLanguage {
+  code: string;
+  label: string;
+  dir: "ltr" | "rtl";
+  display_order: number;
+}
+
+/** LOT 1A — une langue active pour CET établissement précis, dans
+ *  l'ordre d'affichage choisi par le commerçant. */
+export interface RestaurantActiveLanguage {
+  code: string;
+  label: string;
+  dir: "ltr" | "rtl";
+  display_order: number;
+}
+
+/**
+ * Corrige L1A-04 (contre-audit Work, tour 1A.1) : logique pure de
+ * réordonnancement des langues actives, extraite pour être testable
+ * indépendamment du rendu Dashboard (voir tests/v80-lot1a1-language-order.test.ts).
+ * Échange la position de `code` avec son voisin immédiat selon
+ * `direction` (-1 = monter, +1 = descendre) ; no-op si le mouvement
+ * sortirait du tableau. Ne modifie jamais le tableau reçu (retourne
+ * une copie).
+ */
+export function moveLanguageInList(
+  codes: readonly string[],
+  code: string,
+  direction: -1 | 1
+): string[] {
+  const index = codes.indexOf(code);
+  const newIndex = index + direction;
+  if (index < 0 || newIndex < 0 || newIndex >= codes.length) {
+    return [...codes];
+  }
+  const next = [...codes];
+  [next[index], next[newIndex]] = [next[newIndex], next[index]];
+  return next;
 }
 
 export interface Translations {
@@ -89,4 +161,9 @@ export interface RestaurantFull extends Restaurant {
   categories: MenuCategory[];
   /** Catégories masquées (is_active = false) : réservoirs de choix */
   hiddenCategories: MenuCategory[];
+  /** LOT 1A — langues actives de cet établissement, ordonnées
+   *  (display_order). Jamais vide en pratique (au moins la langue
+   *  source) ; un tableau vide est traité comme repli sur ['fr'] par
+   *  le composant (voir LanguageSelector). */
+  activeLanguages: RestaurantActiveLanguage[];
 }

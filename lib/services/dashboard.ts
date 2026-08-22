@@ -407,6 +407,16 @@ export interface RestaurantSettingsRow {
   secondary_color: string | null;
   accent_color: string | null;
   maps_url: string | null;
+  /** LOT 1A — identité, apparence, réseaux sociaux, langue source. */
+  display_name: string | null;
+  intro_text: string | null;
+  announcement_text: string | null;
+  announcement_active: boolean;
+  bg_color: string | null;
+  instagram_url: string | null;
+  tiktok_url: string | null;
+  facebook_url: string | null;
+  source_language: string;
 }
 
 export async function getRestaurantSettings(
@@ -415,7 +425,7 @@ export async function getRestaurantSettings(
   const { data, error } = await supabase
     .from("restaurant_configs")
     .select(
-      "staff_receipt_language, address, opening_hours, currency, whatsapp_number, logo_url, cover_url, primary_color, secondary_color, accent_color, maps_url"
+      "staff_receipt_language, address, opening_hours, currency, whatsapp_number, logo_url, cover_url, primary_color, secondary_color, accent_color, maps_url, display_name, intro_text, announcement_text, announcement_active, bg_color, instagram_url, tiktok_url, facebook_url, source_language"
     )
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
@@ -434,6 +444,15 @@ export async function getRestaurantSettings(
       secondary_color: null,
       accent_color: null,
       maps_url: null,
+      display_name: null,
+      intro_text: null,
+      announcement_text: null,
+      announcement_active: false,
+      bg_color: null,
+      instagram_url: null,
+      tiktok_url: null,
+      facebook_url: null,
+      source_language: "fr",
     }
   );
 }
@@ -507,6 +526,95 @@ export async function updateRestaurantMapsUrl(
     p_maps_url: mapsUrl,
   });
   if (error) throw new Error(error.message);
+}
+
+/** LOT 1A — nom affiché, introduction, message temporaire. */
+export async function updateRestaurantIdentity(
+  restaurantId: string,
+  displayName: string | null,
+  introText: string | null,
+  announcementText: string | null,
+  announcementActive: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_identity", {
+    p_restaurant_id: restaurantId,
+    p_display_name: displayName,
+    p_intro_text: introText,
+    p_announcement_text: announcementText,
+    p_announcement_active: announcementActive,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** LOT 1A — couleur de fond personnalisée. */
+export async function updateRestaurantBgColor(
+  restaurantId: string,
+  bgColor: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_bg_color", {
+    p_restaurant_id: restaurantId,
+    p_bg_color: bgColor,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** LOT 1A — réseaux sociaux, validés serveur (HTTPS strict, domaine
+ *  exact) par update_restaurant_social_links. */
+export async function updateRestaurantSocialLinks(
+  restaurantId: string,
+  instagramUrl: string | null,
+  tiktokUrl: string | null,
+  facebookUrl: string | null
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_social_links", {
+    p_restaurant_id: restaurantId,
+    p_instagram_url: instagramUrl,
+    p_tiktok_url: tiktokUrl,
+    p_facebook_url: facebookUrl,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** LOT 1A — remplace ATOMIQUEMENT les langues actives, dans l'ordre
+ *  fourni (display_order = position dans le tableau). Refuse si la
+ *  langue source n'y figure pas, si une langue n'appartient pas au
+ *  catalogue supported_languages, ou en cas de doublon. */
+export async function updateRestaurantLanguages(
+  restaurantId: string,
+  languageCodes: string[]
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_languages", {
+    p_restaurant_id: restaurantId,
+    p_language_codes: languageCodes,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** LOT 1A — catalogue complet des langues supportées par Scanym
+ *  (distinct des langues ACTIVES d'un établissement précis). */
+export async function getSupportedLanguages(): Promise<
+  Array<{ code: string; label: string; dir: "ltr" | "rtl" }>
+> {
+  const { data, error } = await supabase
+    .from("supported_languages")
+    .select("code, label, dir")
+    .order("display_order");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Array<{ code: string; label: string; dir: "ltr" | "rtl" }>;
+}
+
+/** LOT 1A — langues actives de CET établissement, ordonnées. Utilisé
+ *  par le Dashboard pour peupler l'éditeur de langues ; la carte
+ *  publique lit directement restaurant_active_languages (lecture
+ *  publique, voir app/r/[slug]). */
+export async function getRestaurantActiveLanguages(
+  restaurantId: string
+): Promise<Array<{ code: string; label: string; dir: "ltr" | "rtl"; display_order: number }>> {
+  const { data, error } = await supabase.rpc("get_restaurant_active_languages", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Array<{ code: string; label: string; dir: "ltr" | "rtl"; display_order: number }>;
 }
 
 export async function updateRestaurantSettings(

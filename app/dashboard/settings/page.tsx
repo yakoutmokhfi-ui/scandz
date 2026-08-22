@@ -10,6 +10,12 @@ import {
   updateRestaurantWhatsapp,
   updateRestaurantColors,
   updateRestaurantMapsUrl,
+  updateRestaurantIdentity,
+  updateRestaurantBgColor,
+  updateRestaurantSocialLinks,
+  updateRestaurantLanguages,
+  getSupportedLanguages,
+  getRestaurantActiveLanguages,
 } from "@/lib/services/dashboard";
 import {
   addOrReplaceEstablishmentAsset,
@@ -22,12 +28,14 @@ import {
   type EstablishmentAssetKind,
 } from "@/lib/services/establishment-assets";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
+import { moveLanguageInList } from "@/lib/types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { translate, type Lang } from "@/lib/i18n";
 import { isValidWhatsappNumber, normalizeWhatsappNumber } from "@/lib/whatsapp";
 import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
 import { isValidMapsUrl, normalizeMapsUrl, MAPS_URL_MAX_LENGTH } from "@/lib/maps-url";
+import { isValidInstagramUrl, isValidTiktokUrl, isValidFacebookUrl } from "@/lib/social-links";
 
 const LANGUAGES = [
   { code: "fr", label: "Français" },
@@ -52,6 +60,20 @@ export default function SettingsPage() {
   const [secondaryColor, setSecondaryColor] = useState("");
   const [accentColor, setAccentColor] = useState("");
   const [mapsUrl, setMapsUrl] = useState("");
+  // LOT 1A — identité, apparence, réseaux sociaux, langues.
+  const [displayName, setDisplayName] = useState("");
+  const [introText, setIntroText] = useState("");
+  const [announcementText, setAnnouncementText] = useState("");
+  const [announcementActive, setAnnouncementActive] = useState(false);
+  const [bgColor, setBgColor] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
+  const [tiktokUrl, setTiktokUrl] = useState("");
+  const [facebookUrl, setFacebookUrl] = useState("");
+  const [sourceLanguage, setSourceLanguage] = useState("fr");
+  const [supportedLanguages, setSupportedLanguages] = useState<
+    Array<{ code: string; label: string; dir: "ltr" | "rtl" }>
+  >([]);
+  const [activeLanguageCodes, setActiveLanguageCodes] = useState<string[]>(["fr"]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +135,27 @@ export default function SettingsPage() {
       setSecondaryColor(s.secondary_color ?? "");
       setAccentColor(s.accent_color ?? "");
       setMapsUrl(s.maps_url ?? "");
+      setDisplayName(s.display_name ?? "");
+      setIntroText(s.intro_text ?? "");
+      setAnnouncementText(s.announcement_text ?? "");
+      setAnnouncementActive(s.announcement_active ?? false);
+      setBgColor(s.bg_color ?? "");
+      setInstagramUrl(s.instagram_url ?? "");
+      setTiktokUrl(s.tiktok_url ?? "");
+      setFacebookUrl(s.facebook_url ?? "");
+      setSourceLanguage(s.source_language ?? "fr");
+      try {
+        const activeLangs = await getRestaurantActiveLanguages(id);
+        setActiveLanguageCodes(
+          activeLangs.length > 0 ? activeLangs.map((l) => l.code) : ["fr"]
+        );
+      } catch {
+        // Best-effort : une erreur de lecture des langues actives
+        // n'empêche pas d'afficher le reste des réglages ; repli sur
+        // la langue source seule, cohérent avec l'invariant "au moins
+        // la langue source active".
+        setActiveLanguageCodes([s.source_language ?? "fr"]);
+      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("mcLoadFailed"));
@@ -169,6 +212,20 @@ export default function SettingsPage() {
     void load(restaurantId);
   }, [restaurantId, load]);
 
+  // LOT 1A — catalogue des langues supportées par Scanym : chargé une
+  // seule fois, indépendant de l'établissement sélectionné (distinct
+  // des langues ACTIVES de CET établissement, chargées dans load()).
+  useEffect(() => {
+    (async () => {
+      try {
+        setSupportedLanguages(await getSupportedLanguages());
+      } catch {
+        // Best-effort : sans catalogue, le sélecteur de langues actives
+        // reste simplement vide plutôt que de bloquer toute la page.
+      }
+    })();
+  }, []);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
@@ -197,6 +254,42 @@ export default function SettingsPage() {
     // NULL) ; sinon, elle doit passer isValidMapsUrl() TELLE QUELLE.
     if (mapsUrl.trim() !== "" && !isValidMapsUrl(mapsUrl)) {
       setError(t("stMapsInvalid"));
+      return;
+    }
+
+    // LOT 1A — validation client (retour immédiat), même contrat que
+    // la validation SQL réelle -- jamais une confiance exclusive dans
+    // ce contrôle frontend.
+    if (bgColor.trim() !== "" && !isValidHexColor(bgColor.trim())) {
+      setError(t("stColorInvalid"));
+      return;
+    }
+    if (instagramUrl.trim() !== "" && !isValidInstagramUrl(instagramUrl.trim())) {
+      setError(t("stInstagramInvalid"));
+      return;
+    }
+    if (tiktokUrl.trim() !== "" && !isValidTiktokUrl(tiktokUrl.trim())) {
+      setError(t("stTiktokInvalid"));
+      return;
+    }
+    if (facebookUrl.trim() !== "" && !isValidFacebookUrl(facebookUrl.trim())) {
+      setError(t("stFacebookInvalid"));
+      return;
+    }
+    if (displayName.trim().length > 255) {
+      setError(t("stDisplayNameTooLong"));
+      return;
+    }
+    if (introText.length > 2000) {
+      setError(t("stIntroTooLong"));
+      return;
+    }
+    if (announcementText.length > 500) {
+      setError(t("stAnnouncementTooLong"));
+      return;
+    }
+    if (!activeLanguageCodes.includes(sourceLanguage)) {
+      setError(t("stSourceLanguageNotActive"));
       return;
     }
     // À ce stade, mapsUrl est soit vide/blanc (champ vidé), soit une
@@ -277,6 +370,53 @@ export default function SettingsPage() {
       return;
     }
 
+    // LOT 1A — identité/apparence/réseaux sociaux/langues : owner,
+    // manager ET opérateur Scanym (assert_restaurant_asset_role, même
+    // posture que les couleurs/maps_url ci-dessus -- F-01 Super
+    // Admin), jamais restreint au seul mode formulaire complet.
+    try {
+      await updateRestaurantIdentity(
+        restaurantId,
+        displayName.trim() || null,
+        introText.trim() || null,
+        announcementText.trim() || null,
+        announcementActive
+      );
+    } catch {
+      setError(t("stIdentitySaveError"));
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await updateRestaurantBgColor(restaurantId, bgColor.trim() || null);
+    } catch {
+      setError(t("stColorsSaveError"));
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await updateRestaurantSocialLinks(
+        restaurantId,
+        instagramUrl.trim() || null,
+        tiktokUrl.trim() || null,
+        facebookUrl.trim() || null
+      );
+    } catch {
+      setError(t("stSocialSaveError"));
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await updateRestaurantLanguages(restaurantId, activeLanguageCodes);
+    } catch {
+      setError(t("stLanguagesSaveError"));
+      setSaving(false);
+      return;
+    }
+
     setSaved(true);
     if (!isOperatorOnlyMode) {
       setUiLang(lang as Lang);
@@ -288,6 +428,20 @@ export default function SettingsPage() {
     setPrimaryColor("");
     setSecondaryColor("");
     setAccentColor("");
+  }
+
+  // Corrige L1A-04 (contre-audit Work, tour 1A.1) : réordonnancement
+  // simple (↑/↓), suffisant pour le MVP -- pas de drag & drop.
+  // L'ordre du tableau activeLanguageCodes lui-même EST l'ordre
+  // sauvegardé (voir submit() -> updateRestaurantLanguages).
+  // Corrige L1A-04 (contre-audit Work, tour 1A.1) : réordonnancement
+  // simple (↑/↓), suffisant pour le MVP -- pas de drag & drop. La
+  // logique pure est factorisée dans lib/types.ts (moveLanguageInList),
+  // testable indépendamment de ce composant. L'ordre du tableau
+  // activeLanguageCodes lui-même EST l'ordre sauvegardé (voir
+  // submit() -> updateRestaurantLanguages).
+  function moveActiveLanguage(code: string, direction: -1 | 1) {
+    setActiveLanguageCodes((prev) => moveLanguageInList(prev, code, direction));
   }
 
   if (loading) {
@@ -524,7 +678,218 @@ export default function SettingsPage() {
               disabled={!canEdit}
               t={t}
             />
+            <ColorField
+              label={t("stBgColorLabel")}
+              value={bgColor}
+              onChange={setBgColor}
+              disabled={!canEdit}
+              t={t}
+            />
           </div>
+        </section>
+
+        {/* LOT 1A — identité et présentation : nom affiché, texte
+            d'introduction, message temporaire. Section distincte de
+            "Identité visuelle" (logo/couleurs) ci-dessus, pour éviter
+            une fiche à trop de champs simultanés (conception validée
+            Design First). */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stIdentityContentTitle")}</h3>
+
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-stone-600">
+              {t("stDisplayName")}
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              disabled={!canEdit}
+              maxLength={255}
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+            <p className="mt-1 text-xs text-stone-400">{t("stDisplayNameHelp")}</p>
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-xs font-semibold text-stone-600">
+              {t("stIntroText")}
+            </label>
+            <textarea
+              value={introText}
+              onChange={(e) => setIntroText(e.target.value)}
+              disabled={!canEdit}
+              maxLength={2000}
+              rows={4}
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+          </div>
+
+          <div className="mt-4 border-t border-stone-100 pt-4">
+            <label className="block text-xs font-semibold text-stone-600">
+              {t("stAnnouncementText")}
+            </label>
+            <textarea
+              value={announcementText}
+              onChange={(e) => setAnnouncementText(e.target.value)}
+              disabled={!canEdit}
+              maxLength={500}
+              rows={2}
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+            <label className="mt-2 flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={announcementActive}
+                onChange={(e) => setAnnouncementActive(e.target.checked)}
+                disabled={!canEdit}
+              />
+              {t("stAnnouncementActive")}
+            </label>
+          </div>
+        </section>
+
+        {/* LOT 1A — réseaux sociaux : un champ par réseau, validés
+            serveur (HTTPS strict, domaine exact). Champ vide = icône
+            non affichée sur la carte publique. */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stSocialTitle")}</h3>
+
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-stone-600">Instagram</label>
+            <input
+              type="text"
+              inputMode="url"
+              dir="ltr"
+              value={instagramUrl}
+              onChange={(e) => setInstagramUrl(e.target.value)}
+              disabled={!canEdit}
+              placeholder="https://instagram.com/..."
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+          </div>
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-stone-600">TikTok</label>
+            <input
+              type="text"
+              inputMode="url"
+              dir="ltr"
+              value={tiktokUrl}
+              onChange={(e) => setTiktokUrl(e.target.value)}
+              disabled={!canEdit}
+              placeholder="https://tiktok.com/@..."
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+          </div>
+          <div className="mt-3">
+            <label className="block text-xs font-semibold text-stone-600">Facebook</label>
+            <input
+              type="text"
+              inputMode="url"
+              dir="ltr"
+              value={facebookUrl}
+              onChange={(e) => setFacebookUrl(e.target.value)}
+              disabled={!canEdit}
+              placeholder="https://facebook.com/..."
+              className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+          </div>
+        </section>
+
+        {/* LOT 1A — langues : supportedLanguages est le catalogue
+            Scanym (jamais spécifique à cet établissement) ;
+            activeLanguageCodes est ce que CET établissement a choisi
+            -- les deux notions ne sont jamais confondues (voir
+            lib/types.ts). La langue source ne peut pas être décochée
+            (invariant appliqué aussi côté SQL).
+            Corrige L1A-04 (contre-audit Work, tour 1A.1) : l'ordre
+            (display_order) est désormais réellement administrable --
+            boutons ↑/↓ simples (pas de drag & drop, suffisant pour le
+            MVP), l'ordre du tableau activeLanguageCodes lui-même EST
+            l'ordre sauvegardé (voir submit() -> updateRestaurantLanguages,
+            qui pose display_order = position dans ce tableau). */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stLanguagesTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stLanguagesHelp")}</p>
+
+          <div className="mt-3 space-y-2">
+            {activeLanguageCodes.map((code, index) => {
+              const l = supportedLanguages.find((sl) => sl.code === code);
+              if (!l) return null;
+              const isSource = code === sourceLanguage;
+              return (
+                <div
+                  key={l.code}
+                  className="flex items-center justify-between rounded-xl border border-stone-200 p-2.5 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="flex flex-col">
+                      <button
+                        type="button"
+                        aria-label={t("stMoveLanguageUp")}
+                        disabled={!canEdit || index === 0}
+                        onClick={() => moveActiveLanguage(code, -1)}
+                        className="leading-none text-stone-500 disabled:opacity-30"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={t("stMoveLanguageDown")}
+                        disabled={!canEdit || index === activeLanguageCodes.length - 1}
+                        onClick={() => moveActiveLanguage(code, 1)}
+                        className="leading-none text-stone-500 disabled:opacity-30"
+                      >
+                        ▼
+                      </button>
+                    </span>
+                    {l.label}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {isSource ? (
+                      <span className="text-xs font-semibold text-stone-400">
+                        {t("stSourceLanguage")}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() =>
+                          setActiveLanguageCodes((prev) => prev.filter((c) => c !== code))
+                        }
+                        className="text-xs font-semibold text-stone-500 underline disabled:opacity-40"
+                      >
+                        {t("stRemoveLanguage")}
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {supportedLanguages.some((l) => !activeLanguageCodes.includes(l.code)) && (
+            <div className="mt-4 border-t border-stone-100 pt-3">
+              <p className="mb-1.5 text-xs font-semibold text-stone-600">
+                {t("stAddLanguage")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {supportedLanguages
+                  .filter((l) => !activeLanguageCodes.includes(l.code))
+                  .map((l) => (
+                    <button
+                      key={l.code}
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => setActiveLanguageCodes((prev) => [...prev, l.code])}
+                      className="rounded-full border border-stone-300 px-3 py-1 text-xs font-semibold text-stone-700 disabled:opacity-40"
+                    >
+                      + {l.label}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {canEdit && (
