@@ -22,7 +22,16 @@ export type CustomerField =
 
 export interface DeliveryZone {
   code: string;
-  label: string;
+  /**
+   * Corrige L2B2-01 (contre-audit Work) : élargi à `string | null` pour
+   * rester un modèle de résultat COMMUN aux deux résolveurs de
+   * lib/delivery.ts (legacy et LOT 2B.1) -- la nouvelle RPC
+   * get_restaurant_public_delivery_info autorise explicitement
+   * delivery_area_label = null, jamais un libellé inventé en repli.
+   * Les données legacy (restaurants-config.ts, ci-dessous) fournissent
+   * toujours un string réel -- aucune régression pour ce chemin.
+   */
+  label: string | null;
 }
 
 export interface OptionGroup {

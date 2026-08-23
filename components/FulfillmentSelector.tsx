@@ -93,9 +93,18 @@ export default function FulfillmentSelector({
 
   const message = (() => {
     if (status.eligible) {
+      // Corrige L2B2-V2-01 (contre-audit Work, re-audit) :
+      // DeliveryZone.label est désormais string | null (unification
+      // LOT 2B.2). Le runtime legacy actuel ne produit jamais null
+      // ici, mais le futur resolver public le peut légitimement
+      // (delivery_area_label = null). Jamais de texte inventé en
+      // repli ("Zone inconnue", code postal, nom d'établissement) --
+      // uniquement l'omission propre du segment de zone.
       return {
         tone: "good",
-        text: `Livraison offerte — ${status.zone!.label}.`,
+        text: status.zone?.label
+          ? `Livraison offerte — ${status.zone.label}.`
+          : `Livraison offerte.`,
       };
     }
     switch (status.block) {
