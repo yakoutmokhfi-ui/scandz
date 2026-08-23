@@ -144,21 +144,22 @@ test("V73-02: recherche exhaustive -- plus aucune occurrence de text-espresso/te
   }
 });
 
-test("V73-02: les seules occurrences résiduelles de text-espresso/NN sont documentées et exemptées (icône aria-hidden, ou état disabled explicite)", () => {
+test("V73-02: les occurrences résiduelles de text-espresso/NN restent décoratives ; les contrôles blancs disabled utilisent une couleur fixe lisible", () => {
   // ProductPhotoPlaceholder : aria-hidden="true" explicite (décoratif).
   const placeholderSrc = readFileSync("components/ProductPhotoPlaceholder.tsx", "utf8");
   assert.ok(placeholderSrc.includes('aria-hidden="true"'));
   assert.ok(placeholderSrc.includes("text-espresso/20"));
 
   // InlineOptions et OptionModal : disabled={n === 0} / n === 0 sur le
-  // MÊME contrôle -- exemption WCAG pour composant d'interface inactif.
+  // MÊME contrôle. UIFIX v5 ne dépend plus de la couleur thémée héritée
+  // sur leur fond blanc, même pour cet état inactif.
   const inlineSrc = readFileSync("components/InlineOptions.tsx", "utf8");
   assert.ok(inlineSrc.includes("disabled={n === 0}"));
-  assert.ok(inlineSrc.includes("text-espresso/30"));
+  assert.ok(inlineSrc.includes("text-stone-600"));
 
   const optionModalSrc = readFileSync("components/OptionModal.tsx", "utf8");
   assert.ok(optionModalSrc.includes("disabled={n === 0}"));
-  assert.ok(optionModalSrc.includes("text-espresso/30"));
+  assert.ok(optionModalSrc.includes("text-stone-600"));
 });
 
 test("V73-02: gold/highlight sur icône aria-hidden (RestaurantInfoCard) volontairement hors périmètre -- décoratif, hors exigences WCAG 1.4.3/1.4.11", () => {

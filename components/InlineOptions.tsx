@@ -48,7 +48,9 @@ export default function InlineOptions({
                   aria-label={t("ariaRemoveOne", { name: tName(choice, lang, sourceLanguage) })}
                   className={
                     "h-7 w-7 rounded-full text-sm font-bold shadow-sm " +
-                    (n === 0 ? "bg-white text-espresso/25" : "bg-white")
+                    (n === 0
+                      ? "bg-white text-stone-600"
+                      : "bg-white text-stone-900")
                   }
                 >
                   −

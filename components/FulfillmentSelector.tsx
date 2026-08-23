@@ -4,6 +4,7 @@ import type { RestaurantSettings, ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
 import { useI18n } from "@/lib/i18n-context";
+import { getFulfillmentToneClass } from "@/lib/fulfillment-tone";
 
 type Errors = Partial<Record<keyof CustomerInfo, string>>;
 
@@ -46,7 +47,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
         className={
-          "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base outline-none focus:border-caramel sm:text-sm " +
+          "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
           (error ? "border-amber-400" : "border-espresso/15")
         }
       />
@@ -121,12 +122,7 @@ export default function FulfillmentSelector({
     }
   })();
 
-  const toneClass =
-    message?.tone === "good"
-      ? "bg-green-50 text-green-800"
-      : message?.tone === "warn"
-        ? "bg-amber-50 text-amber-900"
-        : "bg-white text-ink-on-bg-muted";
+  const toneClass = getFulfillmentToneClass(message?.tone);
 
   return (
     <div className="mt-6 min-w-0 max-w-full overflow-x-hidden">

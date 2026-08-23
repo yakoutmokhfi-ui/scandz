@@ -659,6 +659,7 @@ export default function SettingsPage() {
 
             <ColorField
               label={t("stPrimaryColor")}
+              helpText={t("stPrimaryColorHelp")}
               value={primaryColor}
               onChange={setPrimaryColor}
               disabled={!canEdit}
@@ -666,6 +667,7 @@ export default function SettingsPage() {
             />
             <ColorField
               label={t("stSecondaryColor")}
+              helpText={t("stSecondaryColorHelp")}
               value={secondaryColor}
               onChange={setSecondaryColor}
               disabled={!canEdit}
@@ -673,6 +675,7 @@ export default function SettingsPage() {
             />
             <ColorField
               label={t("stAccentColor")}
+              helpText={t("stAccentColorHelp")}
               value={accentColor}
               onChange={setAccentColor}
               disabled={!canEdit}
@@ -680,6 +683,7 @@ export default function SettingsPage() {
             />
             <ColorField
               label={t("stBgColorLabel")}
+              helpText={t("stBgColorHelp")}
               value={bgColor}
               onChange={setBgColor}
               disabled={!canEdit}
@@ -1139,12 +1143,14 @@ function AssetField({
  */
 function ColorField({
   label,
+  helpText,
   value,
   onChange,
   disabled,
   t,
 }: {
   label: string;
+  helpText?: string;
   value: string;
   onChange: (v: string) => void;
   disabled: boolean;
@@ -1157,6 +1163,7 @@ function ColorField({
   return (
     <div className="mt-3">
       <label className="block text-xs font-semibold text-stone-600">{label}</label>
+      {helpText && <p className="mt-0.5 text-xs text-stone-400">{helpText}</p>}
       <div className="mt-1 flex items-center gap-2">
         <input
           type="color"

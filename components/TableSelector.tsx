@@ -27,7 +27,13 @@ export default function TableSelector({
               "rounded-lg py-2 text-sm font-semibold " +
               (selected === n
                 ? "bg-caramel text-caramel-ink"
-                : "bg-white text-ink-on-bg shadow-sm")
+                // Corrige UIFIX-01 : même défaut que CategoryNav --
+                // l'ancien fond blanc figé associé à text-ink-on-bg
+                // (calculé contre --sc-bg) pouvait produire du texte
+                // blanc sur un fond resté blanc. bg-crema
+                // (= var(--sc-bg)) réaligne les deux sur la même
+                // source.
+                : "bg-crema text-ink-on-bg shadow-sm")
             }
           >
             {n}

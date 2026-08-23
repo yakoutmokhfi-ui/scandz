@@ -106,7 +106,17 @@ export default function CartPanel({
               {lines.map(({ key, item, quantity, option, optionKind }) => (
                 <li
                   key={key}
-                  className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-xl bg-white p-3"
+                  // Corrige UIFIX-V2-01 (contre-audit Work, 3e tour) :
+                  // ce conteneur englobe des DESCENDANTS dont le texte
+                  // (text-ink-on-bg-muted, text-accent-dark-on-bg) est
+                  // calculé contre --sc-bg, alors que le conteneur
+                  // lui-même restait sur un fond littéral figé --
+                  // exactement le même défaut structurel que
+                  // UIFIX-01, mais en relation parent/descendant
+                  // plutôt que sur un seul élément. bg-crema
+                  // (= var(--sc-bg)) réaligne le fond réellement
+                  // affiché sur la même source que ces textes.
+                  className="flex min-w-0 items-center justify-between gap-2 overflow-hidden rounded-xl bg-crema p-3"
                 >
                   <div className="min-w-0">
                     <p className="font-semibold leading-snug">
@@ -172,7 +182,7 @@ export default function CartPanel({
                   placeholder={t("notePlaceholder")}
                   aria-invalid={!noteState.isValid || undefined}
                   className={
-                    "mt-1.5 w-full resize-none rounded-xl border bg-white p-3 text-sm " +
+                    "mt-1.5 w-full resize-none rounded-xl border bg-white p-3 text-sm text-stone-900 placeholder:text-stone-500 " +
                     (noteState.isValid
                       ? "border-espresso/10"
                       : "border-amber-500 bg-amber-50")
@@ -225,7 +235,11 @@ export default function CartPanel({
                             ? "border-amber-500 bg-amber-50 text-amber-900"
                             : selected
                               ? "border-caramel bg-caramel text-caramel-ink"
-                              : "border-transparent bg-white text-ink-on-bg shadow-sm")
+                              // Corrige UIFIX-01 : même défaut que
+                              // CategoryNav -- bg-crema (= var(--sc-bg))
+                              // réaligne fond et texte sur la même
+                              // source de contraste.
+                              : "border-transparent bg-crema text-ink-on-bg shadow-sm")
                         }
                       >
                         <span className="block">

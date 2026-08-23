@@ -124,7 +124,12 @@ export default function ProductInfoButton({
             dialogRef.current?.close();
           }
         }}
-        className="m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-espresso/10 bg-white p-4 shadow-lg backdrop:bg-espresso/20"
+        // Corrige UIFIX-V3-01 (contre-audit Work, 4e tour) : ce
+        // dialogue englobe directement text-ink-on-bg, calculé contre
+        // --sc-bg, alors qu'il restait sur un fond littéral figé. bg-crema
+        // (= var(--sc-bg)) réaligne le fond réellement affiché sur la
+        // même source.
+        className="m-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-espresso/10 bg-crema p-4 shadow-lg backdrop:bg-espresso/20"
       >
         <p className="whitespace-pre-line text-sm text-ink-on-bg">
           {description}
