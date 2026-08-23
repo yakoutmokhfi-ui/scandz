@@ -66,7 +66,12 @@ export default function OrderConfirmation({
           </p>
         )}
 
-        <div className="mt-6 space-y-2 rounded-2xl bg-white p-4 text-left text-sm shadow-sm">
+        {/* Corrige UIFIX-V3-01 (contre-audit Work, 4e tour) : ce
+            conteneur englobe des descendants (text-ink-on-bg,
+            text-ink-on-bg-muted) calculés contre --sc-bg, alors qu'il
+            restait sur un fond littéral figé. bg-crema (= var(--sc-bg)) réaligne
+            le fond réellement affiché sur la même source. */}
+        <div className="mt-6 space-y-2 rounded-2xl bg-crema p-4 text-left text-sm shadow-sm">
           {contextSummary(context, t).map((line) => (
             <p key={line} className="text-ink-on-bg">
               {line}

@@ -27,7 +27,7 @@ export default function QuantityControl({
       <button
         onClick={() => onChange(-1)}
         aria-label={t("ariaDecrease")}
-        className="h-7 w-7 rounded-full bg-white font-bold shadow-sm"
+        className="h-7 w-7 rounded-full bg-white font-bold text-stone-900 shadow-sm"
       >
         −
       </button>

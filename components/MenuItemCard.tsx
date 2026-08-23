@@ -50,10 +50,17 @@ export default function MenuItemCard({
   const [photoFailed, setPhotoFailed] = useState(false);
   const hasPhoto = Boolean(item.image_url) && !photoFailed;
   const isInline = Boolean(inlineChoices && onChangeChoice);
+  // Corrige UIFIX-V3-01 (contre-audit Work, 4e tour) : cette carte
+  // englobe des descendants dont le texte (text-ink-on-bg-muted,
+  // text-accent-dark-on-bg, text-ink-on-bg) est calculé contre
+  // --sc-bg, alors que la carte elle-même restait sur un fond littéral figé --
+  // même défaut structurel que UIFIX-01/UIFIX-V2-01. bg-crema
+  // (= var(--sc-bg)) réaligne le fond réellement affiché sur la même
+  // source. Utilisée dans le parcours principal pour chaque produit.
   const cardClasses =
     variant === "editorial"
-      ? "rounded-lg border border-gold/20 bg-white p-3 shadow-sm shadow-espresso/5"
-      : "rounded-2xl bg-white p-3 shadow-md shadow-espresso/5";
+      ? "rounded-lg border border-gold/20 bg-crema p-3 shadow-sm shadow-espresso/5"
+      : "rounded-2xl bg-crema p-3 shadow-md shadow-espresso/5";
   const imageRadius = variant === "editorial" ? "rounded-md" : "rounded-xl";
 
   if (isInline) {
@@ -172,7 +179,7 @@ export default function MenuItemCard({
                   <button
                     onClick={onRemove}
                     aria-label={t("ariaDecrease")}
-                    className="h-7 w-7 rounded-full bg-white font-bold shadow-sm"
+                    className="h-7 w-7 rounded-full bg-white font-bold text-stone-900 shadow-sm"
                   >
                     −
                   </button>

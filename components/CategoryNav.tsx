@@ -46,7 +46,19 @@ export default function CategoryNav({
                   "flex-1 basis-[8rem] rounded-xl px-4 py-3 text-center text-sm font-semibold transition-colors " +
                   (isActive
                     ? "bg-caramel text-caramel-ink shadow-sm"
-                    : "bg-white text-ink-on-bg shadow-sm")
+                    // Corrige UIFIX-01 : l'ancien fond blanc était un
+                    // fond LITTÉRAL figé, totalement déconnecté du
+                    // thème, alors que text-ink-on-bg est calculé pour
+                    // rester lisible contre --sc-bg (le fond de page,
+                    // personnalisable). Si un commerçant choisit un
+                    // bg_color sombre, ce calcul résout vers du texte
+                    // BLANC -- posé sur un fond resté littéralement
+                    // blanc : texte invisible. bg-crema (= var(--sc-bg))
+                    // rétablit la même source pour le fond et pour le
+                    // calcul du texte, comme c'est déjà le cas pour
+                    // bg-caramel/text-caramel-ink
+                    // ci-dessus.
+                    : "bg-crema text-ink-on-bg shadow-sm")
                 }
               >
                 {tName(category, lang, sourceLanguage)}

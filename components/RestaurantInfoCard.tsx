@@ -51,7 +51,13 @@ export default function RestaurantInfoCard({
 
   return (
     <div className="relative z-10 -mt-5 px-4">
-      <div className="divide-y divide-espresso/5 rounded-2xl bg-white shadow-md">
+      {/* Corrige UIFIX-V3-01 (contre-audit Work, 4e tour) : ce
+          conteneur englobe des descendants (text-ink-on-bg-muted,
+          text-ink-on-bg, text-accent-dark-on-bg via row.content)
+          calculés contre --sc-bg, alors qu'il restait sur un fond littéral figé.
+          bg-crema (= var(--sc-bg)) réaligne le fond réellement
+          affiché sur la même source. */}
+      <div className="divide-y divide-espresso/5 rounded-2xl bg-crema shadow-md">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-3 px-4 py-3">
             {/* Laiton du thème : accent discret, sans aplat */}

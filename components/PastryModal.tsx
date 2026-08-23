@@ -38,7 +38,7 @@ export default function PastryModal({
                   onClick={() => setSelected(pastry)}
                   aria-pressed={isSelected}
                   className={
-                    "overflow-hidden rounded-xl bg-white text-left shadow-sm " +
+                    "overflow-hidden rounded-xl bg-white text-left text-stone-900 shadow-sm " +
                     (isSelected ? "ring-2 ring-caramel" : "")
                   }
                 >
@@ -53,7 +53,7 @@ export default function PastryModal({
                     <span className="text-sm font-semibold leading-snug">
                       {pastry.name}
                     </span>
-                    {isSelected && <span className="text-caramel">✓</span>}
+                    {isSelected && <span className="text-stone-900">✓</span>}
                   </div>
                 </button>
               );

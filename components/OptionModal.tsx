@@ -115,7 +115,10 @@ export default function OptionModal({
                     "rounded-full px-4 py-2 text-sm font-semibold " +
                     (total === n
                       ? "bg-caramel text-caramel-ink"
-                      : "bg-white text-ink-on-bg shadow-sm")
+                      // Corrige UIFIX-01 : même défaut que CategoryNav
+                      // -- bg-crema (= var(--sc-bg)) réaligne fond et
+                      // texte sur la même source de contraste.
+                      : "bg-crema text-ink-on-bg shadow-sm")
                   }
                 >
                   {n}
@@ -124,7 +127,13 @@ export default function OptionModal({
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-between rounded-xl bg-white p-3">
+          {/* Corrige UIFIX-V2-01 (contre-audit Work, 3e tour) : ce
+              conteneur englobe le descendant text-accent-dark-on-bg
+              (le total), calculé contre --sc-bg, alors que le
+              conteneur restait sur un fond littéral figé. bg-crema
+              (= var(--sc-bg)) réaligne le fond réellement affiché sur
+              la même source que ce texte. */}
+          <div className="mt-3 flex items-center justify-between rounded-xl bg-crema p-3">
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setTotalSafe(total - 1)}
@@ -175,17 +184,19 @@ export default function OptionModal({
                     (n > 0 ? "bg-white ring-1 ring-caramel/40" : "bg-white")
                   }
                 >
-                  <span className="min-w-0 text-sm font-semibold leading-snug">
+                  <span className="min-w-0 text-sm font-semibold leading-snug text-stone-900">
                     {tName(choice, lang, sourceLanguage)}
                   </span>
-                  <div className="flex items-center gap-3 rounded-full bg-crema px-2 py-1">
+                  <div className="flex items-center gap-3 rounded-full bg-crema px-2 py-1 text-ink-on-bg">
                     <button
                       onClick={() => bump(choice.id, -1)}
                       disabled={n === 0}
                       aria-label={t("ariaRemoveOne", { name: tName(choice, lang, sourceLanguage) })}
                       className={
                         "h-7 w-7 rounded-full font-bold shadow-sm " +
-                        (n === 0 ? "bg-white text-espresso/30" : "bg-white")
+                        (n === 0
+                          ? "bg-white text-stone-600"
+                          : "bg-white text-stone-900")
                       }
                     >
                       −
