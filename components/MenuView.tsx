@@ -282,7 +282,15 @@ export default function MenuView({
     if (serviceMode === "delivery" && deliveryStatus.eligible) {
       return {
         mode: "delivery",
-        zoneLabel: deliveryStatus.zone!.label,
+        // Ajustement type-safe minimal (contre-audit Work, L2B2-01) :
+        // DeliveryZone.label est désormais string | null (modèle
+        // commun aux deux résolveurs de lib/delivery.ts). En runtime
+        // ACTUEL, ce chemin est alimenté exclusivement par
+        // getDeliveryStatus() (legacy, restaurants-config.ts), où
+        // label est TOUJOURS une vraie chaîne -- ce repli ne change
+        // donc aucun comportement aujourd'hui, seulement la sûreté de
+        // type. Aucune logique métier modifiée.
+        zoneLabel: deliveryStatus.zone!.label ?? "",
         customer,
       };
     }
