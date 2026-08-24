@@ -101,6 +101,11 @@ const fr: Dict = {
   errCity: "Indiquez votre ville",
   errPhone: "Numéro à 10 chiffres",
   errEmail: "Adresse e-mail invalide",
+  // LOT 2B.4a.2 — indication générique pour un groupe one_of (ex. "au
+  // moins téléphone ou email") : {fields} est la liste des libellés
+  // déjà traduits des champs du groupe, jamais un nom de groupe codé
+  // en dur (ex. "contact" n'apparaît nulle part ici).
+  fieldOneOfRequired: "Renseignez au moins un des champs suivants : {fields}",
 
   howMany: "1. Combien en voulez-vous ?",
   distribute: "2. Répartissez vos goûts",
@@ -417,6 +422,7 @@ const en: Dict = {
   errCity: "Enter your city",
   errPhone: "10-digit number",
   errEmail: "Invalid email address",
+  fieldOneOfRequired: "Please fill in at least one of the following: {fields}",
 
   howMany: "1. How many would you like?",
   distribute: "2. Split between flavours",
@@ -731,6 +737,7 @@ const ar: Dict = {
   errCity: "أدخل مدينتك",
   errPhone: "رقم من عشرة أرقام",
   errEmail: "بريد إلكتروني غير صالح",
+  fieldOneOfRequired: "املأ حقلاً واحدًا على الأقل مما يلي: {fields}",
 
   howMany: "١. كم تريد؟",
   distribute: "٢. وزّع النكهات",

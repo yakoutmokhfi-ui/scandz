@@ -30,11 +30,17 @@ const {
 const v84Sql = readFileSync("supabase/migration-v84-lot2b1-delivery-info-rpc.sql", "utf8");
 const harnessSrc = readFileSync("supabase/tests/v84-lot2b1-check.sh", "utf8");
 
-test("LOT 2B.1: aucun fichier consommateur métier n'a été modifié dans ce sous-lot (mis à jour LOT 2B.2 : lib/delivery.ts, puis LOT 2B.3 : MenuView.tsx, ont depuis légitimement commencé à consommer lib/sale-modes-public.ts/sale-modes-types.ts, exclus de cette liste)", () => {
-  const untouchedFiles = [
-    "components/CartPanel.tsx",
-    "components/FulfillmentSelector.tsx",
-  ];
+test("LOT 2B.1: aucun fichier consommateur métier n'a été modifié dans ce sous-lot (mis à jour LOT 2B.2 : lib/delivery.ts, LOT 2B.3 : MenuView.tsx, puis LOT 2B.4a.2 : CartPanel.tsx et FulfillmentSelector.tsx, ont depuis légitimement commencé à consommer lib/sale-modes-public.ts/sale-modes-types.ts -- bascule runtime réelle du formulaire client, exclus de cette liste)", () => {
+  // Historique : à l'origine (LOT 2B.1), CETTE liste contenait
+  // components/CartPanel.tsx et components/FulfillmentSelector.tsx --
+  // les deux consomment désormais légitimement lib/sale-modes-public.ts
+  // (FieldRequirementDisplayItem) depuis LOT 2B.4a.2, exactement le
+  // même type d'évolution déjà rencontré pour lib/delivery.ts
+  // (LOT 2B.2) et MenuView.tsx (LOT 2B.3) -- la liste est mise à jour
+  // en conséquence, jamais le test supprimé : aucun fichier métier
+  // NE DOIT plus jamais rester dans cette liste vide sans que ce soit
+  // documenté explicitement ici, lot par lot.
+  const untouchedFiles: string[] = [];
   for (const f of untouchedFiles) {
     const src = readFileSync(f, "utf8");
     assert.ok(!src.includes("sale-modes-public"), `${f} ne doit pas encore consommer lib/sale-modes-public.ts`);

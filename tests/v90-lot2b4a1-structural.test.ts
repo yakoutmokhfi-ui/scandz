@@ -4,15 +4,31 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 // ====================================================================
-// LOT 2B.4a.1 -- invariants structurels :
-//   1. le nouveau hook ne contient AUCUN fallback vers le chemin
-//      legacy (settings.requiredCustomerFields / restaurants-config.ts) ;
-//   2. le formulaire actif (FulfillmentSelector.tsx, MenuView.tsx)
-//      N'A PAS basculé dans ce lot -- toujours settings.requiredCustomerFields,
-//      n'importe pas le nouveau hook ;
-//   3. aucun fichier interdit (section 13 de la mission) n'apparaît
-//      dans le diff réel de ce lot -- vérifié par git, jamais une
-//      simple relecture du patch.
+// LOT 2B.4a.1 -- invariants structurels PERMANENTS du hook
+// usePublicFieldRequirements lui-même (lib/use-public-field-requirements.ts) :
+//   1. aucun fallback vers le chemin legacy
+//      (settings.requiredCustomerFields / restaurants-config.ts) ;
+//   2. documentation du statut de fondation et du correctif L2B4A1-01.
+//
+// Retiré ici (LOT 2B.4a.2) -- documentation, pas un simple oubli :
+// ce fichier contenait à l'origine 3 tests supplémentaires prouvant
+// que "le formulaire actif (FulfillmentSelector.tsx, MenuView.tsx)
+// N'A PAS basculé" (LOT 2B.4a.1, scope volontairement limité aux
+// fondations) et 1 test excluant précisément ces 3 fichiers d'un
+// diff "interdit sauf blocage" -- exactement le périmètre que LOT
+// 2B.4a.2 est explicitement mandaté à changer (bascule runtime
+// réelle du formulaire actif, CIO GO). Ces 4 tests décrivaient un
+// état TRANSITOIRE du dépôt (celui produit par LOT 2B.4a.1), jamais
+// une propriété durable de l'architecture -- les conserver aurait
+// fait échouer la suite en permanence dès la bascule autorisée,
+// exactement le même écueil déjà rencontré et documenté ci-dessous
+// pour la preuve positive de versionnage (`git diff` contre une
+// baseline devenue propre après merge). Les invariants RÉELLEMENT
+// permanents de LOT 2B.4a.1 (le hook lui-même, ses 4 tests
+// ci-dessous, plus la preuve de versionnage) restent inchangés. Les
+// nouveaux invariants structurels de LOT 2B.4a.2 (bascule
+// effectivement réalisée, fichiers hors périmètre toujours absents
+// du diff) sont couverts par tests/v91-lot2b4a2-structural.test.ts.
 // ====================================================================
 
 function stripComments(src: string): string {
@@ -24,8 +40,6 @@ function stripComments(src: string): string {
 
 const hookSrc = readFileSync("lib/use-public-field-requirements.ts", "utf8");
 const hookCodeOnly = stripComments(hookSrc);
-const menuViewSrc = readFileSync("components/MenuView.tsx", "utf8");
-const fulfillmentSrc = readFileSync("components/FulfillmentSelector.tsx", "utf8");
 
 test("LOT 2B.4a.1: usePublicFieldRequirements n'importe ni RestaurantSettings ni restaurants-config.ts dans le code réel", () => {
   assert.ok(!hookCodeOnly.includes("RestaurantSettings"));
@@ -70,61 +84,24 @@ test("L2B4A1-01 (audit Work, HIGH): la correction fail-closed est documentée da
   );
 });
 
-test("LOT 2B.4a.1 (preuve que le formulaire actif n'a pas encore basculé): MenuView.tsx et FulfillmentSelector.tsx n'importent PAS usePublicFieldRequirements", () => {
-  assert.ok(!menuViewSrc.includes("use-public-field-requirements"));
-  assert.ok(!fulfillmentSrc.includes("use-public-field-requirements"));
-});
-
-test("LOT 2B.4a.1 (preuve que le formulaire actif n'a pas encore basculé): MenuView.tsx lit toujours settings.requiredCustomerFields comme source des champs requis", () => {
-  const codeOnly = stripComments(menuViewSrc);
-  assert.ok(codeOnly.includes("settings.requiredCustomerFields"));
-});
-
-test("LOT 2B.4a.1 (preuve que le formulaire actif n'a pas encore basculé): FulfillmentSelector.tsx accepte toujours requiredFields: (keyof CustomerInfo)[] -- signature inchangée, pas de SaleModeFieldRequirement", () => {
-  assert.ok(fulfillmentSrc.includes("requiredFields: (keyof CustomerInfo)[]"));
-  assert.ok(!fulfillmentSrc.includes("SaleModeFieldRequirement"));
-});
-
-test("LOT 2B.4a.1: aucun fichier interdit (section 13) n'apparaît dans le diff réel de ce lot -- vérifié via git, pas une relecture manuelle du patch", () => {
-  const FORBIDDEN_UNLESS_BLOCKING = [
-    "components/FulfillmentSelector.tsx",
-    "components/MenuView.tsx",
-    "components/CartPanel.tsx",
-    "lib/restaurants-config.ts",
-  ];
-
-  const trackedChanges = execFileSync("git", ["diff", "--name-only", "HEAD"], { encoding: "utf8" })
+test("LOT 2B.4a.1: les fichiers attendus de ce lot sont bien versionnés (preuve positive, complémentaire de l'exclusion ci-dessus)", () => {
+  // Historique : à l'origine (avant le merge de LOT 2B.4a.1 v2), cette
+  // preuve positive comparait à `git diff --name-only HEAD` +
+  // `git status --porcelain` -- valide UNIQUEMENT pendant le
+  // développement du lot, contre sa propre baseline non committée.
+  // Une fois le lot mergé (LOT 2B.4a.2, baseline 70d6991), l'arbre de
+  // travail est propre par construction : `git diff HEAD` est
+  // TOUJOURS vide, donc cette assertion échouait à tort en
+  // permanence -- constaté au tout début de LOT 2B.4a.2, avant toute
+  // modification fonctionnelle, en rejouant la suite complète sur la
+  // nouvelle baseline (section 15 de la mission 2B.4a.2). Corrigé ici
+  // pour rester vrai QUELLE QUE SOIT l'ancienneté du lot : `git
+  // ls-files` prouve que ces fichiers sont bien versionnés dans le
+  // dépôt (donc réellement livrés), invariant durable après un merge
+  // -- contrairement à `git diff`, qui ne l'est pas.
+  const trackedFiles = execFileSync("git", ["ls-files"], { encoding: "utf8" })
     .split("\n")
     .filter(Boolean);
-  const untrackedFiles = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" })
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3));
-
-  const allChangedFiles = [...trackedChanges, ...untrackedFiles];
-
-  for (const forbidden of FORBIDDEN_UNLESS_BLOCKING) {
-    assert.ok(
-      !allChangedFiles.includes(forbidden),
-      `${forbidden} apparaît dans le diff -- interdit sauf blocage démontré et documenté (section 13 de la mission)`
-    );
-  }
-
-  // Aucun fichier SQL/migration/RPC touché dans ce lot (section 15 :
-  // aucun SQL attendu dans 2B.4a.1).
-  const sqlChanges = allChangedFiles.filter((f) => f.startsWith("supabase/"));
-  assert.deepEqual(sqlChanges, [], "aucun fichier supabase/ ne doit apparaître dans le diff -- LOT 2B.4a.1 n'implique aucun changement SQL/RPC");
-});
-
-test("LOT 2B.4a.1: les fichiers attendus de ce lot apparaissent bien dans le diff (preuve positive, complémentaire de l'exclusion ci-dessus)", () => {
-  const trackedChanges = execFileSync("git", ["diff", "--name-only", "HEAD"], { encoding: "utf8" })
-    .split("\n")
-    .filter(Boolean);
-  const untrackedFiles = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" })
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3));
-  const allChangedFiles = [...trackedChanges, ...untrackedFiles];
 
   const expectedTouched = [
     "lib/use-public-field-requirements.ts",
@@ -133,10 +110,6 @@ test("LOT 2B.4a.1: les fichiers attendus de ce lot apparaissent bien dans le dif
     "tests/v90-lot2b4a1-l2b4a1-01-fail-closed-key-change.dom.test.ts",
   ];
   for (const f of expectedTouched) {
-    assert.ok(allChangedFiles.includes(f), `${f} devrait apparaître dans le diff de ce lot`);
+    assert.ok(trackedFiles.includes(f), `${f} devrait être versionné (livré) par ce lot`);
   }
-
-  // lib/customer.ts audité (section 8) mais volontairement NON modifié
-  // dans ce lot -- aucun besoin fonctionnel identifié (voir rapport).
-  assert.ok(!allChangedFiles.includes("lib/customer.ts"), "lib/customer.ts n'a pas été modifié -- décision documentée dans le rapport");
 });
