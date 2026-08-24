@@ -87,10 +87,6 @@ export default function FulfillmentSelector({
   const err = (k: keyof CustomerInfo) =>
     showErrors && errors[k] ? t(errors[k]!) : undefined;
 
-  const areaLabel =
-    settings.deliveryAreaLabel ??
-    (settings.deliveryZones ?? []).map((z) => z.label).join(" et ");
-
   const message = (() => {
     if (status.eligible) {
       // Corrige L2B2-V2-01 (contre-audit Work, re-audit) :
@@ -122,9 +118,18 @@ export default function FulfillmentSelector({
           text: t("deliveryNoPostal"),
         };
       case "out-of-zone":
+        // Corrige L2B3-01 (contre-audit Work) : le message hors zone
+        // ne doit plus jamais dépendre des anciens champs livraison
+        // de RestaurantSettings (restaurants-config.ts) -- le nouveau
+        // résolveur public ne renseigne jamais status.zone pour ce
+        // cas précis (aucun préfixe n'a matché, il n'y a donc
+        // structurellement aucun label public disponible à afficher).
+        // Message neutre déjà présent dans le produit
+        // (deliveryOutOfZoneShort), jamais une zone reconstruite ou
+        // inventée.
         return {
           tone: "warn",
-          text: t("deliveryOutOfZone", { area: areaLabel }),
+          text: t("deliveryOutOfZoneShort"),
         };
       default:
         return null;

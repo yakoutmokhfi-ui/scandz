@@ -268,22 +268,21 @@ test("LOT 2B.2: le fichier documente explicitement que le chemin legacy reste ac
   assert.ok(deliverySrc.includes("MIGRATION PREPARED, NOT SWITCHED") || deliverySrc.includes("NOT SWITCHED"));
 });
 
-test("LOT 2B.2: MenuView.tsx/CartPanel.tsx/FulfillmentSelector.tsx ne référencent PAS ENCORE la nouvelle fonction (aucune migration runtime), même après l'ajustement type-safe minimal de MenuView.tsx", () => {
-  for (const file of ["components/MenuView.tsx", "components/CartPanel.tsx", "components/FulfillmentSelector.tsx", "lib/restaurants-config.ts"]) {
+test("LOT 2B.2: CartPanel.tsx/FulfillmentSelector.tsx/restaurants-config.ts ne référencent PAS la nouvelle fonction (mis à jour LOT 2B.3 : MenuView.tsx a depuis légitimement basculé vers le nouveau résolveur, exclu de cette liste -- voir tests/v88-lot2b3-structural.test.ts pour la preuve de cette bascule intentionnelle)", () => {
+  for (const file of ["components/CartPanel.tsx", "components/FulfillmentSelector.tsx", "lib/restaurants-config.ts"]) {
     const src = readFileSync(file, "utf8");
-    assert.ok(!src.includes("getDeliveryStatusFromPublicInfo"), `${file} ne doit pas encore référencer la nouvelle fonction`);
+    assert.ok(!src.includes("getDeliveryStatusFromPublicInfo"), `${file} ne doit pas référencer la nouvelle fonction`);
   }
 });
 
-test("L2B2-01: MenuView.tsx a reçu EXACTEMENT un ajustement type-safe minimal (zoneLabel ?? \"\"), documenté et justifié, jamais une migration fonctionnelle", () => {
+test("L2B2-01 (historique) : preuve, à l'époque de LOT 2B.2, que MenuView.tsx n'avait reçu qu'un ajustement type-safe minimal -- ce fait reste vrai pour le COMMIT de ce tour-là ; LOT 2B.3 a depuis légitimement basculé le runtime, voir tests/v88-lot2b3-structural.test.ts pour l'état actuel", () => {
+  // Ce test ne relit plus le fichier RÉEL (qui a changé depuis, à
+  // raison, lors de LOT 2B.3) -- il documente simplement que le
+  // repli zoneLabel ?? "" reste présent (n'a jamais été retiré), sans
+  // supposer que l'appel legacy synchrone est toujours le seul en
+  // usage (devenu faux depuis la bascule intentionnelle).
   const src = readFileSync("components/MenuView.tsx", "utf8");
-  assert.ok(src.includes('zoneLabel: deliveryStatus.zone!.label ?? ""'));
-  assert.ok(src.includes("L2B2-01"), "la justification doit être documentée dans le fichier lui-même");
-  // Confirme qu'aucune autre logique de ce fichier n'a été touchée :
-  // getDeliveryStatus (legacy) reste le seul appel réel, jamais
-  // getDeliveryStatusFromPublicInfo, aucun nouvel état/effet asynchrone.
-  assert.ok(src.includes("getDeliveryStatus(settings"), "l'appel legacy synchrone doit rester exactement le même");
-  assert.ok(!src.includes("useState") || !src.includes("deliveryInfo"), "aucun nouvel état de récupération asynchrone ajouté");
+  assert.ok(src.includes('zoneLabel: deliveryStatus.zone!.label ?? ""'), "le repli type-safe doit rester présent, quelle que soit la source qui alimente désormais deliveryStatus");
 });
 
 test("L2B2-01: restaurants-config.ts -- DeliveryZone.label élargi à string | null, AUCUNE autre modification (RestaurantSettings, autres champs, données Illico/Sanaa/Sirocco inchangés)", () => {

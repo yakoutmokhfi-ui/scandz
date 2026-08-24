@@ -15,7 +15,9 @@ import {
   type OptionGroup,
   type ServiceMode,
 } from "@/lib/restaurants-config";
-import { getDeliveryStatus } from "@/lib/delivery";
+import { getDeliveryStatusFromPublicInfo } from "@/lib/delivery";
+import { usePublicDeliveryInfo } from "@/lib/use-public-delivery-info";
+import type { PublicDeliveryInfo } from "@/lib/sale-modes-types";
 import {
   EMPTY_CUSTOMER,
   getCustomerErrors,
@@ -98,6 +100,58 @@ export default function MenuView({
     [baseSettings, variant]
   );
   const menuVariant = restaurant.slug === DEMO_SLUG ? "editorial" : "classic";
+
+  /**
+   * LOT 2B.3 — NEW PUBLIC DELIVERY RESOLVER ACTIVE IN RUNTIME.
+   * Chargement de PublicDeliveryInfo via un hook dédié (voir
+   * lib/use-public-delivery-info.ts pour l'état loading/loaded/error
+   * complet et la justification de sécurité).
+   */
+  /**
+   * LOT 2B.3 — NEW PUBLIC DELIVERY RESOLVER ACTIVE IN RUNTIME.
+   * Chargement de PublicDeliveryInfo via un hook dédié (voir
+   * lib/use-public-delivery-info.ts pour l'état loading/loaded/error
+   * complet et la justification de sécurité).
+   *
+   * Corrige L2B3-01 (contre-audit Work) : les 4 états sont désormais
+   * explicitement distingués ici, un par un, jamais confondus sous un
+   * simple `data: null`. "loading" et "error" restent traités de
+   * façon IDENTIQUE en aval (null -- aucune éligibilité présentée,
+   * aucun repli legacy) puisque c'est le comportement sûr requis pour
+   * les deux, mais chacun reste un cas NOMMÉ et observable dans le
+   * code, jamais une valeur anonyme confondue avec "loaded with
+   * null". Aucun nouveau comportement utilisateur inventé : cette
+   * distinction sert la clarté et la testabilité du code, pas un
+   * nouveau rendu visuel par état (hors périmètre de ce lot).
+   */
+  const { state: deliveryInfoState } = usePublicDeliveryInfo(restaurant.id);
+  const publicDeliveryInfo: PublicDeliveryInfo | null = (() => {
+    if (deliveryInfoState.status === "loading") {
+      // Comportement sûr : jamais d'éligibilité positive, jamais de
+      // zone (legacy ou publique) affichée comme si elle était déjà
+      // chargée.
+      return null;
+    }
+    if (deliveryInfoState.status === "error") {
+      // Comportement sûr : aucun repli legacy, aucun détail
+      // technique de l'erreur exposé, jamais d'éligibilité positive
+      // -- traité comme "aucune information disponible".
+      return null;
+    }
+    // deliveryInfoState.status === "loaded" à partir d'ici.
+    if (deliveryInfoState.data === null) {
+      // "loaded with null" : distinct de "loading"/"error" dans le
+      // code (la récupération a bien réussi, mais aucun mode
+      // delivery n'est configuré/activé pour cet établissement) --
+      // même traitement sûr en aval (aucune éligibilité), jamais un
+      // repli legacy, mais un cas explicitement nommé, jamais
+      // confondu avec les deux précédents.
+      return null;
+    }
+    // "loaded with data" : donnée publique réelle.
+    return deliveryInfoState.data;
+  })();
+
 
   // Corrige L1A-02 (contre-audit Work, tour 1A.1) : la langue
   // publique initiale suit désormais RÉELLEMENT la configuration de
@@ -245,10 +299,12 @@ export default function MenuView({
     return quantityForItem(cart, item.id);
   }
 
-  /** Éligibilité à la livraison : code postal saisi + montant du panier. */
+  /** Éligibilité à la livraison : code postal saisi + montant du panier.
+   *  LOT 2B.3 : NEW PUBLIC DELIVERY RESOLVER ACTIVE IN RUNTIME --
+   *  getDeliveryStatus() (legacy) n'est plus appelée ici. */
   const deliveryStatus = useMemo(
-    () => getDeliveryStatus(settings, customer.postalCode, totalCount),
-    [settings, customer.postalCode, totalCount]
+    () => getDeliveryStatusFromPublicInfo(publicDeliveryInfo, customer.postalCode, totalCount),
+    [publicDeliveryInfo, customer.postalCode, totalCount]
   );
 
   /*
@@ -282,14 +338,14 @@ export default function MenuView({
     if (serviceMode === "delivery" && deliveryStatus.eligible) {
       return {
         mode: "delivery",
-        // Ajustement type-safe minimal (contre-audit Work, L2B2-01) :
-        // DeliveryZone.label est désormais string | null (modèle
-        // commun aux deux résolveurs de lib/delivery.ts). En runtime
-        // ACTUEL, ce chemin est alimenté exclusivement par
-        // getDeliveryStatus() (legacy, restaurants-config.ts), où
-        // label est TOUJOURS une vraie chaîne -- ce repli ne change
-        // donc aucun comportement aujourd'hui, seulement la sûreté de
-        // type. Aucune logique métier modifiée.
+        // Ajustement type-safe (LOT 2B.2 -- L2B2-01, mis à jour LOT
+        // 2B.3) : DeliveryZone.label est string | null. Depuis la
+        // bascule runtime LOT 2B.3, ce chemin est désormais alimenté
+        // par le NOUVEAU résolveur public (getDeliveryStatusFromPublicInfo),
+        // où label PEUT réellement être null (delivery_area_label de
+        // la RPC) -- ce repli n'est donc plus seulement défensif,
+        // il couvre un cas réel. Le WhatsApp reçoit alors une zone
+        // vide plutôt que "null" littéral, jamais un texte inventé.
         zoneLabel: deliveryStatus.zone!.label ?? "",
         customer,
       };
