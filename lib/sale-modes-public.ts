@@ -200,6 +200,56 @@ export function validateCustomerData(
   return { missingRequired, unsatisfiedGroups };
 }
 
+/**
+ * LOT 2B.4a.1 — élément d'affichage dérivé d'une liste de
+ * SaleModeFieldRequirement : soit un champ isolé (required/optional),
+ * soit UN groupe one_of fusionné (jamais répété par champ membre).
+ * Aucun nom de groupe supposé à l'avance -- `groupName` est
+ * entièrement dérivé de `oneOfGroup`, jamais une valeur codée en dur
+ * (ex. "contact" n'apparaît nulle part dans ce fichier).
+ */
+export type FieldRequirementDisplayItem =
+  | { kind: "field"; requirement: SaleModeFieldRequirement }
+  | { kind: "one_of_group"; groupName: string; fields: SaleModeFieldRequirement[] };
+
+/**
+ * Transforme la liste plate de SaleModeFieldRequirement (telle que
+ * retournée par getPublicFieldRequirements) en une liste ordonnée
+ * d'éléments d'affichage, prête à être itérée par un futur formulaire
+ * (LOT 2B.4a.2, pas encore consommée ici) : chaque champ
+ * required/optional devient un élément "field", et chaque groupe
+ * one_of est fusionné en UN SEUL élément "one_of_group" (positionné
+ * au rang de sa première occurrence dans la liste d'origine), plutôt
+ * que d'être répété une fois par champ membre.
+ *
+ * Ne recrée aucune logique de validation déjà fournie par
+ * groupFieldRequirements()/validateCustomerData() ci-dessus -- pure
+ * question d'ordre d'affichage, jamais de validation.
+ */
+export function buildFieldRequirementDisplayItems(
+  requirements: SaleModeFieldRequirement[]
+): FieldRequirementDisplayItem[] {
+  const items: FieldRequirementDisplayItem[] = [];
+  const groupIndexByName = new Map<string, number>();
+
+  for (const req of requirements) {
+    if (req.requirement === "one_of" && req.oneOfGroup) {
+      const existingIndex = groupIndexByName.get(req.oneOfGroup);
+      if (existingIndex === undefined) {
+        groupIndexByName.set(req.oneOfGroup, items.length);
+        items.push({ kind: "one_of_group", groupName: req.oneOfGroup, fields: [req] });
+      } else {
+        const existing = items[existingIndex];
+        if (existing.kind === "one_of_group") existing.fields.push(req);
+      }
+    } else {
+      items.push({ kind: "field", requirement: req });
+    }
+  }
+
+  return items;
+}
+
 /** Réservé aux tests : vide le cache mémoire du catalogue entre deux
  *  scénarios isolés. */
 export function __resetCatalogCacheForTests(): void {
