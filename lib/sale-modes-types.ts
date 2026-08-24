@@ -43,6 +43,34 @@ export interface SaleModeFieldRequirement {
  * figé à liste de propriétés nommées : un nouveau champ retourné par
  * le backend (ex. futur "delivery_instructions") doit fonctionner
  * sans modification de ce type.
+ *
+ * Contrat "delivery_address" (LOT 2B.4a.1 — documentation seule,
+ * réservée à l'implémentation de LOT 2B.4a.2, AUCUN code exécutable
+ * ici) :
+ *
+ * Côté base (sale_mode_field_requirements / migration-v82-lot2a-
+ * sale-modes.sql), le mode "delivery" exige un unique champ
+ * `delivery_address` (requirement "required"), pas trois champs
+ * séparés. Côté UI historique (FulfillmentSelector.tsx), l'adresse a
+ * toujours été saisie via TROIS entrées distinctes : street,
+ * postalCode, city (voir lib/customer.ts, CustomerInfo).
+ *
+ * Cette différence doit être préservée explicitement par LOT 2B.4a.2 :
+ *   - CustomerData ne gagne PAS un CustomerData["street"] +
+ *     CustomerData["postalCode"] + CustomerData["city"] séparés pour
+ *     le mode delivery -- le contrat backend est UN SEUL champ
+ *     `delivery_address: string` dans CustomerData ;
+ *   - le futur formulaire qui rendra `delivery_address` doit afficher
+ *     3 sous-champs UI mais ÉCRIRE une valeur unique combinée dans
+ *     `customerData.delivery_address` avant validation/soumission ;
+ *   - aucune fusion arbitraire (ex. simple concaténation par virgule)
+ *     ni aucun parsing inverse (redécouper `delivery_address` en 3
+ *     parties) n'est décidé ni implémenté ici -- ce choix de rendu
+ *     appartient entièrement à LOT 2B.4a.2 ;
+ *   - `getPublicFieldRequirements()`/`validateCustomerData()` ne
+ *     traitent déjà `delivery_address` que comme un champ `string`
+ *     required parmi d'autres -- aucune modification requise de ces
+ *     fonctions pour ce contrat.
  */
 export type CustomerData = Record<string, string>;
 
