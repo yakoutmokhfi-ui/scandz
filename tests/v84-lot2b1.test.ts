@@ -30,11 +30,10 @@ const {
 const v84Sql = readFileSync("supabase/migration-v84-lot2b1-delivery-info-rpc.sql", "utf8");
 const harnessSrc = readFileSync("supabase/tests/v84-lot2b1-check.sh", "utf8");
 
-test("LOT 2B.1: aucun fichier consommateur métier n'a été modifié dans ce sous-lot (mis à jour LOT 2B.2 : lib/delivery.ts a depuis légitimement commencé à consommer lib/sale-modes-types.ts, exclu de cette liste)", () => {
+test("LOT 2B.1: aucun fichier consommateur métier n'a été modifié dans ce sous-lot (mis à jour LOT 2B.2 : lib/delivery.ts, puis LOT 2B.3 : MenuView.tsx, ont depuis légitimement commencé à consommer lib/sale-modes-public.ts/sale-modes-types.ts, exclus de cette liste)", () => {
   const untouchedFiles = [
     "components/CartPanel.tsx",
     "components/FulfillmentSelector.tsx",
-    "components/MenuView.tsx",
   ];
   for (const f of untouchedFiles) {
     const src = readFileSync(f, "utf8");
