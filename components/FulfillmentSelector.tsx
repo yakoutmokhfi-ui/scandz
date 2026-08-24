@@ -1,6 +1,6 @@
 "use client";
 
-import type { RestaurantSettings, ServiceMode } from "@/lib/restaurants-config";
+import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
@@ -133,12 +133,15 @@ function fieldKind(field: string): KnownFieldKind {
  * des exigences génériques publiques (get_restaurant_public_field_requirements)
  * -- plus aucun `need("...")` ni `(keyof CustomerInfo)[]` figé lu
  * depuis settings.requiredCustomerFields (legacy, restaurants-config.ts).
- * `settings` reste un paramètre de ce composant uniquement pour le
- * message d'éligibilité livraison (allowedServiceModes), sans rapport
- * avec les champs client.
+ * AU LAIT CRU (sale modes) : `settings.allowedServiceModes` (legacy,
+ * statique) est remplacé par `deliveryModeAvailable`, un booléen dérivé
+ * de la liste RÉELLE des modes activés (get_restaurant_public_sale_modes,
+ * via usePublicSaleModes dans MenuView) -- même cause racine et même
+ * bascule runtime que displayItems/fieldRequirementsReady ci-dessus,
+ * appliquée cette fois au message d'éligibilité livraison plutôt qu'aux
+ * champs client.
  */
 export default function FulfillmentSelector({
-  settings,
   status,
   type,
   customer,
@@ -146,10 +149,10 @@ export default function FulfillmentSelector({
   showErrors,
   displayItems,
   fieldRequirementsReady,
+  deliveryModeAvailable,
   onChangeCustomer,
   onSelectFulfillment,
 }: {
-  settings: RestaurantSettings;
   status: DeliveryStatus;
   type: ServiceMode | null;
   customer: CustomerInfo;
@@ -157,6 +160,10 @@ export default function FulfillmentSelector({
   showErrors: boolean;
   displayItems: FieldRequirementDisplayItem[];
   fieldRequirementsReady: boolean;
+  /** true seulement si "delivery" figure dans la liste RÉELLEMENT
+   *  résolue des modes de vente activés pour cet établissement --
+   *  jamais settings.allowedServiceModes (legacy). */
+  deliveryModeAvailable: boolean;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
   onSelectFulfillment: (type: ServiceMode) => void;
 }) {
@@ -312,7 +319,7 @@ export default function FulfillmentSelector({
         {t(type === "delivery" ? "deliveryDetails" : "yourDetails")}
       </h3>
 
-      {settings.allowedServiceModes.includes("delivery") && message && (
+      {deliveryModeAvailable && message && (
         <div
           role="status"
           aria-live="polite"

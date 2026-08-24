@@ -18,6 +18,10 @@ import {
 import { getDeliveryStatusFromPublicInfo } from "@/lib/delivery";
 import { usePublicDeliveryInfo } from "@/lib/use-public-delivery-info";
 import {
+  usePublicSaleModes,
+  canAttemptToSelectSaleMode,
+} from "@/lib/use-public-sale-modes";
+import {
   usePublicFieldRequirements,
   canAttemptSubmit,
 } from "@/lib/use-public-field-requirements";
@@ -280,13 +284,103 @@ export default function MenuView({
 
   // Récupération de la commande
   const [tableNumber, setTableNumber] = useState<number | null>(null);
-  // Mode retenu par le client ; pré-sélectionné si l'établissement
-  // n'en propose qu'un seul.
-  const [serviceMode, setServiceMode] = useState<ServiceMode | null>(
-    settings.allowedServiceModes.length === 1
-      ? settings.allowedServiceModes[0]
-      : null
+
+  /**
+   * AU LAIT CRU — SALE MODES / FULFILLMENT PREPARATION — BASCULE
+   * RUNTIME RÉELLE : les modes de vente PROPOSÉS AU CLIENT sont
+   * désormais chargés via usePublicSaleModes (get_restaurant_public_sale_modes,
+   * LOT 2B.1), plus jamais lus depuis settings.allowedServiceModes
+   * (legacy, restaurants-config.ts) -- cause racine identifiée du
+   * problème Au Lait Cru (voir RAPPORT.md, audit point 5) : cet
+   * établissement n'a aucune entrée dans la table statique legacy,
+   * retombait donc systématiquement sur DEFAULT_SETTINGS
+   * (mode "table" uniquement), quelle que soit la configuration réelle
+   * en base -- exactement la même situation que
+   * usePublicFieldRequirements avant sa propre activation (LOT 2B.4a.2).
+   *
+   * `availableServiceModes` ne retient QUE les codes que le frontend
+   * sait structurellement rendre aujourd'hui ("table"/"pickup"/
+   * "delivery" -- le seul domaine que ServiceMode/OrderContext
+   * connaissent, lib/whatsapp.ts/lib/services/order-payload.ts inclus).
+   * Un code retourné par le catalogue mais non encore supporté
+   * frontend (ex. "click_collect", "room_service" -- catalogue déjà
+   * plus large que ce que l'UI sait afficher, voir RAPPORT.md audit
+   * point 1) est silencieusement IGNORÉ ici, jamais un crash ni un
+   * mode mal rendu -- comportement fail-closed délibéré, cohérent
+   * avec le reste de ce lot (un mode non reconnu ne peut simplement
+   * jamais être choisi).
+   */
+  const { state: saleModesState, data: saleModesData } = usePublicSaleModes(restaurant.id);
+  const saleModesReady = canAttemptToSelectSaleMode(saleModesState);
+  const FRONTEND_SUPPORTED_MODES: ServiceMode[] = ["table", "pickup", "delivery"];
+  const availableServiceModes: ServiceMode[] = useMemo(
+    () =>
+      (saleModesData ?? [])
+        .map((m) => m.code)
+        .filter((code): code is ServiceMode =>
+          (FRONTEND_SUPPORTED_MODES as string[]).includes(code)
+        ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [saleModesData]
   );
+
+  // Mode retenu par le client ; pré-sélectionné si l'établissement
+  // n'en propose qu'un seul. `availableServiceModes` n'est connu
+  // qu'après résolution asynchrone (saleModesReady) -- ne peut donc
+  // plus être décidé à l'initialisation synchrone de l'état comme
+  // avant ce lot (settings.allowedServiceModes était statique,
+  // disponible immédiatement) : la présélection a lieu dans l'effet
+  // ci-dessous, une fois la liste réelle connue.
+  const [serviceMode, setServiceMode] = useState<ServiceMode | null>(null);
+
+  useEffect(() => {
+    if (!saleModesReady) return;
+
+    // Corrige ALC-SM-01 (audit Work, HIGH, CASE 1) -- volet MenuView :
+    // si le mode actuellement sélectionné n'existe plus dans la liste
+    // RÉELLEMENT résolue (ex. réponse RPC désormais différente pour la
+    // même clé restaurant -- reconfiguration serveur --, ou, en amont,
+    // le hook usePublicSaleModes lui-même vient de basculer vers un
+    // nouveau restaurantId -- voir lib/use-public-sale-modes.ts),
+    // réinitialise TOUT le parcours dépendant de ce mode plutôt que de
+    // laisser un `serviceMode` fantôme piloter encore l'UI (numéro de
+    // table d'un autre parcours, coordonnées déjà saisies pour un mode
+    // qui n'a plus cours, erreurs de validation obsolètes). Générique
+    // -- aucune branche `if restaurant === "au-lait-cru"` : ce garde-fou
+    // s'applique à TOUT établissement, pour toute cause de changement
+    // de la liste résolue.
+    //
+    // Si un seul mode subsiste, il est immédiatement re-sélectionné
+    // dans le MÊME passage d'effet (pas d'attente d'un second cycle) --
+    // sans quoi le client verrait transitoirement "aucun mode
+    // sélectionné" alors qu'un seul choix existe déjà, sans raison de
+    // le lui faire re-choisir.
+    if (serviceMode !== null && !availableServiceModes.includes(serviceMode)) {
+      setServiceMode(availableServiceModes.length === 1 ? availableServiceModes[0] : null);
+      setTableNumber(null);
+      setCustomer(EMPTY_CUSTOMER);
+      setShowErrors(false);
+      // La note générale n'est pas structurellement "dépendante du
+      // mode", mais reste rattachée à CETTE tentative de commande --
+      // la conserver à travers une invalidation de mode (ex. bascule
+      // de tenant) risquerait de rattacher par erreur un texte saisi
+      // pour un établissement/parcours à la commande d'un autre.
+      setNote("");
+      return;
+    }
+
+    // Ne présélectionne QUE si aucun choix n'a encore été fait (ni par
+    // ce même effet lors d'un rendu précédent, ni par le client) --
+    // ce garde-fou (jamais un simple appel inconditionnel) empêche
+    // d'écraser une sélection déjà faite par le client si cet effet
+    // devait se redéclencher (ex. re-rendu avec une nouvelle référence
+    // de tableau memoized, même contenu).
+    if (serviceMode === null && availableServiceModes.length === 1) {
+      setServiceMode(availableServiceModes[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saleModesReady, availableServiceModes]);
+
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
 
   /**
@@ -610,10 +704,13 @@ export default function MenuView({
       // Le panier n'est vidé qu'après un enregistrement réussi.
       setCart({});
       setTableNumber(null);
+      // Même règle qu'à l'initialisation (voir l'effet de
+      // présélection ci-dessus) : `availableServiceModes` est déjà
+      // connu de façon synchrone ici (résolu depuis longtemps à ce
+      // stade du cycle de vie), donc appliqué directement -- pas
+      // besoin de repasser par l'effet pour ce cas.
       setServiceMode(
-        settings.allowedServiceModes.length === 1
-          ? settings.allowedServiceModes[0]
-          : null
+        availableServiceModes.length === 1 ? availableServiceModes[0] : null
       );
       setCustomer(EMPTY_CUSTOMER);
       setShowErrors(false);
@@ -793,12 +890,13 @@ export default function MenuView({
       {isCartOpen && (
         <CartPanel
           restaurant={restaurant}
-          settings={settings}
           lines={lines}
           totalCount={totalCount}
           totalPrice={totalPrice}
           tableNumber={tableNumber}
           serviceMode={serviceMode}
+          availableServiceModes={availableServiceModes}
+          saleModesState={saleModesState}
           displayItems={displayItems}
           fieldRequirementsReady={fieldRequirementsReady}
           deliveryStatus={deliveryStatus}
