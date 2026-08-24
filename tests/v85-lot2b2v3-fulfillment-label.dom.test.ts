@@ -87,22 +87,30 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-const BASE_SETTINGS = { allowedServiceModes: ["table", "pickup", "delivery"] };
 const EMPTY_CUSTOMER = { name: "", street: "", postalCode: "", city: "", phone: "", email: "" };
 
+/**
+ * AU LAIT CRU (sale modes) : `settings`/`requiredFields` (legacy) ne
+ * sont plus des props de FulfillmentSelector -- remplacés par
+ * `deliveryModeAvailable` (booléen dérivé de la liste RÉELLE des
+ * modes activés, voir components/FulfillmentSelector.tsx) et
+ * `displayItems`/`fieldRequirementsReady` (LOT 2B.4a.2, non pertinents
+ * pour ce test qui ne vérifie que le message d'éligibilité livraison).
+ * `deliveryModeAvailable: true` reproduit fidèlement l'ancien
+ * BASE_SETTINGS (allowedServiceModes incluait "delivery").
+ */
 function renderWithStatus(status: { eligible: boolean; zone?: { code: string; label: string | null } }) {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
   root.render(
     React.createElement(FulfillmentSelector, {
-      settings: BASE_SETTINGS,
+      deliveryModeAvailable: true,
       status,
       type: "delivery",
       customer: EMPTY_CUSTOMER,
       errors: {},
       showErrors: false,
-      requiredFields: [],
       onChangeCustomer: () => {},
       onSelectFulfillment: () => {},
     })

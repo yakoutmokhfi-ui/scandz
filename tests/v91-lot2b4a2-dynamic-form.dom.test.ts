@@ -206,16 +206,67 @@ const DELIVERY_REQS = [
   { field: "email", requirement: "optional", one_of_group: null },
 ];
 
+/**
+ * AU LAIT CRU (sale modes) : depuis l'activation de usePublicSaleModes
+ * dans MenuView, les boutons de mode ("À emporter"/"Livraison") ne
+ * sont plus dérivés de settings.allowedServiceModes (legacy, statique)
+ * mais de get_restaurant_public_sale_modes -- cette RPC (et la lecture
+ * de sale_mode_catalog qui l'enrichit, get_public_sale_modes via
+ * lib/sale-modes-public.ts) doit donc être mockée ici, exactement
+ * comme dans tests/v84-lot2b1.test.ts, pour que ces tests DOM
+ * continuent de refléter la fixture "sanaa-cookies" (pickup+delivery,
+ * voir lib/restaurants-config.ts) plutôt que de tomber en "error"
+ * (aucune RPC mockée -> aucun mode disponible -> aucun bouton).
+ */
+const SANAA_SALE_MODE_ROWS = [
+  {
+    mode_code: "pickup",
+    customer_text: null,
+    pricing_mode: "free" as const,
+    fixed_fee: null,
+    free_threshold: null,
+    delay_value: null,
+    delay_unit: null,
+  },
+  {
+    mode_code: "delivery",
+    customer_text: null,
+    pricing_mode: "free" as const,
+    fixed_fee: null,
+    free_threshold: null,
+    delay_value: null,
+    delay_unit: null,
+  },
+];
+
+const SALE_MODE_CATALOG_ROWS = [
+  { code: "table", label: "Sur place", category: "dine_in" },
+  { code: "pickup", label: "Retrait", category: "pickup" },
+  { code: "delivery", label: "Livraison", category: "delivery" },
+];
+
 /** Mock RPC générique : dispatch par nom de RPC, réponses de
  *  field_requirements pilotées par mode via `reqsByMode`, réponse de
- *  delivery_info fixe (`deliveryInfo`). Toute RPC inattendue échoue
+ *  delivery_info fixe (`deliveryInfo`). Modes de vente disponibles
+ *  mockés en dur sur pickup+delivery (fixture sanaa-cookies, voir
+ *  ci-dessus) -- `sale_mode_catalog` (supabase.from) également mocké,
+ *  requis par getPublicSaleModes(). Toute RPC inattendue échoue
  *  bruyamment (jamais un mock silencieusement permissif). */
 function mockRpc(
   t: { mock: { method: Function } },
   reqsByMode: Record<string, unknown[]>,
   deliveryInfo: { delivery_zone_prefixes: string[]; delivery_min_items: number; delivery_area_label: string | null } | null
 ) {
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") {
+      return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    }
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") {
+      return { data: SANAA_SALE_MODE_ROWS, error: null };
+    }
     if (name === "get_restaurant_public_field_requirements") {
       const data = reqsByMode[args.p_mode_code];
       if (data === undefined) {
@@ -404,7 +455,14 @@ test("LOT 2B.4a.2 (fail-closed, DOM réel) : pendant le chargement des exigences
   const pending = new Promise((resolve) => {
     resolveReqs = resolve;
   });
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") {
+      return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    }
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    if (name === "get_restaurant_public_sale_modes") return { data: SANAA_SALE_MODE_ROWS, error: null };
     if (name === "get_restaurant_public_field_requirements") return pending;
     if (name === "get_restaurant_public_delivery_info")
       return { data: [{ delivery_zone_prefixes: ["75"], delivery_min_items: 1, delivery_area_label: "Paris" }], error: null };

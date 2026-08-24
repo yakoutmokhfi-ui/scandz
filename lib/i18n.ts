@@ -69,6 +69,15 @@ const fr: Dict = {
   missingFulfillment:
     "Choisissez le retrait ou la livraison pour envoyer la commande",
   missingCustomer: "Complétez vos coordonnées pour envoyer la commande",
+  // Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : distincts de
+  // missingFulfillment ci-dessus -- celui-ci suppose qu'un choix
+  // existe et attend seulement que le client le fasse, alors que ces
+  // deux messages couvrent les cas où AUCUN choix valide n'existe
+  // (erreur de chargement, ou liste résolue mais vide) : ne jamais les
+  // confondre avec "Choisissez le retrait ou la livraison", qui
+  // n'aurait aucun sens sans option réelle à proposer.
+  saleModesError: "Impossible de charger les modes de commande.",
+  saleModesEmpty: "Aucun mode de commande n'est disponible pour le moment.",
 
   yourDetails: "Vos coordonnées",
   fieldStreet: "Adresse (numéro et rue)",
@@ -392,6 +401,8 @@ const en: Dict = {
   missingTable: "Select your table number to send the order",
   missingFulfillment: "Choose pickup or delivery to send the order",
   missingCustomer: "Complete your details to send the order",
+  saleModesError: "Unable to load order modes.",
+  saleModesEmpty: "No order mode is available right now.",
 
   yourDetails: "Your details",
   fieldStreet: "Address (number and street)",
@@ -708,6 +719,8 @@ const ar: Dict = {
   missingTable: "اختر رقم طاولتك لإرسال الطلب",
   missingFulfillment: "اختر الاستلام أو التوصيل لإرسال الطلب",
   missingCustomer: "أكمل بياناتك لإرسال الطلب",
+  saleModesError: "تعذّر تحميل طرق الطلب.",
+  saleModesEmpty: "لا توجد طريقة طلب متاحة حاليًا.",
 
   yourDetails: "بياناتك",
   fieldStreet: "العنوان (الرقم والشارع)",

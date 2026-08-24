@@ -57,9 +57,58 @@ test("L2B3-01 (invariant structurel, complémentaire) : lib/delivery.ts (getDeli
   }
 });
 
-test("L2B3-01: RestaurantSettings/restaurants-config.ts peuvent légitimement subsister dans MenuView.tsx et FulfillmentSelector.tsx pour d'AUTRES usages non migrés -- ce test confirme que ces imports restent présents, jamais retirés à tort par une correction trop large", () => {
+/**
+ * Corrige ALC-SM-03 (audit Work, LOW, AU LAIT CRU CASE 1) : la
+ * seconde assertion de ce test affirmait "FulfillmentSelector.tsx
+ * doit toujours accepter settings en prop, pour ses autres usages
+ * (allowedServiceModes)" et vérifiait `fulfillmentSrc.includes("RestaurantSettings")`
+ * -- SANS retirer les commentaires au préalable (contrairement à
+ * toutes les autres recherches "code réel" de ce fichier, qui
+ * utilisent systématiquement `stripComments`). Cette assertion
+ * continuait donc à PASSER après AU LAIT CRU CASE 1 (voir
+ * components/FulfillmentSelector.tsx, section "AU LAIT CRU (sale
+ * modes)"), alors que `settings`/`RestaurantSettings` n'est plus DU
+ * TOUT une prop acceptée par ce composant depuis ce lot (remplacée
+ * par `deliveryModeAvailable`, un booléen dérivé de la liste RÉELLE
+ * des modes activés) -- uniquement parce que la chaîne
+ * "RestaurantSettings" survit dans un COMMENTAIRE documentaire (ligne
+ * ~136 du fichier), jamais dans du code réel. Un faux positif
+ * classique : l'assertion protégeait un invariant qui n'est plus
+ * pertinent, et son implémentation (recherche sur la source brute,
+ * pas le code) l'a laissé passer silencieusement au lieu d'échouer.
+ *
+ * Décision : l'invariant original ("ne pas retirer settings à tort
+ * par une correction trop large") n'a plus lieu d'être -- le retrait
+ * de `settings` par AU LAIT CRU CASE 1 est délibéré, documenté, et
+ * son remplacement (`deliveryModeAvailable`) est lui-même dérivé de
+ * la liste réelle des modes, jamais d'un raccourci. L'assertion est
+ * donc REMPLACÉE (pas simplement supprimée) par l'invariant ACTUEL :
+ * `settings`/`RestaurantSettings` doit avoir ENTIÈREMENT disparu du
+ * CODE réel (comments exclus, comme partout ailleurs dans ce fichier)
+ * de FulfillmentSelector.tsx, et `deliveryModeAvailable` doit être
+ * effectivement présent comme mécanisme de remplacement -- pour que
+ * toute réintroduction future de `settings` comme prop (régression)
+ * fasse à nouveau échouer ce test, plutôt que de passer à tort.
+ */
+test("L2B3-01: MenuView.tsx continue de lire les AUTRES réglages (thème, options...) via restaurants-config.ts, non migrés par ce lot", () => {
   const menuViewSrc = readFileSync("components/MenuView.tsx", "utf8");
-  const fulfillmentSrc = readFileSync("components/FulfillmentSelector.tsx", "utf8");
   assert.ok(menuViewSrc.includes("getSettings"), "MenuView.tsx doit toujours lire les autres réglages (thème, options, etc.) via restaurants-config.ts");
-  assert.ok(fulfillmentSrc.includes("RestaurantSettings"), "FulfillmentSelector.tsx doit toujours accepter settings en prop, pour ses autres usages (allowedServiceModes)");
+});
+
+test("ALC-SM-03: FulfillmentSelector.tsx n'accepte plus `settings`/RestaurantSettings en prop (code réel, commentaires exclus) -- remplacé par `deliveryModeAvailable`, dérivé de la liste réelle des modes (AU LAIT CRU CASE 1)", () => {
+  const fulfillmentSrc = readFileSync("components/FulfillmentSelector.tsx", "utf8");
+  const fulfillmentCodeOnly = stripComments(fulfillmentSrc);
+
+  assert.ok(
+    !fulfillmentCodeOnly.includes("RestaurantSettings"),
+    "FulfillmentSelector.tsx ne doit plus référencer RestaurantSettings dans le code réel -- settings n'est plus une prop acceptée depuis AU LAIT CRU CASE 1"
+  );
+  assert.ok(
+    !/\bsettings\s*:/.test(fulfillmentCodeOnly),
+    "FulfillmentSelector.tsx ne doit plus déclarer de prop `settings` dans le code réel"
+  );
+  assert.ok(
+    fulfillmentCodeOnly.includes("deliveryModeAvailable"),
+    "FulfillmentSelector.tsx doit utiliser deliveryModeAvailable (dérivé de la liste réelle des modes activés) pour son message d'éligibilité livraison, plus jamais settings.allowedServiceModes"
+  );
 });

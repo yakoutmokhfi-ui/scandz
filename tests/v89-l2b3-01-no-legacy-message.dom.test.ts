@@ -90,14 +90,16 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// Piège legacy : si le composant consultait encore ces champs, ce
-// texte apparaîtrait dans le rendu.
-const TRAP_SETTINGS = {
-  allowedServiceModes: ["table", "pickup", "delivery"],
-  deliveryAreaLabel: "PIEGE-LEGACY-NE-DOIT-JAMAIS-APPARAITRE",
-  deliveryZones: [{ code: "00", label: "PIEGE-LEGACY-ZONE-NE-DOIT-JAMAIS-APPARAITRE" }],
-  deliveryMinItems: 999,
-};
+// Piège legacy historique : avant AU LAIT CRU (sale modes),
+// FulfillmentSelector recevait encore une prop `settings` -- si le
+// composant avait consulté settings.deliveryAreaLabel/deliveryZones,
+// ce texte serait apparu dans le rendu. Depuis ce lot, `settings`
+// n'est plus une prop acceptée du tout par le composant (voir
+// components/FulfillmentSelector.tsx) : le piège est donc désormais
+// garanti STRUCTURELLEMENT (impossible de transmettre cet objet),
+// en plus de la preuve comportementale ci-dessous (aucune trace du
+// texte-piège dans le DOM rendu) et de la preuve textuelle du test 3
+// (aucune référence à settings.delivery* dans le code réel).
 
 const EMPTY_CUSTOMER = { name: "", street: "", postalCode: "", city: "", phone: "", email: "" };
 
@@ -107,13 +109,12 @@ function render(status: { eligible: boolean; zone?: { code: string; label: strin
   const root = createRoot(container);
   root.render(
     React.createElement(FulfillmentSelector, {
-      settings: TRAP_SETTINGS,
+      deliveryModeAvailable: true,
       status,
       type: "delivery",
       customer: EMPTY_CUSTOMER,
       errors: {},
       showErrors: false,
-      requiredFields: [],
       onChangeCustomer: () => {},
       onSelectFulfillment: () => {},
     })

@@ -2,10 +2,10 @@
 
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
-import type { RestaurantSettings } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
+import type { PublicSaleModesState } from "@/lib/use-public-sale-modes";
 import QuantityControl from "@/components/QuantityControl";
 import TableSelector from "@/components/TableSelector";
 import { useI18n } from "@/lib/i18n-context";
@@ -21,7 +21,6 @@ interface CartEntry extends CartLine {
 
 export default function CartPanel({
   restaurant,
-  settings,
   lines,
   totalCount,
   totalPrice,
@@ -30,6 +29,8 @@ export default function CartPanel({
   deliveryStatus,
   displayItems,
   fieldRequirementsReady,
+  availableServiceModes,
+  saleModesState,
   customer,
   customerErrors,
   showErrors,
@@ -46,7 +47,6 @@ export default function CartPanel({
   onClose,
 }: {
   restaurant: RestaurantFull;
-  settings: RestaurantSettings;
   lines: CartEntry[];
   totalCount: number;
   totalPrice: number;
@@ -56,6 +56,27 @@ export default function CartPanel({
   /** LOT 2B.4a.2 : exigences génériques dynamiques (plus un
    *  (keyof CustomerInfo)[] figé lu depuis settings.requiredCustomerFields). */
   displayItems: FieldRequirementDisplayItem[];
+  /** AU LAIT CRU (sale modes) : liste RÉELLE des modes de vente
+   *  activés pour cet établissement (get_restaurant_public_sale_modes,
+   *  via usePublicSaleModes) -- remplace settings.allowedServiceModes
+   *  (legacy, statique) comme source de vérité pour le sélecteur de
+   *  mode et son message d'absence. */
+  availableServiceModes: ServiceMode[];
+  /**
+   * Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : l'état ASYNC
+   * COMPLET (pas seulement un booléen "prêt") est désormais transmis,
+   * pour pouvoir distinguer explicitement trois situations dans le
+   * message affiché ci-dessous -- "loading" (chargement en cours),
+   * "error" (échec de chargement, jamais un chargement infini), et
+   * "loaded" avec `availableServiceModes` vide (réponse métier valide
+   * -- aucun mode configuré pour cet établissement -- distincte d'une
+   * erreur). Un simple booléen `saleModesReady` ne permettait pas de
+   * distinguer "error" de "loading" (les deux affichaient à tort le
+   * même message de chargement), ni de proposer un message dédié au
+   * cas "loaded([])" (qui affichait à tort "Choisissez le retrait ou
+   * la livraison" alors qu'aucun choix n'existe réellement).
+   */
+  saleModesState: PublicSaleModesState;
   /** Fail-closed (section 11) : false tant que les exigences ne sont
    *  pas réellement résolues (loading/error) -- transmis tel quel à
    *  FulfillmentSelector, jamais réinterprété ici. */
@@ -84,11 +105,34 @@ export default function CartPanel({
   // rester cohérent avec des emojis / caractères arabes.
   const noteState = normalizeOrderNote(note);
 
-  const missing = !serviceMode
-    ? t("missingFulfillment")
-    : serviceMode === "table"
-      ? t("missingTable")
-      : t("missingCustomer");
+  /**
+   * Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : trois états
+   * distincts, jamais confondus --
+   *   - "loading"            -> message de chargement (existant,
+   *                              partagé avec fieldRequirements) ;
+   *   - "error"               -> message neutre dédié, jamais un
+   *                              chargement infini, aucun repli legacy ;
+   *   - "loaded", liste VIDE  -> message dédié "aucun mode disponible",
+   *                              JAMAIS "Choisissez le retrait ou la
+   *                              livraison" (qui suppose un choix réel) ;
+   *   - "loaded", liste non vide, aucun choix fait -> message existant
+   *     missingFulfillment (un choix existe réellement, au client de
+   *     le faire) ;
+   *   - table/pickup/delivery choisi mais incomplet -> messages
+   *     existants, inchangés.
+   */
+  const missing =
+    saleModesState.status === "loading"
+      ? t("mcLoading")
+      : saleModesState.status === "error"
+        ? t("saleModesError")
+        : availableServiceModes.length === 0
+          ? t("saleModesEmpty")
+          : !serviceMode
+            ? t("missingFulfillment")
+            : serviceMode === "table"
+              ? t("missingTable")
+              : t("missingCustomer");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-espresso/50">
@@ -163,7 +207,6 @@ export default function CartPanel({
 
               {(serviceMode === "pickup" || serviceMode === "delivery") && (
                 <FulfillmentSelector
-                  settings={settings}
                   status={deliveryStatus}
                   type={serviceMode}
                   customer={customer}
@@ -171,6 +214,7 @@ export default function CartPanel({
                   showErrors={showErrors}
                   displayItems={displayItems}
                   fieldRequirementsReady={fieldRequirementsReady}
+                  deliveryModeAvailable={availableServiceModes.includes("delivery")}
                   onChangeCustomer={onChangeCustomer}
                   onSelectFulfillment={onSelectFulfillment}
                 />
@@ -215,13 +259,13 @@ export default function CartPanel({
 
         {lines.length > 0 && (
           <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-espresso/10 bg-crema px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
-            {settings.allowedServiceModes.length > 1 && (
+            {availableServiceModes.length > 1 && (
               <div className="mb-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
                   {t("howToReceive")}
                 </p>
                 <div className="mt-2 flex gap-2">
-                  {settings.allowedServiceModes.map((mode) => {
+                  {availableServiceModes.map((mode) => {
                     const selected = serviceMode === mode;
                     const deliveryIncomplete =
                       mode === "delivery" && selected && !deliveryStatus.eligible;
