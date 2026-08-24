@@ -5,6 +5,7 @@ import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { RestaurantSettings } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
+import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
 import QuantityControl from "@/components/QuantityControl";
 import TableSelector from "@/components/TableSelector";
 import { useI18n } from "@/lib/i18n-context";
@@ -27,7 +28,8 @@ export default function CartPanel({
   tableNumber,
   serviceMode,
   deliveryStatus,
-  requiredFields,
+  displayItems,
+  fieldRequirementsReady,
   customer,
   customerErrors,
   showErrors,
@@ -51,7 +53,13 @@ export default function CartPanel({
   tableNumber: number | null;
   serviceMode: ServiceMode | null;
   deliveryStatus: DeliveryStatus;
-  requiredFields: (keyof CustomerInfo)[];
+  /** LOT 2B.4a.2 : exigences génériques dynamiques (plus un
+   *  (keyof CustomerInfo)[] figé lu depuis settings.requiredCustomerFields). */
+  displayItems: FieldRequirementDisplayItem[];
+  /** Fail-closed (section 11) : false tant que les exigences ne sont
+   *  pas réellement résolues (loading/error) -- transmis tel quel à
+   *  FulfillmentSelector, jamais réinterprété ici. */
+  fieldRequirementsReady: boolean;
   customer: CustomerInfo;
   customerErrors: Partial<Record<keyof CustomerInfo, string>>;
   showErrors: boolean;
@@ -161,7 +169,8 @@ export default function CartPanel({
                   customer={customer}
                   errors={customerErrors}
                   showErrors={showErrors}
-                  requiredFields={requiredFields}
+                  displayItems={displayItems}
+                  fieldRequirementsReady={fieldRequirementsReady}
                   onChangeCustomer={onChangeCustomer}
                   onSelectFulfillment={onSelectFulfillment}
                 />

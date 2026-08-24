@@ -68,3 +68,44 @@ export function getCustomerErrors(
 export function formatAddress(c: CustomerInfo): string {
   return `${c.street.trim()}, ${c.postalCode.trim()} ${c.city.trim()}`;
 }
+
+/**
+ * LOT 2B.4a.2 — message d'erreur de format pour UN champ générique du
+ * catalogue backend (tel que renvoyé par
+ * get_restaurant_public_field_requirements : "customer_name", "phone",
+ * "email", ...), jamais une clé CustomerInfo -- utilisé par le
+ * formulaire dynamique (FulfillmentSelector.tsx) qui itère désormais
+ * sur SaleModeFieldRequirement[] (lib/sale-modes-types.ts), plus sur
+ * un (keyof CustomerInfo)[] figé.
+ *
+ * Couvre UNIQUEMENT les champs génériques ayant un équivalent
+ * CustomerInfo à validation de format déjà connue ici -- "name" pour
+ * customer_name, "phone", "email". NE couvre PAS "delivery_address" :
+ * ce champ backend unique correspond à 3 sous-champs UI (street /
+ * postalCode / city, cas spécial documenté dans
+ * lib/sale-modes-types.ts et rendu séparément par le formulaire), sa
+ * validation de format reste celle déjà existante ci-dessus (les
+ * cases "street"/"postalCode"/"city" de getCustomerErrors),
+ * inchangée. Un champ générique inconnu de cette liste (ex. un futur
+ * "delivery_instructions" ajouté uniquement côté configuration/base)
+ * retourne toujours `undefined` -- aucune règle de format à
+ * appliquer ici ; sa présence reste validée génériquement par
+ * validateCustomerData() (lib/sale-modes-public.ts), jamais par cette
+ * fonction.
+ *
+ * Pure, sans effet de bord, réutilise exclusivement isValidPhone/
+ * isValidEmail déjà définies ci-dessus -- aucune seconde
+ * implémentation de ces règles.
+ */
+export function genericFieldFormatError(field: string, value: string): string | undefined {
+  switch (field) {
+    case "customer_name":
+      return value.trim().length < 2 ? "errName" : undefined;
+    case "phone":
+      return isValidPhone(value) ? undefined : "errPhone";
+    case "email":
+      return isValidEmail(value) ? undefined : "errEmail";
+    default:
+      return undefined;
+  }
+}

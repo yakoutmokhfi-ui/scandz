@@ -17,10 +17,21 @@ import {
 } from "@/lib/restaurants-config";
 import { getDeliveryStatusFromPublicInfo } from "@/lib/delivery";
 import { usePublicDeliveryInfo } from "@/lib/use-public-delivery-info";
-import type { PublicDeliveryInfo } from "@/lib/sale-modes-types";
+import {
+  usePublicFieldRequirements,
+  canAttemptSubmit,
+} from "@/lib/use-public-field-requirements";
+import {
+  validateCustomerData,
+  buildFieldRequirementDisplayItems,
+  type FieldRequirementDisplayItem,
+} from "@/lib/sale-modes-public";
+import type { PublicDeliveryInfo, CustomerData } from "@/lib/sale-modes-types";
 import {
   EMPTY_CUSTOMER,
   getCustomerErrors,
+  formatAddress,
+  genericFieldFormatError,
   type CustomerInfo,
 } from "@/lib/customer";
 import RestaurantHeader from "@/components/RestaurantHeader";
@@ -54,6 +65,93 @@ import Ltr from "@/components/Bidi";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
 const DEMO_SLUG = "le-sirocco";
+
+/**
+ * LOT 2B.4a.2 — erreurs de format par clé CustomerInfo, dérivées des
+ * exigences génériques dynamiques (`displayItems`, construites par
+ * buildFieldRequirementDisplayItems() à partir de
+ * usePublicFieldRequirements()) -- remplace l'ancien calcul figé sur
+ * un (keyof CustomerInfo)[] issu de settings.requiredCustomerFields
+ * (legacy, restaurants-config.ts), désormais abandonné par le
+ * formulaire actif.
+ *
+ * Règles appliquées PAR TYPE D'EXIGENCE du champ générique -- jamais
+ * par mode de vente ni par établissement, aucune branche spécifique :
+ *   - "required" : erreur de format toujours vérifiée (vide inclus,
+ *     comme le faisait déjà getCustomerErrors() pour un champ requis) ;
+ *   - "optional" : erreur de format vérifiée UNIQUEMENT si une valeur
+ *     a été saisie -- jamais d'erreur sur un champ optionnel resté
+ *     vide ;
+ *   - "one_of"   : erreur de format vérifiée si la valeur est saisie
+ *     (garde-fou : une saisie invalide reste signalée même si un
+ *     autre champ du groupe suffirait déjà), OU si vide ET qu'AUCUN
+ *     champ du même groupe n'est rempli (le groupe entier est alors
+ *     non satisfait). Un "one_of" isolé sans groupe résolu (donnée
+ *     backend incohérente, oneOfGroup null malgré requirement
+ *     "one_of" -- ne devrait jamais se produire avec le catalogue
+ *     actuel) est traité prudemment comme "optional", jamais
+ *     bloquant.
+ *
+ * "delivery_address" (backend) n'est JAMAIS traité ici : ses 3
+ * sous-champs UI (street/postalCode/city) restent validés séparément
+ * par getCustomerErrors() (inchangée), cas spécial documenté dans
+ * lib/sale-modes-types.ts -- voir addressFieldsToCheck, plus bas dans
+ * ce composant. Un champ générique inconnu (ni un champ mappé, ni
+ * "delivery_address") est également ignoré ici : sa présence reste de
+ * toute façon validée génériquement par validateCustomerData()
+ * (lib/sale-modes-public.ts), jamais par cette fonction de format.
+ */
+export function fieldRequirementFormatErrors(
+  displayItems: FieldRequirementDisplayItem[],
+  customer: CustomerInfo
+): Partial<Record<keyof CustomerInfo, string>> {
+  const errors: Partial<Record<keyof CustomerInfo, string>> = {};
+
+  const infoKey = (field: string): keyof CustomerInfo | null => {
+    switch (field) {
+      case "customer_name":
+        return "name";
+      case "phone":
+        return "phone";
+      case "email":
+        return "email";
+      default:
+        return null;
+    }
+  };
+  const rawValue = (field: string): string => {
+    const key = infoKey(field);
+    return key ? customer[key] : "";
+  };
+
+  for (const item of displayItems) {
+    if (item.kind === "field") {
+      const field = item.requirement.field;
+      const key = infoKey(field);
+      if (!key) continue; // delivery_address ou champ inconnu : hors périmètre
+      const value = rawValue(field);
+      const shouldCheck =
+        item.requirement.requirement === "required" || value.trim() !== "";
+      if (shouldCheck) {
+        const err = genericFieldFormatError(field, value);
+        if (err) errors[key] = err;
+      }
+    } else {
+      const groupSatisfied = item.fields.some((f) => rawValue(f.field).trim() !== "");
+      for (const member of item.fields) {
+        const key = infoKey(member.field);
+        if (!key) continue;
+        const value = rawValue(member.field);
+        if (value.trim() !== "" || !groupSatisfied) {
+          const err = genericFieldFormatError(member.field, value);
+          if (err) errors[key] = err;
+        }
+      }
+    }
+  }
+
+  return errors;
+}
 
 /**
  * Composant client racine : détient l'état du panier, de la catégorie
@@ -190,6 +288,30 @@ export default function MenuView({
       : null
   );
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
+
+  /**
+   * LOT 2B.4a.2 — BASCULE RUNTIME RÉELLE : les exigences client sont
+   * désormais chargées via usePublicFieldRequirements (LOT 2B.4a.1),
+   * plus jamais lues depuis settings.requiredCustomerFields (legacy,
+   * restaurants-config.ts) -- ce chemin legacy n'est plus consulté du
+   * tout par le formulaire actif à partir de ce lot.
+   *
+   * Appelé SANS CONDITION (règle des hooks React), comme
+   * usePublicDeliveryInfo ci-dessus : quand serviceMode vaut "table"
+   * (ou est encore null, avant tout choix), le modeCode transmis vaut
+   * "table" par convention -- sans conséquence, puisque
+   * CartPanel/FulfillmentSelector ne rendent JAMAIS le formulaire
+   * client pour le mode "table" (aucun consommateur de `displayItems`
+   * dans ce cas, voir plus bas). "table" est un code de mode réel du
+   * catalogue backend (sale_mode_catalog), jamais une valeur inventée.
+   */
+  const { state: fieldRequirementsState, data: fieldRequirementsData } =
+    usePublicFieldRequirements(restaurant.id, serviceMode ?? "table");
+  /** Fail-closed (section 11, LOT 2B.4a.1) : jamais de soumission
+   *  tentée tant que les exigences ne sont pas RÉELLEMENT résolues. */
+  const fieldRequirementsReady = canAttemptSubmit(fieldRequirementsState);
+  const fieldRequirements = fieldRequirementsData ?? [];
+
   const [showErrors, setShowErrors] = useState(false);
   // Note générale de commande (V65) : une seule note, aucune par ligne.
   const [note, setNote] = useState("");
@@ -315,18 +437,97 @@ export default function MenuView({
    * disparaître les champs nécessaires pour corriger la situation.
    */
 
-  /** Champs manquants ou invalides (l'adresse n'est exigée qu'en livraison). */
-  const requiredFields = useMemo(
-    () =>
-      (serviceMode && settings.requiredCustomerFields?.[serviceMode]) ?? [],
-    [settings, serviceMode]
+  /**
+   * LOT 2B.4a.2 — rendu dynamique : liste ordonnée d'éléments
+   * d'affichage (champs isolés + groupes one_of fusionnés), dérivée
+   * des exigences génériques réellement résolues pour ce
+   * restaurant/mode -- transmise telle quelle à FulfillmentSelector
+   * (via CartPanel), qui ne connaît plus aucun nom de champ codé en
+   * dur par mode de vente.
+   */
+  const displayItems = useMemo(
+    () => buildFieldRequirementDisplayItems(fieldRequirements),
+    [fieldRequirements]
   );
 
-  const customerErrors = useMemo(
-    () => getCustomerErrors(customer, requiredFields),
-    [customer, requiredFields]
+  /**
+   * Données client au format générique (CustomerData, LOT 2B.1),
+   * dérivées de l'état CustomerInfo existant -- traduction locale à
+   * ce composant, jamais un second état parallèle. "delivery_address"
+   * (contrat documenté dans lib/sale-modes-types.ts) n'est composé
+   * que si les 3 sous-champs UI sont TOUS non vides : une adresse
+   * partiellement saisie doit rester "manquante" pour
+   * validateCustomerData() ci-dessous, jamais considérée comme
+   * présente sur la seule foi d'un fragment (ex. la rue seule) --
+   * formatAddress() seule ne garantirait pas cette garantie (elle
+   * produirait ", " même à vide, une chaîne non vide après trim).
+   */
+  const customerData: CustomerData = useMemo(
+    () => ({
+      customer_name: customer.name,
+      phone: customer.phone,
+      email: customer.email,
+      delivery_address:
+        customer.street.trim() !== "" &&
+        customer.postalCode.trim() !== "" &&
+        customer.city.trim() !== ""
+          ? formatAddress(customer)
+          : "",
+    }),
+    [customer]
   );
-  const customerValid = Object.keys(customerErrors).length === 0;
+
+  /** Validation générique de présence (required/one_of), LOT 2B.1 --
+   *  jamais de logique de validation dupliquée ici. */
+  const { missingRequired, unsatisfiedGroups } = useMemo(
+    () => validateCustomerData(fieldRequirements, customerData),
+    [fieldRequirements, customerData]
+  );
+
+  /** Cas spécial "delivery_address" (voir commentaire dédié dans
+   *  lib/sale-modes-types.ts) : ses 3 sous-champs UI restent validés
+   *  par getCustomerErrors() (inchangée) -- jamais par
+   *  fieldRequirementFormatErrors() (qui l'ignore explicitement).
+   *  Vérifiés uniquement si "delivery_address" apparaît réellement
+   *  dans les exigences résolues pour ce mode, et seulement si requis
+   *  (ou si un sous-champ a déjà été saisi pour un champ optionnel --
+   *  jamais d'erreur sur une adresse optionnelle restée entièrement
+   *  vide, même règle que pour tout autre champ optionnel). */
+  const addressRequirement = fieldRequirements.find(
+    (r) => r.field === "delivery_address"
+  );
+  const addressAnySubfieldFilled =
+    customer.street.trim() !== "" ||
+    customer.postalCode.trim() !== "" ||
+    customer.city.trim() !== "";
+  const addressFieldsToCheck: (keyof CustomerInfo)[] =
+    !addressRequirement ||
+    (addressRequirement.requirement === "optional" && !addressAnySubfieldFilled)
+      ? []
+      : ["street", "postalCode", "city"];
+
+  const customerErrors = useMemo(
+    () => ({
+      ...fieldRequirementFormatErrors(displayItems, customer),
+      ...getCustomerErrors(customer, addressFieldsToCheck),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [displayItems, customer, addressRequirement, addressAnySubfieldFilled]
+  );
+  const customerFormatValid = Object.keys(customerErrors).length === 0;
+
+  /** Contrat fail-closed (section 11, LOT 2B.4a.1) appliqué ICI pour
+   *  la première fois par un formulaire actif : tant que
+   *  fieldRequirementsReady est false (loading/error), customerValid
+   *  reste false, quel que soit l'état de saisie -- jamais de
+   *  soumission tentée sur des exigences non résolues. Le mode
+   *  "table" n'est jamais concerné par ce booléen (voir orderContext
+   *  ci-dessous, chemin "table" totalement indépendant). */
+  const customerValid =
+    fieldRequirementsReady &&
+    missingRequired.length === 0 &&
+    unsatisfiedGroups.length === 0 &&
+    customerFormatValid;
 
   /** Contexte de commande complet, ou null si le client n'a pas fini. */
   const orderContext: OrderContext | null = useMemo(() => {
@@ -598,7 +799,8 @@ export default function MenuView({
           totalPrice={totalPrice}
           tableNumber={tableNumber}
           serviceMode={serviceMode}
-          requiredFields={requiredFields}
+          displayItems={displayItems}
+          fieldRequirementsReady={fieldRequirementsReady}
           deliveryStatus={deliveryStatus}
           customer={customer}
           customerErrors={customerErrors}
