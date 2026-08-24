@@ -37,6 +37,16 @@ export default function RestaurantInfoCard({
       label: t("labelHours"),
       // Horaires purement numériques ("07:00 – 23:00") : on préfixe
       // avec un libellé traduit. Sinon, texte affiché tel quel.
+      //
+      // Corrige le rendu multiligne (audit dédié) : whitespace-pre-wrap
+      // sur le <p> englobant (voir plus bas) préserve les retours à la
+      // ligne réellement saisis (ex. Au Lait Cru : un jour/horaire par
+      // ligne) -- confirmé que la donnée elle-même (colonne text,
+      // aucune contrainte empêchant \n) peut légitimement les
+      // contenir. Ciblé uniquement à ce champ : les horaires sont, par
+      // nature, souvent exprimés sur plusieurs lignes (un jour ou une
+      // période par ligne), contrairement à address/phone (contenu
+      // typiquement compact, non concerné par ce correctif).
       content: /[A-Za-zÀ-ÿ]/.test(config.opening_hours) ? (
         <Ltr>{config.opening_hours}</Ltr>
       ) : (
@@ -44,8 +54,14 @@ export default function RestaurantInfoCard({
           {t("openEveryDay")} <Ltr>{config.opening_hours}</Ltr>
         </>
       ),
+      preserveLineBreaks: true,
     },
-  ].filter(Boolean) as { icon: ReactNode; label: string; content: ReactNode }[];
+  ].filter(Boolean) as {
+    icon: ReactNode;
+    label: string;
+    content: ReactNode;
+    preserveLineBreaks?: boolean;
+  }[];
 
   if (rows.length === 0) return null;
 
@@ -68,7 +84,7 @@ export default function RestaurantInfoCard({
               <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
                 {row.label}
               </p>
-              <p className="text-ink-on-bg">{row.content}</p>
+              <p className={"text-ink-on-bg" + (row.preserveLineBreaks ? " whitespace-pre-wrap" : "")}>{row.content}</p>
             </div>
           </div>
         ))}
