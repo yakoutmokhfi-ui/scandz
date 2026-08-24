@@ -47,6 +47,16 @@ export default function RestaurantInfoBar({
     href?: string;
     aria?: string;
     wide?: boolean;
+    /** Corrige UI MULTILINE FIX v2 (root cause réelle confirmée en
+     *  Production -- RestaurantInfoBar est l'UNIQUE composant public
+     *  réellement affiché pour ce bandeau, RestaurantInfoCard n'étant
+     *  importé nulle part dans l'arbre de rendu réel). Réservé aux
+     *  horaires : les retours à la ligne réellement saisis (désormais
+     *  possibles depuis le passage à un <textarea> côté Dashboard)
+     *  doivent être préservés visuellement. Adresse/téléphone
+     *  restent volontairement compacts (truncate), leur contenu est
+     *  par nature court et mono-ligne. */
+    multiline?: boolean;
   }[] = [];
 
   if (config.address) {
@@ -78,6 +88,7 @@ export default function RestaurantInfoBar({
       icon: <ClockIcon />,
       label: t("labelHours"),
       content: hoursContent,
+      multiline: true,
     });
   }
 
@@ -111,7 +122,12 @@ export default function RestaurantInfoBar({
                   <span className="block text-[0.6rem] font-semibold uppercase tracking-wider text-highlight-on-ink">
                     {cell.label}
                   </span>
-                  <span className="block truncate text-xs text-ink-text sm:whitespace-normal">
+                  <span
+                    className={
+                      "block text-xs text-ink-text " +
+                      (cell.multiline ? "whitespace-pre-wrap" : "truncate sm:whitespace-normal")
+                    }
+                  >
                     {cell.content}
                   </span>
                 </span>
