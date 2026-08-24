@@ -541,13 +541,26 @@ export default function SettingsPage() {
           <label className="mt-3 block text-xs font-semibold text-stone-600">
             {t("stHours")}
           </label>
-          <input
+          {/* Corrige UI MULTILINE FIX v2 (root cause réelle confirmée
+              en Production) : <input> simple ligne remplacé par
+              <textarea> -- un marchand n'avait auparavant AUCUN moyen
+              de saisir de véritables retours à la ligne (Enter n'a
+              aucun effet dans un <input> HTML). value/onChange/
+              maxLength/disabled fonctionnent à l'identique pour un
+              <textarea> contrôlé -- aucune autre logique de
+              validation/sauvegarde modifiée (hours.trim() || null
+              préserve déjà les \n internes, seuls les bords sont
+              retirés). Aucun parsing sémantique des horaires, aucun
+              formatage automatique, aucun remplacement d'espaces par
+              des retours à la ligne. */}
+          <textarea
             value={hours}
             onChange={(e) => setHours(e.target.value)}
             disabled={!canEdit}
             maxLength={120}
+            rows={4}
             placeholder="07:00 - 23:00"
-            className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
           />
           <p className="mt-1 text-xs text-stone-500">
             {t("stHoursHint")}
