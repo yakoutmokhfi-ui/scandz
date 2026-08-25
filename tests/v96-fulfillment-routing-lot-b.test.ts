@@ -112,13 +112,37 @@ test("LOT B: getPublicDeliveryFulfillments n'existe dans AUCUN composant ni AUCU
   }
 });
 
-test("LOT B: aucun nouveau hook usePublicDeliveryFulfillments n'existe -- LOT C, non créé ici", () => {
-  const files = ["lib/use-public-delivery-info.ts", "lib/use-public-sale-modes.ts"];
-  for (const file of files) {
+// MIS À JOUR EN LOT C (ACTIVE FRONTEND RUNTIME ROUTING) : ce test
+// affirmait jusqu'ici qu'AUCUN hook usePublicDeliveryFulfillments
+// n'existait -- exactement ce que ce même lot (LOT B) annonçait
+// explicitement comme "non créé ici, LOT C" (voir le titre original du
+// test, conservé ci-dessous dans le commentaire pour traçabilité). LOT
+// C est précisément le lot qui active cette bascule : le hook existe
+// désormais (lib/use-public-delivery-fulfillments.ts, voir le rapport
+// de mission LOT C) -- ce n'est pas une régression silencieuse de
+// l'invariant LOT B, c'est la transition que ce même invariant
+// annonçait. Les deux hooks LOT 2B.1/2B.3 existants, eux, restent
+// étrangers à cette bascule (aucun croisement accidentel) -- cette
+// partie de l'invariant original reste vérifiée telle quelle.
+test("LOT C: le hook usePublicDeliveryFulfillments existe désormais (lib/use-public-delivery-fulfillments.ts) et active la bascule runtime -- ancien titre LOT B : \"aucun nouveau hook usePublicDeliveryFulfillments n'existe -- LOT C, non créé ici\"", () => {
+  const untouchedHooks = ["lib/use-public-delivery-info.ts", "lib/use-public-sale-modes.ts"];
+  for (const file of untouchedHooks) {
     const src = readFileSync(file, "utf8");
-    assert.ok(!src.includes("usePublicDeliveryFulfillments"));
+    assert.ok(
+      !src.includes("usePublicDeliveryFulfillments"),
+      `${file} ne doit toujours pas référencer usePublicDeliveryFulfillments -- aucun croisement accidentel entre hooks`
+    );
   }
-  assert.throws(() => readFileSync("lib/use-public-delivery-fulfillments.ts", "utf8"), "aucun fichier de hook ne doit exister pour ce lot");
+  const hookSrc = readFileSync("lib/use-public-delivery-fulfillments.ts", "utf8");
+  assert.ok(
+    hookSrc.includes("export function usePublicDeliveryFulfillments"),
+    "le nouveau hook LOT C doit être exporté sous ce nom exact"
+  );
+  assert.ok(
+    hookSrc.includes("getPublicDeliveryFulfillments"),
+    "le nouveau hook doit appeler getPublicDeliveryFulfillments (lib/sale-modes-public.ts), jamais un accès Supabase direct"
+  );
+  assert.ok(!hookSrc.includes("supabase.rpc("), "aucun appel RPC direct dans le hook -- toujours via lib/sale-modes-public.ts");
 });
 
 test("LOT B: aucune logique spécifique à un établissement précis (aucun slug, aucun nom d'établissement codé en dur) dans resolveDeliveryFulfillment/getPublicDeliveryFulfillments", () => {

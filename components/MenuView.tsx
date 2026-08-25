@@ -15,8 +15,9 @@ import {
   type OptionGroup,
   type ServiceMode,
 } from "@/lib/restaurants-config";
-import { getDeliveryStatusFromPublicInfo } from "@/lib/delivery";
+import { resolveActiveDeliveryStatus } from "@/lib/delivery";
 import { usePublicDeliveryInfo } from "@/lib/use-public-delivery-info";
+import { usePublicDeliveryFulfillments } from "@/lib/use-public-delivery-fulfillments";
 import {
   usePublicSaleModes,
   canAttemptToSelectSaleMode,
@@ -253,6 +254,21 @@ export default function MenuView({
     // "loaded with data" : donnée publique réelle.
     return deliveryInfoState.data;
   })();
+
+  /**
+   * FULFILLMENT ROUTING LOT C — ACTIVE FRONTEND RUNTIME ROUTING.
+   *
+   * Règles publiques de fulfillment (get_restaurant_public_delivery_fulfillments,
+   * LOT B/2B.1, jusqu'ici jamais consommées par aucun hook -- voir
+   * tests/v96-fulfillment-routing-lot-b.test.ts, mis à jour par ce lot
+   * pour documenter cette activation). Appelée SANS CONDITION (règle
+   * des hooks React), comme usePublicDeliveryInfo/usePublicSaleModes
+   * ci-dessus -- son résultat n'est consulté que par
+   * resolveActiveDeliveryStatus ci-dessous, jamais par le mode
+   * "pickup"/"table" (voir orderContext plus bas : ces deux modes ne
+   * lisent jamais `deliveryStatus`).
+   */
+  const { state: fulfillmentRulesState } = usePublicDeliveryFulfillments(restaurant.id);
 
 
   // Corrige L1A-02 (contre-audit Work, tour 1A.1) : la langue
@@ -515,12 +531,42 @@ export default function MenuView({
     return quantityForItem(cart, item.id);
   }
 
-  /** Éligibilité à la livraison : code postal saisi + montant du panier.
-   *  LOT 2B.3 : NEW PUBLIC DELIVERY RESOLVER ACTIVE IN RUNTIME --
-   *  getDeliveryStatus() (legacy) n'est plus appelée ici. */
+  /**
+   * Éligibilité à la livraison : code postal saisi + montant du
+   * panier (totalCount -- QUANTITÉ TOTALE d'articles, somme des
+   * quantités de chaque ligne de panier, voir la définition de
+   * `totalCount` ci-dessus ; PAS le nombre de lignes/produits
+   * distincts -- même grandeur déjà transmise à getDeliveryStatus/
+   * getDeliveryStatusFromPublicInfo avant ce lot, donc déjà le bon
+   * contrat pour le résolveur fulfillment interne/resolveActiveDeliveryStatus,
+   * aucune redéfinition nécessaire ici, mission §11).
+   *
+   * FULFILLMENT ROUTING LOT C — ACTIVE FRONTEND RUNTIME ROUTING :
+   * resolveActiveDeliveryStatus (lib/delivery.ts) est le PONT DE
+   * MIGRATION unique (mission §3/§10) -- selon l'état RÉEL des règles
+   * publiques de fulfillment (fulfillmentRulesState ci-dessus) :
+   *   - règles positivement vides -> chemin legacy
+   *     (getDeliveryStatusFromPublicInfo), comportement IDENTIQUE à
+   *     celui déjà en production avant ce lot (Sanaa non-régression,
+   *     mission §2/§18/§29) ;
+   *   - règles positivement non vides -> nouveau moteur
+   *     (le résolveur fulfillment interne, lib/delivery.ts), EXCLUSIVEMENT ;
+   *   - loading/error -> état sûr non éligible, jamais confondu avec
+   *     l'un ou l'autre cas ci-dessus (mission §7/§28).
+   * `deliveryStatus` reste du type DeliveryStatus (INCHANGÉ) : ni
+   * FulfillmentSelector.tsx ni CartPanel.tsx n'ont besoin d'être
+   * modifiés par ce lot (mission §32), les deux moteurs produisent la
+   * MÊME forme de résultat via deliveryStatusFromFulfillmentResult
+   * (lib/delivery.ts). */
   const deliveryStatus = useMemo(
-    () => getDeliveryStatusFromPublicInfo(publicDeliveryInfo, customer.postalCode, totalCount),
-    [publicDeliveryInfo, customer.postalCode, totalCount]
+    () =>
+      resolveActiveDeliveryStatus(
+        fulfillmentRulesState,
+        publicDeliveryInfo,
+        customer.postalCode,
+        totalCount
+      ).status,
+    [fulfillmentRulesState, publicDeliveryInfo, customer.postalCode, totalCount]
   );
 
   /*
