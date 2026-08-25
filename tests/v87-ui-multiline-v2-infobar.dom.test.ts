@@ -182,6 +182,71 @@ test("UI MULTILINE FIX v2: aucun parsing sémantique des horaires -- une valeur 
   root.unmount();
 });
 
+// ====================================================================
+// Corrige BUG UI 1 (fiche publique, zone Horaires trop étroite) :
+// preuve comportementale RÉELLE (rendu DOM) que la cellule horaires
+// obtient désormais davantage de largeur -- pleine ligne sur mobile
+// (comme l'adresse), 2 colonnes sur 4 à partir de sm (au lieu d'1 sur
+// 3 auparavant) -- SANS régresser ni l'adresse, ni le téléphone, ni
+// le comportement multiline déjà couvert plus haut dans ce fichier.
+// ====================================================================
+
+test("BUG UI 1 : la cellule horaires obtient col-span-2 sm:col-span-2 (pleine largeur mobile + moitié à partir de sm), grille passée à sm:grid-cols-4", async () => {
+  const restaurant = baseRestaurant("Mar – Ven 10:00 – 14:00 / 16:00 – 20:00");
+  (restaurant.config as any).address = "10 rue de Paris, 75001 Paris";
+  const { container, root } = render(restaurant);
+  await flush();
+
+  const grid = container.querySelector(".grid");
+  assert.ok(grid, "le conteneur grille doit être présent");
+  assert.ok(grid!.className.includes("sm:grid-cols-4"), `la grille doit désormais utiliser sm:grid-cols-4, reçu: "${grid!.className}"`);
+  assert.ok(!grid!.className.includes("sm:grid-cols-3"), "l'ancienne valeur sm:grid-cols-3 ne doit plus être présente");
+
+  const hoursCell = container.querySelector("span.whitespace-pre-wrap")!;
+  const hoursWrapper = hoursCell.closest('[class*="items-start"]')!;
+  assert.ok(hoursWrapper.className.includes("col-span-2"), "la cellule horaires doit occuper toute la largeur sur mobile (col-span-2)");
+  assert.ok(hoursWrapper.className.includes("sm:col-span-2"), `la cellule horaires doit occuper 2 colonnes sur 4 à partir de sm, reçu: "${hoursWrapper.className}"`);
+  assert.ok(hoursCell.className.includes("whitespace-pre-wrap"), "le multiline existant (Bug 1 ne doit pas y toucher) reste préservé");
+
+  root.unmount();
+});
+
+test("BUG UI 1 : l'adresse (wide) conserve exactement son comportement d'avant -- col-span-2 sm:col-span-1, jamais sm:col-span-2", async () => {
+  const restaurant = baseRestaurant("07:00 – 23:00");
+  (restaurant.config as any).address = "10 rue de Paris, 75001 Paris";
+  const { container, root } = render(restaurant);
+  await flush();
+
+  const addressCell = Array.from(container.querySelectorAll('[class*="items-start"]')).find((el) =>
+    el.textContent?.includes("rue de Paris")
+  )!;
+  assert.ok(addressCell, "la cellule adresse doit être présente");
+  assert.ok(addressCell.className.includes("col-span-2"), "l'adresse reste pleine largeur sur mobile, comme avant");
+  assert.ok(addressCell.className.includes("sm:col-span-1"), `l'adresse doit rester sur 1 colonne à partir de sm (comportement inchangé), reçu: "${addressCell.className}"`);
+  assert.ok(!addressCell.className.includes("sm:col-span-2"), "l'adresse ne doit jamais recevoir le nouveau span réservé aux horaires");
+
+  root.unmount();
+});
+
+test("BUG UI 1 : le téléphone (ni wide ni wideDesktop) n'obtient aucun span explicite -- comportement par défaut (1 colonne) inchangé", async () => {
+  // getSettings(slug).phone n'est renseigné que pour certains slugs
+  // réels du fichier de configuration statique (lib/restaurants-config.ts)
+  // -- "au-lait-cru-inexistant" (utilisé par baseRestaurant()) n'y
+  // figure pas volontairement (cas générique par défaut). "illico-presto"
+  // y a un téléphone défini ("+213 41 55 12 34"), seul moyen réel de
+  // faire apparaître la cellule téléphone dans ce rendu.
+  const restaurant = baseRestaurant("07:00 – 23:00");
+  restaurant.slug = "illico-presto";
+  const { container, root } = render(restaurant);
+  await flush();
+
+  const phoneCell = container.querySelector('a[href^="tel:"]');
+  assert.ok(phoneCell, "la cellule téléphone (lien tel:) doit être présente");
+  assert.ok(!phoneCell.className.includes("col-span-2"), "le téléphone ne doit gagner aucun col-span (comportement par défaut inchangé)");
+
+  root.unmount();
+});
+
 after(async () => {
   window.close();
   await esbuild.stop();

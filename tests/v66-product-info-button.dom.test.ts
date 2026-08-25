@@ -304,6 +304,67 @@ test("ProductInfoButton (DOM réel) : deux instances sur la même page ont des a
   container.remove();
 });
 
+// ====================================================================
+// Corrige BUG UI 2 (contraste insuffisant du bouton "fermer" sur
+// certains thèmes sombres -- cas Au Lait Cru observé en Production) :
+// avant ce correctif, le bouton n'avait AUCUNE classe de couleur de
+// texte explicite (ni text-ink-on-bg-muted, ni équivalent), donc
+// héritait d'une couleur ambiante pouvant devenir blanc sur blanc.
+// Preuve comportementale RÉELLE (rendu DOM), pas seulement une lecture
+// du fichier source : le bouton réellement rendu, après ouverture du
+// dialogue, doit porter la classe corrigée.
+// ====================================================================
+
+test("ProductInfoButton (DOM réel, corrige BUG UI 2) : le bouton 'fermer' porte une couleur de texte EXPLICITE (text-ink-on-bg-muted), jamais une couleur ambiante/héritée", async () => {
+  const { container, root } = renderInto({
+    description: "Description longue de test",
+    triggerLabel: "Plus d'informations sur Produit Test",
+    closeLabel: "Fermer",
+  });
+  await flush();
+
+  const trigger = container.querySelector("button")!;
+  trigger.click();
+  await flush();
+
+  const dialog = container.querySelector("dialog")!;
+  const closeButton = dialog.querySelector("button")!;
+
+  assert.ok(
+    closeButton.className.includes("text-ink-on-bg-muted"),
+    `le bouton "fermer" réellement rendu doit porter text-ink-on-bg-muted (même token, réellement calculé pour le contraste, que PastryModal.tsx/OptionModal.tsx) -- classes reçues: "${closeButton.className}"`
+  );
+  assert.equal(closeButton.textContent, "Fermer", "le libellé du bouton reste inchangé, seule la couleur est corrigée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("ProductInfoButton (DOM réel, corrige BUG UI 2) : le bouton 'fermer' reste fonctionnel avec la classe de contraste corrigée -- ferme réellement le dialogue", async () => {
+  const { container, root } = renderInto({
+    description: "Description longue de test",
+    triggerLabel: "Plus d'informations sur Produit Test",
+    closeLabel: "Fermer",
+  });
+  await flush();
+
+  const trigger = container.querySelector("button")!;
+  trigger.click();
+  await flush();
+
+  const dialog = container.querySelector("dialog")!;
+  const closeButton = dialog.querySelector("button")!;
+  assert.ok(closeButton.className.includes("text-ink-on-bg-muted"));
+
+  closeButton.click();
+  await flush();
+
+  assert.equal(dialog.hasAttribute("open"), false, "le correctif de contraste ne doit jamais casser la fermeture réelle du dialogue");
+
+  root.unmount();
+  container.remove();
+});
+
 test("ProductInfoButton (DOM réel) : le dialogue porte un nom accessible (aria-label non vide)", async () => {
   const { container, root } = renderInto({
     description: "Description longue de test",
