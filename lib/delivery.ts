@@ -1,5 +1,9 @@
 import type { RestaurantSettings, DeliveryZone } from "@/lib/restaurants-config";
-import type { PublicDeliveryInfo } from "@/lib/sale-modes-types";
+import type {
+  PublicDeliveryInfo,
+  PublicDeliveryFulfillmentRule,
+  DeliveryFulfillmentStatus,
+} from "@/lib/sale-modes-types";
 import { isValidPostalCode } from "@/lib/customer";
 
 // Ré-exportée : DeliveryZone devient le modèle COMMUN aux deux
@@ -122,4 +126,161 @@ export function getDeliveryStatusFromPublicInfo(
   }
 
   return { eligible: true, zone };
+}
+
+/**
+ * FULFILLMENT ROUTING LOT B — résolution fulfillment PURE, additive,
+ * sans modifier getDeliveryStatus/getDeliveryStatusFromPublicInfo
+ * ci-dessus (aucune des deux n'est touchée par cette fonction).
+ *
+ * CORRIGÉ EN LOT B.1 (audit Work, finding FRB-B-01/HIGH) : cette
+ * fonction utilisait auparavant `isValidPostalCode` (lib/customer.ts)
+ * pour décider de la validité du code postal — un contrôle de FORMAT
+ * France-specific (`/^\d{5}$/`), hérité des résolveurs LEGACY
+ * getDeliveryStatus/getDeliveryStatusFromPublicInfo (LOT 2B.2, UI
+ * customer-facing, INCHANGÉS, toujours basés dessus). Le résolveur
+ * SQL interne (resolve_delivery_fulfillment), lui, ne pouvait
+ * appliquer qu'un contrôle générique (trim + vide) — un moteur SQL
+ * générique n'a aucune raison de connaître le format postal français.
+ * Plutôt que d'ajouter une dépendance France-specific supplémentaire
+ * côté SQL (hors sujet pour un moteur multi-format), LOT B.1 aligne
+ * CETTE fonction sur le contrat GÉNÉRIQUE déjà implémentable des deux
+ * côtés : trim uniquement, aucune validation de format. `"abc"` n'est
+ * donc plus un code postal "invalide" ici (il ne matche simplement
+ * aucun préfixe) — seul un code vide après trim (ou absent) déclenche
+ * `block="no-postal"`. Voir
+ * tests/fixtures/fulfillment-routing-cases.json, cas
+ * postal-nonstandard-format-*, pour la preuve croisée SQL/frontend de
+ * ce choix. `isValidPostalCode` reste utilisée EXACTEMENT comme avant
+ * par getDeliveryStatus/getDeliveryStatusFromPublicInfo ci-dessus —
+ * ce changement ne les affecte en rien.
+ *
+ * Réplique l'algorithme du résolveur interne serveur
+ * (resolve_delivery_fulfillment, voir le fichier DRAFT SQL Lot B
+ * "DRAFT-lot-fulfillment-routing-lot-b-rpc.sql", §4/§9 du rapport de
+ * conception, section 1 pour le contrat de résolution complet
+ * corrigé) : même ordre de priorité, mêmes règles de correspondance,
+ * prouvé identique cas par cas (pas seulement "testé contre des
+ * scénarios similaires") via
+ * tests/fixtures/fulfillment-routing-cases.json, consommé par
+ * tests/v97-fulfillment-routing-lot-b1-determinism.test.ts côté
+ * TypeScript ET par le harnais SQL Lot B côté serveur (FRB-B-02).
+ *
+ *   1. NORMALISATION : trim() uniquement, AUCUNE validation de
+ *      format. Code postal vide après trim (ou absent) -- refusé
+ *      IMMÉDIATEMENT, block="no-postal", AVANT toute autre
+ *      vérification -- AUCUNE règle n'est retenue, pas même le
+ *      fallback (contrairement à un ancien comportement du résolveur
+ *      SQL, corrigé en LOT B.1 : voir DRAFT-lot-fulfillment-routing-
+ *      lot-b-rpc.sql).
+ *   2. Parmi les règles NON-fallback, triées par displayOrder
+ *      ASCENDANT : la première dont au moins un préfixe de
+ *      zonePrefixes (dans l'ordre du TABLEAU, jamais réordonné) est
+ *      un préfixe du code postal (`code.startsWith(prefix)`, même
+ *      patron déjà utilisé par getDeliveryStatusFromPublicInfo) est
+ *      retenue -- premier match dans l'ordre configuré, jamais le
+ *      "plus spécifique". `matchedPrefix` (LOT B.1, FRB-B-02) porte
+ *      le préfixe précis retenu, pour comparaison directe avec la
+ *      colonne `matched_prefix` du résolveur SQL.
+ *   3. Sinon, la règle fallback (isFallback=true) si elle existe --
+ *      au plus une par construction (garantie côté base, jamais
+ *      revérifiée ici). `matchedPrefix` reste `undefined` -- un
+ *      fallback n'exige aucun préfixe.
+ *   4. Sinon : aucune règle retenue, eligible=false,
+ *      block="out-of-zone" -- jamais une règle inventée.
+ *   5. Une fois une règle retenue (fallback ou non), son minItems (ou
+ *      0 si NULL -- "aucun minimum déclaré") est comparé à
+ *      totalCount ; en dessous, eligible=false, block="below-min",
+ *      missing=le nombre exact manquant, MAIS matchedRule/
+ *      matchedPrefix/fulfillmentCode/customerText restent renseignés
+ *      (contrairement à DeliveryStatus, qui n'expose que `zone` dans
+ *      ce cas) -- permet à un futur appelant d'afficher malgré tout
+ *      le texte de la règle presque éligible, sans deviner quelle
+ *      règle a été évaluée.
+ *
+ * `rules` n'est jamais muté (copie triée localement) -- l'appelant
+ * garde la liste reçue de get_restaurant_public_delivery_fulfillments
+ * dans son ordre d'origine si besoin ailleurs.
+ *
+ * AUCUN accès Supabase, AUCUN appel RPC, jamais asynchrone -- même
+ * discipline que getDeliveryStatusFromPublicInfo. NON BRANCHÉE dans
+ * MenuView.tsx ni aucun composant (LOT C, hors périmètre de ce lot) --
+ * prouvé par test.
+ */
+export function resolveDeliveryFulfillment(
+  rules: PublicDeliveryFulfillmentRule[],
+  postalCode: string | null | undefined,
+  totalCount: number
+): DeliveryFulfillmentStatus {
+  // Normalisation générique LOT B.1 : trim uniquement, jamais de
+  // contrôle de format -- voir le commentaire ci-dessus (FRB-B-01).
+  // Volontairement DÉCOUPLÉE de isValidPostalCode (France-specific,
+  // 5 chiffres) utilisée par getDeliveryStatus/
+  // getDeliveryStatusFromPublicInfo ci-dessus, qui reste inchangée.
+  //
+  // CORRIGÉ EN LOT B.2 (audit Work, FRB-B-01 restant/HIGH) : le
+  // paramètre était typé `string` alors qu'un `null`/`undefined`
+  // RÉEL peut légitimement l'atteindre au runtime (donnée non encore
+  // saisie par le client, valeur JSON, etc. -- le typage TypeScript ne
+  // protège personne contre ça, seulement contre une erreur de
+  // COMPILATION) : `postalCode.trim()` faisait alors planter la
+  // fonction (`TypeError: Cannot read properties of null/undefined
+  // (reading 'trim')`), au lieu de retourner la même décision
+  // `no-postal` que pour une chaîne vide -- reproduit et vérifié
+  // AVANT correction (voir le rapport de mission Lot B.2). Le
+  // résolveur SQL (resolve_delivery_fulfillment), lui, a toujours
+  // traité un p_postal_code SQL NULL correctement (c'était déjà
+  // vérifié en Lot B.1) -- seul le frontend divergeait, par un crash
+  // plutôt qu'une simple décision différente, ce qui est d'autant
+  // plus grave : un crash empêche même de RENDRE la décision
+  // "no-postal" à l'appelant.
+  //
+  // `?? ""` traite `null` et `undefined` exactement comme une chaîne
+  // vide (même branche `code === ""` ci-dessous, aucune décision
+  // dupliquée) -- jamais une exception, jamais un contrôle de format
+  // supplémentaire, conforme au contrat générique déjà en vigueur.
+  const code = postalCode?.trim() ?? "";
+  if (code === "") return { eligible: false, block: "no-postal" };
+
+  const sorted = [...rules].sort((a, b) => a.displayOrder - b.displayOrder);
+
+  let matchedRule: PublicDeliveryFulfillmentRule | undefined;
+  let matchedPrefix: string | undefined;
+
+  for (const candidate of sorted) {
+    if (candidate.isFallback) continue;
+    const prefix = candidate.zonePrefixes.find((p) => code.startsWith(p));
+    if (prefix !== undefined) {
+      matchedRule = candidate;
+      matchedPrefix = prefix;
+      break;
+    }
+  }
+  if (!matchedRule) {
+    matchedRule = sorted.find((candidate) => candidate.isFallback);
+    matchedPrefix = undefined;
+  }
+
+  if (!matchedRule) return { eligible: false, block: "out-of-zone" };
+
+  const min = matchedRule.minItems ?? 0;
+  if (totalCount < min) {
+    return {
+      eligible: false,
+      block: "below-min",
+      missing: min - totalCount,
+      matchedRule,
+      matchedPrefix,
+      fulfillmentCode: matchedRule.fulfillmentCode,
+      customerText: matchedRule.customerText,
+    };
+  }
+
+  return {
+    eligible: true,
+    matchedRule,
+    matchedPrefix,
+    fulfillmentCode: matchedRule.fulfillmentCode,
+    customerText: matchedRule.customerText,
+  };
 }
