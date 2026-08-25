@@ -1,0 +1,194 @@
+{
+  "$schema-note": "FULFILLMENT ROUTING LOT B.1 — fixture canonique unique (FRB-B-02). Ce fichier est la SEULE source de vérité pour le contrat de résolution partagé SQL/frontend. tests/v97-fulfillment-routing-lot-b1-determinism.test.ts le lit directement pour tester resolveDeliveryFulfillment (lib/delivery.ts). supabase/tests/generate-fulfillment-lot-b1-fixture-checks.mjs le lit et génère un script SQL qui appelle resolve_delivery_fulfillment (supabase/DRAFT-lot-fulfillment-routing-lot-b-rpc.sql) avec les MÊMES cas, puis compare le résultat au MÊME objet `expected` (clés identiques, valeurs identiques) — voir supabase/tests/fulfillment-routing-lot-b-check.sh, section 'FIXTURE COMMUNE — preuve de déterminisme (FRB-B-02)'. Ne PAS dupliquer ces cas ailleurs : toute nouvelle règle métier testée doit être ajoutée ICI, jamais séparément côté SQL ou côté TS.",
+  "contractNote": "CONTRAT DE RÉSOLUTION LOT B.1 (voir RAPPORT-FULFILLMENT-ROUTING-LOT-B1.md §2 pour le texte complet), ÉTENDU EN LOT B.2 (FRB-B-01/FRB-B-02, `postalCode` accepte désormais explicitement `string | null` -- voir le cas postal-null-no-postal-even-with-fallback) : (1) normalisation = trim uniquement, AUCUNE validation de format (générique, pas de règle France-specific 5-chiffres) -- `postalCode` peut être `null` (ou, côté TS uniquement puisque JSON ne représente pas `undefined`, `undefined`), traité EXACTEMENT comme une chaîne vide après normalisation ; (2) code postal vide après trim (ou null/undefined/absent) => eligible=false, block='no-postal', AUCUNE règle retenue, même pas le fallback -- même si un fallback par ailleurs éligible existe ; (3) sinon, première règle non-fallback (triée par displayOrder ASC) dont un élément de zonePrefixes (dans l'ordre du tableau) préfixe le code postal ; (4) sinon la règle fallback si elle existe ; (5) sinon eligible=false, block='out-of-zone' ; (6) une fois une règle retenue, si minItems n'est pas null et totalCount < minItems => eligible=false, block='below-min', missing=minItems-totalCount, mais fulfillmentCode/matchedPrefix/customerText restent renseignés ; (7) sinon eligible=true.",
+  "ruleSchemaNote": "Chaque entrée de `rules` correspond exactement à PublicDeliveryFulfillmentRule (lib/sale-modes-types.ts) et est passée TELLE QUELLE à resolveDeliveryFulfillment côté TS -- représente donc la vue DÉJÀ FILTRÉE par la RPC (get_restaurant_public_delivery_fulfillments), jamais de champ `enabled`. Le bloc optionnel `sql` (présent seulement pour les 2 cas de parité serveur-only, voir plus bas) décrit les données RÉELLES à insérer côté base (peut inclure des lignes enabled=false ou un parentModeEnabled=false que la RPC aurait déjà filtrées avant que le frontend ne les voie) -- absent, il est dérivé automatiquement de `rules` (toutes enabled=true, parentModeEnabled=true). LOT B.2 : le champ `postalCode` d'un cas accepte désormais `string | null` en JSON (jamais casté vers '' avant d'atteindre le résolveur, ni côté TS ni côté générateur SQL -- voir generate-fulfillment-lot-b1-fixture-checks.mjs, fonction sqlStr, qui émet un littéral SQL NULL non quoté pour une valeur JSON null) ; `undefined` n'étant pas représentable en JSON, il est couvert séparément par un test TS direct (hors fixture) dans tests/v96-fulfillment-routing-lot-b.test.ts, pour ne pas dupliquer un second système de fixture concurrent.",
+  "cases": [
+    {
+      "id": "valid-match-min-reached",
+      "description": "Code postal valide, préfixe non-fallback correspondant, minimum atteint -- éligible.",
+      "postalCode": "75001",
+      "totalCount": 5,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": "Livraison locale le jour même", "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 10, "customerText": "Expédition sous 48h", "displayOrder": 1 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "local_delivery_75", "matchedPrefix": "75", "minItems": 5, "customerText": "Livraison locale le jour même", "block": null, "missing": null }
+    },
+    {
+      "id": "valid-match-below-min",
+      "description": "Code postal valide, préfixe correspondant, minimum NON atteint -- refusé, missing exact, mais la règle reste identifiée.",
+      "postalCode": "75001",
+      "totalCount": 4,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 10, "customerText": "Livraison locale le jour même", "displayOrder": 0 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": "local_delivery_75", "matchedPrefix": "75", "minItems": 10, "customerText": "Livraison locale le jour même", "block": "below-min", "missing": 6 }
+    },
+    {
+      "id": "valid-match-min-exact-threshold",
+      "description": "totalCount strictement égal à minItems -- éligible (le seuil n'est pas exclusif).",
+      "postalCode": "75001",
+      "totalCount": 5,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "local_delivery_75", "matchedPrefix": "75", "minItems": 5, "customerText": null, "block": null, "missing": null }
+    },
+    {
+      "id": "valid-match-min-null-no-minimum",
+      "description": "minItems NULL sur la règle -- aucun minimum, toute quantité (même 0) est éligible.",
+      "postalCode": "75001",
+      "totalCount": 0,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 0 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "local_delivery_75", "matchedPrefix": "75", "minItems": null, "customerText": null, "block": null, "missing": null }
+    },
+    {
+      "id": "valid-no-nonfallback-match-fallback-eligible",
+      "description": "Aucune règle non-fallback ne matche -- retombe sur le fallback, minimum atteint -- éligible, matchedPrefix=null (le fallback n'exige aucun préfixe).",
+      "postalCode": "13001",
+      "totalCount": 10,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 10, "customerText": "Expédition sous 48h", "displayOrder": 1 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "wide_shipping", "matchedPrefix": null, "minItems": 10, "customerText": "Expédition sous 48h", "block": null, "missing": null }
+    },
+    {
+      "id": "fallback-below-min",
+      "description": "Fallback résolu mais son propre minimum n'est pas atteint -- refusé, missing exact sur LA RÈGLE FALLBACK.",
+      "postalCode": "13001",
+      "totalCount": 2,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 10, "customerText": "Expédition sous 48h", "displayOrder": 1 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": "wide_shipping", "matchedPrefix": null, "minItems": 10, "customerText": "Expédition sous 48h", "block": "below-min", "missing": 8 }
+    },
+    {
+      "id": "valid-no-match-no-fallback-out-of-zone",
+      "description": "Code postal valide, aucune règle non-fallback ne matche, aucun fallback configuré -- non éligible, aucune règle identifiée.",
+      "postalCode": "13001",
+      "totalCount": 10,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "out-of-zone", "missing": null }
+    },
+    {
+      "id": "postal-empty-string-no-postal-even-with-fallback",
+      "description": "Code postal chaîne vide -- refusé IMMÉDIATEMENT, block='no-postal' -- AUCUNE règle retenue, même pas le fallback pourtant configuré et par ailleurs éligible.",
+      "postalCode": "",
+      "totalCount": 5,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": null, "displayOrder": 1 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "no-postal", "missing": null }
+    },
+    {
+      "id": "postal-whitespace-only-no-postal",
+      "description": "Code postal fait uniquement d'espaces -- après trim, vide -- même traitement que la chaîne vide (block='no-postal').",
+      "postalCode": "   ",
+      "totalCount": 5,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": null, "displayOrder": 1 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "no-postal", "missing": null }
+    },
+    {
+      "id": "postal-null-no-postal-even-with-fallback",
+      "description": "LOT B.2 (FRB-B-01/FRB-B-02) -- code postal JSON `null` (valeur RÉELLEMENT null, pas la chaîne vide) -- même traitement que la chaîne vide/les espaces : block='no-postal', AUCUNE règle retenue -- la présence d'un fallback par ailleurs éligible (minItems=1 <= totalCount=5) ne doit JAMAIS permettre à un postalCode null de se résoudre. Cas identique en tous points (mêmes rules, même totalCount) aux cas postal-empty-string-no-postal-even-with-fallback et postal-whitespace-only-no-postal ci-dessus, à seule fin de prouver que null/''/'   ' sont traités de façon strictement identique. Ce cas est LA preuve canonique unique consommée à la fois par tests/v97-fulfillment-routing-lot-b1-determinism.test.ts (TypeScript, resolveDeliveryFulfillment) et par supabase/tests/generate-fulfillment-lot-b1-fixture-checks.mjs (SQL, resolve_delivery_fulfillment avec p_postal_code = NULL réel, pas '') -- voir supabase/tests/fulfillment-routing-lot-b-check.sh section FIXTURE COMMUNE.",
+      "postalCode": null,
+      "totalCount": 5,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": null, "displayOrder": 1 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "no-postal", "missing": null }
+    },
+    {
+      "id": "postal-nonstandard-format-not-invalid-falls-to-fallback",
+      "description": "Code postal non vide mais de format non standard ('abc') -- PAS traité comme invalide (moteur générique, aucune validation de format France-specific) -- ne matche aucun préfixe, retombe sur le fallback normalement.",
+      "postalCode": "abc",
+      "totalCount": 1,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": "Expédition", "displayOrder": 1 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "wide_shipping", "matchedPrefix": null, "minItems": 1, "customerText": "Expédition", "block": null, "missing": null }
+    },
+    {
+      "id": "postal-nonstandard-format-no-fallback-out-of-zone",
+      "description": "Même code postal non standard, mais sans aucun fallback configuré -- non éligible, hors zone (jamais 'no-postal': le format non standard n'est pas une invalidité dans ce moteur générique).",
+      "postalCode": "abc",
+      "totalCount": 1,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": 5, "customerText": null, "displayOrder": 0 }
+      ],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "out-of-zone", "missing": null }
+    },
+    {
+      "id": "empty-rules-out-of-zone",
+      "description": "Aucune règle du tout (tableau vide) -- non éligible, hors zone, jamais une exception.",
+      "postalCode": "75001",
+      "totalCount": 5,
+      "rules": [],
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "out-of-zone", "missing": null }
+    },
+    {
+      "id": "overlapping-prefixes-display-order-wins-not-specificity",
+      "description": "Deux préfixes chevauchants ('750' et '75') -- l'ordre de résolution est piloté EXPLICITEMENT par displayOrder, jamais par la spécificité/longueur du préfixe.",
+      "postalCode": "75012",
+      "totalCount": 0,
+      "rules": [
+        { "fulfillmentCode": "specific_first", "zonePrefixes": ["750"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "generic_second", "zonePrefixes": ["75"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 1 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "specific_first", "matchedPrefix": "750", "minItems": null, "customerText": null, "block": null, "missing": null }
+    },
+    {
+      "id": "second-nonfallback-rule-matches-alone",
+      "description": "La première règle non-fallback ne matche pas, la seconde si -- résolution correcte, pas seulement la première règle testée.",
+      "postalCode": "92100",
+      "totalCount": 0,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 0 },
+        { "fulfillmentCode": "local_delivery_92", "zonePrefixes": ["92", "93"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 1 }
+      ],
+      "expected": { "eligible": true, "fulfillmentCode": "local_delivery_92", "matchedPrefix": "92", "minItems": null, "customerText": null, "block": null, "missing": null }
+    },
+    {
+      "id": "rule-disabled-excluded-server-side-falls-out-of-zone",
+      "description": "PARITÉ SERVEUR/FRONTEND (matrice CIO 'rule disabled') : la règle 75 est désactivée côté base -- la RPC ne l'aurait jamais renvoyée au frontend (rules ci-dessous ne la contient déjà plus), et le résolveur SQL interne, qui lit directement la table, doit arriver à la MÊME conclusion en la filtrant lui-même (f.enabled=true) -- prouvé en insérant réellement la ligne désactivée côté SQL (voir bloc `sql` ci-dessous) tout en ne la donnant jamais au moteur TS.",
+      "postalCode": "75001",
+      "totalCount": 0,
+      "rules": [
+        { "fulfillmentCode": "local_delivery_92", "zonePrefixes": ["92", "93"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 1 }
+      ],
+      "sql": {
+        "rules": [
+          { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 0, "enabled": false },
+          { "fulfillmentCode": "local_delivery_92", "zonePrefixes": ["92", "93"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 1, "enabled": true }
+        ]
+      },
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "out-of-zone", "missing": null }
+    },
+    {
+      "id": "parent-mode-disabled-parity-with-empty-rules",
+      "description": "PARITÉ SERVEUR/FRONTEND (matrice CIO 'parent disabled') : le mode delivery est désactivé pour ce tenant -- la RPC ne renvoie donc AUCUNE règle au frontend (rules=[] ci-dessous, même si une règle 75 existe réellement en base et matcherait sinon, voir bloc `sql`) -- le résolveur SQL interne doit arriver à la MÊME conclusion (non éligible, aucune règle) via son propre contrôle du mode parent, malgré la présence de données qui matcheraient autrement.",
+      "postalCode": "75001",
+      "totalCount": 0,
+      "rules": [],
+      "sql": {
+        "rules": [
+          { "fulfillmentCode": "local_delivery_75", "zonePrefixes": ["75"], "isFallback": false, "minItems": null, "customerText": null, "displayOrder": 0, "enabled": true }
+        ],
+        "parentModeEnabled": false
+      },
+      "expected": { "eligible": false, "fulfillmentCode": null, "matchedPrefix": null, "minItems": null, "customerText": null, "block": "out-of-zone", "missing": null }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import type {
   SaleMode,
   SaleModeFieldRequirement,
   PublicDeliveryInfo,
+  PublicDeliveryFulfillmentRule,
 } from "@/lib/sale-modes-types";
 
 /**
@@ -140,6 +141,47 @@ export async function getPublicDeliveryInfo(
     minItems: row.delivery_min_items,
     areaLabel: row.delivery_area_label,
   };
+}
+
+interface PublicDeliveryFulfillmentRuleRow {
+  fulfillment_code: string;
+  zone_prefixes: string[];
+  is_fallback: boolean;
+  min_items: number | null;
+  customer_text: string | null;
+  display_order: number;
+}
+
+/**
+ * FULFILLMENT ROUTING LOT B — règles de routage fulfillment publiques
+ * (mode delivery) pour un établissement, telles que retournées par
+ * get_restaurant_public_delivery_fulfillments. Retourne un tableau
+ * vide (jamais une exception) si le mode delivery n'est pas activé,
+ * si l'établissement n'est pas actif, ou si aucune règle n'a encore
+ * été configurée pour ce tenant (le cas de TOUS les tenants réels
+ * aujourd'hui -- ce lot n'insère aucune donnée, voir LOT A/B) --
+ * reflète fidèlement le contrat de la RPC sous-jacente, même
+ * discipline que getPublicDeliveryInfo ci-dessus.
+ *
+ * N'est appelée par AUCUN hook ni composant dans ce lot (LOT C, hors
+ * périmètre) -- fonction additive, prouvée par test, prête pour un
+ * futur usePublicDeliveryFulfillments().
+ */
+export async function getPublicDeliveryFulfillments(
+  restaurantId: string
+): Promise<PublicDeliveryFulfillmentRule[]> {
+  const { data, error } = await supabase.rpc("get_restaurant_public_delivery_fulfillments", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as PublicDeliveryFulfillmentRuleRow[]).map((row) => ({
+    fulfillmentCode: row.fulfillment_code,
+    zonePrefixes: row.zone_prefixes,
+    isFallback: row.is_fallback,
+    minItems: row.min_items,
+    customerText: row.customer_text,
+    displayOrder: row.display_order,
+  }));
 }
 
 type CustomerDataLike = Record<string, string | undefined>;

@@ -86,3 +86,74 @@ export interface PublicDeliveryInfo {
   minItems: number;
   areaLabel: string | null;
 }
+
+/**
+ * FULFILLMENT ROUTING LOT B — une règle de routage fulfillment
+ * publique, telle que retournée par
+ * get_restaurant_public_delivery_fulfillments. Jamais `provider` : la
+ * RPC elle-même ne le retourne pas (reste une donnée strictement
+ * interne, voir supabase/DRAFT-lot-fulfillment-routing-lot-b-rpc.sql)
+ * — ce type ne l'expose donc pas non plus, par construction, pas
+ * seulement par convention.
+ *
+ * `minItems` reste `number | null` (contrairement à
+ * PublicDeliveryInfo.minItems, toujours un `number` via un
+ * `coalesce(...,0)` côté SQL pour l'ancien modèle) : la colonne
+ * `restaurant_sale_mode_fulfillments.min_items` est nullable SANS
+ * valeur de repli forcée côté base (voir LOT A) — "aucun minimum
+ * déclaré pour CETTE règle" reste une valeur distincte de "minimum
+ * explicite de 0", jamais confondue ici. `resolveDeliveryFulfillment`
+ * (lib/delivery.ts) applique le repli `?? 0` au moment de la
+ * résolution, pas ce type.
+ *
+ * `isFallback` : au plus une règle avec `isFallback: true` par
+ * `(restaurant, mode)` reçue — garanti côté base par un index unique
+ * partiel (LOT A), jamais revérifié côté client.
+ */
+export interface PublicDeliveryFulfillmentRule {
+  fulfillmentCode: string;
+  zonePrefixes: string[];
+  isFallback: boolean;
+  minItems: number | null;
+  customerText: string | null;
+  displayOrder: number;
+}
+
+/**
+ * FULFILLMENT ROUTING LOT B — raison de refus lorsque
+ * resolveDeliveryFulfillment() ne retient aucune règle éligible.
+ * Vocabulaire IDENTIQUE à DeliveryBlock (lib/delivery.ts) — jamais un
+ * second vocabulaire parallèle pour le même concept (hors zone, sous
+ * le minimum, code postal absent/invalide).
+ */
+export type DeliveryFulfillmentBlock = "below-min" | "no-postal" | "out-of-zone";
+
+/**
+ * FULFILLMENT ROUTING LOT B — résultat de resolveDeliveryFulfillment().
+ * `matchedRule` n'est présent que si une règle (fallback ou non) a
+ * été retenue — y compris lorsque `eligible` est `false` par
+ * `below-min` (la règle est identifiée, mais son minimum n'est pas
+ * atteint), pour permettre à un futur appelant (LOT C, non branché
+ * ici) d'afficher le texte/la règle concernée même en cas de refus.
+ *
+ * `matchedPrefix` — AJOUTÉ EN LOT B.1 (FRB-B-02) : le préfixe précis
+ * (parmi `matchedRule.zonePrefixes`) qui a effectivement matché le
+ * code postal, dans l'ordre du tableau — `undefined` quand aucune
+ * règle non-fallback n'a été retenue (fallback appliqué, ou aucune
+ * règle du tout). Fait partie du contrat public comparé
+ * mécaniquement au résolveur SQL (resolve_delivery_fulfillment,
+ * colonne `matched_prefix`) par
+ * tests/fixtures/fulfillment-routing-cases.json — ajouté précisément
+ * pour rendre cette comparaison possible cas par cas, pas seulement
+ * un champ de confort.
+ */
+export interface DeliveryFulfillmentStatus {
+  eligible: boolean;
+  matchedRule?: PublicDeliveryFulfillmentRule;
+  fulfillmentCode?: string;
+  matchedPrefix?: string;
+  customerText?: string | null;
+  block?: DeliveryFulfillmentBlock;
+  /** Nombre d'articles restant à ajouter pour que la règle résolue devienne éligible */
+  missing?: number;
+}
