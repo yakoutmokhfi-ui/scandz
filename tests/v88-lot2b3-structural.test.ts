@@ -13,9 +13,24 @@ const { getDeliveryStatusFromPublicInfo } = await import("../lib/delivery.ts");
 const menuViewSrc = readFileSync("components/MenuView.tsx", "utf8");
 const hookSrc = readFileSync("lib/use-public-delivery-info.ts", "utf8");
 
-test("LOT 2B.3: MenuView.tsx n'importe plus getDeliveryStatus (legacy) -- seul getDeliveryStatusFromPublicInfo est importé", () => {
+// MIS À JOUR EN LOT C (ACTIVE FRONTEND RUNTIME ROUTING) : MenuView.tsx
+// n'importe désormais plus getDeliveryStatusFromPublicInfo
+// DIRECTEMENT -- ce résolveur LOT 2B.3 reste appelé, mais uniquement
+// PAR resolveActiveDeliveryStatus (lib/delivery.ts, le pont de
+// migration LOT C), jamais par le composant lui-même. La preuve que
+// getDeliveryStatusFromPublicInfo reste RÉELLEMENT utilisé (jamais du
+// code mort) vit désormais dans lib/delivery.ts (voir
+// resolveActiveDeliveryStatus) et dans
+// tests/v101-fulfillment-routing-lot-c-active-runtime.test.ts (chemin
+// "legacy" du pont de migration). L'invariant "plus jamais
+// getDeliveryStatus (legacy)" ci-dessous reste, lui, entièrement
+// valide et inchangé.
+test("LOT C: MenuView.tsx n'importe plus getDeliveryStatus (legacy) NI getDeliveryStatusFromPublicInfo directement -- seul le pont de migration resolveActiveDeliveryStatus est importé (ancien titre LOT 2B.3 : \"seul getDeliveryStatusFromPublicInfo est importé\")", () => {
   assert.ok(!menuViewSrc.includes('import { getDeliveryStatus }'), "l'ancien import doit avoir disparu");
-  assert.ok(menuViewSrc.includes('import { getDeliveryStatusFromPublicInfo } from "@/lib/delivery"'));
+  assert.ok(
+    menuViewSrc.includes('import { resolveActiveDeliveryStatus } from "@/lib/delivery"'),
+    "LOT C : MenuView.tsx doit importer le pont de migration, pas un résolveur individuel"
+  );
 });
 
 test("LOT 2B.3: aucun appel réel à getDeliveryStatus(settings, ...) ne subsiste dans le code de MenuView.tsx (recherche hors commentaires)", () => {

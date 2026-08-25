@@ -277,6 +277,27 @@ function mockRpc(
     if (name === "get_restaurant_public_delivery_info") {
       return { data: deliveryInfo ? [deliveryInfo] : [], error: null };
     }
+    // MIS À JOUR EN LOT C (ACTIVE FRONTEND RUNTIME ROUTING) : le
+    // fixture partagé de ce fichier (v91-lot2b4a2, hérité de LOT 2B.3
+    // et antérieur) simule un établissement de type "Sanaa" -- SANS
+    // AUCUNE règle publique de fulfillment migrée, exactement le cas
+    // réel de tous les établissements existants à ce jour (mission LOT
+    // C §2/§18/§29). AVANT ce lot, la RPC
+    // get_restaurant_public_delivery_fulfillments n'était appelée par
+    // AUCUN hook -- ce mock n'avait donc jamais besoin de la
+    // connaître. LOT C l'active (usePublicDeliveryFulfillments) : ce
+    // même mock doit désormais lui répondre, avec un tableau VIDE
+    // (POSITIVEMENT connu, jamais "non résolu") -- exactement ce qui
+    // fait passer resolveActiveDeliveryStatus (lib/delivery.ts) par le
+    // pont de migration vers le chemin legacy
+    // (getDeliveryStatusFromPublicInfo), préservant TOUS les
+    // comportements déjà vérifiés par ce fichier (zone/minimum LOT
+    // 2B.3), sans aucune régression -- voir aussi
+    // tests/v101-fulfillment-routing-lot-c-active-runtime.test.ts pour
+    // la preuve unitaire dédiée de ce même pont.
+    if (name === "get_restaurant_public_delivery_fulfillments") {
+      return { data: [], error: null };
+    }
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
 }

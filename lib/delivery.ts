@@ -284,3 +284,177 @@ export function resolveDeliveryFulfillment(
     customerText: matchedRule.customerText,
   };
 }
+
+/**
+ * FULFILLMENT ROUTING LOT C — pont de migration (ACTIVATION RUNTIME).
+ *
+ * Type minimal, VOLONTAIREMENT indépendant de React (ce fichier reste
+ * pur/synchrone, voir la discipline déjà en vigueur ci-dessus pour
+ * resolveDeliveryFulfillment) : représente la résolution des règles
+ * publiques de fulfillment telle qu'un futur hook
+ * (lib/use-public-delivery-fulfillments.ts, LOT C) l'expose. Le hook
+ * IMPORTE ce type plutôt que d'en redéfinir un second identique --
+ * une seule modélisation loading/loaded/error pour ce concept, comme
+ * pour PublicDeliveryInfoState/PublicFieldRequirementsState déjà
+ * établis (lib/use-public-delivery-info.ts / lib/use-public-field-
+ * requirements.ts), à la différence que la MODÉLISATION vit ici (lib/
+ * delivery.ts), pas dans le hook, précisément pour que
+ * resolveActiveDeliveryStatus ci-dessous puisse la consommer SANS
+ * importer quoi que ce soit de React ni d'un hook.
+ */
+export type FulfillmentRulesResolution =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "loaded"; rules: PublicDeliveryFulfillmentRule[] };
+
+/**
+ * Source de routage RÉELLEMENT utilisée pour produire une décision de
+ * livraison donnée -- jamais affichée au client (mission §19 : "only
+ * inside frontend logic/tests. Do not expose this to customer UI"),
+ * exclusivement pour l'introspection en test/débogage et pour ce
+ * commentaire de documentation :
+ *   - "fulfillment-rules" : au moins une règle publique existe pour cet
+ *     établissement -- résolu EXCLUSIVEMENT par resolveDeliveryFulfillment
+ *     ci-dessus, jamais par un repli legacy (mission §4).
+ *   - "legacy" : aucune règle publique n'existe (tableau vide,
+ *     POSITIVEMENT connu, pas seulement "pas encore chargé") -- résolu
+ *     par getDeliveryStatusFromPublicInfo ci-dessus, comportement
+ *     IDENTIQUE à celui déjà en production avant ce lot. Pont de
+ *     migration TEMPORAIRE (mission §3/§19), pas une architecture
+ *     permanente -- destiné à disparaître une fois tous les
+ *     établissements migrés vers des règles publiques.
+ *   - "loading" / "error" : la résolution des règles n'est pas encore
+ *     positivement connue -- JAMAIS confondue avec "legacy" (mission
+ *     §3/§7/§28 : une RPC en échec ou en cours ne doit jamais se
+ *     déguiser en "zéro règle constaté") ni avec une éligibilité
+ *     positive -- traitée par le MÊME bucket sûr ("out-of-zone") que
+ *     l'état loading/error déjà en vigueur pour
+ *     getDeliveryStatusFromPublicInfo/usePublicDeliveryInfo (LOT 2B.3,
+ *     convention établie, pas un nouveau texte client inventé pour ce
+ *     lot) -- mais reste un cas nommé distinct ICI, dans ce champ,
+ *     pour rester testable et jamais confondu en interne.
+ */
+export type DeliveryRoutingSource = "fulfillment-rules" | "legacy" | "loading" | "error";
+
+export interface ActiveDeliveryResolution {
+  status: DeliveryStatus;
+  routingSource: DeliveryRoutingSource;
+}
+
+/**
+ * Traduit un DeliveryFulfillmentStatus (résolveur LOT B, ci-dessus) en
+ * DeliveryStatus (modèle de résultat déjà consommé par
+ * FulfillmentSelector.tsx/CartPanel.tsx) -- PURE ADAPTATION DE FORME,
+ * jamais une seconde implémentation de règles : chaque branche ne fait
+ * que renommer/regrouper des champs déjà calculés par
+ * resolveDeliveryFulfillment.
+ *
+ * Permet à LOT C de brancher le nouveau moteur SANS modifier
+ * FulfillmentSelector.tsx ni CartPanel.tsx (mission §32 : "Keep changes
+ * minimal. Do not modify all four if fewer are sufficient") -- ces deux
+ * composants continuent de recevoir exactement le même type
+ * `DeliveryStatus` qu'avant ce lot, qu'ils soient alimentés par le
+ * chemin legacy ou par le nouveau moteur.
+ *
+ * `zone.code` reçoit `matchedPrefix` (chaîne vide si absent -- règle
+ * fallback ou aucune règle non-fallback retenue) : EXACTEMENT la même
+ * convention déjà utilisée par getDeliveryStatusFromPublicInfo
+ * ci-dessus (`{ code: matchedPrefix, label: ... }`) -- jamais lu par
+ * aucun composant (voir audit exhaustif, rapport de mission LOT C,
+ * section PROVIDER PRIVACY/SCOPE), un simple identifiant de
+ * corrélation interne.
+ *
+ * `zone.label` reçoit `customerText` (mission §12/§13 : texte
+ * customer-facing configuré par la règle, JAMAIS le nom du provider ni
+ * `fulfillmentCode`) -- jamais `fulfillmentCode` lui-même, qui n'est
+ * PAS recopié dans le `DeliveryStatus` produit ici, donc structurellement
+ * absent de tout ce que FulfillmentSelector.tsx peut rendre à partir de
+ * cette valeur.
+ */
+export function deliveryStatusFromFulfillmentResult(
+  result: DeliveryFulfillmentStatus
+): DeliveryStatus {
+  if (result.eligible) {
+    return {
+      eligible: true,
+      zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
+    };
+  }
+  if (result.block === "below-min") {
+    return {
+      eligible: false,
+      block: "below-min",
+      missing: result.missing,
+      zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
+    };
+  }
+  // "no-postal" | "out-of-zone" | undefined (jamais atteint en pratique
+  // -- resolveDeliveryFulfillment renseigne toujours `block` quand
+  // `eligible` est false, voir sa propre définition ci-dessus) : aucune
+  // zone à exposer, même contrat que getDeliveryStatusFromPublicInfo
+  // pour ces deux blocs.
+  return { eligible: false, block: result.block };
+}
+
+/**
+ * FULFILLMENT ROUTING LOT C — PONT DE MIGRATION (fonction PURE,
+ * SYNCHRONE, SANS accès Supabase -- même discipline que
+ * resolveDeliveryFulfillment/getDeliveryStatusFromPublicInfo
+ * ci-dessus). C'est ICI, et UNIQUEMENT ici, que la décision
+ * "quel moteur utiliser pour CET établissement" est prise --
+ * MenuView.tsx (seul appelant, LOT C) ne fait que lui transmettre les
+ * trois sources déjà résolues (état des règles publiques, info de
+ * livraison publique legacy, saisie client), jamais une seconde
+ * implémentation de cette décision ailleurs.
+ *
+ * Principe de migration (mission §3) :
+ *   - règles publiques POSITIVEMENT connues NON VIDES -> nouveau moteur
+ *     (resolveDeliveryFulfillment), EXCLUSIVEMENT -- aucun repli legacy
+ *     si aucune règle ne correspond (mission §4 : "DO NOT silently fall
+ *     back to legacy delivery logic").
+ *   - règles publiques POSITIVEMENT connues VIDES (tableau `[]` après
+ *     résolution réussie, PAS "pas encore résolu") -> chemin legacy
+ *     (getDeliveryStatusFromPublicInfo), comportement identique à celui
+ *     déjà en production avant ce lot -- c'est le cas de TOUS les
+ *     établissements réels aujourd'hui (aucune donnée insérée par LOT
+ *     A/B/B.1/B.2), établissement de référence non-migré déjà en
+ *     production inclus (mission §2/§18/§29 -- non-régression
+ *     critique).
+ *   - règles publiques NON ENCORE résolues (loading) ou EN ÉCHEC
+ *     (error) -> jamais confondu avec "vide" (mission §7/§28) ni avec
+ *     une éligibilité positive -- même bucket sûr "out-of-zone" que la
+ *     convention déjà établie par usePublicDeliveryInfo/
+ *     getDeliveryStatusFromPublicInfo pour leurs propres états
+ *     loading/error (LOT 2B.3), documenté distinctement via
+ *     `routingSource` (jamais rendu au client, mission §19).
+ *
+ * NE DUPLIQUE L'ALGORITHME D'AUCUN DES DEUX RÉSOLVEURS (mission §10) :
+ * délègue entièrement à resolveDeliveryFulfillment ou
+ * getDeliveryStatusFromPublicInfo selon le cas, cette fonction ne fait
+ * que choisir LEQUEL appeler et adapter sa forme de sortie
+ * (deliveryStatusFromFulfillmentResult ci-dessus).
+ */
+export function resolveActiveDeliveryStatus(
+  fulfillmentRules: FulfillmentRulesResolution,
+  legacyPublicDeliveryInfo: PublicDeliveryInfo | null,
+  postalCode: string,
+  totalCount: number
+): ActiveDeliveryResolution {
+  if (fulfillmentRules.status === "loading") {
+    return { status: { eligible: false, block: "out-of-zone" }, routingSource: "loading" };
+  }
+  if (fulfillmentRules.status === "error") {
+    return { status: { eligible: false, block: "out-of-zone" }, routingSource: "error" };
+  }
+
+  // fulfillmentRules.status === "loaded" à partir d'ici.
+  if (fulfillmentRules.rules.length === 0) {
+    return {
+      status: getDeliveryStatusFromPublicInfo(legacyPublicDeliveryInfo, postalCode, totalCount),
+      routingSource: "legacy",
+    };
+  }
+
+  const result = resolveDeliveryFulfillment(fulfillmentRules.rules, postalCode, totalCount);
+  return { status: deliveryStatusFromFulfillmentResult(result), routingSource: "fulfillment-rules" };
+}
