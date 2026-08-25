@@ -1,0 +1,383 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import type { AddressSearchFn, AddressSuggestion, StructuredCustomerAddress } from "@/lib/address-types";
+import {
+  AddressSearchError,
+  manualAddressToStructured,
+  normalizeAddressSuggestion,
+  searchAddressSuggestions,
+} from "@/lib/services/address-search";
+
+/**
+ * FULFILLMENT ROUTING LOT B.5 — Composant ISOLÉ d'autocomplete
+ * d'adresse structurée.
+ *
+ * NON BRANCHÉ dans le parcours actif (mission §9/§13) : aucun import
+ * de ce fichier n'existe dans MenuView.tsx/CartPanel.tsx/
+ * FulfillmentSelector.tsx (voir tests/v98-...test.ts, vérification
+ * structurelle). Le branchement réel appartient à Lot C.
+ *
+ * N'appelle JAMAIS `resolveDeliveryFulfillment` ni aucune logique de
+ * routing/provider de livraison (mission §8) : ce composant produit
+ * uniquement un `StructuredCustomerAddress` (lib/address-types.ts) via
+ * `onChange`, rien d'autre.
+ *
+ * Auto-suffisant en libellés (aucune dépendance à lib/i18n.ts) : ce
+ * composant n'étant pas encore branché dans le parcours actif, le
+ * câblage i18n réel est différé à Lot C (voir le rapport de mission)
+ * plutôt que d'étendre dès maintenant le dictionnaire partagé pour un
+ * composant non utilisé en production.
+ */
+
+export interface AddressAutocompleteLabels {
+  inputLabel: string;
+  placeholder: string;
+  loading: string;
+  noResults: string;
+  errorMessage: string;
+  manualFallbackPrompt: string;
+  switchToManual: string;
+  switchToSearch: string;
+  clear: string;
+  manualAddressLine: string;
+  manualPostalCode: string;
+  manualCity: string;
+  manualCountryCode: string;
+}
+
+const DEFAULT_LABELS: AddressAutocompleteLabels = {
+  inputLabel: "Adresse",
+  placeholder: "Commencez à taper une adresse…",
+  loading: "Recherche en cours…",
+  noResults: "Aucune adresse trouvée",
+  errorMessage: "Recherche d'adresse indisponible pour le moment.",
+  manualFallbackPrompt: "Vous pouvez saisir l'adresse manuellement.",
+  switchToManual: "Saisir l'adresse manuellement",
+  switchToSearch: "Revenir à la recherche",
+  clear: "Effacer",
+  manualAddressLine: "Adresse (numéro et rue)",
+  manualPostalCode: "Code postal",
+  manualCity: "Ville",
+  manualCountryCode: "Pays (code, ex. FR)",
+};
+
+type SearchState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "results"; suggestions: AddressSuggestion[] }
+  | { kind: "no-results" }
+  | { kind: "error" };
+
+export interface AddressAutocompleteProps {
+  /** Adresse structurée actuellement retenue, ou `null` si aucune saisie/sélection. */
+  value: StructuredCustomerAddress | null;
+  onChange: (address: StructuredCustomerAddress | null) => void;
+  /** Injectable pour les tests / pour changer de provider sans toucher ce composant (mission §5/§6). Défaut : searchAddressSuggestions (provider France, voir lib/services/address-search.ts). */
+  search?: AddressSearchFn;
+  /** Ms avant déclenchement de la recherche après la dernière frappe (mission §15). */
+  debounceMs?: number;
+  /** Longueur minimale de requête avant recherche (mission §9). */
+  minQueryLength?: number;
+  labels?: Partial<AddressAutocompleteLabels>;
+  id?: string;
+}
+
+export default function AddressAutocomplete({
+  value,
+  onChange,
+  search = searchAddressSuggestions,
+  debounceMs = 300,
+  minQueryLength = 3,
+  labels: labelsOverride,
+  id,
+}: AddressAutocompleteProps) {
+  const labels = { ...DEFAULT_LABELS, ...labelsOverride };
+  const generatedId = useId();
+  const baseId = id ?? generatedId;
+  const inputId = `${baseId}-address-input`;
+  const listboxId = `${baseId}-address-listbox`;
+
+  const [mode, setMode] = useState<"search" | "manual">("search");
+  const [query, setQuery] = useState(value?.label ?? value?.addressLine ?? "");
+  const [state, setState] = useState<SearchState>({ kind: "idle" });
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [manualDraft, setManualDraft] = useState({
+    addressLine: value?.addressLine ?? "",
+    postalCode: value?.postalCode ?? "",
+    city: value?.city ?? "",
+    countryCode: value?.countryCode ?? "FR",
+  });
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Recherche débouncée -- annule la requête précédente (nouvelle
+  // frappe ou démontage) via AbortController, jamais de mise à jour
+  // d'état après une réponse devenue obsolète ou après démontage.
+  useEffect(() => {
+    if (mode !== "search") return;
+    const trimmed = query.trim();
+    if (trimmed.length < minQueryLength) {
+      setState({ kind: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current?.abort();
+      abortRef.current = controller;
+      setState({ kind: "loading" });
+      search(trimmed, { signal: controller.signal })
+        .then((suggestions) => {
+          if (cancelled) return;
+          setActiveIndex(-1);
+          setState(suggestions.length > 0 ? { kind: "results", suggestions } : { kind: "no-results" });
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          // AddressSearchError (provider indisponible/malformé/timeout)
+          // ET toute autre erreur inattendue aboutissent au même état
+          // "error" -- fail-soft : ne bloque jamais la saisie, propose
+          // le repli manuel (mission §10), sans jamais planter.
+          void err; // AddressSearchError.reason disponible si un futur appelant veut le distinguer -- pas utilisé pour l'instant, aucune branche silencieuse cachée.
+          setState({ kind: "error" });
+        });
+    }, debounceMs);
+
+    return () => {
+      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, mode, search, debounceMs, minQueryLength]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  function selectSuggestion(suggestion: AddressSuggestion) {
+    const structured = normalizeAddressSuggestion(suggestion);
+    setQuery(suggestion.label);
+    setState({ kind: "idle" });
+    setActiveIndex(-1);
+    onChange(structured);
+  }
+
+  function clearSelection() {
+    setQuery("");
+    setState({ kind: "idle" });
+    setActiveIndex(-1);
+    onChange(null);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (state.kind !== "results") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, state.suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0 && activeIndex < state.suggestions.length) {
+        e.preventDefault();
+        selectSuggestion(state.suggestions[activeIndex]);
+      }
+    } else if (e.key === "Escape") {
+      setState({ kind: "idle" });
+      setActiveIndex(-1);
+    }
+  }
+
+  function updateManual(patch: Partial<typeof manualDraft>) {
+    const next = { ...manualDraft, ...patch };
+    setManualDraft(next);
+    onChange(manualAddressToStructured(next));
+  }
+
+  if (mode === "manual") {
+    return (
+      <div className="space-y-3" data-testid="address-manual-form">
+        <div>
+          <label htmlFor={`${baseId}-manual-street`} className="block text-xs font-semibold text-ink-on-bg-muted">
+            {labels.manualAddressLine}
+          </label>
+          <input
+            id={`${baseId}-manual-street`}
+            type="text"
+            value={manualDraft.addressLine}
+            onChange={(e) => updateManual({ addressLine: e.target.value })}
+            className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm"
+          />
+        </div>
+        <div className="grid grid-cols-[7rem_1fr] gap-3">
+          <div>
+            <label htmlFor={`${baseId}-manual-postal`} className="block text-xs font-semibold text-ink-on-bg-muted">
+              {labels.manualPostalCode}
+            </label>
+            <input
+              id={`${baseId}-manual-postal`}
+              type="text"
+              value={manualDraft.postalCode}
+              onChange={(e) => updateManual({ postalCode: e.target.value })}
+              className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor={`${baseId}-manual-city`} className="block text-xs font-semibold text-ink-on-bg-muted">
+              {labels.manualCity}
+            </label>
+            <input
+              id={`${baseId}-manual-city`}
+              type="text"
+              value={manualDraft.city}
+              onChange={(e) => updateManual({ city: e.target.value })}
+              className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm"
+            />
+          </div>
+        </div>
+        <div>
+          <label htmlFor={`${baseId}-manual-country`} className="block text-xs font-semibold text-ink-on-bg-muted">
+            {labels.manualCountryCode}
+          </label>
+          <input
+            id={`${baseId}-manual-country`}
+            type="text"
+            value={manualDraft.countryCode}
+            onChange={(e) => updateManual({ countryCode: e.target.value })}
+            maxLength={2}
+            className="mt-1 w-24 rounded-xl border border-espresso/15 bg-white p-3 text-base uppercase text-stone-900 outline-none focus:border-caramel sm:text-sm"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setMode("search")}
+          className="text-xs font-semibold text-caramel underline"
+        >
+          {labels.switchToSearch}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative space-y-2" data-testid="address-autocomplete">
+      <label htmlFor={inputId} className="block text-xs font-semibold text-ink-on-bg-muted">
+        {labels.inputLabel}
+      </label>
+      <div className="flex gap-2">
+        <input
+          id={inputId}
+          role="combobox"
+          aria-expanded={state.kind === "results"}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            state.kind === "results" && activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined
+          }
+          type="text"
+          value={query}
+          placeholder={labels.placeholder}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (value) onChange(null);
+          }}
+          onKeyDown={handleKeyDown}
+          className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm"
+        />
+        {(query !== "" || value) && (
+          <button type="button" onClick={clearSelection} className="mt-1 shrink-0 text-xs font-semibold text-ink-on-bg-muted underline">
+            {labels.clear}
+          </button>
+        )}
+      </div>
+
+      {state.kind === "loading" && (
+        <p role="status" aria-live="polite" className="text-xs text-ink-on-bg-muted">
+          {labels.loading}
+        </p>
+      )}
+
+      {state.kind === "no-results" && (
+        <p role="status" aria-live="polite" className="text-xs text-ink-on-bg-muted">
+          {labels.noResults}
+        </p>
+      )}
+
+      {state.kind === "error" && (
+        <div role="alert" className="space-y-1 text-xs text-amber-700">
+          <p>{labels.errorMessage}</p>
+          <p>{labels.manualFallbackPrompt}</p>
+        </div>
+      )}
+
+      {state.kind === "results" && (
+        // CORRIGÉ EN LOT B.5.1 (audit Work, B5-01/MEDIUM) : ce fond
+        // `bg-white` est LITTÉRAL et FIXE, jamais recalculé par thème
+        // -- exactement le même défaut déjà corrigé ailleurs dans le
+        // repo pour InlineOptions.tsx/PastryModal.tsx/QuantityControl.tsx
+        // (voir tests/ui-contrast-fix.test.ts, "UIFIX-V5" : une surface
+        // blanche figée ne doit JAMAIS s'appuyer sur `text-ink-on-bg`
+        // hérité du <body>, car cette couleur est CALCULÉE contre
+        // `--sc-bg` -- le fond de PAGE personnalisable du marchand, pas
+        // contre cette boîte blanche -- sur un thème sombre
+        // (`--sc-bg` très sombre), `--sc-ink-on-bg` devient blanc :
+        // texte blanc hérité sur cette boîte `bg-white` -> invisible).
+        // `text-stone-900` est la couleur fixe déjà utilisée par
+        // convention dans TOUT le repo pour une surface `bg-white`
+        // littérale (CartPanel.tsx, FulfillmentSelector.tsx,
+        // InlineOptions.tsx, MenuItemCard.tsx, OptionModal.tsx,
+        // PastryModal.tsx, QuantityControl.tsx -- aucune nouvelle
+        // couleur introduite ici).
+        <ul id={listboxId} role="listbox" aria-label={labels.inputLabel} className="max-w-full divide-y divide-espresso/10 rounded-xl border border-espresso/15 bg-white text-stone-900">
+          {state.suggestions.map((s, i) => (
+            <li
+              key={s.id}
+              id={`${listboxId}-option-${i}`}
+              role="option"
+              aria-selected={i === activeIndex}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectSuggestion(s);
+              }}
+              // `text-stone-900` explicite ICI AUSSI (pas seulement sur
+              // la liste UL parente) : la preuve de contraste doit porter
+              // sur l'élément qui affiche RÉELLEMENT le texte (`{s.label}`),
+              // jamais seulement sur un ancêtre -- même exigence que
+              // B5-02/tests/v100-b51-address-autocomplete-contrast.test.ts ci-dessous.
+              //
+              // Fond de l'option ACTIVE : `bg-crema/40` (retiré ici)
+              // était calculé à partir de `--sc-bg`, la couleur de
+              // fond de PAGE personnalisable du marchand -- donc, comme
+              // le fond blanc lui-même, potentiellement très sombre à
+              // 40% d'opacité selon le thème choisi, ce qui aurait pu
+              // faire chuter le contraste de `text-stone-900` sous le
+              // seuil WCAG selon la couleur choisie par le marchand.
+              // `bg-stone-100` est une couleur FIXE (jamais dérivée
+              // d'aucune variable de thème `--sc-*`) : contraste avec
+              // `text-stone-900` garanti constant quel que soit le
+              // thème du marchand (16,03:1, voir
+              // tests/v100-b51-address-autocomplete-contrast.test.ts).
+              className={"cursor-pointer px-3 py-2 text-sm text-stone-900 " + (i === activeIndex ? "bg-stone-100" : "")}
+            >
+              {s.label}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setMode("manual")}
+        className="text-xs font-semibold text-caramel underline"
+      >
+        {labels.switchToManual}
+      </button>
+    </div>
+  );
+}
