@@ -140,7 +140,16 @@ export default function ProductInfoButton({
             e.stopPropagation();
             dialogRef.current?.close();
           }}
-          className="mt-3 rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold"
+          // Corrige BUG UI 2 (contraste insuffisant du bouton "fermer"
+          // sur certains thèmes sombres -- cas observé Au Lait Cru) :
+          // ce bouton n'avait AUCUNE couleur de texte explicite, donc
+          // héritait d'une couleur ambiante pouvant devenir blanc sur
+          // blanc selon le thème. text-ink-on-bg-muted est le même
+          // token, réellement calculé pour le contraste (voir
+          // lib/themes.ts, mutedOnBg(readableAccentOnBg(ink, bg), bg)),
+          // déjà utilisé de façon identique par les boutons "Fermer" de
+          // PastryModal.tsx et OptionModal.tsx.
+          className="mt-3 rounded-xl border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink-on-bg-muted"
         >
           {closeLabel}
         </button>

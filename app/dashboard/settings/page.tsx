@@ -1057,7 +1057,28 @@ function AssetField({
   const displayUrl = previewUrl ?? currentUrl;
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+    // Corrige BUG UI 3 (backoffice, contour blanc parasite autour du
+    // logo) : ce wrapper (bg-stone-50, quasi-blanc) est imbriqué dans
+    // la section parente "Identité visuelle" (bg-white), elle-même
+    // quasi-blanche. L'écart de teinte entre les deux, combiné au
+    // padding (p-2.5) autour d'un aperçu circulaire (rounded-full),
+    // produit un liseré/contour visible spécifiquement autour du
+    // logo -- bien moins perceptible sur la couverture rectangulaire
+    // (kind === "cover"), dont le contraste avec son fond n'est pas
+    // aussi proche. Rien n'est appliqué directement sur l'élément
+    // image lui-même (ni fond blanc, ni bordure, ni anneau, ni
+    // contour, ni ombre) : la cause est cette imbrication de fonds
+    // quasi-identiques, pas le fichier logo. Le fond du wrapper est
+    // neutralisé (transparent) uniquement pour kind === "logo", pour
+    // hériter directement du fond blanc de la section parente ;
+    // kind === "cover" garde bg-stone-50 inchangé, comportement et
+    // bordure identiques dans les deux cas.
+    <div
+      className={
+        "rounded-xl border border-stone-200 p-2.5 " +
+        (kind === "logo" ? "bg-white" : "bg-stone-50")
+      }
+    >
       <div className="flex items-center gap-3">
         {displayUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

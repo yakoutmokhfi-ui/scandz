@@ -47,6 +47,19 @@ export default function RestaurantInfoBar({
     href?: string;
     aria?: string;
     wide?: boolean;
+    /** Corrige BUG UI 1 (fiche publique, zone Horaires trop étroite) :
+     *  réservé aux horaires. Sur mobile (grid-cols-2), donne aux
+     *  horaires la même largeur pleine ligne que `wide` (adresse),
+     *  au lieu de partager la moitié de la ligne avec le téléphone.
+     *  À partir de sm (grid-cols-4, voir plus bas), les horaires
+     *  occupent 2 colonnes sur 4 (la moitié de la largeur totale) au
+     *  lieu d'1 sur 3 auparavant -- adresse et téléphone conservent
+     *  chacun 1 colonne, sans changement de comportement pour eux au-
+     *  delà du nombre total de colonnes de la grille (3 -> 4, pour que
+     *  1+1+2 remplisse exactement la ligne sans espace résiduel). Ne
+     *  modifie ni le multiline existant, ni les données, ni
+     *  adresse/téléphone. */
+    wideDesktop?: boolean;
     /** Corrige UI MULTILINE FIX v2 (root cause réelle confirmée en
      *  Production -- RestaurantInfoBar est l'UNIQUE composant public
      *  réellement affiché pour ce bandeau, RestaurantInfoCard n'étant
@@ -89,6 +102,9 @@ export default function RestaurantInfoBar({
       label: t("labelHours"),
       content: hoursContent,
       multiline: true,
+      // Corrige BUG UI 1 : voir le commentaire de doc sur le champ
+      // `wideDesktop` ci-dessus pour le raisonnement complet.
+      wideDesktop: true,
     });
   }
 
@@ -111,7 +127,7 @@ export default function RestaurantInfoBar({
             calculée en dégrade la garantie (même raisonnement que
             RestaurantHeader.tsx). Icône aria-hidden inchangée
             (décorative, hors champ WCAG). */}
-        <div className="grid grid-cols-2 gap-px sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-px sm:grid-cols-4">
           {cells.map((cell) => {
             const inner = (
               <>
@@ -134,9 +150,18 @@ export default function RestaurantInfoBar({
               </>
             );
 
+            // Corrige BUG UI 1 : `wideDesktop` (horaires) obtient toute la
+            // largeur sur mobile (comme `wide`/adresse) ET 2 colonnes sur
+            // 4 à partir de sm (au lieu d'1 sur 3 auparavant) -- adresse
+            // (`wide` seul) ne change pas de comportement : pleine largeur
+            // sur mobile, puis retour à 1 colonne à partir de sm.
             const classes =
               "flex items-start gap-2 px-3 py-2 text-left " +
-              (cell.wide ? "col-span-2 sm:col-span-1 " : "");
+              (cell.wideDesktop
+                ? "col-span-2 sm:col-span-2 "
+                : cell.wide
+                  ? "col-span-2 sm:col-span-1 "
+                  : "");
 
             return cell.href ? (
               <a
