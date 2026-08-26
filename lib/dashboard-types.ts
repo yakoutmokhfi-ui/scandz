@@ -55,6 +55,33 @@ export interface DashboardOrder {
   order_items: DashboardOrderItem[];
 }
 
+/**
+ * Dashboard Delivery Pricing v1 — forme MARCHAND, volontairement
+ * DISTINCTE de `PublicDeliveryFulfillmentRule` (lib/sale-modes-types.ts,
+ * client-facing, lecture seule) pour ne pas coupler les deux
+ * préoccupations : ce type est celui d'un formulaire d'ÉDITION, pas
+ * d'un affichage client. Forme plate volontairement simple pour ce
+ * v1 (mission : "No large discriminated-union framework required for
+ * v1") — `pricingMode` reste la seule branche à lire pour savoir quel
+ * champ afficher (`freeThreshold` uniquement si `pricingMode ===
+ * "free_above_threshold"`), sans qu'aucun composant n'ait besoin de
+ * connaître la structure interne de la base. Aucun champ structurel
+ * (provider, fulfillment_code, zone_prefixes, is_fallback,
+ * display_order, enabled, mode_code, restaurant_id) n'apparaît ici --
+ * ce sont des données Scanym-managées, jamais exposées au marchand
+ * par ce chemin (voir get_merchant_delivery_fulfillment_pricing).
+ */
+export interface MerchantDeliveryFulfillmentPricingRule {
+  ruleId: string;
+  /** Étiquette lisible composée côté serveur -- jamais le code brut
+   *  de fulfillment ni le prestataire. */
+  fulfillmentLabel: string;
+  pricingMode: "fixed" | "free_above_threshold";
+  fixedFee: number | null;
+  freeThreshold: number | null;
+  customerText: string | null;
+}
+
 export interface ReceiptSettings {
   restaurant_id: string;
   business_name: string | null;
