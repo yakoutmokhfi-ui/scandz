@@ -118,7 +118,7 @@ function renderWithStatus(status: { eligible: boolean; zone?: { code: string; la
   return { container, root };
 }
 
-test("L2B2-V2-01: zone.label présent -- affiche exactement 'Livraison offerte — Île-de-France.' (rendu React réel)", async () => {
+test("L2B2-V2-01 (corrigé SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION §11) : zone.label présent -- affiche exactement 'Île-de-France' SANS préfixe 'Livraison offerte' (qui présumait à tort la gratuité) (rendu React réel)", async () => {
   const { container, root } = renderWithStatus({
     eligible: true,
     zone: { code: "75", label: "Île-de-France" },
@@ -126,11 +126,12 @@ test("L2B2-V2-01: zone.label présent -- affiche exactement 'Livraison offerte �
   await flush();
   const statusEl = container.querySelector('[role="status"] p');
   assert.ok(statusEl, "le paragraphe de statut doit être présent dans le DOM");
-  assert.equal(statusEl!.textContent, "Livraison offerte — Île-de-France.");
+  assert.equal(statusEl!.textContent, "Île-de-France");
+  assert.ok(!statusEl!.textContent!.includes("offerte"), "aucune présomption de gratuité ne doit être affichée -- une règle éligible peut porter un frais réel");
   root.unmount();
 });
 
-test("L2B2-V2-01: zone.label = null -- affiche exactement 'Livraison offerte.' -- 'null' n'apparaît JAMAIS dans le texte rendu (rendu React réel)", async () => {
+test("L2B2-V2-01 (corrigé SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION §11) : zone.label = null -- affiche le message neutre par défaut (deliveryEligibleDefault), jamais 'Livraison offerte', jamais 'null' (rendu React réel)", async () => {
   const { container, root } = renderWithStatus({
     eligible: true,
     zone: { code: "75", label: null },
@@ -138,7 +139,8 @@ test("L2B2-V2-01: zone.label = null -- affiche exactement 'Livraison offerte.' -
   await flush();
   const statusEl = container.querySelector('[role="status"] p');
   assert.ok(statusEl, "le paragraphe de statut doit être présent dans le DOM");
-  assert.equal(statusEl!.textContent, "Livraison offerte.");
+  assert.equal(statusEl!.textContent, "Livraison possible.");
+  assert.ok(!statusEl!.textContent!.includes("offerte"), "aucune présomption de gratuité ne doit être affichée par défaut");
   assert.ok(!statusEl!.textContent!.includes("null"), "le mot 'null' ne doit JAMAIS apparaître dans le texte rendu");
   assert.ok(!statusEl!.textContent!.includes("undefined"), "le mot 'undefined' ne doit jamais apparaître non plus");
   root.unmount();

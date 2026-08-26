@@ -106,6 +106,18 @@ export default function CartPanel({
   const noteState = normalizeOrderNote(note);
 
   /**
+   * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   * frais de livraison ESTIMÉ (voir lib/delivery.ts,
+   * computeDeliveryFee) : jamais appliqué au retrait/sur place (§16 :
+   * "Pickup must not incur delivery fee"), jamais transmis au serveur
+   * (create_order recalcule indépendamment, ne fait jamais confiance à
+   * une valeur fournie par le client).
+   */
+  const deliveryFee =
+    serviceMode === "delivery" ? deliveryStatus.deliveryFee ?? 0 : 0;
+  const grandTotal = totalPrice + deliveryFee;
+
+  /**
    * Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : trois états
    * distincts, jamais confondus --
    *   - "loading"            -> message de chargement (existant,
@@ -310,10 +322,33 @@ export default function CartPanel({
               </div>
             )}
 
+            {/* SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING
+                FOUNDATION (mission §12) : décomposition Produits /
+                Livraison / Total, affichée UNIQUEMENT quand un frais
+                de livraison réel s'applique (jamais pour
+                pickup/table/mode gratuit -- une seule ligne "Total"
+                alors, comportement INCHANGÉ) -- jamais de double
+                affichage du frais. */}
+            {deliveryFee > 0 && (
+              <div className="mb-1 flex items-center justify-between text-sm text-ink-on-bg-muted">
+                <span>{t("subtotalLabel")}</span>
+                <span>
+                  <Ltr>{formatPrice(totalPrice, currency)}</Ltr>
+                </span>
+              </div>
+            )}
+            {deliveryFee > 0 && (
+              <div className="mb-1 flex items-center justify-between text-sm text-ink-on-bg-muted">
+                <span>{t("deliveryFeeLabel")}</span>
+                <span>
+                  <Ltr>{formatPrice(deliveryFee, currency)}</Ltr>
+                </span>
+              </div>
+            )}
             <div className="mb-3 flex items-center justify-between font-bold">
               <span>{t("total")}</span>
               <span>
-                <Ltr>{formatPrice(totalPrice, currency)}</Ltr>
+                <Ltr>{formatPrice(grandTotal, currency)}</Ltr>
               </span>
             </div>
             {submitError && (
@@ -321,6 +356,19 @@ export default function CartPanel({
                 {submitError}
               </p>
             )}
+
+            {/* SADFP-02 (CORRECTION v2) : l'acquittement obligatoire
+                "vie privée / conditions" a été RETIRÉ. Les liens
+                pointaient vers /legal/privacy et /legal/terms, des
+                pages qui n'existent pas -- le checkout ne doit jamais
+                exiger l'acceptation de documents inaccessibles. Aucune
+                page légale n'est créée ici (aucun contenu légal
+                inventé) ; voir le rapport de mission, section "FUTURE
+                LEGAL TODO" pour la ré-introduction future, une fois des
+                pages légales validées disponibles. Comportement de
+                soumission restauré à son état pré-lot : aucune case,
+                aucun lien, aucune persistance de consentement, aucun
+                consentement marketing introduit. */}
 
             {canSubmit && noteState.isValid ? (
               <>

@@ -20,6 +20,12 @@ export interface DeliveryStatus {
   block?: DeliveryBlock;
   /** Nombre d'articles restant à ajouter pour la livraison */
   missing?: number;
+  /** SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   *  frais de livraison ESTIMÉ (voir DeliveryFulfillmentStatus.deliveryFee,
+   *  lib/sale-modes-types.ts) ; toujours `undefined` sur le chemin
+   *  LEGACY (aucune notion de tarification par règle n'existe pour ce
+   *  chemin, hors périmètre de ce lot — voir readiness audit). */
+  deliveryFee?: number;
 }
 
 /**
@@ -207,10 +213,52 @@ export function getDeliveryStatusFromPublicInfo(
  * MenuView.tsx ni aucun composant (LOT C, hors périmètre de ce lot) --
  * prouvé par test.
  */
+/**
+ * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+ * calcule le frais de livraison ESTIMÉ pour une règle déjà résolue,
+ * fonction PURE partagée par `resolveDeliveryFulfillment` ci-dessous
+ * (jamais une seconde implémentation) et par tout futur appelant qui
+ * voudrait un aperçu instantané côté client. Réplique EXACTEMENT
+ * l'algorithme du résolveur SQL (`resolve_delivery_fulfillment`,
+ * fichier DRAFT-lot-server-delivery-fulfillment-pricing.sql du dossier
+ * des migrations base de données), prouvé identique cas par cas par
+ * tests/fixtures/delivery-pricing-cases.json :
+ *
+ *   - "free"                -> 0 ;
+ *   - "fixed"                -> `fixedFee` (jamais null par
+ *     construction : contrainte CHECK côté base, voir le DRAFT SQL) ;
+ *   - "free_above_threshold" -> 0 si `subtotal >= freeThreshold`,
+ *     sinon `fixedFee`. `subtotal` négatif/absent est traité
+ *     défensivement comme 0 (jamais une gratuité optimiste par
+ *     accident — même discipline que `p_total_count`/`p_subtotal`
+ *     NULL côté SQL).
+ *
+ * Ne lit jamais `provider` (n'existe même pas sur
+ * `PublicDeliveryFulfillmentRule`, voir lib/sale-modes-types.ts).
+ */
+export function computeDeliveryFee(
+  rule: Pick<PublicDeliveryFulfillmentRule, "pricingMode" | "fixedFee" | "freeThreshold">,
+  subtotal: number
+): number {
+  const safeSubtotal = Number.isFinite(subtotal) && subtotal > 0 ? subtotal : 0;
+  switch (rule.pricingMode) {
+    case "free":
+      return 0;
+    case "fixed":
+      return rule.fixedFee ?? 0;
+    case "free_above_threshold":
+      if (rule.freeThreshold !== null && safeSubtotal >= rule.freeThreshold) return 0;
+      return rule.fixedFee ?? 0;
+    default:
+      return 0;
+  }
+}
+
 export function resolveDeliveryFulfillment(
   rules: PublicDeliveryFulfillmentRule[],
   postalCode: string | null | undefined,
-  totalCount: number
+  totalCount: number,
+  subtotal: number = 0
 ): DeliveryFulfillmentStatus {
   // Normalisation générique LOT B.1 : trim uniquement, jamais de
   // contrôle de format -- voir le commentaire ci-dessus (FRB-B-01).
@@ -273,6 +321,7 @@ export function resolveDeliveryFulfillment(
       matchedPrefix,
       fulfillmentCode: matchedRule.fulfillmentCode,
       customerText: matchedRule.customerText,
+      deliveryFee: computeDeliveryFee(matchedRule, subtotal),
     };
   }
 
@@ -282,6 +331,7 @@ export function resolveDeliveryFulfillment(
     matchedPrefix,
     fulfillmentCode: matchedRule.fulfillmentCode,
     customerText: matchedRule.customerText,
+    deliveryFee: computeDeliveryFee(matchedRule, subtotal),
   };
 }
 
@@ -378,6 +428,7 @@ export function deliveryStatusFromFulfillmentResult(
     return {
       eligible: true,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
+      deliveryFee: result.deliveryFee,
     };
   }
   if (result.block === "below-min") {
@@ -386,6 +437,7 @@ export function deliveryStatusFromFulfillmentResult(
       block: "below-min",
       missing: result.missing,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
+      deliveryFee: result.deliveryFee,
     };
   }
   // "no-postal" | "out-of-zone" | undefined (jamais atteint en pratique
@@ -438,7 +490,15 @@ export function resolveActiveDeliveryStatus(
   fulfillmentRules: FulfillmentRulesResolution,
   legacyPublicDeliveryInfo: PublicDeliveryInfo | null,
   postalCode: string,
-  totalCount: number
+  totalCount: number,
+  /** SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   *  sous-total panier (produits uniquement), nécessaire au calcul du
+   *  frais de livraison ESTIMÉ par règle (computeDeliveryFee).
+   *  Optionnel/par défaut 0 : le chemin LEGACY ne le consomme jamais
+   *  (aucune notion de tarification par règle n'existe pour ce
+   *  chemin), et aucun appelant existant n'est donc cassé par cet
+   *  ajout. */
+  subtotal: number = 0
 ): ActiveDeliveryResolution {
   if (fulfillmentRules.status === "loading") {
     return { status: { eligible: false, block: "out-of-zone" }, routingSource: "loading" };
@@ -455,6 +515,6 @@ export function resolveActiveDeliveryStatus(
     };
   }
 
-  const result = resolveDeliveryFulfillment(fulfillmentRules.rules, postalCode, totalCount);
+  const result = resolveDeliveryFulfillment(fulfillmentRules.rules, postalCode, totalCount, subtotal);
   return { status: deliveryStatusFromFulfillmentResult(result), routingSource: "fulfillment-rules" };
 }

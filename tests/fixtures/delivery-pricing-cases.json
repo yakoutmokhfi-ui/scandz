@@ -1,0 +1,89 @@
+{
+  "$schema-note": "SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION — fixture canonique DÉDIÉE au calcul de frais par règle (pricingMode/fixedFee/freeThreshold), consommée à la fois par tests/v102-delivery-pricing-determinism.test.ts (resolveDeliveryFulfillment/computeDeliveryFee, lib/delivery.ts) et par supabase/tests/generate-delivery-pricing-fixture-checks.mjs (résolveur SQL resolve_delivery_fulfillment, supabase/DRAFT-lot-server-delivery-fulfillment-pricing.sql) -- voir supabase/tests/server-delivery-fulfillment-pricing-check.sh, section 'FIXTURE COMMUNE — preuve de déterminisme prix (mission §13/§22)'.",
+  "deviationNote": "DÉVIATION DÉLIBÉRÉE, DIVULGUÉE (voir le rapport de mission, section DÉCISIONS) : ce fichier est SÉPARÉ de tests/fixtures/fulfillment-routing-cases.json (LOT B.1/B.2), plutôt que d'y ajouter les 3 nouveaux champs de tarification à chaque cas existant. Raison : la tarification est une dimension neuve, indépendante du routage de zone déjà entièrement couvert et audité par la fixture existante -- la retoucher aurait produit un diff large et risqué sur un fichier canonique déjà stable, pour un gain nul (aucun cas de ROUTAGE n'est ajouté ici, uniquement des cas de TARIFICATION sur des règles déjà déterministes par ailleurs). Ne dupliquez donc jamais un cas de routage ici : ce fichier ne couvre QUE le calcul du frais une fois la règle déjà résolue.",
+  "contractNote": "Pour chaque cas : `rule` est une PublicDeliveryFulfillmentRule étendue (pricingMode/fixedFee/freeThreshold), `subtotal` le sous-total panier (numérique, ou null pour prouver le traitement défensif). `expectedDeliveryFee` est le frais attendu, calculé par computeDeliveryFee (lib/delivery.ts) et par la même expression SQL dans resolve_delivery_fulfillment. Règles : pricingMode='free' -> 0 ; 'fixed' -> fixedFee (jamais null par construction, contrainte CHECK côté base) ; 'free_above_threshold' -> 0 si subtotal >= freeThreshold, sinon fixedFee ; un subtotal NULL ou négatif est traité comme 0 (jamais une gratuité optimiste). Le cas `noRuleMatched` (booléen) documente que deliveryFee est `null` dès qu'AUCUNE règle n'a été retenue (no-postal/out-of-zone) -- jamais 0, qui signifierait une livraison gratuite décidée à tort.",
+  "cases": [
+    {
+      "id": "pricing-free-mode-always-zero",
+      "description": "pricingMode='free' -- frais toujours nul, quel que soit le sous-total.",
+      "rule": { "fulfillmentCode": "local_free", "zonePrefixes": ["75"], "isFallback": false, "minItems": 1, "customerText": "Livraison locale", "displayOrder": 0, "pricingMode": "free", "fixedFee": null, "freeThreshold": null },
+      "postalCode": "75001",
+      "totalCount": 5,
+      "subtotal": 42,
+      "expectedDeliveryFee": 0
+    },
+    {
+      "id": "pricing-fixed-mode-applies-regardless-of-subtotal",
+      "description": "pricingMode='fixed' -- frais fixe appliqué, indépendant du sous-total (pas de seuil de gratuité pour ce mode).",
+      "rule": { "fulfillmentCode": "local_fixed", "zonePrefixes": ["75"], "isFallback": false, "minItems": 1, "customerText": "Livraison locale", "displayOrder": 0, "pricingMode": "fixed", "fixedFee": 5.5, "freeThreshold": null },
+      "postalCode": "75001",
+      "totalCount": 5,
+      "subtotal": 1,
+      "expectedDeliveryFee": 5.5
+    },
+    {
+      "id": "pricing-fixed-mode-large-subtotal-still-charged",
+      "description": "pricingMode='fixed' -- même un sous-total élevé ne rend jamais la livraison gratuite (à la différence de free_above_threshold).",
+      "rule": { "fulfillmentCode": "local_fixed", "zonePrefixes": ["75"], "isFallback": false, "minItems": 1, "customerText": "Livraison locale", "displayOrder": 0, "pricingMode": "fixed", "fixedFee": 5.5, "freeThreshold": null },
+      "postalCode": "75001",
+      "totalCount": 5,
+      "subtotal": 999,
+      "expectedDeliveryFee": 5.5
+    },
+    {
+      "id": "pricing-free-above-threshold-below",
+      "description": "pricingMode='free_above_threshold', sous-total STRICTEMENT sous le seuil -- frais fixe appliqué (pas encore gratuit).",
+      "rule": { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": "Expédition", "displayOrder": 1, "pricingMode": "free_above_threshold", "fixedFee": 8, "freeThreshold": 30 },
+      "postalCode": "13001",
+      "totalCount": 5,
+      "subtotal": 29.99,
+      "expectedDeliveryFee": 8
+    },
+    {
+      "id": "pricing-free-above-threshold-exact",
+      "description": "pricingMode='free_above_threshold', sous-total EXACTEMENT égal au seuil -- gratuit (seuil non exclusif, même convention que minItems).",
+      "rule": { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": "Expédition", "displayOrder": 1, "pricingMode": "free_above_threshold", "fixedFee": 8, "freeThreshold": 30 },
+      "postalCode": "13001",
+      "totalCount": 5,
+      "subtotal": 30,
+      "expectedDeliveryFee": 0
+    },
+    {
+      "id": "pricing-free-above-threshold-above",
+      "description": "pricingMode='free_above_threshold', sous-total au-dessus du seuil -- gratuit.",
+      "rule": { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": "Expédition", "displayOrder": 1, "pricingMode": "free_above_threshold", "fixedFee": 8, "freeThreshold": 30 },
+      "postalCode": "13001",
+      "totalCount": 5,
+      "subtotal": 45,
+      "expectedDeliveryFee": 0
+    },
+    {
+      "id": "pricing-null-subtotal-defensive-never-optimistic",
+      "description": "subtotal NULL (absent) sur une règle free_above_threshold -- traité comme 0, donc SOUS le seuil : frais fixe appliqué, jamais une gratuité optimiste par défaut.",
+      "rule": { "fulfillmentCode": "wide_shipping", "zonePrefixes": [], "isFallback": true, "minItems": 1, "customerText": "Expédition", "displayOrder": 1, "pricingMode": "free_above_threshold", "fixedFee": 8, "freeThreshold": 30 },
+      "postalCode": "13001",
+      "totalCount": 5,
+      "subtotal": null,
+      "expectedDeliveryFee": 8
+    },
+    {
+      "id": "pricing-below-min-fee-still-populated",
+      "description": "Règle retenue mais minimum d'articles non atteint (below-min) -- deliveryFee reste renseigné (même convention que fulfillmentCode/customerText, LOT B.1), jamais null tant qu'une règle a été identifiée.",
+      "rule": { "fulfillmentCode": "local_fixed", "zonePrefixes": ["75"], "isFallback": false, "minItems": 10, "customerText": "Livraison locale", "displayOrder": 0, "pricingMode": "fixed", "fixedFee": 5.5, "freeThreshold": null },
+      "postalCode": "75001",
+      "totalCount": 1,
+      "subtotal": 10,
+      "expectedDeliveryFee": 5.5
+    },
+    {
+      "id": "pricing-no-rule-matched-fee-is-null-never-zero",
+      "description": "Aucune règle retenue (hors zone, aucun fallback) -- deliveryFee est NULL, jamais 0 (0 signifierait à tort une gratuité décidée).",
+      "rule": { "fulfillmentCode": "local_fixed", "zonePrefixes": ["75"], "isFallback": false, "minItems": 1, "customerText": "Livraison locale", "displayOrder": 0, "pricingMode": "fixed", "fixedFee": 5.5, "freeThreshold": null },
+      "postalCode": "13001",
+      "totalCount": 5,
+      "subtotal": 10,
+      "expectedDeliveryFee": null,
+      "noRuleMatched": true
+    }
+  ]
+}

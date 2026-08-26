@@ -180,11 +180,23 @@ export default function FulfillmentSelector({
       // (delivery_area_label = null). Jamais de texte inventé en
       // repli ("Zone inconnue", code postal, nom d'établissement) --
       // uniquement l'omission propre du segment de zone.
+      //
+      // CORRIGÉ (SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING
+      // FOUNDATION, readiness audit §8/§11) : le préfixe codé en dur
+      // "Livraison offerte" (= gratuite) a été retiré -- il présumait
+      // à tort qu'une règle éligible est TOUJOURS gratuite, ce qui
+      // devient faux dès qu'une règle porte un frais réel (pricingMode
+      // "fixed"/"free_above_threshold"). `zone.label` (= customer_text
+      // configuré par la règle, jamais une invention Scanym) est
+      // désormais affiché TEL QUEL, sans préfixe présumant la
+      // gratuité ; en son absence, un message neutre qui ne présume
+      // pas non plus de gratuité. Le frais lui-même (s'il existe) est
+      // affiché séparément dans le récapitulatif du panier (voir
+      // CartPanel.tsx, "Produits / Livraison / Total"), jamais dupliqué
+      // ici.
       return {
         tone: "good",
-        text: status.zone?.label
-          ? `Livraison offerte — ${status.zone.label}.`
-          : `Livraison offerte.`,
+        text: status.zone?.label ?? t("deliveryEligibleDefault"),
       };
     }
     switch (status.block) {

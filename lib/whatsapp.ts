@@ -24,6 +24,22 @@ export type OrderContext =
   | { mode: "pickup"; customer: CustomerInfo }
   | { mode: "delivery"; zoneLabel: string; customer: CustomerInfo };
 
+/**
+ * SADFP-V2-01 (CORRECTION v3, mission §2/§3/§4) — sous-ensemble
+ * monétaire AUTORITATIVE d'une commande déjà enregistrée
+ * (lib/services/orders.ts, `CreatedOrder`) : subtotal/deliveryFee/total
+ * proviennent tous les trois de la réponse serveur de `create_order`,
+ * jamais recalculés côté client. Volontairement un sous-ensemble dédié
+ * (pas `CreatedOrder` en entier) : le message WhatsApp n'a besoin
+ * d'aucun autre champ (orderId/publicToken/orderNumber restent des
+ * paramètres séparés de buildWhatsAppUrl, inchangés).
+ */
+export interface AuthoritativeOrderTotals {
+  subtotal: number;
+  deliveryFee: number;
+  total: number;
+}
+
 export function formatPrice(price: number, currency: string): string {
   if (currency === "EUR") {
     return new Intl.NumberFormat("fr-FR", {
@@ -116,6 +132,7 @@ export function buildWhatsAppUrl(
   restaurant: RestaurantFull,
   lines: CartLine[],
   ctx: OrderContext,
+  totals: AuthoritativeOrderTotals,
   staffLang: Lang = "fr",
   orderNumber?: number,
   note?: string | null
@@ -124,8 +141,6 @@ export function buildWhatsAppUrl(
     translate(staffLang, k, p);
   const { currency, whatsapp_number, source_language } = restaurant.config;
   const sourceLanguage: Lang = source_language ?? "fr";
-
-  const total = lines.reduce((sum, l) => sum + l.item.price * l.quantity, 0);
 
   const orderLines = lines
     .map((l) => {
@@ -152,6 +167,21 @@ export function buildWhatsAppUrl(
   // n'est pas traduit, seul le libellé "waNote" l'est.
   const { value: noteValue, isEmpty: noteEmpty } = normalizeOrderNote(note);
 
+  // SADFP-V2-01 : résumé monétaire final, EXCLUSIVEMENT depuis
+  // `totals` (réponse serveur de create_order) -- jamais recalculé
+  // depuis `lines`. Frais de livraison affiché séparément UNIQUEMENT
+  // s'il est > 0 (mode pickup/table/livraison gratuite : aucune ligne
+  // "Livraison : 0" ajoutée, on préserve l'UX existante d'un simple
+  // total unique).
+  const moneyLines =
+    totals.deliveryFee > 0
+      ? [
+          t("waSubtotal", { amount: formatPrice(totals.subtotal, currency) }),
+          t("waDeliveryFee", { amount: formatPrice(totals.deliveryFee, currency) }),
+          t("waTotal", { amount: formatPrice(totals.total, currency) }),
+        ]
+      : [t("waTotal", { amount: formatPrice(totals.total, currency) })];
+
   const message = [
     orderNumber !== undefined
       ? t("waHeaderNumbered", { n: orderNumber, name: restaurant.name })
@@ -161,7 +191,7 @@ export function buildWhatsAppUrl(
     orderLines,
     ...(noteEmpty ? [] : ["", t("waNote", { note: noteValue })]),
     "",
-    t("waTotal", { amount: formatPrice(total, currency) }),
+    ...moneyLines,
   ].join("\n");
 
   const digits = whatsapp_number.replace(/\D/g, "");

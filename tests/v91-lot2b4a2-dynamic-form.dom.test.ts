@@ -143,6 +143,7 @@ function inputById(container: Element, id: string): HTMLInputElement | null {
   return container.querySelector(`#${id}`);
 }
 
+
 /** Établissement de test réel : "sanaa-cookies" (settings LEGACY
  *  connues, voir en-tête de fichier), une seule catégorie, un seul
  *  produit sans option (aucune fenêtre de choix à gérer). */

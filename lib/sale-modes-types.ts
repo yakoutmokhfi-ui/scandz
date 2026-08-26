@@ -110,6 +110,21 @@ export interface PublicDeliveryInfo {
  * `(restaurant, mode)` reçue — garanti côté base par un index unique
  * partiel (LOT A), jamais revérifié côté client.
  */
+/**
+ * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+ * tarification PAR RÈGLE (jamais par mode de vente, voir l'audit de
+ * readiness qui a établi que `restaurant_sale_modes.pricing_mode`/
+ * `fixed_fee`/`free_threshold` ne peuvent pas porter deux tarifs
+ * distincts pour deux règles du même mode `delivery`). Vocabulaire
+ * volontairement plus restreint que `SaleMode.pricingMode`
+ * (`"free" | "fixed" | "free_above_threshold" | "external_quote"`) :
+ * `external_quote` est EXCLU ici, aucune intégration API Stuart/
+ * Chronofresh n'existe dans ce lot, l'autoriser silencieusement dans
+ * le vocabulaire produirait une valeur qu'aucun résolveur ne sait
+ * traduire en frais réel.
+ */
+export type FulfillmentPricingMode = "free" | "fixed" | "free_above_threshold";
+
 export interface PublicDeliveryFulfillmentRule {
   fulfillmentCode: string;
   zonePrefixes: string[];
@@ -117,6 +132,12 @@ export interface PublicDeliveryFulfillmentRule {
   minItems: number | null;
   customerText: string | null;
   displayOrder: number;
+  /** Champ transporteur interne toujours absent ici (inchangé par
+   *  cette extension) : la RPC publique ne le retourne toujours pas,
+   *  ce type ne l'expose donc toujours pas. */
+  pricingMode: FulfillmentPricingMode;
+  fixedFee: number | null;
+  freeThreshold: number | null;
 }
 
 /**
@@ -156,4 +177,19 @@ export interface DeliveryFulfillmentStatus {
   block?: DeliveryFulfillmentBlock;
   /** Nombre d'articles restant à ajouter pour que la règle résolue devienne éligible */
   missing?: number;
+  /**
+   * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   * frais de livraison ESTIMÉ pour affichage client, calculé par
+   * `computeDeliveryFee` (lib/delivery.ts) à partir de la règle
+   * résolue et du sous-total panier. Présent dès qu'une règle est
+   * retenue (fallback ou non) — y compris en `below-min`, même
+   * convention que `fulfillmentCode`/`customerText` ci-dessus — jamais
+   * lorsqu'aucune règle n'a pu être identifiée (`no-postal`/
+   * `out-of-zone`). ESTIMATION UNIQUEMENT : le serveur
+   * (`create_order`/`resolve_delivery_fulfillment`) recalcule
+   * indépendamment le frais réellement facturé, jamais une valeur
+   * transmise par le client (mission "never trust a delivery fee
+   * supplied by the frontend").
+   */
+  deliveryFee?: number;
 }

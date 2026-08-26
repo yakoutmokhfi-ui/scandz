@@ -144,7 +144,11 @@ test("L2B3-01: message 'éligible' -- utilise exclusivement status.zone.label (d
 
   assert.ok(!container.innerHTML.includes("PIEGE-LEGACY"), "aucune trace du piège legacy");
   const statusEl = container.querySelector('[role="status"] p');
-  assert.equal(statusEl!.textContent, "Livraison offerte — Île-de-France.");
+  // Corrigé (SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING
+  // FOUNDATION §11) : le préfixe "Livraison offerte" présumait à tort
+  // la gratuité -- status.zone.label est désormais affiché TEL QUEL,
+  // sans préfixe ni suffixe inventé.
+  assert.equal(statusEl!.textContent, "Île-de-France");
 
   root.unmount();
 });

@@ -75,6 +75,9 @@ function rule(overrides: Partial<PublicDeliveryFulfillmentRule>): PublicDelivery
     minItems: null,
     customerText: null,
     displayOrder: 0,
+    pricingMode: "free",
+    fixedFee: null,
+    freeThreshold: null,
     ...overrides,
   };
 }
@@ -338,7 +341,17 @@ test("LOT B: getPublicDeliveryFulfillments appelle bien get_restaurant_public_de
     rpcCalls.push({ name, params });
     return {
       data: [
-        { fulfillment_code: "local_delivery_75", zone_prefixes: ["75"], is_fallback: false, min_items: 5, customer_text: "texte", display_order: 0 },
+        {
+          fulfillment_code: "local_delivery_75",
+          zone_prefixes: ["75"],
+          is_fallback: false,
+          min_items: 5,
+          customer_text: "texte",
+          display_order: 0,
+          pricing_mode: "free",
+          fixed_fee: null,
+          free_threshold: null,
+        },
       ],
       error: null,
     };
@@ -350,7 +363,17 @@ test("LOT B: getPublicDeliveryFulfillments appelle bien get_restaurant_public_de
   assert.equal(rpcCalls[0].name, "get_restaurant_public_delivery_fulfillments");
   assert.deepEqual(rpcCalls[0].params, { p_restaurant_id: "r1" });
   assert.deepEqual(result, [
-    { fulfillmentCode: "local_delivery_75", zonePrefixes: ["75"], isFallback: false, minItems: 5, customerText: "texte", displayOrder: 0 },
+    {
+      fulfillmentCode: "local_delivery_75",
+      zonePrefixes: ["75"],
+      isFallback: false,
+      minItems: 5,
+      customerText: "texte",
+      displayOrder: 0,
+      pricingMode: "free",
+      fixedFee: null,
+      freeThreshold: null,
+    },
   ]);
   assert.ok(!("provider" in (result[0] as object)), "le résultat mappé ne doit jamais porter de champ provider");
 });

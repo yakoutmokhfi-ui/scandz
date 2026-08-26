@@ -214,6 +214,9 @@ const FULFILLMENT_RULE_75 = {
   min_items: 2,
   customer_text: "Livraison locale le jour même",
   display_order: 0,
+  pricing_mode: "free",
+  fixed_fee: null,
+  free_threshold: null,
 };
 
 /** Mock RPC : `fulfillmentRules` pilote get_restaurant_public_delivery_fulfillments
@@ -313,6 +316,9 @@ test("LOT C (nouveau moteur, DOM réel bout-en-bout) : règles publiques NON VID
       !container.innerHTML.includes("local_delivery_75_INTERNAL_NEVER_SHOWN"),
       "le fulfillmentCode interne ne doit JAMAIS apparaître dans le rendu client (mission §12)"
     );
+    // Case vie privée/CGU (mission §14, hors périmètre routage fulfillment
+    // de ce fichier) : requise avant l'envoi depuis ce lot.
+    await flush();
     assert.ok(
       buttonWithText(container, "Enregistrer et continuer sur WhatsApp"),
       "minimum atteint (2 articles) + adresse complète + code postal correspondant -> l'envoi doit être permis via le nouveau moteur"
@@ -380,6 +386,7 @@ test("LOT C (mission §17/§30, pickup non-régression, DOM réel) : le mode pic
     setNativeValue(inputById(container, "customer_name")!, "Yakout");
     setNativeValue(inputById(container, "phone")!, "0612345678");
     await flush(50);
+    await flush();
 
     assert.ok(
       buttonWithText(container, "Enregistrer et continuer sur WhatsApp"),
