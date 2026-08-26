@@ -41,6 +41,10 @@ export default function DashboardNav({
    *  !onSettings) se marquait à tort actif sur /dashboard/translations
    *  -- reproduit avant correction. */
   const onTranslations = pathname?.startsWith("/dashboard/translations");
+  // Onglet "Tarifs de livraison" (Dashboard Delivery Pricing v1) : même
+  // patron que onTranslations ci-dessus -- exclu explicitement du repli
+  // générique de l'onglet "Commandes" pour ne pas reproduire L1B-02.
+  const onDeliveryPricing = pathname?.startsWith("/dashboard/delivery-pricing");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -115,7 +119,7 @@ export default function DashboardNav({
         <nav className="mt-3 flex gap-2">
           <a
             href={href("/dashboard")}
-            className={tab(!onCatalogue && !onSettings && !onTranslations)}
+            className={tab(!onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing)}
           >
             {t("dsOrders")}
           </a>
@@ -124,6 +128,9 @@ export default function DashboardNav({
           </a>
           <a href={href("/dashboard/settings")} className={tab(!!onSettings)}>
             {t("mcSettings")}
+          </a>
+          <a href={href("/dashboard/delivery-pricing")} className={tab(!!onDeliveryPricing)}>
+            {t("dsDeliveryPricing")}
           </a>
           <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
             {t("dsTranslations")}

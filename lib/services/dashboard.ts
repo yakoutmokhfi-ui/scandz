@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import type {
   DashboardOrder,
+  MerchantDeliveryFulfillmentPricingRule,
   MerchantRestaurant,
   OrderStatus,
   ReceiptSettings,
@@ -717,4 +718,66 @@ export async function getRestaurantTranslationSettings(
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as RestaurantTranslationSettingsRow[];
   return rows[0] ?? null;
+}
+
+// ------------------------------------------------------------------
+// Dashboard Delivery Pricing v1 -- édition marchand (owner/manager)
+// des 4 champs de tarification d'une règle de livraison DÉJÀ
+// configurée par Scanym (pricing_mode/fixed_fee/free_threshold/
+// customer_text). Tout le reste (provider, fulfillment_code,
+// zone_prefixes, is_fallback, display_order, enabled) reste
+// structurel et n'apparaît jamais dans ces fonctions -- voir
+// supabase/DRAFT-lot-merchant-delivery-pricing.sql pour les deux RPC
+// SECURITY DEFINER correspondantes et leur contrôle d'autorisation.
+// ------------------------------------------------------------------
+
+/** Lecture : tout membre (owner/manager/staff) peut consulter -- seule
+ *  l'écriture (updateMerchantDeliveryFulfillmentPricing) est réservée
+ *  owner/manager, contrôlé côté serveur par la RPC elle-même. */
+export async function getMerchantDeliveryFulfillmentPricing(
+  restaurantId: string
+): Promise<MerchantDeliveryFulfillmentPricingRule[]> {
+  const { data, error } = await supabase.rpc("get_merchant_delivery_fulfillment_pricing", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<{
+    rule_id: string;
+    fulfillment_label: string;
+    pricing_mode: "fixed" | "free_above_threshold";
+    fixed_fee: number | string | null;
+    free_threshold: number | string | null;
+    customer_text: string | null;
+  }>).map((row) => ({
+    ruleId: row.rule_id,
+    fulfillmentLabel: row.fulfillment_label,
+    pricingMode: row.pricing_mode,
+    fixedFee: row.fixed_fee === null ? null : Number(row.fixed_fee),
+    freeThreshold: row.free_threshold === null ? null : Number(row.free_threshold),
+    customerText: row.customer_text,
+  }));
+}
+
+/** Écriture : rejetée côté serveur (42501) si l'appelant n'est pas
+ *  owner/manager du tenant propriétaire de la règle, y compris pour
+ *  une règle d'un AUTRE tenant (cross-tenant) -- voir
+ *  update_merchant_delivery_fulfillment_pricing. Ne renvoie rien : le
+ *  composant appelant doit relire via getMerchantDeliveryFulfillmentPricing
+ *  après un succès (l'état client n'est jamais la preuve finale de
+ *  persistance). */
+export async function updateMerchantDeliveryFulfillmentPricing(params: {
+  ruleId: string;
+  pricingMode: "fixed" | "free_above_threshold";
+  fixedFee: number;
+  freeThreshold: number | null;
+  customerText: string | null;
+}): Promise<void> {
+  const { error } = await supabase.rpc("update_merchant_delivery_fulfillment_pricing", {
+    p_rule_id: params.ruleId,
+    p_pricing_mode: params.pricingMode,
+    p_fixed_fee: params.fixedFee,
+    p_free_threshold: params.freeThreshold,
+    p_customer_text: params.customerText,
+  });
+  if (error) throw new Error(error.message);
 }
