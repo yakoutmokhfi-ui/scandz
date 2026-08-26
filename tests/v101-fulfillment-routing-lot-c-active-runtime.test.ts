@@ -47,6 +47,9 @@ const RULE_75 = {
   minItems: 2,
   customerText: "Livraison locale le jour même",
   displayOrder: 0,
+  pricingMode: "free" as const,
+  fixedFee: null,
+  freeThreshold: null,
 };
 
 // --------------------------------------------------------------------
@@ -160,6 +163,9 @@ test("LOT C (adaptation): fallback retenu (matchedPrefix=undefined) -- zone.code
     minItems: 0,
     customerText: "Expédition sous 48h",
     displayOrder: 1,
+    pricingMode: "free" as const,
+    fixedFee: null,
+    freeThreshold: null,
   };
   const result = resolveDeliveryFulfillment([fallbackRule], "99999", 5);
   const status = deliveryStatusFromFulfillmentResult(result);

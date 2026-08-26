@@ -20,6 +20,15 @@ export interface CreatedOrder {
   orderNumber: number;
   publicToken: string;
   total: number;
+  /** SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   *  décomposition AUTORITATIVE (recalculée serveur, jamais une valeur
+   *  transmise par le client) : subtotal = produits uniquement,
+   *  deliveryFee = frais résolu par create_order (0 pour
+   *  pickup/table/mode gratuit). `total` reste `subtotal + deliveryFee`
+   *  (invariant imposé par une contrainte CHECK côté base, voir le
+   *  DRAFT SQL). */
+  subtotal: number;
+  deliveryFee: number;
 }
 
 /**
@@ -67,6 +76,8 @@ export async function createOrder(params: {
     orderNumber: Number(row.order_number),
     publicToken: row.public_token,
     total: Number(row.total),
+    subtotal: Number(row.subtotal),
+    deliveryFee: Number(row.delivery_fee),
   };
 }
 

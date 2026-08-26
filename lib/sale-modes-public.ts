@@ -150,6 +150,15 @@ interface PublicDeliveryFulfillmentRuleRow {
   min_items: number | null;
   customer_text: string | null;
   display_order: number;
+  /** SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
+   *  ajoutés à la projection publique (jamais `provider`, jamais
+   *  `config`) pour permettre un affichage estimé du frais de
+   *  livraison AVANT soumission (voir computeDeliveryFee,
+   *  lib/delivery.ts). Le serveur reste seul autoritatif à la création
+   *  réelle de la commande. */
+  pricing_mode: PublicDeliveryFulfillmentRule["pricingMode"];
+  fixed_fee: number | null;
+  free_threshold: number | null;
 }
 
 /**
@@ -181,6 +190,9 @@ export async function getPublicDeliveryFulfillments(
     minItems: row.min_items,
     customerText: row.customer_text,
     displayOrder: row.display_order,
+    pricingMode: row.pricing_mode,
+    fixedFee: row.fixed_fee,
+    freeThreshold: row.free_threshold,
   }));
 }
 

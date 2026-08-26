@@ -564,9 +564,10 @@ export default function MenuView({
         fulfillmentRulesState,
         publicDeliveryInfo,
         customer.postalCode,
-        totalCount
+        totalCount,
+        totalPrice
       ).status,
-    [fulfillmentRulesState, publicDeliveryInfo, customer.postalCode, totalCount]
+    [fulfillmentRulesState, publicDeliveryInfo, customer.postalCode, totalCount, totalPrice]
   );
 
   /*
@@ -725,6 +726,14 @@ export default function MenuView({
         restaurant,
         lines,
         orderContext,
+        // SADFP-V2-01 : résumé monétaire AUTORITATIF -- ces 3 champs
+        // proviennent de la réponse serveur de create_order (jamais
+        // recalculés depuis `lines`, jamais une estimation client).
+        {
+          subtotal: order.subtotal,
+          deliveryFee: order.deliveryFee,
+          total: order.total,
+        },
         // La base fait autorité : le gérant règle cette langue depuis
         // ses paramètres. Le fichier de configuration sert de repli.
         (restaurant.config.staff_receipt_language as Lang | undefined) ??

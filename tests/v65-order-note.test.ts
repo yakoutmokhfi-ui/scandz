@@ -278,16 +278,22 @@ const restaurant = {
   config: { currency: "DZD", whatsapp_number: "+213550000000" },
 } as never;
 
+// Table -- pas de livraison, deliveryFee=0 : totaux autoritatifs
+// (SADFP-V2-01) équivalents à l'ancien lines.reduce(...) pour ce jeu
+// de lignes (2 x 450 = 900), afin de ne tester ici QUE le
+// comportement de la note, sans rapport avec la tarification.
+const TABLE_TOTALS = { subtotal: 900, deliveryFee: 0, total: 900 };
+
 test("whatsapp: sans note -> pas de ligne 'waNote' dans le message", () => {
   const ctx: OrderContext = { mode: "table", tableNumber: 4 };
-  const url = buildWhatsAppUrl(restaurant, lines, ctx, "fr", 12, "");
+  const url = buildWhatsAppUrl(restaurant, lines, ctx, TABLE_TOTALS, "fr", 12, "");
   const message = decodeURIComponent(url.split("text=")[1]);
   assert.ok(!message.includes("Note"), "aucune mention de note attendue quand la note est vide");
 });
 
 test("whatsapp: note vide (espaces uniquement) -> pas de ligne note (normalisée)", () => {
   const ctx: OrderContext = { mode: "table", tableNumber: 4 };
-  const url = buildWhatsAppUrl(restaurant, lines, ctx, "fr", 12, "     ");
+  const url = buildWhatsAppUrl(restaurant, lines, ctx, TABLE_TOTALS, "fr", 12, "     ");
   const message = decodeURIComponent(url.split("text=")[1]);
   assert.ok(!message.includes("Note"));
 });
@@ -298,6 +304,7 @@ test("whatsapp: avec note -> la note apparaît dans le message", () => {
     restaurant,
     lines,
     ctx,
+    TABLE_TOTALS,
     "fr",
     12,
     "Merci de sonner à l'interphone"
@@ -308,7 +315,7 @@ test("whatsapp: avec note -> la note apparaît dans le message", () => {
 
 test("whatsapp: note toujours restituée après le corps de commande, avant le total", () => {
   const ctx: OrderContext = { mode: "table", tableNumber: 4 };
-  const url = buildWhatsAppUrl(restaurant, lines, ctx, "fr", 12, "Allergie noisette");
+  const url = buildWhatsAppUrl(restaurant, lines, ctx, TABLE_TOTALS, "fr", 12, "Allergie noisette");
   const message = decodeURIComponent(url.split("text=")[1]);
   const noteIdx = message.indexOf("Allergie noisette");
   const totalIdx = message.indexOf("Total");

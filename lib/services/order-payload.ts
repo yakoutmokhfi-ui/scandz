@@ -50,6 +50,15 @@ export function buildCreateOrderPayload(params: {
           email: context.customer.email || null,
           address:
             context.mode === "delivery" ? formatAddress(context.customer) : null,
+          // SADFP-01 (correction) : code postal STRUCTURÉ, transmis tel
+          // quel -- jamais dérivé de `address`/`formatAddress` ni d'une
+          // regex. C'est la SEULE source que le serveur (create_order,
+          // nouveau moteur) doit utiliser pour router la livraison ;
+          // `address` reste un texte d'affichage/stockage uniquement.
+          postalCode:
+            context.mode === "delivery"
+              ? context.customer.postalCode?.trim() || null
+              : null,
         };
 
   return {
