@@ -144,12 +144,39 @@ export default function AddressAutocomplete({
   // dès que la requête repasse sous minQueryLength, pour ne jamais
   // bloquer une resaisie légitime ultérieure de la même valeur.
   const lastFiredKeyRef = useRef<string | null>(null);
+  // FIX ADDR-V1-04 (Production, HIGH -- "SELECTED SUGGESTION REOPENS
+  // AUTOCOMPLETE RESULTS") : `query` change aussi pour des raisons
+  // PUREMENT PROGRAMMATIQUES -- `selectSuggestion()` appelle
+  // `setQuery(suggestion.label)` après une sélection, et la valeur
+  // initiale de `query` (ci-dessus) peut déjà être non vide si `value`
+  // est fourni pré-rempli par l'appelant (voir
+  // components/FulfillmentSelector.tsx). Sans garde, CHACUN de ces deux
+  // cas relance l'effet de recherche ci-dessous (dépendance `query`),
+  // qui rouvre la liste de suggestions juste après que le client vient
+  // de la fermer en sélectionnant -- exactement le bug observé en
+  // Production. `true` au montage (une valeur initiale pré-remplie
+  // n'est jamais une frappe réelle) ; mis à `true` par
+  // `selectSuggestion`/`clearSelection` (changement programmatique) ;
+  // remis à `false` UNIQUEMENT par le vrai gestionnaire `onChange` du
+  // champ de saisie (seule source de frappe utilisateur réelle) --
+  // consommé (remis à `false`) dès le premier passage de l'effet qui
+  // suit, pour ne jamais bloquer une frappe réelle ultérieure.
+  const skipNextSearchRef = useRef(true);
 
   // Recherche débouncée -- annule la requête précédente (nouvelle
   // frappe ou démontage) via AbortController, jamais de mise à jour
   // d'état après une réponse devenue obsolète ou après démontage.
   useEffect(() => {
     if (mode !== "search") return;
+    if (skipNextSearchRef.current) {
+      // Ce changement de `query` est programmatique (sélection,
+      // effacement, ou valeur initiale pré-remplie) -- jamais une
+      // frappe réelle : aucune recherche, aucune réouverture de la
+      // liste (FIX ADDR-V1-04). Consommé immédiatement : la frappe
+      // réelle SUIVANTE redéclenchera normalement l'effet.
+      skipNextSearchRef.current = false;
+      return;
+    }
     const trimmed = query.trim();
     if (trimmed.length < minQueryLength) {
       setState({ kind: "idle" });
@@ -204,6 +231,12 @@ export default function AddressAutocomplete({
 
   function selectSuggestion(suggestion: AddressSuggestion) {
     const structured = normalizeAddressSuggestion(suggestion);
+    // FIX ADDR-V1-04 : `setQuery` ci-dessous est un changement
+    // PROGRAMMATIQUE (une sélection, jamais une frappe) -- sans ce
+    // drapeau, l'effet de recherche se redéclenche avec le libellé
+    // choisi comme requête et rouvre la liste de suggestions juste
+    // après que l'utilisateur l'a fermée en sélectionnant.
+    skipNextSearchRef.current = true;
     setQuery(suggestion.label);
     setState({ kind: "idle" });
     setActiveIndex(-1);
@@ -211,6 +244,10 @@ export default function AddressAutocomplete({
   }
 
   function clearSelection() {
+    // Changement programmatique également (voir FIX ADDR-V1-04) --
+    // sans incidence pratique ici (query devient vide, sous
+    // minQueryLength de toute façon), posé par cohérence/robustesse.
+    skipNextSearchRef.current = true;
     setQuery("");
     setState({ kind: "idle" });
     setActiveIndex(-1);
@@ -328,6 +365,11 @@ export default function AddressAutocomplete({
           placeholder={labels.placeholder}
           onChange={(e) => {
             const next = e.target.value;
+            // FIX ADDR-V1-04 : ceci est la SEULE source de frappe
+            // utilisateur réelle -- lève explicitement le drapeau pour
+            // que l'effet de recherche s'exécute normalement (une
+            // vraie frappe DOIT relancer la recherche).
+            skipNextSearchRef.current = false;
             setQuery(next);
             if (value) onChange(null);
             onQueryChange?.(next);
