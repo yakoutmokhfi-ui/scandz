@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
-import type { CustomerInfo } from "@/lib/customer";
+import { type CustomerInfo, isValidPostalCode } from "@/lib/customer";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
+import type { StructuredCustomerAddress } from "@/lib/address-types";
 import { useI18n } from "@/lib/i18n-context";
 import { getFulfillmentToneClass } from "@/lib/fulfillment-tone";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
 
 type Errors = Partial<Record<keyof CustomerInfo, string>>;
 
@@ -171,6 +174,33 @@ export default function FulfillmentSelector({
   const err = (k: keyof CustomerInfo) =>
     showErrors && errors[k] ? t(errors[k]!) : undefined;
 
+  // LOT ADDRESS v1 (ACTIVE CHECKOUT INTEGRATION) — état local propre au
+  // câblage de l'adresse à un seul champ actif (mission §8/§9/§10/§25/
+  // §26), voir renderDeliveryAddress() ci-dessous.
+  //
+  // `addressContext` : contexte géographique (code postal + ville) tel
+  // qu'EDITÉ PAR L'ÉTAPE A (jamais mis à jour par une sélection IGN
+  // elle-même, voir handleAddressSelected) — sert de `key` React pour
+  // AddressAutocomplete : toute frappe de l'utilisateur dans le code
+  // postal ou la ville démonte/remonte l'aide de recherche, ce qui
+  // invalide proprement toute saisie/suggestion interne obsolète
+  // (mission §7/§25), SANS que la sélection elle-même (qui peut
+  // légitimement réécrire postalCode/city, mission §9/§26) ne
+  // déclenche cette invalidation de son propre fait.
+  const [addressContext, setAddressContext] = useState(
+    `${customer.postalCode}|${customer.city}`
+  );
+  // `selectionConfirmed` : true seulement après une sélection IGN
+  // réelle (jamais après une simple frappe, mission §10 — "typed ≠
+  // selected"). Gate l'invalidation (§10/§25) : éditer le code postal
+  // ou la ville APRÈS une sélection confirmée efface la rue (métadonnée
+  // de sélection devenue obsolète) ; éditer ces mêmes champs AVANT toute
+  // sélection (saisie manuelle pure, jamais de sélection IGN impliquée)
+  // ne touche jamais à la rue déjà tapée — préserve exactement le
+  // comportement des tests préexistants v91/v101 (saisie manuelle
+  // séquentielle, sans jamais passer par une sélection IGN).
+  const [selectionConfirmed, setSelectionConfirmed] = useState(false);
+
   const message = (() => {
     if (status.eligible) {
       // Corrige L2B2-V2-01 (contre-audit Work, re-audit) :
@@ -256,22 +286,142 @@ export default function FulfillmentSelector({
     );
   }
 
-  /** Rend le cas spécial "delivery_address" : 1 champ backend, 3
-   *  sous-champs UI (street/postalCode/city) -- contrat documenté dans
-   *  lib/sale-modes-types.ts, comportement IDENTIQUE à celui déjà en
-   *  production avant ce lot (aucun changement de markup/UX). */
+  /**
+   * Rend le cas spécial "delivery_address" : 1 champ backend, 3
+   * sous-champs UI (street/postalCode/city) -- contrat documenté dans
+   * lib/sale-modes-types.ts.
+   *
+   * LOT ADDRESS v1 -- ACTIVE CHECKOUT INTEGRATION (mission §8/§9/§10) :
+   * UX EN DEUX ÉTAPES (mission §4) :
+   *   - Étape A (Ville / Code postal) EN PREMIER, toujours les mêmes
+   *     champs simples déjà en production (aucun changement de leur
+   *     propre comportement/validation) ;
+   *   - Étape B (adresse -- numéro et rue) EN SECOND, UNIQUEMENT une
+   *     fois l'étape A résolue en un code postal structurellement
+   *     valide (isValidPostalCode, lib/customer.ts -- même contrôle
+   *     déjà utilisé partout ailleurs dans ce fichier, jamais un second
+   *     contrôle de format inventé ici) : avant cela, un simple champ
+   *     texte (comportement IDENTIQUE à celui déjà en production) reste
+   *     disponible, pour ne jamais bloquer la saisie tant que le
+   *     contexte géographique n'existe pas encore -- AddressAutocomplete
+   *     n'est alors ni monté ni rendu, donc ZÉRO appel réseau IGN/BAN
+   *     tant que ce contexte n'existe pas (mission §4/§24).
+   *
+   * UN SEUL CHAMP RUE ACTIF À LA FOIS (mission §8, correction explicite
+   * du premier passage additif de ce lot -- voir le rapport de mission,
+   * section ACTIVE CHECKOUT INTEGRATION) : `street` est soit un simple
+   * champ texte (postal non encore valide), soit AddressAutocomplete
+   * (postal valide) -- JAMAIS les deux simultanément. Le texte tapé
+   * dans AddressAutocomplete reste directement utilisable comme valeur
+   * `customer.street`, sans exiger de sélection formelle (mission
+   * §11/§12, via `onQueryChange` -- voir handleQueryChange ci-dessous) :
+   * le repli manuel n'est donc plus un second champ ni un "mode"
+   * séparé, seulement la même saisie libre qu'avant ce lot, désormais
+   * assistée par des suggestions IGN quand elles existent.
+   *
+   * SÉLECTION = AUTORITATIVE POUR street + postalCode + city (mission
+   * §9/§26) : sélectionner une suggestion IGN met à jour les trois
+   * champs (voir handleAddressSelected) -- IGN devient la source de
+   * vérité pour le contexte géographique de CETTE adresse. `postalCode`
+   * reste néanmoins la seule valeur transmise à create_order (voir
+   * lib/services/order-payload.ts, SADFP-01, inchangé) : une sélection
+   * ne fait qu'ÉCRIRE `customer.postalCode` comme le ferait une saisie
+   * manuelle de l'étape A, elle ne contourne ni ne duplique ce chemin.
+   * Si IGN renvoyait malgré la contrainte `postcode` un code postal
+   * matériellement différent de celui saisi en étape A (mission §26,
+   * cas limite documenté), c'est cette valeur IGN qui devient la
+   * nouvelle valeur courante de `customer.postalCode` -- jamais une
+   * valeur combinée ou recalculée : le client voit alors directement
+   * (champ étape A mis à jour) la correction, et peut la retoucher
+   * comme n'importe quelle saisie manuelle.
+   *
+   * INVALIDATION (mission §10/§25) : éditer le code postal OU la ville
+   * APRÈS une sélection IGN CONFIRMÉE efface `street` (métadonnée de
+   * sélection devenue obsolète pour le nouveau contexte) et réarme
+   * `selectionConfirmed`. Éditer ces mêmes champs AVANT toute sélection
+   * (saisie manuelle pure, ou simple frappe jamais suivie d'une
+   * sélection) NE TOUCHE JAMAIS `street` -- c'est ce qui permet aux
+   * tests préexistants tests/v91-lot2b4a2-dynamic-form.dom.test.ts et
+   * tests/v101-fulfillment-routing-lot-c-menuview.dom.test.ts (saisie
+   * séquentielle street puis postalCode/city, sans jamais passer par
+   * une sélection IGN) de continuer à passer SANS modification.
+   *
+   * `key={addressContext}` sur AddressAutocomplete (jamais
+   * `customer.postalCode` seul, qu'une sélection peut légitimement
+   * réécrire, mission §9/§26) : `addressContext` n'est mis à jour QUE
+   * par les gestionnaires de l'étape A (jamais par une sélection),
+   * donc une sélection qui réécrit postalCode/city ne déclenche pas
+   * son propre démontage/remontage -- seule une véritable frappe de
+   * l'utilisateur dans le code postal ou la ville invalide/remonte
+   * l'aide de recherche (état interne -- saisie, suggestions -- reset
+   * à zéro).
+   */
   function renderDeliveryAddress() {
+    const postalCode = customer.postalCode;
+    const postalReady = isValidPostalCode(postalCode);
+
+    /** Étape A (postalCode/city) éditée par le client. */
+    function handleStageAFieldChange(patch: Partial<CustomerInfo>) {
+      if (selectionConfirmed) {
+        // Mission §10/§25 : une sélection IGN confirmée devient stale
+        // dès que le contexte géographique change -- efface `street`
+        // plutôt que de laisser une rue sélectionnée pour un contexte
+        // postal/ville qui n'est plus le contexte actuel.
+        onChangeCustomer({ ...patch, street: "" });
+        setSelectionConfirmed(false);
+      } else {
+        // Saisie manuelle pure (jamais de sélection IGN impliquée) :
+        // `street` n'est jamais touché ici (préserve tests v91/v101).
+        onChangeCustomer(patch);
+      }
+      setAddressContext(
+        `${patch.postalCode ?? customer.postalCode}|${patch.city ?? customer.city}`
+      );
+    }
+
+    /** Sélection IGN réelle (jamais un simple changement de texte). */
+    function handleAddressSelected(structured: StructuredCustomerAddress | null) {
+      if (!structured) return;
+      const patch: Partial<CustomerInfo> = { street: structured.addressLine };
+      // Mission §26 : IGN devient autoritatif pour postalCode/city --
+      // uniquement si IGN a effectivement renseigné une valeur non
+      // vide (jamais un vidage silencieux d'un champ déjà saisi par un
+      // provider qui omettrait un sous-champ).
+      if (structured.postalCode.trim()) patch.postalCode = structured.postalCode.trim();
+      if (structured.city.trim()) patch.city = structured.city.trim();
+      onChangeCustomer(patch);
+      setSelectionConfirmed(true);
+    }
+
+    /** Frappe brute (mission §11/§12) : jamais une sélection formelle
+     *  -- la rue tapée reste directement utilisable comme valeur
+     *  manuelle, `selectionConfirmed` redevient false (une frappe
+     *  après une sélection annule la confiance dans cette sélection,
+     *  sans pour autant effacer le texte que le client est en train de
+     *  retaper -- voir handleStageAFieldChange pour la distinction
+     *  avec l'invalidation de l'étape A). */
+    function handleQueryChange(text: string) {
+      onChangeCustomer({ street: text });
+      setSelectionConfirmed(false);
+    }
+
+    // Pré-remplit AddressAutocomplete avec la valeur `street` déjà
+    // connue (tapée avant que le postal ne devienne valide, ou saisie
+    // manuelle en cours) -- jamais `null` par défaut, pour ne pas
+    // effacer visuellement un texte déjà tapé au moment où le postal
+    // devient valide et où ce composant est monté pour la première
+    // fois (mission §11/§12 : le texte tapé doit rester utilisable).
+    const currentAddressValue: StructuredCustomerAddress | null = customer.street.trim()
+      ? {
+          addressLine: customer.street,
+          postalCode: customer.postalCode,
+          city: customer.city,
+          countryCode: "FR",
+        }
+      : null;
+
     return (
       <div key="delivery_address" className="space-y-3">
-        <Field
-          id="street"
-          label={t("fieldStreet")}
-          value={customer.street}
-          error={err("street")}
-          placeholder={t("phStreet")}
-          autoComplete="street-address"
-          onChange={(v) => onChangeCustomer({ street: v })}
-        />
         <div className="grid grid-cols-[7rem_1fr] gap-3">
           <Field
             id="postalCode"
@@ -283,7 +433,7 @@ export default function FulfillmentSelector({
             maxLength={5}
             autoComplete="postal-code"
             onChange={(v) =>
-              onChangeCustomer({ postalCode: v.replace(/\D/g, "").slice(0, 5) })
+              handleStageAFieldChange({ postalCode: v.replace(/\D/g, "").slice(0, 5) })
             }
           />
           <Field
@@ -293,9 +443,51 @@ export default function FulfillmentSelector({
             error={err("city")}
             placeholder={t("phCity")}
             autoComplete="address-level2"
-            onChange={(v) => onChangeCustomer({ city: v })}
+            onChange={(v) => handleStageAFieldChange({ city: v })}
           />
         </div>
+        {postalReady ? (
+          // `key={addressContext}` : voir doc ci-dessus -- démonte/
+          // remonte uniquement sur une véritable édition de l'étape A,
+          // jamais sur une sélection qui réécrit postalCode/city.
+          <AddressAutocomplete
+            key={addressContext}
+            value={currentAddressValue}
+            onChange={handleAddressSelected}
+            onQueryChange={handleQueryChange}
+            postcodeContext={postalCode.trim()}
+            id="delivery-street"
+            labels={{
+              inputLabel: t("fieldStreet"),
+              placeholder: t("phStreet"),
+              loading: t("addrLoading"),
+              noResults: t("addrNoResults"),
+              errorMessage: t("addrError"),
+              manualFallbackPrompt: t("addrManualPrompt"),
+              switchToManual: t("addrSwitchManual"),
+              switchToSearch: t("addrSwitchSearch"),
+              clear: t("addrClear"),
+              manualAddressLine: t("fieldStreet"),
+              manualPostalCode: t("fieldPostalCode"),
+              manualCity: t("fieldCity"),
+              manualCountryCode: t("addrCountryCode"),
+            }}
+          />
+        ) : (
+          // Mission §4/§24 : avant que le code postal ne soit
+          // structurellement valide, UN SEUL champ texte simple --
+          // comportement identique à celui déjà en production avant ce
+          // lot, jamais bloqué par l'absence de contexte géographique.
+          <Field
+            id="street"
+            label={t("fieldStreet")}
+            value={customer.street}
+            error={err("street")}
+            placeholder={t("phStreet")}
+            autoComplete="street-address"
+            onChange={(v) => onChangeCustomer({ street: v })}
+          />
+        )}
       </div>
     );
   }

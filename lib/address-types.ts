@@ -79,6 +79,18 @@ export interface AddressSearchOptions {
   /** Nombre maximal de suggestions demandées (mission §9 : "résultats limités raisonnablement"). */
   limit?: number;
   signal?: AbortSignal;
+  /**
+   * LOT ADDRESS v1 (§5, "query context") — code postal déjà résolu par
+   * l'étape 1 (Ville / Code postal) de l'UX en deux étapes, utilisé
+   * pour CONTRAINDRE la recherche d'adresse au périmètre géographique
+   * déjà choisi par le client, quand le provider concret le supporte
+   * (voir lib/services/address-search.ts, paramètre officiel `postcode`
+   * de l'API Géoplateforme IGN/BAN). Générique par conception : ce
+   * champ ne code en dur aucun pays ni aucun mécanisme de filtrage
+   * particulier -- un provider qui ne supporterait pas ce filtre est
+   * libre de l'ignorer silencieusement.
+   */
+  postcode?: string;
 }
 
 /**

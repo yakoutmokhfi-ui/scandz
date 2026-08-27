@@ -123,6 +123,23 @@ const fr: Dict = {
   // en dur (ex. "contact" n'apparaît nulle part ici).
   fieldOneOfRequired: "Renseignez au moins un des champs suivants : {fields}",
 
+  // LOT ADDRESS v1 — libellés de l'autocomplete d'adresse (IGN/BAN),
+  // câblés ici (jamais dans components/AddressAutocomplete.tsx, qui
+  // reste générique/auto-suffisant pour rester testable isolément —
+  // voir tests/v98-b5-structured-address-foundation.test.ts).
+  // `addrSearchLabel` retiré (ACTIVE CHECKOUT INTEGRATION, mission §8) :
+  // un seul champ actif "rue" existe désormais -- son libellé est
+  // `fieldStreet`, jamais un libellé "recherche" séparé qui laisserait
+  // croire à un second champ.
+  addrLoading: "Recherche en cours…",
+  addrNoResults: "Aucune adresse trouvée",
+  addrError: "Recherche d'adresse indisponible pour le moment.",
+  addrManualPrompt: "Vous pouvez saisir l'adresse manuellement.",
+  addrSwitchManual: "Saisir l'adresse manuellement",
+  addrSwitchSearch: "Revenir à la recherche",
+  addrClear: "Effacer",
+  addrCountryCode: "Pays (code, ex. FR)",
+
   howMany: "1. Combien en voulez-vous ?",
   distribute: "2. Répartissez vos goûts",
   distributionDone: "✓ Répartition complète",
@@ -466,6 +483,19 @@ const en: Dict = {
   errEmail: "Invalid email address",
   fieldOneOfRequired: "Please fill in at least one of the following: {fields}",
 
+  // LOT ADDRESS v1 — address autocomplete labels (IGN/BAN), wired here
+  // (never inside components/AddressAutocomplete.tsx, which stays
+  // generic/self-sufficient so it remains testable in isolation — see
+  // tests/v98-b5-structured-address-foundation.test.ts).
+  addrLoading: "Searching…",
+  addrNoResults: "No address found",
+  addrError: "Address search is unavailable right now.",
+  addrManualPrompt: "You can enter the address manually.",
+  addrSwitchManual: "Enter the address manually",
+  addrSwitchSearch: "Back to search",
+  addrClear: "Clear",
+  addrCountryCode: "Country (code, e.g. FR)",
+
   howMany: "1. How many would you like?",
   distribute: "2. Split between flavours",
   distributionDone: "✓ All assigned",
@@ -806,6 +836,16 @@ const ar: Dict = {
   errPhone: "رقم من عشرة أرقام",
   errEmail: "بريد إلكتروني غير صالح",
   fieldOneOfRequired: "املأ حقلاً واحدًا على الأقل مما يلي: {fields}",
+
+  // LOT ADDRESS v1 — عناصر واجهة الإكمال التلقائي للعنوان (IGN/BAN).
+  addrLoading: "جارٍ البحث…",
+  addrNoResults: "لم يتم العثور على عنوان",
+  addrError: "البحث عن العنوان غير متاح حاليًا.",
+  addrManualPrompt: "يمكنك إدخال العنوان يدويًا.",
+  addrSwitchManual: "إدخال العنوان يدويًا",
+  addrSwitchSearch: "العودة إلى البحث",
+  addrClear: "مسح",
+  addrCountryCode: "البلد (الرمز، مثال FR)",
 
   howMany: "١. كم تريد؟",
   distribute: "٢. وزّع النكهات",

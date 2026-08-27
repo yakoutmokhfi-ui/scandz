@@ -217,6 +217,15 @@ export async function searchAddressSuggestions(
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("autocomplete", "1");
     url.searchParams.set("index", "address");
+    // LOT ADDRESS v1 (§5, "query context") -- paramètre `postcode`
+    // officiellement documenté par l'API Géoplateforme IGN/BAN
+    // (recherche/autocomplétion adresse) pour contraindre les résultats
+    // au code postal déjà résolu par l'étape 1 de l'UX (Ville / Code
+    // postal). Transmis UNIQUEMENT si fourni par l'appelant -- jamais
+    // un mécanisme inventé, jamais requis (une recherche sans contexte
+    // reste possible pour tout autre appelant de ce service générique).
+    const postcode = options.postcode?.trim();
+    if (postcode) url.searchParams.set("postcode", postcode);
 
     let response: Response;
     try {
