@@ -10,24 +10,24 @@ import {
 } from "@/lib/services/address-search";
 
 /**
- * FULFILLMENT ROUTING LOT B.5 — Composant ISOLÉ d'autocomplete
- * d'adresse structurée.
+ * FULFILLMENT ROUTING LOT B.5 / LOT ADDRESS v1 — composant
+ * d'autocomplete d'adresse structurée.
  *
- * NON BRANCHÉ dans le parcours actif (mission §9/§13) : aucun import
- * de ce fichier n'existe dans MenuView.tsx/CartPanel.tsx/
- * FulfillmentSelector.tsx (voir tests/v98-...test.ts, vérification
- * structurelle). Le branchement réel appartient à Lot C.
+ * BRANCHÉ dans le parcours actif (LOT ADDRESS v1, ACTIVE CHECKOUT
+ * INTEGRATION) : monté par components/FulfillmentSelector.tsx comme
+ * l'UNIQUE champ actif de saisie de la rue une fois le code postal
+ * structurellement valide (mission §8 -- jamais en double avec un
+ * second champ `street` simultané, voir renderDeliveryAddress()).
  *
  * N'appelle JAMAIS `resolveDeliveryFulfillment` ni aucune logique de
  * routing/provider de livraison (mission §8) : ce composant produit
  * uniquement un `StructuredCustomerAddress` (lib/address-types.ts) via
- * `onChange`, rien d'autre.
+ * `onChange`, plus le texte brut tapé (non encore sélectionné) via
+ * `onQueryChange` -- rien d'autre.
  *
- * Auto-suffisant en libellés (aucune dépendance à lib/i18n.ts) : ce
- * composant n'étant pas encore branché dans le parcours actif, le
- * câblage i18n réel est différé à Lot C (voir le rapport de mission)
- * plutôt que d'étendre dès maintenant le dictionnaire partagé pour un
- * composant non utilisé en production.
+ * Auto-suffisant en libellés par défaut (aucune dépendance obligatoire
+ * à lib/i18n.ts) : l'appelant réel (FulfillmentSelector.tsx) fournit
+ * ses propres libellés traduits via la prop `labels`.
  */
 
 export interface AddressAutocompleteLabels {
@@ -75,10 +75,32 @@ export interface AddressAutocompleteProps {
   onChange: (address: StructuredCustomerAddress | null) => void;
   /** Injectable pour les tests / pour changer de provider sans toucher ce composant (mission §5/§6). Défaut : searchAddressSuggestions (provider France, voir lib/services/address-search.ts). */
   search?: AddressSearchFn;
-  /** Ms avant déclenchement de la recherche après la dernière frappe (mission §15). */
+  /** Ms avant déclenchement de la recherche après la dernière frappe (LOT ADDRESS v1 §4 : 350ms, décision CIO). */
   debounceMs?: number;
-  /** Longueur minimale de requête avant recherche (mission §9). */
+  /** Longueur minimale de requête avant recherche (LOT ADDRESS v1 §3 : 6 caractères, décision CIO -- volontairement PAS 10, pour ne pas bloquer une adresse française légitime courte). */
   minQueryLength?: number;
+  /**
+   * LOT ADDRESS v1 (§5, "query context") — code postal déjà résolu par
+   * l'étape 1 (Ville / Code postal) de l'UX en deux étapes, transmis
+   * tel quel au `search` injecté (voir lib/address-types.ts,
+   * AddressSearchOptions.postcode). Optionnel : ce composant reste
+   * utilisable seul, sans contexte géographique préalable (l'appelant
+   * qui a besoin du gate "zéro appel sans contexte" -- mission §4 --
+   * ne monte simplement ce composant qu'une fois ce contexte résolu,
+   * voir components/FulfillmentSelector.tsx).
+   */
+  postcodeContext?: string;
+  /**
+   * LOT ADDRESS v1 (§11/§12, "manual fallback must remain simple") —
+   * appelé avec le texte brut saisi à CHAQUE frappe en mode recherche
+   * (et avec `""` lors d'un effacement), indépendamment de `onChange`
+   * (qui ne notifie l'appelant que sur `null` ou une sélection IGN
+   * confirmée). Permet à l'appelant (FulfillmentSelector.tsx) de garder
+   * la rue tapée comme valeur vivante même SANS sélection formelle --
+   * le texte tapé reste utilisable tel quel comme adresse manuelle,
+   * jamais bloqué derrière un mode séparé (mission §11/§12).
+   */
+  onQueryChange?: (text: string) => void;
   labels?: Partial<AddressAutocompleteLabels>;
   id?: string;
 }
@@ -87,8 +109,10 @@ export default function AddressAutocomplete({
   value,
   onChange,
   search = searchAddressSuggestions,
-  debounceMs = 300,
-  minQueryLength = 3,
+  debounceMs = 350,
+  minQueryLength = 6,
+  postcodeContext,
+  onQueryChange,
   labels: labelsOverride,
   id,
 }: AddressAutocompleteProps) {
@@ -111,6 +135,15 @@ export default function AddressAutocomplete({
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // LOT ADDRESS v1 (§12) : "no duplicate request for identical
+  // normalized query" -- mémorise la clé (requête + contexte postal)
+  // de la DERNIÈRE recherche réellement déclenchée (après debounce),
+  // pour ignorer un nouveau passage de cet effet qui aboutirait à
+  // exactement la même requête réseau (ex. un re-rendu du parent qui
+  // ne change ni le texte saisi ni le contexte postal). Réinitialisée
+  // dès que la requête repasse sous minQueryLength, pour ne jamais
+  // bloquer une resaisie légitime ultérieure de la même valeur.
+  const lastFiredKeyRef = useRef<string | null>(null);
 
   // Recherche débouncée -- annule la requête précédente (nouvelle
   // frappe ou démontage) via AbortController, jamais de mise à jour
@@ -120,6 +153,14 @@ export default function AddressAutocomplete({
     const trimmed = query.trim();
     if (trimmed.length < minQueryLength) {
       setState({ kind: "idle" });
+      lastFiredKeyRef.current = null;
+      return;
+    }
+
+    const dedupeKey = `${trimmed} ${postcodeContext ?? ""}`;
+    if (dedupeKey === lastFiredKeyRef.current) {
+      // Requête normalisée identique à la dernière déjà déclenchée --
+      // aucun nouvel appel réseau (mission §12).
       return;
     }
 
@@ -129,8 +170,9 @@ export default function AddressAutocomplete({
       const controller = new AbortController();
       abortRef.current?.abort();
       abortRef.current = controller;
+      lastFiredKeyRef.current = dedupeKey;
       setState({ kind: "loading" });
-      search(trimmed, { signal: controller.signal })
+      search(trimmed, { signal: controller.signal, postcode: postcodeContext })
         .then((suggestions) => {
           if (cancelled) return;
           setActiveIndex(-1);
@@ -152,7 +194,7 @@ export default function AddressAutocomplete({
       cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, mode, search, debounceMs, minQueryLength]);
+  }, [query, mode, search, debounceMs, minQueryLength, postcodeContext]);
 
   useEffect(() => {
     return () => {
@@ -173,6 +215,7 @@ export default function AddressAutocomplete({
     setState({ kind: "idle" });
     setActiveIndex(-1);
     onChange(null);
+    onQueryChange?.("");
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -284,8 +327,10 @@ export default function AddressAutocomplete({
           value={query}
           placeholder={labels.placeholder}
           onChange={(e) => {
-            setQuery(e.target.value);
+            const next = e.target.value;
+            setQuery(next);
             if (value) onChange(null);
+            onQueryChange?.(next);
           }}
           onKeyDown={handleKeyDown}
           className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm"

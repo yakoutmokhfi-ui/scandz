@@ -377,10 +377,26 @@ test("LOT B.5: aucun fichier de ce lot ne modifie/ne mentionne create_order ou u
   }
 });
 
-test("LOT B.5: AddressAutocomplete n'est importé par AUCUN composant actif du parcours (MenuView/CartPanel/FulfillmentSelector) -- non branché, conformément à la mission (§9/§13)", () => {
-  for (const file of ["components/MenuView.tsx", "components/CartPanel.tsx", "components/FulfillmentSelector.tsx"]) {
+// CORRIGÉ EN LOT ADDRESS v1 : ce test prouvait à l'origine que
+// AddressAutocomplete n'était PAS encore branché (Lot B.5, fondation
+// isolée -- le branchement runtime était explicitement Lot C, hors
+// périmètre à l'époque). LOT ADDRESS v1 EST ce Lot C : le branchement
+// réel dans components/FulfillmentSelector.tsx est désormais le
+// résultat ATTENDU (voir tests/v107-lot-address-v1-wiring.dom.test.ts
+// pour la preuve comportementale du câblage). MenuView.tsx/
+// CartPanel.tsx eux-mêmes n'ont PAS besoin de référencer
+// AddressAutocomplete directement (ils passent par
+// FulfillmentSelector, seul point d'intégration) -- cette partie de
+// l'invariant reste vérifiée ci-dessous.
+test("LOT ADDRESS v1: AddressAutocomplete est désormais importé par FulfillmentSelector.tsx (branchement runtime réel, cette mission) mais PAS directement par MenuView.tsx/CartPanel.tsx (seul FulfillmentSelector est le point d'intégration)", () => {
+  const fulfillmentSelectorSrc = readFileSync("components/FulfillmentSelector.tsx", "utf8");
+  assert.ok(
+    fulfillmentSelectorSrc.includes("AddressAutocomplete"),
+    "components/FulfillmentSelector.tsx doit désormais référencer AddressAutocomplete -- c'est l'objet de LOT ADDRESS v1"
+  );
+  for (const file of ["components/MenuView.tsx", "components/CartPanel.tsx"]) {
     const src = readFileSync(file, "utf8");
-    assert.ok(!src.includes("AddressAutocomplete"), `${file} ne doit pas référencer AddressAutocomplete -- Lot C, hors périmètre`);
+    assert.ok(!src.includes("AddressAutocomplete"), `${file} ne doit pas référencer AddressAutocomplete directement -- FulfillmentSelector reste le seul point d'intégration`);
   }
 });
 
