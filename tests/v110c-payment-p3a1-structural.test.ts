@@ -183,9 +183,26 @@ const PROVIDER_IMPLEMENTATION_PATTERNS = [
   { pattern: /societe\s*[:=]|société\s*[:=]/i, label: "champ société=" },
 ];
 
-test("archi: lib/server/* ne contient AUCUNE implémentation Monetico/Mercanet (signatures techniques concrètes)", () => {
+// MISE À JOUR PAYMENT P3-A2 : ce test datait de PAYMENT P3-A1, dont le
+// mandat interdisait explicitement toute implémentation Monetico/
+// Mercanet dans `lib/server/*` -- l'invariant vérifié ici. PAYMENT
+// P3-A2 (lot suivant, mandat séparé et explicite) AJOUTE
+// délibérément un adaptateur Monetico réel, mais UNIQUEMENT sous
+// `lib/server/payment-providers/monetico/` -- un sous-dossier dédié,
+// nouveau, absent au moment où ce test a été écrit. L'invariant
+// ORIGINAL reste donc vérifié tel quel pour tout le RESTE de
+// `lib/server/*` (notamment payment-service.ts/supabase-admin.ts/
+// payment-errors.ts, qui doivent rester génériques pour toujours,
+// même après P3-A2) ; seul ce nouveau sous-dossier, dont l'existence
+// et le contenu sont le mandat explicite de P3-A2, est exclu ici. Voir
+// tests/v111h-payment-p3a2-structural.test.ts pour l'invariant
+// complémentaire et positif : la logique Monetico ne vit JAMAIS
+// ailleurs QUE dans ce sous-dossier (aucun import depuis app/
+// components/lib/services/lib/supabase.ts).
+test("archi: lib/server/* (hors adaptateurs de prestataire dédiés) ne contient AUCUNE implémentation Monetico/Mercanet (signatures techniques concrètes)", () => {
   const offenders: string[] = [];
   for (const file of LIB_SERVER_FILES) {
+    if (file.startsWith("lib/server/payment-providers/")) continue;
     const src = readFileSync(file, "utf8");
     for (const { pattern, label } of PROVIDER_IMPLEMENTATION_PATTERNS) {
       if (pattern.test(src)) offenders.push(`${file} → ${label}`);
