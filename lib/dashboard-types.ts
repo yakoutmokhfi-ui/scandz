@@ -82,6 +82,31 @@ export interface MerchantDeliveryFulfillmentPricingRule {
   customerText: string | null;
 }
 
+/**
+ * Dashboard Payment Module v1 (PAYMENT P2B-B) — forme MARCHAND SÛRE,
+ * retournée EXCLUSIVEMENT par la RPC publiée
+ * public.get_merchant_payment_provider_config(uuid) (PAYMENT P2B-A).
+ * Ce type est un miroir VOLONTAIREMENT ÉTROIT du contrat de retour de
+ * cette RPC (exactement 6 colonnes) -- il ne contient et ne contiendra
+ * JAMAIS `id`, `restaurant_id`, `credentials_ref`, une référence Vault,
+ * un secret, un mot de passe, une clé MAC, un identifiant TPE, ou tout
+ * autre matériel de paiement : ces champs ne sont ni lus ni exposés
+ * par ce chemin (P2B-A ne les retourne jamais et P2B-B n'ajoute aucun
+ * autre appel). `mode`/`configurationStatus` restent typés `string`
+ * (pas une union littérale stricte) volontairement : une future valeur
+ * DB inconnue ne doit jamais faire planter le mapping ni le typage --
+ * c'est la couche d'affichage (labels) qui gère un repli sûr pour une
+ * valeur non reconnue, jamais ce type ni le service.
+ */
+export interface MerchantPaymentProviderConfig {
+  providerCode: string;
+  mode: string;
+  configurationStatus: string;
+  isEnabled: boolean;
+  lastVerifiedAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface ReceiptSettings {
   restaurant_id: string;
   business_name: string | null;
