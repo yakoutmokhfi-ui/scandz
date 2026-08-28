@@ -45,6 +45,11 @@ export default function DashboardNav({
   // patron que onTranslations ci-dessus -- exclu explicitement du repli
   // générique de l'onglet "Commandes" pour ne pas reproduire L1B-02.
   const onDeliveryPricing = pathname?.startsWith("/dashboard/delivery-pricing");
+  // Onglet "Paiement" (Dashboard Payment Module v1, PAYMENT P2B-B) :
+  // même patron que onDeliveryPricing/onTranslations ci-dessus --
+  // exclu explicitement du repli générique de l'onglet "Commandes"
+  // pour ne pas reproduire L1B-02.
+  const onPayment = pathname?.startsWith("/dashboard/payment");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -115,11 +120,23 @@ export default function DashboardNav({
           </div>
         </div>
 
-        {/* Onglets : pleine largeur sur mobile, accessibles au pouce */}
-        <nav className="mt-3 flex gap-2">
+        {/* Onglets : pleine largeur sur mobile, accessibles au pouce.
+            `flex-wrap` (PAY-P2B-B-03, contre-audit Work) : avec six
+            onglets, une seule ligne sans retour à la ligne risquait de
+            déborder/écraser le texte sur petit écran -- même
+            convention `flex-wrap` déjà utilisée juste au-dessus dans ce
+            même fichier (lignes "Scanym commerçant" / sélecteur
+            établissement), pas un nouveau motif. Aucun onglet ne
+            devient inaccessible : tout reste dans le flux normal du
+            document (pas de overflow-hidden/scroll), donc atteignable
+            au clavier comme au clic quel que soit le nombre de
+            lignes. */}
+        <nav className="mt-3 flex flex-wrap gap-2">
           <a
             href={href("/dashboard")}
-            className={tab(!onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing)}
+            className={tab(
+              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment
+            )}
           >
             {t("dsOrders")}
           </a>
@@ -131,6 +148,9 @@ export default function DashboardNav({
           </a>
           <a href={href("/dashboard/delivery-pricing")} className={tab(!!onDeliveryPricing)}>
             {t("dsDeliveryPricing")}
+          </a>
+          <a href={href("/dashboard/payment")} className={tab(!!onPayment)}>
+            {t("dsPayment")}
           </a>
           <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
             {t("dsTranslations")}

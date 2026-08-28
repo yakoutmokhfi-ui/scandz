@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   DashboardOrder,
   MerchantDeliveryFulfillmentPricingRule,
+  MerchantPaymentProviderConfig,
   MerchantRestaurant,
   OrderStatus,
   ReceiptSettings,
@@ -780,4 +781,54 @@ export async function updateMerchantDeliveryFulfillmentPricing(params: {
     p_customer_text: params.customerText,
   });
   if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------------------------------
+// Dashboard Payment Module v1 (PAYMENT P2B-B) -- lecture marchand SÛRE
+// et SEULE de la configuration prestataire de paiement, via la RPC
+// PUBLIÉE public.get_merchant_payment_provider_config(uuid) (PAYMENT
+// P2B-A, SECURITY DEFINER, autorisation is_member_of côté serveur).
+//
+// AUCUNE autre RPC de paiement n'est appelée par ce module :
+// set_payment_provider_credentials / clear_payment_provider_credentials
+// restent hors périmètre (mutation de secret, réservées à un rôle
+// serveur privilégié -- inaccessibles à l'application marchand de toute
+// façon). Ce module ne touche JAMAIS `payment_provider_configs`
+// directement ni Vault.
+//
+// MAPPING EXPLICITE CHAMP PAR CHAMP (jamais `{ ...row }` ni de
+// sérialiseur générique) : seules les 6 colonnes du contrat RPC publié
+// traversent ce mapping -- une future colonne ajoutée côté base
+// (credentials_ref, id, restaurant_id, ou toute autre) n'atteindrait
+// JAMAIS le frontend même si la RPC venait un jour à la retourner par
+// erreur, car elle ne serait simplement pas lue ici.
+// ------------------------------------------------------------------
+
+/** Lecture SEULE -- P2B-B v1 est volontairement read-only, aucune
+ *  fonction d'écriture n'existe dans ce module (voir mission :
+ *  "READ-ONLY GUARANTEE"). Retourne une ligne par prestataire
+ *  configuré pour le restaurant (0, 1 ou plusieurs -- jamais un
+ *  LIMIT 1 côté RPC, donc jamais côté service non plus). */
+export async function getMerchantPaymentProviderConfig(
+  restaurantId: string
+): Promise<MerchantPaymentProviderConfig[]> {
+  const { data, error } = await supabase.rpc("get_merchant_payment_provider_config", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<{
+    provider_code: string;
+    mode: string;
+    configuration_status: string;
+    is_enabled: boolean;
+    last_verified_at: string | null;
+    updated_at: string | null;
+  }>).map((row) => ({
+    providerCode: row.provider_code,
+    mode: row.mode,
+    configurationStatus: row.configuration_status,
+    isEnabled: row.is_enabled,
+    lastVerifiedAt: row.last_verified_at,
+    updatedAt: row.updated_at,
+  }));
 }
