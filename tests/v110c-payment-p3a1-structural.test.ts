@@ -145,14 +145,17 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // (Le fichier de fixture de test qui accompagne ce lot,
 // supabase/tests/fixtures/p3b2-candidate-order-payment-context-read.sql,
 // vit sous un sous-répertoire de supabase/tests/ -- readdirSync("supabase")
-// n'étant pas récursif, il n'est pas compté ici.) Ce test reste un
+// n'étant pas récursif, il n'est pas compté ici.)
+// MISE À JOUR PAYMENT P3-B2 : le lot de lecture de contexte de paiement
+// ajoute désormais son unique fichier SQL au-dessus de ce baseline
+// durci, portant le compte total de 66 à 67. Ce test reste un
 // test de RÉGRESSION P3-A1 : il continue de vérifier qu'AUCUN fichier
 // nommé "p3a1" n'existe, et que le compte total n'a plus bougé DEPUIS
 // les ajouts attendus de P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT
-// HARDENING v1.
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING, aucun nom contenant p3a1)", () => {
+// HARDENING v1/P3-B2.
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 66, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1, lot SQL explicite) attendu`);
+  assert.equal(sqlFiles.length, 67, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
