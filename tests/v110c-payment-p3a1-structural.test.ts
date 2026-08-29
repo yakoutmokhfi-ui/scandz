@@ -135,13 +135,24 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // REQUIRED ; PAYMENT P3-B1 (lot suivant, mandat séparé et explicite,
 // "SQL CAPABILITY LOT") a depuis ajouté EXACTEMENT un fichier SQL
 // supplémentaire (DRAFT-lot-payment-p3b1-runtime-provider-enablement-
-// read.sql), portant le compte total à 65. Ce test reste un test de
-// RÉGRESSION P3-A1 : il continue de vérifier qu'AUCUN fichier nommé
-// "p3a1" n'existe, et que le compte total n'a plus bougé DEPUIS les
-// ajouts attendus de P3-B0 et P3-B1.
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1, aucun nom contenant p3a1)", () => {
+// read.sql), portant le compte total à 65.
+// MISE À JOUR ORDERS SERVICE_ROLE SELECT HARDENING v1 : un constat
+// Production séparé (ACL de public.orders, indépendant de PAYMENT
+// P3-B2, qui reste STOPPÉ et non publié) a nécessité un lot de
+// durcissement SQL dédié, qui a ajouté EXACTEMENT un fichier SQL
+// supplémentaire au niveau racine de supabase/ (DRAFT-lot-orders-
+// service-role-select-hardening.sql), portant le compte total à 66.
+// (Le fichier de fixture de test qui accompagne ce lot,
+// supabase/tests/fixtures/p3b2-candidate-order-payment-context-read.sql,
+// vit sous un sous-répertoire de supabase/tests/ -- readdirSync("supabase")
+// n'étant pas récursif, il n'est pas compté ici.) Ce test reste un
+// test de RÉGRESSION P3-A1 : il continue de vérifier qu'AUCUN fichier
+// nommé "p3a1" n'existe, et que le compte total n'a plus bougé DEPUIS
+// les ajouts attendus de P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT
+// HARDENING v1.
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 65, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1, lot SQL explicite) attendu`);
+  assert.equal(sqlFiles.length, 66, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1, lot SQL explicite) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
