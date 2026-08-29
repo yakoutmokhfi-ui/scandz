@@ -18,22 +18,27 @@ import {
  * MISE À JOUR PAYMENT P3-B1 : ajoute `getPaymentRuntimeProviderConfig`,
  * réponse au STOP — PAYMENT P3-B RUNTIME PROVIDER CONFIG CAPABILITY
  * REQUIRED soulevé par PAYMENT P3-B (voir sa propre section plus bas).
+ * MISE À JOUR PAYMENT P3-B2 : ajoute `getOrderPaymentContext`, réponse
+ * au STOP — PAYMENT P3-B CUSTOMER ORDER AUTHORITY GAP soulevé par
+ * PAYMENT P3-B (voir sa propre section plus bas).
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0, P3-B0, P3-B1) : `initiate_payment_attempt`,
+ * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2) : `initiate_payment_attempt`,
  * `confirm_payment_attempt`, `get_payment_provider_credential`,
  * `get_payment_transaction_correlation`,
- * `get_payment_runtime_provider_config`. Ce fichier ne connaît AUCUN
- * prestataire (mission §2/§33/§34 de P3-A1) : aucune mention de MAC/
- * HMAC/TPE/société/Mercanet/point de terminaison spécifique --
- * uniquement les contrats déjà publiés et audités.
+ * `get_payment_runtime_provider_config`, `get_order_payment_context`.
+ * Ce fichier ne connaît AUCUN prestataire (mission §2/§33/§34 de
+ * P3-A1) : aucune mention de MAC/HMAC/TPE/société/Mercanet/point de
+ * terminaison spécifique -- uniquement les contrats déjà publiés et
+ * audités.
  *
  * Chaque wrapper appelle la RPC avec EXACTEMENT les arguments de sa
  * signature SQL (inspectée directement dans
  * supabase/DRAFT-lot-payment-p1-foundation.sql,
  * supabase/DRAFT-lot-payment-p3a0-secure-credential-read.sql,
- * supabase/DRAFT-lot-payment-p3b0-correlation-status-read.sql et
+ * supabase/DRAFT-lot-payment-p3b0-correlation-status-read.sql,
  * supabase/DRAFT-lot-payment-p3b1-runtime-provider-enablement-read.sql
+ * et supabase/DRAFT-lot-payment-p3b2-order-payment-context-read.sql
  * avant d'écrire ce fichier -- jamais devinée, mission §12) : aucun
  * montant, aucune devise, aucun identifiant de restaurant n'est fourni
  * de façon indépendante là où la RPC ne les accepte pas (mission
@@ -46,8 +51,10 @@ import {
  * message levé -- seul `error.code` (SQLSTATE) est éventuellement
  * consigné côté serveur (jamais renvoyé à l'appelant) à des fins de
  * diagnostic. Le secret renvoyé par `getPaymentProviderCredential` (la
- * seule des cinq RPC dont le résultat est sensible) n'est JAMAIS
- * journalisé, sous aucune forme -- pas même sa longueur.
+ * seule des six RPC dont le résultat est sensible) n'est JAMAIS
+ * journalisé, sous aucune forme -- pas même sa longueur. `public_token`
+ * (entrée de `getOrderPaymentContext`) n'est lui non plus JAMAIS
+ * journalisé (mission P3-B2 §14, "no token logging").
  */
 
 // ------------------------------------------------------------------
@@ -451,6 +458,102 @@ export async function getPaymentRuntimeProviderConfig(
 }
 
 // ------------------------------------------------------------------
+// get_order_payment_context(p_order_id uuid, p_public_token uuid)
+//   returns table (restaurant_id uuid, payment_status text)
+// PAYMENT P3-B2 — ORDER PAYMENT CONTEXT READ.
+// ------------------------------------------------------------------
+
+export interface GetOrderPaymentContextInput {
+  orderId: string;
+  /**
+   * Preuve de possession du client anonyme (`orders.public_token`,
+   * même modèle que `mark_whatsapp_opened`/`get_order_payment_status`).
+   * JAMAIS journalisée par ce wrapper (mission §14, "no token
+   * logging") -- y compris en cas d'échec.
+   */
+  publicToken: string;
+}
+
+export interface OrderPaymentContext {
+  restaurantId: string;
+  /**
+   * Valeur EXACTE stockée par `orders.payment_status` (contrainte
+   * CHECK PAYMENT P1 : `not_required` | `pending` | `paid` | `failed` |
+   * `cancelled`). Ce wrapper ne décide d'AUCUNE politique
+   * d'éligibilité sur cette valeur -- cette décision reste
+   * explicitement celle d'un futur PAYMENT P3-B (mission §15, "Future
+   * P3-B will decide eligibility").
+   */
+  paymentStatus: string;
+}
+
+interface OrderPaymentContextRow {
+  restaurant_id: string;
+  payment_status: string;
+}
+
+/**
+ * Vérifie la possession client anonyme (`order_id` + `public_token`,
+ * modèle EXACT déjà établi par `mark_whatsapp_opened`/
+ * `get_order_payment_status`) et renvoie le couple minimal
+ * restaurant_id/payment_status nécessaire à un futur runtime de
+ * paiement pour établir l'autorité tenant AVANT tout appel à
+ * `getPaymentRuntimeProviderConfig` puis `initiatePaymentAttempt`, via
+ * la RPC `get_order_payment_context` (PAYMENT P3-B2). Répond au
+ * STOP — PAYMENT P3-B CUSTOMER ORDER AUTHORITY GAP de PAYMENT P3-B :
+ * ni `get_order_payment_status` (contrat CLIENT public, exclut
+ * délibérément restaurant_id) ni `mark_whatsapp_opened` (`returns
+ * void`, et mute la commande) ni `initiate_payment_attempt` (ne
+ * vérifie aucun `public_token`) ne remplissaient ce rôle.
+ *
+ * N'ACCEPTE JAMAIS restaurant_id/provider_code en entrée -- seuls
+ * `orderId`/`publicToken`, exactement la preuve de possession que le
+ * navigateur peut légitimement transmettre (mission §6/§9 de
+ * PAYMENT P3-B ; mission §6 de PAYMENT P3-B2, "No tenant ID from
+ * caller"). Une paire invalide (mauvais jeton, commande inexistante,
+ * ou les deux) est structurellement indiscernable côté RPC (aucune
+ * ligne renvoyée dans tous les cas, mission §7/§17 "possession
+ * confidentiality") -- ce wrapper la traite comme n'importe quel
+ * résultat vide inattendu (`PaymentServerRpcError`, générique,
+ * SANS distinction observable d'une autre panne RPC), à charge pour
+ * un futur PAYMENT P3-B de la traduire en message client générique
+ * (mission §14 de PAYMENT P3-B2, "no order existence leak beyond
+ * generic failure").
+ */
+export async function getOrderPaymentContext(
+  input: GetOrderPaymentContextInput
+): Promise<OrderPaymentContext> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderPaymentContextRow[] | OrderPaymentContextRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_payment_context", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_payment_context", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("get_order_payment_context", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    restaurantId: String(row.restaurant_id),
+    paymentStatus: String(row.payment_status),
+  };
+}
+
+// ------------------------------------------------------------------
 // Diagnostic interne, jamais renvoyé à l'appelant.
 // ------------------------------------------------------------------
 
@@ -458,10 +561,11 @@ export async function getPaymentRuntimeProviderConfig(
  * Consigne UNIQUEMENT le nom de la RPC et son SQLSTATE (ou un
  * marqueur interne fixe comme "EMPTY_ROW"/"EMPTY_RESULT") -- jamais
  * `error.message`, `error.details`, `error.hint`, ni aucune valeur de
- * donnée. Volontairement conservateur : même si aucune des cinq RPC
- * enveloppées ici n'interpole aujourd'hui de matière sensible dans ses
- * messages d'erreur (vérifié dans leur SQL), ce module ne suppose
- * jamais qu'un futur changement de ces RPC le restera (mission §16).
+ * donnée (y compris `public_token`). Volontairement conservateur :
+ * même si aucune des six RPC enveloppées ici n'interpole aujourd'hui
+ * de matière sensible dans ses messages d'erreur (vérifié dans leur
+ * SQL), ce module ne suppose jamais qu'un futur changement de ces RPC
+ * le restera (mission §16).
  */
 function logRpcFailure(rpcName: string, sqlstate: string | null | undefined): void {
   console.error(`[payment-service] RPC "${rpcName}" a échoué (SQLSTATE=${sqlstate ?? "?"})`);
