@@ -124,9 +124,17 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // §32/§40 : aucun SQL ajouté par ce lot.
 // --------------------------------------------------------------
 
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé, aucun nom contenant p3a1)", () => {
+// MISE À JOUR PAYMENT P3-B0 : le compte 63 vérifiait "aucun SQL ajouté
+// PAR P3-A1" (un lot bibliothèque pur) -- toujours vrai, mais PAYMENT
+// P3-B0 (lot suivant, mandat séparé et explicite, "SQL CAPABILITY LOT")
+// a depuis ajouté EXACTEMENT un fichier SQL
+// (DRAFT-lot-payment-p3b0-correlation-status-read.sql), portant le
+// compte total à 64. Ce test reste un test de RÉGRESSION P3-A1 : il
+// continue de vérifier qu'AUCUN fichier nommé "p3a1" n'existe, et que
+// le compte total n'a plus bougé DEPUIS l'ajout attendu de P3-B0.
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 63, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- ce lot n'ajoute aucun SQL`);
+  assert.equal(sqlFiles.length, 64, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0, lot SQL explicite) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
