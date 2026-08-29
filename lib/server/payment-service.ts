@@ -8,18 +8,27 @@ import {
 
 /**
  * PAYMENT P3-A1 — SERVER PAYMENT INFRASTRUCTURE.
+ * MISE À JOUR PAYMENT P3-B0 : ajoute `getPaymentTransactionCorrelation`
+ * (voir sa propre section plus bas pour le détail et pour l'explication
+ * de pourquoi elle est la SEULE addition de ce lot).
+ * MISE À JOUR PAYMENT P3-B0 v2 (corrige PAY-P3-B0-01) : son contrat de
+ * retour passe de 4 à 6 champs (`amount`/`currency` autoritatifs
+ * ajoutés) -- v1 n'a jamais été publié, il n'existe donc aucune version
+ * intermédiaire à préserver.
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0) : `initiate_payment_attempt`,
- * `confirm_payment_attempt`, `get_payment_provider_credential`. Ce
- * fichier ne connaît AUCUN prestataire (mission §2/§33/§34) : aucune
- * mention de MAC/HMAC/TPE/société/Mercanet/point de terminaison
- * spécifique -- uniquement les contrats déjà publiés et audités.
+ * publiées (P1, P3-A0, P3-B0) : `initiate_payment_attempt`,
+ * `confirm_payment_attempt`, `get_payment_provider_credential`,
+ * `get_payment_transaction_correlation`. Ce fichier ne connaît AUCUN
+ * prestataire (mission §2/§33/§34 de P3-A1) : aucune mention de MAC/
+ * HMAC/TPE/société/Mercanet/point de terminaison spécifique --
+ * uniquement les contrats déjà publiés et audités.
  *
  * Chaque wrapper appelle la RPC avec EXACTEMENT les arguments de sa
  * signature SQL (inspectée directement dans
- * supabase/DRAFT-lot-payment-p1-foundation.sql et
- * supabase/DRAFT-lot-payment-p3a0-secure-credential-read.sql avant
+ * supabase/DRAFT-lot-payment-p1-foundation.sql,
+ * supabase/DRAFT-lot-payment-p3a0-secure-credential-read.sql et
+ * supabase/DRAFT-lot-payment-p3b0-correlation-status-read.sql avant
  * d'écrire ce fichier -- jamais devinée, mission §12) : aucun montant,
  * aucune devise, aucun identifiant de restaurant n'est fourni de façon
  * indépendante là où la RPC ne les accepte pas (mission §11/§25) ;
@@ -32,7 +41,7 @@ import {
  * message levé -- seul `error.code` (SQLSTATE) est éventuellement
  * consigné côté serveur (jamais renvoyé à l'appelant) à des fins de
  * diagnostic. Le secret renvoyé par `getPaymentProviderCredential` (la
- * seule des trois RPC dont le résultat est sensible) n'est JAMAIS
+ * seule des quatre RPC dont le résultat est sensible) n'est JAMAIS
  * journalisé, sous aucune forme -- pas même sa longueur.
  */
 
@@ -226,6 +235,118 @@ export async function getPaymentProviderCredential(
   }
 
   return data;
+}
+
+// ------------------------------------------------------------------
+// get_payment_transaction_correlation(p_provider_code text,
+//   p_provider_reference text)
+//   returns table (restaurant_id uuid, order_id uuid, transaction_id
+//     uuid, status text, amount numeric, currency text)
+// PAYMENT P3-B0 v2 — CALLBACK CORRELATION + AUTHORITATIVE AMOUNT/
+// CURRENCY + CUSTOMER PAYMENT STATUS READ (corrects PAY-P3-B0-01).
+// ------------------------------------------------------------------
+
+export interface GetPaymentTransactionCorrelationInput {
+  providerCode: string;
+  providerReference: string;
+}
+
+export interface PaymentTransactionCorrelation {
+  restaurantId: string;
+  orderId: string;
+  transactionId: string;
+  status: string;
+  /**
+   * Montant AUTORITATIF de la tentative de paiement, tel que stocké
+   * par `initiate_payment_attempt` (P1) -- JAMAIS dérivé d'un callback
+   * ou d'un navigateur. Type délibérément `string`, PAS `number`
+   * (voir AMOUNT-CURRENCY-REPORT.txt pour l'analyse complète) :
+   * PostgREST sérialise aujourd'hui `numeric` comme un NOMBRE JSON brut
+   * (documenté, non garanti sans perte au-delà de la précision d'un
+   * flottant double), et ce wrapper ne fait JAMAIS lui-même de
+   * conversion `Number(...)` qui figerait une éventuelle imprécision
+   * supplémentaire ou empêcherait de bénéficier d'une future
+   * sérialisation en chaîne. `String(row.amount)` préserve fidèlement
+   * quelle que soit la représentation reçue -- la comparaison
+   * montant-pour-montant avec un `montant` Monetico analysé reste
+   * explicitement la responsabilité d'une future orchestration P3-B,
+   * jamais de ce wrapper.
+   */
+  amount: string;
+  /**
+   * Devise AUTORITATIVE, telle que stockée (aucune normalisation
+   * ajoutée ici -- voir le commentaire SQL de la RPC : P1 n'impose
+   * aucune contrainte de format sur cette colonne).
+   */
+  currency: string;
+}
+
+interface PaymentTransactionCorrelationRow {
+  restaurant_id: string;
+  order_id: string;
+  transaction_id: string;
+  status: string;
+  amount: string | number;
+  currency: string;
+}
+
+/**
+ * Corrèle un callback prestataire (provider_code/provider_reference,
+ * SEULS champs qu'un callback Monetico porte réellement -- jamais un
+ * identifiant de tenant fourni par l'appelant) vers son restaurant_id/
+ * order_id/transaction_id/status/amount/currency server-owned, via la
+ * RPC `get_payment_transaction_correlation` (PAYMENT P3-B0 v2).
+ * N'accepte JAMAIS de restaurant_id/tenant/amount/currency en entrée --
+ * ce serait exactement l'identifiant non fiable que cette fonction
+ * existe pour éviter de devoir faire confiance (mission §4/§14 de
+ * PAYMENT P3-B ; mission §5/§18 de PAYMENT P3-B0-V2 pour amount/
+ * currency spécifiquement).
+ *
+ * Ce wrapper est délibérément le SEUL ajouté par ce lot (PAYMENT
+ * P3-B0 reste un lot de capacité SQL) : contrairement aux trois
+ * wrappers ci-dessus, `get_order_payment_status` (RPC #2, la lecture
+ * de statut CLIENT ANONYME) n'a PAS de wrapper ici -- son point d'appel
+ * naturel est un futur code CLIENT (navigateur, clé anon), pas ce
+ * module server-only/service_role ; lui donner un wrapper ici
+ * présumerait une décision d'architecture (où vit ce code, quelle page
+ * l'appelle) qui appartient à PAYMENT P3-B lui-même, hors périmètre de
+ * ce lot.
+ */
+export async function getPaymentTransactionCorrelation(
+  input: GetPaymentTransactionCorrelationInput
+): Promise<PaymentTransactionCorrelation> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: PaymentTransactionCorrelationRow[] | PaymentTransactionCorrelationRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_payment_transaction_correlation", {
+      p_provider_code: input.providerCode,
+      p_provider_reference: input.providerReference,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_payment_transaction_correlation", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("get_payment_transaction_correlation", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    restaurantId: String(row.restaurant_id),
+    orderId: String(row.order_id),
+    transactionId: String(row.transaction_id),
+    status: String(row.status),
+    amount: String(row.amount),
+    currency: String(row.currency),
+  };
 }
 
 // ------------------------------------------------------------------
