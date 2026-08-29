@@ -21,12 +21,19 @@ import {
  * MISE À JOUR PAYMENT P3-B2 : ajoute `getOrderPaymentContext`, réponse
  * au STOP — PAYMENT P3-B CUSTOMER ORDER AUTHORITY GAP soulevé par
  * PAYMENT P3-B (voir sa propre section plus bas).
+ * MISE À JOUR PAYMENT P3-B3 : ajoute `getOrderActivePaymentAttempt`,
+ * réponse au STOP — PAYMENT P3-B v2 PENDING ATTEMPT DATABASE CAPABILITY
+ * REQUIRED soulevé par PAYMENT P3-B v2 (voir sa propre section plus
+ * bas). Mini-lot de capacité SQL/serveur SEUL -- n'implémente AUCUN
+ * checkout, AUCUNE route, AUCUNE reconstruction de formulaire hébergé
+ * Monetico (hors périmètre, réservé à une future orchestration P3-B).
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2) : `initiate_payment_attempt`,
+ * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2, P3-B3) : `initiate_payment_attempt`,
  * `confirm_payment_attempt`, `get_payment_provider_credential`,
  * `get_payment_transaction_correlation`,
- * `get_payment_runtime_provider_config`, `get_order_payment_context`.
+ * `get_payment_runtime_provider_config`, `get_order_payment_context`,
+ * `get_order_active_payment_attempt`.
  * Ce fichier ne connaît AUCUN prestataire (mission §2/§33/§34 de
  * P3-A1) : aucune mention de MAC/HMAC/TPE/société/Mercanet/point de
  * terminaison spécifique -- uniquement les contrats déjà publiés et
@@ -550,6 +557,132 @@ export async function getOrderPaymentContext(
   return {
     restaurantId: String(row.restaurant_id),
     paymentStatus: String(row.payment_status),
+  };
+}
+
+// ------------------------------------------------------------------
+// get_order_active_payment_attempt(p_order_id uuid, p_public_token
+//   uuid, p_provider_code text)
+//   returns table (provider_reference text, amount numeric, currency
+//     text)
+// PAYMENT P3-B3 — ACTIVE PAYMENT ATTEMPT RESUME READ.
+// ------------------------------------------------------------------
+
+export interface GetOrderActivePaymentAttemptInput {
+  orderId: string;
+  /**
+   * Preuve de possession du client anonyme (`orders.public_token`,
+   * même modèle que `getOrderPaymentContext`/`mark_whatsapp_opened`).
+   * JAMAIS journalisée par ce wrapper (mission P3-B2 §14, "no token
+   * logging", reprise à l'identique ici) -- y compris en cas d'échec.
+   */
+  publicToken: string;
+  providerCode: string;
+}
+
+export interface OrderActivePaymentAttempt {
+  /**
+   * Référence EXACTE, déjà stockée par `initiate_payment_attempt`
+   * (P1) au moment de l'initiation d'origine -- ce wrapper n'en génère
+   * jamais et n'en dérive jamais une nouvelle. Reconstruire un
+   * formulaire hébergé prestataire avec CETTE MÊME référence reste la
+   * responsabilité d'une future orchestration P3-B v2 (mission P3-B3
+   * §10, "one pending payment_transaction = one provider_reference =
+   * every retry/resume" ; ce module ne décide et ne fait rien de plus
+   * que la restituer fidèlement).
+   */
+  providerReference: string;
+  /**
+   * Montant AUTORITATIF de la tentative PENDING courante, tel que
+   * stocké par `initiate_payment_attempt` -- jamais recalculé depuis
+   * `orders`/le panier/le navigateur (mission P3-B3 §9). Type
+   * délibérément `string`, PAS `number`, pour la même raison de
+   * précision PostgREST déjà documentée sur
+   * `PaymentTransactionCorrelation.amount` ci-dessus -- ce wrapper ne
+   * fait jamais lui-même de conversion `Number(...)`.
+   */
+  amount: string;
+  /** Devise AUTORITATIVE, telle que stockée (aucune normalisation
+   *  ajoutée ici, même convention que `PaymentTransactionCorrelation.
+   *  currency` ci-dessus). */
+  currency: string;
+}
+
+interface OrderActivePaymentAttemptRow {
+  provider_reference: string;
+  amount: string | number;
+  currency: string;
+}
+
+/**
+ * Vérifie la possession client anonyme (`order_id` + `public_token`,
+ * modèle EXACT déjà établi par `getOrderPaymentContext`/
+ * `get_order_payment_status`/`mark_whatsapp_opened`) et renvoie
+ * l'identité minimale (provider_reference/amount/currency) de la
+ * tentative de paiement PENDING COURANTE d'une commande, via la RPC
+ * `get_order_active_payment_attempt` (PAYMENT P3-B3). Répond au
+ * STOP — PAYMENT P3-B v2 PENDING ATTEMPT DATABASE CAPABILITY REQUIRED :
+ * ni `getOrderPaymentContext` (contrat P3-B2 volontairement minimal,
+ * exclut delibérément provider_reference/amount/currency/
+ * transaction_id) ni `getPaymentTransactionCorrelation` (keyed par la
+ * référence en ENTRÉE, inutilisable pour une reprise qui a précisément
+ * perdu cette référence) ne remplissaient ce rôle.
+ *
+ * REPRISE SEULE (mission P3-B3 §2/§11) : cette fonction ne fait QUE
+ * lire -- elle n'expire, n'annule, ni ne remplace jamais une tentative.
+ * Une absence de résultat (aucune ligne) signifie simplement "aucune
+ * tentative pending courante à reprendre pour cette commande/ce
+ * provider" -- ce wrapper ne la traduit PAS automatiquement en erreur
+ * (contrairement aux autres wrappers de ce module) : l'absence est un
+ * résultat métier légitime et attendu (par exemple "aucune tentative
+ * n'a encore jamais été initiée", ou "la tentative précédente est déjà
+ * dans un état terminal") -- à charge de l'appelant (une future
+ * orchestration P3-B v2) de décider s'il doit alors appeler
+ * `initiatePaymentAttempt` pour une NOUVELLE tentative. Un échec RPC
+ * (erreur Postgrest) reste, lui, traité comme toute autre panne
+ * serveur ci-dessous.
+ *
+ * N'ACCEPTE JAMAIS restaurant_id en entrée -- seuls `orderId`/
+ * `publicToken`/`providerCode`, exactement la preuve de possession que
+ * le navigateur peut légitimement transmettre plus le provider
+ * server-controlled (mission P3-B3 §6, "Runtime P3-B v2 will pass
+ * server-controlled: monetico"). Ce wrapper ne décide lui-même
+ * d'aucune politique de reconstruction de formulaire -- il restitue
+ * fidèlement le contrat de la RPC, rien de plus.
+ */
+export async function getOrderActivePaymentAttempt(
+  input: GetOrderActivePaymentAttemptInput
+): Promise<OrderActivePaymentAttempt | null> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderActivePaymentAttemptRow[] | OrderActivePaymentAttemptRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_active_payment_attempt", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+      p_provider_code: input.providerCode,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_active_payment_attempt", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    // Absence légitime -- voir le commentaire de la fonction : PAS une
+    // erreur, jamais journalisée comme une panne RPC.
+    return null;
+  }
+
+  return {
+    providerReference: String(row.provider_reference),
+    amount: String(row.amount),
+    currency: String(row.currency),
   };
 }
 

@@ -148,14 +148,16 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // n'étant pas récursif, il n'est pas compté ici.)
 // MISE À JOUR PAYMENT P3-B2 : le lot de lecture de contexte de paiement
 // ajoute désormais son unique fichier SQL au-dessus de ce baseline
-// durci, portant le compte total de 66 à 67. Ce test reste un
-// test de RÉGRESSION P3-A1 : il continue de vérifier qu'AUCUN fichier
-// nommé "p3a1" n'existe, et que le compte total n'a plus bougé DEPUIS
-// les ajouts attendus de P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT
-// HARDENING v1/P3-B2.
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2, aucun nom contenant p3a1)", () => {
+// durci, portant le compte total de 66 à 67.
+// MISE À JOUR PAYMENT P3-B3 : le lot de reprise/lecture de tentative de
+// paiement active ajoute son unique fichier SQL, portant le compte
+// total de 67 à 68. Ce test reste un test de RÉGRESSION P3-A1 : il
+// continue de vérifier qu'AUCUN fichier nommé "p3a1" n'existe, et que
+// le compte total n'a plus bougé DEPUIS les ajouts attendus de
+// P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT HARDENING v1/P3-B2/P3-B3.
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 67, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) attendu`);
+  assert.equal(sqlFiles.length, 68, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
