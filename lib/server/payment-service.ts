@@ -15,11 +15,15 @@ import {
  * retour passe de 4 à 6 champs (`amount`/`currency` autoritatifs
  * ajoutés) -- v1 n'a jamais été publié, il n'existe donc aucune version
  * intermédiaire à préserver.
+ * MISE À JOUR PAYMENT P3-B1 : ajoute `getPaymentRuntimeProviderConfig`,
+ * réponse au STOP — PAYMENT P3-B RUNTIME PROVIDER CONFIG CAPABILITY
+ * REQUIRED soulevé par PAYMENT P3-B (voir sa propre section plus bas).
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0, P3-B0) : `initiate_payment_attempt`,
+ * publiées (P1, P3-A0, P3-B0, P3-B1) : `initiate_payment_attempt`,
  * `confirm_payment_attempt`, `get_payment_provider_credential`,
- * `get_payment_transaction_correlation`. Ce fichier ne connaît AUCUN
+ * `get_payment_transaction_correlation`,
+ * `get_payment_runtime_provider_config`. Ce fichier ne connaît AUCUN
  * prestataire (mission §2/§33/§34 de P3-A1) : aucune mention de MAC/
  * HMAC/TPE/société/Mercanet/point de terminaison spécifique --
  * uniquement les contrats déjà publiés et audités.
@@ -27,13 +31,14 @@ import {
  * Chaque wrapper appelle la RPC avec EXACTEMENT les arguments de sa
  * signature SQL (inspectée directement dans
  * supabase/DRAFT-lot-payment-p1-foundation.sql,
- * supabase/DRAFT-lot-payment-p3a0-secure-credential-read.sql et
- * supabase/DRAFT-lot-payment-p3b0-correlation-status-read.sql avant
- * d'écrire ce fichier -- jamais devinée, mission §12) : aucun montant,
- * aucune devise, aucun identifiant de restaurant n'est fourni de façon
- * indépendante là où la RPC ne les accepte pas (mission §11/§25) ;
- * aucune charge brute spécifique à un prestataire n'est transmise
- * (mission §26).
+ * supabase/DRAFT-lot-payment-p3a0-secure-credential-read.sql,
+ * supabase/DRAFT-lot-payment-p3b0-correlation-status-read.sql et
+ * supabase/DRAFT-lot-payment-p3b1-runtime-provider-enablement-read.sql
+ * avant d'écrire ce fichier -- jamais devinée, mission §12) : aucun
+ * montant, aucune devise, aucun identifiant de restaurant n'est fourni
+ * de façon indépendante là où la RPC ne les accepte pas (mission
+ * §11/§25) ; aucune charge brute spécifique à un prestataire n'est
+ * transmise (mission §26).
  *
  * Aucune erreur Postgrest/Supabase brute ne traverse jamais la
  * frontière de ce module (mission §14/§16/§28) : `error.message`,
@@ -41,7 +46,7 @@ import {
  * message levé -- seul `error.code` (SQLSTATE) est éventuellement
  * consigné côté serveur (jamais renvoyé à l'appelant) à des fins de
  * diagnostic. Le secret renvoyé par `getPaymentProviderCredential` (la
- * seule des quatre RPC dont le résultat est sensible) n'est JAMAIS
+ * seule des cinq RPC dont le résultat est sensible) n'est JAMAIS
  * journalisé, sous aucune forme -- pas même sa longueur.
  */
 
@@ -350,6 +355,102 @@ export async function getPaymentTransactionCorrelation(
 }
 
 // ------------------------------------------------------------------
+// get_payment_runtime_provider_config(p_restaurant_id uuid,
+//   p_provider_code text)
+//   returns table (provider_code text, is_enabled boolean,
+//     configuration_status text)
+// PAYMENT P3-B1 — RUNTIME PROVIDER ENABLEMENT READ.
+// ------------------------------------------------------------------
+
+export interface GetPaymentRuntimeProviderConfigInput {
+  restaurantId: string;
+  providerCode: string;
+}
+
+export interface PaymentRuntimeProviderConfig {
+  providerCode: string;
+  /**
+   * Bascule d'activation runtime AUTORITATIVE (PAYMENT P1). Un futur
+   * PAYMENT P3-B DOIT vérifier `isEnabled === true` avant tout appel à
+   * `initiatePaymentAttempt` -- l'existence d'un credential
+   * (`getPaymentProviderCredential`) ne suffit PAS et ne doit JAMAIS
+   * s'y substituer (voir RUNTIME-ENABLEMENT-REPORT.txt).
+   */
+  isEnabled: boolean;
+  /**
+   * Cycle de vie du credential (PAYMENT P2A) -- valeurs possibles
+   * EXACTEMENT `not_configured` | `configured` | `verified` (contrainte
+   * CHECK SQL, non dupliquée ici : ce wrapper ne valide ni ne restreint
+   * cette valeur, il la renvoie fidèlement telle que stockée). Ce
+   * module NE décide PAS quelles valeurs sont "utilisables" pour
+   * initier un paiement -- cette décision d'orchestration appartient
+   * explicitement à un futur PAYMENT P3-B (voir RPC-CONTRACT-REPORT.txt
+   * pour la discussion complète).
+   */
+  configurationStatus: string;
+}
+
+interface PaymentRuntimeProviderConfigRow {
+  provider_code: string;
+  is_enabled: boolean;
+  configuration_status: string;
+}
+
+/**
+ * Lit l'état d'activation runtime et le cycle de vie du credential
+ * d'une configuration prestataire, pour un couple (restaurant_id,
+ * provider_code) exact, via la RPC `get_payment_runtime_provider_config`
+ * (PAYMENT P3-B1). Répond au STOP — PAYMENT P3-B RUNTIME PROVIDER
+ * CONFIG CAPABILITY REQUIRED de PAYMENT P3-B : ni
+ * `get_merchant_payment_provider_config` (modèle de confiance
+ * marchand-authentifié, jamais appelable par ce module server-only/
+ * service_role) ni `getPaymentProviderCredential` (ne lit
+ * délibérément pas `is_enabled`) ne remplissent ce rôle.
+ *
+ * N'ACCEPTE JAMAIS restaurant_id comme une valeur d'AUTORITÉ fournie
+ * par le navigateur -- l'appelant de ce wrapper (un futur PAYMENT P3-B)
+ * doit dériver restaurant_id depuis un état de commande de confiance
+ * (jamais depuis une entrée client directe), exactement comme pour
+ * `getPaymentProviderCredential`. Ce module lui-même ne fait aucune
+ * hypothèse sur la provenance de cette valeur -- il transmet
+ * uniquement ce qu'on lui fournit à la RPC, qui reste elle-même
+ * service_role UNIQUEMENT (EXECUTE refusé à anon/authenticated/PUBLIC).
+ */
+export async function getPaymentRuntimeProviderConfig(
+  input: GetPaymentRuntimeProviderConfigInput
+): Promise<PaymentRuntimeProviderConfig> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: PaymentRuntimeProviderConfigRow[] | PaymentRuntimeProviderConfigRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_payment_runtime_provider_config", {
+      p_restaurant_id: input.restaurantId,
+      p_provider_code: input.providerCode,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_payment_runtime_provider_config", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("get_payment_runtime_provider_config", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    providerCode: String(row.provider_code),
+    isEnabled: Boolean(row.is_enabled),
+    configurationStatus: String(row.configuration_status),
+  };
+}
+
+// ------------------------------------------------------------------
 // Diagnostic interne, jamais renvoyé à l'appelant.
 // ------------------------------------------------------------------
 
@@ -357,7 +458,7 @@ export async function getPaymentTransactionCorrelation(
  * Consigne UNIQUEMENT le nom de la RPC et son SQLSTATE (ou un
  * marqueur interne fixe comme "EMPTY_ROW"/"EMPTY_RESULT") -- jamais
  * `error.message`, `error.details`, `error.hint`, ni aucune valeur de
- * donnée. Volontairement conservateur : même si aucune des trois RPC
+ * donnée. Volontairement conservateur : même si aucune des cinq RPC
  * enveloppées ici n'interpole aujourd'hui de matière sensible dans ses
  * messages d'erreur (vérifié dans leur SQL), ce module ne suppose
  * jamais qu'un futur changement de ces RPC le restera (mission §16).
