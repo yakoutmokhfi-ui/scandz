@@ -171,13 +171,17 @@ test("archi: aucun bouton/route de paiement client ajouté (mandat §4/§42) -- 
 // durci, portant le compte total de 66 à 67.
 // MISE À JOUR PAYMENT P3-B3 : le lot de reprise/lecture de tentative de
 // paiement active ajoute son unique fichier SQL, portant le compte
-// total de 67 à 68. Ce test reste un test de RÉGRESSION P3-A2 : il
-// continue de vérifier qu'AUCUN fichier nommé "p3a2" n'existe, et que
-// le compte total n'a plus bougé DEPUIS les ajouts attendus de
-// P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT HARDENING v1/P3-B2/P3-B3.
-test("archi: aucun fichier SQL ajouté par P3-A2 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3, aucun nom contenant p3a2)", () => {
+// total de 67 à 68.
+// MISE À JOUR PAYMENT P3-B4 : le lot de lecture du mode d'environnement
+// runtime (capacité sœur de PAYMENT P3-B1, ferme PAY-P3B-V2-06) ajoute
+// son unique fichier SQL, portant le compte total de 68 à 69. Ce test
+// reste un test de RÉGRESSION P3-A2 : il continue de vérifier qu'AUCUN
+// fichier nommé "p3a2" n'existe, et que le compte total n'a plus bougé
+// DEPUIS les ajouts attendus de P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT
+// HARDENING v1/P3-B2/P3-B3/P3-B4.
+test("archi: aucun fichier SQL ajouté par P3-A2 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4, aucun nom contenant p3a2)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 68, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) attendu`);
+  assert.equal(sqlFiles.length, 69, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) attendu`);
   const p3a2Named = sqlFiles.filter((f) => /p3a2/i.test(f));
   assert.deepEqual(p3a2Named, []);
 });

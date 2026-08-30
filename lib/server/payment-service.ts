@@ -27,13 +27,22 @@ import {
  * bas). Mini-lot de capacité SQL/serveur SEUL -- n'implémente AUCUN
  * checkout, AUCUNE route, AUCUNE reconstruction de formulaire hébergé
  * Monetico (hors périmètre, réservé à une future orchestration P3-B).
+ * MISE À JOUR PAYMENT P3-B4 : ajoute `getPaymentRuntimeProviderEnvironment`,
+ * ferme PAY-P3B-V2-06 ("deux autorités d'environnement non corrélées")
+ * en exposant pour la première fois `payment_provider_configs.mode`
+ * (déjà persisté par PAYMENT P2A) comme SEULE autorité d'environnement
+ * tenant-scopée -- voir sa propre section plus bas. Capacité SŒUR de
+ * `getPaymentRuntimeProviderConfig` (PAYMENT P3-B1) : n'en modifie ni
+ * n'en remplace le contrat à 3 champs. Mini-lot de capacité SQL/
+ * serveur SEUL, même périmètre que PAYMENT P3-B3 ci-dessus.
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2, P3-B3) : `initiate_payment_attempt`,
+ * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2, P3-B3, P3-B4) : `initiate_payment_attempt`,
  * `confirm_payment_attempt`, `get_payment_provider_credential`,
  * `get_payment_transaction_correlation`,
  * `get_payment_runtime_provider_config`, `get_order_payment_context`,
- * `get_order_active_payment_attempt`.
+ * `get_order_active_payment_attempt`,
+ * `get_payment_runtime_provider_environment`.
  * Ce fichier ne connaît AUCUN prestataire (mission §2/§33/§34 de
  * P3-A1) : aucune mention de MAC/HMAC/TPE/société/Mercanet/point de
  * terminaison spécifique -- uniquement les contrats déjà publiés et
@@ -683,6 +692,150 @@ export async function getOrderActivePaymentAttempt(
     providerReference: String(row.provider_reference),
     amount: String(row.amount),
     currency: String(row.currency),
+  };
+}
+
+// ------------------------------------------------------------------
+// get_payment_runtime_provider_environment(p_restaurant_id uuid,
+//   p_provider_code text)
+//   returns table (provider_code text, is_enabled boolean,
+//                  configuration_status text, mode text)
+// PAYMENT P3-B4 — PROVIDER RUNTIME MODE READ.
+// ------------------------------------------------------------------
+
+export interface GetPaymentRuntimeProviderEnvironmentInput {
+  restaurantId: string;
+  providerCode: string;
+}
+
+/**
+ * Valeurs EXACTES de `payment_provider_configs.mode` (contrainte CHECK
+ * SQL `payment_provider_configs_mode_check`, PAYMENT P1, non modifiée
+ * par ce lot). Jamais `sandbox`/`production` -- ces libellés
+ * n'existent nulle part au niveau base ou wrapper (mission §12).
+ */
+export type PaymentProviderRuntimeMode = "test" | "live";
+
+export interface PaymentRuntimeProviderEnvironment {
+  providerCode: string;
+  /** Identique à `PaymentRuntimeProviderConfig.isEnabled` (PAYMENT
+   *  P3-B1) -- dupliqué ici (pas réexporté) pour que ce wrapper reste
+   *  un instantané cohérent d'un SEUL appel RPC (voir le commentaire
+   *  de conception de la RPC elle-même sur le risque d'incohérence de
+   *  snapshot entre deux lectures séparées). */
+  isEnabled: boolean;
+  /** Identique à `PaymentRuntimeProviderConfig.configurationStatus`
+   *  (PAYMENT P3-B1) -- même remarque que `isEnabled` ci-dessus. */
+  configurationStatus: string;
+  /**
+   * AUTORITÉ UNIQUE d'environnement runtime pour ce couple
+   * (restaurant_id, provider_code) -- ferme PAY-P3B-V2-06 ("deux
+   * autorités d'environnement non corrélées"). Un futur PAYMENT P3-B
+   * v3 DOIT dériver son choix de point de terminaison (bac à sable vs
+   * production) EXCLUSIVEMENT de cette valeur, et ne DOIT JAMAIS
+   * introduire ni consulter une variable d'environnement globale de
+   * type `PAYMENT_MONETICO_MODE` (ou équivalente) pour ce choix -- le
+   * seul autre interrupteur global valide et sans rapport reste le
+   * kill switch `PAYMENT_CHECKOUT_RUNTIME_ENABLED`, qui n'exprime
+   * aucun mode et ne doit jamais être confondu avec cette valeur.
+   */
+  mode: PaymentProviderRuntimeMode;
+}
+
+interface PaymentRuntimeProviderEnvironmentRow {
+  provider_code: string;
+  is_enabled: boolean;
+  configuration_status: string;
+  mode: string;
+}
+
+/**
+ * Lit l'activation runtime, le cycle de vie du credential ET le mode
+ * d'environnement tenant-scopé (PAYMENT P1, écrit UNIQUEMENT par
+ * `set_payment_provider_credentials`/PAYMENT P2A) d'une configuration
+ * prestataire, pour un couple (restaurant_id, provider_code) exact,
+ * via la RPC `get_payment_runtime_provider_environment` (PAYMENT
+ * P3-B4). Capacité SŒUR de `getPaymentRuntimeProviderConfig`
+ * (PAYMENT P3-B1) -- n'en modifie ni n'en remplace le contrat à 3
+ * champs, qui reste inchangé et continue d'exister pour tout appelant
+ * qui n'a pas besoin de `mode` (mission §5/§7, choix RPC sœur plutôt
+ * que réouverture du contrat P3-B1).
+ *
+ * DÉVIATION DÉLIBÉRÉE par rapport à `configurationStatus`
+ * (renvoyé fidèlement, sans validation stricte, par
+ * `getPaymentRuntimeProviderConfig`) : `mode` EST validé ici comme
+ * l'union stricte `"test" | "live"` avant d'être renvoyé. Justification
+ * : `configurationStatus` ne pilote aujourd'hui que des décisions de
+ * cycle de vie/affichage, alors que `mode` pilotera directement, dans
+ * un futur PAYMENT P3-B v3, le CHOIX DU POINT DE TERMINAISON financier
+ * (bac à sable vs production réelle chez le prestataire) -- une valeur
+ * ambiguë ou inattendue à cet endroit précis a des conséquences de
+ * sécurité (risque d'appel réel en environnement de production) bien
+ * plus graves qu'un `configurationStatus` inattendu. Ce wrapper échoue
+ * donc fermé (throw) si jamais la base renvoyait une valeur hors de
+ * cette union -- y compris si une dérive de schéma future retirait ou
+ * modifiait la contrainte CHECK SQL correspondante -- plutôt que de
+ * laisser une valeur non fiable atteindre une logique de sélection de
+ * point de terminaison.
+ *
+ * N'ACCEPTE JAMAIS restaurant_id comme une valeur d'AUTORITÉ fournie
+ * par le navigateur -- même règle que `getPaymentRuntimeProviderConfig`
+ * (PAYMENT P3-B1) : l'appelant (un futur PAYMENT P3-B v3) doit dériver
+ * restaurant_id depuis un état de commande de confiance, jamais depuis
+ * une entrée client directe. La RPC sous-jacente reste elle-même
+ * service_role UNIQUEMENT (EXECUTE refusé à anon/authenticated/
+ * PUBLIC), lecture pure, sans verrou, sans SQL dynamique.
+ *
+ * NE FAIT PARTIE D'AUCUNE orchestration de paiement -- ce module ne
+ * sélectionne, n'initie, ni n'implémente aucun composant de checkout,
+ * de callback, ou de sélection de point de terminaison prestataire
+ * (mission §1/§17) : il se limite strictement à la lecture typée,
+ * sans fuite d'erreur Postgrest brute, de cette configuration.
+ */
+export async function getPaymentRuntimeProviderEnvironment(
+  input: GetPaymentRuntimeProviderEnvironmentInput
+): Promise<PaymentRuntimeProviderEnvironment> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data:
+    | PaymentRuntimeProviderEnvironmentRow[]
+    | PaymentRuntimeProviderEnvironmentRow
+    | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_payment_runtime_provider_environment", {
+      p_restaurant_id: input.restaurantId,
+      p_provider_code: input.providerCode,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_payment_runtime_provider_environment", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("get_payment_runtime_provider_environment", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  const rawMode = String(row.mode);
+  if (rawMode !== "test" && rawMode !== "live") {
+    // Échec fermé : jamais renvoyer un mode ambigu à un futur appelant
+    // qui en déduirait un point de terminaison financier (voir le
+    // commentaire de conception ci-dessus).
+    logRpcFailure("get_payment_runtime_provider_environment", "INVALID_MODE");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    providerCode: String(row.provider_code),
+    isEnabled: Boolean(row.is_enabled),
+    configurationStatus: String(row.configuration_status),
+    mode: rawMode,
   };
 }
 
