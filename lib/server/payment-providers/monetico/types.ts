@@ -1,4 +1,8 @@
 import "server-only";
+import type {
+  MoneticoBillingContext,
+  MoneticoShippingContext,
+} from "@/lib/server/payment-providers/monetico/billing-mapping";
 
 /**
  * PAYMENT P3-A2 — MONETICO SERVER ADAPTER v1.
@@ -71,6 +75,26 @@ export interface BuildMoneticoRequestInput {
    *  `contexte_commande` (mandat §18 : "minimum safe metadata needed
    *  for correlation", jamais de secret). */
   orderCorrelationId?: string;
+  /**
+   * PAYMENT P3-B6 — CHECKOUT BILLING CONTEXT v1. Objet `billing` déjà
+   * mappé au vocabulaire Monetico exact (voir
+   * `billing-mapping.ts::mapToMoneticoBilling`) -- CE fichier
+   * (`request.ts`) ne fait QUE le sérialiser dans `contexte_commande`,
+   * il ne construit, ne valide, ni ne mappe jamais lui-même une
+   * quelconque donnée de facturation. Optionnel et RÉTROCOMPATIBLE :
+   * omis, `contexte_commande` reste BYTE-IDENTIQUE à son comportement
+   * PAYMENT P3-A2 d'origine (mandat §18, non-régression MAC).
+   */
+  billingContext?: MoneticoBillingContext;
+  /**
+   * PAYMENT P3-B6 — objet `shipping` déjà mappé, envoyé UNIQUEMENT
+   * lorsque le mode de service est réellement `delivery` (mandat §14)
+   * -- cette décision appartient à l'appelant de
+   * `buildMoneticoPaymentRequest`, jamais à ce fichier. Omis pour tout
+   * mode addressless (pickup/click_collect/table/room_service) --
+   * `request.ts` ne fabrique JAMAIS un objet `shipping` vide.
+   */
+  shippingContext?: MoneticoShippingContext;
 }
 
 /** Champs de la requête de paiement Monetico sortante (interface

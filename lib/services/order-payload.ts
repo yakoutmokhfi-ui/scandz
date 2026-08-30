@@ -59,6 +59,23 @@ export function buildCreateOrderPayload(params: {
             context.mode === "delivery"
               ? context.customer.postalCode?.trim() || null
               : null,
+          // PAYMENT P3-B6 : rue/ville STRUCTURÉES, transmises telles
+          // quelles en plus de `address` (qui reste le texte d'affichage
+          // combiné, INCHANGÉ) -- jamais dérivées/re-découpées d'`address`
+          // ni d'une regex (mandat section 13 : "Do not parse a flattened
+          // address later to reconstruct structure"). Auparavant saisies
+          // par le client mais jamais transmises au serveur, qui les
+          // perdait silencieusement ; corrigé pour permettre au futur
+          // contexte de facturation Monetico ("delivery_reuse") de
+          // réutiliser une donnée réellement structurée.
+          street:
+            context.mode === "delivery"
+              ? context.customer.street?.trim() || null
+              : null,
+          city:
+            context.mode === "delivery"
+              ? context.customer.city?.trim() || null
+              : null,
         };
 
   return {

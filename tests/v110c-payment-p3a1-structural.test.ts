@@ -173,9 +173,13 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // les ajouts attendus de P3-B0/P3-B1/ORDERS SERVICE_ROLE SELECT
 // HARDENING v1/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/
 // PAYMENT P3-B5.
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5, aucun nom contenant p3a1)", () => {
+// MISE À JOUR PAYMENT P3-B6 (CHECKOUT BILLING CONTEXT v1) : ce lot
+// ajoute SON PROPRE unique fichier SQL top-level (DRAFT-lot-payment-
+// p3b6-checkout-billing-context.sql), portant le compte total de 71 à
+// 72 -- mesuré directement (pas rejoué depuis un ancien delta).
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 71, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) attendu`);
+  assert.equal(sqlFiles.length, 72, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
