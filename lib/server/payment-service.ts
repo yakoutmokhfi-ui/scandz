@@ -1291,6 +1291,262 @@ export async function claimPaymentProviderEvents(
 }
 
 // ------------------------------------------------------------------
+// get_order_billing_context(p_order_id uuid, p_public_token uuid)
+//   returns table (source text, address_line_1 text, address_line_2
+//     text, city text, postal_code text, country text,
+//     state_or_province text, customer_name text, customer_email text,
+//     customer_phone text)
+// set_order_billing_context(p_order_id uuid, p_public_token uuid,
+//   p_source text, p_address_line_1 text, p_address_line_2 text,
+//   p_city text, p_postal_code text, p_country text,
+//   p_state_or_province text, p_customer_name text,
+//   p_customer_email text, p_customer_phone text)
+//   returns table (order_id uuid, source text, updated_at timestamptz)
+// PAYMENT P3-B6 — CHECKOUT BILLING CONTEXT v1.
+// ------------------------------------------------------------------
+
+export interface GetOrderBillingContextInput {
+  orderId: string;
+  /**
+   * Preuve de possession du client anonyme (`orders.public_token`,
+   * même modèle que `getOrderPaymentContext`/`getOrderActivePaymentAttempt`).
+   * JAMAIS journalisée par ce wrapper -- y compris en cas d'échec.
+   */
+  publicToken: string;
+}
+
+/**
+ * Vocabulaire INTERNE générique, neutre vis-à-vis du prestataire
+ * (mandat P3-B6 section 8/9) -- `source`/`addressLine1`/... jamais
+ * `addressLine1`→"addressLine1" Monetico directement réutilisé comme
+ * contrat interne : c'est une coïncidence de nommage sur CE champ
+ * précis, pas une dépendance. Le mapping vers le vocabulaire Monetico
+ * exact est la responsabilité EXCLUSIVE de
+ * `lib/server/payment-providers/monetico/billing-mapping.ts` -- ce
+ * wrapper ne connaît ni Monetico, ni `contexte_commande`, ni MAC.
+ */
+export interface OrderBillingContext {
+  source: "delivery_reuse" | "manual";
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  postalCode: string;
+  /** Code ISO 3166-1 alpha-2, toujours 2 lettres majuscules (validé
+   *  fail-closed côté RPC -- jamais une valeur libre). */
+  country: string;
+  stateOrProvince: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+}
+
+interface OrderBillingContextRow {
+  source: string;
+  address_line_1: string;
+  address_line_2: string | null;
+  city: string;
+  postal_code: string;
+  country: string;
+  state_or_province: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+}
+
+/**
+ * v2 CORRECTIF (ferme P3B6-SOURCE-MAPPING-01) — validation EXHAUSTIVE
+ * de `row.source` : seules les deux valeurs `"manual"`/`"delivery_reuse"`
+ * documentées par la RPC (voir le commentaire de signature ci-dessus)
+ * sont acceptées. Le mauvais motif précédent ("tout ce qui n'est pas
+ * 'manual' devient 'delivery_reuse'") transformait silencieusement
+ * toute dérive de la RPC (valeur inattendue, `null`, chaîne vide, faute
+ * de frappe future dans une migration) en `"delivery_reuse"` -- un
+ * mensonge de provenance potentiellement dangereux vu que `source`
+ * décrit littéralement l'origine des données de facturation. Toute
+ * valeur autre que les deux attendues échoue fermé (jamais de valeur
+ * par défaut fabriquée), au même titre qu'une ligne vide (`EMPTY_ROW`
+ * ci-dessous) -- via `PaymentServerRpcError`, sans jamais journaliser la
+ * valeur elle-même (seul le nom de la RPC concernée est consigné, même
+ * politique que `logRpcFailure`).
+ */
+function validateBillingContextSource(
+  rpcName: "get_order_billing_context" | "set_order_billing_context",
+  raw: string
+): "delivery_reuse" | "manual" {
+  if (raw === "manual" || raw === "delivery_reuse") {
+    return raw;
+  }
+  logRpcFailure(rpcName, "UNEXPECTED_SOURCE");
+  throw new PaymentServerRpcError();
+}
+
+/**
+ * Lit le contexte de facturation interne assemblé pour une commande,
+ * via `get_order_billing_context` (PAYMENT P3-B6). Même modèle de
+ * preuve de possession que `getOrderPaymentContext`/
+ * `getOrderActivePaymentAttempt` -- `orderId`/`publicToken`
+ * uniquement, jamais de `restaurant_id`/`provider_code` en entrée.
+ *
+ * ABSENCE = RÉSULTAT LÉGITIME (même convention que
+ * `getOrderActivePaymentAttempt` ci-dessus) : une commande pour
+ * laquelle aucun contexte de facturation n'a encore été assemblé (cas
+ * normal avant tout choix de paiement en ligne, mandat section 6)
+ * renvoie `null`, JAMAIS une erreur -- à charge de l'appelant (une
+ * future orchestration Monetico) d'appeler `setOrderBillingContext`
+ * au moment approprié. Un échec RPC réel (erreur Postgrest, ou
+ * possession invalide -- structurellement indiscernable d'une commande
+ * inexistante, même confidentialité que les wrappers P3-B2/P3-B3
+ * ci-dessus) reste, lui, traité comme toute autre panne serveur.
+ */
+export async function getOrderBillingContext(
+  input: GetOrderBillingContextInput
+): Promise<OrderBillingContext | null> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderBillingContextRow[] | OrderBillingContextRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_billing_context", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_billing_context", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    // Absence légitime -- voir le commentaire de la fonction.
+    return null;
+  }
+
+  const source = validateBillingContextSource("get_order_billing_context", row.source);
+
+  return {
+    source,
+    addressLine1: String(row.address_line_1),
+    addressLine2: row.address_line_2 === null ? null : String(row.address_line_2),
+    city: String(row.city),
+    postalCode: String(row.postal_code),
+    country: String(row.country),
+    stateOrProvince: row.state_or_province === null ? null : String(row.state_or_province),
+    customerName: row.customer_name === null ? null : String(row.customer_name),
+    customerEmail: row.customer_email === null ? null : String(row.customer_email),
+    customerPhone: row.customer_phone === null ? null : String(row.customer_phone),
+  };
+}
+
+export interface SetOrderBillingContextInput {
+  orderId: string;
+  /** Preuve de possession du client anonyme -- même modèle que
+   *  `getOrderBillingContext` ci-dessus. */
+  publicToken: string;
+  /**
+   * `"delivery_reuse"` : les 4 champs d'adresse obligatoires sont
+   * IGNORÉS par la RPC et proviennent exclusivement de
+   * `order_delivery_address` de cette commande (mandat section 11) --
+   * ce wrapper les transmet néanmoins tels quels s'ils sont fournis
+   * (aucune logique de filtrage ici, la RPC est la seule autorité).
+   * `"manual"` : chaque champ obligatoire est validé fail-closed côté
+   * RPC.
+   */
+  source: "delivery_reuse" | "manual";
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  /**
+   * TOUJOURS un apport EXPLICITE de l'appelant, quel que soit `source`
+   * (mandat section 12) -- ce wrapper n'invente, ne devine, ni ne
+   * réutilise JAMAIS silencieusement une valeur par défaut ; c'est la
+   * RPC elle-même qui valide la forme ISO 3166-1 alpha-2 et échoue
+   * fail-closed sinon.
+   */
+  country: string;
+  stateOrProvince?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+}
+
+export interface SetOrderBillingContextResult {
+  orderId: string;
+  source: "delivery_reuse" | "manual";
+  updatedAt: string;
+}
+
+interface SetOrderBillingContextRow {
+  order_id: string;
+  source: string;
+  updated_at: string;
+}
+
+/**
+ * Assemble (ou réassemble -- upsert) le contexte de facturation interne
+ * d'une commande, via `set_order_billing_context` (PAYMENT P3-B6).
+ * Échec fermé sur toute entrée invalide/incomplète : cette fonction ne
+ * fait AUCUNE validation elle-même au-delà de la forme des paramètres
+ * TypeScript -- toute la logique de validation (champs obligatoires,
+ * longueurs, forme du pays) appartient exclusivement à la RPC, jamais
+ * dupliquée ici (mandat section 23).
+ *
+ * N'ACCEPTE JAMAIS `restaurant_id` en entrée -- seuls `orderId`/
+ * `publicToken`, exactement la preuve de possession que le navigateur
+ * peut légitimement transmettre, plus les champs de facturation
+ * eux-mêmes (jamais un `contexte_commande`/JSON prestataire brut -- ce
+ * wrapper ne connaît ni Monetico ni aucun format de charge utile
+ * prestataire).
+ */
+export async function setOrderBillingContext(
+  input: SetOrderBillingContextInput
+): Promise<SetOrderBillingContextResult> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: SetOrderBillingContextRow[] | SetOrderBillingContextRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("set_order_billing_context", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+      p_source: input.source,
+      p_address_line_1: input.addressLine1 ?? null,
+      p_address_line_2: input.addressLine2 ?? null,
+      p_city: input.city ?? null,
+      p_postal_code: input.postalCode ?? null,
+      p_country: input.country,
+      p_state_or_province: input.stateOrProvince ?? null,
+      p_customer_name: input.customerName ?? null,
+      p_customer_email: input.customerEmail ?? null,
+      p_customer_phone: input.customerPhone ?? null,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("set_order_billing_context", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("set_order_billing_context", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    orderId: String(row.order_id),
+    source: validateBillingContextSource("set_order_billing_context", row.source),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+// ------------------------------------------------------------------
 // Diagnostic interne, jamais renvoyé à l'appelant.
 // ------------------------------------------------------------------
 

@@ -3,6 +3,10 @@ import type {
   BuildMoneticoRequestInput,
   MoneticoPaymentRequestFields,
 } from "@/lib/server/payment-providers/monetico/types";
+import type {
+  MoneticoBillingContext,
+  MoneticoShippingContext,
+} from "@/lib/server/payment-providers/monetico/billing-mapping";
 import {
   transformSecurityKey,
   computeMac,
@@ -67,15 +71,38 @@ function formatDate(d: Date): string {
 /**
  * "Données au format JSON - UTF-8 encodées en base 64" -- v2.0
  * §1.4.2.2, p.14, confirmé pour l'encodage EXTÉRIEUR. Le schéma
- * INTÉRIEUR détaillé (objets billing/shipping/shoppingCart/client,
- * Annexe 9.5, p.94-108) n'a pas pu être atteint par l'agent -- voir le
- * rapport, section CONTEXTE_COMMANDE. Ce lot n'implémente donc AUCUN
- * de ces sous-objets et se limite au "minimum safe metadata needed for
- * correlation" explicitement autorisé par le mandat (§18) : un unique
- * identifiant de corrélation non secret, optionnel.
+ * INTÉRIEUR (objets billing/shipping/shoppingCart/client, Annexe 9.5)
+ * a depuis été vérifié indépendamment (rapport "Monetico Annexe 9.5
+ * verification", PAYMENT P3-B6) pour les seuls sous-objets
+ * `billing`/`shipping` -- `shoppingCart`/`client` restent HORS
+ * PÉRIMÈTRE (mandat P3-B6 §15) et ne sont JAMAIS ajoutés ici.
+ *
+ * RÉTROCOMPATIBILITÉ STRICTE (mandat P3-B6 §18, non-régression MAC) :
+ * `billing`/`shipping` omis (aucun argument fourni) produit EXACTEMENT
+ * le même JSON qu'avant ce lot (`{correlationId}` ou `{}`) -- aucun
+ * test PAYMENT P3-A2 existant ne peut donc être affecté. `billing`
+ * n'est ajouté que si fourni ; `shipping` de même, et INDÉPENDAMMENT
+ * de `billing` (mandat §14 : la décision d'inclure `shipping`
+ * n'implique jamais l'inclusion de `billing`, et réciproquement -- ce
+ * fichier ne couple pas les deux). Le contenu de ces deux objets est
+ * déjà entièrement mappé/validé par
+ * `billing-mapping.ts::mapToMoneticoBilling`/`mapToMoneticoShipping`
+ * AVANT d'atteindre cette fonction -- aucune validation, aucun mapping
+ * de champ, n'est dupliqué ici.
  */
-function buildContexteCommande(orderCorrelationId: string | undefined): string {
-  const payload = orderCorrelationId ? { correlationId: orderCorrelationId } : {};
+function buildContexteCommande(
+  orderCorrelationId: string | undefined,
+  billing?: MoneticoBillingContext,
+  shipping?: MoneticoShippingContext
+): string {
+  const payload: {
+    correlationId?: string;
+    billing?: MoneticoBillingContext;
+    shipping?: MoneticoShippingContext;
+  } = {};
+  if (orderCorrelationId) payload.correlationId = orderCorrelationId;
+  if (billing) payload.billing = billing;
+  if (shipping) payload.shipping = shipping;
   const json = JSON.stringify(payload);
   return Buffer.from(json, "utf8").toString("base64");
 }
@@ -92,7 +119,11 @@ export function buildMoneticoPaymentRequest(
   const reference = deriveMoneticoReference(input.referenceSeed);
   const montant = formatMontant(input.amount, input.currency);
   const date = formatDate(now);
-  const contexte_commande = buildContexteCommande(input.orderCorrelationId);
+  const contexte_commande = buildContexteCommande(
+    input.orderCorrelationId,
+    input.billingContext,
+    input.shippingContext
+  );
 
   // Jeu de champs "reconnus" pour la signature sortante de CE lot v1
   // (voir canonicalization.ts pour la portée exacte de cette notion) --
