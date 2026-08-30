@@ -5,6 +5,11 @@ import {
   PaymentServerRpcError,
   PaymentServerUnavailableError,
 } from "@/lib/server/payment-errors";
+import {
+  canonicalizePaymentProviderEventFields,
+  computePaymentProviderEventFingerprint,
+  type RawPaymentProviderEventFields,
+} from "@/lib/server/payment-provider-event-fingerprint";
 
 /**
  * PAYMENT P3-A1 — SERVER PAYMENT INFRASTRUCTURE.
@@ -35,14 +40,45 @@ import {
  * `getPaymentRuntimeProviderConfig` (PAYMENT P3-B1) : n'en modifie ni
  * n'en remplace le contrat à 3 champs. Mini-lot de capacité SQL/
  * serveur SEUL, même périmètre que PAYMENT P3-B3 ci-dessus.
+ * MISE À JOUR PAYMENT P3-B5 v1 : ajoute `recordPaymentProviderEvent` et
+ * `updatePaymentProviderEventProcessingStatus`, ferme PAY-P3B-V2-03
+ * (preuve durable locale AVANT tout ACK prestataire) et fournit la
+ * surface requise par PAY-P3B-V2-02 (évènement enregistrable
+ * indépendamment d'une mutation de payment_transactions/orders) -- voir
+ * leurs propres sections plus bas. AUCUNE vérification MAC/signature
+ * ici (fait confiance à l'appelant serveur, hors périmètre de ce lot).
+ * N'appelle et ne modifie JAMAIS initiatePaymentAttempt/
+ * confirmPaymentAttempt -- fournit UNIQUEMENT la surface de réception/
+ * reprise durable de l'inbox lui-même.
+ * MISE À JOUR PAYMENT P3-B5 v2 (corrige le re-audit Work de la
+ * candidate v1, ferme P3B5-RETRY-01 et P3B5-FINGERPRINT-01) : ajoute
+ * `claimPaymentProviderEvents` (primitif de revendication/bail
+ * atomique, `FOR UPDATE SKIP LOCKED` côté SQL -- permet la reprise
+ * après crash d'un évènement `received`/`failed_retryable` sans
+ * accorder de SELECT direct sur la table). `recordPaymentProviderEvent`
+ * N'ACCEPTE PLUS de fingerprint fourni par l'appelant : il canonicalise
+ * D'ABORD les champs bruts reçus
+ * (`canonicalizePaymentProviderEventFields`,
+ * lib/server/payment-provider-event-fingerprint.ts), calcule le
+ * fingerprint à partir de CES MÊMES valeurs canoniques, puis envoie CES
+ * MÊMES valeurs canoniques à la RPC -- aucun écart n'est plus possible
+ * entre ce qui est haché et ce qui est stocké, et aucune injection de
+ * fingerprint arbitraire n'est plus possible via l'API publique de ce
+ * wrapper. `updatePaymentProviderEventProcessingStatus` exige désormais
+ * un `claimToken` obtenu exclusivement via
+ * `claimPaymentProviderEvents` pour toute transition réelle (un jeton
+ * périmé ou incorrect est rejeté fail-closed par la RPC elle-même).
  *
  * Enveloppe TYPÉE et GÉNÉRIQUE autour des RPC `service_role` déjà
- * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2, P3-B3, P3-B4) : `initiate_payment_attempt`,
+ * publiées (P1, P3-A0, P3-B0, P3-B1, P3-B2, P3-B3, P3-B4, P3-B5) : `initiate_payment_attempt`,
  * `confirm_payment_attempt`, `get_payment_provider_credential`,
  * `get_payment_transaction_correlation`,
  * `get_payment_runtime_provider_config`, `get_order_payment_context`,
  * `get_order_active_payment_attempt`,
- * `get_payment_runtime_provider_environment`.
+ * `get_payment_runtime_provider_environment`,
+ * `record_payment_provider_event`,
+ * `update_payment_provider_event_processing_status`,
+ * `claim_payment_provider_events`.
  * Ce fichier ne connaît AUCUN prestataire (mission §2/§33/§34 de
  * P3-A1) : aucune mention de MAC/HMAC/TPE/société/Mercanet/point de
  * terminaison spécifique -- uniquement les contrats déjà publiés et
@@ -837,6 +873,421 @@ export async function getPaymentRuntimeProviderEnvironment(
     configurationStatus: String(row.configuration_status),
     mode: rawMode,
   };
+}
+
+// ------------------------------------------------------------------
+// record_payment_provider_event(p_provider_code text,
+//   p_provider_reference text, p_event_fingerprint text,
+//   p_provider_event_type text, p_provider_event_code text default
+//   null, p_amount numeric default null, p_currency text default
+//   null, p_authorization_reference text default null)
+//   returns table (id uuid, restaurant_id uuid, order_id uuid,
+//                  payment_transaction_id uuid, provider_event_type
+//                  text, processing_status text, created_at
+//                  timestamptz, is_new_event boolean)
+// PAYMENT P3-B5 — DURABLE PROVIDER CALLBACK INBOX.
+// ------------------------------------------------------------------
+
+/**
+ * AJOUT v2 (ferme P3B5-FINGERPRINT-01) : ce type n'a PLUS de champ
+ * `eventFingerprint` -- l'API publique de ce wrapper n'accepte PLUS
+ * AUCUN fingerprint fourni par l'appelant. Il est désormais un ALIAS
+ * direct de `RawPaymentProviderEventFields`
+ * (lib/server/payment-provider-event-fingerprint.ts) : les champs
+ * BRUTS d'un évènement déjà authentifié, PAS ENCORE canonicalisés --
+ * `recordPaymentProviderEvent` se charge lui-même de la
+ * canonicalisation ET du calcul du fingerprint, de sorte qu'aucun
+ * appelant ne puisse jamais fournir un fingerprint sans lien prouvé
+ * avec les champs réellement envoyés.
+ */
+export type RecordPaymentProviderEventInput = RawPaymentProviderEventFields;
+
+export interface PaymentProviderEventRecord {
+  id: string;
+  restaurantId: string;
+  orderId: string;
+  paymentTransactionId: string;
+  providerEventType: string;
+  processingStatus: string;
+  createdAt: string;
+  /** `false` signifie que CET appel a rencontré un évènement déjà
+   *  enregistré (même provider_code/provider_reference/
+   *  event_fingerprint) -- l'appelant reçoit alors la MÊME ligne
+   *  logique préexistante, jamais un doublon. Un futur orchestrateur
+   *  ne doit déclencher un traitement métier QUE lorsque cette valeur
+   *  est `true` (mission §19, "one logical event"). */
+  isNewEvent: boolean;
+}
+
+interface PaymentProviderEventRecordRow {
+  id: string;
+  restaurant_id: string;
+  order_id: string;
+  payment_transaction_id: string;
+  provider_event_type: string;
+  processing_status: string;
+  created_at: string;
+  is_new_event: boolean;
+}
+
+/**
+ * Enregistre durablement UN évènement prestataire DÉJÀ AUTHENTIFIÉ
+ * (MAC/signature vérifiée par l'appelant AVANT cet appel -- ce wrapper
+ * et la RPC qu'il enveloppe ne vérifient eux-mêmes AUCUNE
+ * authenticité) via `record_payment_provider_event` (PAYMENT P3-B5).
+ * Ferme PAY-P3B-V2-03 (preuve durable locale AVANT tout ACK prestataire
+ * -- ce wrapper doit être appelé et sa promesse RÉSOLUE avec succès
+ * AVANT qu'un futur adaptateur ne renvoie un ACK de succès au
+ * prestataire) et fournit la surface requise par PAY-P3B-V2-02
+ * (évènement enregistrable indépendamment de toute mutation de
+ * `payment_transactions`/`orders.payment_status`).
+ *
+ * `restaurantId`/`orderId`/`paymentTransactionId` ne sont JAMAIS
+ * acceptés en entrée -- la RPC sous-jacente les DÉRIVE elle-même,
+ * exclusivement depuis `payment_transactions`, via
+ * (`providerCode`, `providerReference`) (même clé de corrélation déjà
+ * établie par `getPaymentTransactionCorrelation`, PAYMENT P3-B0 v2).
+ * Un couple sans correspondance ou ambigu échoue fermé (voir gestion
+ * d'erreur ci-dessous) -- jamais une valeur fournie par l'appelant ne
+ * peut forcer une corrélation incohérente (mission §14/§15).
+ *
+ * IDEMPOTENT sous rejeu ET sous concurrence réelle (mission §11/§19) :
+ * un rejeu exact du même évènement (mêmes champs canoniques -> même
+ * fingerprint calculé) renvoie la MÊME ligne logique (`isNewEvent:
+ * false`), jamais un doublon ni une erreur. Un `providerReference`
+ * identique avec des champs canoniques DIFFÉRENTS (ex. un refus PUIS un
+ * paiement accepté pour la même tentative) crée un NOUVEL évènement
+ * distinct -- jamais une contrainte "un seul évènement par référence"
+ * (mission §20, "must support same provider_reference + different
+ * event fingerprint").
+ *
+ * AJOUT v2 (ferme P3B5-FINGERPRINT-01) : ce wrapper CANONICALISE
+ * D'ABORD les champs bruts reçus
+ * (`canonicalizePaymentProviderEventFields`), calcule
+ * `event_fingerprint` EXCLUSIVEMENT à partir de CES valeurs canoniques
+ * (`computePaymentProviderEventFingerprint`), PUIS envoie CES MÊMES
+ * valeurs canoniques (jamais les brutes) à la RPC -- il n'existe donc
+ * plus AUCUN chemin par lequel la valeur hachée et la valeur stockée
+ * pourraient diverger, et AUCUNE façon pour un appelant de fournir un
+ * fingerprint qui ne correspond pas aux champs envoyés (l'API publique
+ * de ce wrapper n'a plus de paramètre de fingerprint du tout). Une
+ * valeur `amount` malformée (non numérique, ou nécessitant un arrondi
+ * au-delà de 2 décimales) fait échouer la canonicalisation
+ * SYNCHRONEMENT, AVANT tout appel réseau, avec
+ * `PaymentProviderEventCanonicalizationError`
+ * (lib/server/payment-provider-event-fingerprint.ts) -- une erreur de
+ * validation locale, jamais une erreur RPC/Postgrest.
+ *
+ * N'APPELLE ET NE MODIFIE JAMAIS `initiatePaymentAttempt`/
+ * `confirmPaymentAttempt`, ni aucun champ de `payment_transactions`/
+ * `orders` -- ce wrapper, comme la RPC qu'il enveloppe, se limite
+ * STRICTEMENT à la réception durable de l'évènement (mission §34,
+ * "durable receipt and payment-state mutation must remain
+ * separable").
+ */
+export async function recordPaymentProviderEvent(
+  input: RecordPaymentProviderEventInput
+): Promise<PaymentProviderEventRecord> {
+  const canonical = canonicalizePaymentProviderEventFields(input);
+  const eventFingerprint = computePaymentProviderEventFingerprint(canonical);
+
+  const client = getServiceRoleSupabaseClient();
+
+  let data: PaymentProviderEventRecordRow[] | PaymentProviderEventRecordRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("record_payment_provider_event", {
+      p_provider_code: canonical.providerCode,
+      p_provider_reference: canonical.providerReference,
+      p_event_fingerprint: eventFingerprint,
+      p_provider_event_type: canonical.providerEventType,
+      p_provider_event_code: canonical.providerEventCode,
+      p_amount: canonical.amount,
+      p_currency: canonical.currency,
+      p_authorization_reference: canonical.authorizationReference,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("record_payment_provider_event", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("record_payment_provider_event", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    id: String(row.id),
+    restaurantId: String(row.restaurant_id),
+    orderId: String(row.order_id),
+    paymentTransactionId: String(row.payment_transaction_id),
+    providerEventType: String(row.provider_event_type),
+    processingStatus: String(row.processing_status),
+    createdAt: String(row.created_at),
+    isNewEvent: Boolean(row.is_new_event),
+  };
+}
+
+// ------------------------------------------------------------------
+// update_payment_provider_event_processing_status(p_event_id uuid,
+//   p_claim_token uuid, p_new_status text, p_error_class text default
+//   null)
+//   returns table (id uuid, processing_status text, retry_count
+//                  integer, processed_at timestamptz)
+// PAYMENT P3-B5 v2 — DURABLE PROVIDER CALLBACK INBOX (surface de
+// reprise). AJOUT v2 (ferme P3B5-RETRY-01) : `p_claim_token` est
+// désormais REQUIS -- voir `claimPaymentProviderEvents` ci-dessous.
+// ------------------------------------------------------------------
+
+/** Valeurs EXACTES acceptées par `p_new_status` -- `'received'` n'en
+ *  fait JAMAIS partie (c'est l'état INITIAL posé par
+ *  `record_payment_provider_event`, jamais une cible de transition). */
+export type PaymentProviderEventProcessingTargetStatus =
+  | "applied"
+  | "ignored"
+  | "failed_retryable"
+  | "failed_terminal";
+
+export interface UpdatePaymentProviderEventProcessingStatusInput {
+  eventId: string;
+  /** AJOUT v2 (ferme P3B5-RETRY-01) : jeton de bail obtenu
+   *  EXCLUSIVEMENT via `claimPaymentProviderEvents` -- REQUIS pour
+   *  toute transition RÉELLE (le replay idempotent d'un état DÉJÀ
+   *  terminal reste exempté côté RPC, mais ce wrapper exige toujours
+   *  la valeur pour rester un contrat simple et prévisible). Un jeton
+   *  incorrect ou un bail expiré est rejeté fail-closed par la RPC --
+   *  c'est précisément ce qui empêche un worker périmé (ayant perdu
+   *  son bail après un crash/redémarrage) d'écraser une revendication
+   *  plus récente d'un autre worker. */
+  claimToken: string;
+  newStatus: PaymentProviderEventProcessingTargetStatus;
+  /** Classification COURTE et assainie -- JAMAIS une pile d'appel brute
+   *  (mission §18). La RPC sous-jacente rejette toute valeur de plus de
+   *  200 caractères. */
+  errorClass?: string;
+}
+
+export interface PaymentProviderEventProcessingState {
+  id: string;
+  processingStatus: string;
+  retryCount: number;
+  processedAt: string;
+}
+
+interface PaymentProviderEventProcessingStateRow {
+  id: string;
+  processing_status: string;
+  retry_count: number;
+  processed_at: string;
+}
+
+/**
+ * Fait transitionner `processing_status` d'UN évènement déjà enregistré
+ * via `update_payment_provider_event_processing_status` (PAYMENT
+ * P3-B5). Machine à états à VERROUILLAGE TERMINAL, EXACTEMENT comme la
+ * RPC sous-jacente l'impose (transitions autorisées listées dans son
+ * propre commentaire SQL) -- ce wrapper n'ajoute ni n'assouplit aucune
+ * règle de transition, il se contente de relayer fidèlement le succès
+ * ou le rejet de la RPC.
+ *
+ * NE MODIFIE JAMAIS `payment_transactions.status`/
+ * `orders.payment_status`/`orders.current_payment_transaction_id` --
+ * ce wrapper, comme la RPC qu'il enveloppe, fournit UNIQUEMENT la
+ * surface de reprise/traitement DURABLE de l'inbox lui-même (mission
+ * §18, "acceptable to provide the durable retry surface only"). Une
+ * décision de mutation métier (appeler `confirmPaymentAttempt`) reste
+ * la responsabilité d'une future orchestration SÉPARÉE, invoquée
+ * indépendamment de cet appel.
+ *
+ * AJOUT v2 (ferme P3B5-RETRY-01) : exige `input.claimToken`, obtenu
+ * exclusivement via `claimPaymentProviderEvents`. La RPC sous-jacente
+ * rejette fail-closed tout jeton incorrect ou tout bail expiré --
+ * ce wrapper ne relâche ni n'assouplit cette vérification.
+ */
+export async function updatePaymentProviderEventProcessingStatus(
+  input: UpdatePaymentProviderEventProcessingStatusInput
+): Promise<PaymentProviderEventProcessingState> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data:
+    | PaymentProviderEventProcessingStateRow[]
+    | PaymentProviderEventProcessingStateRow
+    | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("update_payment_provider_event_processing_status", {
+      p_event_id: input.eventId,
+      p_claim_token: input.claimToken,
+      p_new_status: input.newStatus,
+      p_error_class: input.errorClass ?? null,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("update_payment_provider_event_processing_status", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("update_payment_provider_event_processing_status", "EMPTY_ROW");
+    throw new PaymentServerRpcError();
+  }
+
+  return {
+    id: String(row.id),
+    processingStatus: String(row.processing_status),
+    retryCount: Number(row.retry_count),
+    processedAt: String(row.processed_at),
+  };
+}
+
+// ------------------------------------------------------------------
+// claim_payment_provider_events(p_batch_size integer default 20,
+//   p_lease_seconds integer default 60)
+//   returns table (id uuid, restaurant_id uuid, order_id uuid,
+//                  payment_transaction_id uuid, provider_code text,
+//                  provider_reference text, event_fingerprint text,
+//                  provider_event_type text, provider_event_code text,
+//                  amount numeric, currency text,
+//                  authorization_reference text, processing_status
+//                  text, retry_count integer, claim_token uuid,
+//                  claim_expires_at timestamptz)
+// PAYMENT P3-B5 v2 — DURABLE PROVIDER CALLBACK INBOX. AJOUT v2, ferme
+// P3B5-RETRY-01.
+// ------------------------------------------------------------------
+
+export interface ClaimPaymentProviderEventsInput {
+  /** Nombre maximal d'évènements à revendiquer en un appel -- la RPC
+   *  sous-jacente échoue fermé hors de [1, 100]. Défaut RPC : 20. */
+  batchSize?: number;
+  /** Durée du bail en secondes -- la RPC sous-jacente échoue fermé hors
+   *  de [5, 3600]. Défaut RPC : 60. */
+  leaseSeconds?: number;
+}
+
+export interface ClaimedPaymentProviderEvent {
+  id: string;
+  restaurantId: string;
+  orderId: string;
+  paymentTransactionId: string;
+  providerCode: string;
+  providerReference: string;
+  eventFingerprint: string;
+  providerEventType: string;
+  providerEventCode: string | null;
+  amount: string | null;
+  currency: string | null;
+  authorizationReference: string | null;
+  processingStatus: string;
+  retryCount: number;
+  /** À fournir tel quel à `updatePaymentProviderEventProcessingStatus`
+   *  pour finaliser CET évènement précis -- un jeton périmé ou
+   *  incorrect est rejeté fail-closed par la RPC de transition. */
+  claimToken: string;
+  claimExpiresAt: string;
+}
+
+interface ClaimedPaymentProviderEventRow {
+  id: string;
+  restaurant_id: string;
+  order_id: string;
+  payment_transaction_id: string;
+  provider_code: string;
+  provider_reference: string;
+  event_fingerprint: string;
+  provider_event_type: string;
+  provider_event_code: string | null;
+  amount: string | null;
+  currency: string | null;
+  authorization_reference: string | null;
+  processing_status: string;
+  retry_count: number;
+  claim_token: string;
+  claim_expires_at: string;
+}
+
+/**
+ * Revendique ATOMIQUEMENT un lot borné d'évènements ÉLIGIBLES
+ * (`received` ou `failed_retryable`, jamais revendiqués ou dont le
+ * bail précédent a expiré) via `claim_payment_provider_events`
+ * (PAYMENT P3-B5 v2). Ferme P3B5-RETRY-01 : c'est le SEUL moyen
+ * supporté, pour un processus serveur ayant perdu sa mémoire (crash,
+ * redémarrage, nouveau worker), de retrouver et reprendre un évènement
+ * durablement enregistré -- sans jamais accorder de SELECT direct sur
+ * `payment_provider_events` (la table reste RPC-only, mission §22).
+ *
+ * SÛR SOUS CONCURRENCE RÉELLE (mission §7) : la RPC sous-jacente
+ * utilise `FOR UPDATE SKIP LOCKED` -- deux appels concurrents de cette
+ * fonction (même par des processus/serveurs distincts) ne peuvent
+ * JAMAIS revendiquer la même ligne ; chacun ne reçoit que les
+ * évènements réellement disponibles. AUCUN verrou global restaurant/
+ * table n'est jamais posé.
+ *
+ * REPRISE APRÈS CRASH (mission §8) : chaque évènement revendiqué porte
+ * un bail temporel (`claimExpiresAt`). Si CE processus disparaît avant
+ * d'appeler `updatePaymentProviderEventProcessingStatus`, AUCUNE action
+ * manuelle n'est nécessaire -- dès expiration du bail, un futur appel
+ * de cette même fonction (par ce processus ou un autre) revendiquera à
+ * nouveau l'évènement avec un NOUVEAU `claimToken`. L'ancien jeton
+ * devient alors inutilisable (voir
+ * `updatePaymentProviderEventProcessingStatus`).
+ *
+ * Retourne un tableau VIDE (jamais une erreur) lorsqu'aucun évènement
+ * n'est actuellement éligible -- c'est l'issue NORMALE d'un worker qui
+ * n'a rien à traiter, pas une condition d'échec.
+ *
+ * AUCUNE charge utile brute, AUCUN secret, AUCUN public_token dans le
+ * contrat de retour (mission §6).
+ */
+export async function claimPaymentProviderEvents(
+  input: ClaimPaymentProviderEventsInput = {}
+): Promise<ClaimedPaymentProviderEvent[]> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: ClaimedPaymentProviderEventRow[] | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("claim_payment_provider_events", {
+      p_batch_size: input.batchSize ?? null,
+      p_lease_seconds: input.leaseSeconds ?? null,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("claim_payment_provider_events", error.code);
+    throw new PaymentServerRpcError();
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row) => ({
+    id: String(row.id),
+    restaurantId: String(row.restaurant_id),
+    orderId: String(row.order_id),
+    paymentTransactionId: String(row.payment_transaction_id),
+    providerCode: String(row.provider_code),
+    providerReference: String(row.provider_reference),
+    eventFingerprint: String(row.event_fingerprint),
+    providerEventType: String(row.provider_event_type),
+    providerEventCode: row.provider_event_code === null ? null : String(row.provider_event_code),
+    amount: row.amount === null ? null : String(row.amount),
+    currency: row.currency === null ? null : String(row.currency),
+    authorizationReference:
+      row.authorization_reference === null ? null : String(row.authorization_reference),
+    processingStatus: String(row.processing_status),
+    retryCount: Number(row.retry_count),
+    claimToken: String(row.claim_token),
+    claimExpiresAt: String(row.claim_expires_at),
+  }));
 }
 
 // ------------------------------------------------------------------
