@@ -112,14 +112,44 @@ test("archi: aucun accès direct à Vault depuis l'adaptateur Monetico (mandat �
   assert.deepEqual(offenders, [], `accès direct inattendu détecté : ${offenders.join(", ")}`);
 });
 
-test("archi: aucun app/api/ n'existe (aucune route publique ajoutée par ce lot, mandat §32)", () => {
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 (reconstruction sur main
+// courant après PAYMENT P3-B6 -- BASELINE LOCK de ce mandat exige
+// cb99bdaccc7952cb91962e7f4ae99302f6f97803, confirmé exact) : ce test
+// vérifiait à l'origine (PAYMENT P3-A2) qu'AUCUN app/api/ n'existait
+// du tout dans le dépôt. CUSTOMER TRACKING EXPERIENCE v2 en ajoute
+// EXACTEMENT un, mandat §8 -- app/api/track/exchange/route.ts, le
+// point de terminaison d'échange possession -> session de suivi
+// client (SEUL endroit où `public_token` transite encore par le
+// réseau, exclusivement en corps POST, jamais dans une URL). Ce test
+// reste un test de RÉGRESSION P3-A2 : il continue de vérifier que
+// PAYMENT P3-A2 lui-même n'a ajouté AUCUNE route (le seul répertoire
+// sous app/api/ reste celui de la piste de suivi client), et
+// qu'AUCUNE route de PAIEMENT n'existe nulle part sous app/api/.
+test("archi: app/api/ ne contient QUE le point d'échange de suivi client (CUSTOMER TRACKING EXPERIENCE v2) -- aucune route ajoutée par PAYMENT P3-A2, aucune route de paiement", () => {
   let apiDirExists = false;
   try {
     apiDirExists = statSync("app/api").isDirectory();
   } catch {
     apiDirExists = false;
   }
-  assert.equal(apiDirExists, false, "app/api/ ne devrait pas exister à l'issue de PAYMENT P3-A2");
+  if (!apiDirExists) return; // rien à vérifier plus loin -- invariant trivialement respecté
+
+  const apiFiles = walk("app/api");
+  const nonTrackingFiles = apiFiles.filter(
+    (f) => f !== "app/api/track/exchange/route.ts"
+  );
+  assert.deepEqual(
+    nonTrackingFiles,
+    [],
+    `fichier(s) inattendu(s) sous app/api/ (seul app/api/track/exchange/route.ts est autorisé) : ${nonTrackingFiles.join(", ")}`
+  );
+
+  const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");
+  assert.equal(
+    /payment|monetico|p3[-_]?[ab]\d/i.test(exchangeRouteSrc),
+    false,
+    "app/api/track/exchange/route.ts ne doit référencer aucun concept de paiement"
+  );
 });
 
 test("archi: aucun bouton/route de paiement client ajouté (mandat §4/§42) -- aucune mention de l'adaptateur Monetico dans le panier/checkout/WhatsApp", () => {

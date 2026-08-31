@@ -440,6 +440,32 @@ const fr: Dict = {
   rpSubmitting: "Mise à jour…",
   rpSuccessMessage: "Mot de passe mis à jour.",
   rpBackToLogin: "Retour à la connexion",
+
+  // CUSTOMER TRACKING EXPERIENCE v2 (mandat §25, "French-first,
+  // English-ready, preserve existing i18n architecture") -- clé
+  // parité EXACTE fr/en/ar exigée par tests/v64-auth-whatsapp.test.ts.
+  trackYourOrder: "Suivre ma commande",
+  trackingPageTitle: "Suivi de commande",
+  trackingOrderNumber: "Commande #{n}",
+  trackingInvalidTitle: "Lien de suivi introuvable",
+  trackingInvalidMessage:
+    "Ce lien de suivi n'est pas valide ou ne correspond à aucune commande. Vérifiez que vous avez utilisé le lien reçu lors de la confirmation de votre commande.",
+  trackingUnavailableTitle: "Suivi temporairement indisponible",
+  trackingUnavailableMessage:
+    "Nous ne pouvons pas afficher le suivi de votre commande pour le moment. Veuillez réessayer dans un instant.",
+  trackingLoadingMessage: "Chargement du suivi de votre commande…",
+  trackingRefreshLabel: "Actualiser le suivi",
+  trackingStatus_new: "Commande reçue",
+  trackingStatus_accepted: "Commande acceptée",
+  trackingStatus_preparing: "En préparation",
+  trackingStatus_ready: "Prête",
+  trackingStatus_ready_pickup: "Prête pour le retrait",
+  trackingStatus_ready_delivery: "Prête, en attente de prise en charge",
+  trackingStatus_ready_table: "Prête / en cours de service",
+  trackingStatus_ready_room_service: "Prête, en cours d'acheminement vers la chambre",
+  trackingStatus_completed: "Terminée",
+  trackingStatus_rejected: "Commande refusée",
+  trackingStatus_cancelled: "Commande annulée",
 };
 
 const en: Dict = {
@@ -816,6 +842,30 @@ const en: Dict = {
   rpSubmitting: "Updating…",
   rpSuccessMessage: "Password updated.",
   rpBackToLogin: "Back to sign in",
+
+  // CUSTOMER TRACKING EXPERIENCE v2.
+  trackYourOrder: "Track your order",
+  trackingPageTitle: "Order tracking",
+  trackingOrderNumber: "Order #{n}",
+  trackingInvalidTitle: "Tracking link not found",
+  trackingInvalidMessage:
+    "This tracking link is invalid or does not match any order. Please check that you used the link received when your order was confirmed.",
+  trackingUnavailableTitle: "Tracking temporarily unavailable",
+  trackingUnavailableMessage:
+    "We can't display your order tracking right now. Please try again in a moment.",
+  trackingLoadingMessage: "Loading your order tracking…",
+  trackingRefreshLabel: "Refresh tracking",
+  trackingStatus_new: "Order received",
+  trackingStatus_accepted: "Order accepted",
+  trackingStatus_preparing: "Preparing",
+  trackingStatus_ready: "Ready",
+  trackingStatus_ready_pickup: "Ready for pickup",
+  trackingStatus_ready_delivery: "Ready, awaiting handoff",
+  trackingStatus_ready_table: "Ready / being served",
+  trackingStatus_ready_room_service: "Ready, on its way to your room",
+  trackingStatus_completed: "Completed",
+  trackingStatus_rejected: "Order rejected",
+  trackingStatus_cancelled: "Order cancelled",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -1189,6 +1239,29 @@ const ar: Dict = {
   rpSubmitting: "جارٍ التحديث…",
   rpSuccessMessage: "تم تحديث كلمة المرور.",
   rpBackToLogin: "العودة إلى تسجيل الدخول",
+
+  // CUSTOMER TRACKING EXPERIENCE v2.
+  trackYourOrder: "تتبع طلبك",
+  trackingPageTitle: "تتبّع الطلب",
+  trackingOrderNumber: "الطلب رقم {n}",
+  trackingInvalidTitle: "رابط التتبّع غير موجود",
+  trackingInvalidMessage:
+    "هذا الرابط غير صالح أو لا يطابق أي طلب. يرجى التحقق من أنك استخدمت الرابط الذي تلقيته عند تأكيد طلبك.",
+  trackingUnavailableTitle: "التتبّع غير متاح حاليًا",
+  trackingUnavailableMessage: "تعذّر عرض تتبّع طلبك حاليًا. يرجى المحاولة مجددًا بعد قليل.",
+  trackingLoadingMessage: "جارٍ تحميل تتبّع طلبك…",
+  trackingRefreshLabel: "تحديث التتبّع",
+  trackingStatus_new: "تم استلام الطلب",
+  trackingStatus_accepted: "تم قبول الطلب",
+  trackingStatus_preparing: "قيد التحضير",
+  trackingStatus_ready: "جاهز",
+  trackingStatus_ready_pickup: "جاهز للاستلام",
+  trackingStatus_ready_delivery: "جاهز، بانتظار التسليم",
+  trackingStatus_ready_table: "جاهز / قيد التقديم",
+  trackingStatus_ready_room_service: "جاهز، في طريقه إلى الغرفة",
+  trackingStatus_completed: "منتهٍ",
+  trackingStatus_rejected: "تم رفض الطلب",
+  trackingStatus_cancelled: "تم إلغاء الطلب",
 };
 
 const DICTS: Record<Lang, Dict> = { fr, en, ar };

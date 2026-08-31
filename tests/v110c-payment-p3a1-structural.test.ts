@@ -68,11 +68,46 @@ test("archi: aucun composant \"use client\" n'importe lib/server/*", () => {
   assert.deepEqual(offenders, [], `composant client important lib/server/* : ${offenders.join(", ")}`);
 });
 
-test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/* (ni client ni serveur -- ce lot n'est branché nulle part)", () => {
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 (reconstruction sur main
+// courant après PAYMENT P3-B6 -- BASELINE LOCK de ce mandat exige
+// cb99bdaccc7952cb91962e7f4ae99302f6f97803, confirmé exact) : ce test
+// vérifiait à l'origine (PAYMENT P3-A1) que ce lot n'était "branché
+// nulle part". CUSTOMER TRACKING EXPERIENCE v2 est un lot PUBLIC
+// délibérément branché (mandat §3/§8) -- exactement DEUX fichiers
+// sous app/ importent désormais lib/server/*, tous deux nécessaires à
+// la page de suivi/son point d'échange de session, et JAMAIS un
+// fichier de paiement/P3-B6 :
+//   - app/track/[orderId]/page.tsx (Server Component de suivi)
+//   - app/api/track/exchange/route.ts (échange possession -> session,
+//     mandat §8/§9 -- SEUL point où public_token transite encore par
+//     le réseau, exclusivement en corps POST)
+// Chacun n'importe QUE des modules tracking-* dédiés (tracking-
+// service/tracking-errors/tracking-session), jamais un module de
+// paiement. Tout AUTRE fichier sous app/ ou components/ reste soumis
+// à l'invariant strict d'origine.
+const TRACKING_V2_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+  "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session)$/,
+  "app/api/track/exchange/route.ts": /^@\/lib\/server\/tracking-(service|errors|session)$/,
+};
+
+test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les deux points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2), et uniquement leurs modules tracking-* dédiés", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
     const src = readFileSync(file, "utf8");
-    if (SERVER_IMPORT_PATTERN.test(src)) offenders.push(file);
+    const allowedPattern = TRACKING_V2_ALLOWED_SERVER_IMPORTERS[file];
+    if (!allowedPattern) {
+      if (SERVER_IMPORT_PATTERN.test(src)) offenders.push(file);
+      continue;
+    }
+    // Fichier allowlisté : chaque import réel de lib/server/* doit
+    // correspondre au motif autorisé pour CE fichier précis -- jamais
+    // un module de paiement, jamais un module server arbitraire.
+    const importMatches = [...src.matchAll(/from\s+["'](@\/lib\/server\/[^"']+)["']/g)].map(
+      (m) => m[1]
+    );
+    for (const imported of importMatches) {
+      if (!allowedPattern.test(imported)) offenders.push(`${file} -> ${imported}`);
+    }
   }
   assert.deepEqual(offenders, [], `import inattendu de lib/server/* : ${offenders.join(", ")}`);
 });
@@ -188,14 +223,37 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
 // §29/§40 : aucune route API publique ajoutée par ce lot.
 // --------------------------------------------------------------
 
-test("archi: aucun app/api/ n'existe (ce lot établit l'infrastructure serveur, pas un point de terminaison public)", () => {
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 : même narrowing que
+// tests/v111h-payment-p3a2-structural.test.ts (voir son commentaire de
+// tête pour la justification complète) -- ce test reste un test de
+// RÉGRESSION P3-A1 (PAYMENT P3-A1 lui-même n'a ajouté aucune route),
+// PAS une interdiction absolue et permanente d'app/api/ pour tout le
+// dépôt.
+test("archi: app/api/ ne contient QUE le point d'échange de suivi client (CUSTOMER TRACKING EXPERIENCE v2) -- aucune route ajoutée par PAYMENT P3-A1, aucune route de paiement", () => {
   let apiDirExists = false;
   try {
     apiDirExists = statSync("app/api").isDirectory();
   } catch {
     apiDirExists = false;
   }
-  assert.equal(apiDirExists, false, "app/api/ ne devrait pas exister à l'issue de PAYMENT P3-A1");
+  if (!apiDirExists) return;
+
+  const apiFiles = walk("app/api");
+  const nonTrackingFiles = apiFiles.filter(
+    (f) => f !== "app/api/track/exchange/route.ts"
+  );
+  assert.deepEqual(
+    nonTrackingFiles,
+    [],
+    `fichier(s) inattendu(s) sous app/api/ (seul app/api/track/exchange/route.ts est autorisé) : ${nonTrackingFiles.join(", ")}`
+  );
+
+  const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");
+  assert.equal(
+    /payment|monetico|p3[-_]?[ab]\d/i.test(exchangeRouteSrc),
+    false,
+    "app/api/track/exchange/route.ts ne doit référencer aucun concept de paiement"
+  );
 });
 
 // --------------------------------------------------------------
