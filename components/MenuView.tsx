@@ -46,6 +46,7 @@ import CartPanel from "@/components/CartPanel";
 import OptionModal from "@/components/OptionModal";
 import OrderConfirmation from "@/components/OrderConfirmation";
 import ProductInfoButton from "@/components/ProductInfoButton";
+import { buildTrackingPath } from "@/lib/tracking/link";
 
 import { I18nProvider } from "@/lib/i18n-context";
 import { getTheme, themeStyle } from "@/lib/themes";
@@ -436,6 +437,16 @@ export default function MenuView({
     null
   );
   const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
+  // CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) — construit UNE SEULE
+  // FOIS par handleSendOrder(), à partir de l'order_id/public_token
+  // RÉELS renvoyés par create_order (jamais reconstruit/régénéré).
+  // Réinitialisé à `null` à la fermeture de l'écran de confirmation
+  // (mandat §11, "no second durable tracking authority" -- un état
+  // résiduel d'une commande précédente ne doit jamais fuiter vers la
+  // suivante).
+  const [confirmedTrackingPath, setConfirmedTrackingPath] = useState<
+    string | null
+  >(null);
 
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -753,6 +764,13 @@ export default function MenuView({
 
       setConfirmedContext(orderContext);
       setConfirmedNumber(order.orderNumber);
+      // CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) : order_id/
+      // public_token proviennent EXCLUSIVEMENT de cette réponse
+      // serveur de create_order -- jamais un jeton régénéré/reconstruit
+      // ici. Le lien porte le jeton en FRAGMENT d'URL (mandat §6/§7).
+      setConfirmedTrackingPath(
+        buildTrackingPath(order.orderId, order.publicToken)
+      );
       setIsCartOpen(false);
       setIsConfirmationOpen(true);
 
@@ -785,6 +803,10 @@ export default function MenuView({
   function closeConfirmation() {
     setIsConfirmationOpen(false);
     setActiveCategoryId(restaurant.categories[0]?.id ?? "");
+    // Mandat §11 : jamais d'état de suivi résiduel entre deux
+    // commandes -- la prochaine commande reconstruira son propre
+    // chemin depuis sa propre réponse create_order.
+    setConfirmedTrackingPath(null);
   }
 
   const t = (key: string, params?: Record<string, string | number>) =>
@@ -984,6 +1006,7 @@ export default function MenuView({
           restaurant={restaurant}
           context={confirmedContext}
           orderNumber={confirmedNumber}
+          trackingPath={confirmedTrackingPath}
           onBackToMenu={closeConfirmation}
           onNewOrder={closeConfirmation}
         />

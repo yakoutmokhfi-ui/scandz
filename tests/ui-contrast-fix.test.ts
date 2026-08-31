@@ -421,10 +421,16 @@ test("UIFIX-V3-01: OrderConfirmation.tsx -- le conteneur du récapitulatif (bg-c
   // "confirmThanks" (texte) et "newOrder" (bouton), tous deux
   // text-accent-dark-on-bg, sont HORS de ce conteneur, déjà
   // correctement affichés contre le fond global bg-crema -- jamais
-  // touchés. Confirmé : exactement 2 occurrences dans TOUT le
-  // fichier, aucune à l'intérieur de ce bloc précis.
+  // touchés.
+  // MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) : le CTA
+  // de suivi ("Suivre ma commande", trackingPath !== null) ajoute une
+  // TROISIÈME occurrence légitime de text-accent-dark-on-bg, lui aussi
+  // HORS de ce conteneur (bg-crema propre, pas un fond littéral figé
+  // -- jamais la régression UIFIX-01/UIFIX-V3-01 que ce fichier garde).
+  // Confirmé : exactement 3 occurrences dans TOUT le fichier, aucune à
+  // l'intérieur de ce bloc précis.
   const totalAccentDark = (src.match(/text-accent-dark-on-bg/g) || []).length;
-  assert.equal(totalAccentDark, 2);
+  assert.equal(totalAccentDark, 3);
   assert.ok(!summaryBlock.includes("text-accent-dark-on-bg"), "ni confirmThanks ni newOrder ne doivent être dans le conteneur corrigé, à raison");
 });
 

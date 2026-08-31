@@ -16,6 +16,19 @@
  * l'essai). Cette redirection reste strictement scopée au
  * spécificateur littéral "server-only" -- aucun autre module n'est
  * affecté, et ce hook n'est jamais chargé par `next build`/`next dev`.
+ *
+ * CUSTOMER TRACKING EXPERIENCE v2 (mandat §30, tests ciblés sur
+ * app/api/track/exchange/route.ts) : redirige AUSSI le spécificateur
+ * nu "next/server" vers le fichier concret node_modules/next/
+ * server.js. `next` ne déclare aucune carte "exports" dans son
+ * package.json -- la résolution ESM stricte de Node ne complète donc
+ * jamais l'extension pour un spécificateur nu de ce type (constaté
+ * empiriquement : `Cannot find module '.../next/server'`), alors que
+ * Next.js lui-même résout ce chemin sans ambiguïté au build/à
+ * l'exécution. Cette redirection reste, comme "server-only" ci-dessus,
+ * strictement scopée au spécificateur littéral "next/server" -- aucun
+ * autre sous-chemin de "next/*" n'est affecté, et ce hook n'est jamais
+ * chargé par `next build`/`next dev`.
  */
 import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
@@ -26,6 +39,9 @@ const root = path.resolve(import.meta.dirname, "..");
 export function resolve(specifier, context, nextResolve) {
   if (specifier === "server-only") {
     return nextResolve(pathToFileURL(path.join(root, "tests/server-only-stub.mjs")).href, context);
+  }
+  if (specifier === "next/server") {
+    return nextResolve(pathToFileURL(path.join(root, "node_modules/next/server.js")).href, context);
   }
   if (specifier.startsWith("@/")) {
     const base = path.join(root, specifier.slice(2));
