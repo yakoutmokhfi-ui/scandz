@@ -168,6 +168,19 @@ export interface MenuItem {
   name_hash?: string;
   short_description_hash?: string;
   description_hash?: string;
+  /** CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 — voir
+   *  lib/catalogue-fiscal.ts pour le modèle complet. Modèle SIMPLIFIÉ
+   *  portion-à-prix-fixe : `price` reste l'unique autorité de prix
+   *  (inchangée), le poids est purement informationnel/logistique et
+   *  ne participe JAMAIS à un calcul de prix. Optionnelles : colonnes
+   *  absentes tant que la migration n'est pas jouée (même convention
+   *  que `translations` ci-dessus). */
+  tax_rate?: number | null;
+  unit_weight_grams?: number | null;
+  weight_is_approximate?: boolean;
+  /** Colonne GÉNÉRÉE côté base (price / unit_weight_grams) —
+   *  métadonnée de référence uniquement, jamais une autorité. */
+  reference_price_per_kg?: number | null;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug
