@@ -114,12 +114,12 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // mandat §29 : ZÉRO nouveau SQL.
 // --------------------------------------------------------------
 
-test("archi: ce lot n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ inchangé (72, comme v110c/v111h)", () => {
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 72 (comme v110c/v111h) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, lot ULTÉRIEUR et SANS RAPPORT avec ce lot v2 -- seule cette ligne de base a changé, aucune ligne de ce lot v2 n'a bougé)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    72,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL`
+    73,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le seul delta légitime attendu vient d'un lot ultérieur (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);

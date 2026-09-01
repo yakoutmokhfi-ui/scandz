@@ -466,6 +466,19 @@ const fr: Dict = {
   trackingStatus_completed: "Terminée",
   trackingStatus_rejected: "Commande refusée",
   trackingStatus_cancelled: "Commande annulée",
+
+  // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 — voir
+  // lib/catalogue-fiscal.ts. Parité EXACTE fr/en/ar exigée par
+  // tests/v64-auth-whatsapp.test.ts ("i18n: les dictionnaires fr/en/ar
+  // ont exactement les mêmes clés"), même discipline que les clés
+  // trackingXxx ci-dessus.
+  fiscalTaxRateLabel: "Taux de TVA (%)",
+  fiscalUnitWeightLabel: "Poids de la portion (g)",
+  fiscalWeightIsApproximateLabel: "Poids approximatif",
+  fiscalReferencePricePerKgLabel: "Prix de référence au kg",
+  fiscalPerKgSuffix: "/kg",
+  fiscalErrorInvalidTaxRate: "Taux de TVA invalide (0 à 100).",
+  fiscalErrorInvalidWeightValue: "Le poids doit être un nombre positif.",
 };
 
 const en: Dict = {
@@ -866,6 +879,15 @@ const en: Dict = {
   trackingStatus_completed: "Completed",
   trackingStatus_rejected: "Order rejected",
   trackingStatus_cancelled: "Order cancelled",
+
+  // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.
+  fiscalTaxRateLabel: "Tax rate (%)",
+  fiscalUnitWeightLabel: "Portion weight (g)",
+  fiscalWeightIsApproximateLabel: "Approximate weight",
+  fiscalReferencePricePerKgLabel: "Reference price per kg",
+  fiscalPerKgSuffix: "/kg",
+  fiscalErrorInvalidTaxRate: "Invalid tax rate (0 to 100).",
+  fiscalErrorInvalidWeightValue: "Weight must be a positive number.",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -1262,6 +1284,15 @@ const ar: Dict = {
   trackingStatus_completed: "منتهٍ",
   trackingStatus_rejected: "تم رفض الطلب",
   trackingStatus_cancelled: "تم إلغاء الطلب",
+
+  // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.
+  fiscalTaxRateLabel: "نسبة الضريبة (%)",
+  fiscalUnitWeightLabel: "وزن الحصة (غ)",
+  fiscalWeightIsApproximateLabel: "وزن تقريبي",
+  fiscalReferencePricePerKgLabel: "السعر المرجعي لكل كيلوغرام",
+  fiscalPerKgSuffix: "/كغ",
+  fiscalErrorInvalidTaxRate: "نسبة ضريبة غير صالحة (من 0 إلى 100).",
+  fiscalErrorInvalidWeightValue: "يجب أن يكون الوزن رقمًا موجبًا.",
 };
 
 const DICTS: Record<Lang, Dict> = { fr, en, ar };

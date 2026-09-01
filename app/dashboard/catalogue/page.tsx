@@ -44,6 +44,13 @@ import {
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { translate, type Lang } from "@/lib/i18n";
 import Ltr from "@/components/Bidi";
+import {
+  validateFiscalMeasurementFields,
+  referencePricePerKg,
+  type FiscalMeasurementFields,
+  type FiscalValidationErrorCode,
+} from "@/lib/catalogue-fiscal";
+import { FiscalMeasurementValidationError } from "@/lib/services/catalogue-error";
 
 type ProductDraft = {
   name: string;
@@ -55,6 +62,15 @@ type ProductDraft = {
    *  product_id obtenu. `null` : aucune photo choisie, la création
    *  reste possible (facultatif). */
   photoFile: File | null;
+  /** CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 — voir
+   *  lib/catalogue-fiscal.ts pour le modèle SIMPLIFIÉ (prix fixe par
+   *  portion, poids purement informationnel). Champs texte (même
+   *  convention que `price` ci-dessus) : "" représente `null`, jamais
+   *  0 ou une valeur par défaut inventée. Parsés/validés par
+   *  parseFiscalDraft() juste avant soumission. */
+  taxRate: string;
+  unitWeightGrams: string;
+  weightIsApproximate: boolean;
 };
 
 type CategoryDraft = {
@@ -69,7 +85,63 @@ const EMPTY_PRODUCT_DRAFT: ProductDraft = {
   description: "",
   price: "",
   photoFile: null,
+  taxRate: "",
+  unitWeightGrams: "",
+  weightIsApproximate: false,
 };
+
+/** Chaîne texte de champ fiscal -> valeur numérique/`null`, avec un
+ *  filtre de format strict (jamais Number(), qui accepte silencieusement
+ *  "1e5", "+5", "Infinity"…) — un champ non vide qui ne respecte pas le
+ *  format est traité comme invalide, jamais comme `null`. */
+function parseDecimalField(raw: string): { value: number | null; formatOk: boolean } {
+  const s = raw.trim();
+  if (s === "") return { value: null, formatOk: true };
+  if (!/^\d+(\.\d+)?$/.test(s)) return { value: null, formatOk: false };
+  return { value: Number(s), formatOk: true };
+}
+function parseIntegerField(raw: string): { value: number | null; formatOk: boolean } {
+  const s = raw.trim();
+  if (s === "") return { value: null, formatOk: true };
+  if (!/^\d+$/.test(s)) return { value: null, formatOk: false };
+  return { value: Number(s), formatOk: true };
+}
+
+/** Construit les 2 champs fiscaux/mesure éditables à partir du
+ *  brouillon texte (mandat v1.1 §22 -- plus de matrice de combinaison,
+ *  ces 2 champs sont indépendants), et signale si un des champs
+ *  numériques a un format illisible. */
+function parseFiscalDraft(draft: ProductDraft): {
+  fields: FiscalMeasurementFields;
+  formatOk: boolean;
+} {
+  const taxRate = parseDecimalField(draft.taxRate);
+  const unitWeightGrams = parseIntegerField(draft.unitWeightGrams);
+  return {
+    fields: {
+      taxRate: taxRate.value,
+      unitWeightGrams: unitWeightGrams.value,
+      weightIsApproximate: draft.weightIsApproximate,
+    },
+    formatOk: taxRate.formatOk && unitWeightGrams.formatOk,
+  };
+}
+
+/** Traduit un code d'erreur RPC fiscal en message affichable -- 2
+ *  clés i18n dédiées (v1.1 : seulement 2 codes possibles, plus de
+ *  sales_unit/price_mode/weight_mode/combinaison). */
+function fiscalErrorMessage(
+  code: string,
+  t: (k: string, p?: Record<string, string | number>) => string
+): string {
+  switch (code as FiscalValidationErrorCode) {
+    case "SCANYM_INVALID_TAX_RATE":
+      return t("fiscalErrorInvalidTaxRate");
+    case "SCANYM_INVALID_WEIGHT_VALUE":
+    default:
+      return t("fiscalErrorInvalidWeightValue");
+  }
+}
 
 export default function CataloguePage() {
   const router = useRouter();
@@ -250,6 +322,8 @@ export default function CataloguePage() {
       } else if (e instanceof PhotoRemoveError) {
         console.error("Photo remove failed:", e.cause);
         setError(t("mcPhotoRemoveError"));
+      } else if (e instanceof FiscalMeasurementValidationError) {
+        setError(fiscalErrorMessage(e.code, t));
       } else {
         setError(e instanceof Error ? e.message : t("mcRefused"));
       }
@@ -306,6 +380,9 @@ export default function CataloguePage() {
       description: p.description ?? "",
       price: String(p.price),
       photoFile: null,
+      taxRate: p.tax_rate != null ? String(p.tax_rate) : "",
+      unitWeightGrams: p.unit_weight_grams != null ? String(p.unit_weight_grams) : "",
+      weightIsApproximate: p.weight_is_approximate ?? false,
     });
   }
 
@@ -479,12 +556,18 @@ export default function CataloguePage() {
                   onCancel={() => setCreatingIn(null)}
                   onSubmit={() =>
                     run("new", async () => {
+                      const { fields: fiscalFields } = parseFiscalDraft(draft);
                       const productId = await createProduct(
                         cat.category_id,
                         draft.name,
                         draft.description || null,
                         Number(draft.price),
-                        draft.shortDescription || null
+                        draft.shortDescription || null,
+                        {
+                          taxRate: fiscalFields.taxRate,
+                          unitWeightGrams: fiscalFields.unitWeightGrams,
+                          weightIsApproximate: fiscalFields.weightIsApproximate,
+                        }
                       );
                       const photoFile = draft.photoFile;
                       setCreatingIn(null);
@@ -562,12 +645,18 @@ export default function CataloguePage() {
                           t={t}
                           onSubmit={() =>
                             run(p.product_id, async () => {
+                              const { fields: fiscalFields } = parseFiscalDraft(draft);
                               await updateProduct(
                                 p.product_id,
                                 draft.name,
                                 draft.description || null,
                                 Number(draft.price),
-                                draft.shortDescription || null
+                                draft.shortDescription || null,
+                                {
+                                  taxRate: fiscalFields.taxRate,
+                                  unitWeightGrams: fiscalFields.unitWeightGrams,
+                                  weightIsApproximate: fiscalFields.weightIsApproximate,
+                                }
                               );
                               setEditingId(null);
                             })
@@ -922,12 +1011,23 @@ function ProductForm({
   const shortState = normalizeText(draft.shortDescription, SHORT_DESCRIPTION_MAX_LENGTH);
   const longState = normalizeText(draft.description, LONG_DESCRIPTION_MAX_LENGTH);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const { fields: fiscalFields, formatOk: fiscalFormatOk } = parseFiscalDraft(draft);
+  const fiscalFieldError = validateFiscalMeasurementFields(fiscalFields);
+  const fiscalError = !fiscalFormatOk ? "SCANYM_INVALID_WEIGHT_VALUE" : fiscalFieldError;
+  // Aperçu du prix de référence au kg (métadonnée de RÉFÉRENCE
+  // uniquement, mandat §6) -- affiché en confort si un poids valide
+  // est renseigné, jamais transmis au serveur (colonne générée).
+  const referencePreview =
+    fiscalFieldError === null && fiscalFields.unitWeightGrams !== null
+      ? referencePricePerKg(Number(draft.price) || 0, fiscalFields.unitWeightGrams)
+      : null;
   const valid =
     draft.name.trim().length > 0 &&
     Number(draft.price) >= 0 &&
     draft.price.trim() !== "" &&
     shortState.isValid &&
     longState.isValid &&
+    fiscalError === null &&
     !submitting;
 
   const previewUrl = useMemo(
@@ -1067,6 +1167,51 @@ function ProductForm({
         placeholder={labels.price}
         className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
       />
+
+      {/* CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §8) --
+          modèle SIMPLIFIÉ portion-à-prix-fixe : champs indépendants
+          (plus de mode de prix, plus d'unité de vente, plus de
+          matrice de combinaison -- mandat §22). Le poids est une
+          information catalogue/logistique, jamais un second calcul de
+          prix (mandat §11). */}
+      <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-2.5">
+        <input
+          value={draft.taxRate}
+          onChange={(e) => setDraft({ ...draft, taxRate: e.target.value.replace(",", ".") })}
+          inputMode="decimal"
+          placeholder={t("fiscalTaxRateLabel")}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        />
+
+        <input
+          value={draft.unitWeightGrams}
+          onChange={(e) => setDraft({ ...draft, unitWeightGrams: e.target.value })}
+          inputMode="numeric"
+          placeholder={t("fiscalUnitWeightLabel")}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        />
+
+        <label className="flex items-center gap-2 text-sm text-stone-700">
+          <input
+            type="checkbox"
+            checked={draft.weightIsApproximate}
+            onChange={(e) => setDraft({ ...draft, weightIsApproximate: e.target.checked })}
+          />
+          {t("fiscalWeightIsApproximateLabel")}
+        </label>
+
+        {referencePreview !== null && (
+          <p className="text-xs text-stone-500">
+            {t("fiscalReferencePricePerKgLabel")}: <Ltr>{referencePreview.toFixed(2)}</Ltr>
+            {t("fiscalPerKgSuffix")}
+          </p>
+        )}
+
+        {fiscalError && (
+          <p className="text-xs font-semibold text-amber-700">{fiscalErrorMessage(fiscalError, t)}</p>
+        )}
+      </div>
+
       <div className="flex gap-2">
         <button
           onClick={onSubmit}

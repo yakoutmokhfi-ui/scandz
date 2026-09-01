@@ -11,6 +11,13 @@ import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 
+// CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §9/§10) --
+// AUCUN champ technique séparé de poids/prix-au-kg n'est ajouté à la
+// carte client. Le poids reste, quand le commerçant le souhaite, une
+// mention ordinaire dans le nom/la description du produit (ex.
+// "Raclette — portion env. 200 g") -- la carte publique reste
+// STRICTEMENT INCHANGÉE par ce lot.
+
 /**
  * Carte produit compacte horizontale : photo à gauche, informations à
  * droite, action en bas à droite.

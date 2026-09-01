@@ -12,10 +12,12 @@ import {
   isDescriptionTooLongError,
   isCategoryDuplicateNameError,
   isCategoryDescriptionTooLongError,
+  isFiscalMeasurementValidationError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
   CategoryDescriptionTooLongError,
+  FiscalMeasurementValidationError,
 } from "@/lib/services/catalogue-error";
 
 export {
@@ -146,6 +148,15 @@ export interface CatalogueProduct {
   is_option_source: boolean;
   /** Photo produit (V67), Supabase Storage ou ancienne image statique. `null` si aucune photo. */
   image_url: string | null;
+  /** CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 — voir
+   *  lib/catalogue-fiscal.ts. Modèle simplifié portion-à-prix-fixe :
+   *  `price` (ci-dessus) reste l'unique autorité, le poids est
+   *  purement informationnel/logistique. */
+  tax_rate: number | null;
+  unit_weight_grams: number | null;
+  weight_is_approximate: boolean;
+  /** Colonne GÉNÉRÉE côté base -- métadonnée de référence uniquement. */
+  reference_price_per_kg: number | null;
 }
 
 /**
@@ -191,6 +202,10 @@ export async function getMerchantCatalogue(
     display_order: number | null;
     is_option_source: boolean | null;
     image_url: string | null;
+    tax_rate: number | null;
+    unit_weight_grams: number | null;
+    weight_is_approximate: boolean | null;
+    reference_price_per_kg: number | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -231,6 +246,14 @@ export async function getMerchantCatalogue(
       display_order: r.display_order as number,
       is_option_source: r.is_option_source as boolean,
       image_url: r.image_url,
+      tax_rate: r.tax_rate,
+      unit_weight_grams: r.unit_weight_grams,
+      // Repli défensif : une base non encore migrée (colonne absente
+      // de get_merchant_catalogue) renverrait `null` -- jamais casser
+      // l'écran catalogue pour autant (même défaut que la migration
+      // elle-même, mandat §26).
+      weight_is_approximate: r.weight_is_approximate ?? false,
+      reference_price_per_kg: r.reference_price_per_kg,
     });
   }
   return categories;
@@ -247,12 +270,34 @@ export async function setProductAvailability(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 — les 3 champs
+ * fiscaux/de mesure éditables, optionnels (valeurs par défaut =
+ * comportement historique exact, mandat §17). Voir
+ * lib/catalogue-fiscal.ts pour le modèle et FiscalMeasurementFields.
+ * `referencePricePerKg` n'existe PAS ici : colonne générée côté base,
+ * jamais un paramètre RPC (mandat §6).
+ */
+export interface ProductFiscalInput {
+  taxRate?: number | null;
+  unitWeightGrams?: number | null;
+  weightIsApproximate?: boolean;
+}
+
+function throwFiscalOrCatalogueError(error: { code?: string | null; message?: string | null }): never {
+  if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
+  if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
+  if (isFiscalMeasurementValidationError(error)) throw new FiscalMeasurementValidationError(error.message ?? "");
+  throw new Error(error.message ?? "Unknown error");
+}
+
 export async function updateProduct(
   productId: string,
   name: string,
   description: string | null,
   price: number,
-  shortDescription: string | null = null
+  shortDescription: string | null = null,
+  fiscal: ProductFiscalInput = {}
 ): Promise<void> {
   const { error } = await supabase.rpc("update_product", {
     p_product_id: productId,
@@ -260,12 +305,11 @@ export async function updateProduct(
     p_description: description,
     p_price: price,
     p_short_description: shortDescription,
+    p_tax_rate: fiscal.taxRate ?? null,
+    p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
+    p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
   });
-  if (error) {
-    if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
-    if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
-    throw new Error(error.message);
-  }
+  if (error) throwFiscalOrCatalogueError(error);
 }
 
 export async function createProduct(
@@ -273,7 +317,8 @@ export async function createProduct(
   name: string,
   description: string | null,
   price: number,
-  shortDescription: string | null = null
+  shortDescription: string | null = null,
+  fiscal: ProductFiscalInput = {}
 ): Promise<string> {
   const { data, error } = await supabase.rpc("create_product", {
     p_category_id: categoryId,
@@ -281,12 +326,11 @@ export async function createProduct(
     p_description: description,
     p_price: price,
     p_short_description: shortDescription,
+    p_tax_rate: fiscal.taxRate ?? null,
+    p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
+    p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
   });
-  if (error) {
-    if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
-    if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
-    throw new Error(error.message);
-  }
+  if (error) throwFiscalOrCatalogueError(error);
   return data as string;
 }
 
