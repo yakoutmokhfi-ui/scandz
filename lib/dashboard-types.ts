@@ -21,16 +21,18 @@ export interface MerchantRestaurant {
 
 export interface DashboardOrderItem {
   id: string;
+  /** Instantané figé au moment de create_order -- RECEIPT / INVOICE
+      TAX DETAIL v1.1 (ferme RITD-V1-NAME-HISTORY-01) : c'est l'UNIQUE
+      source d'affichage du nom de produit/option pour une commande,
+      dans TOUTES les langues du tableau de bord. Aucun champ de
+      traduction catalogue courante n'est chargé ici -- en charger un
+      réintroduirait la même classe de défaut (une vieille commande
+      changerait d'affichage quand le catalogue change). */
   item_name: string;
   option_name: string | null;
   quantity: number;
   unit_price: number;
   line_total: number;
-  /** Traductions du produit et de l'option, pour afficher le ticket
-      dans la langue du gérant plutôt que dans celle figée à la
-      commande. */
-  menu_items?: { translations?: Record<string, { name?: string }> | null } | null;
-  option?: { translations?: Record<string, { name?: string }> | null } | null;
 }
 
 export interface DashboardOrder {

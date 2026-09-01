@@ -214,7 +214,7 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // 72 -- mesuré directement (pas rejoué depuis un ancien delta).
 test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 73, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, lot ultérieur et sans rapport avec P3-A1) attendu`);
+  assert.equal(sqlFiles.length, 74, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1, lot ultérieur et sans rapport avec P3-A1) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });

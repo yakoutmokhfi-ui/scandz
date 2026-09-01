@@ -34,21 +34,34 @@ const nextActions: Partial<Record<OrderStatus, { status: OrderStatus; key: strin
 };
 
 /**
- * Nom du produit dans la langue du gérant.
+ * Nom du produit -- TOUJOURS l'instantané figé à la commande
+ * (order_items.item_name), quelle que soit la langue d'affichage du
+ * gérant.
  *
- * order_items conserve un instantané du nom au moment de la
- * commande — en français. Quand le produit existe toujours et
- * possède une traduction, on l'affiche ; sinon on retombe sur
- * l'instantané, qui reste la vérité de ce qui a été commandé.
+ * RECEIPT / INVOICE TAX DETAIL v1.1 -- ferme
+ * RITD-V1-NAME-HISTORY-01 (audit Work v1, MEDIUM, release-blocking) :
+ * la version précédente retombait sur menu_items.translations[lang]
+ * (l'état COURANT du catalogue) dès que lang !== "fr", ce qui violait
+ * l'invariant central du lot ("AN OLD ORDER MUST NEVER CHANGE WHEN
+ * THE CATALOGUE CHANGES") -- un renommage ou une traduction ajoutée/
+ * modifiée APRÈS la commande changeait l'affichage d'une VIEILLE
+ * commande. Corrigé en lisant EXCLUSIVEMENT l'instantané
+ * order_items.item_name/option_name, jamais une traduction catalogue
+ * courante, dans TOUTES les langues -- y compris quand cet instantané
+ * est en français alors que le gérant consulte le tableau de bord en
+ * anglais/arabe : il est préférable d'afficher le nom original que de
+ * traduire un nom qui n'existait pas au moment de la commande (mandat
+ * v1.1 §5, "do not invent historical translations that were never
+ * snapshotted"). Aucune architecture de snapshot de traduction n'est
+ * ajoutée -- correctif minimal, comportement déjà correct de
+ * lib/receipt.ts (le ticket imprimé) désormais reproduit ici.
  */
-function itemName(item: DashboardOrder["order_items"][number], lang: Lang) {
-  if (lang === "fr") return item.item_name;
-  return item.menu_items?.translations?.[lang]?.name ?? item.item_name;
+function itemName(item: DashboardOrder["order_items"][number]) {
+  return item.item_name;
 }
 
-function optionName(item: DashboardOrder["order_items"][number], lang: Lang) {
-  if (lang === "fr") return item.option_name;
-  return item.option?.translations?.[lang]?.name ?? item.option_name;
+function optionName(item: DashboardOrder["order_items"][number]) {
+  return item.option_name;
 }
 
 function service(order: DashboardOrder, lang: Lang) {
@@ -113,10 +126,10 @@ export default function OrderCard({
           <div key={item.id} className="flex justify-between gap-3 text-sm">
             <div>
               <span className="font-bold">
-                {item.quantity} × {itemName(item, lang)}
+                {item.quantity} × {itemName(item)}
               </span>
               {item.option_name && (
-                <p className="text-stone-500">+ {optionName(item, lang)}</p>
+                <p className="text-stone-500">+ {optionName(item)}</p>
               )}
             </div>
             <span className="whitespace-nowrap font-semibold">{formatPrice(Number(item.line_total), order.currency)}</span>

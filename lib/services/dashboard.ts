@@ -51,9 +51,7 @@ export async function getDashboardOrders(
       subtotal, total, currency, created_at, updated_at,
       order_items (
         id, item_name, option_name, quantity, unit_price, line_total,
-        menu_item_id, option_item_id,
-        menu_items!order_items_menu_item_id_fkey ( translations ),
-        option:menu_items!order_items_option_item_id_fkey ( translations )
+        menu_item_id, option_item_id
       )
     `
     )
