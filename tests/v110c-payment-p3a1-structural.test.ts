@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // ====================================================================
@@ -68,40 +68,51 @@ test("archi: aucun composant \"use client\" n'importe lib/server/*", () => {
   assert.deepEqual(offenders, [], `composant client important lib/server/* : ${offenders.join(", ")}`);
 });
 
-// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 (reconstruction sur main
-// courant après PAYMENT P3-B6 -- BASELINE LOCK de ce mandat exige
-// cb99bdaccc7952cb91962e7f4ae99302f6f97803, confirmé exact) : ce test
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2.1 + PAYMENT P3-B
+// MONETICO CHECKOUT RUNTIME v3/v4/v4.1 (RECONCILIÉS -- baseline
+// a2f93da3851f48200dd839aeef9dc299538a2a7b, voir
+// REPORTS/BASELINE-RECONCILIATION-REPORT-v4.1.txt) : ce test
 // vérifiait à l'origine (PAYMENT P3-A1) que ce lot n'était "branché
-// nulle part". CUSTOMER TRACKING EXPERIENCE v2 est un lot PUBLIC
-// délibérément branché (mandat §3/§8) -- exactement DEUX fichiers
-// sous app/ importent désormais lib/server/*, tous deux nécessaires à
-// la page de suivi/son point d'échange de session, et JAMAIS un
-// fichier de paiement/P3-B6 :
-//   - app/track/[orderId]/page.tsx (Server Component de suivi)
-//   - app/api/track/exchange/route.ts (échange possession -> session,
-//     mandat §8/§9 -- SEUL point où public_token transite encore par
-//     le réseau, exclusivement en corps POST)
-// Chacun n'importe QUE des modules tracking-* dédiés (tracking-
-// service/tracking-errors/tracking-session), jamais un module de
-// paiement. Tout AUTRE fichier sous app/ ou components/ reste soumis
-// à l'invariant strict d'origine.
-const TRACKING_V2_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+// nulle part". DEUX lots publics distincts l'ont depuis
+// délibérément branché : CUSTOMER TRACKING EXPERIENCE v2.1 (mandat
+// §3/§8, page de suivi + point d'échange de session) ET PAYMENT
+// P3-B MONETICO CHECKOUT RUNTIME v3/v4 (checkout/callback/worker de
+// reprise + relais de retour). La liste des fichiers app/
+// autorisés à importer lib/server/* est désormais EXPLICITE et
+// FERMÉE (mission §32 de PAYMENT P3-A2 levée UNIQUEMENT pour CES
+// fichiers précis) : les 2 fichiers de suivi client restent
+// SCOPÉS à leurs seuls modules tracking-* dédiés (jamais un module
+// de paiement) ; les 4 fichiers Monetico peuvent importer n'importe
+// quel module lib/server/* (patron déjà établi, PAYMENT P3-B v3/v4).
+// Tout AUTRE fichier sous app/ ou components/ reste soumis à
+// l'invariant strict d'origine.
+const TRACKING_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session)$/,
   "app/api/track/exchange/route.ts": /^@\/lib\/server\/tracking-(service|errors|session)$/,
 };
+const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
+  "app/api/payments/monetico/checkout/route.ts",
+  "app/api/payments/monetico/callback/route.ts",
+  "app/api/internal/payments/monetico/recover/route.ts",
+  "app/checkout/return/shared.ts",
+]);
 
-test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les deux points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2), et uniquement leurs modules tracking-* dédiés", () => {
+test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*) et les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module)", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
     const src = readFileSync(file, "utf8");
-    const allowedPattern = TRACKING_V2_ALLOWED_SERVER_IMPORTERS[file];
+    if (MONETICO_ALLOWED_SERVER_IMPORTERS.has(file)) {
+      continue;
+    }
+    const allowedPattern = TRACKING_ALLOWED_SERVER_IMPORTERS[file];
     if (!allowedPattern) {
       if (SERVER_IMPORT_PATTERN.test(src)) offenders.push(file);
       continue;
     }
-    // Fichier allowlisté : chaque import réel de lib/server/* doit
-    // correspondre au motif autorisé pour CE fichier précis -- jamais
-    // un module de paiement, jamais un module server arbitraire.
+    // Fichier allowlisté (suivi client) : chaque import réel de
+    // lib/server/* doit correspondre au motif autorisé pour CE
+    // fichier précis -- jamais un module de paiement, jamais un
+    // module server arbitraire.
     const importMatches = [...src.matchAll(/from\s+["'](@\/lib\/server\/[^"']+)["']/g)].map(
       (m) => m[1]
     );
@@ -110,6 +121,14 @@ test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF
     }
   }
   assert.deepEqual(offenders, [], `import inattendu de lib/server/* : ${offenders.join(", ")}`);
+});
+
+test("archi: les 4 fichiers Monetico autorisés à importer lib/server/* existent TOUJOURS et importent RÉELLEMENT lib/server/* (la liste ci-dessus ne fige jamais un fichier disparu/renommé sans le remarquer)", () => {
+  for (const file of MONETICO_ALLOWED_SERVER_IMPORTERS) {
+    assert.ok(existsSync(file), `fichier attendu absent : ${file}`);
+    const src = readFileSync(file, "utf8");
+    assert.ok(SERVER_IMPORT_PATTERN.test(src), `${file} n'importe plus lib/server/* -- entrée obsolète`);
+  }
 });
 
 test("archi: lib/supabase.ts (client anon, orienté navigateur) n'importe jamais lib/server/*", () => {
@@ -214,7 +233,7 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // 72 -- mesuré directement (pas rejoué depuis un ancien delta).
 test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 74, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1, lot ultérieur et sans rapport avec P3-A1) attendu`);
+  assert.equal(sqlFiles.length, 77, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4.5/v4.6 -- migration forward depuis le VRAI prédécesseur historique, ferme P3BV44-FORWARD-PREDECESSOR-01) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
@@ -223,30 +242,36 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
 // §29/§40 : aucune route API publique ajoutée par ce lot.
 // --------------------------------------------------------------
 
-// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 : même narrowing que
-// tests/v111h-payment-p3a2-structural.test.ts (voir son commentaire de
-// tête pour la justification complète) -- ce test reste un test de
-// RÉGRESSION P3-A1 (PAYMENT P3-A1 lui-même n'a ajouté aucune route),
-// PAS une interdiction absolue et permanente d'app/api/ pour tout le
-// dépôt.
-test("archi: app/api/ ne contient QUE le point d'échange de suivi client (CUSTOMER TRACKING EXPERIENCE v2) -- aucune route ajoutée par PAYMENT P3-A1, aucune route de paiement", () => {
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2.1 + PAYMENT P3-B
+// MONETICO CHECKOUT RUNTIME v3/v4 (RECONCILIÉS) : ce test reste un
+// test de RÉGRESSION P3-A1 (PAYMENT P3-A1 lui-même n'a ajouté aucune
+// route) -- PAS une interdiction absolue et permanente d'app/api/
+// pour tout le dépôt. Deux lots distincts l'ont depuis légitimement
+// peuplé (voir la liste fermée ci-dessous) ; toute route NON prévue
+// par L'UN OU L'AUTRE reste détectée.
+test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERIENCE v2.1 + PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 -- aucune autre route ajoutée par PAYMENT P3-A1", () => {
   let apiDirExists = false;
   try {
     apiDirExists = statSync("app/api").isDirectory();
   } catch {
     apiDirExists = false;
   }
-  if (!apiDirExists) return;
-
-  const apiFiles = walk("app/api");
-  const nonTrackingFiles = apiFiles.filter(
-    (f) => f !== "app/api/track/exchange/route.ts"
-  );
-  assert.deepEqual(
-    nonTrackingFiles,
-    [],
-    `fichier(s) inattendu(s) sous app/api/ (seul app/api/track/exchange/route.ts est autorisé) : ${nonTrackingFiles.join(", ")}`
-  );
+  assert.equal(apiDirExists, true, "app/api/ devrait exister depuis CUSTOMER TRACKING EXPERIENCE v2.1 et PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3");
+  const routeFiles = walk("app/api")
+    .filter((f) => /route\.tsx?$/.test(f))
+    .sort();
+  // Liste fermée -- 1 route de suivi client (CUSTOMER TRACKING
+  // EXPERIENCE v2.1) + 3 routes Monetico (PAYMENT P3-B MONETICO
+  // CHECKOUT RUNTIME v3/v4, dont le worker de reprise, ferme
+  // P3B-V3-ACK-RECOVERY-01 -- jamais activé/programmé par ce lot,
+  // voir le commentaire de fichier de la route elle-même et
+  // REPORTS/FINAL-REPORT-v4.1.md, section GOVERNANCE).
+  assert.deepEqual(routeFiles, [
+    "app/api/internal/payments/monetico/recover/route.ts",
+    "app/api/payments/monetico/callback/route.ts",
+    "app/api/payments/monetico/checkout/route.ts",
+    "app/api/track/exchange/route.ts",
+  ]);
 
   const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");
   assert.equal(

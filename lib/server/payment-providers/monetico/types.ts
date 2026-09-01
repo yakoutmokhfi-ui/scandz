@@ -66,8 +66,38 @@ export interface BuildMoneticoRequestInput {
   /** Amorce (seed) déterministe pour la dérivation de la référence
    *  Monetico (reference.ts) -- typiquement l'id de commande ; le
    *  choix exact appartient à la future orchestration (P3-B), hors
-   *  périmètre de ce lot bibliothèque pur. */
-  referenceSeed: string;
+   *  périmètre de ce lot bibliothèque pur. REQUIS sauf si `reference`
+   *  (ci-dessous) est fourni directement. */
+  referenceSeed?: string;
+  /**
+   * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 — référence Monetico
+   * DÉJÀ CALCULÉE, à utiliser TELLE QUELLE au lieu de la dériver via
+   * `deriveMoneticoReference(referenceSeed)`. Existe EXCLUSIVEMENT
+   * pour le chemin de REPRISE (résout le gap documenté par PAYMENT
+   * P3-B3 : "Reconstruire un formulaire hébergé prestataire avec CETTE
+   * MÊME référence reste la responsabilité d'une future orchestration
+   * P3-B v2") : `getOrderActivePaymentAttempt` (P3-B3) restitue la
+   * référence FINALE déjà stockée par `initiate_payment_attempt` lors
+   * de l'initiation d'origine, jamais l'amorce (seed) qui l'a produite
+   * -- celle-ci n'est stockée nulle part et ne peut donc jamais être
+   * ni retrouvée ni rejouée par `deriveMoneticoReference`. Sans ce
+   * champ, toute reconstruction de formulaire pour une tentative
+   * `pending` déjà initiée enverrait à Monetico une référence
+   * DIFFÉRENTE de celle stockée côté `payment_transactions`, rendant
+   * le callback ultérieur structurellement impossible à corréler --
+   * un défaut latent, jamais exercé par aucun test avant ce lot.
+   *
+   * RÉTROCOMPATIBILITÉ STRICTE : omis (le cas de TOUT appelant
+   * PAYMENT P3-A2 existant), le comportement reste BYTE-IDENTIQUE --
+   * `reference` continue d'être dérivé exclusivement de
+   * `referenceSeed` via `deriveMoneticoReference`, exactement comme
+   * avant ce lot (non-régression MAC, même discipline que
+   * `urlRetourOk`/`urlRetourErr` ci-dessous). Fourni, il prend
+   * strictement PRIORITÉ sur `referenceSeed` (qui devient alors
+   * ignoré s'il est également présent, plutôt que de faire échouer
+   * l'appel sur une redondance inoffensive).
+   */
+  reference?: string;
   /** Code langue ISO documenté (DE/EN/ES/FR/IT/JA/NL/PT/SV) -- "FR"
    *  par défaut. */
   language?: string;
@@ -95,6 +125,33 @@ export interface BuildMoneticoRequestInput {
    * `request.ts` ne fabrique JAMAIS un objet `shipping` vide.
    */
   shippingContext?: MoneticoShippingContext;
+  /**
+   * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 — ferme V2-07 (return
+   * URLs). URL de retour navigateur en cas de paiement accepté. Le
+   * mandat nomme ce champ explicitement `url_retour_ok` (français,
+   * cohérent avec le vocabulaire français de tous les autres noms de
+   * champ Monetico -- code-retour/montant/societe) ; le document v2.0
+   * anglais utilise une glose traduite "url_return_ok" mais ne confirme
+   * pas indépendamment le nom de champ réel sur le fil -- désaccord
+   * documenté honnêtement, jamais traité comme bloquant (voir
+   * RETURN-URL-SECURITY-REPORT.txt du paquet livré). Optionnel et
+   * RÉTROCOMPATIBLE : omis, la requête reste BYTE-IDENTIQUE à son
+   * comportement d'origine (non-régression MAC, même discipline que
+   * `billingContext`/`shippingContext`, PAYMENT P3-B6).
+   *
+   * INVARIANT CONTRAIGNANT (mandat v3) : cette URL est PUREMENT
+   * informative pour l'expérience navigateur -- la page qu'elle
+   * désigne DOIT lire l'état serveur autoritaire
+   * (`getOrderPaymentStatusSnapshot`) plutôt que de faire confiance au
+   * simple fait d'avoir été atteinte. Ce fichier ne fait QUE la
+   * transmettre à Monetico, il n'implémente ni n'interprète jamais
+   * cette page lui-même.
+   */
+  urlRetourOk?: string;
+  /** Symétrique de `urlRetourOk` pour un paiement refusé/annulé -- même
+   *  réserve documentée sur le nom de champ exact, même invariant
+   *  "browser return never authoritative". */
+  urlRetourErr?: string;
 }
 
 /** Champs de la requête de paiement Monetico sortante (interface
@@ -111,6 +168,14 @@ export interface MoneticoPaymentRequestFields {
   lgue: string;
   contexte_commande: string;
   societe: string;
+  /** PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 -- présent UNIQUEMENT si
+   *  `BuildMoneticoRequestInput.urlRetourOk` a été fourni (mandat V2-07).
+   *  Omis (absent de l'objet, jamais une chaîne vide) sinon -- même
+   *  discipline additive que `billing`/`shipping` dans
+   *  `contexte_commande` (PAYMENT P3-B6). */
+  url_retour_ok?: string;
+  /** Symétrique pour un paiement refusé/annulé. */
+  url_retour_err?: string;
   MAC: string;
 }
 

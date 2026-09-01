@@ -4,6 +4,7 @@ import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
 import {
   PaymentServerRpcError,
   PaymentServerUnavailableError,
+  PSEUDO_SQLSTATE_EMPTY_ROW,
 } from "@/lib/server/payment-errors";
 import {
   canonicalizePaymentProviderEventFields,
@@ -159,13 +160,13 @@ export async function initiatePaymentAttempt(
 
   if (error) {
     logRpcFailure("initiate_payment_attempt", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("initiate_payment_attempt", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("initiate_payment_attempt", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("initiate_payment_attempt", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -234,13 +235,13 @@ export async function confirmPaymentAttempt(
 
   if (error) {
     logRpcFailure("confirm_payment_attempt", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("confirm_payment_attempt", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("confirm_payment_attempt", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("confirm_payment_attempt", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -290,12 +291,12 @@ export async function getPaymentProviderCredential(
     // qui ne reçoit jamais que error.code (SQLSTATE), jamais une
     // valeur pouvant provenir du credential lui-même.
     logRpcFailure("get_payment_provider_credential", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_provider_credential", error.code);
   }
 
   if (typeof data !== "string" || data.length === 0) {
     logRpcFailure("get_payment_provider_credential", "EMPTY_RESULT");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_provider_credential", null);
   }
 
   return data;
@@ -394,13 +395,13 @@ export async function getPaymentTransactionCorrelation(
 
   if (error) {
     logRpcFailure("get_payment_transaction_correlation", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_transaction_correlation", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("get_payment_transaction_correlation", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_transaction_correlation", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -493,13 +494,13 @@ export async function getPaymentRuntimeProviderConfig(
 
   if (error) {
     logRpcFailure("get_payment_runtime_provider_config", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_runtime_provider_config", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("get_payment_runtime_provider_config", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_runtime_provider_config", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -590,13 +591,13 @@ export async function getOrderPaymentContext(
 
   if (error) {
     logRpcFailure("get_order_payment_context", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_order_payment_context", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("get_order_payment_context", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_order_payment_context", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -714,7 +715,7 @@ export async function getOrderActivePaymentAttempt(
 
   if (error) {
     logRpcFailure("get_order_active_payment_attempt", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_order_active_payment_attempt", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
@@ -849,13 +850,13 @@ export async function getPaymentRuntimeProviderEnvironment(
 
   if (error) {
     logRpcFailure("get_payment_runtime_provider_environment", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_runtime_provider_environment", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("get_payment_runtime_provider_environment", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_runtime_provider_environment", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   const rawMode = String(row.mode);
@@ -864,7 +865,7 @@ export async function getPaymentRuntimeProviderEnvironment(
     // qui en déduirait un point de terminaison financier (voir le
     // commentaire de conception ci-dessus).
     logRpcFailure("get_payment_runtime_provider_environment", "INVALID_MODE");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_payment_runtime_provider_environment", null);
   }
 
   return {
@@ -1012,13 +1013,13 @@ export async function recordPaymentProviderEvent(
 
   if (error) {
     logRpcFailure("record_payment_provider_event", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("record_payment_provider_event", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("record_payment_provider_event", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("record_payment_provider_event", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -1132,13 +1133,13 @@ export async function updatePaymentProviderEventProcessingStatus(
 
   if (error) {
     logRpcFailure("update_payment_provider_event_processing_status", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("update_payment_provider_event_processing_status", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("update_payment_provider_event_processing_status", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("update_payment_provider_event_processing_status", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
@@ -1265,7 +1266,7 @@ export async function claimPaymentProviderEvents(
 
   if (error) {
     logRpcFailure("claim_payment_provider_events", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("claim_payment_provider_events", error.code);
   }
 
   const rows = Array.isArray(data) ? data : [];
@@ -1288,6 +1289,162 @@ export async function claimPaymentProviderEvents(
     claimToken: String(row.claim_token),
     claimExpiresAt: String(row.claim_expires_at),
   }));
+}
+
+// ------------------------------------------------------------------
+// get_order_service_mode(p_order_id uuid, p_public_token uuid)
+//   returns table (service_mode text)
+// PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — SHIPPING AUTHORITY.
+// ------------------------------------------------------------------
+
+export interface GetOrderServiceModeInput {
+  orderId: string;
+  /** Preuve de possession du client anonyme -- même modèle que
+   *  `getOrderPaymentContext`/`getOrderBillingContext`. */
+  publicToken: string;
+}
+
+export interface OrderServiceModeResult {
+  /** Valeur BRUTE de `orders.service_mode`, jamais interprétée ni
+   *  validée par ce wrapper au-delà de "chaîne non vide" -- ferme
+   *  P3B-V4-SHIPPING-AUTHORITY-01 : c'est l'appelant (le classificateur
+   *  d'applicabilité shipping Monetico, payment-checkout-runtime.ts)
+   *  qui décide ce qui compte comme "delivery", jamais ce wrapper. */
+  serviceMode: string;
+}
+
+interface OrderServiceModeRow {
+  service_mode: string;
+}
+
+/**
+ * Lit `orders.service_mode` (source AUTORITAIRE unique) via
+ * `get_order_service_mode` (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4).
+ * Remplace le booléen `isDeliveryOrder` précédemment accepté depuis le
+ * JSON navigateur (v3) -- le navigateur ne peut plus jamais décider
+ * lui-même si le contexte anti-fraude signé Monetico contient un objet
+ * `shipping` (mandat v4 §9 : "the browser cannot decide whether the
+ * signed Monetico anti-fraud context contains shipping").
+ *
+ * Même modèle de preuve de possession que `getOrderPaymentContext`/
+ * `getOrderBillingContext` -- `orderId`/`publicToken` uniquement.
+ * Absence de ligne (mauvais jeton, mauvaise commande) traitée comme
+ * une panne serveur (contrairement à `getOrderActivePaymentAttempt`/
+ * `getOrderBillingContext`, une commande possédée légitimement a
+ * TOUJOURS un `service_mode` non NULL -- contrainte CHECK déjà en
+ * place sur `orders`, mission migration-orders.sql) : une absence ici
+ * signale une possession invalide, jamais un état métier normal.
+ */
+export async function getOrderServiceMode(
+  input: GetOrderServiceModeInput
+): Promise<OrderServiceModeResult> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderServiceModeRow[] | OrderServiceModeRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_service_mode", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_service_mode", error.code);
+    throw new PaymentServerRpcError("get_order_service_mode", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row.service_mode !== "string" || row.service_mode.length === 0) {
+    logRpcFailure("get_order_service_mode", "EMPTY_ROW");
+    throw new PaymentServerRpcError("get_order_service_mode", PSEUDO_SQLSTATE_EMPTY_ROW);
+  }
+
+  return { serviceMode: row.service_mode };
+}
+
+// ------------------------------------------------------------------
+// claim_payment_provider_event_by_id(p_event_id uuid, p_lease_seconds
+//   integer default 60) returns table (... même forme que
+//   claim_payment_provider_events)
+// PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — ferme
+// P3B-V4-ACK-RECOVERY-01 (chemin de traitement synchrone).
+// ------------------------------------------------------------------
+
+export interface ClaimPaymentProviderEventByIdInput {
+  eventId: string;
+  /** Même borne RPC que `claimPaymentProviderEvents` ([5,3600]).
+   *  Défaut RPC : 60. */
+  leaseSeconds?: number;
+}
+
+/**
+ * Revendique ATOMIQUEMENT UN évènement précis (par id) via
+ * `claim_payment_provider_event_by_id` (PAYMENT P3-B MONETICO
+ * CHECKOUT RUNTIME v4) -- sœur ciblée-par-id de
+ * `claimPaymentProviderEvents` (PAYMENT P3-B5 v2, INCHANGÉE),
+ * EXACTEMENT la même politique d'éligibilité/bail, restreinte à un
+ * seul id. Existe pour le chemin de traitement SYNCHRONE (juste après
+ * `recordPaymentProviderEvent`) : revendiquer PRÉCISÉMENT l'évènement
+ * qu'on vient d'enregistrer, jamais un évènement plus ancien d'un
+ * AUTRE restaurant qui se trouverait en tête de la file générique.
+ *
+ * Renvoie `null` (jamais une erreur) si l'id est absent, déjà dans un
+ * état terminal (rejeu d'un évènement déjà traité), ou actuellement
+ * revendiqué par un bail non expiré (traitement concurrent déjà en
+ * cours) -- l'appelant traite cela comme "rien à faire ici
+ * maintenant", jamais une condition d'échec (mission §17 : un rejeu
+ * exact ne doit jamais re-déclencher un second traitement métier).
+ */
+export async function claimPaymentProviderEventById(
+  input: ClaimPaymentProviderEventByIdInput
+): Promise<ClaimedPaymentProviderEvent | null> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: ClaimedPaymentProviderEventRow[] | ClaimedPaymentProviderEventRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("claim_payment_provider_event_by_id", {
+      p_event_id: input.eventId,
+      p_lease_seconds: input.leaseSeconds ?? null,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("claim_payment_provider_event_by_id", error.code);
+    throw new PaymentServerRpcError("claim_payment_provider_event_by_id", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    // Absence légitime -- voir le commentaire de la fonction : PAS une
+    // erreur, jamais journalisée comme une panne RPC.
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    restaurantId: String(row.restaurant_id),
+    orderId: String(row.order_id),
+    paymentTransactionId: String(row.payment_transaction_id),
+    providerCode: String(row.provider_code),
+    providerReference: String(row.provider_reference),
+    eventFingerprint: String(row.event_fingerprint),
+    providerEventType: String(row.provider_event_type),
+    providerEventCode: row.provider_event_code === null ? null : String(row.provider_event_code),
+    amount: row.amount === null ? null : String(row.amount),
+    currency: row.currency === null ? null : String(row.currency),
+    authorizationReference:
+      row.authorization_reference === null ? null : String(row.authorization_reference),
+    processingStatus: String(row.processing_status),
+    retryCount: Number(row.retry_count),
+    claimToken: String(row.claim_token),
+    claimExpiresAt: String(row.claim_expires_at),
+  };
 }
 
 // ------------------------------------------------------------------
@@ -1377,7 +1534,7 @@ function validateBillingContextSource(
     return raw;
   }
   logRpcFailure(rpcName, "UNEXPECTED_SOURCE");
-  throw new PaymentServerRpcError();
+  throw new PaymentServerRpcError(rpcName, null);
 }
 
 /**
@@ -1416,7 +1573,7 @@ export async function getOrderBillingContext(
 
   if (error) {
     logRpcFailure("get_order_billing_context", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("get_order_billing_context", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
@@ -1530,19 +1687,110 @@ export async function setOrderBillingContext(
 
   if (error) {
     logRpcFailure("set_order_billing_context", error.code);
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("set_order_billing_context", error.code);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
     logRpcFailure("set_order_billing_context", "EMPTY_ROW");
-    throw new PaymentServerRpcError();
+    throw new PaymentServerRpcError("set_order_billing_context", PSEUDO_SQLSTATE_EMPTY_ROW);
   }
 
   return {
     orderId: String(row.order_id),
     source: validateBillingContextSource("set_order_billing_context", row.source),
     updatedAt: String(row.updated_at),
+  };
+}
+
+// ------------------------------------------------------------------
+// get_order_payment_status_snapshot(p_order_id uuid, p_public_token uuid)
+//   returns table (payment_status text, provider_code text,
+//                  has_observed_refusal boolean, last_refusal_at timestamptz)
+// PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 — ferme V2-07 (browser
+// return never authoritative).
+// ------------------------------------------------------------------
+
+export interface GetOrderPaymentStatusSnapshotInput {
+  orderId: string;
+  /** Preuve de possession du client anonyme (`orders.public_token`),
+   *  même modèle que tous les wrappers possession-scoped ci-dessus.
+   *  JAMAIS journalisée par ce wrapper, y compris en cas d'échec. */
+  publicToken: string;
+}
+
+export interface OrderPaymentStatusSnapshot {
+  paymentStatus: string;
+  /** null si aucune tentative n'a jamais été initiée pour cette
+   *  commande (LEFT JOIN côté SQL). */
+  providerCode: string | null;
+  hasObservedRefusal: boolean;
+  /** null si aucun refus n'a jamais été observé. ISO 8601, tel que
+   *  renvoyé par PostgREST -- aucune conversion Date() ici. */
+  lastRefusalAt: string | null;
+}
+
+interface OrderPaymentStatusSnapshotRow {
+  payment_status: string;
+  provider_code: string | null;
+  has_observed_refusal: boolean;
+  last_refusal_at: string | null;
+}
+
+/**
+ * Vérifie la possession client anonyme (`order_id` + `public_token`,
+ * modèle EXACT déjà établi par `getOrderPaymentContext`/
+ * `getOrderActivePaymentAttempt`) et renvoie l'état de paiement
+ * AUTORITAIRE agrégé d'une commande via `get_order_payment_status_
+ * snapshot` (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3). Ferme V2-07 :
+ * une page de retour navigateur (`url_retour_ok`/`url_retour_err`)
+ * DOIT appeler ce wrapper pour décider quoi afficher -- elle ne doit
+ * JAMAIS faire confiance à un paramètre de requête/POST renvoyé par le
+ * navigateur lui-même, qui n'a aucune valeur probante.
+ *
+ * Lecture PURE, aucune capacité de mutation -- n'appelle et ne peut
+ * jamais appeler `confirmPaymentAttempt`/`initiatePaymentAttempt`.
+ * Une absence de résultat (aucune ligne -- jeton/commande incorrects)
+ * n'est PAS traduite en erreur ici : elle est retournée telle quelle
+ * (`null`) à l'appelant, qui doit afficher le même état générique
+ * "statut indisponible" que pour toute autre paire incorrecte, sans
+ * jamais distinguer observablement "mauvais jeton" de "commande
+ * inexistante" (même posture anti-fuite que `get_order_payment_status_
+ * snapshot` lui-même, mandat V3 §7).
+ */
+export async function getOrderPaymentStatusSnapshot(
+  input: GetOrderPaymentStatusSnapshotInput
+): Promise<OrderPaymentStatusSnapshot | null> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderPaymentStatusSnapshotRow[] | OrderPaymentStatusSnapshotRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_payment_status_snapshot", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_payment_status_snapshot", error.code);
+    throw new PaymentServerRpcError("get_order_payment_status_snapshot", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    // Absence légitime (mauvais jeton/commande) -- jamais une erreur,
+    // jamais journalisée comme une panne RPC.
+    return null;
+  }
+
+  return {
+    paymentStatus: String(row.payment_status),
+    providerCode: row.provider_code === null ? null : String(row.provider_code),
+    hasObservedRefusal: Boolean(row.has_observed_refusal),
+    lastRefusalAt: row.last_refusal_at === null ? null : String(row.last_refusal_at),
   };
 }
 

@@ -249,6 +249,20 @@ drain_claimable_backlog() {
 # l'appelant sait qu'un seul évènement est actuellement éligible.
 claim_one() {
   local lease="${1:-60}"
+  # PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4.6 -- ferme
+  # P3BV45-SQL-INSTALL-CHAIN-01 : CE harnais teste EXCLUSIVEMENT le
+  # VRAI prédécesseur historique P3-B5 (SHA
+  # 45da34c37550ea89a1441d73a3ebcef074e35ecfa1738812694c8075771b6af6),
+  # qui NE CONTIENT PAS next_attempt_at, AUCUN backoff, AUCUNE
+  # politique de délai -- un évènement failed_retryable y est
+  # RE-REVENDICABLE IMMÉDIATEMENT après chaque échec. AUCUNE avance
+  # artificielle de next_attempt_at n'est donc nécessaire ni possible
+  # ICI (la colonne n'existe pas dans ce prédécesseur) -- supprimée
+  # définitivement. Le barème de délai lui-même (30/120/600/1800s)
+  # est testé exhaustivement et séparément par le harnais de la
+  # migration forward v4.6
+  # (supabase/tests/payment-p3b-monetico-checkout-runtime-v46-forward-check.sh),
+  # SEUL endroit où next_attempt_at existe et doit être manipulé.
   as_service "select id, claim_token from claim_payment_provider_events(1, $lease);"
 }
 
