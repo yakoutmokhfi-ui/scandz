@@ -112,44 +112,30 @@ test("archi: aucun accès direct à Vault depuis l'adaptateur Monetico (mandat �
   assert.deepEqual(offenders, [], `accès direct inattendu détecté : ${offenders.join(", ")}`);
 });
 
-// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2 (reconstruction sur main
-// courant après PAYMENT P3-B6 -- BASELINE LOCK de ce mandat exige
-// cb99bdaccc7952cb91962e7f4ae99302f6f97803, confirmé exact) : ce test
-// vérifiait à l'origine (PAYMENT P3-A2) qu'AUCUN app/api/ n'existait
-// du tout dans le dépôt. CUSTOMER TRACKING EXPERIENCE v2 en ajoute
-// EXACTEMENT un, mandat §8 -- app/api/track/exchange/route.ts, le
-// point de terminaison d'échange possession -> session de suivi
-// client (SEUL endroit où `public_token` transite encore par le
-// réseau, exclusivement en corps POST, jamais dans une URL). Ce test
-// reste un test de RÉGRESSION P3-A2 : il continue de vérifier que
-// PAYMENT P3-A2 lui-même n'a ajouté AUCUNE route (le seul répertoire
-// sous app/api/ reste celui de la piste de suivi client), et
-// qu'AUCUNE route de PAIEMENT n'existe nulle part sous app/api/.
-test("archi: app/api/ ne contient QUE le point d'échange de suivi client (CUSTOMER TRACKING EXPERIENCE v2) -- aucune route ajoutée par PAYMENT P3-A2, aucune route de paiement", () => {
+// MISE À JOUR CUSTOMER TRACKING EXPERIENCE v2.1 + PAYMENT P3-B
+// MONETICO CHECKOUT RUNTIME v3/v4/v4.1 (RECONCILIÉS -- baseline
+// a2f93da3851f48200dd839aeef9dc299538a2a7b, voir
+// REPORTS/BASELINE-RECONCILIATION-REPORT-v4.1.txt) : ce test vérifiait
+// à l'origine (PAYMENT P3-A2) qu'AUCUN app/api/ n'existait du tout.
+// DEUX lots publics distincts l'ont depuis légitimement peuplé :
+// CUSTOMER TRACKING EXPERIENCE v2.1 (point d'échange de suivi client)
+// et PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (checkout/callback/
+// worker de reprise). Ce test reste un test de RÉGRESSION P3-A2 : il
+// continue de vérifier que PAYMENT P3-A2 lui-même n'a ajouté AUCUNE
+// route. La liste FERMÉE et EXHAUSTIVE des routes attendues (et la
+// vérification qu'aucune route de paiement ne fuite vers le point de
+// suivi client) vit désormais dans tests/v110c-payment-p3a1-structural
+// .test.ts, seul endroit qui la maintient -- ce fichier ne la duplique
+// plus (patron déjà établi par v110c/v111h pour éviter deux sources de
+// vérité divergentes sur la même liste).
+test("archi: app/api/ existe (peuplé par CUSTOMER TRACKING EXPERIENCE v2.1 et PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 -- liste fermée des routes vérifiée dans tests/v110c-payment-p3a1-structural.test.ts) -- aucune route ajoutée par PAYMENT P3-A2 lui-même", () => {
   let apiDirExists = false;
   try {
     apiDirExists = statSync("app/api").isDirectory();
   } catch {
     apiDirExists = false;
   }
-  if (!apiDirExists) return; // rien à vérifier plus loin -- invariant trivialement respecté
-
-  const apiFiles = walk("app/api");
-  const nonTrackingFiles = apiFiles.filter(
-    (f) => f !== "app/api/track/exchange/route.ts"
-  );
-  assert.deepEqual(
-    nonTrackingFiles,
-    [],
-    `fichier(s) inattendu(s) sous app/api/ (seul app/api/track/exchange/route.ts est autorisé) : ${nonTrackingFiles.join(", ")}`
-  );
-
-  const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");
-  assert.equal(
-    /payment|monetico|p3[-_]?[ab]\d/i.test(exchangeRouteSrc),
-    false,
-    "app/api/track/exchange/route.ts ne doit référencer aucun concept de paiement"
-  );
+  assert.equal(apiDirExists, true, "app/api/ devrait exister depuis CUSTOMER TRACKING EXPERIENCE v2.1 et PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3");
 });
 
 test("archi: aucun bouton/route de paiement client ajouté (mandat §4/§42) -- aucune mention de l'adaptateur Monetico dans le panier/checkout/WhatsApp", () => {
@@ -229,7 +215,7 @@ test("archi: aucun bouton/route de paiement client ajouté (mandat §4/§42) -- 
 // 72 -- mesuré directement (pas rejoué depuis un ancien delta).
 test("archi: aucun fichier SQL ajouté par P3-A2 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6, aucun nom contenant p3a2)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 74, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1, lot ultérieur et sans rapport avec P3-A2) attendu`);
+  assert.equal(sqlFiles.length, 77, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4.5/v4.6 -- migration forward depuis le VRAI prédécesseur historique, ferme P3BV44-FORWARD-PREDECESSOR-01) attendu`);
   const p3a2Named = sqlFiles.filter((f) => /p3a2/i.test(f));
   assert.deepEqual(p3a2Named, []);
 });

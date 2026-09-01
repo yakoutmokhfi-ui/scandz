@@ -114,12 +114,12 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // mandat §29 : ZÉRO nouveau SQL.
 // --------------------------------------------------------------
 
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 72 (comme v110c/v111h) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 74 (v2 lui-même + CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 + RECEIPT / INVOICE TAX DETAIL v1) + 3 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    74,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le seul delta légitime attendu vient de lots ultérieurs (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, RECEIPT / INVOICE TAX DETAIL v1)`
+    77,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, RECEIPT / INVOICE TAX DETAIL v1, PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);
@@ -149,15 +149,23 @@ test("archi: le token-transport/UI/service de suivi v2 ne référence JAMAIS pay
 });
 
 // --------------------------------------------------------------
-// mandat §19 : AUCUNE route API hors le seul point de terminaison
-// d'échange attendu (déjà vérifié par v110c/v111h via l'allowlist
-// app/api/, reconfirmé ici de façon ciblée pour ce lot précis).
+// mandat §19 : ce lot lui-même n'ajoute QUE le point de terminaison
+// d'échange -- PAS une interdiction absolue de tout le reste
+// d'app/api/ (RECONCILIÉ avec PAYMENT P3-B MONETICO CHECKOUT RUNTIME
+// v3/v4, qui y ajoute légitimement 3 routes Monetico distinctes). La
+// liste FERMÉE et EXHAUSTIVE des routes attendues pour TOUT le dépôt
+// vit désormais dans tests/v110c-payment-p3a1-structural.test.ts
+// (seule source de vérité pour cette liste, jamais dupliquée ici).
 // --------------------------------------------------------------
 
-test("archi: app/api/ ne contient QUE le point de terminaison d'échange de ce lot (mandat §19, aucun autre endpoint public ajouté)", () => {
-  if (!existsSync("app/api")) return; // absence totale reste acceptable
-  const apiFiles = walk("app/api").filter((f) => /\.tsx?$/.test(f));
-  assert.deepEqual(apiFiles, ["app/api/track/exchange/route.ts"], `app/api/ contient des fichiers inattendus : ${apiFiles.join(", ")}`);
+test("archi: app/api/track/exchange/route.ts (point de terminaison d'échange de ce lot) existe, et aucune AUTRE route sous app/api/track/ n'a été ajoutée par ce lot (mandat §19 -- la liste fermée et exhaustive de TOUT app/api/, Monetico inclus, est vérifiée par tests/v110c-payment-p3a1-structural.test.ts)", () => {
+  assert.ok(existsSync("app/api/track/exchange/route.ts"), "app/api/track/exchange/route.ts devrait exister");
+  const trackApiFiles = existsSync("app/api/track") ? walk("app/api/track").filter((f) => /\.tsx?$/.test(f)) : [];
+  assert.deepEqual(
+    trackApiFiles,
+    ["app/api/track/exchange/route.ts"],
+    `app/api/track/ contient des fichiers inattendus : ${trackApiFiles.join(", ")}`
+  );
 });
 
 // --------------------------------------------------------------

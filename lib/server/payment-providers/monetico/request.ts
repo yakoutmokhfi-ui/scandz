@@ -107,16 +107,53 @@ function buildContexteCommande(
   return Buffer.from(json, "utf8").toString("base64");
 }
 
+/**
+ * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4.2 — ferme
+ * P3BV41-PREFLIGHT-01 : extrait la validation/canonicalisation de
+ * `language` en fonction PURE, indépendamment appelable AVANT toute
+ * mutation P1 (`initiatePaymentAttempt`). AUCUN changement de
+ * comportement pour un appelant existant -- `buildMoneticoPaymentRequest`
+ * ci-dessous délègue désormais à cette même fonction plutôt que de
+ * dupliquer la logique (source de vérité UNIQUE, même liste
+ * `SUPPORTED_LANGUAGES`/`DEFAULT_LANGUAGE`, v2.0 §1.4.2.2 p.12-17).
+ * Valeur non fournie -> `DEFAULT_LANGUAGE` ("FR"), jamais un échec --
+ * seule une valeur EXPLICITEMENT fournie et NON supportée échoue
+ * fermé (`MoneticoProtocolError("MONETICO_UNSUPPORTED_LANGUAGE")`).
+ */
+export function canonicalizeMoneticoLanguage(language?: string): string {
+  const canonical = (language ?? DEFAULT_LANGUAGE).toUpperCase();
+  if (!SUPPORTED_LANGUAGES.has(canonical)) {
+    throw new MoneticoProtocolError("MONETICO_UNSUPPORTED_LANGUAGE");
+  }
+  return canonical;
+}
+
 export function buildMoneticoPaymentRequest(
   input: BuildMoneticoRequestInput,
   now: Date = new Date()
 ): MoneticoPaymentRequestFields {
-  const language = (input.language ?? DEFAULT_LANGUAGE).toUpperCase();
-  if (!SUPPORTED_LANGUAGES.has(language)) {
-    throw new MoneticoProtocolError("MONETICO_UNSUPPORTED_LANGUAGE");
-  }
+  // Revalide (jamais coûteux -- Set.has, mandat §6 "assembly from
+  // already validated values" reste respecté : un appelant qui a déjà
+  // canonicalisé via `canonicalizeMoneticoLanguage` obtient
+  // exactement la même valeur en retour, ce n'est jamais un second
+  // point de FAILLIBILITÉ nouveau, seulement une garde défensive
+  // -- voir payment-checkout-runtime.ts, qui appelle désormais cette
+  // fonction AVANT P1 et propage la valeur déjà canonicalisée ici).
+  const language = canonicalizeMoneticoLanguage(input.language);
 
-  const reference = deriveMoneticoReference(input.referenceSeed);
+  // PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 -- chemin de REPRISE
+  // (voir le commentaire de `BuildMoneticoRequestInput.reference` dans
+  // types.ts) : `reference` fournie directement PREND STRICTEMENT
+  // PRIORITÉ sur `referenceSeed`. Omise (tout appelant existant),
+  // comportement BYTE-IDENTIQUE à avant ce lot.
+  let reference: string;
+  if (typeof input.reference === "string" && input.reference.length > 0) {
+    reference = input.reference;
+  } else if (typeof input.referenceSeed === "string" && input.referenceSeed.length > 0) {
+    reference = deriveMoneticoReference(input.referenceSeed);
+  } else {
+    throw new MoneticoProtocolError("MONETICO_MISSING_REFERENCE_SOURCE");
+  }
   const montant = formatMontant(input.amount, input.currency);
   const date = formatDate(now);
   const contexte_commande = buildContexteCommande(
@@ -125,10 +162,17 @@ export function buildMoneticoPaymentRequest(
     input.shippingContext
   );
 
-  // Jeu de champs "reconnus" pour la signature sortante de CE lot v1
-  // (voir canonicalization.ts pour la portée exacte de cette notion) --
-  // exactement les 8 champs obligatoires confirmés, jamais un champ
-  // optionnel non implémenté ici.
+  // Jeu de champs "reconnus" pour la signature sortante de CE lot --
+  // les 8 champs obligatoires confirmés, PLUS url_retour_ok/
+  // url_retour_err (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3, ferme
+  // V2-07) UNIQUEMENT s'ils sont fournis (voir canonicalization.ts :
+  // le jeu "reconnu" pour la signature MAC est exactement l'ensemble
+  // des clés de cet objet -- ajouter ces deux champs ICI, avant le
+  // calcul du MAC, est ce qui les fait correctement entrer dans la
+  // signature, exactement comme billing/shipping le font déjà via
+  // contexte_commande). RÉTROCOMPATIBILITÉ STRICTE (mandat P3-B6 §18,
+  // reprise à l'identique) : ni fourni -> objet BYTE-IDENTIQUE à avant
+  // ce lot, MAC inchangé pour toute requête n'utilisant pas ces champs.
   const unsigned: Record<string, string> = {
     version: VERSION,
     TPE: input.credential.tpe,
@@ -139,11 +183,17 @@ export function buildMoneticoPaymentRequest(
     contexte_commande,
     societe: input.credential.societe,
   };
+  if (typeof input.urlRetourOk === "string" && input.urlRetourOk.length > 0) {
+    unsigned.url_retour_ok = input.urlRetourOk;
+  }
+  if (typeof input.urlRetourErr === "string" && input.urlRetourErr.length > 0) {
+    unsigned.url_retour_err = input.urlRetourErr;
+  }
 
   const keyBuffer = transformSecurityKey(input.credential.securityKey);
   const mac = computeMac(unsigned, keyBuffer);
 
-  return {
+  const fields: MoneticoPaymentRequestFields = {
     version: unsigned.version,
     TPE: unsigned.TPE,
     date: unsigned.date,
@@ -154,4 +204,7 @@ export function buildMoneticoPaymentRequest(
     societe: unsigned.societe,
     MAC: mac,
   };
+  if (unsigned.url_retour_ok !== undefined) fields.url_retour_ok = unsigned.url_retour_ok;
+  if (unsigned.url_retour_err !== undefined) fields.url_retour_err = unsigned.url_retour_err;
+  return fields;
 }
