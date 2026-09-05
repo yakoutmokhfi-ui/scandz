@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import type { RestaurantFull, MenuCategory, RestaurantActiveLanguage } from "@/lib/types";
+import type { RestaurantFull, MenuCategory, MenuSubcategory, RestaurantActiveLanguage } from "@/lib/types";
+import { compareMenuItemsForPublicDisplay } from "@/lib/catalogue-subcategory-grouping";
 
 /**
  * Service unique d'accès aux données du restaurant.
@@ -22,6 +23,7 @@ export async function getRestaurantBySlug(
       restaurant_configs ( * ),
       menu_categories (
         *,
+        menu_subcategories ( id, category_id, name, display_order ),
         menu_items!menu_items_category_id_fkey ( * )
       ),
       restaurant_active_languages (
@@ -53,17 +55,46 @@ export async function getRestaurantBySlug(
 
   // Filtrage et tri côté service pour garder des composants
   // de présentation purs.
+  //
+  // CATALOGUE / SUBCATEGORIES v1 -- menu_items reste un tableau PLAT
+  // par catégorie (aucun changement de forme pour MenuView/le panier/
+  // la résolution d'options, tous keyés par item.id) ; seul l'ORDRE et
+  // les champs `subcategory_name`/`subcategory_display_order` résolus
+  // changent.
+  //
+  // v1.1 -- remédiation CAT-SUB-V1-PUBLIC-GROUPING-01 (audit Work) :
+  // le tri utilise désormais compareMenuItemsForPublicDisplay (lib/
+  // catalogue-subcategory-grouping.ts), un ORDRE TOTAL déterministe qui
+  // ne départage jamais 2 sous-catégories DIFFÉRENTES par un champ
+  // produit -- l'ancien comparateur ad hoc ci-dessous retombait sur le
+  // display_order du PRODUIT quand 2 sous-catégories partageaient le
+  // même display_order, entrelaçant leurs produits (ex. A1, B2, A3, B4)
+  // au lieu de garder chaque sous-catégorie contiguë. Pour un
+  // commerçant sans sous-catégorie, ce tri redevient exactement le tri
+  // historique par display_order (voir tests/v139-catalogue-public-
+  // grouping-order.test.ts).
   const prepared: MenuCategory[] = (data.menu_categories ?? [])
     .sort((a: MenuCategory, b: MenuCategory) => a.display_order - b.display_order)
-    .map((c: MenuCategory) => ({
-      ...c,
-      menu_items: (c.menu_items ?? [])
+    .map((c: MenuCategory) => {
+      const subcategoriesById = new Map<string, MenuSubcategory>(
+        (c.menu_subcategories ?? []).map((s) => [s.id, s])
+      );
+      const menu_items = (c.menu_items ?? [])
         // Un produit archivé quitte la carte publique ; un produit
         // simplement indisponible aussi, mais il reste restaurable
         // d'un geste par le commerçant.
         .filter((i) => i.is_available && !i.archived_at)
-        .sort((a, b) => a.display_order - b.display_order),
-    }))
+        .map((i) => {
+          const sub = i.subcategory_id ? subcategoriesById.get(i.subcategory_id) : undefined;
+          return {
+            ...i,
+            subcategory_name: sub?.name ?? null,
+            subcategory_display_order: sub?.display_order ?? null,
+          };
+        })
+        .sort(compareMenuItemsForPublicDisplay);
+      return { ...c, menu_items };
+    })
     .filter((c: MenuCategory) => c.menu_items.length > 0);
 
   // Une catégorie inactive n'apparaît pas au menu, mais reste

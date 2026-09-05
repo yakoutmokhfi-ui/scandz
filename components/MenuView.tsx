@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
+import { groupMenuItemsBySubcategory } from "@/lib/catalogue-subcategory-grouping";
 import {
   buildWhatsAppUrl,
   formatPrice,
@@ -457,6 +458,18 @@ export default function MenuView({
     (c) => c.id === activeCategoryId
   );
 
+  // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
+  // catégorie active en groupes consécutifs (produits directs, puis
+  // chaque sous-catégorie) pour insérer un sous-titre visuel SANS
+  // changer la liste plate consommée par le panier/les options
+  // (toujours indexés par item.id, inchangé). Un seul groupe
+  // `subcategoryId: null` pour un commerçant sans sous-catégorie --
+  // rendu strictement identique au comportement historique.
+  const activeCategoryItemGroups = useMemo(
+    () => groupMenuItemsBySubcategory(activeCategory?.menu_items ?? []),
+    [activeCategory]
+  );
+
   const isInlineOptions = settings.optionsDisplay === "inline";
 
   /** Quantités par goût pour un produit donné (affichage sur la carte). */
@@ -900,33 +913,48 @@ export default function MenuView({
             </div>
             {/* Filet laiton : marque la section sans aplat doré */}
             <div className="mt-1.5 h-px w-12 bg-gold" />
-            <div className="mt-4 space-y-4">
-              {activeCategory.menu_items.map((item) => {
-                const group = getOptionGroup(restaurant.slug, item);
-                const inline = isInlineOptions && group !== null;
-                return (
-                  <MenuItemCard
-                    key={item.id}
-                    item={item}
-                    currency={restaurant.config.currency}
-                    quantity={quantityFor(item)}
-                    requiresChoice={group !== null}
-                    inlineChoices={
-                      inline ? getChoices(restaurant, group!) : undefined
-                    }
-                    inlineCounts={inline ? countsFor(item) : undefined}
-                    onAdd={() => handleAdd(item)}
-                    onRemove={() => handleRemove(item)}
-                    variant={menuVariant}
-                    onChangeChoice={
-                      inline
-                        ? (choice, delta) =>
-                            handleInlineChange(item, choice, delta)
-                        : undefined
-                    }
-                  />
-                );
-              })}
+            <div className="mt-4 space-y-6">
+              {activeCategoryItemGroups.map((itemGroup) => (
+                <div
+                  key={itemGroup.subcategoryId ?? "__direct__"}
+                  className="space-y-4"
+                >
+                  {itemGroup.subcategoryName && (
+                    <h3
+                      data-subcategory-heading="true"
+                      className="text-sm font-bold uppercase tracking-wide text-accent-dark-on-bg"
+                    >
+                      {itemGroup.subcategoryName}
+                    </h3>
+                  )}
+                  {itemGroup.items.map((item) => {
+                    const group = getOptionGroup(restaurant.slug, item);
+                    const inline = isInlineOptions && group !== null;
+                    return (
+                      <MenuItemCard
+                        key={item.id}
+                        item={item}
+                        currency={restaurant.config.currency}
+                        quantity={quantityFor(item)}
+                        requiresChoice={group !== null}
+                        inlineChoices={
+                          inline ? getChoices(restaurant, group!) : undefined
+                        }
+                        inlineCounts={inline ? countsFor(item) : undefined}
+                        onAdd={() => handleAdd(item)}
+                        onRemove={() => handleRemove(item)}
+                        variant={menuVariant}
+                        onChangeChoice={
+                          inline
+                            ? (choice, delta) =>
+                                handleInlineChange(item, choice, delta)
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </section>
         )}

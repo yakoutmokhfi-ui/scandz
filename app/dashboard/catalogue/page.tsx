@@ -15,12 +15,17 @@ import {
   setProductOrder,
   updateCategory,
   updateProduct,
+  createSubcategory,
+  updateSubcategory,
   CategoryDuplicateNameError,
   CategoryDescriptionTooLongError,
   DescriptionTooLongError,
   ShortDescriptionTooLongError,
+  SubcategoryDuplicateNameError,
+  SubcategoryCategoryMismatchError,
   type CatalogueCategory,
   type CatalogueProduct,
+  type CatalogueSubcategory,
 } from "@/lib/services/dashboard";
 import {
   addOrReplaceProductPhoto,
@@ -71,12 +76,28 @@ type ProductDraft = {
   taxRate: string;
   unitWeightGrams: string;
   weightIsApproximate: boolean;
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégorie optionnelle où
+   *  placer ce produit, DANS SA CATÉGORIE ACTUELLE (jamais un moyen de
+   *  changer la catégorie elle-même). `null` = produit directement
+   *  rattaché à sa catégorie (comportement historique, valeur par
+   *  défaut ci-dessous). */
+  subcategoryId: string | null;
 };
 
 type CategoryDraft = {
   name: string;
   displayOrder: string;
   description: string;
+};
+
+/** CATALOGUE / SUBCATEGORIES v1 -- même patron minimal que
+ *  CategoryDraft : pas de description (les sous-catégories n'en ont
+ *  pas, voir la migration), champ d'ordre affiché seulement en édition
+ *  (create_subcategory calcule un ordre par défaut, comme
+ *  create_category). */
+type SubcategoryDraft = {
+  name: string;
+  displayOrder: string;
 };
 
 const EMPTY_PRODUCT_DRAFT: ProductDraft = {
@@ -88,6 +109,12 @@ const EMPTY_PRODUCT_DRAFT: ProductDraft = {
   taxRate: "",
   unitWeightGrams: "",
   weightIsApproximate: false,
+  subcategoryId: null,
+};
+
+const EMPTY_SUBCATEGORY_DRAFT: SubcategoryDraft = {
+  name: "",
+  displayOrder: "",
 };
 
 /** Chaîne texte de champ fiscal -> valeur numérique/`null`, avec un
@@ -164,6 +191,12 @@ export default function CataloguePage() {
     description: "",
   });
   const [creatingCategory, setCreatingCategory] = useState(false);
+
+  /** CATALOGUE / SUBCATEGORIES v1 -- même patron que les 3 états
+   *  catégorie ci-dessus, pour les sous-catégories. */
+  const [editingSubcategoryId, setEditingSubcategoryId] = useState<string | null>(null);
+  const [subcategoryDraft, setSubcategoryDraft] = useState<SubcategoryDraft>(EMPTY_SUBCATEGORY_DRAFT);
+  const [creatingSubcategoryIn, setCreatingSubcategoryIn] = useState<string | null>(null);
 
   const [currency, setCurrency] = useState("DZD");
   const [staffLang, setStaffLang] = useState<string>("fr");
@@ -255,8 +288,11 @@ export default function CataloguePage() {
     setCreatingIn(null);
     setEditingCategoryId(null);
     setCreatingCategory(false);
+    setEditingSubcategoryId(null);
+    setCreatingSubcategoryIn(null);
     setDraft(EMPTY_PRODUCT_DRAFT);
     setCategoryDraft({ name: "", displayOrder: "", description: "" });
+    setSubcategoryDraft(EMPTY_SUBCATEGORY_DRAFT);
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
@@ -309,6 +345,10 @@ export default function CataloguePage() {
         setError(t("mcCategoryDuplicate"));
       } else if (e instanceof CategoryDescriptionTooLongError) {
         setError(t("mcCategoryDescriptionTooLong"));
+      } else if (e instanceof SubcategoryDuplicateNameError) {
+        setError(t("mcSubcategoryDuplicate"));
+      } else if (e instanceof SubcategoryCategoryMismatchError) {
+        setError(t("mcSubcategoryMismatch"));
       } else if (e instanceof InvalidFileTypeError) {
         setError(t("mcPhotoInvalidType"));
       } else if (e instanceof FileTooLargeError) {
@@ -383,6 +423,7 @@ export default function CataloguePage() {
       taxRate: p.tax_rate != null ? String(p.tax_rate) : "",
       unitWeightGrams: p.unit_weight_grams != null ? String(p.unit_weight_grams) : "",
       weightIsApproximate: p.weight_is_approximate ?? false,
+      subcategoryId: p.subcategory_id,
     });
   }
 
@@ -406,6 +447,220 @@ export default function CataloguePage() {
     setCreatingCategory(true);
     setEditingCategoryId(null);
     setCategoryDraft({ name: "", displayOrder: "", description: "" });
+  }
+
+  /** CATALOGUE / SUBCATEGORIES v1 -- même patron que
+   *  startEditCategory/startCreateCategory ci-dessus. */
+  function startEditSubcategory(sub: CatalogueSubcategory) {
+    setEditingSubcategoryId(sub.subcategory_id);
+    setCreatingSubcategoryIn(null);
+    setSubcategoryDraft({
+      name: sub.subcategory_name,
+      displayOrder: String(sub.subcategory_display_order),
+    });
+  }
+
+  function startCreateSubcategory(categoryId: string) {
+    setCreatingSubcategoryIn(categoryId);
+    setEditingSubcategoryId(null);
+    setSubcategoryDraft(EMPTY_SUBCATEGORY_DRAFT);
+  }
+
+  /**
+   * CATALOGUE / SUBCATEGORIES v1 -- rendu d'une ligne produit, extrait
+   * de l'ancien `.map()` inline pour être réutilisé tel quel à la fois
+   * pour les produits directs d'une catégorie (`cat.products`) et pour
+   * les produits d'une de ses sous-catégories (`sub.products`) --
+   * AUCUN changement de comportement, seule la liste de sous-catégories
+   * à proposer dans le sélecteur du formulaire (`subcategories`) varie
+   * selon l'appelant (toujours celles de la catégorie PARENTE du
+   * produit, jamais celles d'une autre catégorie).
+   */
+  function renderProductRow(p: CatalogueProduct, subcategories: CatalogueSubcategory[]) {
+    const busy = busyId === p.product_id;
+    return (
+      <li
+        key={p.product_id}
+        className={
+          "rounded-2xl border p-3 " +
+          (p.is_available && !p.archived_at
+            ? "border-stone-200 bg-white"
+            : "border-stone-200 bg-stone-100")
+        }
+      >
+        {editingId === p.product_id ? (
+          <>
+            <ProductPhotoField
+              productId={p.product_id}
+              imageUrl={p.image_url}
+              productName={shown(p.name, p.translations, "name") ?? p.name}
+              busy={busyId === p.product_id}
+              t={t}
+              onAddOrReplace={(file) =>
+                run(p.product_id, async () => {
+                  await addOrReplaceProductPhoto(
+                    restaurantId,
+                    p.product_id,
+                    file,
+                    p.image_url
+                  );
+                })
+              }
+              onRemove={() =>
+                run(p.product_id, async () => {
+                  await removeProductPhoto(p.product_id, p.image_url);
+                })
+              }
+            />
+            <ProductForm
+              labels={productLabels}
+              draft={draft}
+              setDraft={setDraft}
+              submitLabel={t("mcSave")}
+              submitting={busyId === p.product_id}
+              onCancel={() => setEditingId(null)}
+              t={t}
+              subcategories={subcategories}
+              onSubmit={() =>
+                run(p.product_id, async () => {
+                  const { fields: fiscalFields } = parseFiscalDraft(draft);
+                  await updateProduct(
+                    p.product_id,
+                    draft.name,
+                    draft.description || null,
+                    Number(draft.price),
+                    draft.shortDescription || null,
+                    {
+                      taxRate: fiscalFields.taxRate,
+                      unitWeightGrams: fiscalFields.unitWeightGrams,
+                      weightIsApproximate: fiscalFields.weightIsApproximate,
+                    },
+                    draft.subcategoryId
+                  );
+                  setEditingId(null);
+                })
+              }
+            />
+          </>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              {p.image_url && (
+                <img
+                  src={p.image_url}
+                  alt=""
+                  className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-stone-900">
+                  {shown(p.name, p.translations, "name")}
+                </p>
+                {p.short_description && (
+                  <p className="mt-0.5 text-sm text-stone-500">
+                    {shown(p.short_description, p.translations, "short_description")}
+                  </p>
+                )}
+                <p className="mt-1 font-bold text-amber-800">
+                  <Ltr>{formatPrice(Number(p.price), currency)}</Ltr>
+                </p>
+              </div>
+
+              {!p.archived_at && canToggle && (
+                <button
+                  onClick={() =>
+                    run(p.product_id, () =>
+                      setProductAvailability(
+                        p.product_id,
+                        !p.is_available
+                      )
+                    )
+                  }
+                  disabled={busy}
+                  aria-pressed={p.is_available}
+                  className={
+                    "shrink-0 rounded-full px-4 py-2 text-sm font-bold " +
+                    (p.is_available
+                      ? "bg-green-600 text-white"
+                      : "bg-stone-300 text-stone-700")
+                  }
+                >
+                  {p.is_available ? t("mcAvailable") : t("mcSoldOut")}
+                </button>
+              )}
+              {!p.archived_at && !canToggle && (
+                <span
+                  className={
+                    "shrink-0 rounded-full px-4 py-2 text-sm font-bold " +
+                    (p.is_available
+                      ? "bg-green-100 text-green-800"
+                      : "bg-stone-200 text-stone-600")
+                  }
+                >
+                  {p.is_available ? t("mcAvailable") : t("mcSoldOut")}
+                </span>
+              )}
+            </div>
+
+            {canEdit && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {!p.archived_at ? (
+                  <>
+                    <button
+                      onClick={() => startEdit(p)}
+                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold"
+                    >
+                      {t("mcEdit")}
+                    </button>
+                    <button
+                      onClick={() =>
+                        run(p.product_id, () =>
+                          archiveProduct(p.product_id)
+                        )
+                      }
+                      disabled={busy || p.is_option_source}
+                      title={
+                        p.is_option_source
+                          ? t("mcIsOption")
+                          : undefined
+                      }
+                      className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-40"
+                    >
+                      {t("mcArchive")}
+                    </button>
+                    <OrderField
+                      label={t("mcProductOrder")}
+                      value={p.display_order}
+                      disabled={busy}
+                      onSave={(order) =>
+                        run(p.product_id, () =>
+                          setProductOrder(p.product_id, order)
+                        )
+                      }
+                    />
+                  </>
+                ) : (
+                  <button
+                    onClick={() =>
+                      run(p.product_id, () =>
+                        restoreProduct(p.product_id)
+                      )
+                    }
+                    disabled={busy}
+                    className="rounded-xl bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white"
+                  >
+                    {t("mcRestore")}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </li>
+    );
   }
 
   if (loading) {
@@ -517,6 +772,14 @@ export default function CataloguePage() {
                     {t("mcAddProduct")}
                   </button>
                 )}
+                {canEdit && !showArchived && (
+                  <button
+                    onClick={() => startCreateSubcategory(cat.category_id)}
+                    className="rounded-full border border-stone-300 px-3 py-1 text-xs font-semibold"
+                  >
+                    {t("mcAddSubcategory")}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -543,6 +806,46 @@ export default function CataloguePage() {
               </div>
             )}
 
+            {editingSubcategoryId && cat.subcategories.some((s) => s.subcategory_id === editingSubcategoryId) && (
+              <div className="mb-3 rounded-2xl border border-stone-300 bg-white p-3">
+                <SubcategoryForm
+                  mode="edit"
+                  draft={subcategoryDraft}
+                  setDraft={setSubcategoryDraft}
+                  onCancel={() => setEditingSubcategoryId(null)}
+                  onSubmit={() =>
+                    run(editingSubcategoryId, async () => {
+                      await updateSubcategory(
+                        editingSubcategoryId,
+                        subcategoryDraft.name,
+                        Number(subcategoryDraft.displayOrder)
+                      );
+                      setEditingSubcategoryId(null);
+                    })
+                  }
+                  t={t}
+                />
+              </div>
+            )}
+
+            {creatingSubcategoryIn === cat.category_id && (
+              <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 p-3">
+                <SubcategoryForm
+                  mode="create"
+                  draft={subcategoryDraft}
+                  setDraft={setSubcategoryDraft}
+                  onCancel={() => setCreatingSubcategoryIn(null)}
+                  onSubmit={() =>
+                    run("new-subcategory", async () => {
+                      await createSubcategory(cat.category_id, subcategoryDraft.name);
+                      setCreatingSubcategoryIn(null);
+                    })
+                  }
+                  t={t}
+                />
+              </div>
+            )}
+
             {creatingIn === cat.category_id && (
               <div className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 p-3">
                 <ProductForm
@@ -553,6 +856,7 @@ export default function CataloguePage() {
                   submitting={busyId === "new"}
                   showPhotoPicker
                   t={t}
+                  subcategories={cat.subcategories}
                   onCancel={() => setCreatingIn(null)}
                   onSubmit={() =>
                     run("new", async () => {
@@ -567,7 +871,8 @@ export default function CataloguePage() {
                           taxRate: fiscalFields.taxRate,
                           unitWeightGrams: fiscalFields.unitWeightGrams,
                           weightIsApproximate: fiscalFields.weightIsApproximate,
-                        }
+                        },
+                        draft.subcategoryId
                       );
                       const photoFile = draft.photoFile;
                       setCreatingIn(null);
@@ -592,198 +897,48 @@ export default function CataloguePage() {
               </div>
             )}
 
-            {cat.products.length === 0 && creatingIn !== cat.category_id && (
+            {cat.products.length === 0 && cat.subcategories.length === 0 && creatingIn !== cat.category_id && (
               <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-400">
                 {t("mcCategoryEmpty")}
               </p>
             )}
 
             <ul className="space-y-2">
-              {cat.products.map((p) => {
-                const busy = busyId === p.product_id;
-                return (
-                  <li
-                    key={p.product_id}
-                    className={
-                      "rounded-2xl border p-3 " +
-                      (p.is_available && !p.archived_at
-                        ? "border-stone-200 bg-white"
-                        : "border-stone-200 bg-stone-100")
-                    }
-                  >
-                    {editingId === p.product_id ? (
-                      <>
-                        <ProductPhotoField
-                          productId={p.product_id}
-                          imageUrl={p.image_url}
-                          productName={shown(p.name, p.translations, "name") ?? p.name}
-                          busy={busyId === p.product_id}
-                          t={t}
-                          onAddOrReplace={(file) =>
-                            run(p.product_id, async () => {
-                              await addOrReplaceProductPhoto(
-                                restaurantId,
-                                p.product_id,
-                                file,
-                                p.image_url
-                              );
-                            })
-                          }
-                          onRemove={() =>
-                            run(p.product_id, async () => {
-                              await removeProductPhoto(p.product_id, p.image_url);
-                            })
-                          }
-                        />
-                        <ProductForm
-                          labels={productLabels}
-                          draft={draft}
-                          setDraft={setDraft}
-                          submitLabel={t("mcSave")}
-                          submitting={busyId === p.product_id}
-                          onCancel={() => setEditingId(null)}
-                          t={t}
-                          onSubmit={() =>
-                            run(p.product_id, async () => {
-                              const { fields: fiscalFields } = parseFiscalDraft(draft);
-                              await updateProduct(
-                                p.product_id,
-                                draft.name,
-                                draft.description || null,
-                                Number(draft.price),
-                                draft.shortDescription || null,
-                                {
-                                  taxRate: fiscalFields.taxRate,
-                                  unitWeightGrams: fiscalFields.unitWeightGrams,
-                                  weightIsApproximate: fiscalFields.weightIsApproximate,
-                                }
-                              );
-                              setEditingId(null);
-                            })
-                          }
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-start justify-between gap-3">
-                          {p.image_url && (
-                            <img
-                              src={p.image_url}
-                              alt=""
-                              className="h-12 w-12 shrink-0 rounded-lg object-cover"
-                              onError={(e) => {
-                                e.currentTarget.style.display = "none";
-                              }}
-                            />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-stone-900">
-                              {shown(p.name, p.translations, "name")}
-                            </p>
-                            {p.short_description && (
-                              <p className="mt-0.5 text-sm text-stone-500">
-                                {shown(p.short_description, p.translations, "short_description")}
-                              </p>
-                            )}
-                            <p className="mt-1 font-bold text-amber-800">
-                              <Ltr>{formatPrice(Number(p.price), currency)}</Ltr>
-                            </p>
-                          </div>
-
-                          {!p.archived_at && canToggle && (
-                            <button
-                              onClick={() =>
-                                run(p.product_id, () =>
-                                  setProductAvailability(
-                                    p.product_id,
-                                    !p.is_available
-                                  )
-                                )
-                              }
-                              disabled={busy}
-                              aria-pressed={p.is_available}
-                              className={
-                                "shrink-0 rounded-full px-4 py-2 text-sm font-bold " +
-                                (p.is_available
-                                  ? "bg-green-600 text-white"
-                                  : "bg-stone-300 text-stone-700")
-                              }
-                            >
-                              {p.is_available ? t("mcAvailable") : t("mcSoldOut")}
-                            </button>
-                          )}
-                          {!p.archived_at && !canToggle && (
-                            <span
-                              className={
-                                "shrink-0 rounded-full px-4 py-2 text-sm font-bold " +
-                                (p.is_available
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-stone-200 text-stone-600")
-                              }
-                            >
-                              {p.is_available ? t("mcAvailable") : t("mcSoldOut")}
-                            </span>
-                          )}
-                        </div>
-
-                        {canEdit && (
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            {!p.archived_at ? (
-                              <>
-                                <button
-                                  onClick={() => startEdit(p)}
-                                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold"
-                                >
-                                  {t("mcEdit")}
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    run(p.product_id, () =>
-                                      archiveProduct(p.product_id)
-                                    )
-                                  }
-                                  disabled={busy || p.is_option_source}
-                                  title={
-                                    p.is_option_source
-                                      ? t("mcIsOption")
-                                      : undefined
-                                  }
-                                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-40"
-                                >
-                                  {t("mcArchive")}
-                                </button>
-                                <OrderField
-                                  label={t("mcProductOrder")}
-                                  value={p.display_order}
-                                  disabled={busy}
-                                  onSave={(order) =>
-                                    run(p.product_id, () =>
-                                      setProductOrder(p.product_id, order)
-                                    )
-                                  }
-                                />
-                              </>
-                            ) : (
-                              <button
-                                onClick={() =>
-                                  run(p.product_id, () =>
-                                    restoreProduct(p.product_id)
-                                  )
-                                }
-                                disabled={busy}
-                                className="rounded-xl bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white"
-                              >
-                                {t("mcRestore")}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </li>
-                );
-              })}
+              {cat.products.map((p) => renderProductRow(p, cat.subcategories))}
             </ul>
+
+            {/* CATALOGUE / SUBCATEGORIES v1 -- chaque sous-catégorie de
+                cette catégorie, avec ses PROPRES produits, sous les
+                produits directs ci-dessus. Tableau vide pour tout
+                commerçant sans sous-catégorie (comportement historique
+                strictement inchangé). */}
+            {cat.subcategories.map((sub) => (
+              <div key={sub.subcategory_id} className="mt-4">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="truncate text-xs font-bold uppercase tracking-wide text-stone-600">
+                    {sub.subcategory_name}
+                  </h3>
+                  {canEdit && !showArchived && (
+                    <button
+                      onClick={() => startEditSubcategory(sub)}
+                      className="shrink-0 rounded-full border border-stone-300 px-3 py-1 text-xs font-semibold"
+                    >
+                      {t("mcEditCategory")}
+                    </button>
+                  )}
+                </div>
+
+                {sub.products.length === 0 && (
+                  <p className="rounded-xl bg-stone-50 p-3 text-xs text-stone-400">
+                    {t("mcSubcategoryEmpty")}
+                  </p>
+                )}
+
+                <ul className="space-y-2">
+                  {sub.products.map((p) => renderProductRow(p, cat.subcategories))}
+                </ul>
+              </div>
+            ))}
           </section>
         ))}
       </main>
@@ -977,6 +1132,79 @@ function CategoryForm({
   );
 }
 
+/**
+ * CATALOGUE / SUBCATEGORIES v1 -- même patron minimal que CategoryForm
+ * ci-dessus : nom + ordre d'affichage (édition uniquement, comme pour
+ * une catégorie -- create_subcategory calcule un ordre par défaut).
+ * Pas de champ description (les sous-catégories n'en ont pas, voir la
+ * migration -- limite documentée, pas une omission).
+ */
+function SubcategoryForm({
+  mode,
+  draft,
+  setDraft,
+  onSubmit,
+  onCancel,
+  t,
+}: {
+  mode: "create" | "edit";
+  draft: SubcategoryDraft;
+  setDraft: (d: SubcategoryDraft) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  const nameState = normalizeText(draft.name, CATEGORY_NAME_MAX_LENGTH);
+  const orderValid =
+    mode === "create" ||
+    (draft.displayOrder.trim() !== "" && Number.isFinite(Number(draft.displayOrder)));
+  const valid = !nameState.isEmpty && nameState.isValid && orderValid;
+
+  return (
+    <div className="space-y-2">
+      <input
+        value={draft.name}
+        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+        placeholder={t("mcSubcategoryName")}
+        className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+      />
+      <p
+        className={
+          "text-right text-xs " +
+          (nameState.isValid ? "text-stone-400" : "font-semibold text-amber-700")
+        }
+      >
+        {t("mcCounter", { count: nameState.length, max: CATEGORY_NAME_MAX_LENGTH })}
+      </p>
+
+      {mode === "edit" && (
+        <input
+          value={draft.displayOrder}
+          onChange={(e) => setDraft({ ...draft, displayOrder: e.target.value })}
+          inputMode="numeric"
+          placeholder={t("mcCategoryOrder")}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        />
+      )}
+      <div className="flex gap-2">
+        <button
+          onClick={onSubmit}
+          disabled={!valid}
+          className="flex-1 rounded-xl bg-stone-900 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+        >
+          {mode === "create" ? t("mcCreate") : t("mcSave")}
+        </button>
+        <button
+          onClick={onCancel}
+          className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold"
+        >
+          {t("mcCancel")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProductForm({
   draft,
   setDraft,
@@ -987,6 +1215,7 @@ function ProductForm({
   t,
   submitting = false,
   showPhotoPicker = false,
+  subcategories = [],
 }: {
   draft: ProductDraft;
   setDraft: (d: ProductDraft) => void;
@@ -1007,6 +1236,11 @@ function ProductForm({
   /** Sélecteur de photo (V67b) — création uniquement. En édition, la
    *  photo se gère via ProductPhotoField (product_id déjà réel). */
   showPhotoPicker?: boolean;
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégories DE LA CATÉGORIE
+   *  ACTUELLE de ce produit, proposées dans un sélecteur optionnel.
+   *  Tableau vide (commerçant sans sous-catégorie) = aucun sélecteur
+   *  affiché, formulaire strictement identique à avant ce lot. */
+  subcategories?: CatalogueSubcategory[];
 }) {
   const shortState = normalizeText(draft.shortDescription, SHORT_DESCRIPTION_MAX_LENGTH);
   const longState = normalizeText(draft.description, LONG_DESCRIPTION_MAX_LENGTH);
@@ -1167,6 +1401,31 @@ function ProductForm({
         placeholder={labels.price}
         className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
       />
+
+      {/* CATALOGUE / SUBCATEGORIES v1 -- placement optionnel du
+          produit dans une sous-catégorie de sa catégorie actuelle.
+          N'apparaît que si cette catégorie a au moins une
+          sous-catégorie : un commerçant qui n'en utilise aucune ne
+          voit jamais ce sélecteur (formulaire inchangé). */}
+      {subcategories.length > 0 && (
+        <select
+          value={draft.subcategoryId ?? ""}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              subcategoryId: e.target.value === "" ? null : e.target.value,
+            })
+          }
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        >
+          <option value="">{t("mcProductSubcategoryNone")}</option>
+          {subcategories.map((s) => (
+            <option key={s.subcategory_id} value={s.subcategory_id}>
+              {s.subcategory_name}
+            </option>
+          ))}
+        </select>
+      )}
 
       {/* CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §8) --
           modèle SIMPLIFIÉ portion-à-prix-fixe : champs indépendants

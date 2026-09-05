@@ -80,8 +80,10 @@ class CategoryDuplicateNameError extends Error {}
 class CategoryDescriptionTooLongError extends Error {}
 class DescriptionTooLongError extends Error {}
 class ShortDescriptionTooLongError extends Error {}
+class SubcategoryDuplicateNameError extends Error {}
+class SubcategoryCategoryMismatchError extends Error {}
 
-export { CategoryDuplicateNameError, CategoryDescriptionTooLongError, DescriptionTooLongError, ShortDescriptionTooLongError };
+export { CategoryDuplicateNameError, CategoryDescriptionTooLongError, DescriptionTooLongError, ShortDescriptionTooLongError, SubcategoryDuplicateNameError, SubcategoryCategoryMismatchError };
 
 export async function getUser2() {}
 
@@ -98,6 +100,10 @@ export async function getMerchantCatalogue() {
     category_is_option_source: false,
     category_description: null,
     products: [],
+    // CATALOGUE / SUBCATEGORIES v1 -- champ requis par
+    // app/dashboard/catalogue/page.tsx (cat.subcategories.map/.length),
+    // vide ici : ce test ne porte pas sur les sous-catégories.
+    subcategories: [],
   }];
 }
 
@@ -112,6 +118,8 @@ export async function createProduct() {
 export async function updateProduct() {}
 export async function createCategory() { return "new-category-id"; }
 export async function updateCategory() {}
+export async function createSubcategory() { return "new-subcategory-id"; }
+export async function updateSubcategory() {}
 export async function setProductAvailability() {}
 export async function setProductOrder() {}
 export async function archiveProduct() {}

@@ -114,12 +114,24 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // mandat §29 : ZÉRO nouveau SQL.
 // --------------------------------------------------------------
 
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 74 (v2 lui-même + CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 + RECEIPT / INVOICE TAX DETAIL v1) + 4 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6 + PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
+// RECONSTRUCTION v1.2 (nouveau baseline main
+// 49664132ad55f96a06a063a90f91e0e111fafe78) : PAYMENT STREAM B
+// MONETICO FINALIZATION v1.1 est désormais fusionné et porte déjà le
+// compte à 78 (mesuré directement sur ce nouveau baseline, avant tout
+// fichier Catalogue, aucune ligne de CE lot v2 n'a bougé) ; CATALOGUE /
+// SUBCATEGORIES BACKOFFICE v1 (lot ULTÉRIEUR et SANS RAPPORT avec
+// CUSTOMER TRACKING EXPERIENCE v2) ajoute SON PROPRE unique fichier
+// SQL top-level (DRAFT-lot-catalogue-subcategories-backoffice-v1.sql),
+// portant le compte à 79 ; CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1
+// -- REMÉDIATION (même Stream A) ajoute SON PROPRE unique fichier SQL
+// top-level, portant le compte total à 80 -- mesuré directement,
+// aucune ligne de CE lot v2 n'a bougé.
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    78,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, RECEIPT / INVOICE TAX DETAIL v1, PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6, PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1)`
+    80,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);

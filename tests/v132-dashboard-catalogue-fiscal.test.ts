@@ -47,6 +47,12 @@ test("createProduct: transmet les 3 p_* fiscaux à create_product avec les valeu
     p_tax_rate: 5.5,
     p_unit_weight_grams: 200,
     p_weight_is_approximate: true,
+    // CATALOGUE / SUBCATEGORIES v1 -- 9e paramètre optionnel ajouté à
+    // create_product par ce lot (voir migration DRAFT-lot-catalogue-
+    // subcategories-backoffice-v1.sql, section 7) ; `null` = produit
+    // directement rattaché à sa catégorie, comportement historique
+    // inchangé pour tout appelant qui ne fournit pas ce 7e argument.
+    p_subcategory_id: null,
   });
 });
 
@@ -68,6 +74,10 @@ test("createProduct: aucun 6e argument fourni -- retombe EXACTEMENT sur le compo
     p_tax_rate: null,
     p_unit_weight_grams: null,
     p_weight_is_approximate: false,
+    // CATALOGUE / SUBCATEGORIES v1 -- même repli que les 3 champs
+    // fiscaux ci-dessus : aucun 7e argument fourni -> null, produit
+    // directement rattaché à sa catégorie (comportement historique).
+    p_subcategory_id: null,
   });
 });
 
@@ -89,6 +99,7 @@ test("createProduct: AUCUN paramètre RPC résiduel du modèle v1 (sales_unit/pr
     "p_name",
     "p_price",
     "p_short_description",
+    "p_subcategory_id",
     "p_tax_rate",
     "p_unit_weight_grams",
     "p_weight_is_approximate",
@@ -118,6 +129,9 @@ test("updateProduct: transmet les 3 p_* fiscaux à update_product", async (t) =>
     p_tax_rate: null,
     p_unit_weight_grams: 1800,
     p_weight_is_approximate: true,
+    // CATALOGUE / SUBCATEGORIES v1 -- même 7e paramètre optionnel que
+    // createProduct ci-dessus, ajouté par ce lot à update_product.
+    p_subcategory_id: null,
   });
 });
 

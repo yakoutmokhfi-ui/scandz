@@ -231,9 +231,24 @@ test("archi: .env.example documente SUPABASE_SERVICE_ROLE_KEY (nom seul, jamais 
 // ajoute SON PROPRE unique fichier SQL top-level (DRAFT-lot-payment-
 // p3b6-checkout-billing-context.sql), portant le compte total de 71 à
 // 72 -- mesuré directement (pas rejoué depuis un ancien delta).
-test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6, aucun nom contenant p3a1)", () => {
+// MISE À JOUR CATALOGUE / SUBCATEGORIES BACKOFFICE v1 (Stream A,
+// lot SANS RAPPORT avec P3-A1/paiement) : ce lot ajoute SON PROPRE
+// unique fichier SQL top-level (DRAFT-lot-catalogue-subcategories-
+// backoffice-v1.sql), portant le compte total de 77 à 78 -- mesuré
+// directement.
+test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6/PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1/CATALOGUE SUBCATEGORIES BACKOFFICE v1/CATALOGUE SUBCATEGORIES BACKOFFICE v1.1, aucun nom contenant p3a1)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(sqlFiles.length, 78, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 63 (avant P3-B0) + 1 (PAYMENT P3-B0) + 1 (PAYMENT P3-B1) + 1 (ORDERS SERVICE_ROLE SELECT HARDENING v1) + 1 (PAYMENT P3-B2) + 1 (PAYMENT P3-B3) + 1 (PAYMENT P3-B4) + 1 (CUSTOMER ORDER TRACKING FOUNDATION v3) + 1 (PAYMENT P3-B5) + 1 (PAYMENT P3-B6) + 1 (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1) + 1 (RECEIPT / INVOICE TAX DETAIL v1) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4) + 1 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4.5/v4.6 -- migration forward depuis le VRAI prédécesseur historique, ferme P3BV44-FORWARD-PREDECESSOR-01) + 1 (PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1, ferme STREAM-B-CURRENCY-PREFLIGHT-01) attendu`);
+  // RECONSTRUCTION v1.2 (nouveau baseline main
+  // 49664132ad55f96a06a063a90f91e0e111fafe78) : PAYMENT STREAM B
+  // MONETICO FINALIZATION v1.1 est désormais fusionné et porte déjà le
+  // compte à 78 (mesuré directement sur ce nouveau baseline, avant
+  // tout fichier Catalogue) ; CATALOGUE / SUBCATEGORIES BACKOFFICE v1
+  // ajoute SON PROPRE unique fichier SQL top-level par-dessus, portant
+  // le compte à 79 ; CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 --
+  // REMÉDIATION (même Stream A, également déjà installée en
+  // Production) ajoute SON PROPRE unique fichier SQL top-level,
+  // portant le compte total à 80 -- mesuré directement.
+  assert.equal(sqlFiles.length, 80, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });

@@ -26,6 +26,13 @@ export const CATEGORY_DESCRIPTION_TOO_LONG_CODE = "SCANYM_CATEGORY_DESCRIPTION_T
 export const INVALID_TAX_RATE_CODE = "SCANYM_INVALID_TAX_RATE";
 export const INVALID_WEIGHT_VALUE_CODE = "SCANYM_INVALID_WEIGHT_VALUE";
 
+/** CATALOGUE / SUBCATEGORIES v1 — mêmes constantes EXACTES que les
+ *  `raise exception ...` de create_subcategory/update_subcategory/
+ *  create_product/update_product (voir supabase/DRAFT-lot-catalogue-
+ *  subcategories-backoffice-v1.sql). */
+export const SUBCATEGORY_DUPLICATE_NAME_CODE = "SCANYM_SUBCATEGORY_DUPLICATE_NAME";
+export const SUBCATEGORY_CATEGORY_MISMATCH_CODE = "SCANYM_SUBCATEGORY_CATEGORY_MISMATCH";
+
 export class ShortDescriptionTooLongError extends Error {
   constructor() {
     super(SHORT_DESCRIPTION_TOO_LONG_CODE);
@@ -70,6 +77,28 @@ export class FiscalMeasurementValidationError extends Error {
   }
 }
 
+/** CATALOGUE / SUBCATEGORIES v1 — doublon de nom de sous-catégorie,
+ *  même mécanisme que CategoryDuplicateNameError (index unique
+ *  partiel, SQLSTATE réel 23505, jamais un code inventé). */
+export class SubcategoryDuplicateNameError extends Error {
+  constructor() {
+    super(SUBCATEGORY_DUPLICATE_NAME_CODE);
+    this.name = "SubcategoryDuplicateNameError";
+  }
+}
+
+/** CATALOGUE / SUBCATEGORIES v1 — la sous-catégorie choisie n'appartient
+ *  pas à la catégorie du produit (voir le trigger de cohérence
+ *  enforce_menu_item_subcategory_category_match, défense en
+ *  profondeur -- create_product/update_product valident déjà ce point
+ *  en amont, avec ce même message). */
+export class SubcategoryCategoryMismatchError extends Error {
+  constructor() {
+    super(SUBCATEGORY_CATEGORY_MISMATCH_CODE);
+    this.name = "SubcategoryCategoryMismatchError";
+  }
+}
+
 export interface RpcErrorLike {
   message?: string | null;
   code?: string | null;
@@ -108,6 +137,20 @@ export function isCategoryDescriptionTooLongError(
 ): boolean {
   if (!error) return false;
   return error.code === "22001" && error.message === CATEGORY_DESCRIPTION_TOO_LONG_CODE;
+}
+
+export function isSubcategoryDuplicateNameError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "23505" && error.message === SUBCATEGORY_DUPLICATE_NAME_CODE;
+}
+
+export function isSubcategoryCategoryMismatchError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "22023" && error.message === SUBCATEGORY_CATEGORY_MISMATCH_CODE;
 }
 
 const FISCAL_MEASUREMENT_ERROR_CODES: readonly string[] = [
