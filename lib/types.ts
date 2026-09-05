@@ -127,6 +127,22 @@ export interface Translations {
   [lang: string]: { name?: string; description?: string; short_description?: string } | undefined;
 }
 
+/**
+ * CATALOGUE / SUBCATEGORIES v1 -- regroupement OPTIONNEL de
+ * présentation entre une catégorie et ses produits. Reçu via la
+ * jointure imbriquée `menu_categories(*, menu_subcategories(*), ...)`
+ * (voir lib/services/restaurant.ts) -- pas de RPC dédiée côté public,
+ * comme pour menu_categories/menu_items. N'est PAS traduisible en v1
+ * (limite connue, documentée) -- `name` est affiché tel quel dans
+ * toutes les langues client.
+ */
+export interface MenuSubcategory {
+  id: string;
+  category_id: string;
+  name: string;
+  display_order: number;
+}
+
 export interface MenuCategory {
   id: string;
   restaurant_id: string;
@@ -146,12 +162,35 @@ export interface MenuCategory {
    *  fraîcheur d'une traduction (voir lib/translation-resolver.ts). */
   name_hash?: string;
   description_hash?: string;
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégories de cette
+   *  catégorie, non filtrées/non ordonnées (fait par
+   *  lib/services/restaurant.ts) -- absent tant que la migration n'est
+   *  pas jouée, comme `translations` ci-dessus. */
+  menu_subcategories?: MenuSubcategory[];
   menu_items: MenuItem[];
 }
 
 export interface MenuItem {
   id: string;
   category_id: string;
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégorie optionnelle de ce
+   *  produit. `null`/absent = produit directement rattaché à sa
+   *  catégorie (comportement historique). */
+  subcategory_id?: string | null;
+  /** Nom de la sous-catégorie, résolu côté service (lib/services/
+   *  restaurant.ts) à partir de menu_subcategories -- jamais traduit
+   *  en v1 (limite connue), affiché tel quel dans toutes les langues. */
+  subcategory_name?: string | null;
+  /** CATALOGUE / SUBCATEGORIES v1.1 -- remédiation
+   *  CAT-SUB-V1-PUBLIC-GROUPING-01 : display_order DE LA SOUS-CATÉGORIE
+   *  elle-même (résolu côté service, même origine que subcategory_name
+   *  ci-dessus), nécessaire pour que le comparateur de tri public
+   *  (compareMenuItemsForPublicDisplay, lib/catalogue-subcategory-
+   *  grouping.ts) puisse départager 2 sous-catégories DIFFÉRENTES sans
+   *  jamais retomber sur un champ produit -- ce qui entrelaçait leurs
+   *  produits quand 2 sous-catégories partageaient le même
+   *  display_order. `null`/absent pour un produit direct. */
+  subcategory_display_order?: number | null;
   name: string;
   description: string | null;
   /** Description courte (V66), affichée directement sur la fiche/carte. */

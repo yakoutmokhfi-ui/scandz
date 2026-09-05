@@ -13,11 +13,15 @@ import {
   isCategoryDuplicateNameError,
   isCategoryDescriptionTooLongError,
   isFiscalMeasurementValidationError,
+  isSubcategoryDuplicateNameError,
+  isSubcategoryCategoryMismatchError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
   CategoryDescriptionTooLongError,
   FiscalMeasurementValidationError,
+  SubcategoryDuplicateNameError,
+  SubcategoryCategoryMismatchError,
 } from "@/lib/services/catalogue-error";
 
 export {
@@ -25,6 +29,8 @@ export {
   DescriptionTooLongError,
   CategoryDuplicateNameError,
   CategoryDescriptionTooLongError,
+  SubcategoryDuplicateNameError,
+  SubcategoryCategoryMismatchError,
 } from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
@@ -105,6 +111,24 @@ type Translations = Record<
   { name?: string; description?: string; short_description?: string }
 >;
 
+/**
+ * Sous-catégorie (CATALOGUE / SUBCATEGORIES v1) -- regroupement
+ * OPTIONNEL de présentation entre une catégorie et ses produits (ex.
+ * catégorie "Fromages" -> sous-catégorie "Chèvres"). `products` ne
+ * contient QUE les produits rattachés à CETTE sous-catégorie -- les
+ * produits directement rattachés à la catégorie (sans sous-catégorie)
+ * restent dans `CatalogueCategory.products`, jamais dupliqués ici.
+ * N'est traduisible dans aucune langue en v1 (limite connue,
+ * documentée dans le rapport de conception) -- affichée dans sa
+ * langue source pour tous les commerçants.
+ */
+export interface CatalogueSubcategory {
+  subcategory_id: string;
+  subcategory_name: string;
+  subcategory_display_order: number;
+  products: CatalogueProduct[];
+}
+
 /** Catégorie du catalogue commerçant, avec ou sans produits. */
 export interface CatalogueCategory {
   category_id: string;
@@ -119,7 +143,15 @@ export interface CatalogueCategory {
   category_description: string | null;
   /** LOT 1B — hash canonique de category_description. */
   category_description_hash: string | null;
+  /** Produits directement rattachés à la catégorie (subcategory_id
+   *  NULL) -- comportement historique, inchangé pour tout commerçant
+   *  sans sous-catégorie. */
   products: CatalogueProduct[];
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégories de cette
+   *  catégorie, dans leur ordre d'affichage, chacune avec SES PROPRES
+   *  produits. Tableau vide pour un commerçant qui n'utilise aucune
+   *  sous-catégorie (comportement historique préservé). */
+  subcategories: CatalogueSubcategory[];
 }
 
 export interface CatalogueProduct {
@@ -127,6 +159,10 @@ export interface CatalogueProduct {
   category_id: string;
   category_name: string;
   category_translations: Translations | null;
+  /** CATALOGUE / SUBCATEGORIES v1 -- sous-catégorie optionnelle de ce
+   *  produit. `null` = produit directement rattaché à sa catégorie. */
+  subcategory_id: string | null;
+  subcategory_name: string | null;
   name: string;
   /** LOT 1B — hash canonique de name. */
   name_hash: string;
@@ -187,6 +223,9 @@ export async function getMerchantCatalogue(
     category_is_option_source: boolean;
     category_description: string | null;
     category_description_hash: string | null;
+    subcategory_id: string | null;
+    subcategory_name: string | null;
+    subcategory_display_order: number | null;
     name: string | null;
     name_hash: string | null;
     short_description: string | null;
@@ -221,16 +260,52 @@ export async function getMerchantCatalogue(
         category_description: r.category_description,
         category_description_hash: r.category_description_hash,
         products: [],
+        subcategories: [],
       };
       categories.push(cat);
     }
-    // Catégorie vide : la ligne LEFT JOIN n'a pas de produit associé.
+
+    // CATALOGUE / SUBCATEGORIES v1 -- get_merchant_catalogue renvoie
+    // TOUJOURS un groupe racine (subcategory_id null) par catégorie,
+    // PLUS un groupe par sous-catégorie existante. On range chaque
+    // ligne dans le bon panier (products direct vs subcategories[i]
+    // .products) sans jamais dupliquer un produit entre les deux.
+    //
+    // Égalité SOUPLE (== et non ===) délibérée : une base non encore
+    // migrée (RPC pas encore mise à jour, colonne absente de la ligne)
+    // renvoie `undefined` plutôt que `null` pour subcategory_id --
+    // même repli défensif que pour les colonnes fiscales v1.1
+    // ci-dessus (mandat §17), jamais une exception ni un produit
+    // classé à tort dans une fausse sous-catégorie.
+    let bucket: CatalogueProduct[];
+    if (r.subcategory_id == null) {
+      bucket = cat.products;
+    } else {
+      let sub = cat.subcategories.find((s) => s.subcategory_id === r.subcategory_id);
+      if (!sub) {
+        sub = {
+          subcategory_id: r.subcategory_id,
+          subcategory_name: r.subcategory_name as string,
+          subcategory_display_order: r.subcategory_display_order as number,
+          products: [],
+        };
+        cat.subcategories.push(sub);
+      }
+      bucket = sub.products;
+    }
+
+    // Groupe vide (catégorie ou sous-catégorie) : la ligne LEFT JOIN
+    // n'a pas de produit associé -- le groupe lui-même reste visible
+    // (créé ci-dessus), simplement sans produit à ajouter.
     if (r.product_id === null) continue;
-    cat.products.push({
+
+    bucket.push({
       product_id: r.product_id,
       category_id: r.category_id,
       category_name: r.category_name,
       category_translations: r.category_translations,
+      subcategory_id: r.subcategory_id,
+      subcategory_name: r.subcategory_name,
       name: r.name as string,
       name_hash: r.name_hash as string,
       short_description: r.short_description,
@@ -286,16 +361,26 @@ function throwFiscalOrCatalogueError(error: { code?: string | null; message?: st
   if (isShortDescriptionTooLongError(error)) throw new ShortDescriptionTooLongError();
   if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
   if (isFiscalMeasurementValidationError(error)) throw new FiscalMeasurementValidationError(error.message ?? "");
+  if (isSubcategoryCategoryMismatchError(error)) throw new SubcategoryCategoryMismatchError();
   throw new Error(error.message ?? "Unknown error");
 }
 
+/**
+ * CATALOGUE / SUBCATEGORIES v1 -- `subcategoryId` place le produit
+ * dans une sous-catégorie de SA PROPRE catégorie (`categoryId` pour
+ * createProduct, la catégorie actuelle du produit pour updateProduct
+ * -- la catégorie elle-même n'est jamais modifiable depuis cette
+ * fonction, limite préexistante inchangée). `null`/omis = produit
+ * directement rattaché à sa catégorie (comportement historique).
+ */
 export async function updateProduct(
   productId: string,
   name: string,
   description: string | null,
   price: number,
   shortDescription: string | null = null,
-  fiscal: ProductFiscalInput = {}
+  fiscal: ProductFiscalInput = {},
+  subcategoryId: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("update_product", {
     p_product_id: productId,
@@ -306,6 +391,7 @@ export async function updateProduct(
     p_tax_rate: fiscal.taxRate ?? null,
     p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
+    p_subcategory_id: subcategoryId,
   });
   if (error) throwFiscalOrCatalogueError(error);
 }
@@ -316,7 +402,8 @@ export async function createProduct(
   description: string | null,
   price: number,
   shortDescription: string | null = null,
-  fiscal: ProductFiscalInput = {}
+  fiscal: ProductFiscalInput = {},
+  subcategoryId: string | null = null
 ): Promise<string> {
   const { data, error } = await supabase.rpc("create_product", {
     p_category_id: categoryId,
@@ -327,6 +414,7 @@ export async function createProduct(
     p_tax_rate: fiscal.taxRate ?? null,
     p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
+    p_subcategory_id: subcategoryId,
   });
   if (error) throwFiscalOrCatalogueError(error);
   return data as string;
@@ -378,6 +466,49 @@ export async function updateCategory(
   if (error) {
     if (isCategoryDuplicateNameError(error)) throw new CategoryDuplicateNameError();
     if (isCategoryDescriptionTooLongError(error)) throw new CategoryDescriptionTooLongError();
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * CATALOGUE / SUBCATEGORIES v1 -- crée une sous-catégorie sous une
+ * catégorie existante (ex. "Chèvres" sous "Fromages"). Ajoutée en fin
+ * de catégorie par défaut (même patron que createCategory).
+ */
+export async function createSubcategory(
+  categoryId: string,
+  name: string,
+  displayOrder: number | null = null
+): Promise<string> {
+  const { data, error } = await supabase.rpc("create_subcategory", {
+    p_category_id: categoryId,
+    p_name: name,
+    p_display_order: displayOrder,
+  });
+  if (error) {
+    if (isSubcategoryDuplicateNameError(error)) throw new SubcategoryDuplicateNameError();
+    throw new Error(error.message);
+  }
+  return data as string;
+}
+
+/**
+ * CATALOGUE / SUBCATEGORIES v1 -- renomme et/ou réordonne une
+ * sous-catégorie (même RPC couvre les deux, même patron que
+ * updateCategory -- aucune RPC d'ordre séparée).
+ */
+export async function updateSubcategory(
+  subcategoryId: string,
+  name: string,
+  displayOrder: number
+): Promise<void> {
+  const { error } = await supabase.rpc("update_subcategory", {
+    p_subcategory_id: subcategoryId,
+    p_name: name,
+    p_display_order: displayOrder,
+  });
+  if (error) {
+    if (isSubcategoryDuplicateNameError(error)) throw new SubcategoryDuplicateNameError();
     throw new Error(error.message);
   }
 }
