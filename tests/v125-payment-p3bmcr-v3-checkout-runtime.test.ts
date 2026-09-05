@@ -128,6 +128,13 @@ const DELIVERY_REUSE_BILLING_ROW = () =>
 function freshReadyHandlers(overrides: Partial<Record<string, RpcHandler>> = {}) {
   return {
     get_order_payment_context: () => ok({ restaurant_id: "resto-1", payment_status: "pending" }),
+    // PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1 (ferme
+    // STREAM-B-CURRENCY-PREFLIGHT-01) : nouvelle lecture précoce,
+    // AVANT initiate_payment_attempt -- EUR par défaut pour tous les
+    // scénarios existants (comportement inchangé). Les tests dédiés à
+    // ce correctif (ci-dessous) surchargent explicitement cette
+    // valeur pour prouver le rejet DZD.
+    get_order_currency_preflight: () => ok({ currency: "EUR" }),
     get_payment_runtime_provider_environment: () => ok(ENVIRONMENT_ROW()),
     get_order_active_payment_attempt: () => ({ data: [], error: null }),
     get_payment_provider_credential: () => ({ data: CREDENTIAL_JSON, error: null }),
@@ -138,9 +145,66 @@ function freshReadyHandlers(overrides: Partial<Record<string, RpcHandler>> = {})
   };
 }
 
-// --------------------------------------------------------------
-// Kill switch -- INCHANGÉ (v3).
-// --------------------------------------------------------------
+test("PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1 (ferme STREAM-B-CURRENCY-PREFLIGHT-01) : commande fraîche en devise NON-EUR (ex. DZD, réellement utilisée par d'autres établissements Scanym pour un mode de paiement différent) -- REJETÉE STRICTEMENT AVANT toute mutation, initiate_payment_attempt JAMAIS appelée (compte = 0), aucune tentative de paiement 'pending' créée", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(
+      t,
+      freshReadyHandlers({
+        // Lecture précoce (AVANT tout branchement FRAIS/REPRISE, AVANT
+        // toute mutation) -- c'est ICI que la devise DZD doit être
+        // détectée, jamais plus tard.
+        get_order_currency_preflight: () => ok({ currency: "DZD" }),
+        // Si initiate_payment_attempt était appelée malgré tout, ce
+        // mock lèverait explicitement -- preuve directe et immédiate
+        // d'une régression, jamais un simple comptage a posteriori.
+        initiate_payment_attempt: () => {
+          throw new Error("STREAM-B-CURRENCY-PREFLIGHT-01 RÉGRESSION : initiate_payment_attempt ne doit JAMAIS être appelée pour une commande DZD");
+        },
+      })
+    );
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assert.equal(result.outcome, "invalid_request");
+    assert.equal((result as { reason: string }).reason, "unsupported_currency");
+    const initiateCallCount = calls.filter((c) => c.name === "initiate_payment_attempt").length;
+    assert.equal(initiateCallCount, 0, "initiate_payment_attempt call count DOIT être exactement 0 -- aucune tentative de paiement 'pending' ne doit jamais être créée pour une commande DZD");
+    // Preuve complémentaire, couche la plus étroite disponible dans
+    // cet environnement de test (mandat : "prove this at the narrowest
+    // reliable layer by asserting that no mutating RPC/service is
+    // called") -- AUCUN appel RPC mutant de quelque nature que ce soit
+    // n'a eu lieu au-delà de la lecture de préflight elle-même
+    // (purement lecture) et de la lecture de possession déjà requise.
+    const mutatingCalls = calls.filter((c) =>
+      ["initiate_payment_attempt", "confirm_payment_attempt", "record_payment_provider_event", "update_payment_provider_event_processing_status"].includes(c.name)
+    );
+    assert.deepEqual(mutatingCalls, [], "AUCUN appel RPC mutant ne doit avoir eu lieu -- rejet strictement pré-mutation");
+  }));
+
+test("PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1 (ferme STREAM-B-CURRENCY-PREFLIGHT-01) : reprise (chemin RESUME) sur une tentative active dont la devise n'est pas EUR -- REJETÉE de façon identique par la MÊME lecture précoce, jamais une régression de mutation nouvelle", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(
+      t,
+      freshReadyHandlers({
+        get_order_currency_preflight: () => ok({ currency: "DZD" }),
+        get_order_active_payment_attempt: () =>
+          ok({ provider_reference: "ref-active-dzd", amount: "15.00", currency: "DZD" }),
+        initiate_payment_attempt: () => {
+          throw new Error("STREAM-B-CURRENCY-PREFLIGHT-01 RÉGRESSION : initiate_payment_attempt ne doit JAMAIS être appelée sur le chemin REPRISE");
+        },
+      })
+    );
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assert.equal(result.outcome, "invalid_request");
+    assert.equal((result as { reason: string }).reason, "unsupported_currency");
+    assert.equal(calls.filter((c) => c.name === "initiate_payment_attempt").length, 0, "chemin RESUME -- initiate_payment_attempt call count = 0, aucune mutation P1 nouvelle introduite par ce correctif");
+  }));
+
+test("PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1 : commande fraîche en EUR -- le préflight de devise RÉUSSIT, initiate_payment_attempt EST appelée normalement, comportement de checkout INCHANGÉ", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, freshReadyHandlers());
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assertReady(result);
+    assert.equal(calls.filter((c) => c.name === "initiate_payment_attempt").length, 1, "EUR -- initiate_payment_attempt DOIT être appelée exactement une fois, comportement normal inchangé");
+  }));
 
 test("kill switch: variable ABSENTE -- désactivé par défaut, AUCUN appel RPC, PaymentCheckoutRuntimeDisabledError", async (t) => {
   delete process.env.PAYMENT_CHECKOUT_RUNTIME_ENABLED;
@@ -191,6 +255,7 @@ test("provider désactivé (isEnabled=false) -- 'provider_unavailable', initiate
   withEnabledKillSwitch(async () => {
     const calls = routeRpc(t, {
       get_order_payment_context: () => ok({ restaurant_id: "resto-1", payment_status: "pending" }),
+      get_order_currency_preflight: () => ok({ currency: "EUR" }),
       get_payment_runtime_provider_environment: () =>
         ok({ provider_code: "monetico", is_enabled: false, configuration_status: "verified", mode: "test" }),
     });
@@ -203,6 +268,7 @@ test("PREFLIGHT #6 : configuration_status !== 'verified' (ex. 'configured') -- '
   withEnabledKillSwitch(async () => {
     const calls = routeRpc(t, {
       get_order_payment_context: () => ok({ restaurant_id: "resto-1", payment_status: "pending" }),
+      get_order_currency_preflight: () => ok({ currency: "EUR" }),
       get_payment_runtime_provider_environment: () =>
         ok({ provider_code: "monetico", is_enabled: true, configuration_status: "configured", mode: "test" }),
     });
@@ -392,10 +458,24 @@ test("INVARIANT POST-P1 : chemin FRESH complet, entrée déjà valide -- AUCUNE 
     // N'échoue JAMAIS -- si buildMoneticoPaymentRequest levait encore
     // (MONETICO_UNSUPPORTED_LANGUAGE ou autre), cette ligne lèverait et
     // ferait échouer le test avec une pile d'appel explicite plutôt que
-    // silencieusement.
-    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1", language: "DE" });
+    // silencieusement. "EN" -- PAYMENT STREAM B -- MONETICO
+    // FINALIZATION (ferme MONETICO-LANGUAGE-01) : valeur RÉELLEMENT
+    // supportée par le contrat Starter du marchand pilote (Français/
+    // Anglais uniquement) -- voir le test dédié ci-dessous pour la
+    // preuve du rejet d'une langue protocolairement valide mais
+    // désormais hors du périmètre Starter réel ("DE").
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1", language: "EN" });
     assertReady(result);
-    assert.equal(result.fields.lgue, "DE");
+    assert.equal(result.fields.lgue, "EN");
+  }));
+
+test("PAYMENT STREAM B -- MONETICO FINALIZATION (ferme MONETICO-LANGUAGE-01) : langue protocolairement valide (\"DE\", acceptée par le protocole Monetico générique à 9 langues) MAIS NON supportée par le contrat Starter réel du marchand pilote (Français/Anglais uniquement) -- REJETÉE explicitement, jamais silencieusement acceptée ni convertie", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, freshReadyHandlers());
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1", language: "DE" });
+    assert.equal(result.outcome, "invalid_request");
+    assert.equal((result as { reason: string }).reason, "unsupported_language");
+    assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"), "aucune tentative de paiement ne doit être initiée pour une langue rejetée -- validée AVANT toute mutation P1");
   }));
 
 // --------------------------------------------------------------

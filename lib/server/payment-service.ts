@@ -607,6 +607,96 @@ export async function getOrderPaymentContext(
 }
 
 // ------------------------------------------------------------------
+// get_order_currency_preflight(p_order_id uuid, p_public_token uuid)
+//   returns table (currency text)
+// PAYMENT STREAM B — CURRENCY PREFLIGHT FIX v1.1 (ferme
+// STREAM-B-CURRENCY-PREFLIGHT-01).
+// ------------------------------------------------------------------
+
+export interface GetOrderCurrencyPreflightInput {
+  orderId: string;
+  /** Preuve de possession du client anonyme (`orders.public_token`),
+   *  MÊME modèle exact que `getOrderPaymentContext`/
+   *  `getOrderActivePaymentAttempt`. JAMAIS journalisée par ce
+   *  wrapper, y compris en cas d'échec. */
+  publicToken: string;
+}
+
+export interface OrderCurrencyPreflight {
+  currency: string;
+}
+
+interface OrderCurrencyPreflightRow {
+  currency: string;
+}
+
+/**
+ * PAYMENT STREAM B — CURRENCY PREFLIGHT FIX v1.1 (ferme
+ * STREAM-B-CURRENCY-PREFLIGHT-01).
+ *
+ * DÉFAUT CORRIGÉ : la devise autoritaire de la commande n'était
+ * connue/validée qu'APRÈS `initiate_payment_attempt` sur le chemin
+ * FRAIS du runtime de checkout Monetico -- une commande non-EUR
+ * pouvait donc déjà créer une tentative de paiement `pending` (et
+ * muter `orders.payment_status`) avant que le runtime ne rejette la
+ * devise non supportée.
+ *
+ * POURQUOI UNE NOUVELLE FONCTION, PAS UNE EXTENSION DE
+ * `getOrderPaymentContext` : cette dernière (PAYMENT P3-B2, publiée)
+ * déclare EXPLICITEMENT dans son propre commentaire ne "jamais"
+ * retourner `currency` -- un choix délibéré et documenté de
+ * minimisation des données. L'étendre violerait son contrat publié et
+ * testé -- voir le postcheck dédié dans la migration SQL de ce lot,
+ * qui échoue explicitement si `getOrderPaymentContext` était modifiée
+ * par erreur. Ce wrapper appelle donc `get_order_currency_preflight`,
+ * une fonction NOUVELLE et STRICTEMENT MINIMALE (currency
+ * uniquement), reproduisant EXACTEMENT le même modèle de sécurité
+ * possession-scoped (order_id + public_token, SECURITY DEFINER,
+ * search_path vide, service_role UNIQUEMENT).
+ *
+ * MÊME POSTURE ANTI-FUITE que `getOrderPaymentContext` : une paire
+ * invalide (mauvais jeton, commande inexistante) est structurellement
+ * indiscernable côté RPC (aucune ligne renvoyée dans tous les cas) --
+ * ce wrapper la traite comme n'importe quel résultat vide inattendu
+ * (`PaymentServerRpcError` générique), jamais une distinction
+ * observable.
+ *
+ * DOIT être appelé AVANT `initiatePaymentAttempt` sur le chemin FRAIS
+ * du runtime de checkout -- voir `payment-checkout-runtime.ts`.
+ */
+export async function getOrderCurrencyPreflight(
+  input: GetOrderCurrencyPreflightInput
+): Promise<OrderCurrencyPreflight> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: OrderCurrencyPreflightRow[] | OrderCurrencyPreflightRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_order_currency_preflight", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_order_currency_preflight", error.code);
+    throw new PaymentServerRpcError("get_order_currency_preflight", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    logRpcFailure("get_order_currency_preflight", "EMPTY_ROW");
+    throw new PaymentServerRpcError("get_order_currency_preflight", PSEUDO_SQLSTATE_EMPTY_ROW);
+  }
+
+  return {
+    currency: String(row.currency),
+  };
+}
+
+// ------------------------------------------------------------------
 // get_order_active_payment_attempt(p_order_id uuid, p_public_token
 //   uuid, p_provider_code text)
 //   returns table (provider_reference text, amount numeric, currency

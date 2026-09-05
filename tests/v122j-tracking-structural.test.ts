@@ -114,12 +114,12 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // mandat §29 : ZÉRO nouveau SQL.
 // --------------------------------------------------------------
 
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 74 (v2 lui-même + CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 + RECEIPT / INVOICE TAX DETAIL v1) + 3 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 74 (v2 lui-même + CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 + RECEIPT / INVOICE TAX DETAIL v1) + 4 (PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6 + PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    77,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, RECEIPT / INVOICE TAX DETAIL v1, PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6)`
+    78,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1, RECEIPT / INVOICE TAX DETAIL v1, PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4/v4.5-v4.6, PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);
