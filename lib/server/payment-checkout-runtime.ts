@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import {
   getOrderPaymentContext,
+  getOrderCurrencyPreflight,
   getPaymentRuntimeProviderEnvironment,
   getOrderActivePaymentAttempt,
   getOrderBillingContext,
@@ -81,6 +82,23 @@ import { MoneticoProtocolError } from "@/lib/server/payment-providers/monetico/e
 
 const PROVIDER_CODE = "monetico";
 
+/**
+ * PAYMENT STREAM B — MONETICO FINALIZATION (ferme MONETICO-CURRENCY-01,
+ * gap vérifié par comparaison contre le contrat Starter réel fourni
+ * pour Emmanuel -- EUR uniquement). Scanym est multi-tenant et
+ * d'AUTRES établissements de la plateforme utilisent réellement une
+ * devise différente (ex. DZD) pour un mode de paiement DIFFÉRENT
+ * (jamais Monetico) -- `initiate_payment_attempt` (PAYMENT P1) copie
+ * fidèlement `orders.currency` SANS AUCUNE validation de compatibilité
+ * avec le PRESTATAIRE choisi. AVANT ce correctif, un établissement mal
+ * configuré (devise non-EUR + Monetico activé) aurait vu sa devise
+ * envoyée telle quelle à Monetico, avec un comportement imprévisible
+ * en aval. Valeur fixe pour ce marchand pilote à devise unique --
+ * élargir à une configuration par marchand exige une décision
+ * d'architecture dédiée, hors périmètre de ce stream.
+ */
+const MONETICO_SUPPORTED_CURRENCY = "EUR";
+
 /** Durée de vie du jeton de relais de retour -- large marge au-delà du
  *  délai de saisie carte documenté (45 minutes, v2.0 §7.2 p.69) pour
  *  couvrir un client lent/distrait sans jamais s'approcher d'une classe
@@ -123,6 +141,37 @@ export type InitiateCheckoutResult =
        */
       outcome: "invalid_request";
       reason: "unsupported_language";
+    }
+  | {
+      /**
+       * PAYMENT STREAM B — CURRENCY PREFLIGHT FIX v1.1 (ferme
+       * STREAM-B-CURRENCY-PREFLIGHT-01) : la devise de la commande
+       * n'est PAS compatible avec la configuration Monetico du
+       * marchand (EUR uniquement, pour le contrat Starter réel du
+       * marchand pilote). AUCUNE conversion implicite -- échec fermé
+       * explicite.
+       *
+       * DÉSORMAIS DÉTECTÉ STRICTEMENT AVANT TOUTE MUTATION, POUR LES
+       * DEUX CHEMINS (FRAIS et REPRISE) -- voir la lecture précoce
+       * `getOrderCurrencyPreflight` juste après la preuve de
+       * possession, section 3bis ci-dessus. AVANT ce correctif (v1),
+       * cette vérification n'intervenait qu'APRÈS
+       * `initiatePaymentAttempt` sur le chemin FRAIS, laissant
+       * subsister une tentative `pending` inutilisable -- fermé.
+       *
+       * Cette branche `reason` reste néanmoins ATTEIGNABLE ici même
+       * (défense en profondeur, jamais un chemin mort) : `currency`
+       * est relu ci-dessous depuis `active.currency`/
+       * `initiated.currency` -- une valeur qui DEVRAIT toujours
+       * correspondre exactement à la lecture précoce
+       * (`orders.currency` est immuable pour une commande donnée),
+       * mais cette seconde vérification protège contre toute
+       * divergence future non anticipée entre les deux lectures, sans
+       * jamais faire confiance implicitement à la cohérence entre
+       * elles.
+       */
+      outcome: "invalid_request";
+      reason: "unsupported_currency";
     }
   | {
       outcome: "ready";
@@ -191,6 +240,35 @@ export async function initiateCheckout(
   }
   if (context.paymentStatus === "not_required") {
     return { outcome: "checkout_not_needed", reason: "not_required" };
+  }
+
+  // ------------------------------------------------------------
+  // 3bis. DEVISE -- PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1
+  // (ferme STREAM-B-CURRENCY-PREFLIGHT-01, retour d'audit Work
+  // indépendant). DÉFAUT ANTÉRIEUR : la devise n'était connue/validée
+  // qu'APRÈS `initiatePaymentAttempt` sur le chemin FRAIS -- une
+  // commande non-EUR pouvait donc déjà créer une tentative `pending`
+  // (mutation P1, `orders.payment_status` inclus) AVANT le rejet.
+  // CORRIGÉ : lecture possession-scoped DÉDIÉE
+  // (`getOrderCurrencyPreflight`, MÊME preuve de possession déjà
+  // vérifiée ci-dessus par `getOrderPaymentContext`) exécutée ICI,
+  // AVANT tout branchement FRAIS/REPRISE et AVANT tout appel
+  // mutant -- exactement le même ordonnancement déjà établi pour la
+  // langue (§1b ci-dessus, fonction pure) : échec le plus rapide
+  // possible, JAMAIS après une mutation. `orders.currency` est
+  // IMMUABLE pour une commande donnée une fois créée (jamais modifiée
+  // par ce runtime ni par `initiate_payment_attempt`, qui la COPIE
+  // sans jamais l'altérer) -- cette lecture précoce est donc
+  // EXACTEMENT équivalente, en valeur, à `active.currency`/
+  // `initiated.currency` lus plus bas, mais intervient AVANT toute
+  // possibilité de mutation, pour le chemin FRAIS comme pour le
+  // chemin REPRISE.
+  const currencyPreflight = await getOrderCurrencyPreflight({
+    orderId: input.orderId,
+    publicToken: input.publicToken,
+  });
+  if (currencyPreflight.currency !== MONETICO_SUPPORTED_CURRENCY) {
+    return { outcome: "invalid_request", reason: "unsupported_currency" };
   }
 
   // ------------------------------------------------------------
@@ -386,6 +464,21 @@ export async function initiateCheckout(
     });
     amount = initiated.amount;
     currency = initiated.currency;
+  }
+
+  // PAYMENT STREAM B — CURRENCY PREFLIGHT FIX v1.1 (ferme
+  // STREAM-B-CURRENCY-PREFLIGHT-01) : DÉFENSE EN PROFONDEUR
+  // uniquement -- la garde PRINCIPALE, qui empêche désormais toute
+  // mutation pour une devise non supportée, est la lecture précoce
+  // `getOrderCurrencyPreflight` (section 3bis, avant tout
+  // branchement FRAIS/REPRISE). Ce second contrôle protège contre
+  // toute divergence future non anticipée entre cette lecture précoce
+  // et `active.currency`/`initiated.currency` -- ne devrait
+  // structurellement jamais se déclencher en pratique (orders.currency
+  // est immuable), mais reste actif pour ne jamais faire confiance
+  // implicitement à cette invariance.
+  if (currency !== MONETICO_SUPPORTED_CURRENCY) {
+    return { outcome: "invalid_request", reason: "unsupported_currency" };
   }
 
   const fields = buildMoneticoPaymentRequest({

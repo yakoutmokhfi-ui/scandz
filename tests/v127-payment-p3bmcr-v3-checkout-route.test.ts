@@ -63,6 +63,11 @@ const READY_BILLING_ROW = () =>
 function readyHandlers(overrides: Partial<Record<string, RpcHandler>> = {}) {
   return {
     get_order_payment_context: () => ok({ restaurant_id: "resto-1", payment_status: "pending" }),
+    // PAYMENT STREAM B -- CURRENCY PREFLIGHT FIX v1.1 (ferme
+    // STREAM-B-CURRENCY-PREFLIGHT-01) : lecture précoce ajoutée,
+    // EUR par défaut (comportement inchangé pour tous les scénarios
+    // de ce fichier).
+    get_order_currency_preflight: () => ok({ currency: "EUR" }),
     get_payment_runtime_provider_environment: () =>
       ok({ provider_code: "monetico", is_enabled: true, configuration_status: "verified", mode: "test" }),
     get_order_active_payment_attempt: () => ({ data: [], error: null }),
@@ -179,6 +184,7 @@ test("provider désactivé -- 503 provider_unavailable", async (t) =>
   withEnabledKillSwitch(async () => {
     routeRpc(t, {
       get_order_payment_context: () => ok({ restaurant_id: "resto-1", payment_status: "pending" }),
+      get_order_currency_preflight: () => ok({ currency: "EUR" }),
       get_payment_runtime_provider_environment: () =>
         ok({ provider_code: "monetico", is_enabled: false, configuration_status: "verified", mode: "test" }),
     });

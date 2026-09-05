@@ -34,9 +34,32 @@ import { MoneticoProtocolError } from "@/lib/server/payment-providers/monetico/e
 
 /** "Uniquement la valeur « 3.0 »" -- v2.0 §1.4.2.2, p.12, confirmé. */
 const VERSION = "3.0";
+/** v2.0 §1.4.2.2, p.12-17, confirmé : le PROTOCOLE Monetico lui-même
+ *  accepte "DE EN ES FR IT JA NL PT SV" (9 langues). PAYMENT STREAM B
+ *  — MONETICO FINALIZATION (ferme MONETICO-LANGUAGE-01, gap vérifié
+ *  par comparaison contre le document réel fourni pour Emmanuel) :
+ *  la fiche paramètres RÉELLE de son contrat Monetico Online Starter
+ *  ne confirme QUE "Français / Anglais" pour la page de paiement --
+ *  jamais les 9 langues du protocole générique. AVANT ce correctif,
+ *  cette liste acceptait les 9 valeurs du PROTOCOLE, alors que
+ *  `language` est un champ contrôlé par le NAVIGATEUR (voir
+ *  app/api/payments/monetico/checkout/route.ts, `body.language`) --
+ *  un client aurait pu demander "DE"/"JA"/etc., valeur ACCEPTÉE par ce
+ *  code mais NON supportée par le contrat Starter réel du marchand
+ *  pilote, avec un rendu Monetico imprévisible en aval.
+ *
+ *  Comportement MINIMAL et SÛR retenu (mandat "choose the minimum
+ *  safe behavior : strict supported mapping") : liste restreinte aux
+ *  DEUX valeurs RÉELLEMENT couvertes par le contrat Starter vérifié.
+ *  AUCUNE conversion silencieuse -- une valeur hors de cette liste
+ *  échoue fermé (MONETICO_UNSUPPORTED_LANGUAGE, comportement déjà
+ *  existant, INCHANGÉ), exactement comme pour toute autre valeur déjà
+ *  invalide. Élargir cette liste pour un futur marchand Premium exige
+ *  une décision d'architecture dédiée (configuration par marchand),
+ *  explicitement HORS PÉRIMÈTRE de ce stream à marchand unique -- voir
+ *  MONETICO-GAP-MATRIX.md, MONETICO-LANGUAGE-01. */
 const DEFAULT_LANGUAGE = "FR";
-/** v2.0 §1.4.2.2, p.12-17, confirmé : "DE EN ES FR IT JA NL PT SV". */
-const SUPPORTED_LANGUAGES = new Set(["DE", "EN", "ES", "FR", "IT", "JA", "NL", "PT", "SV"]);
+const SUPPORTED_LANGUAGES = new Set(["FR", "EN"]);
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
 /** "[0-9]+(\.[0-9]{1,2})?[A-Z]{3}", ex. "95.25EUR" -- v2.0 §1.4.2.2,
