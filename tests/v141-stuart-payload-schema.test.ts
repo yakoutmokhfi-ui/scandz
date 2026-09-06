@@ -23,7 +23,6 @@ test("STUART-V1-PAYLOAD-SCHEMA-01 : le module exporte bien les types attendus (g
 test("STUART-V1-PAYLOAD-SCHEMA-01 : job.pickup_at existe au NIVEAU RACINE du job -- preuve par construction + sérialisation JSON exacte", () => {
   const payload: StuartCreateJobPayload = {
     job: {
-      transport_type: "bike",
       pickup_at: "2026-09-05T14:30:00+02:00",
       pickups: [
         {
@@ -51,7 +50,6 @@ test("STUART-V1-PAYLOAD-SCHEMA-01 : job.pickup_at existe au NIVEAU RACINE du job
 test("STUART-V1-PAYLOAD-SCHEMA-01 : structure JSON sérialisée EXACTE -- correspond littéralement au contrat attendu, aucun champ additionnel inattendu", () => {
   const payload: StuartCreateJobPayload = {
     job: {
-      transport_type: "bike",
       pickup_at: "2026-09-05T14:30:00+02:00",
       pickups: [
         {
@@ -75,7 +73,6 @@ test("STUART-V1-PAYLOAD-SCHEMA-01 : structure JSON sérialisée EXACTE -- corres
 
   const expected = {
     job: {
-      transport_type: "bike",
       pickup_at: "2026-09-05T14:30:00+02:00",
       pickups: [
         {
@@ -105,7 +102,7 @@ test("STUART-V1-PAYLOAD-SCHEMA-01 : les 5 valeurs package_type prescrites sont t
   for (const v of values) {
     const dropoff: import("../lib/server/delivery-providers/stuart/types.ts").StuartDropoff = {
       address: "test",
-      contact: { phone: "+33600000000" },
+      contact: { phone: "+33600000000", firstname: "Test", lastname: "User" },
       client_reference: "TEST000001",
       package_type: v,
     };
@@ -117,7 +114,7 @@ test("STUART-V11-PAYLOAD-REQUIREDNESS-01 : package_type est OBLIGATOIRE -- l'OME
   // @ts-expect-error -- package_type est désormais un champ OBLIGATOIRE de StuartDropoff (ferme STUART-V11-PAYLOAD-REQUIREDNESS-01) ; si cette ligne compile un jour sans erreur, l'exigibilité a régressé.
   const dropoffMissingPackageType: import("../lib/server/delivery-providers/stuart/types.ts").StuartDropoff = {
     address: "test",
-    contact: { phone: "+33600000000" },
+    contact: { phone: "+33600000000", firstname: "Test", lastname: "User" },
     client_reference: "TEST000001",
   };
   // Assertion runtime complémentaire (défense en profondeur, jamais la preuve principale -- la preuve principale est la ligne @ts-expect-error ci-dessus, vérifiée par tsc --noEmit) :

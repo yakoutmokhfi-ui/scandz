@@ -51,16 +51,27 @@ import "server-only";
 
 export type StuartPackageType = "xsmall" | "small" | "medium" | "large" | "xlarge";
 
-export interface StuartContact {
-  firstname?: string;
-  lastname?: string;
-  /** DOIT être au format E.164 (confirmé, setup-for-success +
-   *  general-troubleshooting-guide, code d'erreur PHONE_INVALID). */
-  phone: string;
-  /** Confirmé : identifiant de point de vente si plusieurs
-   *  établissements partagent le même nom commercial. */
-  company?: string;
-}
+/**
+ * CORRECTIF v2.1 (STUART-V2-PAYLOAD-CONTRACT-01, MEDIUM) : le contrat
+ * Create Job actuel exige une identité de contact sous l'une de ces
+ * deux formes exactes -- `company` SEUL, OU `firstname` + `lastname`
+ * ENSEMBLE -- jamais `phone` seul sans aucune identité. Modélisé
+ * structurellement (union discriminée) plutôt que par documentation
+ * seule -- une valeur invalide est REJETÉE AU NIVEAU COMPILATION.
+ */
+export type StuartContact =
+  | {
+      phone: string;
+      company: string;
+      firstname?: never;
+      lastname?: never;
+    }
+  | {
+      phone: string;
+      firstname: string;
+      lastname: string;
+      company?: string;
+    };
 
 export interface StuartPickup {
   address: string;
@@ -103,10 +114,14 @@ export interface StuartDropoff {
 
 export interface StuartCreateJobPayload {
   job: {
-    /** Confirmé via SDK officiels archivés : ex. "bike". Ensemble
-     *  exhaustif des valeurs NON confirmé dans ce lot -- transmis tel
-     *  que fourni par l'appelant, jamais choisi arbitrairement. */
-    transport_type?: string;
+    /** CORRECTIF v2.1 (STUART-V2-PAYLOAD-CONTRACT-01) : `transport_type`
+     *  RETIRÉ du type de requête sortant -- confirmé UNIQUEMENT via
+     *  SDK officiels ARCHIVÉS (jamais la documentation actuelle),
+     *  conformément au mandat : "If it is not confirmed as a current
+     *  Create Job request field: remove it from the outgoing request
+     *  type". Aucun champ archivé-seul n'est transmis à Stuart par ce
+     *  module -- si ce champ s'avère requis/supporté, il sera
+     *  réintroduit UNIQUEMENT après confirmation documentaire actuelle. */
     /** DÉPLACÉ ici depuis StuartPickup en v1.1 (ferme
      *  STUART-V1-PAYLOAD-SCHEMA-01). ISO 8601 avec décalage horaire
      *  explicite, minimum 3 minutes dans le futur (confirmé,
