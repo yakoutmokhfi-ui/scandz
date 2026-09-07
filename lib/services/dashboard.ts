@@ -55,6 +55,8 @@ export async function getDashboardOrders(
       customer_name, customer_phone, customer_email,
       delivery_address, delivery_zone, customer_note, customer_language,
       subtotal, total, currency, created_at, updated_at,
+      tax_settings_snapshot_default_tax_rate, tax_settings_snapshot_prices_include_tax,
+      tax_settings_snapshot_tax_label, tax_settings_snapshot_show_tax_summary,
       order_items (
         id, item_name, option_name, quantity, unit_price, line_total,
         menu_item_id, option_item_id
@@ -85,17 +87,129 @@ export async function updateOrderStatus(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * MERCHANT LEGAL & TAX PROFILE v1.1 -- lit le profil légal/fiscal via
+ * la RPC dédiée get_receipt_settings (SECURITY DEFINER), jamais plus
+ * via un SELECT direct sur public.receipt_settings (v1). Ferme
+ * MLTP-V1-OPERATOR-READ-WRITE-01 : la policy RLS SELECT existante
+ * (V29) n'autorise que les membres de restaurant_users, jamais un
+ * opérateur Scanym sans rattachement -- alors même que
+ * updateReceiptSettings() accepte déjà cet opérateur en écriture
+ * depuis v1. La RPC aligne lecture et écriture sur le même ensemble
+ * d'appelants autorisés (tout membre restaurant_users -- même portée
+ * que la policy RLS existante, jamais élargie -- OU opérateur Scanym),
+ * sans jamais élargir la policy RLS elle-même.
+ *
+ * Distinction explicite "aucune ligne" vs "erreur" (mandat) : la RPC
+ * renvoie un ENSEMBLE VIDE (data = [], error = null) pour un appelant
+ * autorisé mais un restaurant sans ligne receipt_settings -- cette
+ * fonction renvoie alors `null`, EXACTEMENT comme avant (v1). Un
+ * appelant NON autorisé ou toute autre erreur serveur renvoie une
+ * erreur PostgREST (error non nul) -- cette fonction la relance
+ * (`throw`), jamais confondue avec le cas "aucune ligne". Le contrat
+ * `Promise<ReceiptSettings | null>` (throw en cas d'échec réel, null
+ * en cas d'absence confirmée de ligne) est donc inchangé pour les
+ * appelants existants (app/dashboard/page.tsx,
+ * app/dashboard/settings/page.tsx) -- seul le mécanisme de lecture
+ * sous-jacent change.
+ */
 export async function getReceiptSettings(
   restaurantId: string
 ): Promise<ReceiptSettings | null> {
-  const { data, error } = await supabase
-    .from("receipt_settings")
-    .select("*")
-    .eq("restaurant_id", restaurantId)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("get_receipt_settings", {
+    p_restaurant_id: restaurantId,
+  });
 
   if (error) throw new Error(error.message);
-  return data as ReceiptSettings | null;
+  const rows = (data ?? []) as Array<{
+    business_name: string | null;
+    legal_name: string | null;
+    legal_address: string | null;
+    phone: string | null;
+    email: string | null;
+    tax_identifier: string | null;
+    registration_number: string | null;
+    tax_label: string;
+    default_tax_rate: number;
+    prices_include_tax: boolean;
+    footer_text: string | null;
+    show_tax_summary: boolean;
+    paper_width_mm: 58 | 80;
+    restaurant_country: string | null;
+  }>;
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    restaurant_id: restaurantId,
+    business_name: row.business_name,
+    legal_name: row.legal_name,
+    legal_address: row.legal_address,
+    phone: row.phone,
+    email: row.email,
+    tax_identifier: row.tax_identifier,
+    registration_number: row.registration_number,
+    tax_label: row.tax_label,
+    default_tax_rate: row.default_tax_rate,
+    prices_include_tax: row.prices_include_tax,
+    footer_text: row.footer_text,
+    show_tax_summary: row.show_tax_summary,
+    paper_width_mm: row.paper_width_mm,
+    restaurant_country: row.restaurant_country,
+  };
+}
+
+/**
+ * MERCHANT LEGAL & TAX PROFILE v1 -- seul point d'écriture pour le
+ * profil légal/fiscal marchand (public.receipt_settings), réservé
+ * owner/manager du restaurant ciblé ou opérateur Scanym
+ * (assert_receipt_settings_role, même patron que
+ * assert_restaurant_asset_role -- voir
+ * supabase/DRAFT-lot-merchant-legal-tax-profile-v1.sql). RPC en
+ * UPSERT côté serveur : fonctionne aussi bien pour un établissement
+ * historique déjà backfillé (V29) que pour un établissement onboardé
+ * depuis (create_establishment, Lot D, n'insère jamais de ligne
+ * receipt_settings) -- aucune branche "créer vs modifier" n'est
+ * nécessaire ici, l'appelant peut toujours transmettre l'état complet
+ * du formulaire.
+ *
+ * N'accepte ni ne modifie `paper_width_mm` (réglage imprimante, hors
+ * périmètre de ce lot) ni `restaurant_country` (`restaurants.country`,
+ * propriété de l'établissement, jamais du profil receipt_settings).
+ */
+export async function updateReceiptSettings(
+  restaurantId: string,
+  input: {
+    businessName: string | null;
+    legalName: string | null;
+    legalAddress: string | null;
+    phone: string | null;
+    email: string | null;
+    taxIdentifier: string | null;
+    registrationNumber: string | null;
+    taxLabel: string;
+    defaultTaxRate: number;
+    pricesIncludeTax: boolean;
+    footerText: string | null;
+    showTaxSummary: boolean;
+  }
+): Promise<void> {
+  const { error } = await supabase.rpc("update_receipt_settings", {
+    p_restaurant_id: restaurantId,
+    p_business_name: input.businessName,
+    p_legal_name: input.legalName,
+    p_legal_address: input.legalAddress,
+    p_phone: input.phone,
+    p_email: input.email,
+    p_tax_identifier: input.taxIdentifier,
+    p_registration_number: input.registrationNumber,
+    p_tax_label: input.taxLabel,
+    p_default_tax_rate: input.defaultTaxRate,
+    p_prices_include_tax: input.pricesIncludeTax,
+    p_footer_text: input.footerText,
+    p_show_tax_summary: input.showTaxSummary,
+  });
+  if (error) throw new Error(error.message);
 }
 
 // ------------------------------------------------------------------

@@ -55,6 +55,31 @@ export interface DashboardOrder {
   created_at: string;
   updated_at: string;
   order_items: DashboardOrderItem[];
+  /**
+   * MERCHANT LEGAL & TAX PROFILE v1.1 -- instantané FIGÉ des réglages
+   * fiscaux du marchand (public.receipt_settings), capturé par le
+   * déclencheur BEFORE INSERT `snapshot_receipt_tax_settings` au
+   * moment précis de la création de la commande -- jamais relu ni
+   * recalculé ensuite. Ferme MLTP-V1-HISTORICAL-TAX-01 : sans cet
+   * instantané, `lib/receipt.ts` recalculait la décomposition
+   * HT/TVA/TTC depuis les réglages COURANTS, qui peuvent avoir changé
+   * depuis (le marchand a pu modifier son taux/son option "prix TTC"
+   * après coup) -- une réimpression affichait alors une décomposition
+   * fiscale rétroactivement FAUSSE.
+   *
+   * `null` sur les 4 champs = commande antérieure à ce lot, ou
+   * restaurant sans aucune ligne receipt_settings au moment de la
+   * commande ("LEGACY ORDER -- FISCAL SNAPSHOT UNAVAILABLE", même
+   * convention que order_items.weight_is_approximate_snapshot dans
+   * RECEIPT / INVOICE TAX DETAIL v1.1) -- dans ce cas, lib/receipt.ts
+   * n'affiche JAMAIS de décomposition HT/TVA/TTC fabriquée, seulement
+   * le total autoritaire de la commande (repli sûr, mandat v1.1
+   * section HISTORICAL TAX SAFETY, option B).
+   */
+  tax_settings_snapshot_default_tax_rate: number | null;
+  tax_settings_snapshot_prices_include_tax: boolean | null;
+  tax_settings_snapshot_tax_label: string | null;
+  tax_settings_snapshot_show_tax_summary: boolean | null;
 }
 
 /**
@@ -115,6 +140,8 @@ export interface ReceiptSettings {
   legal_name: string | null;
   legal_address: string | null;
   phone: string | null;
+  /** MERCHANT LEGAL & TAX PROFILE v1 -- ajouté (absent de V29). */
+  email: string | null;
   tax_identifier: string | null;
   registration_number: string | null;
   paper_width_mm: 58 | 80;
@@ -123,4 +150,13 @@ export interface ReceiptSettings {
   tax_label: string;
   default_tax_rate: number;
   footer_text: string | null;
+  /**
+   * MERCHANT LEGAL & TAX PROFILE v1 -- pays du restaurant
+   * (`restaurants.country`, Lot D), lu ICI via une jointure PostgREST
+   * en lecture seule (`getReceiptSettings`), UNIQUEMENT pour piloter
+   * l'intitulé de champ affiché (voir lib/merchant-legal-tax-labels.ts).
+   * Jamais écrit par `updateReceiptSettings` -- `restaurants.country`
+   * reste un champ de l'établissement, hors périmètre de ce lot.
+   */
+  restaurant_country: string | null;
 }
