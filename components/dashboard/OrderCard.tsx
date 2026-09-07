@@ -3,6 +3,7 @@
 import type { DashboardOrder, OrderStatus, ReceiptSettings } from "@/lib/dashboard-types";
 import { printReceipt } from "@/lib/receipt";
 import { translate, type Lang } from "@/lib/i18n";
+import { formatElapsedMinutesFr } from "@/lib/format-elapsed-time";
 import { formatPrice } from "@/lib/whatsapp";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
@@ -89,6 +90,33 @@ export default function OrderCard({
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
   const ageMinutes = Math.max(0, Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000));
+  /**
+   * CORRECTIF (BACKOFFICE TICKET AGE / ELAPSED TIME DISPLAY v1) :
+   * un ticket ancien affichait auparavant un nombre brut de minutes,
+   * illisible au-delà de quelques dizaines (ex. "16958 min"). Portée
+   * STRICTEMENT DISPLAY ONLY -- `ageMinutes` lui-même, le tri, et le
+   * statut restent INCHANGÉS.
+   *
+   * CORRECTIF v1.2 (INVALID TIMESTAMP UI FALLBACK) : le garde de
+   * finitude est désormais appliqué AVANT la branche linguistique --
+   * une valeur `created_at` invalide/manquante en amont (produisant
+   * `ageMinutes` non fini) affiche "—" dans TOUTES les langues,
+   * jamais uniquement en français. Auparavant, seul le français
+   * (via `formatElapsedMinutesFr`, corrigé en v1.1) était protégé --
+   * les autres langues auraient pu interpoler littéralement "NaN"/
+   * "Infinity" dans le gabarit `dsMinutes`.
+   *
+   * Le formatage j/h/min détaillé reste FRANÇAIS UNIQUEMENT (mandat,
+   * littéral) -- pour une valeur FINIE dans les autres langues,
+   * l'ancien comportement ("{n} min" / "{n} د" via dsMinutes) reste
+   * intégralement préservé, aucune traduction modifiée, aucun
+   * élargissement de portée non demandé par ce lot.
+   */
+  const ageDisplay = !Number.isFinite(ageMinutes)
+    ? "—"
+    : lang === "fr"
+      ? formatElapsedMinutesFr(ageMinutes)
+      : t("dsMinutes", { n: ageMinutes });
 
   function handlePrint() {
     try {
@@ -113,7 +141,7 @@ export default function OrderCard({
             {t("dsOrderTitle", { n: order.order_number })}
           </p>
           <p className="text-sm font-semibold text-amber-700">
-            {service(order, lang)} · {t("dsMinutes", { n: ageMinutes })}
+            {service(order, lang)} · {ageDisplay}
           </p>
         </div>
         <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">
