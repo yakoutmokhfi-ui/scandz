@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { scanModuleReferences } from "./helpers/module-reference-scanner.ts";
 
 // ====================================================================
 // Scanym — PAYMENT P3-A1 — SERVER PAYMENT INFRASTRUCTURE.
@@ -90,33 +91,55 @@ const TRACKING_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session)$/,
   "app/api/track/exchange/route.ts": /^@\/lib\/server\/tracking-(service|errors|session)$/,
 };
+// CORRECTIF v2.6.1 (STUART-V26-P3A1-ALLOWLIST-01, MEDIUM) : le
+// déclencheur Stuart était auparavant ajouté à
+// MONETICO_ALLOWED_SERVER_IMPORTERS (SANS RESTRICTION de module) --
+// contournait l'invariant structurel pour TOUT import lib/server/*.
+// Retiré de cette liste, remplacé par une règle DÉDIÉE et SCOPÉE,
+// même mécanisme exact que TRACKING_ALLOWED_SERVER_IMPORTERS
+// ci-dessus : SEULS les 3 modules Stuart explicitement requis par la
+// route sont autorisés -- toute autre valeur (Monetico, un autre
+// prestataire de livraison, un module server arbitraire) est REJETÉE.
+const STUART_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+  "app/api/internal/stuart/sandbox-trigger/route.ts":
+    /^@\/lib\/server\/delivery-providers\/stuart\/(environment|create-job|allocation)$/,
+  // DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.2 (lot
+  // ULTÉRIEUR et SANS RAPPORT avec PAYMENT P3-A1) : sonde de
+  // préparation runtime EN LECTURE SEULE -- n'importe QUE le
+  // résolveur d'environnement, jamais create-job/allocation (aucune
+  // orchestration, aucun accès DB depuis cette route).
+  "app/api/internal/stuart/sandbox-readiness/route.ts":
+    /^@\/lib\/server\/delivery-providers\/stuart\/environment$/,
+};
 const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/payments/monetico/checkout/route.ts",
   "app/api/payments/monetico/callback/route.ts",
   "app/api/internal/payments/monetico/recover/route.ts",
   "app/checkout/return/shared.ts",
 ]);
-
-test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*) et les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module)", () => {
+test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from \"...\"')", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
-    const src = readFileSync(file, "utf8");
     if (MONETICO_ALLOWED_SERVER_IMPORTERS.has(file)) {
       continue;
     }
-    const allowedPattern = TRACKING_ALLOWED_SERVER_IMPORTERS[file];
+    const { references, hasNonLiteralModuleReference } = scanModuleReferences(file);
+    const serverReferences = references.filter((r) => r.startsWith("@/lib/server/"));
+
+    const allowedPattern = TRACKING_ALLOWED_SERVER_IMPORTERS[file] ?? STUART_ALLOWED_SERVER_IMPORTERS[file];
     if (!allowedPattern) {
-      if (SERVER_IMPORT_PATTERN.test(src)) offenders.push(file);
+      // Fichier NON allowlisté : AUCUNE référence lib/server/* n'est
+      // tolérée, littérale OU non littérale (fail-closed explicite).
+      if (serverReferences.length > 0) offenders.push(`${file} -> ${serverReferences.join(", ")}`);
+      if (hasNonLiteralModuleReference) offenders.push(`${file} -> [référence de module NON LITTÉRALE détectée, fail-closed]`);
       continue;
     }
-    // Fichier allowlisté (suivi client) : chaque import réel de
-    // lib/server/* doit correspondre au motif autorisé pour CE
-    // fichier précis -- jamais un module de paiement, jamais un
-    // module server arbitraire.
-    const importMatches = [...src.matchAll(/from\s+["'](@\/lib\/server\/[^"']+)["']/g)].map(
-      (m) => m[1]
-    );
-    for (const imported of importMatches) {
+    // Fichier allowlisté (suivi client OU route Stuart) : chaque
+    // référence RÉELLE de lib/server/* -- quelle que soit sa syntaxe
+    // (import statique, effet de bord, dynamique, require) -- doit
+    // correspondre au motif autorisé pour CE fichier précis.
+    if (hasNonLiteralModuleReference) offenders.push(`${file} -> [référence de module NON LITTÉRALE détectée, fail-closed]`);
+    for (const imported of serverReferences) {
       if (!allowedPattern.test(imported)) offenders.push(`${file} -> ${imported}`);
     }
   }
@@ -251,13 +274,15 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
   // MERCHANT LEGAL & TAX PROFILE v1 (Stream A, sans rapport avec le
   // paiement) ajoute SON PROPRE unique fichier SQL top-level
   // (DRAFT-lot-merchant-legal-tax-profile-v1.sql), portant le compte
-  // total à 82 -- mesuré directement.
-  // MISE À JOUR OPERATOR BACKOFFICE OB-2 (CATALOGUE RPC OPERATOR
-  // AUTHORIZATION v1, sans rapport avec le paiement) : ce lot ajoute
-  // SON PROPRE unique fichier SQL top-level (DRAFT-lot-catalogue-
-  // operator-authorization-v1.sql), portant le compte total à 83 --
-  // mesuré directement.
-  assert.equal(sqlFiles.length, 83, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) attendu`);
+  // total à 82 -- mesuré directement. DELIVERY STREAM C -- STUART
+  // SANDBOX INTEGRATION v2.6.1 (sans rapport avec le paiement) ajoute
+  // SON PROPRE unique fichier SQL de désignation synthétique, portant
+  // le compte total à 83. OPERATOR BACKOFFICE OB-2 (CATALOGUE RPC
+  // OPERATOR AUTHORIZATION v1, également sans rapport avec le
+  // paiement) ajoute à son tour SON PROPRE unique fichier SQL
+  // top-level (DRAFT-lot-catalogue-operator-authorization-v1.sql),
+  // portant le compte total à 84 -- mesuré directement.
+  assert.equal(sqlFiles.length, 84, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, désignation synthétique, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
@@ -289,9 +314,15 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // CHECKOUT RUNTIME v3/v4, dont le worker de reprise, ferme
   // P3B-V3-ACK-RECOVERY-01 -- jamais activé/programmé par ce lot,
   // voir le commentaire de fichier de la route elle-même et
-  // REPORTS/FINAL-REPORT-v4.1.md, section GOVERNANCE).
+  // REPORTS/FINAL-REPORT-v4.1.md, section GOVERNANCE) + 2 routes
+  // DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6/v2.6.2 (lots
+  // ULTÉRIEURS et SANS RAPPORT avec PAYMENT P3-A1 : déclencheur
+  // d'exécution Sandbox contrôlée + sonde de préparation runtime en
+  // lecture seule, chacun authentifié par un secret dédié DISTINCT).
   assert.deepEqual(routeFiles, [
     "app/api/internal/payments/monetico/recover/route.ts",
+    "app/api/internal/stuart/sandbox-readiness/route.ts",
+    "app/api/internal/stuart/sandbox-trigger/route.ts",
     "app/api/payments/monetico/callback/route.ts",
     "app/api/payments/monetico/checkout/route.ts",
     "app/api/track/exchange/route.ts",

@@ -134,19 +134,20 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // ajoute à son tour SON PROPRE unique fichier SQL top-level
 // (DRAFT-lot-merchant-legal-tax-profile-v1.sql), portant le compte
 // total à 82 -- mesuré directement, aucune ligne de CE lot v2
-// (tracking) n'a bougé non plus. OPERATOR BACKOFFICE OB-2 (CATALOGUE
-// RPC OPERATOR AUTHORIZATION v1, lot ULTÉRIEUR et SANS RAPPORT avec
-// CUSTOMER TRACKING EXPERIENCE v2) ajoute à son tour SON PROPRE
-// unique fichier SQL top-level (DRAFT-lot-catalogue-operator-
-// authorization-v1.sql), portant le compte total à 83 -- mesuré
-// directement, aucune ligne de CE lot v2 (tracking) n'a bougé non
-// plus.
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé) + 1 (MERCHANT LEGAL & TAX PROFILE v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2)", () => {
+// (tracking) n'a bougé non plus. DELIVERY STREAM C -- STUART SANDBOX
+// INTEGRATION v2.6.1 (également lot ULTÉRIEUR et SANS RAPPORT) ajoute
+// à son tour SON PROPRE unique fichier SQL de désignation synthétique,
+// portant le compte total à 83. OPERATOR BACKOFFICE OB-2 (CATALOGUE
+// RPC OPERATOR AUTHORIZATION v1, également lot ULTÉRIEUR et SANS
+// RAPPORT) ajoute à son tour SON PROPRE unique fichier SQL top-level,
+// portant le compte total à 84 -- mesuré directement, aucune ligne de
+// CE lot v2 (tracking) n'a bougé.
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé) + 1 (MERCHANT LEGAL & TAX PROFILE v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    83,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1)`
+    84,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);
