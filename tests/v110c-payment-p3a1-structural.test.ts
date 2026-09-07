@@ -252,7 +252,12 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
   // paiement) ajoute SON PROPRE unique fichier SQL top-level
   // (DRAFT-lot-merchant-legal-tax-profile-v1.sql), portant le compte
   // total à 82 -- mesuré directement.
-  assert.equal(sqlFiles.length, 82, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) attendu`);
+  // MISE À JOUR OPERATOR BACKOFFICE OB-2 (CATALOGUE RPC OPERATOR
+  // AUTHORIZATION v1, sans rapport avec le paiement) : ce lot ajoute
+  // SON PROPRE unique fichier SQL top-level (DRAFT-lot-catalogue-
+  // operator-authorization-v1.sql), portant le compte total à 83 --
+  // mesuré directement.
+  assert.equal(sqlFiles.length, 83, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
