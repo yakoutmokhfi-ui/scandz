@@ -312,6 +312,12 @@ export default function CreateEstablishmentPage() {
 
   return (
     <main className="mx-auto max-w-lg space-y-6 p-6">
+      {/* OB-1 — lien additif uniquement vers le répertoire opérateur
+          (app/admin/establishments/page.tsx) : aucune autre ligne de
+          ce fichier n'est modifiée. */}
+      <a href="/admin/establishments" className="text-sm font-semibold text-stone-500">
+        {tAdmin("backToDirectory")}
+      </a>
       <div>
         <h1 className="text-xl font-bold text-stone-900">{tAdmin("adminTitle")}</h1>
         <p className="text-sm text-stone-500">{tAdmin("adminSubtitle")}</p>
