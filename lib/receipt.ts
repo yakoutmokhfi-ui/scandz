@@ -28,16 +28,73 @@ export function buildReceiptHtml(params: {
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
   const width = settings?.paper_width_mm ?? 58;
-  const rate = Number(settings?.default_tax_rate ?? 0);
-  const showTax = Boolean(settings?.show_tax_summary && rate > 0);
+
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme MLTP-V1-HISTORICAL-TAX-01.
+  //
+  // AVANT v1.1, ce bloc lisait TOUJOURS les réglages fiscaux COURANTS
+  // (settings?.default_tax_rate / .prices_include_tax / .show_tax_summary
+  // / .tax_label), quelle que soit la date de la commande. Tant que
+  // receipt_settings était en lecture seule (v1, avant l'écriture
+  // marchand), ce défaut était latent -- ces réglages ne changeaient
+  // jamais. MERCHANT LEGAL & TAX PROFILE v1 les rend éditables par le
+  // marchand : réimprimer une ANCIENNE commande après un changement de
+  // taux/option affichait alors une décomposition HT/TVA/TTC
+  // rétroactivement FAUSSE (constat bloquant de l'audit Work,
+  // MLTP-V1-HISTORICAL-TAX-01).
+  //
+  // Stratégie retenue (option A -- instantané immuable, voir
+  // supabase/DRAFT-lot-merchant-legal-tax-profile-v1.sql section 5 et
+  // HISTORICAL-TAX-STRATEGY.md du package d'audit v1.1) : la
+  // décomposition fiscale utilise EXCLUSIVEMENT l'instantané figé au
+  // moment de la commande (order.tax_settings_snapshot_*, capturé par
+  // un déclencheur BEFORE INSERT sur orders, jamais recalculé
+  // ensuite) -- JAMAIS les réglages COURANTS du marchand pour ce
+  // calcul. `menu_items.tax_rate` n'est délibérément PAS utilisé ici
+  // (mandat : "Do NOT silently make menu_items.tax_rate authoritative
+  // for old orders" -- ce calcul reste le taux PLAT par restaurant,
+  // désormais figé par commande, jamais un taux par produit).
+  //
+  // Repli (option B, mandat : "for orders without sufficient
+  // immutable tax data, suppress the tax breakdown and display only
+  // the authoritative historical order total") : une commande sans
+  // instantané (antérieure à ce lot, ou restaurant sans aucune ligne
+  // receipt_settings au moment de la commande --
+  // `tax_settings_snapshot_prices_include_tax === null`, même
+  // convention de marqueur de complétude que
+  // order_items.weight_is_approximate_snapshot dans RECEIPT / INVOICE
+  // TAX DETAIL v1.1) n'affiche JAMAIS de décomposition HT/TVA/TTC
+  // fabriquée -- uniquement le total autoritaire de la commande
+  // (order.total, inchangé, toujours l'unique autorité financière).
+  //
+  // Les champs d'AFFICHAGE du profil marchand (business_name,
+  // legal_name, legal_address, phone, tax_identifier,
+  // registration_number, footer_text, paper_width_mm ci-dessus)
+  // restent volontairement pilotés par les réglages COURANTS : ce sont
+  // des informations d'identité/de présentation du commerce, pas un
+  // calcul de taxe -- un commerçant qui change son adresse légale
+  // affichée veut que TOUS ses tickets, y compris une réimpression
+  // d'ancienne commande, reflètent l'adresse ACTUELLE. Seule la
+  // décomposition fiscale (HT/TVA/TTC) est concernée par
+  // MLTP-V1-HISTORICAL-TAX-01 et donc par ce figement.
+  const hasTaxSnapshot = order.tax_settings_snapshot_prices_include_tax !== null
+    && order.tax_settings_snapshot_prices_include_tax !== undefined;
+  const rate = hasTaxSnapshot ? Number(order.tax_settings_snapshot_default_tax_rate ?? 0) : 0;
+  const pricesIncludeTax = hasTaxSnapshot
+    ? Boolean(order.tax_settings_snapshot_prices_include_tax)
+    : false;
+  const taxLabel = hasTaxSnapshot
+    ? (order.tax_settings_snapshot_tax_label || "TVA")
+    : (settings?.tax_label || "TVA");
+  const showTax = hasTaxSnapshot
+    && Boolean(order.tax_settings_snapshot_show_tax_summary && rate > 0);
   const total = Number(order.total);
   const taxAmount = showTax
-    ? settings?.prices_include_tax
+    ? pricesIncludeTax
       ? total - total / (1 + rate / 100)
       : total * (rate / 100)
     : 0;
-  const excludingTax = settings?.prices_include_tax ? total - taxAmount : total;
-  const includingTax = settings?.prices_include_tax ? total : total + taxAmount;
+  const excludingTax = pricesIncludeTax ? total - taxAmount : total;
+  const includingTax = pricesIncludeTax ? total : total + taxAmount;
 
   const itemRows = order.order_items
     .map(
@@ -99,7 +156,7 @@ export function buildReceiptHtml(params: {
   <div class="rule"></div>
   ${showTax ? `
     <div class="total-row"><span>Total HT</span><span>${esc(formatPrice(excludingTax, order.currency))}</span></div>
-    <div class="total-row"><span>${esc(settings?.tax_label || "TVA")} ${rate}%</span><span>${esc(formatPrice(taxAmount, order.currency))}</span></div>
+    <div class="total-row"><span>${esc(taxLabel)} ${rate}%</span><span>${esc(formatPrice(taxAmount, order.currency))}</span></div>
     <div class="total-row grand-total"><span>Total TTC</span><span>${esc(formatPrice(includingTax, order.currency))}</span></div>
   ` : `
     <div class="total-row grand-total"><span>${esc(t("rcTotal"))}</span><span>${esc(formatPrice(total, order.currency))}</span></div>

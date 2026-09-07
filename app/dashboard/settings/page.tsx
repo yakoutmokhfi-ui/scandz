@@ -16,7 +16,10 @@ import {
   updateRestaurantLanguages,
   getSupportedLanguages,
   getRestaurantActiveLanguages,
+  getReceiptSettings,
+  updateReceiptSettings,
 } from "@/lib/services/dashboard";
+import { getLegalTaxFieldLabels } from "@/lib/merchant-legal-tax-labels";
 import {
   addOrReplaceEstablishmentAsset,
   removeEstablishmentAsset,
@@ -74,6 +77,52 @@ export default function SettingsPage() {
     Array<{ code: string; label: string; dir: "ltr" | "rtl" }>
   >([]);
   const [activeLanguageCodes, setActiveLanguageCodes] = useState<string[]>(["fr"]);
+  // MERCHANT LEGAL & TAX PROFILE v1 — profil légal/fiscal marchand
+  // (public.receipt_settings), jusqu'ici en lecture seule (V29).
+  // legalCountry est LU (restaurants.country, via getReceiptSettings)
+  // pour piloter l'intitulé de registrationNumber/taxIdentifier
+  // (lib/merchant-legal-tax-labels.ts) mais n'est JAMAIS modifié par
+  // cette page -- ce champ appartient à l'établissement (Lot D), hors
+  // périmètre de ce lot.
+  const [legalCountry, setLegalCountry] = useState<string | null>(null);
+  const [legalBusinessName, setLegalBusinessName] = useState("");
+  const [legalName, setLegalName] = useState("");
+  const [legalAddress, setLegalAddress] = useState("");
+  const [legalPhone, setLegalPhone] = useState("");
+  const [legalEmail, setLegalEmail] = useState("");
+  const [legalTaxIdentifier, setLegalTaxIdentifier] = useState("");
+  const [legalRegistrationNumber, setLegalRegistrationNumber] = useState("");
+  const [legalTaxLabel, setLegalTaxLabel] = useState("TVA");
+  const [legalDefaultTaxRate, setLegalDefaultTaxRate] = useState("0");
+  const [legalPricesIncludeTax, setLegalPricesIncludeTax] = useState(true);
+  const [legalFooterText, setLegalFooterText] = useState("");
+  const [legalShowTaxSummary, setLegalShowTaxSummary] = useState(false);
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme
+  // MLTP-V1-DASHBOARD-STALE-WRITE-01. Même patron, déjà audité et
+  // validé par le Work, que app/dashboard/payment/page.tsx (v3,
+  // `loadedRestaurantId`/`requestSeqRef`/réinitialisation SYNCHRONE
+  // dans le gestionnaire de sélection) -- appliqué ICI uniquement à la
+  // section légale/fiscale, jamais au reste de cette page (portée du
+  // mandat v1.1, "targeted fix only").
+  //
+  // `legalProfileReady` : true UNIQUEMENT une fois la lecture de CE
+  // restaurant terminée avec succès (ligne trouvée OU "aucune ligne"
+  // confirmée) -- reste false pendant le chargement ET après un échec
+  // de lecture (un échec n'équivaut JAMAIS à "aucune ligne", mandat).
+  // `legalProfileLoadedRestaurantId` : le restaurant auquel les champs
+  // légaux/fiscaux actuellement en état appartiennent RÉELLEMENT --
+  // submit() n'appelle updateReceiptSettings() QUE si cette valeur est
+  // strictement égale à `restaurantId` ET que `legalProfileReady` est
+  // vrai (garde-fou de PROPRIÉTÉ des données, pas seulement de
+  // timing).
+  const [legalProfileReady, setLegalProfileReady] = useState(false);
+  const [legalProfileLoadedRestaurantId, setLegalProfileLoadedRestaurantId] = useState<string | null>(null);
+  const [legalProfileError, setLegalProfileError] = useState<string | null>(null);
+  // Garde anti-réponse-hors-ordre (asynchrone) -- incrémentée à chaque
+  // nouvelle tentative de lecture du profil légal/fiscal (bascule de
+  // restaurant OU premier montage), permet d'ignorer toute réponse qui
+  // arriverait APRÈS qu'un changement plus récent l'a déjà invalidée.
+  const legalRequestSeqRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +168,55 @@ export default function SettingsPage() {
   const [uiLang, setUiLang] = useState<Lang>("fr");
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(uiLang, k, p);
+  // MERCHANT LEGAL & TAX PROFILE v1 -- intitulés de champ adaptés au
+  // pays du restaurant (lib/merchant-legal-tax-labels.ts), jamais un
+  // nouveau moteur de juridiction : simple lookup pur, recalculé à
+  // chaque rendu (aucun appel réseau).
+  const legalLabels = getLegalTaxFieldLabels(legalCountry);
+
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- réinitialisation SYNCHRONE et
+  // COMPLÈTE de la section légale/fiscale, jamais du reste de la page
+  // (portée strictement scopée du mandat v1.1). Invoquée (a) au tout
+  // début de load() (couvre le premier montage, qui ne passe jamais
+  // par handleSelectRestaurant ci-dessous) et (b) DANS handleSelectRestaurant,
+  // dans le MÊME gestionnaire d'événement que setRestaurantId(id) --
+  // React regroupe ces deux mises à jour en un seul rendu, il ne peut
+  // donc jamais exister de rendu intermédiaire où `restaurantId` a
+  // déjà changé mais où les champs légaux/fiscaux appartiennent
+  // encore à l'ancien restaurant (même garantie, même patron déjà
+  // audité par le Work sur app/dashboard/payment/page.tsx v3).
+  const resetLegalProfileState = useCallback(() => {
+    legalRequestSeqRef.current += 1;
+    setLegalProfileReady(false);
+    setLegalProfileLoadedRestaurantId(null);
+    setLegalProfileError(null);
+    setLegalCountry(null);
+    setLegalBusinessName("");
+    setLegalName("");
+    setLegalAddress("");
+    setLegalPhone("");
+    setLegalEmail("");
+    setLegalTaxIdentifier("");
+    setLegalRegistrationNumber("");
+    setLegalTaxLabel("TVA");
+    setLegalDefaultTaxRate("0");
+    setLegalPricesIncludeTax(true);
+    setLegalFooterText("");
+    setLegalShowTaxSummary(false);
+  }, []);
+
+  // Sélecteur de restaurant (DashboardNav) -- remplace le
+  // `setRestaurantId` direct utilisé jusqu'ici : réinitialise D'ABORD,
+  // de façon synchrone, la section légale/fiscale, PUIS change
+  // `restaurantId`, dans le MÊME gestionnaire (React 18/19 regroupe
+  // les deux en un seul rendu). Le reste de la page (adresse,
+  // couleurs, langues, etc.) continue de se réinitialiser exclusivement
+  // via load() comme avant v1.1 -- inchangé, hors périmètre de ce
+  // correctif.
+  const handleSelectRestaurant = useCallback((id: string) => {
+    resetLegalProfileState();
+    setRestaurantId(id);
+  }, [resetLegalProfileState]);
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
@@ -144,6 +242,83 @@ export default function SettingsPage() {
       setTiktokUrl(s.tiktok_url ?? "");
       setFacebookUrl(s.facebook_url ?? "");
       setSourceLanguage(s.source_language ?? "fr");
+      // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme
+      // MLTP-V1-DASHBOARD-STALE-WRITE-01. Réinitialisation SYNCHRONE
+      // (couvre le premier montage -- handleSelectRestaurant couvre
+      // déjà toute bascule pilotée par l'utilisateur, mais load() reste
+      // le SEUL point de réinitialisation pour ce cas-là) + garde de
+      // séquence anti-réponse-hors-ordre, même patron que
+      // app/dashboard/payment/page.tsx (v3).
+      //
+      // Distinction EXPLICITE, jamais confondue (mandat : "A read
+      // error is NOT equivalent to 'no row'") :
+      //   - getReceiptSettings(id) résout à `null` -- aucune ligne
+      //     receipt_settings pour ce restaurant (onboardé après V29),
+      //     mais la lecture elle-même a RÉUSSI (autorisation
+      //     confirmée par get_receipt_settings, voir
+      //     supabase/DRAFT-lot-merchant-legal-tax-profile-v1.sql
+      //     section 4) -- defaults sûrs affichés, `legalProfileReady`
+      //     passe à `true` : enregistrer est autorisé (un formulaire
+      //     vide légitime, l'UPSERT créera la ligne).
+      //   - getReceiptSettings(id) lève une exception -- échec RÉEL
+      //     (RPC rejetée, réseau, etc.) -- tous les champs légaux/
+      //     fiscaux sont réinitialisés/vidés, `legalProfileReady`
+      //     reste `false`, une erreur DÉDIÉE est affichée
+      //     (legalProfileError, jamais confondue avec le formulaire
+      //     "vide légitime" ci-dessus) : enregistrer reste refusé
+      //     (voir submit()).
+      const legalSeq = ++legalRequestSeqRef.current;
+      setLegalProfileReady(false);
+      setLegalProfileLoadedRestaurantId(null);
+      setLegalProfileError(null);
+      try {
+        const receipt = await getReceiptSettings(id);
+        // Garde anti-réponse-hors-ordre : si une bascule de restaurant
+        // plus récente a déjà invalidé cette requête, cette réponse
+        // est PÉRIMÉE -- ignorée intégralement, jamais appliquée à
+        // l'état d'un restaurant qui n'est plus celui sélectionné.
+        if (legalSeq !== legalRequestSeqRef.current) return;
+        setLegalCountry(receipt?.restaurant_country ?? null);
+        setLegalBusinessName(receipt?.business_name ?? "");
+        setLegalName(receipt?.legal_name ?? "");
+        setLegalAddress(receipt?.legal_address ?? "");
+        setLegalPhone(receipt?.phone ?? "");
+        setLegalEmail(receipt?.email ?? "");
+        setLegalTaxIdentifier(receipt?.tax_identifier ?? "");
+        setLegalRegistrationNumber(receipt?.registration_number ?? "");
+        setLegalTaxLabel(receipt?.tax_label ?? "TVA");
+        setLegalDefaultTaxRate(String(receipt?.default_tax_rate ?? 0));
+        setLegalPricesIncludeTax(receipt?.prices_include_tax ?? true);
+        setLegalFooterText(receipt?.footer_text ?? "");
+        setLegalShowTaxSummary(receipt?.show_tax_summary ?? false);
+        // Commit ATOMIQUE (même rendu) : `legalProfileLoadedRestaurantId`
+        // ne pointe JAMAIS vers `id` sans que les champs ci-dessus
+        // n'aient déjà été posés pour CE MÊME restaurant.
+        setLegalProfileLoadedRestaurantId(id);
+        setLegalProfileReady(true);
+      } catch {
+        if (legalSeq !== legalRequestSeqRef.current) return;
+        // Échec RÉEL (pas "aucune ligne") : vide tous les champs --
+        // jamais laisser un ancien restaurant visible/enregistrable --
+        // et surface une erreur dédiée. `legalProfileReady` reste
+        // `false` : submit() refuse d'enregistrer (voir plus bas).
+        setLegalCountry(null);
+        setLegalBusinessName("");
+        setLegalName("");
+        setLegalAddress("");
+        setLegalPhone("");
+        setLegalEmail("");
+        setLegalTaxIdentifier("");
+        setLegalRegistrationNumber("");
+        setLegalTaxLabel("TVA");
+        setLegalDefaultTaxRate("0");
+        setLegalPricesIncludeTax(true);
+        setLegalFooterText("");
+        setLegalShowTaxSummary(false);
+        setLegalProfileLoadedRestaurantId(null);
+        setLegalProfileReady(false);
+        setLegalProfileError(t("stLegalLoadFailed"));
+      }
       try {
         const activeLangs = await getRestaurantActiveLanguages(id);
         setActiveLanguageCodes(
@@ -231,6 +406,42 @@ export default function SettingsPage() {
     setError(null);
     setSaved(false);
 
+    // MERCHANT LEGAL & TAX PROFILE v1.2 -- ferme
+    // MLTP-V11-DASHBOARD-GUARD-ORDER-01 (contre-audit Work sur v1.1) :
+    // la garde de disponibilité/propriété du profil légal/fiscal
+    // s'exécutait auparavant juste avant l'appel à
+    // updateReceiptSettings, APRÈS que plusieurs RPC MUTANTES
+    // (couleurs, maps, identité, bg_color, réseaux sociaux, langues,
+    // WhatsApp/adresse/horaires) aient déjà pu s'exécuter. Une bascule
+    // A -> B suivie d'un enregistrement avant la fin du chargement du
+    // profil légal/fiscal de B pouvait donc déjà muter B (couleurs,
+    // identité, etc.) avant que la garde ne rejette finalement
+    // l'écriture Legal/Tax elle-même -- une mutation partielle, jamais
+    // acceptable (mandat : "the guard must protect the entire settings
+    // submission transaction flow", pas seulement update_receipt_settings).
+    //
+    // La garde est donc désormais la TOUTE PREMIÈRE instruction de
+    // submit() -- avant la moindre validation cliente et avant le
+    // moindre appel RPC mutant. Invariant exigé : AUCUNE RPC mutante ne
+    // s'exécute tant que (1) le chargement autoritaire du profil légal
+    // du restaurant COURANT n'est pas terminé, (2) legalProfileReady
+    // n'est pas strictement true, (3) legalProfileLoadedRestaurantId ne
+    // correspond pas exactement à restaurantId (donc que la sélection
+    // de restaurant n'a pas changé depuis ce chargement -- la
+    // réinitialisation SYNCHRONE de handleSelectRestaurant garantit
+    // qu'un changement de restaurant invalide immédiatement ces deux
+    // conditions, sans fenêtre de rendu intermédiaire).
+    //
+    // Un "aucune ligne" CONFIRMÉ reste un état PRÊT valide (création du
+    // profil du restaurant courant autorisée) -- seul un chargement
+    // encore en vol, un échec de lecture, ou une réponse appartenant à
+    // un autre restaurant bloque désormais TOUTE la soumission, pas
+    // seulement l'écriture Legal/Tax elle-même.
+    if (!legalProfileReady || legalProfileLoadedRestaurantId !== restaurantId) {
+      setError(t("stLegalNotReady"));
+      return;
+    }
+
     // Couleurs et lien de localisation/itinéraire : toujours validés
     // et enregistrés, pour owner/manager COMME pour un opérateur
     // Scanym en mode opérateur seul (V70-02) -- ce sont exactement
@@ -290,6 +501,26 @@ export default function SettingsPage() {
     }
     if (!activeLanguageCodes.includes(sourceLanguage)) {
       setError(t("stSourceLanguageNotActive"));
+      return;
+    }
+
+    // MERCHANT LEGAL & TAX PROFILE v1 -- validation client, même
+    // contrat que la validation RPC réelle (voir
+    // supabase/DRAFT-lot-merchant-legal-tax-profile-v1.sql,
+    // update_receipt_settings) -- jamais une confiance exclusive dans
+    // ce contrôle frontend.
+    const trimmedLegalEmail = legalEmail.trim();
+    if (trimmedLegalEmail !== "" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmedLegalEmail)) {
+      setError(t("stLegalEmailInvalid"));
+      return;
+    }
+    const parsedTaxRate = Number(legalDefaultTaxRate);
+    if (!Number.isFinite(parsedTaxRate) || parsedTaxRate < 0 || parsedTaxRate > 100) {
+      setError(t("stLegalTaxRateInvalid"));
+      return;
+    }
+    if (legalTaxLabel.trim() === "") {
+      setError(t("stLegalTaxLabelRequired"));
       return;
     }
     // À ce stade, mapsUrl est soit vide/blanc (champ vidé), soit une
@@ -417,6 +648,41 @@ export default function SettingsPage() {
       return;
     }
 
+    // MERCHANT LEGAL & TAX PROFILE v1.2 -- la garde de disponibilité/
+    // propriété (legalProfileReady / legalProfileLoadedRestaurantId)
+    // vit désormais exclusivement TOUT EN HAUT de submit() (ferme
+    // MLTP-V11-DASHBOARD-GUARD-ORDER-01 : elle protège maintenant le
+    // flux de soumission ENTIER, pas seulement cet appel) -- jamais
+    // dupliquée ici, pour ne laisser aucune ambiguïté sur la source de
+    // vérité unique de cette garde.
+
+    // MERCHANT LEGAL & TAX PROFILE v1 -- même posture que colors/
+    // maps_url/identity ci-dessus (canEdit, pas seulement canEditFull) :
+    // un opérateur Scanym en mode opérateur seul reste autorisé à
+    // modifier ce profil (assert_receipt_settings_role accepte
+    // owner/manager OU opérateur, même patron que
+    // assert_restaurant_asset_role).
+    try {
+      await updateReceiptSettings(restaurantId, {
+        businessName: legalBusinessName.trim() || null,
+        legalName: legalName.trim() || null,
+        legalAddress: legalAddress.trim() || null,
+        phone: legalPhone.trim() || null,
+        email: trimmedLegalEmail || null,
+        taxIdentifier: legalTaxIdentifier.trim() || null,
+        registrationNumber: legalRegistrationNumber.trim() || null,
+        taxLabel: legalTaxLabel.trim(),
+        defaultTaxRate: parsedTaxRate,
+        pricesIncludeTax: legalPricesIncludeTax,
+        footerText: legalFooterText.trim() || null,
+        showTaxSummary: legalShowTaxSummary,
+      });
+    } catch {
+      setError(t("stLegalSaveError"));
+      setSaving(false);
+      return;
+    }
+
     setSaved(true);
     if (!isOperatorOnlyMode) {
       setUiLang(lang as Lang);
@@ -455,7 +721,7 @@ export default function SettingsPage() {
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}
-        onSelectRestaurant={setRestaurantId}
+        onSelectRestaurant={handleSelectRestaurant}
       />
 
       <main
@@ -909,11 +1175,221 @@ export default function SettingsPage() {
           )}
         </section>
 
+        {/* MERCHANT LEGAL & TAX PROFILE v1 — complète public.receipt_settings
+            (V29), jusqu'ici en lecture seule. Même posture que
+            colors/maps_url/identity ci-dessus : rendu dès que canEdit
+            (owner, manager, OU opérateur Scanym en mode opérateur seul),
+            jamais restreint à canEditFull -- assert_receipt_settings_role
+            (côté SQL) accepte exactement les mêmes trois profils. */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <h3 className="font-bold text-stone-900">{t("stLegalTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stLegalHint")}</p>
+          {/* MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme
+              MLTP-V1-DASHBOARD-STALE-WRITE-01 : erreur DÉDIÉE à cette
+              section (distincte du bandeau d'erreur global de la
+              page), affichée UNIQUEMENT quand la lecture du profil
+              légal/fiscal du restaurant COURANT a réellement échoué
+              (jamais pour "aucune ligne", un cas légitime -- voir
+              load()). Tant que cette erreur est affichée,
+              `legalProfileReady` reste false et submit() refuse
+              d'enregistrer cette section. */}
+          {legalProfileError && (
+            <p className="mt-2 rounded-xl bg-red-50 p-2.5 text-sm font-semibold text-red-700">
+              {legalProfileError}
+            </p>
+          )}
+
+          <label className="mt-3 block text-xs font-semibold text-stone-600">
+            {t("stLegalBusinessName")}
+          </label>
+          <input
+            value={legalBusinessName}
+            onChange={(e) => setLegalBusinessName(e.target.value)}
+            disabled={!canEdit}
+            maxLength={255}
+            className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+          />
+
+          <label className="mt-3 block text-xs font-semibold text-stone-600">
+            {t("stLegalName")}
+          </label>
+          <input
+            value={legalName}
+            onChange={(e) => setLegalName(e.target.value)}
+            disabled={!canEdit}
+            maxLength={255}
+            className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+          />
+
+          <label className="mt-3 block text-xs font-semibold text-stone-600">
+            {t("stLegalAddress")}
+          </label>
+          <textarea
+            value={legalAddress}
+            onChange={(e) => setLegalAddress(e.target.value)}
+            disabled={!canEdit}
+            maxLength={500}
+            rows={2}
+            className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+          />
+
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold text-stone-600">
+                {t("stLegalPhone")}
+              </label>
+              <input
+                value={legalPhone}
+                onChange={(e) => setLegalPhone(e.target.value)}
+                disabled={!canEdit}
+                maxLength={50}
+                dir="ltr"
+                className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-600">
+                {t("stLegalEmail")}
+              </label>
+              <input
+                type="text"
+                inputMode="email"
+                value={legalEmail}
+                onChange={(e) => setLegalEmail(e.target.value)}
+                disabled={!canEdit}
+                maxLength={255}
+                dir="ltr"
+                className={
+                  "mt-1 w-full rounded-xl border p-2.5 text-sm disabled:bg-stone-50 " +
+                  (legalEmail.trim() === "" ||
+                  /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(legalEmail.trim())
+                    ? "border-stone-300"
+                    : "border-amber-500 bg-amber-50")
+                }
+              />
+            </div>
+          </div>
+
+          {/* Intitulés country-aware (lib/merchant-legal-tax-labels.ts) :
+              la DONNÉE stockée reste générique (tax_identifier,
+              registration_number) -- seul le LIBELLÉ affiché varie
+              selon restaurants.country. */}
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-semibold text-stone-600">
+                {legalLabels.registrationNumberLabel}
+              </label>
+              <input
+                value={legalRegistrationNumber}
+                onChange={(e) => setLegalRegistrationNumber(e.target.value)}
+                disabled={!canEdit}
+                maxLength={100}
+                dir="ltr"
+                className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-600">
+                {legalLabels.taxIdentifierLabel}
+              </label>
+              <input
+                value={legalTaxIdentifier}
+                onChange={(e) => setLegalTaxIdentifier(e.target.value)}
+                disabled={!canEdit}
+                maxLength={100}
+                dir="ltr"
+                className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-stone-100 pt-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-stone-600">
+                  {t("stLegalTaxLabel")}
+                </label>
+                <input
+                  value={legalTaxLabel}
+                  onChange={(e) => setLegalTaxLabel(e.target.value)}
+                  disabled={!canEdit}
+                  maxLength={40}
+                  dir="ltr"
+                  className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+                />
+                <p className="mt-1 text-xs text-stone-400">{t("stLegalTaxLabelHelp")}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-600">
+                  {t("stLegalDefaultTaxRate")}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={legalDefaultTaxRate}
+                  onChange={(e) => setLegalDefaultTaxRate(e.target.value)}
+                  disabled={!canEdit}
+                  dir="ltr"
+                  className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+                />
+              </div>
+            </div>
+
+            <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={legalPricesIncludeTax}
+                onChange={(e) => setLegalPricesIncludeTax(e.target.checked)}
+                disabled={!canEdit}
+              />
+              {t("stLegalPricesIncludeTax")}
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={legalShowTaxSummary}
+                onChange={(e) => setLegalShowTaxSummary(e.target.checked)}
+                disabled={!canEdit}
+              />
+              {t("stLegalShowTaxSummary")}
+            </label>
+          </div>
+
+          <div className="mt-4 border-t border-stone-100 pt-4">
+            <label className="block text-xs font-semibold text-stone-600">
+              {t("stLegalFooterText")}
+            </label>
+            <textarea
+              value={legalFooterText}
+              onChange={(e) => setLegalFooterText(e.target.value)}
+              disabled={!canEdit}
+              maxLength={1000}
+              rows={2}
+              className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+            />
+          </div>
+        </section>
+
         {canEdit && (
           <div className="mt-5 flex items-center gap-3">
+            {/* MERCHANT LEGAL & TAX PROFILE v1.2 -- ferme
+                MLTP-V11-DASHBOARD-GUARD-ORDER-01 : le bouton n'était
+                auparavant désactivé que par `saving`, jamais par l'état
+                du profil légal/fiscal du restaurant COURANT -- un clic
+                pendant un chargement en vol, un échec de lecture, ou
+                juste après une bascule de restaurant restait possible
+                (la garde en tête de submit() bloquait alors la
+                mutation, mais seulement APRÈS le clic). Le bouton
+                reflète désormais la MÊME condition que la garde :
+                désactivé tant que le profil légal/fiscal du restaurant
+                courant n'est pas chargé, a échoué, est périmé, ou
+                appartient encore à un autre restaurant -- jamais
+                seulement pendant `saving`. */}
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !legalProfileReady || legalProfileLoadedRestaurantId !== restaurantId}
               className="rounded-xl bg-stone-900 px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
             >
               {saving ? t("stSaving") : t("mcSave")}

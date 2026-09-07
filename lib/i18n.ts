@@ -485,6 +485,33 @@ const fr: Dict = {
   fiscalPerKgSuffix: "/kg",
   fiscalErrorInvalidTaxRate: "Taux de TVA invalide (0 à 100).",
   fiscalErrorInvalidWeightValue: "Le poids doit être un nombre positif.",
+
+  // MERCHANT LEGAL & TAX PROFILE v1 — section "Informations légales
+  // et fiscales" (app/dashboard/settings/page.tsx). Les intitulés de
+  // registration_number/tax_identifier eux-mêmes NE sont PAS ici :
+  // ils viennent de lib/merchant-legal-tax-labels.ts (termes
+  // administratifs propres à une juridiction, invariants selon la
+  // langue d'affichage — voir ce fichier pour la justification).
+  stLegalTitle: "Informations légales et fiscales",
+  stLegalHint: "Ces informations apparaissent sur le ticket imprimé et serviront de base à une future facture.",
+  stLegalBusinessName: "Nom commercial",
+  stLegalName: "Raison sociale",
+  stLegalAddress: "Adresse légale",
+  stLegalPhone: "Téléphone",
+  stLegalEmail: "E-mail",
+  stLegalTaxLabel: "Libellé de la taxe",
+  stLegalTaxLabelHelp: "Par exemple : TVA, VAT…",
+  stLegalDefaultTaxRate: "Taux de taxe par défaut (%)",
+  stLegalPricesIncludeTax: "Les prix affichés incluent déjà la taxe",
+  stLegalFooterText: "Texte de pied de ticket",
+  stLegalShowTaxSummary: "Afficher le détail HT / taxe / TTC sur le ticket",
+  stLegalSaveError: "Échec de l'enregistrement des informations légales et fiscales",
+  stLegalEmailInvalid: "Adresse e-mail invalide",
+  stLegalTaxRateInvalid: "Taux de taxe invalide (0 à 100)",
+  stLegalTaxLabelRequired: "Le libellé de la taxe est obligatoire",
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme MLTP-V1-DASHBOARD-STALE-WRITE-01.
+  stLegalLoadFailed: "Impossible de charger les informations légales et fiscales. Réessayez.",
+  stLegalNotReady: "Les informations légales et fiscales ne sont pas encore chargées : veuillez patienter avant d'enregistrer.",
 };
 
 const en: Dict = {
@@ -900,6 +927,33 @@ const en: Dict = {
   fiscalPerKgSuffix: "/kg",
   fiscalErrorInvalidTaxRate: "Invalid tax rate (0 to 100).",
   fiscalErrorInvalidWeightValue: "Weight must be a positive number.",
+
+  // MERCHANT LEGAL & TAX PROFILE v1 — "Legal & Tax Information"
+  // section (app/dashboard/settings/page.tsx). registration_number/
+  // tax_identifier LABELS themselves are NOT here: they come from
+  // lib/merchant-legal-tax-labels.ts (jurisdiction-specific
+  // administrative terms, invariant across display language — see
+  // that file for the rationale).
+  stLegalTitle: "Legal & Tax Information",
+  stLegalHint: "This information appears on the printed receipt and will be the basis for a future invoice.",
+  stLegalBusinessName: "Trading / business name",
+  stLegalName: "Legal name",
+  stLegalAddress: "Legal address",
+  stLegalPhone: "Phone",
+  stLegalEmail: "Email",
+  stLegalTaxLabel: "Tax label",
+  stLegalTaxLabelHelp: "For example: VAT, TVA…",
+  stLegalDefaultTaxRate: "Default tax rate (%)",
+  stLegalPricesIncludeTax: "Displayed prices already include tax",
+  stLegalFooterText: "Receipt footer text",
+  stLegalShowTaxSummary: "Show the pre-tax / tax / total breakdown on the receipt",
+  stLegalSaveError: "Failed to save the legal & tax information",
+  stLegalEmailInvalid: "Invalid email address",
+  stLegalTaxRateInvalid: "Invalid tax rate (0 to 100)",
+  stLegalTaxLabelRequired: "Tax label is required",
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- closes MLTP-V1-DASHBOARD-STALE-WRITE-01.
+  stLegalLoadFailed: "Could not load the legal & tax information. Please try again.",
+  stLegalNotReady: "The legal & tax information has not finished loading yet: please wait before saving.",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -1311,6 +1365,32 @@ const ar: Dict = {
   fiscalPerKgSuffix: "/كغ",
   fiscalErrorInvalidTaxRate: "نسبة ضريبة غير صالحة (من 0 إلى 100).",
   fiscalErrorInvalidWeightValue: "يجب أن يكون الوزن رقمًا موجبًا.",
+
+  // MERCHANT LEGAL & TAX PROFILE v1 — قسم "المعلومات القانونية
+  // والضريبية" (app/dashboard/settings/page.tsx). عناوين
+  // registration_number/tax_identifier نفسها ليست هنا: تأتي من
+  // lib/merchant-legal-tax-labels.ts (مصطلحات إدارية خاصة بكل ولاية
+  // قضائية، ثابتة بغض النظر عن لغة العرض).
+  stLegalTitle: "معلومات قانونية وضريبية",
+  stLegalHint: "تظهر هذه المعلومات على الإيصال المطبوع وستكون أساسًا لفاتورة مستقبلية.",
+  stLegalBusinessName: "الاسم التجاري",
+  stLegalName: "الاسم القانوني",
+  stLegalAddress: "العنوان القانوني",
+  stLegalPhone: "الهاتف",
+  stLegalEmail: "البريد الإلكتروني",
+  stLegalTaxLabel: "تسمية الضريبة",
+  stLegalTaxLabelHelp: "مثال: TVA، VAT…",
+  stLegalDefaultTaxRate: "معدل الضريبة الافتراضي (%)",
+  stLegalPricesIncludeTax: "الأسعار المعروضة تشمل الضريبة بالفعل",
+  stLegalFooterText: "نص تذييل الإيصال",
+  stLegalShowTaxSummary: "إظهار تفصيل السعر قبل الضريبة / الضريبة / الإجمالي على الإيصال",
+  stLegalSaveError: "فشل حفظ المعلومات القانونية والضريبية",
+  stLegalEmailInvalid: "عنوان بريد إلكتروني غير صالح",
+  stLegalTaxRateInvalid: "معدل ضريبة غير صالح (0 إلى 100)",
+  stLegalTaxLabelRequired: "تسمية الضريبة مطلوبة",
+  // MERCHANT LEGAL & TAX PROFILE v1.1 -- يغلق MLTP-V1-DASHBOARD-STALE-WRITE-01.
+  stLegalLoadFailed: "تعذر تحميل المعلومات القانونية والضريبية. يرجى المحاولة مرة أخرى.",
+  stLegalNotReady: "لم يتم تحميل المعلومات القانونية والضريبية بعد: يرجى الانتظار قبل الحفظ.",
 };
 
 const DICTS: Record<Lang, Dict> = { fr, en, ar };
