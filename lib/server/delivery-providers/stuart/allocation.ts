@@ -116,6 +116,48 @@ async function callPossessionRpc(name: string, input: PossessionInput, extra: Re
 export async function markStuartDeliveryJobSendStarted(input: PossessionInput): Promise<void> {
   await callPossessionRpc("mark_stuart_delivery_job_send_started", input);
 }
+
+/**
+ * DELIVERY STREAM C — STUART SANDBOX INTEGRATION v2.6.1
+ * (ferme STUART-V26-SYNTHETIC-GUARD-01, HIGH).
+ *
+ * Vérifie ATOMIQUEMENT, côté SQL (jamais fractionné en plusieurs
+ * appels applicatifs), qu'une commande est légitimement réservée au
+ * test Stuart Sandbox : désignation persistante présente
+ * (`stuart_sandbox_synthetic_test_orders`, jamais contrôlable par une
+ * requête HTTP -- aucune RPC de création n'existe), appartenance au
+ * restaurant attendu, absence de PII client réelle (comparaison
+ * stricte à des constantes FOURNIES PAR L'APPELANT SERVEUR, jamais
+ * par la requête HTTP elle-même), et absence de corrélation Stuart
+ * active incompatible.
+ */
+export async function verifyStuartSandboxSyntheticOrder(input: {
+  orderId: string;
+  restaurantId: string;
+  expectedCustomerPhone: string;
+  expectedCustomerName: string;
+  expectedCustomerEmail: string | null;
+  expectedDeliveryAddress: string;
+  expectedDeliveryZone: string | null;
+  expectedCustomerNote: string | null;
+}): Promise<boolean> {
+  const client = getServiceRoleSupabaseClient();
+  const { data, error } = await client.rpc("verify_stuart_sandbox_synthetic_order", {
+    p_order_id: input.orderId,
+    p_restaurant_id: input.restaurantId,
+    p_expected_customer_phone: input.expectedCustomerPhone,
+    p_expected_customer_name: input.expectedCustomerName,
+    p_expected_customer_email: input.expectedCustomerEmail,
+    p_expected_delivery_address: input.expectedDeliveryAddress,
+    p_expected_delivery_zone: input.expectedDeliveryZone,
+    p_expected_customer_note: input.expectedCustomerNote,
+  });
+  if (error) {
+    throw new StuartAllocationError(`STUART_SYNTHETIC_GUARD_FAILED_${error.code ?? "UNKNOWN"}`);
+  }
+  return data === true;
+}
+
 export async function markStuartDeliveryJobAmbiguous(input: PossessionInput): Promise<void> {
   await callPossessionRpc("mark_stuart_delivery_job_ambiguous", input);
 }
