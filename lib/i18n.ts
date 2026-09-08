@@ -88,6 +88,15 @@ const fr: Dict = {
   privacyNote:
     "Vos coordonnées servent uniquement à traiter votre commande. Elles sont transmises par WhatsApp au commerçant et ne sont pas conservées par l'application.",
   howToReceive: "Comment récupérez-vous votre commande ?",
+  // SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE POPUP v1 : titre
+  // du popup modal affiché AVANT la finalisation de la commande (dès
+  // que plus d'un mode est disponible et qu'aucun n'est encore choisi)
+  // -- texte distinct de howToReceive ci-dessus (qui reste, inchangé,
+  // le libellé de la rangée déjà existante dans le panier) : ce popup
+  // est une présentation proéminente du MÊME choix, jamais un second
+  // système parallèle. Réutilise pickup/delivery/modeTable ci-dessous
+  // pour les boutons -- aucune nouvelle clé de libellé de mode créée.
+  fulfillmentChoicePopupTitle: "Comment souhaitez-vous recevoir votre commande ?",
   pickup: "À emporter",
   delivery: "Livraison",
   pickupNote: "Nous vous confirmons l'heure et le lieu de retrait par message.",
@@ -552,6 +561,7 @@ const en: Dict = {
   privacyNote:
     "Your details are used only to process your order. They are sent to the shop via WhatsApp and are not stored by the app.",
   howToReceive: "How would you like to receive your order?",
+  fulfillmentChoicePopupTitle: "How would you like to receive your order?",
   pickup: "Pickup",
   delivery: "Delivery",
   pickupNote: "We will confirm the pickup time and place by message.",
@@ -995,6 +1005,7 @@ const ar: Dict = {
   privacyNote:
     "تُستخدم بياناتك لمعالجة طلبك فقط. تُرسل إلى التاجر عبر واتساب ولا يحتفظ بها التطبيق.",
   howToReceive: "كيف تودّ استلام طلبك؟",
+  fulfillmentChoicePopupTitle: "كيف ترغب في استلام طلبك؟",
   pickup: "استلام من المحل",
   delivery: "توصيل",
   pickupNote: "سنؤكد لك وقت ومكان الاستلام برسالة.",
