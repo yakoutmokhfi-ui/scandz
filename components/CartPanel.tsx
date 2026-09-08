@@ -12,6 +12,7 @@ import { useI18n } from "@/lib/i18n-context";
 import Ltr from "@/components/Bidi";
 import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
+import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import { normalizeOrderNote, ORDER_NOTE_MAX_LENGTH } from "@/lib/order-note";
 
@@ -118,6 +119,22 @@ export default function CartPanel({
   const grandTotal = totalPrice + deliveryFee;
 
   /**
+   * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE POPUP v1 :
+   * n'apparaît QUE quand un choix explicite est réellement requis --
+   * mêmes conditions, EXACTEMENT, que la rangée "howToReceive"
+   * déjà existante plus bas (availableServiceModes.length > 1) --
+   * plus `serviceMode === null` (aucun choix encore fait ; dès qu'un
+   * choix existe, le popup ne doit plus jamais réapparaître par-
+   * dessus une sélection déjà faite, y compris si le client rouvre le
+   * panier ensuite). Jamais affiché pendant "loading"/"error" -- dans
+   * ces deux états, availableServiceModes (dérivé de saleModesData
+   * côté MenuView) est de toute façon vide, donc length > 1 est déjà
+   * fail-closed.
+   */
+  const requiresFulfillmentChoice =
+    serviceMode === null && availableServiceModes.length > 1;
+
+  /**
    * Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : trois états
    * distincts, jamais confondus --
    *   - "loading"            -> message de chargement (existant,
@@ -209,6 +226,12 @@ export default function CartPanel({
 
           {lines.length > 0 && (
             <>
+              <FulfillmentChoiceModal
+                open={requiresFulfillmentChoice}
+                modes={availableServiceModes}
+                onSelect={onSelectFulfillment}
+              />
+
               {serviceMode === "table" && (
                 <TableSelector
                   maxTables={max_tables}
