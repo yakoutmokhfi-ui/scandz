@@ -49,8 +49,79 @@ const ALLOWED_EXACT_FILES = new Set([
   "app/admin/establishments/new/page.tsx",
 ]);
 
+/**
+ * CORRECTIF (Cat Woman INVOICE-V12-TEST-MATRIX-01, MEDIUM — narrowest
+ * safe fix, Claude Monet, lot CUSTOMER CHECKOUT INVOICE REQUEST,
+ * ENTIÈREMENT SANS RAPPORT avec OB-1) :
+ *
+ * `BASELINE_SHA` ci-dessus (point de fusion Stuart v2.6.7.4) précède
+ * désormais de nombreux lots ULTÉRIEURS et APPROUVÉS,
+ * ENTIÈREMENT SANS RAPPORT avec OB-1 (Merchant Legal & Tax Profile,
+ * OB-2, OB-3, Backoffice Ticket Elapsed Time Display, et désormais
+ * Customer Checkout Invoice Request v1.3). Ce test compare TOUJOURS
+ * `git diff --name-only` depuis ce même point fixe historique -- les
+ * fichiers de CES AUTRES lots apparaissent donc légitimement dans ce
+ * diff dès qu'un développeur les ajoute à son propre arbre de travail
+ * local, SANS jamais constituer une violation du périmètre d'OB-1
+ * lui-même.
+ *
+ * Plutôt que de rafraîchir `BASELINE_SHA` (ce qui masquerait le
+ * problème pour le PROCHAIN lot sans rapport, au lieu de le résoudre
+ * structurellement), CHAQUE fichier du candidat Invoice Request v1.3
+ * est explicitement listé ci-dessous, un par un, avec preuve qu'il ne
+ * touche JAMAIS au périmètre protégé d'OB-1 lui-même (SQL,
+ * Stuart, Paiement, Catalogue marchand, UI dashboard existante) :
+ * - il s'agit d'une table/RPC ENTIÈREMENT NOUVELLE et DÉDIÉE
+ *   (`order_invoice_request`), jamais une modification d'un objet
+ *   existant utilisé par OB-1 (`get_merchant_catalogue` ou autre) ;
+ * - aucun fichier `app/dashboard/catalogue/*` ni
+ *   `lib/services/product-photo.ts` (périmètre OB-2/Nougaro) ;
+ * - aucun fichier `lib/server/delivery-providers/stuart/*` ni
+ *   mention de Stuart (périmètre Monnet) ;
+ * - aucun fichier `app/api/payments/*` ni `app/dashboard/payment/*`
+ *   (périmètre paiement existant) ;
+ * - `components/CartPanel.tsx`/`components/MenuView.tsx` sont le
+ *   CHECKOUT CLIENT public (storefront), jamais
+ *   `components/dashboard/*` (UI MARCHAND existante, périmètre
+ *   explicitement protégé plus bas) -- distinction vérifiée par
+ *   préfixe exact.
+ *
+ * AUCUN motif générique (`/^supabase\//`, un préfixe de dossier
+ * entier, etc.) n'est utilisé ici -- seule une liste EXACTE, fichier
+ * par fichier, jamais un blanket-ignore (mandat, littéral : "Do NOT
+ * blanket-ignore supabase/. Do NOT blanket-ignore new files.").
+ */
+const LATER_APPROVED_UNRELATED_LOT_FILES = new Set([
+  // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.3
+  // (Claude Monet) -- table/RPC dédiées et nouvelles, jamais une
+  // modification d'un objet existant utilisé par OB-1.
+  "supabase/DRAFT-lot-checkout-invoice-request-v1.sql",
+  "supabase/tests/checkout-invoice-request-v1-1-check.sh",
+  "supabase/tests/checkout-invoice-request-rollback-atomicity-check.sh",
+  "lib/invoice-request.ts",
+  "lib/server/invoice-request-service.ts",
+  "lib/services/invoice-request.ts",
+  "components/InvoiceRequestFields.tsx",
+  "components/CartPanel.tsx",
+  "components/MenuView.tsx",
+  "app/api/checkout/invoice-request/route.ts",
+  "lib/i18n.ts",
+  "tests/checkout-invoice-request-validation.test.ts",
+  "tests/checkout-invoice-request-service.test.ts",
+  "tests/checkout-invoice-request-route.test.ts",
+  "tests/checkout-invoice-request-reliability.dom.test.ts",
+  // Comptes de fichiers SQL/routes structurels recalculés par des
+  // lots ultérieurs successifs (Stuart v2.6.1, OB-2, Invoice Request)
+  // -- jamais une régression OB-1, jamais un changement de la règle
+  // de sécurité elle-même, uniquement le chiffre attendu recalculé.
+  "tests/v110c-payment-p3a1-structural.test.ts",
+  "tests/v111h-payment-p3a2-structural.test.ts",
+  "tests/v122j-tracking-structural.test.ts",
+]);
+
 function isAllowed(file: string): boolean {
   if (ALLOWED_EXACT_FILES.has(file)) return true;
+  if (LATER_APPROVED_UNRELATED_LOT_FILES.has(file)) return true;
   if (/^tests\/ob1-.*\.test\.ts$/.test(file)) return true;
   return false;
 }
@@ -89,7 +160,16 @@ test("aucun fichier Stuart n'a été modifié (périmètre Claude Monnet)", () =
 
 test("aucun fichier supabase/ (SQL/migration/backend) n'a été modifié -- OB-1 est SQL REQUIRED: NO", () => {
   const files = changedFiles();
-  const hit = files.filter((f) => f.startsWith("supabase/"));
+  // CORRECTIF (Cat Woman INVOICE-V12-TEST-MATRIX-01) : exclut
+  // EXCLUSIVEMENT les fichiers SQL explicitement listés et documentés
+  // dans LATER_APPROVED_UNRELATED_LOT_FILES (Customer Checkout
+  // Invoice Request v1.3, Claude Monet, table/RPC ENTIÈREMENT
+  // dédiées et nouvelles) -- JAMAIS un motif générique `supabase/`.
+  // Tout AUTRE fichier supabase/ (y compris un futur fichier non
+  // explicitement listé ici) continue de faire échouer ce test --
+  // la garantie "OB-1 ne touche jamais SQL" reste pleinement
+  // opérante pour tout fichier NON explicitement approuvé ci-dessus.
+  const hit = files.filter((f) => f.startsWith("supabase/") && !LATER_APPROVED_UNRELATED_LOT_FILES.has(f));
   assert.deepEqual(hit, []);
 });
 
@@ -107,10 +187,11 @@ test("aucun fichier catalogue UI marchand / photo produit (périmètre Claude No
     (f) => f.startsWith("app/dashboard/catalogue/") || f === "lib/services/product-photo.ts"
   );
   assert.deepEqual(hit, []);
-  // Aucun fichier supabase/ n'est modifié non plus par ce refresh (déjà
-  // couvert par le test SQL ci-dessus, répété ici pour la lisibilité
-  // du scénario catalogue précisément).
-  assert.deepEqual(files.filter((f) => f.startsWith("supabase/")), []);
+  // Aucun fichier supabase/ NON EXPLICITEMENT APPROUVÉ n'est modifié
+  // non plus par ce refresh (déjà couvert par le test SQL ci-dessus,
+  // répété ici pour la lisibilité du scénario catalogue précisément)
+  // -- même exclusion étroite que ci-dessus, jamais un motif générique.
+  assert.deepEqual(files.filter((f) => f.startsWith("supabase/") && !LATER_APPROVED_UNRELATED_LOT_FILES.has(f)), []);
 });
 
 test("OB-1 v1.1 : aucune fausse appartenance restaurant_users n'est jamais créée -- aucune écriture sur cette table dans les fichiers OB-1", () => {

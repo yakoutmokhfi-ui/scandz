@@ -40,6 +40,14 @@ import {
   genericFieldFormatError,
   type CustomerInfo,
 } from "@/lib/customer";
+import {
+  EMPTY_INVOICE_REQUEST,
+  getInvoiceRequestErrors,
+  hasInvoiceRequestErrors,
+  normalizeOptional,
+  type InvoiceRequestInfo,
+} from "@/lib/invoice-request";
+import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import CategoryNav from "@/components/CategoryNav";
 import MenuItemCard from "@/components/MenuItemCard";
@@ -56,6 +64,7 @@ import {
   createOrder,
   markWhatsappOpened,
   OrderNoteTooLongError,
+  type CreatedOrder,
 } from "@/lib/services/orders";
 import {
   addToCart,
@@ -65,6 +74,7 @@ import {
   optionCountsForItem,
   quantityForItem,
   type Cart,
+  type CartEntry,
 } from "@/lib/cart";
 import { dirOf, translate, type Lang } from "@/lib/i18n";
 import { tName, tCategoryDescription } from "@/lib/menu-i18n";
@@ -419,6 +429,7 @@ export default function MenuView({
   }, [saleModesReady, availableServiceModes]);
 
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
+  const [invoiceRequest, setInvoiceRequest] = useState<InvoiceRequestInfo>(EMPTY_INVOICE_REQUEST);
 
   /**
    * LOT 2B.4a.2 — BASCULE RUNTIME RÉELLE : les exigences client sont
@@ -471,6 +482,51 @@ export default function MenuView({
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2 (FERME
+   * "SILENT INVOICE LOSS"). Non-null UNIQUEMENT lorsqu'une commande a
+   * été créée avec succès MAIS que la persistance de la demande de
+   * facture a échoué -- permet une NOUVELLE tentative de la demande
+   * de facture SEULE, réutilisant orderId/publicToken existants,
+   * SANS jamais rappeler create_order (mandat, littéral : "It must
+   * NOT call create_order again"). `null` = aucune reprise en attente
+   * (chemin normal, wantsInvoice=false OU persistance déjà réussie).
+   */
+  /**
+   * CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.3 (FERME
+   * Cat Woman INVOICE-V12-RETRY-STATE-01, HIGH). v1.2 ne gelait que
+   * `CreatedOrder` -- si le client modifiait quantités/note/contexte/
+   * champs de facture PENDANT qu'une reprise était en attente, la
+   * reprise réussie reconstruisait WhatsApp/confirmation depuis
+   * L'ÉTAT COURANT (mutable) plutôt que l'état EXACT au moment où la
+   * commande a été créée -- risque de divergence "commande persistée
+   * != résumé affiché au client". Corrigé : un INSTANTANÉ COMPLET et
+   * IMMUABLE de LA COMMANDE (jamais de la demande de facture
+   * elle-même) est gelé au moment précis où `create_order` réussit --
+   * `completeOrderFlow` n'utilise JAMAIS l'état React mutable courant
+   * pour le panier/contexte/note pendant qu'une reprise est en
+   * attente, UNIQUEMENT ce snapshot.
+   *
+   * CORRECTIF v1.4 (Cat Woman INVOICE-V13-RETRY-CORRECTION-01, HIGH) :
+   * `frozenInvoiceRequest` a été RETIRÉ de cet instantané. v1.3 gelait
+   * À TORT la charge utile de facture REJETÉE elle-même -- toute
+   * reprise renvoyait alors indéfiniment les MÊMES données rejetées,
+   * rendant la récupération structurellement IMPOSSIBLE si l'échec
+   * provenait d'une donnée de facture invalide (ex. dépassement de
+   * longueur). Seule LA COMMANDE (panier, contexte, note, réponse
+   * monétaire) reste immuable -- la demande de facture, elle, DOIT
+   * rester corrigible : la reprise utilise TOUJOURS `invoiceRequest`
+   * COURANT (mutable), validé à nouveau juste avant l'appel réseau.
+   */
+  interface PendingInvoiceCompletion {
+    order: CreatedOrder;
+    frozenLines: CartEntry[];
+    frozenOrderContext: OrderContext;
+    frozenNote: string;
+  }
+  const [pendingInvoiceCompletion, setPendingInvoiceCompletion] = useState<PendingInvoiceCompletion | null>(null);
+  const [invoiceRequestError, setInvoiceRequestError] = useState<string | null>(null);
+  const [isRetryingInvoice, setIsRetryingInvoice] = useState(false);
   const [confirmedNumber, setConfirmedNumber] = useState<number | null>(null);
 
   const activeCategory = restaurant.categories.find(
@@ -700,6 +756,17 @@ export default function MenuView({
   );
   const customerFormatValid = Object.keys(customerErrors).length === 0;
 
+  /** CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
+   *  Validée UNIQUEMENT lorsque `wantsInvoice` est vrai (mandat,
+   *  littéral : "If NO: preserve current checkout") -- une commande
+   *  sans demande de facture n'est JAMAIS bloquée par ce contrat. */
+  const invoiceRequestErrors = useMemo(
+    () => (invoiceRequest.wantsInvoice ? getInvoiceRequestErrors(invoiceRequest) : {}),
+    [invoiceRequest]
+  );
+  const invoiceRequestValid =
+    !invoiceRequest.wantsInvoice || !hasInvoiceRequestErrors(invoiceRequest);
+
   /** Contrat fail-closed (section 11, LOT 2B.4a.1) appliqué ICI pour
    *  la première fois par un formulaire actif : tant que
    *  fieldRequirementsReady est false (loading/error), customerValid
@@ -739,7 +806,7 @@ export default function MenuView({
   }, [settings, tableNumber, serviceMode, deliveryStatus, customer, customerValid]);
 
   /** La commande est prête à partir (le lien est construit après coup). */
-  const canSubmit = lines.length > 0 && orderContext !== null;
+  const canSubmit = lines.length > 0 && orderContext !== null && invoiceRequestValid;
 
   /**
    * Clic sur "Envoyer la commande".
@@ -749,77 +816,184 @@ export default function MenuView({
    * d'échec, le panier est conservé intact et aucune confirmation
    * n'est affichée.
    */
+  /**
+   * Construit la charge utile de la demande de facture -- factorisée
+   * pour être IDENTIQUE entre la première tentative et une reprise
+   * (mandat : "The retry must use the existing orderId + publicToken").
+   * Accepte `info` en PARAMÈTRE EXPLICITE (jamais une fermeture sur
+   * `invoiceRequest` mutable) -- v1.3, FERME Cat Woman
+   * INVOICE-V12-RETRY-STATE-01 : une reprise DOIT utiliser les champs
+   * de facture GELÉS au moment de la création de la commande, jamais
+   * une valeur modifiée entre-temps par le client.
+   */
+  function buildInvoicePayload(orderId: string, publicToken: string, info: InvoiceRequestInfo) {
+    return {
+      orderId,
+      publicToken,
+      invoiceType: info.invoiceType,
+      addressLine1: info.addressLine1.trim(),
+      city: info.city.trim(),
+      postalCode: info.postalCode.trim(),
+      country: info.country.trim(),
+      addressLine2: normalizeOptional(info.addressLine2) ?? null,
+      companyLegalName: normalizeOptional(info.companyLegalName) ?? null,
+      vatNumber: normalizeOptional(info.vatNumber) ?? null,
+      contactName: normalizeOptional(info.contactName) ?? null,
+      contactEmail: normalizeOptional(info.contactEmail) ?? null,
+    };
+  }
+
+  /**
+   * Finalise le flux de commande (ouverture WhatsApp, écran de
+   * confirmation, réinitialisation du panier) -- appelée UNIQUEMENT
+   * une fois l'issue de la demande de facture CONNUE (succès, ou
+   * aucune facture demandée) -- jamais avant, jamais sur un échec de
+   * persistance silencieusement ignoré.
+   *
+   * CORRECTIF v1.3 (Cat Woman INVOICE-V12-RETRY-STATE-01) :
+   * `frozenLines`/`frozenOrderContext`/`frozenNote` sont désormais
+   * des PARAMÈTRES EXPLICITES, jamais une fermeture sur `lines`/
+   * `orderContext`/`note` mutables -- lors d'une reprise après échec,
+   * l'appelant transmet l'INSTANTANÉ GELÉ au moment de la création de
+   * la commande, garantissant que le résumé WhatsApp/confirmation
+   * correspond EXACTEMENT à ce qui a été persisté, quelles que soient
+   * les modifications faites par le client pendant l'attente.
+   */
+  function completeOrderFlow(
+    order: CreatedOrder,
+    frozenLines: CartEntry[],
+    frozenOrderContext: OrderContext,
+    frozenNote: string
+  ) {
+    const url = buildWhatsAppUrl(
+      restaurant,
+      frozenLines,
+      frozenOrderContext,
+      // SADFP-V2-01 : résumé monétaire AUTORITATIF -- ces 3 champs
+      // proviennent de la réponse serveur de create_order (jamais
+      // recalculés depuis `lines`, jamais une estimation client).
+      {
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        total: order.total,
+      },
+      // La base fait autorité : le gérant règle cette langue depuis
+      // ses paramètres. Le fichier de configuration sert de repli.
+      (restaurant.config.staff_receipt_language as Lang | undefined) ??
+        settings.staffLanguage ??
+        "fr",
+      order.orderNumber,
+      frozenNote
+    );
+
+    // Ouverture en onglet si possible ; si le navigateur la bloque,
+    // on bascule sur une navigation directe (fiable sur mobile).
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      window.location.href = url;
+    }
+    void markWhatsappOpened(order.orderId, order.publicToken);
+
+    setConfirmedContext(frozenOrderContext);
+    setConfirmedNumber(order.orderNumber);
+    // CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) : order_id/
+    // public_token proviennent EXCLUSIVEMENT de cette réponse
+    // serveur de create_order -- jamais un jeton régénéré/reconstruit
+    // ici. Le lien porte le jeton en FRAGMENT d'URL (mandat §6/§7).
+    setConfirmedTrackingPath(
+      buildTrackingPath(order.orderId, order.publicToken)
+    );
+    setIsCartOpen(false);
+    setIsConfirmationOpen(true);
+
+    // Le panier n'est vidé qu'après un enregistrement réussi. Ceci
+    // réinitialise l'état COURANT du formulaire pour la PROCHAINE
+    // commande -- n'affecte jamais le résumé déjà construit ci-dessus
+    // depuis l'instantané gelé.
+    setCart({});
+    setTableNumber(null);
+    // Même règle qu'à l'initialisation (voir l'effet de
+    // présélection ci-dessus) : `availableServiceModes` est déjà
+    // connu de façon synchrone ici (résolu depuis longtemps à ce
+    // stade du cycle de vie), donc appliqué directement -- pas
+    // besoin de repasser par l'effet pour ce cas.
+    setServiceMode(
+      availableServiceModes.length === 1 ? availableServiceModes[0] : null
+    );
+    setCustomer(EMPTY_CUSTOMER);
+    setInvoiceRequest(EMPTY_INVOICE_REQUEST);
+    setPendingInvoiceCompletion(null);
+    setInvoiceRequestError(null);
+    setShowErrors(false);
+    setNote("");
+  }
+
   async function handleSendOrder() {
     if (isSubmitting) return;          // double-clic
     if (!orderContext || lines.length === 0) return;
+    if (!invoiceRequestValid) return;  // garde défensif, cohérent avec canSubmit
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
+      // CORRECTIF v1.3 (Cat Woman INVOICE-V12-RETRY-STATE-01) :
+      // capturés en LOCALES immuables au moment EXACT de l'appel --
+      // si l'utilisateur modifie le panier/la note/le contexte
+      // APRÈS ce point (pendant une reprise éventuelle), ces valeurs
+      // figées restent celles utilisées pour CETTE commande précise.
+      // CORRECTIF v1.4 (Cat Woman INVOICE-V13-RETRY-CORRECTION-01) :
+      // `invoiceRequest` N'EST PLUS gelé ici -- seule LA COMMANDE
+      // (panier/contexte/note) est immuable ; la demande de facture
+      // utilise TOUJOURS l'état React COURANT, y compris lors d'une
+      // future reprise après correction.
+      const frozenLines = lines;
+      const frozenOrderContext = orderContext;
+      const frozenNote = note;
+
       const order = await createOrder({
         slug: restaurant.slug,
-        context: orderContext,
-        lines,
+        context: frozenOrderContext,
+        lines: frozenLines,
         lang,
-        note,
+        note: frozenNote,
       });
 
-      const url = buildWhatsAppUrl(
-        restaurant,
-        lines,
-        orderContext,
-        // SADFP-V2-01 : résumé monétaire AUTORITATIF -- ces 3 champs
-        // proviennent de la réponse serveur de create_order (jamais
-        // recalculés depuis `lines`, jamais une estimation client).
-        {
-          subtotal: order.subtotal,
-          deliveryFee: order.deliveryFee,
-          total: order.total,
-        },
-        // La base fait autorité : le gérant règle cette langue depuis
-        // ses paramètres. Le fichier de configuration sert de repli.
-        (restaurant.config.staff_receipt_language as Lang | undefined) ??
-          settings.staffLanguage ??
-          "fr",
-        order.orderNumber,
-        note
-      );
-
-      // Ouverture en onglet si possible ; si le navigateur la bloque,
-      // on bascule sur une navigation directe (fiable sur mobile).
-      const opened = window.open(url, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        window.location.href = url;
+      // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
+      // (FERME "SILENT INVOICE LOSS", HIGH, RELEASE-BLOCKING).
+      // Instruction métier EXPLICITE du client -- ne doit JAMAIS
+      // échouer silencieusement. La commande N'EST PAS considérée
+      // "complète" tant que l'issue de la demande de facture n'est
+      // pas CONNUE (mandat, littéral).
+      if (invoiceRequest.wantsInvoice) {
+        const outcome = await submitInvoiceRequest(
+          buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
+        );
+        if (!outcome.ok) {
+          // ÉCHEC VISIBLE, jamais un faux succès. La commande N'EST
+          // PAS recréée, N'EST PAS perdue -- l'instantané de LA
+          // COMMANDE (panier + contexte + note) est conservé pour
+          // permettre une reprise CIBLÉE de la FACTURE SEULE.
+          // CORRECTIF v1.4 : les champs de facture restent
+          // ENTIÈREMENT ÉDITABLES pendant que cet état persiste --
+          // v1.3 gelait à tort la charge utile REJETÉE elle-même,
+          // rendant toute correction structurellement sans effet
+          // (mandat, littéral : "recovery can never succeed"). AUCUNE
+          // ouverture WhatsApp, AUCUN écran de confirmation, AUCUNE
+          // remise à zéro du panier tant que cet état persiste.
+          setPendingInvoiceCompletion({
+            order,
+            frozenLines,
+            frozenOrderContext,
+            frozenNote,
+          });
+          setInvoiceRequestError(t("invoiceRequestFailed"));
+          setIsSubmitting(false);
+          return;
+        }
       }
-      void markWhatsappOpened(order.orderId, order.publicToken);
 
-      setConfirmedContext(orderContext);
-      setConfirmedNumber(order.orderNumber);
-      // CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) : order_id/
-      // public_token proviennent EXCLUSIVEMENT de cette réponse
-      // serveur de create_order -- jamais un jeton régénéré/reconstruit
-      // ici. Le lien porte le jeton en FRAGMENT d'URL (mandat §6/§7).
-      setConfirmedTrackingPath(
-        buildTrackingPath(order.orderId, order.publicToken)
-      );
-      setIsCartOpen(false);
-      setIsConfirmationOpen(true);
-
-      // Le panier n'est vidé qu'après un enregistrement réussi.
-      setCart({});
-      setTableNumber(null);
-      // Même règle qu'à l'initialisation (voir l'effet de
-      // présélection ci-dessus) : `availableServiceModes` est déjà
-      // connu de façon synchrone ici (résolu depuis longtemps à ce
-      // stade du cycle de vie), donc appliqué directement -- pas
-      // besoin de repasser par l'effet pour ce cas.
-      setServiceMode(
-        availableServiceModes.length === 1 ? availableServiceModes[0] : null
-      );
-      setCustomer(EMPTY_CUSTOMER);
-      setShowErrors(false);
-      setNote("");
+      completeOrderFlow(order, frozenLines, frozenOrderContext, frozenNote);
     } catch (err) {
       // Le rejet serveur de note trop longue (V65) a un message dédié ;
       // toute autre erreur (réseau, règle métier, etc.) reste générique.
@@ -829,6 +1003,46 @@ export default function MenuView({
       );
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  /**
+   * Reprise CIBLÉE de la demande de facture SEULE -- réutilise
+   * EXACTEMENT orderId/publicToken de la commande déjà créée avec
+   * succès (mandat, littéral : "It must NOT call create_order
+   * again"). Le PANIER/CONTEXTE/NOTE proviennent du snapshot GELÉ
+   * (`pendingInvoiceCompletion`) -- ferme Cat Woman
+   * INVOICE-V12-RETRY-STATE-01.
+   *
+   * CORRECTIF v1.4 (Cat Woman INVOICE-V13-RETRY-CORRECTION-01, HIGH) :
+   * la charge utile de FACTURE elle-même utilise désormais
+   * TOUJOURS `invoiceRequest` COURANT (mutable, re-validé juste avant
+   * l'appel), jamais une copie gelée de la version REJETÉE -- v1.3
+   * renvoyait indéfiniment les mêmes données invalides, rendant toute
+   * correction sans effet. L'upsert déterministe côté SQL
+   * (set_order_invoice_request, PAYMENT-INDÉPENDANT) garantit qu'une
+   * répétition de cette reprise, corrigée ou non, ne produit jamais
+   * de seconde ligne.
+   */
+  async function handleRetryInvoiceRequest() {
+    if (!pendingInvoiceCompletion || isRetryingInvoice) return;
+    // Revalidation cliente de CONFORT avant l'appel réseau -- la RPC
+    // SQL reste la SEULE autorité réelle (fail-closed), mais évite un
+    // aller-retour inutile si la correction n'est pas encore valide.
+    if (hasInvoiceRequestErrors(invoiceRequest)) return;
+    setIsRetryingInvoice(true);
+    try {
+      const { order, frozenLines, frozenOrderContext, frozenNote } = pendingInvoiceCompletion;
+      const outcome = await submitInvoiceRequest(
+        buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
+      );
+      if (outcome.ok) {
+        completeOrderFlow(order, frozenLines, frozenOrderContext, frozenNote);
+      } else {
+        setInvoiceRequestError(t("invoiceRequestFailed"));
+      }
+    } finally {
+      setIsRetryingInvoice(false);
     }
   }
 
@@ -1028,10 +1242,16 @@ export default function MenuView({
           customer={customer}
           customerErrors={customerErrors}
           showErrors={showErrors}
+          invoiceRequest={invoiceRequest}
+          invoiceRequestErrors={invoiceRequestErrors}
+          onChangeInvoiceRequest={setInvoiceRequest}
           note={note}
           canSubmit={canSubmit}
           isSubmitting={isSubmitting}
           submitError={submitError}
+          invoiceRequestError={invoiceRequestError}
+          isRetryingInvoice={isRetryingInvoice}
+          onRetryInvoiceRequest={handleRetryInvoiceRequest}
           onChangeQuantity={(key, delta) =>
             setCart((c) => changeLineQuantity(c, key, delta))
           }

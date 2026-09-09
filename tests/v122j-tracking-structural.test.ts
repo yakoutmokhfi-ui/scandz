@@ -146,8 +146,8 @@ test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sq
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    84,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1)`
+    85,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, + CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);

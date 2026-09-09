@@ -5,6 +5,8 @@ import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
+import type { InvoiceRequestInfo, InvoiceRequestErrors } from "@/lib/invoice-request";
+import InvoiceRequestFields from "@/components/InvoiceRequestFields";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
 import type { PublicSaleModesState } from "@/lib/use-public-sale-modes";
 import QuantityControl from "@/components/QuantityControl";
@@ -37,10 +39,16 @@ export default function CartPanel({
   customer,
   customerErrors,
   showErrors,
+  invoiceRequest,
+  invoiceRequestErrors,
+  onChangeInvoiceRequest,
   note,
   canSubmit,
   isSubmitting,
   submitError,
+  invoiceRequestError,
+  isRetryingInvoice,
+  onRetryInvoiceRequest,
   onChangeQuantity,
   onSelectTable,
   onSelectFulfillment,
@@ -93,11 +101,23 @@ export default function CartPanel({
   customer: CustomerInfo;
   customerErrors: Partial<Record<keyof CustomerInfo, string>>;
   showErrors: boolean;
+  /** CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1. */
+  invoiceRequest: InvoiceRequestInfo;
+  invoiceRequestErrors: InvoiceRequestErrors;
+  onChangeInvoiceRequest: (next: InvoiceRequestInfo) => void;
   /** Note générale de commande (V65), unique, facultative — pas de note par ligne. */
   note: string;
   canSubmit: boolean;
   isSubmitting: boolean;
   submitError: string | null;
+  /** CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
+   *  (FERME "SILENT INVOICE LOSS"). Non-null UNIQUEMENT lorsqu'une
+   *  commande a été créée avec succès mais que la demande de facture
+   *  a échoué -- remplace le bouton d'envoi normal par une reprise
+   *  CIBLÉE, jamais une nouvelle soumission complète du panier. */
+  invoiceRequestError: string | null;
+  isRetryingInvoice: boolean;
+  onRetryInvoiceRequest: () => void;
   onChangeQuantity: (key: string, delta: number) => void;
   onSelectTable: (table: number) => void;
   onSelectFulfillment: (t: ServiceMode) => void;
@@ -398,6 +418,14 @@ export default function CartPanel({
               )}
 
               <div className="mt-4">
+                <InvoiceRequestFields
+                  info={invoiceRequest}
+                  errors={invoiceRequestErrors}
+                  onChange={onChangeInvoiceRequest}
+                />
+              </div>
+
+              <div className="mt-4">
                 <label
                   htmlFor="order-note"
                   className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted"
@@ -522,6 +550,34 @@ export default function CartPanel({
               </p>
             )}
 
+            {invoiceRequestError ? (
+              // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST
+              // v1.2 (FERME "SILENT INVOICE LOSS") : la commande
+              // existe déjà -- le bouton d'envoi NORMAL est remplacé
+              // par une reprise CIBLÉE de la demande de facture
+              // SEULE, jamais une nouvelle soumission complète du
+              // panier (qui recréerait une commande).
+              <>
+                <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                  {invoiceRequestError}
+                </p>
+                <button
+                  onClick={onRetryInvoiceRequest}
+                  disabled={isRetryingInvoice}
+                  aria-busy={isRetryingInvoice}
+                  className={
+                    "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
+                    (isRetryingInvoice
+                      ? "cursor-wait bg-[#25D366]/60"
+                      : "bg-[#25D366]")
+                  }
+                >
+                  {isRetryingInvoice ? t("sending") : t("invoiceRetry")}
+                </button>
+              </>
+            ) : (
+              <>
+
             {/* SADFP-02 (CORRECTION v2) : l'acquittement obligatoire
                 "vie privée / conditions" a été RETIRÉ. Les liens
                 pointaient vers /legal/privacy et /legal/terms, des
@@ -558,6 +614,8 @@ export default function CartPanel({
               <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
                 {!noteState.isValid ? t("noteTooLong") : missing}
               </p>
+            )}
+              </>
             )}
           </div>
         )}
