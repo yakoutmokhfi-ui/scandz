@@ -421,7 +421,14 @@ export default function FulfillmentSelector({
       : null;
 
     return (
-      <div key="delivery_address" className="space-y-3">
+      // id="delivery-address-section" : cible de défilement dédiée
+      // pour le lot FULFILLMENT CHOICE v1.1 (post-sélection auto-
+      // scroll/focus, voir CartPanel.tsx) -- amène spécifiquement ce
+      // sous-bloc adresse en vue après un choix "Livraison", jamais
+      // seulement le conteneur FulfillmentSelector englobant (qui peut
+      // aussi porter les champs nom/téléphone/email AU-DESSUS de ce
+      // bloc selon l'ordre backend de displayItems).
+      <div key="delivery_address" id="delivery-address-section" className="space-y-3">
         <div className="grid grid-cols-[7rem_1fr] gap-3">
           <Field
             id="postalCode"

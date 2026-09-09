@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
@@ -27,6 +28,7 @@ export default function CartPanel({
   totalPrice,
   tableNumber,
   serviceMode,
+  fulfillmentSelectionSeq,
   deliveryStatus,
   displayItems,
   fieldRequirementsReady,
@@ -53,6 +55,12 @@ export default function CartPanel({
   totalPrice: number;
   tableNumber: number | null;
   serviceMode: ServiceMode | null;
+  /** FULFILLMENT CHOICE v1.1 : compteur incrémenté UNIQUEMENT par une
+   *  sélection explicite du client (voir MenuView.tsx) -- signal
+   *  d'événement, jamais un second état de navigation ; déclenche le
+   *  défilement/focus post-sélection ci-dessous, jamais un rendu
+   *  générique. */
+  fulfillmentSelectionSeq: number;
   deliveryStatus: DeliveryStatus;
   /** LOT 2B.4a.2 : exigences génériques dynamiques (plus un
    *  (keyof CustomerInfo)[] figé lu depuis settings.requiredCustomerFields). */
@@ -100,6 +108,130 @@ export default function CartPanel({
 }) {
   const { t, lang, sourceLanguage } = useI18n();
   const { currency, max_tables } = restaurant.config;
+
+  /**
+   * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE v1.1 (POST-
+   * SELECTION AUTO-SCROLL / FOCUS).
+   *
+   * `fulfillmentSectionRef` cible le conteneur de FulfillmentSelector
+   * (structure EXISTANTE, aucun changement de FulfillmentSelector lui-
+   * même) -- c'est "la prochaine section actionnable du checkout" pour
+   * le retrait, et le repli pour la livraison si la sous-section
+   * d'adresse n'est pas encore montée (voir plus bas).
+   *
+   * `lastSeenSelectionSeqRef` est initialisé à la valeur COURANTE de
+   * `fulfillmentSelectionSeq` au montage -- donc, y compris quand le
+   * panier est rouvert avec un mode déjà choisi précédemment (compteur
+   * déjà > 0), le montage lui-même n'arme jamais `pendingSelectionSeqRef`
+   * : seul un NOUVEL incrément survenu PENDANT que ce CartPanel est
+   * monté (une sélection explicite réelle) déclenche une tentative de
+   * défilement/focus.
+   *
+   * `pendingSelectionSeqRef` porte la sélection explicite EN ATTENTE
+   * d'exécution. Pour le retrait, le conteneur `fulfillmentSectionRef`
+   * existe dès le rendu qui suit la sélection (aucune dépendance
+   * asynchrone) -- l'effet agit donc immédiatement. Pour la livraison,
+   * `#delivery-address-section` ne peut apparaître qu'une fois
+   * `fieldRequirementsReady` devenu vrai (résolution ASYNCHRONE des
+   * exigences via usePublicFieldRequirements, MenuView.tsx) : tant que
+   * ni la section n'existe NI les exigences ne sont résolues, l'effet
+   * NE FAIT RIEN et laisse la sélection en attente -- elle sera
+   * ré-évaluée au prochain rendu déclenché par `fieldRequirementsReady`/
+   * `displayItems` (déjà des props légitimement pilotées par l'état de
+   * chargement réel de l'application, jamais un minuteur arbitraire).
+   * Dès que les exigences sont résolues (que la section adresse existe
+   * réellement, ou -- cas limite -- qu'elle soit absente malgré un mode
+   * livraison actif), l'effet agit une seule fois et efface l'attente.
+   */
+  const fulfillmentSectionRef = useRef<HTMLDivElement>(null);
+  const lastSeenSelectionSeqRef = useRef(fulfillmentSelectionSeq);
+  const pendingSelectionSeqRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (fulfillmentSelectionSeq !== lastSeenSelectionSeqRef.current) {
+      lastSeenSelectionSeqRef.current = fulfillmentSelectionSeq;
+      pendingSelectionSeqRef.current = fulfillmentSelectionSeq;
+    }
+
+    if (pendingSelectionSeqRef.current === null) {
+      // Aucune sélection explicite en attente -- ce passage de l'effet
+      // est un simple re-rendu (fieldRequirementsReady/displayItems
+      // ayant changé pour une autre raison), rien à faire.
+      return;
+    }
+
+    if (serviceMode !== "pickup" && serviceMode !== "delivery") {
+      // Sélection "table" (ou état inattendu) : aucune section
+      // pickup/livraison à amener en vue -- rien à faire ici, la
+      // rangée "howToReceive" reste de toute façon déjà visible.
+      pendingSelectionSeqRef.current = null;
+      return;
+    }
+
+    const deliveryAddressSection =
+      serviceMode === "delivery"
+        ? document.getElementById("delivery-address-section")
+        : null;
+
+    if (serviceMode === "delivery" && !deliveryAddressSection && !fieldRequirementsReady) {
+      // La section adresse n'existe pas encore ET les exigences ne
+      // sont pas encore résolues -- pas assez d'information pour agir
+      // sans risquer de défiler/focaliser une cible qui n'existe pas
+      // encore. On laisse `pendingSelectionSeqRef` armé : ce même
+      // effet se redéclenchera dès que `fieldRequirementsReady`
+      // (dépendance ci-dessous) passera à vrai.
+      return;
+    }
+
+    const scrollTarget = deliveryAddressSection ?? fulfillmentSectionRef.current;
+    // Détection de fonctionnalité explicite : jsdom (environnement des
+    // tests DOM de ce dépôt) n'implémente PAS `scrollIntoView` (absent,
+    // jamais un no-op) -- un appel non gardé y lèverait une exception
+    // et casserait le rendu. Un navigateur réel l'implémente toujours ;
+    // ce garde-fou ne change donc jamais le comportement en production,
+    // il évite seulement un crash dans un moteur DOM qui ne l'implémente
+    // pas encore (même principe que le repli try/catch déjà utilisé par
+    // FulfillmentChoiceModal.tsx pour showModal()/close()).
+    if (scrollTarget && typeof scrollTarget.scrollIntoView === "function") {
+      scrollTarget.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if (serviceMode === "delivery") {
+      // Premier champ significatif de l'adresse de livraison
+      // (code postal -- voir FulfillmentSelector.tsx,
+      // renderDeliveryAddress) : jamais un champ client générique
+      // (nom/téléphone/email), jamais un champ masqué/désactivé/
+      // absent du DOM. (`offsetParent` n'est délibérément PAS utilisé
+      // ici : jsdom -- environnement des tests DOM de ce dépôt -- ne
+      // calcule aucune mise en page réelle et renvoie toujours `null`
+      // pour `offsetParent`, y compris pour un élément parfaitement
+      // visible ; `isConnected` + `hidden` + `disabled` restent
+      // fiables aussi bien en navigateur réel qu'en jsdom, et ce champ
+      // n'est de toute façon jamais masqué par CSS par ce composant --
+      // il est simplement absent du DOM tant qu'il ne doit pas être
+      // rendu, cas déjà couvert par `getElementById` retournant `null`.)
+      const firstAddressField = document.getElementById("postalCode");
+      if (
+        firstAddressField instanceof HTMLElement &&
+        firstAddressField.isConnected &&
+        !firstAddressField.hidden &&
+        !(firstAddressField as HTMLInputElement).disabled
+      ) {
+        firstAddressField.focus();
+      }
+    }
+
+    pendingSelectionSeqRef.current = null;
+    // serviceMode est lu depuis la fermeture de ce rendu (mis à jour
+    // dans le MÊME commit React que fulfillmentSelectionSeq pour une
+    // sélection explicite, voir MenuView.tsx) -- toujours à jour au
+    // moment où cet effet s'exécute. `fieldRequirementsReady` et
+    // `displayItems` sont inclus pour permettre la ré-évaluation
+    // déterministe décrite ci-dessus (jamais pour redéclencher un
+    // défilement sur un changement PUREMENT programmatique de
+    // serviceMode seul -- celui-ci n'arme jamais `pendingSelectionSeqRef`,
+    // seul un nouvel incrément de `fulfillmentSelectionSeq` le fait).
+  }, [fulfillmentSelectionSeq, serviceMode, fieldRequirementsReady, displayItems]);
 
   // Compteur et validation alignés sur le comptage serveur (voir
   // lib/order-note.ts) : ni note.length ni maxLength natif seuls, pour
@@ -241,18 +373,28 @@ export default function CartPanel({
               )}
 
               {(serviceMode === "pickup" || serviceMode === "delivery") && (
-                <FulfillmentSelector
-                  status={deliveryStatus}
-                  type={serviceMode}
-                  customer={customer}
-                  errors={customerErrors}
-                  showErrors={showErrors}
-                  displayItems={displayItems}
-                  fieldRequirementsReady={fieldRequirementsReady}
-                  deliveryModeAvailable={availableServiceModes.includes("delivery")}
-                  onChangeCustomer={onChangeCustomer}
-                  onSelectFulfillment={onSelectFulfillment}
-                />
+                // ref="fulfillmentSectionRef" : cible de défilement
+                // FULFILLMENT CHOICE v1.1 -- "la prochaine section
+                // actionnable du checkout" après une sélection à
+                // emporter, et repli pour la livraison si le sous-bloc
+                // adresse dédié (#delivery-address-section) n'est pas
+                // encore monté. FulfillmentSelector lui-même n'est pas
+                // modifié -- seul ce conteneur, déjà existant, gagne un
+                // ref.
+                <div ref={fulfillmentSectionRef}>
+                  <FulfillmentSelector
+                    status={deliveryStatus}
+                    type={serviceMode}
+                    customer={customer}
+                    errors={customerErrors}
+                    showErrors={showErrors}
+                    displayItems={displayItems}
+                    fieldRequirementsReady={fieldRequirementsReady}
+                    deliveryModeAvailable={availableServiceModes.includes("delivery")}
+                    onChangeCustomer={onChangeCustomer}
+                    onSelectFulfillment={onSelectFulfillment}
+                  />
+                </div>
               )}
 
               <div className="mt-4">

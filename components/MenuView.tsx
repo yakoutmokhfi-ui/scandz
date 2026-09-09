@@ -350,6 +350,25 @@ export default function MenuView({
   // disponible immédiatement) : la présélection a lieu dans l'effet
   // ci-dessous, une fois la liste réelle connue.
   const [serviceMode, setServiceMode] = useState<ServiceMode | null>(null);
+  /**
+   * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE v1.1 (POST-
+   * SELECTION AUTO-SCROLL / FOCUS).
+   *
+   * Compteur incrémenté UNIQUEMENT par une sélection EXPLICITE du
+   * client (clic sur un mode dans le popup OU dans la rangée inline
+   * "howToReceive" -- les deux passent par `onSelectFulfillment`
+   * ci-dessous, seul point d'entrée). Ce n'est PAS un second état de
+   * navigation parallèle à `serviceMode` : il ne représente jamais
+   * "où se trouve le client", uniquement "un choix explicite vient de
+   * se produire", pour que CartPanel puisse distinguer un changement
+   * de `serviceMode` dû à un clic client d'un changement purement
+   * programmatique (présélection automatique à mode unique ligne
+   * ~397, réinitialisation de garde-fou ligne ~377) -- ces deux
+   * derniers ne doivent JAMAIS déclencher le défilement/focus
+   * automatique (mandat v1.1 : "must happen only because of an
+   * explicit fulfillment selection/change").
+   */
+  const [fulfillmentSelectionSeq, setFulfillmentSelectionSeq] = useState(0);
 
   useEffect(() => {
     if (!saleModesReady) return;
@@ -1000,6 +1019,7 @@ export default function MenuView({
           totalPrice={totalPrice}
           tableNumber={tableNumber}
           serviceMode={serviceMode}
+          fulfillmentSelectionSeq={fulfillmentSelectionSeq}
           availableServiceModes={availableServiceModes}
           saleModesState={saleModesState}
           displayItems={displayItems}
@@ -1019,6 +1039,12 @@ export default function MenuView({
           onSelectFulfillment={(t) => {
             setServiceMode(t);
             setShowErrors(true);
+            // FULFILLMENT CHOICE v1.1 : marque cette sélection comme
+            // EXPLICITE (voir la doc de fulfillmentSelectionSeq
+            // ci-dessus) -- même geste, que ce clic vienne du popup ou
+            // de la rangée inline "howToReceive", puisque les deux
+            // partagent ce seul callback.
+            setFulfillmentSelectionSeq((n) => n + 1);
           }}
           onChangeCustomer={(patch) =>
             setCustomer((prev) => ({ ...prev, ...patch }))
