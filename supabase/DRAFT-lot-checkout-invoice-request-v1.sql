@@ -290,6 +290,29 @@ begin
   if v_contact_email is not null and length(v_contact_email) > 100 then
     raise exception 'SCANYM_INVOICE_REQUEST: p_contact_email dépasse 100 caractères' using errcode = '22001';
   end if;
+  -- LOT EMAIL VALIDATION v1 (Claude Monet) : jusqu'ici, seule la
+  -- LONGUEUR de p_contact_email était vérifiée ici -- AUCUN contrôle
+  -- de FORMAT n'existait côté serveur, alors que ce champ, optionnel,
+  -- reste persisté tel quel dès qu'une valeur est fournie. Une chaîne
+  -- sans "@" pouvait donc être acceptée comme "email de contact"
+  -- valide -- y compris en contournant le client (mandat, littéral :
+  -- "bypassing the client must not allow an invalid email to be
+  -- persisted"). Réutilise EXACTEMENT la même regex que create_order
+  -- pour customer_email (supabase/migration-orders.sql et ses
+  -- révisions successives) -- jamais une seconde règle de format
+  -- indépendante -- et le même code errcode '22023' déjà utilisé pour
+  -- ce type d'erreur ailleurs dans ce dépôt (email légal marchand,
+  -- supabase/DRAFT-lot-merchant-legal-tax-profile-v1.sql), déjà
+  -- reconnu par la route HTTP appelante
+  -- (app/api/checkout/invoice-request/route.ts, qui traite 22004/
+  -- 22023/22001 comme une erreur de validation distinguable, jamais
+  -- une réponse générique) -- aucune modification de cette route
+  -- n'est donc nécessaire pour ce lot. Champ TOUJOURS optionnel : ce
+  -- contrôle ne s'applique que si une valeur est fournie, jamais une
+  -- nouvelle obligation de présence.
+  if v_contact_email is not null and v_contact_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$' then
+    raise exception 'SCANYM_INVOICE_REQUEST: p_contact_email invalide' using errcode = '22023';
+  end if;
 
   -- UPSERT déterministe -- retry/re-soumission produit le MÊME état
   -- final pour les mêmes entrées, jamais une seconde ligne, jamais une

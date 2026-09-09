@@ -16,7 +16,19 @@
  * n'était détectable qu'APRÈS l'appel réseau, échouant de façon
  * déterministe et indéfiniment reproductible -- désormais détecté
  * AVANT tout appel, avec un message précis nommant le champ.
+ *
+ * LOT EMAIL VALIDATION v1 (Claude Monet) : `contactEmail` n'avait
+ * jusqu'ici qu'un contrôle de LONGUEUR, jamais de FORMAT -- une
+ * chaîne quelconque sans "@" pouvait être acceptée comme "valide"
+ * ici, côté client. Réutilise EXCLUSIVEMENT `isValidEmail`
+ * (lib/customer.ts, déjà la référence "maison" pour l'email client
+ * du checkout) -- jamais une seconde regex/implémentation
+ * indépendante. Le contrôle de format ne s'applique QUE si une
+ * valeur non vide est saisie (contactEmail reste un champ
+ * OPTIONNEL, inchangé -- ce lot ajoute une règle de FORMAT, jamais
+ * une règle d'obligation nouvelle).
  */
+import { isValidEmail } from "@/lib/customer";
 
 export type InvoiceType = "individual" | "company";
 
@@ -144,8 +156,14 @@ export function getInvoiceRequestErrors(info: InvoiceRequestInfo): InvoiceReques
     errors.contactName = "invoiceContactNameTooLong";
   }
 
-  if (info.contactEmail.trim().length > INVOICE_FIELD_MAX_LENGTHS.contactEmail) {
+  const trimmedContactEmail = info.contactEmail.trim();
+  if (trimmedContactEmail.length > INVOICE_FIELD_MAX_LENGTHS.contactEmail) {
     errors.contactEmail = "invoiceContactEmailTooLong";
+  } else if (trimmedContactEmail.length > 0 && !isValidEmail(trimmedContactEmail)) {
+    // LOT EMAIL VALIDATION v1 : champ optionnel -- la règle de format
+    // ne s'applique que si une valeur est effectivement saisie
+    // (jamais "requis" : ce lot ne modifie pas l'obligation du champ).
+    errors.contactEmail = "invoiceContactEmailInvalid";
   }
 
   return errors;
