@@ -110,6 +110,12 @@ const STUART_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   // orchestration, aucun accès DB depuis cette route).
   "app/api/internal/stuart/sandbox-readiness/route.ts":
     /^@\/lib\/server\/delivery-providers\/stuart\/environment$/,
+  // CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1 (lot
+  // ULTÉRIEUR et SANS RAPPORT avec PAYMENT P3-A1/Stuart) : même
+  // mécanisme exact -- n'importe QUE le module de service dédié à la
+  // demande de facture, jamais Monetico/Stuart/un autre module server.
+  "app/api/checkout/invoice-request/route.ts":
+    /^@\/lib\/server\/invoice-request-service$/,
 };
 const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/payments/monetico/checkout/route.ts",
@@ -282,7 +288,7 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
   // paiement) ajoute à son tour SON PROPRE unique fichier SQL
   // top-level (DRAFT-lot-catalogue-operator-authorization-v1.sql),
   // portant le compte total à 84 -- mesuré directement.
-  assert.equal(sqlFiles.length, 84, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, désignation synthétique, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) attendu`);
+  assert.equal(sqlFiles.length, 85, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, désignation synthétique, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) + 1 (CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1, également sans rapport avec le paiement) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });
@@ -318,8 +324,12 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6/v2.6.2 (lots
   // ULTÉRIEURS et SANS RAPPORT avec PAYMENT P3-A1 : déclencheur
   // d'exécution Sandbox contrôlée + sonde de préparation runtime en
-  // lecture seule, chacun authentifié par un secret dédié DISTINCT).
+  // lecture seule, chacun authentifié par un secret dédié DISTINCT)
+  // + 1 route CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST
+  // v1.1 (également ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 --
+  // capture de données uniquement, aucun paiement/Stuart déclenché).
   assert.deepEqual(routeFiles, [
+    "app/api/checkout/invoice-request/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",

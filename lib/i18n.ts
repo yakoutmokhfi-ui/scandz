@@ -521,6 +521,35 @@ const fr: Dict = {
   // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme MLTP-V1-DASHBOARD-STALE-WRITE-01.
   stLegalLoadFailed: "Impossible de charger les informations légales et fiscales. Réessayez.",
   stLegalNotReady: "Les informations légales et fiscales ne sont pas encore chargées : veuillez patienter avant d'enregistrer.",
+
+  // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
+  invNeedInvoice: "Besoin d'une facture ?",
+  invTypeIndividual: "Particulier",
+  invTypeCompany: "Société",
+  invAddressLine1: "Adresse de facturation",
+  invAddressLine2: "Complément d'adresse",
+  invCity: "Ville",
+  invPostalCode: "Code postal",
+  invCountry: "Pays",
+  invCompanyLegalName: "Raison sociale",
+  invVatNumber: "Numéro de TVA (optionnel)",
+  invContactName: "Nom du contact",
+  invContactEmail: "Email du contact",
+  invAddressRequired: "L'adresse de facturation est requise.",
+  invCityRequired: "La ville est requise.",
+  invPostalCodeRequired: "Le code postal est requis.",
+  invCountryRequired: "Le pays est requis.",
+  invCompanyNameRequired: "La raison sociale est requise pour une facture société.",
+  invoiceAddressTooLong: "L'adresse dépasse la longueur maximale autorisée (50 caractères).",
+  invoiceAddressLine2TooLong: "Le complément d'adresse dépasse la longueur maximale autorisée (50 caractères).",
+  invoiceCityTooLong: "La ville dépasse la longueur maximale autorisée (50 caractères).",
+  invoicePostalCodeTooLong: "Le code postal dépasse la longueur maximale autorisée (10 caractères).",
+  invoiceCompanyNameTooLong: "La raison sociale dépasse la longueur maximale autorisée (120 caractères).",
+  invoiceVatNumberTooLong: "Le numéro de TVA dépasse la longueur maximale autorisée (30 caractères).",
+  invoiceContactNameTooLong: "Le nom du contact dépasse la longueur maximale autorisée (45 caractères).",
+  invoiceContactEmailTooLong: "L'email du contact dépasse la longueur maximale autorisée (100 caractères).",
+  invoiceRequestFailed: "Votre commande a bien été créée, mais votre demande de facture n'a pas pu être enregistrée. Réessayez.",
+  invoiceRetry: "Réessayer la demande de facture",
 };
 
 const en: Dict = {
@@ -964,6 +993,35 @@ const en: Dict = {
   // MERCHANT LEGAL & TAX PROFILE v1.1 -- closes MLTP-V1-DASHBOARD-STALE-WRITE-01.
   stLegalLoadFailed: "Could not load the legal & tax information. Please try again.",
   stLegalNotReady: "The legal & tax information has not finished loading yet: please wait before saving.",
+
+  // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
+  invNeedInvoice: "Need an invoice?",
+  invTypeIndividual: "Individual",
+  invTypeCompany: "Company",
+  invAddressLine1: "Billing address",
+  invAddressLine2: "Address line 2",
+  invCity: "City",
+  invPostalCode: "Postal code",
+  invCountry: "Country",
+  invCompanyLegalName: "Company legal name",
+  invVatNumber: "VAT number (optional)",
+  invContactName: "Contact name",
+  invContactEmail: "Contact email",
+  invAddressRequired: "Billing address is required.",
+  invCityRequired: "City is required.",
+  invPostalCodeRequired: "Postal code is required.",
+  invCountryRequired: "Country is required.",
+  invCompanyNameRequired: "Company legal name is required for a company invoice.",
+  invoiceAddressTooLong: "Address exceeds the maximum allowed length (50 characters).",
+  invoiceAddressLine2TooLong: "Address line 2 exceeds the maximum allowed length (50 characters).",
+  invoiceCityTooLong: "City exceeds the maximum allowed length (50 characters).",
+  invoicePostalCodeTooLong: "Postal code exceeds the maximum allowed length (10 characters).",
+  invoiceCompanyNameTooLong: "Company legal name exceeds the maximum allowed length (120 characters).",
+  invoiceVatNumberTooLong: "VAT number exceeds the maximum allowed length (30 characters).",
+  invoiceContactNameTooLong: "Contact name exceeds the maximum allowed length (45 characters).",
+  invoiceContactEmailTooLong: "Contact email exceeds the maximum allowed length (100 characters).",
+  invoiceRequestFailed: "Your order was created successfully, but your invoice request could not be saved. Please retry.",
+  invoiceRetry: "Retry invoice request",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -1402,6 +1460,35 @@ const ar: Dict = {
   // MERCHANT LEGAL & TAX PROFILE v1.1 -- يغلق MLTP-V1-DASHBOARD-STALE-WRITE-01.
   stLegalLoadFailed: "تعذر تحميل المعلومات القانونية والضريبية. يرجى المحاولة مرة أخرى.",
   stLegalNotReady: "لم يتم تحميل المعلومات القانونية والضريبية بعد: يرجى الانتظار قبل الحفظ.",
+
+  // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
+  invNeedInvoice: "هل تحتاج إلى فاتورة؟",
+  invTypeIndividual: "فرد",
+  invTypeCompany: "شركة",
+  invAddressLine1: "عنوان الفوترة",
+  invAddressLine2: "تفاصيل العنوان",
+  invCity: "المدينة",
+  invPostalCode: "الرمز البريدي",
+  invCountry: "الدولة",
+  invCompanyLegalName: "الاسم القانوني للشركة",
+  invVatNumber: "رقم التعريف الضريبي (اختياري)",
+  invContactName: "اسم جهة الاتصال",
+  invContactEmail: "البريد الإلكتروني لجهة الاتصال",
+  invAddressRequired: "عنوان الفوترة مطلوب.",
+  invCityRequired: "المدينة مطلوبة.",
+  invPostalCodeRequired: "الرمز البريدي مطلوب.",
+  invCountryRequired: "الدولة مطلوبة.",
+  invCompanyNameRequired: "الاسم القانوني للشركة مطلوب لفاتورة الشركة.",
+  invoiceAddressTooLong: "العنوان يتجاوز الحد الأقصى المسموح به (50 حرفًا).",
+  invoiceAddressLine2TooLong: "تفاصيل العنوان تتجاوز الحد الأقصى المسموح به (50 حرفًا).",
+  invoiceCityTooLong: "المدينة تتجاوز الحد الأقصى المسموح به (50 حرفًا).",
+  invoicePostalCodeTooLong: "الرمز البريدي يتجاوز الحد الأقصى المسموح به (10 أحرف).",
+  invoiceCompanyNameTooLong: "الاسم القانوني للشركة يتجاوز الحد الأقصى المسموح به (120 حرفًا).",
+  invoiceVatNumberTooLong: "رقم التعريف الضريبي يتجاوز الحد الأقصى المسموح به (30 حرفًا).",
+  invoiceContactNameTooLong: "اسم جهة الاتصال يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
+  invoiceContactEmailTooLong: "البريد الإلكتروني لجهة الاتصال يتجاوز الحد الأقصى المسموح به (100 حرف).",
+  invoiceRequestFailed: "تم إنشاء طلبك بنجاح، لكن تعذر حفظ طلب الفاتورة. يرجى المحاولة مرة أخرى.",
+  invoiceRetry: "إعادة محاولة طلب الفاتورة",
 };
 
 const DICTS: Record<Lang, Dict> = { fr, en, ar };
