@@ -12,6 +12,7 @@ import type {
   MerchantDeliveryFulfillmentPricingRule,
   MerchantRestaurant,
 } from "@/lib/dashboard-types";
+import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { translate, type Lang } from "@/lib/i18n";
 
@@ -61,6 +62,27 @@ export default function DeliveryPricingPage() {
   const router = useRouter();
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState("");
+  // OPERATOR DASHBOARD CONTEXT v1 -- même patron déjà audité/publié
+  // que app/dashboard/settings/page.tsx (F-01) : un opérateur Scanym
+  // consultant un établissement hors de ses propres rattachements
+  // restaurant_users doit voir le restaurant CIBLÉ (?r=<id>), jamais
+  // un repli silencieux vers son propre rattachement. `canEdit` reste
+  // délibérément INCHANGÉ (owner/manager uniquement, ci-dessous) :
+  // contrairement au catalogue, les RPC sous-jacentes de ce module
+  // (get_merchant_delivery_fulfillment_pricing en LECTURE,
+  // update_merchant_delivery_fulfillment_pricing en ÉCRITURE) sont
+  // encore is_member_of()/has_role_in(['owner','manager']) UNIQUEMENT
+  // aujourd'hui, sans aucun bypass is_scanym_operator() côté SQL --
+  // proposer un bouton "Modifier" à un opérateur ici échouerait donc
+  // TOUJOURS côté serveur (42501) : ce lot ne l'active pas (voir
+  // OPERATOR-CONTEXT-CONTRACT.md, "OPERATOR CONTEXT SQL REQUIRED").
+  // isOperator sert ici UNIQUEMENT à la résolution du restaurant
+  // affiché (fail closed, jamais Sanaa) -- un opérateur verra
+  // désormais le BON restaurant ciblé, avec l'échec de LECTURE déjà
+  // existant (pageError générique, voir plus bas) tant que ce lot SQL
+  // séparé n'aura pas ajouté le bypass.
+  const [isOperator, setIsOperator] = useState(false);
+  const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>("fr");
   const [rows, setRows] = useState<MerchantDeliveryFulfillmentPricingRule[]>([]);
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
@@ -102,11 +124,40 @@ export default function DeliveryPricingPage() {
         return;
       }
       try {
-        const next = await getMerchantRestaurants();
+        const [next, opFlag] = await Promise.all([
+          getMerchantRestaurants(),
+          isScanymOperator(),
+        ]);
+        setIsOperator(opFlag);
         setMappings(next);
+
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted ? next.find((m) => m.restaurant_id === wanted) : undefined;
-        if (next.length === 0) {
+        const match = wanted
+          ? next.find((m) => m.restaurant_id === wanted)
+          : undefined;
+
+        if (wanted && !match && opFlag) {
+          // OPERATOR DASHBOARD CONTEXT v1 : même correction F-01 que
+          // settings/page.tsx et dashboard/catalogue/page.tsx. Le lien
+          // ?r=<id> fait foi côté affichage uniquement -- la protection
+          // réelle reste côté RPC. Ici get_merchant_delivery_fulfillment_pricing
+          // et update_merchant_delivery_fulfillment_pricing n'ont PAS de
+          // bypass is_scanym_operator() (contrairement au catalogue) : un
+          // opérateur ciblant un établissement hors de ses propres
+          // rattachements verra donc l'ID restaurant correctement retenu
+          // ici, mais recevra une erreur explicite et sûre du RPC lors du
+          // chargement des tarifs (fail-closed), jamais les tarifs d'un
+          // autre restaurant. JAMAIS de repli sur next[0] ici : vérifié
+          // AVANT le test `next.length === 0` ci-dessous.
+          setRestaurantId(wanted);
+          try {
+            const summary = await getEstablishmentSummary(wanted);
+            setOperatorRestaurantName(summary.name);
+          } catch {
+            // Best-effort : un nom introuvable n'empêche pas de
+            // continuer (l'ID reste la source de vérité).
+          }
+        } else if (next.length === 0) {
           setPageError(t("mcNoRestaurant"));
         } else {
           setRestaurantId((match ?? next[0]).restaurant_id);
@@ -202,7 +253,7 @@ export default function DeliveryPricingPage() {
   return (
     <>
       <DashboardNav
-        restaurantName={mapping?.restaurants?.name ?? t("dpTitle")}
+        restaurantName={mapping?.restaurants?.name ?? operatorRestaurantName ?? t("dpTitle")}
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}

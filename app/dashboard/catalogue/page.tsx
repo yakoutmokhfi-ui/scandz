@@ -40,6 +40,7 @@ import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { formatPrice } from "@/lib/whatsapp";
 import { canEditProducts, canToggleAvailability } from "@/lib/roles";
+import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import {
   normalizeText,
   SHORT_DESCRIPTION_MAX_LENGTH,
@@ -201,9 +202,28 @@ export default function CataloguePage() {
   const [currency, setCurrency] = useState("DZD");
   const [staffLang, setStaffLang] = useState<string>("fr");
 
+  // OPERATOR DASHBOARD CONTEXT v1 (corrige le rendu cross-tenant : un
+  // opérateur Scanym (scanym_operators) n'a généralement AUCUNE ligne
+  // dans restaurant_users -- il consulte/édite un établissement via un
+  // lien direct (?r=<restaurant_id>, depuis le Cockpit Opérateur),
+  // jamais via le sélecteur "mes établissements" ci-dessous. Même
+  // patron, déjà audité et publié, que app/dashboard/settings/page.tsx
+  // (F-01) : isScanymOperator()/getEstablishmentSummary() ne servent
+  // qu'à l'affichage (masquer/rediriger, résoudre le nom affiché) --
+  // la protection réelle reste côté RPC (assert_product_role /
+  // assert_category_role / assert_subcategory_role, qui acceptent déjà
+  // is_scanym_operator() en plus de owner/manager, voir
+  // supabase/DRAFT-lot-catalogue-operator-authorization-v1.sql).
+  const [isOperator, setIsOperator] = useState(false);
+  const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
+
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
-  const canEdit = canEditProducts(mapping?.role);
-  const canToggle = canToggleAvailability(mapping?.role);
+  // Un opérateur peut éditer N'IMPORTE QUEL établissement (RPC déjà
+  // autorisées côté SQL, cf. commentaire ci-dessus), MÊME sans rôle
+  // owner/manager réel -- exactement le même raisonnement que
+  // settings/page.tsx (canEdit = isOperator || canEditFull).
+  const canEdit = isOperator || canEditProducts(mapping?.role);
+  const canToggle = isOperator || canToggleAvailability(mapping?.role);
   const lang = staffLang as Lang;
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
@@ -249,15 +269,41 @@ export default function CataloguePage() {
         return;
       }
       try {
-        const next = await getMerchantRestaurants();
-        if (next.length === 0) {
+        const [next, opFlag] = await Promise.all([
+          getMerchantRestaurants(),
+          isScanymOperator(),
+        ]);
+        setIsOperator(opFlag);
+        setMappings(next);
+
+        const wanted = new URLSearchParams(window.location.search).get("r");
+        const match = wanted
+          ? next.find((m) => m.restaurant_id === wanted)
+          : undefined;
+
+        if (wanted && !match && opFlag) {
+          // OPERATOR DASHBOARD CONTEXT v1 : opérateur Scanym consultant
+          // un établissement hors de ses propres rattachements
+          // restaurant_users (même correction F-01 que settings/page.tsx)
+          // -- le lien ?r=<id> fait foi, la protection réelle reste
+          // côté RPC (assert_product_role/assert_category_role/
+          // assert_subcategory_role). JAMAIS de repli sur next[0] ici :
+          // un opérateur qui n'a lui-même AUCUN rattachement (next
+          // vide) doit quand même pouvoir consulter le restaurant
+          // ciblé -- vérifié AVANT le test `next.length === 0`
+          // ci-dessous, contrairement à l'ordre précédent de ce bloc.
+          setRestaurantId(wanted);
+          try {
+            const summary = await getEstablishmentSummary(wanted);
+            setOperatorRestaurantName(summary.name);
+          } catch {
+            // Best-effort : un nom introuvable n'empêche pas de
+            // continuer (l'ID reste la source de vérité pour le
+            // chargement du catalogue -- voir reload() plus haut).
+          }
+        } else if (next.length === 0) {
           setError(t("mcNoRestaurant"));
         } else {
-          setMappings(next);
-          const wanted = new URLSearchParams(window.location.search).get("r");
-          const match = wanted
-            ? next.find((m) => m.restaurant_id === wanted)
-            : undefined;
           setRestaurantId((match ?? next[0]).restaurant_id);
         }
       } catch (e) {
@@ -670,7 +716,7 @@ export default function CataloguePage() {
   return (
     <>
       <DashboardNav
-        restaurantName={mapping?.restaurants?.name ?? t("mcTitle")}
+        restaurantName={mapping?.restaurants?.name ?? operatorRestaurantName ?? t("mcTitle")}
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={staffLang}
