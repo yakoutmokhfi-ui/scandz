@@ -155,11 +155,25 @@ const MOCK_DASHBOARD_NAV = `
 export default function DashboardNav() { return null; }
 `;
 
+// OPERATOR DASHBOARD CONTEXT v1 -- catalogue/page.tsx appelle
+// désormais aussi isScanymOperator()/getEstablishmentSummary()
+// (lib/services/establishments.ts, même patron F-01 que
+// settings/page.tsx) pour résoudre le restaurant affiché. Ce fichier
+// ne porte que sur le marchand ORDINAIRE (non-opérateur) : réponse
+// déterministe, ne touche à aucun réseau réel (le module réel exige
+// des variables d'environnement Supabase que ce harnais ne fournit
+// pas).
+const MOCK_ESTABLISHMENTS = `
+export async function isScanymOperator() { return false; }
+export async function getEstablishmentSummary() { throw new Error("not used in this scenario"); }
+`;
+
 const mocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/product-photo": MOCK_PRODUCT_PHOTO,
+  "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
   "@/components/dashboard/DashboardNav": MOCK_DASHBOARD_NAV,
 };
 

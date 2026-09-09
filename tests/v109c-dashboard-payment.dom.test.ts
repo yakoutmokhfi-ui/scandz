@@ -198,6 +198,13 @@ test("P2B-B DOM: zéro configuration -> état vide sûr affiché, jamais présen
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -219,6 +226,13 @@ test("P2B-B DOM: un prestataire (monetico, live, verified, activé, vérifié) -
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -264,6 +278,13 @@ test("P2B-B DOM: plusieurs prestataires (2) -> les DEUX cartes sont rendues, auc
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -311,6 +332,13 @@ test("P2B-B DOM: échec RPC -> message d'erreur marchand-sûr affiché, jamais d
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return { data: null, error: { message: "42501: permission denied for restaurant abc-123" } };
     }
@@ -334,6 +362,13 @@ test("P2B-B DOM: la page est strictement lecture seule -- aucun input, select, t
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -467,6 +502,10 @@ test("P2B-B DOM: bascule de restaurant (A -> B) -- les données de A disparaisse
 
   const deferredB = makeDeferred<{ data: unknown; error: null }>();
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }
@@ -534,6 +573,10 @@ test("P2B-B DOM: bascule de restaurant PUIS ÉCHEC du second chargement -- zéro
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }
@@ -592,6 +635,10 @@ test("P2B-B DOM: réponses HORS-ORDRE -- A (tardive) répond APRÈS B -- B reste
   const deferredA = makeDeferred<{ data: unknown; error: null }>();
   const deferredB = makeDeferred<{ data: unknown; error: null }>();
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }
@@ -664,6 +711,13 @@ test("P2B-B DOM: langue commerçant FR (staff_receipt_language='fr') -> page ET 
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -707,6 +761,13 @@ test("P2B-B DOM: langue commerçant EN (staff_receipt_language='en') -> page ET 
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -750,6 +811,13 @@ test("P2B-B DOM: langue commerçant AR (staff_receipt_language='ar') -> page ET 
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") {
       return {
         data: [
@@ -794,6 +862,13 @@ test("P2B-B DOM: navigation Dashboard -- stratégie explicite anti-débordement 
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -829,6 +904,13 @@ test("P2B-B DOM: sur /dashboard/payment, l'onglet Paiement est actif ET l'onglet
     throw new Error(`table inattendue : ${table}`);
   });
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- payment/page.tsx appelle
+    // désormais aussi isScanymOperator() (lib/services/establishments.ts,
+    // même patron F-01 que settings/page.tsx) pour résoudre le
+    // restaurant affiché. Ce fichier teste exclusivement le
+    // marchand ORDINAIRE (non-opérateur) : réponse déterministe, ne
+    // touche à aucun réseau réel.
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name === "get_merchant_payment_provider_config") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -876,6 +958,10 @@ test("P2B-B DOM: bascule IMMÉDIATE A -> B -- au tout premier état React observ
   // réponse de B, mais de l'invalidation synchrone elle-même).
   const deferredB = makeDeferred<{ data: unknown; error: null }>();
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }
@@ -957,6 +1043,10 @@ test("P2B-B DOM: réponses HORS-ORDRE -- ÉCHEC tardif de A après SUCCÈS de B 
   });
   const deferredB = makeDeferred<{ data: unknown; error: null }>();
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }
@@ -1020,6 +1110,10 @@ test("P2B-B DOM: bascule RAPIDE A -> B -> C -- seul C peut finalement s'afficher
   const deferredB = makeDeferred<{ data: unknown; error: null }>();
   const deferredC = makeDeferred<{ data: unknown; error: null }>();
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // OPERATOR DASHBOARD CONTEXT v1 -- voir commentaire identique
+    // ci-dessus (marchand ordinaire, non-opérateur, réponse
+    // déterministe).
+    if (name === "is_scanym_operator") return { data: false, error: null };
     if (name !== "get_merchant_payment_provider_config") {
       throw new Error(`RPC inattendue : ${name}`);
     }

@@ -12,6 +12,7 @@ import type {
   MerchantPaymentProviderConfig,
   MerchantRestaurant,
 } from "@/lib/dashboard-types";
+import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { translate, type Lang } from "@/lib/i18n";
 
@@ -150,6 +151,22 @@ export default function PaymentPage() {
   const router = useRouter();
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState("");
+  // OPERATOR DASHBOARD CONTEXT v1 -- même patron déjà audité/publié
+  // que app/dashboard/settings/page.tsx (F-01) : un opérateur Scanym
+  // consultant un établissement hors de ses propres rattachements
+  // restaurant_users doit voir le restaurant CIBLÉ (?r=<id>), jamais
+  // un repli silencieux vers son propre rattachement. Ce module reste
+  // volontairement READ-ONLY (voir en-tête du fichier) : isOperator
+  // ne sert ici qu'à la RÉSOLUTION du restaurant affiché, jamais à un
+  // canEdit (il n'y a rien à éditer). La RPC sous-jacente
+  // (get_merchant_payment_provider_config) reste is_member_of()
+  // UNIQUEMENT aujourd'hui (aucun bypass opérateur côté SQL) -- un
+  // opérateur verra donc désormais le BON restaurant ciblé, mais
+  // l'appel échouera de façon SÛRE (message payLoadFailed déjà
+  // existant, voir load() ci-dessous) tant qu'un lot SQL séparé n'aura
+  // pas ajouté ce bypass -- jamais plus le mauvais restaurant affiché.
+  const [isOperator, setIsOperator] = useState(false);
+  const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>("fr");
   const [rows, setRows] = useState<MerchantPaymentProviderConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -288,11 +305,34 @@ export default function PaymentPage() {
         return;
       }
       try {
-        const next = await getMerchantRestaurants();
+        const [next, opFlag] = await Promise.all([
+          getMerchantRestaurants(),
+          isScanymOperator(),
+        ]);
+        setIsOperator(opFlag);
         setMappings(next);
         const wanted = new URLSearchParams(window.location.search).get("r");
         const match = wanted ? next.find((m) => m.restaurant_id === wanted) : undefined;
-        if (next.length === 0) {
+
+        if (wanted && !match && opFlag) {
+          // OPERATOR DASHBOARD CONTEXT v1 (même correction F-01 que
+          // settings/page.tsx) : le lien ?r=<id> fait foi pour un
+          // opérateur Scanym, MÊME si `next` est vide (un opérateur
+          // sans aucun rattachement restaurant_users doit quand même
+          // pouvoir consulter le restaurant ciblé) -- vérifié AVANT le
+          // test `next.length === 0` ci-dessous, contrairement à
+          // l'ordre précédent de ce bloc.
+          setRestaurantId(wanted);
+          try {
+            const summary = await getEstablishmentSummary(wanted);
+            setOperatorRestaurantName(summary.name);
+          } catch {
+            // Best-effort : un nom introuvable n'empêche pas de
+            // continuer -- load() gère déjà, séparément, l'échec de
+            // get_merchant_payment_provider_config lui-même (fail
+            // closed, message payLoadFailed générique).
+          }
+        } else if (next.length === 0) {
           // Aucun restaurant : load() ne sera jamais appelée (elle
           // n'est déclenchée que par un restaurantId non vide), donc
           // rien d'autre ne ferait jamais retomber payLoading à false
@@ -324,7 +364,7 @@ export default function PaymentPage() {
   return (
     <>
       <DashboardNav
-        restaurantName={mapping?.restaurants?.name ?? t("payTitle")}
+        restaurantName={mapping?.restaurants?.name ?? operatorRestaurantName ?? t("payTitle")}
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}
