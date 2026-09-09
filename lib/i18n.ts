@@ -548,6 +548,7 @@ const fr: Dict = {
   invoiceVatNumberTooLong: "Le numéro de TVA dépasse la longueur maximale autorisée (30 caractères).",
   invoiceContactNameTooLong: "Le nom du contact dépasse la longueur maximale autorisée (45 caractères).",
   invoiceContactEmailTooLong: "L'email du contact dépasse la longueur maximale autorisée (100 caractères).",
+  invoiceContactEmailInvalid: "Adresse e-mail invalide",
   invoiceRequestFailed: "Votre commande a bien été créée, mais votre demande de facture n'a pas pu être enregistrée. Réessayez.",
   invoiceRetry: "Réessayer la demande de facture",
 };
@@ -1020,6 +1021,7 @@ const en: Dict = {
   invoiceVatNumberTooLong: "VAT number exceeds the maximum allowed length (30 characters).",
   invoiceContactNameTooLong: "Contact name exceeds the maximum allowed length (45 characters).",
   invoiceContactEmailTooLong: "Contact email exceeds the maximum allowed length (100 characters).",
+  invoiceContactEmailInvalid: "Invalid email address",
   invoiceRequestFailed: "Your order was created successfully, but your invoice request could not be saved. Please retry.",
   invoiceRetry: "Retry invoice request",
 };
@@ -1487,6 +1489,7 @@ const ar: Dict = {
   invoiceVatNumberTooLong: "رقم التعريف الضريبي يتجاوز الحد الأقصى المسموح به (30 حرفًا).",
   invoiceContactNameTooLong: "اسم جهة الاتصال يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
   invoiceContactEmailTooLong: "البريد الإلكتروني لجهة الاتصال يتجاوز الحد الأقصى المسموح به (100 حرف).",
+  invoiceContactEmailInvalid: "بريد إلكتروني غير صالح",
   invoiceRequestFailed: "تم إنشاء طلبك بنجاح، لكن تعذر حفظ طلب الفاتورة. يرجى المحاولة مرة أخرى.",
   invoiceRetry: "إعادة محاولة طلب الفاتورة",
 };

@@ -221,6 +221,15 @@ test("20. contactEmail à la limite + 1 -- bloqué", () => {
 });
 
 test("21. TOUS les champs à leur limite EXACTE simultanément -- entièrement valide (aucune erreur)", () => {
+  // LOT EMAIL VALIDATION v1 : contactEmail doit désormais être une
+  // adresse email STRUCTURELLEMENT valide pour que ce test documente
+  // toujours "aucune erreur" -- "f" répété 100 fois n'est plus un
+  // email valide sous la nouvelle règle de FORMAT. Construite pour
+  // rester EXACTEMENT à la limite (100 caractères) : 88 "f" + le
+  // suffixe fixe "@example.com" (12 caractères) = 100.
+  const emailAtMaxLength = `${repeat("f", INVOICE_FIELD_MAX_LENGTHS.contactEmail - "@example.com".length)}@example.com`;
+  assert.equal(emailAtMaxLength.length, INVOICE_FIELD_MAX_LENGTHS.contactEmail, "la fixture doit rester exactement à la limite de longueur -- sinon ce test ne prouverait plus ce qu'il prétend");
+
   const info = withInfo({
     wantsInvoice: true, invoiceType: "company",
     addressLine1: repeat("a", INVOICE_FIELD_MAX_LENGTHS.addressLine1),
@@ -231,8 +240,72 @@ test("21. TOUS les champs à leur limite EXACTE simultanément -- entièrement v
     companyLegalName: repeat("d", INVOICE_FIELD_MAX_LENGTHS.companyLegalName),
     vatNumber: repeat("9", INVOICE_FIELD_MAX_LENGTHS.vatNumber),
     contactName: repeat("e", INVOICE_FIELD_MAX_LENGTHS.contactName),
-    contactEmail: repeat("f", INVOICE_FIELD_MAX_LENGTHS.contactEmail),
+    contactEmail: emailAtMaxLength,
   });
   assert.deepEqual(getInvoiceRequestErrors(info), {});
   assert.equal(hasInvoiceRequestErrors(info), false);
+});
+
+// ====================================================================
+// LOT EMAIL VALIDATION v1 (Claude Monet) — CONTRAT DE VALIDATION EMAIL,
+// matrice exacte du mandat. `contactEmail` reste un champ OPTIONNEL
+// (inchangé) -- la règle de FORMAT ci-dessous ne s'applique que
+// lorsqu'une valeur non vide est fournie. Réutilise EXCLUSIVEMENT
+// `isValidEmail` (lib/customer.ts) -- jamais une seconde regex.
+// ====================================================================
+
+function withCompanyEmail(email: string): InvoiceRequestInfo {
+  return withInfo({
+    wantsInvoice: true, invoiceType: "company",
+    addressLine1: "1 rue Test", city: "Paris", postalCode: "75001", country: "FR",
+    companyLegalName: "ACME",
+    contactEmail: email,
+  });
+}
+
+test("22. contactEmail vide -- toujours valide (champ optionnel, mandat inchangé)", () => {
+  assert.equal(getInvoiceRequestErrors(withCompanyEmail("")).contactEmail, undefined);
+});
+
+test("23. contactEmail composé uniquement d'espaces -- traité comme vide (optionnel), toujours valide", () => {
+  assert.equal(getInvoiceRequestErrors(withCompanyEmail("   ")).contactEmail, undefined);
+});
+
+const VALID_CONTACT_EMAILS = [
+  "emmanuel@aulaitcru.fr",
+  "facturation@entreprise.com",
+  "prenom.nom+facture@gmail.com",
+];
+for (const email of VALID_CONTACT_EMAILS) {
+  test(`24. contactEmail valide accepté -- "${email}"`, () => {
+    assert.equal(getInvoiceRequestErrors(withCompanyEmail(email)).contactEmail, undefined);
+  });
+}
+
+test("25. contactEmail avec espaces extérieurs -- normalisé (trim) puis accepté", () => {
+  assert.equal(getInvoiceRequestErrors(withCompanyEmail("  emmanuel@aulaitcru.fr  ")).contactEmail, undefined);
+});
+
+const INVALID_CONTACT_EMAILS = [
+  "emmanuel",
+  "emmanuel@",
+  "@aulaitcru.fr",
+  "emmanuel @aulaitcru.fr",
+  "emmanuel@aulaitcru",
+  "emmanuel@ aulaitcru.fr",
+];
+for (const email of INVALID_CONTACT_EMAILS) {
+  test(`26. contactEmail invalide rejeté -- "${email}"`, () => {
+    assert.equal(getInvoiceRequestErrors(withCompanyEmail(email)).contactEmail, "invoiceContactEmailInvalid");
+  });
+}
+
+test("27. contactEmail trop long PRIME sur le format -- même invalide en format, l'erreur de longueur reste celle rapportée (inchangé, mandat : ne jamais dupliquer/masquer la règle de longueur v1.4 déjà établie)", () => {
+  const tooLongAndNotAnEmail = repeat("f", INVOICE_FIELD_MAX_LENGTHS.contactEmail + 1);
+  assert.equal(getInvoiceRequestErrors(withCompanyEmail(tooLongAndNotAnEmail)).contactEmail, "invoiceContactEmailTooLong");
+});
+
+test("28. hasInvoiceRequestErrors reflète bien un contactEmail invalide (gating réel utilisé par MenuView.tsx)", () => {
+  assert.equal(hasInvoiceRequestErrors(withCompanyEmail("not-an-email")), true);
+  assert.equal(hasInvoiceRequestErrors(withCompanyEmail("valid@example.com")), false);
 });

@@ -98,6 +98,16 @@ const LATER_APPROVED_UNRELATED_LOT_FILES = new Set([
   "supabase/DRAFT-lot-checkout-invoice-request-v1.sql",
   "supabase/tests/checkout-invoice-request-v1-1-check.sh",
   "supabase/tests/checkout-invoice-request-rollback-atomicity-check.sh",
+  // CUSTOMER CHECKOUT — EMAIL VALIDATION v1 (Claude Monet, ferme
+  // Catimini EMAIL-V1-OB1-HARNESS-01, MEDIUM) -- nouveau harnais SQL
+  // ciblé, ENTIÈREMENT SANS RAPPORT avec OB-1 : sonde exclusivement le
+  // format de order_invoice_request.contact_email au sein de
+  // set_order_invoice_request (table/RPC déjà listées ci-dessus,
+  // toujours dédiées et nouvelles, jamais un objet utilisé par OB-1).
+  // Entrée EXACTE, un seul fichier, jamais un motif générique --
+  // mandat, littéral : "exact path only", "no wildcard", "no blanket
+  // supabase/tests/**".
+  "supabase/tests/checkout-invoice-request-email-validation-v1-check.sh",
   "lib/invoice-request.ts",
   "lib/server/invoice-request-service.ts",
   "lib/services/invoice-request.ts",

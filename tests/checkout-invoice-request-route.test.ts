@@ -99,6 +99,14 @@ test("8. erreur SQL 22004 (validation) -- réponse de validation distinguable, 4
   assert.equal(data.outcome, "invalid_request");
 });
 
+test("10. erreur SQL 22023 (LOT EMAIL VALIDATION v1 -- format email invalide) -- réponse de validation distinguable, 400, jamais un faux succès", async (t) => {
+  t.mock.method(client, "rpc", async () => ({ data: null, error: { code: "22023", message: "SCANYM_INVOICE_REQUEST: p_contact_email invalide" } }));
+  const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", contactEmail: "not-an-email" }));
+  assert.equal(response.status, 400);
+  const data = await response.json();
+  assert.equal(data.outcome, "invalid_request");
+});
+
 test("9. réponse OK ne contient jamais de champ de paiement/Stuart", async (t) => {
   mockRpcOk(t);
   const response = await POST(req(VALID_BODY));

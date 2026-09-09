@@ -159,6 +159,12 @@ const PICKUP_REQS = [
   { field: "customer_name", requirement: "required", one_of_group: null },
   { field: "phone", requirement: "required", one_of_group: null },
 ];
+/** LOT EMAIL VALIDATION v1 -- même fixture, email client requis en plus. */
+const PICKUP_REQS_WITH_EMAIL = [
+  { field: "customer_name", requirement: "required", one_of_group: null },
+  { field: "phone", requirement: "required", one_of_group: null },
+  { field: "email", requirement: "required", one_of_group: null },
+];
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "22222222-2222-4222-8222-222222222222";
@@ -172,6 +178,33 @@ function mockRpc(t: { mock: { method: Function } }, createOrderCalls: { count: n
     if (name === "get_restaurant_public_sale_modes") return { data: PICKUP_SALE_MODE_ROWS, error: null };
     if (name === "get_restaurant_public_field_requirements") {
       if (args.p_mode_code === "pickup") return { data: PICKUP_REQS, error: null };
+      return { data: [], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
+    if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
+    if (name === "create_order") {
+      createOrderCalls.count += 1;
+      return {
+        data: [{ order_id: ORDER_ID, order_number: 42, public_token: TOKEN, total: 3.5, subtotal: 3.5, delivery_fee: 0 }],
+        error: null,
+      };
+    }
+    if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+  return createOrderCalls;
+}
+
+/** LOT EMAIL VALIDATION v1 -- même mock, avec "email" requis (PICKUP_REQS_WITH_EMAIL). */
+function mockRpcEmailRequired(t: { mock: { method: Function } }, createOrderCalls: { count: number } = { count: 0 }) {
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
+  t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") return { data: PICKUP_SALE_MODE_ROWS, error: null };
+    if (name === "get_restaurant_public_field_requirements") {
+      if (args.p_mode_code === "pickup") return { data: PICKUP_REQS_WITH_EMAIL, error: null };
       return { data: [], error: null };
     }
     if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
@@ -659,6 +692,182 @@ test("OVERLAP. sélection explicite de fulfillment (autoscroll v1.1) + facture r
   }
 });
 
+
+// ====================================================================
+// LOT EMAIL VALIDATION v1 (Claude Monet) — preuves comportementales
+// bout en bout, même patron que les tests ci-dessus.
+// ====================================================================
+
+test("EMAIL-VALIDATION-CUSTOMER. email client au format invalide bloque le checkout -- bouton d'envoi absent, réapparaît après correction, un seul create_order au total", async (t) => {
+  const createOrderCalls = mockRpcEmailRequired(t);
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const restaurant = sanaaCookiesRestaurant();
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(React.createElement(MenuView, { restaurant }));
+  await flush();
+  try {
+    const addBtn = buttonWithText(container, "Ajouter");
+    assert.ok(addBtn, "le bouton Ajouter doit être présent");
+    click(addBtn!);
+    await flush();
+    const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+    if (cartBar) { click(cartBar); await flush(); }
+    selectServiceMode(container, "À emporter");
+    await waitFor(() => inputById(container, "customer_name") !== null, "champs pickup rendus");
+
+    setNativeValue(inputById(container, "customer_name")!, "Yakout");
+    setNativeValue(inputById(container, "phone")!, "0612345678");
+    await waitFor(() => inputById(container, "email") !== null, "champ email client rendu (requis via PICKUP_REQS_WITH_EMAIL)");
+
+    // Email au format structurellement invalide (mandat, exemple exact : "emmanuel@aulaitcru").
+    setNativeValue(inputById(container, "email")!, "emmanuel@aulaitcru");
+    await flush(50);
+    await flush();
+    assert.equal(
+      buttonWithText(container, "Enregistrer et continuer sur WhatsApp"),
+      undefined,
+      "le bouton d'envoi ne doit JAMAIS apparaître tant que l'email client reste au format invalide"
+    );
+
+    // Correction -- email valide (mandat, exemple exact accepté).
+    setNativeValue(inputById(container, "email")!, "emmanuel@aulaitcru.fr");
+    await flush(50);
+    await flush();
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submitBtn, "le bouton d'envoi doit réapparaître dès que l'email client corrigé est structurellement valide");
+
+    click(submitBtn!);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue après correction");
+    assert.equal(createOrderCalls.count, 1, "un seul appel create_order, après correction uniquement -- jamais tenté tant que l'email était invalide");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+  }
+});
+
+test("EMAIL-VALIDATION-INVOICE. email de contact facture (société) au format invalide bloque l'envoi de la facture -- bouton d'envoi absent, réapparaît après correction, aucun appel fetch tenté avec la valeur invalide", async (t) => {
+  mockRpc(t);
+  let fetchCallCount = 0;
+  const fetchBodies: Array<Record<string, unknown>> = [];
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    fetchCallCount += 1;
+    fetchBodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  };
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const { container, root } = await renderFillPickupCheckInvoiceAndReachSubmit();
+  try {
+    // Bascule sur "Société" -- seul type affichant le champ email de contact.
+    const companyRadio = [...container.querySelectorAll('input[type="radio"]')]
+      .find((el) => (el as HTMLInputElement).closest("label")?.textContent?.includes("Société")) as HTMLInputElement;
+    assert.ok(companyRadio, "le bouton radio Société doit être présent");
+    toggleCheckbox(companyRadio);
+    await flush();
+    setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    await waitFor(() => inputById(container, "invoice-contact-email") !== null, "champ email de contact facture rendu (type société)");
+
+    // Email de contact au format structurellement invalide.
+    setNativeValue(inputById(container, "invoice-contact-email")!, "emmanuel@aulaitcru");
+    await flush(50);
+    await flush();
+    assert.equal(
+      buttonWithText(container, "Enregistrer et continuer sur WhatsApp"),
+      undefined,
+      "le bouton d'envoi ne doit JAMAIS apparaître tant que l'email de contact facture reste au format invalide"
+    );
+
+    // Correction -- email valide.
+    setNativeValue(inputById(container, "invoice-contact-email")!, "facturation@entreprise.com");
+    await flush(50);
+    await flush();
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submitBtn, "le bouton d'envoi doit réapparaître dès que l'email de contact facture corrigé est structurellement valide");
+
+    click(submitBtn!);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue après correction");
+    assert.equal(fetchCallCount, 1, "un seul appel fetch (facture), envoyé uniquement après correction");
+    assert.equal(fetchBodies[0].contactEmail, "facturation@entreprise.com", "la valeur envoyée doit être la valeur CORRIGÉE, jamais l'ancienne valeur invalide");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
+
+test("EMAIL-VALIDATION-RETRY. facture société avec email de contact, échec réseau PUIS correction de l'email ET reprise -- même orderId/publicToken, create_order jamais rappelé, valeur d'email CORRIGÉE envoyée sur la reprise, une seule ouverture WhatsApp", async (t) => {
+  const createOrderCalls = mockRpc(t);
+  const invoicePayloads: Array<Record<string, unknown>> = [];
+  let shouldFail = true;
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    invoicePayloads.push(body);
+    if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
+    return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  };
+  const realOpen = window.open;
+  let whatsappOpenCount = 0;
+  (window as any).open = () => { whatsappOpenCount += 1; return {}; };
+
+  const { container, root } = await renderFillPickupCheckInvoiceAndReachSubmit();
+  try {
+    const companyRadio = [...container.querySelectorAll('input[type="radio"]')]
+      .find((el) => (el as HTMLInputElement).closest("label")?.textContent?.includes("Société")) as HTMLInputElement;
+    assert.ok(companyRadio, "le bouton radio Société doit être présent");
+    toggleCheckbox(companyRadio);
+    await flush();
+    setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    await waitFor(() => inputById(container, "invoice-contact-email") !== null, "champ email de contact facture rendu");
+    // Email VALIDE côté client dès le premier envoi -- l'échec simulé
+    // ici est un échec RÉSEAU/SERVEUR (outcome "unavailable"), jamais
+    // un rejet de format (déjà couvert par EMAIL-VALIDATION-INVOICE).
+    setNativeValue(inputById(container, "invoice-contact-email")!, "old-contact@example.com");
+    await flush(50);
+    await flush();
+
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp")!;
+    assert.ok(submitBtn, "le bouton d'envoi doit être atteignable avec un email de contact valide");
+    click(submitBtn);
+    await waitFor(() => container.textContent?.includes("Réessayer la demande de facture") ?? false, "échec initial attendu (réseau/serveur, pas un rejet de format)");
+    assert.equal(createOrderCalls.count, 1, "une seule commande créée jusqu'ici");
+
+    // Correction de l'email de contact PENDANT l'attente -- toujours
+    // éditable (mandat CORRECTIF v1.4, étendu ici à l'email).
+    setNativeValue(inputById(container, "invoice-contact-email")!, "new-contact@example.com");
+    await flush();
+
+    shouldFail = false;
+    const retryBtn = buttonWithText(container, "Réessayer la demande de facture")!;
+    click(retryBtn);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue après reprise avec email corrigé");
+
+    assert.equal(invoicePayloads.length, 2, "2 appels fetch (échec initial + reprise corrigée réussie)");
+    assert.equal(invoicePayloads[0].orderId, ORDER_ID);
+    assert.equal(invoicePayloads[1].orderId, ORDER_ID, "la reprise doit réutiliser EXACTEMENT le même orderId");
+    assert.equal(invoicePayloads[1].publicToken, TOKEN, "la reprise doit réutiliser EXACTEMENT le même publicToken");
+    assert.equal(invoicePayloads[0].contactEmail, "old-contact@example.com");
+    assert.equal(invoicePayloads[1].contactEmail, "new-contact@example.com", "la reprise DOIT envoyer l'email de contact CORRIGÉ, jamais l'ancienne valeur");
+    assert.equal(createOrderCalls.count, 1, "create_order ne doit JAMAIS être rappelé, même après correction de l'email de contact pendant l'attente");
+    assert.equal(whatsappOpenCount, 1, "WhatsApp ne doit s'ouvrir qu'une seule fois -- jamais un doublon");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
 
 after(async () => {
   window.close();
