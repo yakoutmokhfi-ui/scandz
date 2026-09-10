@@ -33,6 +33,15 @@ export const INVALID_WEIGHT_VALUE_CODE = "SCANYM_INVALID_WEIGHT_VALUE";
 export const SUBCATEGORY_DUPLICATE_NAME_CODE = "SCANYM_SUBCATEGORY_DUPLICATE_NAME";
 export const SUBCATEGORY_CATEGORY_MISMATCH_CODE = "SCANYM_SUBCATEGORY_CATEGORY_MISMATCH";
 
+/** OPERATOR BACKOFFICE OB-4 v1.1 — CATALOGUE IMPORT COMMIT / IDEMPOTENCY —
+ *  même constante EXACTE que le `raise exception ...` de create_product
+ *  (voir supabase/DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql) :
+ *  index unique partiel (category_id, nom normalisé) where archived_at
+ *  is null, SQLSTATE réel 23505, jamais un code inventé -- même
+ *  mécanisme EXACT que CATEGORY_DUPLICATE_NAME_CODE/
+ *  SUBCATEGORY_DUPLICATE_NAME_CODE ci-dessus. */
+export const PRODUCT_DUPLICATE_NAME_CODE = "SCANYM_PRODUCT_DUPLICATE_NAME";
+
 export class ShortDescriptionTooLongError extends Error {
   constructor() {
     super(SHORT_DESCRIPTION_TOO_LONG_CODE);
@@ -84,6 +93,19 @@ export class SubcategoryDuplicateNameError extends Error {
   constructor() {
     super(SUBCATEGORY_DUPLICATE_NAME_CODE);
     this.name = "SubcategoryDuplicateNameError";
+  }
+}
+
+/** OPERATOR BACKOFFICE OB-4 v1.1 — doublon de nom de produit ACTIF
+ *  (restaurant + catégorie + nom normalisé, sans la sous-catégorie),
+ *  même mécanisme que CategoryDuplicateNameError/
+ *  SubcategoryDuplicateNameError (index unique partiel, SQLSTATE réel
+ *  23505, jamais un code inventé -- voir IDEMPOTENCY-EVIDENCE.md du
+ *  paquet OB-4 v1.1). */
+export class ProductDuplicateNameError extends Error {
+  constructor() {
+    super(PRODUCT_DUPLICATE_NAME_CODE);
+    this.name = "ProductDuplicateNameError";
   }
 }
 
@@ -144,6 +166,19 @@ export function isSubcategoryDuplicateNameError(
 ): boolean {
   if (!error) return false;
   return error.code === "23505" && error.message === SUBCATEGORY_DUPLICATE_NAME_CODE;
+}
+
+/**
+ * Doublon de nom de produit actif : remonte via l'index unique partiel
+ * idx_menu_items_unique_active_name (OB-4 v1.1), donc via le vrai
+ * SQLSTATE Postgres de violation d'unicité (23505) -- même patron
+ * exact que isCategoryDuplicateNameError/isSubcategoryDuplicateNameError.
+ */
+export function isProductDuplicateNameError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "23505" && error.message === PRODUCT_DUPLICATE_NAME_CODE;
 }
 
 export function isSubcategoryCategoryMismatchError(

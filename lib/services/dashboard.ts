@@ -15,6 +15,7 @@ import {
   isFiscalMeasurementValidationError,
   isSubcategoryDuplicateNameError,
   isSubcategoryCategoryMismatchError,
+  isProductDuplicateNameError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
@@ -22,6 +23,7 @@ import {
   FiscalMeasurementValidationError,
   SubcategoryDuplicateNameError,
   SubcategoryCategoryMismatchError,
+  ProductDuplicateNameError,
 } from "@/lib/services/catalogue-error";
 
 export {
@@ -31,6 +33,7 @@ export {
   CategoryDescriptionTooLongError,
   SubcategoryDuplicateNameError,
   SubcategoryCategoryMismatchError,
+  ProductDuplicateNameError,
 } from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
@@ -530,7 +533,16 @@ export async function createProduct(
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
     p_subcategory_id: subcategoryId,
   });
-  if (error) throwFiscalOrCatalogueError(error);
+  if (error) {
+    // OB-4 v1.1 -- vérifié EN PREMIER, avant le repli générique fiscal/
+    // catalogue : un doublon de nom actif (index unique partiel, voir
+    // supabase/DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql)
+    // doit remonter comme ProductDuplicateNameError, jamais une Error
+    // générique -- même patron exact que createCategory/createSubcategory
+    // ci-dessous.
+    if (isProductDuplicateNameError(error)) throw new ProductDuplicateNameError();
+    throwFiscalOrCatalogueError(error);
+  }
   return data as string;
 }
 

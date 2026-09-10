@@ -142,12 +142,29 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // RAPPORT) ajoute à son tour SON PROPRE unique fichier SQL top-level,
 // portant le compte total à 84 -- mesuré directement, aucune ligne de
 // CE lot v2 (tracking) n'a bougé.
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé) + 1 (MERCHANT LEGAL & TAX PROFILE v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2)", () => {
+//
+// REFRESH OB-4 v1.2 (onto current main post-Bulk v2.2.1) -- depuis, 6
+// lots ULTÉRIEURS et SANS RAPPORT avec CUSTOMER TRACKING EXPERIENCE v2
+// ont ajouté 10 nouveaux fichiers SQL top-level (aucun n'est un
+// fichier "tracking v2") : CUSTOMER CHECKOUT -- CLIENT / COMPANY
+// INVOICE REQUEST v1.1 (+1, compte 85), INVOICE REQUEST FOUNDATION v1
+// + ROLLBACK (+2, compte 87), INVOICE REQUEST PRODUCTION ACL
+// REMEDIATION v1 (+1, compte 88), CHECKOUT EMAIL VALIDATION v1.1 DELTA
+// + ROLLBACK (+2, compte 90), PAYMENT OPERATOR AUTHORIZATION v1 +
+// ROLLBACK (+2, compte 92), BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK (+2,
+// stream désormais CLOS, compte 94) -- mesuré directement, aucune
+// ligne de CE lot v2 (tracking) n'a bougé. OPERATOR BACKOFFICE OB-4 --
+// CATALOGUE IMPORT COMMIT / IDEMPOTENCY (également lot ULTÉRIEUR et
+// SANS RAPPORT) ajoute à son tour SON PROPRE unique fichier SQL
+// top-level (DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql),
+// portant le compte total à 95 -- mesuré directement, aucune ligne de
+// CE lot v2 (tracking) n'a bougé.
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé) + 1 (MERCHANT LEGAL & TAX PROFILE v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1) + 2 (INVOICE REQUEST FOUNDATION v1 + ROLLBACK) + 1 (INVOICE REQUEST PRODUCTION ACL REMEDIATION v1) + 2 (CHECKOUT EMAIL VALIDATION v1.1 DELTA + ROLLBACK) + 2 (PAYMENT OPERATOR AUTHORIZATION v1 + ROLLBACK) + 2 (BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK, stream désormais CLOS) + 1 (OPERATOR BACKOFFICE OB-4 -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY v1.2 -- FINAL REFRESH, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    85,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, + CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1)`
+    95,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, + CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1, + INVOICE REQUEST FOUNDATION v1 + ROLLBACK, + INVOICE REQUEST PRODUCTION ACL REMEDIATION v1, + CHECKOUT EMAIL VALIDATION v1.1 DELTA + ROLLBACK, + PAYMENT OPERATOR AUTHORIZATION v1 + ROLLBACK, + BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK (stream désormais CLOS), + OPERATOR BACKOFFICE OB-4 -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY v1.2 -- FINAL REFRESH)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);
