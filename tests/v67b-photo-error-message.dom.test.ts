@@ -135,6 +135,7 @@ export class PhotoUploadError extends Error {
 export class PhotoRemoveError extends Error {
   constructor(cause) { super("Photo remove failed"); this.cause = cause; }
 }
+export class PhotoConflictError extends Error {}
 
 export async function validateProductPhotoFile() {
   return { mime: "image/jpeg", ext: "jpg" };
@@ -145,10 +146,12 @@ export async function addOrReplaceProductPhoto() {
   if (behavior === "fail") {
     throw new PhotoUploadError(new Error("network error (simulated)"));
   }
-  return "https://example.supabase.co/storage/v1/object/public/product-photos/r1/new-product-id/x.jpg";
+  return { imageUrl: "https://example.supabase.co/storage/v1/object/public/product-photos/r1/new-product-id/x.jpg", oldImageCleanup: "not_applicable", cleanupId: null, alreadyApplied: false };
 }
 
 export async function removeProductPhoto() {}
+// BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry) -- stub jamais exercé par ce scénario, requis uniquement pour satisfaire l'import statique de page.tsx.
+export async function retryOldPhotoCleanup() { return { oldImageCleanup: "removed" }; }
 `;
 
 const MOCK_DASHBOARD_NAV = `

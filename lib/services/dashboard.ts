@@ -629,10 +629,12 @@ export async function updateSubcategory(
 
 /**
  * Modifie l'ordre d'affichage d'un produit au sein de sa catégorie
- * (V67b). RPC dédiée (même patron que setProductAvailability/
- * setProductPhoto) — owner/manager uniquement : réordonner le
- * catalogue est une décision de merchandising, pas un geste
- * opérationnel ouvert à staff.
+ * (V67b). RPC dédiée (même patron que setProductAvailability) —
+ * owner/manager uniquement : réordonner le catalogue est une décision
+ * de merchandising, pas un geste opérationnel ouvert à staff.
+ * (Ex-"même patron que setProductAvailability/setProductPhoto" —
+ * setProductPhoto a été supprimée en BULK PRODUCT PHOTOS v1.4, voir
+ * plus bas dans ce fichier.)
  */
 export async function setProductOrder(
   productId: string,
@@ -645,22 +647,16 @@ export async function setProductOrder(
   if (error) throw new Error(error.message);
 }
 
-/**
- * Photo produit (V67). `imageUrl = null` retire la photo. Ne parle
- * jamais directement à Storage — c'est le rôle exclusif de
- * lib/services/product-photo.ts, qui appelle cette fonction une fois
- * l'upload/la suppression Storage effectué(e).
- */
-export async function setProductPhoto(
-  productId: string,
-  imageUrl: string | null
-): Promise<void> {
-  const { error } = await supabase.rpc("set_product_photo", {
-    p_product_id: productId,
-    p_image_url: imageUrl,
-  });
-  if (error) throw new Error(error.message);
-}
+// setProductPhoto (V67) — SUPPRIMÉE (BULK PRODUCT PHOTOS v1.4). La RPC
+// SQL sous-jacente (set_product_photo) est elle-même supprimée par
+// DRAFT-lot-bulk-product-photos-storage-authorization-v1.sql (Cat
+// Stevens Blocker 1 : sa signature acceptait un p_image_url librement
+// choisi par l'appelant, sans jamais prouver la provenance de
+// "l'ancienne image"). Le flux photo produit passe désormais
+// exclusivement par lib/services/product-photo.ts, qui appelle la
+// route de confiance app/api/dashboard/catalogue/product-photo/route.ts
+// (lib/server/product-photo-service.ts) — ce module (dashboard.ts) n'a
+// plus aucun rôle dans ce flux (voir NON-MODIFICATION-PROOF.md).
 
 export async function archiveProduct(productId: string): Promise<void> {
   const { error } = await supabase.rpc("archive_product", {

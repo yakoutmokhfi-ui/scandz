@@ -146,10 +146,10 @@ test("supabase-admin: singleton paresseux -- deux appels dans la même instance 
   );
 });
 
-test("supabase-admin: le module N'EXPORTE JAMAIS la clé, un objet d'environnement, ni la fonction de lecture interne (mandat §9)", async () => {
+test("supabase-admin: le module N'EXPORTE JAMAIS la clé, un objet d'environnement, ni la fonction de lecture interne (mandat §9) -- v1.6 ajoute getTrustedStorageOrigin(), qui ne renvoie QUE l'origine (protocole+hôte) de NEXT_PUBLIC_SUPABASE_URL -- déjà PUBLIQUE, expédiée à chaque navigateur (voir readSupabaseUrl ci-dessus) -- jamais la clé service_role ni readServiceRoleKey", async () => {
   const mod = await freshAdminModule();
   const exportedNames = Object.keys(mod).sort();
-  assert.deepEqual(exportedNames, ["getServiceRoleSupabaseClient"]);
+  assert.deepEqual(exportedNames, ["getServiceRoleSupabaseClient", "getTrustedStorageOrigin"]);
 });
 
 test("supabase-admin: aucune sortie console (log/error/warn) ne contient le marqueur synthétique de clé, succès comme échec", async (t) => {

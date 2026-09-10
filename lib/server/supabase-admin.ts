@@ -89,3 +89,34 @@ export function getServiceRoleSupabaseClient(): SupabaseClient {
 
   return cachedClient;
 }
+
+/**
+ * BULK PRODUCT PHOTOS v1.6 — TRUSTED STORAGE ORIGIN (Cat Stevens,
+ * Blocker 1 -- ORIGINE de l'URL Storage historique jamais vérifiée).
+ *
+ * Renvoie l'origine (protocole + hôte, forme `URL.origin` --
+ * `https://<projet>.supabase.co`, JAMAIS de slash final) du projet
+ * Supabase Scanym réel, calculée EXCLUSIVEMENT à partir de la même
+ * variable serveur déjà lue par `readSupabaseUrl()` ci-dessus
+ * (`NEXT_PUBLIC_SUPABASE_URL`) -- AUCUNE duplication de validation
+ * (réutilise `readSupabaseUrl()` telle quelle, y compris son erreur
+ * `PaymentServerConfigError` si la variable est absente/vide).
+ *
+ * JAMAIS dérivée d'une valeur cliente, d'un en-tête HTTP (Origin/Host)
+ * ni d'une requête entrante -- cette fonction ne prend AUCUN
+ * paramètre. Le résultat est destiné à être transmis EXPLICITEMENT en
+ * paramètre RPC (`p_expected_origin`) à
+ * `apply_product_photo_replacement`/`retry_product_photo_cleanup_path`
+ * -- jamais à une valeur SQL calculée côté client ou dérivée d'un
+ * en-tête de requête.
+ *
+ * `new URL(url).origin` (API native, jamais un découpage de chaîne
+ * ad hoc) rejette explicitement toute valeur qui n'est pas une URL
+ * absolue valide -- une `NEXT_PUBLIC_SUPABASE_URL` malformée échoue
+ * ICI, explicitement, plutôt que de produire silencieusement une
+ * origine de confiance incorrecte.
+ */
+export function getTrustedStorageOrigin(): string {
+  const url = readSupabaseUrl();
+  return new URL(url).origin;
+}

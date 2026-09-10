@@ -208,9 +208,12 @@ export class InvalidFileTypeError extends Error {}
 export class FileTooLargeError extends Error {}
 export class PhotoUploadError extends Error {}
 export class PhotoRemoveError extends Error {}
+export class PhotoConflictError extends Error {}
 export async function validateProductPhotoFile() { return { mime: "image/jpeg", ext: "jpg" }; }
-export async function addOrReplaceProductPhoto() { return "https://example.supabase.co/x.jpg"; }
+export async function addOrReplaceProductPhoto() { return { imageUrl: "https://example.supabase.co/x.jpg", oldImageCleanup: "not_applicable", cleanupId: null, alreadyApplied: false }; }
 export async function removeProductPhoto() {}
+// BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry) -- stub jamais exercé par ce scénario, requis uniquement pour satisfaire l'import statique de page.tsx.
+export async function retryOldPhotoCleanup() { return { oldImageCleanup: "removed" }; }
 `;
 
 const mocks: Record<string, string> = {
