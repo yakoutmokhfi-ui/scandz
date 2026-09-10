@@ -30,13 +30,17 @@ import {
 import {
   addOrReplaceProductPhoto,
   removeProductPhoto,
+  retryOldPhotoCleanup,
   validateProductPhotoFile,
   InvalidFileTypeError,
   FileTooLargeError,
   PhotoUploadError,
   PhotoRemoveError,
+  type OldImageCleanupOutcome,
 } from "@/lib/services/product-photo";
 import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
+import BulkPhotoUpload from "@/components/dashboard/BulkPhotoUpload";
+import type { BulkPhotoMatchProduct } from "@/lib/services/bulk-product-photo-matching";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { formatPrice } from "@/lib/whatsapp";
 import { canEditProducts, canToggleAvailability } from "@/lib/roles";
@@ -181,6 +185,27 @@ export default function CataloguePage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry, Cat Stevens :
+  // "console-only warning is not enough") -- statut VISIBLE, retriable,
+  // par produit. `outcome === "failed"` : un `cleanupId` OPAQUE est
+  // connu (v1.7 -- REMPLACE `oldPath`), un bouton de retry
+  // (retryOldPhotoCleanup) est proposé -- ne rejoue JAMAIS
+  // addOrReplaceProductPhoto/removeProductPhoto. `outcome ===
+  // "skipped_unsafe_legacy"` : purement informationnel, aucun retry
+  // (la référence historique n'a jamais été jugée sûre -- rien de
+  // légitime à retenter).
+  const [cleanupAttention, setCleanupAttention] = useState<
+    Record<string, { cleanupId: string | null; outcome: OldImageCleanupOutcome }>
+  >({});
+  const [retryingCleanupId, setRetryingCleanupId] = useState<string | null>(null);
+
+  // BULK PRODUCT PHOTOS v1 -- panneau d'envoi groupé, fermé par
+  // défaut. N'affecte jamais `categories`/`reload()` tant qu'aucune
+  // application n'a été confirmée dans le panneau lui-même (voir
+  // BulkPhotoUpload.tsx : la prévisualisation ne fait aucune
+  // mutation).
+  const [showBulkPhoto, setShowBulkPhoto] = useState(false);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_PRODUCT_DRAFT);
   const [creatingIn, setCreatingIn] = useState<string | null>(null);
@@ -224,6 +249,43 @@ export default function CataloguePage() {
   // settings/page.tsx (canEdit = isOperator || canEditFull).
   const canEdit = isOperator || canEditProducts(mapping?.role);
   const canToggle = isOperator || canToggleAvailability(mapping?.role);
+
+  // BULK PRODUCT PHOTOS v1 -- catalogue courant mis à plat pour le
+  // module d'appariement (produits directement rattachés à une
+  // catégorie + produits de chaque sous-catégorie, même règle de
+  // regroupement que le reste de cet écran, voir CatalogueCategory /
+  // CatalogueSubcategory). Recalculé UNIQUEMENT quand `categories`
+  // change (déjà strictement scoped à `restaurantId` par
+  // getMerchantCatalogue -- reload() ci-dessus) : aucune fuite
+  // cross-tenant possible, la liste passée à BulkPhotoUpload ne
+  // contient jamais que les produits du restaurant actuellement
+  // chargé.
+  const flatProductsForBulkPhoto: BulkPhotoMatchProduct[] = useMemo(() => {
+    const flat: BulkPhotoMatchProduct[] = [];
+    for (const cat of categories) {
+      for (const p of cat.products) {
+        flat.push({
+          product_id: p.product_id,
+          name: p.name,
+          category_name: cat.category_name,
+          archived_at: p.archived_at,
+          image_url: p.image_url,
+        });
+      }
+      for (const sub of cat.subcategories) {
+        for (const p of sub.products) {
+          flat.push({
+            product_id: p.product_id,
+            name: p.name,
+            category_name: `${cat.category_name} — ${sub.subcategory_name}`,
+            archived_at: p.archived_at,
+            image_url: p.image_url,
+          });
+        }
+      }
+    }
+    return flat;
+  }, [categories]);
   const lang = staffLang as Lang;
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
@@ -419,6 +481,55 @@ export default function CataloguePage() {
   }
 
   /**
+   * BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry) -- enregistre/efface
+   * l'état VISIBLE de nettoyage pour un produit, à partir du résultat
+   * déjà renvoyé par addOrReplaceProductPhoto/removeProductPhoto
+   * (jamais une valeur reconstruite ici). Un nettoyage réussi
+   * ("removed") ou sans objet ("not_applicable") efface toute alerte
+   * précédente pour ce produit.
+   */
+  function noteCleanupOutcome(
+    productId: string,
+    outcome: OldImageCleanupOutcome,
+    cleanupId: string | null
+  ) {
+    if (outcome === "failed" || outcome === "skipped_unsafe_legacy") {
+      setCleanupAttention((prev) => ({ ...prev, [productId]: { cleanupId, outcome } }));
+    } else {
+      setCleanupAttention((prev) => {
+        if (!(productId in prev)) return prev;
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+    }
+  }
+
+  /**
+   * Retente UNIQUEMENT le nettoyage Storage de l'ancienne image --
+   * délégation à retryOldPhotoCleanup (lib/services/product-photo.ts),
+   * qui n'appelle JAMAIS addOrReplaceProductPhoto/removeProductPhoto :
+   * aucun nouvel upload, aucune écriture menu_items rejouée (BULK
+   * RETRY INVARIANT). N'est proposé QUE pour outcome === "failed" --
+   * "skipped_unsafe_legacy" n'a jamais eu de chemin légitime à
+   * retenter.
+   */
+  async function handleRetryCleanup(productId: string) {
+    const pending = cleanupAttention[productId];
+    if (!pending || pending.outcome !== "failed" || !pending.cleanupId) return;
+    setRetryingCleanupId(productId);
+    try {
+      const result = await retryOldPhotoCleanup(productId, pending.cleanupId);
+      noteCleanupOutcome(productId, result.oldImageCleanup, pending.cleanupId);
+    } catch {
+      // Échec du RETRY lui-même (réseau/serveur) -- l'alerte reste
+      // affichée EXACTEMENT comme avant, jamais effacée sur un échec.
+    } finally {
+      setRetryingCleanupId(null);
+    }
+  }
+
+  /**
    * Tentative de photo pendant la CRÉATION d'un produit (V67b).
    *
    * Appelée UNIQUEMENT après que create_product a déjà réussi (le
@@ -439,7 +550,19 @@ export default function CataloguePage() {
     file: File
   ): Promise<boolean> {
     try {
-      await addOrReplaceProductPhoto(restaurantId, productId, file, null);
+      const result = await addOrReplaceProductPhoto(restaurantId, productId, file);
+      // BULK PRODUCT PHOTOS v1.5 (Cat Stevens MEDIUM -- cleanup status
+      // désormais propagé jusqu'ici, jamais silencieusement ignoré).
+      // Le remplacement lui-même a réussi (imageUrl autoritaire déjà
+      // en DB) -- un nettoyage non garanti de l'ancienne image n'est
+      // jamais bloquant pour l'utilisateur. v1.6 (Cat Stevens MEDIUM --
+      // "console-only warning is not enough") : statut désormais
+      // VISIBLE et retriable (noteCleanupOutcome), jamais un simple
+      // console.warn (produit venant d'être créé, la seule photo
+      // "ancienne" possible est déjà connue comme inexistante en
+      // pratique ; ceci couvre le cas résiduel où ce ne serait pas le
+      // cas).
+      noteCleanupOutcome(productId, result.oldImageCleanup, result.cleanupId);
       await reload(restaurantId, showArchived);
       return false;
     } catch (photoErr) {
@@ -544,20 +667,49 @@ export default function CataloguePage() {
               t={t}
               onAddOrReplace={(file) =>
                 run(p.product_id, async () => {
-                  await addOrReplaceProductPhoto(
+                  const result = await addOrReplaceProductPhoto(
                     restaurantId,
                     p.product_id,
-                    file,
-                    p.image_url
+                    file
                   );
+                  // BULK PRODUCT PHOTOS v1.5 (Cat Stevens MEDIUM) --
+                  // même posture que tryAttachPhotoAfterCreate
+                  // ci-dessus : le remplacement a réussi, un nettoyage
+                  // non garanti de l'ancienne image n'est jamais
+                  // bloquant. v1.6 : statut VISIBLE et retriable,
+                  // jamais console-only (voir noteCleanupOutcome).
+                  noteCleanupOutcome(p.product_id, result.oldImageCleanup, result.cleanupId);
                 })
               }
               onRemove={() =>
                 run(p.product_id, async () => {
-                  await removeProductPhoto(p.product_id, p.image_url);
+                  const result = await removeProductPhoto(p.product_id);
+                  noteCleanupOutcome(p.product_id, result.oldImageCleanup, result.cleanupId);
                 })
               }
             />
+            {cleanupAttention[p.product_id] && (
+              <div
+                role="status"
+                className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"
+              >
+                <span>
+                  {cleanupAttention[p.product_id].outcome === "skipped_unsafe_legacy"
+                    ? t("mcPhotoCleanupSkipped")
+                    : t("mcPhotoCleanupAttention")}
+                </span>
+                {cleanupAttention[p.product_id].outcome === "failed" && (
+                  <button
+                    type="button"
+                    onClick={() => handleRetryCleanup(p.product_id)}
+                    disabled={retryingCleanupId === p.product_id}
+                    className="rounded-md border border-amber-400 bg-white px-2 py-1 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {retryingCleanupId === p.product_id ? t("mcPhotoCleanupRetrying") : t("mcPhotoCleanupRetry")}
+                  </button>
+                )}
+              </div>
+            )}
             <ProductForm
               labels={productLabels}
               draft={draft}
@@ -753,12 +905,40 @@ export default function CataloguePage() {
               {t("mcAddCategory")}
             </button>
           )}
+          {canEdit && !showArchived && !showBulkPhoto && (
+            <button
+              onClick={() => setShowBulkPhoto(true)}
+              className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900"
+            >
+              {t("mcBulkPhotoOpen")}
+            </button>
+          )}
         </div>
 
         {error && (
           <p className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
             {error}
           </p>
+        )}
+
+        {/* BULK PRODUCT PHOTOS v1 -- même garde canEdit/!showArchived
+            que le bouton qui l'ouvre : un rôle sans droit d'édition,
+            ou le mode "voir archives", ne peut jamais faire
+            apparaître ce panneau (défense en profondeur côté UI --
+            l'autorité réelle reste la route de confiance serveur
+            app/api/dashboard/catalogue/product-photo/route.ts (BULK
+            PRODUCT PHOTOS v1.4), appelée une fois par photo confirmée,
+            jamais modifiée par ce composant). */}
+        {canEdit && !showArchived && showBulkPhoto && (
+          <BulkPhotoUpload
+            restaurantId={restaurantId}
+            products={flatProductsForBulkPhoto}
+            t={t}
+            onApplied={() => {
+              void reload(restaurantId, showArchived);
+            }}
+            onClose={() => setShowBulkPhoto(false)}
+          />
         )}
 
         {creatingCategory && (

@@ -1,45 +1,82 @@
-import { supabase } from "@/lib/supabase";
-import { setProductPhoto } from "@/lib/services/dashboard";
+import { getSession } from "@/lib/services/auth";
+import {
+  validateProductPhotoFile,
+  detectImageType,
+  extractStoragePath,
+  MAX_FILE_SIZE_BYTES,
+  InvalidFileTypeError,
+  FileTooLargeError,
+  type OldImageCleanupOutcome,
+} from "@/lib/product-photo-contract";
+
+export type { OldImageCleanupOutcome };
 
 /**
- * Photo produit — Supabase Storage (V67).
+ * Photo produit — flux de remplacement de confiance côté serveur
+ * (BULK PRODUCT PHOTOS v1.4).
  *
- * Seul point du projet à parler au bucket "product-photos". Le nom de
- * fichier stocké n'est JAMAIS dérivé du nom fourni par l'utilisateur
- * (voir randomFileName) : élimine tout risque de collision ou de
- * chemin dangereux lié à un nom de fichier malveillant. Le type de
- * fichier n'est jamais déduit de l'extension ni seulement du
- * `file.type` annoncé par le navigateur : detectImageType lit les
- * premiers octets réels du fichier (signature binaire).
+ * AVANT v1.4 : ce module parlait DIRECTEMENT à Supabase Storage
+ * (upload) puis à la RPC `set_product_photo` -- seul point du projet à
+ * le faire. Cat Stevens (réaudit final de v1.3, 3 blockers) a
+ * démontré que cette architecture ne pouvait structurellement pas
+ * fermer la provenance de l'ancienne image (le NOUVEAU chemin restait
+ * librement choisi par ce module, donc par le client) ni garantir une
+ * suppression Storage par l'API réelle plutôt qu'une suppression de
+ * ligne storage.objects.
+ *
+ * v1.4 : ce module NE PARLE PLUS JAMAIS directement à Supabase
+ * Storage ni à aucune RPC pour ce flux. Il délègue INTÉGRALEMENT à la
+ * nouvelle route de confiance, app/api/dashboard/catalogue/
+ * product-photo/route.ts, qui authentifie l'appelant (jeton de la
+ * session courante, transmis explicitement dans l'en-tête
+ * `Authorization`), résout restaurant_id de façon autoritaire,
+ * génère le chemin final, effectue l'upload et l'écriture DB, et
+ * supprime l'ancienne image via l'API Storage réelle -- voir
+ * lib/server/product-photo-service.ts et TRUST-BOUNDARY-DESIGN.md
+ * pour le détail complet.
+ *
+ * La validation de fichier (taille, type réel par signature binaire)
+ * reste effectuée ICI AUSSI, AVANT l'envoi réseau -- confort UX
+ * (échec immédiat, pas d'aller-retour réseau pour l'erreur la plus
+ * fréquente) -- mais n'est plus jamais la validation AUTORITAIRE : la
+ * route de confiance revalide les octets réels reçus, indépendamment
+ * de ce que ce module a décidé (lib/product-photo-contract.ts,
+ * module PARTAGÉ, mêmes fonctions, jamais une seconde implémentation
+ * divergente).
+ *
+ * v2.2 (BULK PRODUCT PHOTOS -- FINAL SIMPLIFICATION, LOST HTTP
+ * RESPONSE / SUCCESSFUL REPLAY) : ANNULE ET REMPLACE le paramètre
+ * `idempotencyKey` v2.1. `addOrReplaceProductPhoto` accepte désormais
+ * un contexte Bulk optionnel (`BulkPhotoApplyContext`), transmis tel
+ * quel au serveur -- voir lib/server/product-photo-service.ts. Ce
+ * module ne génère JAMAIS lui-même de `batchId` ni ne décide JAMAIS
+ * lui-même si un appel est un retry : c'est à l'APPELANT
+ * (BulkPhotoUpload.tsx) de produire le `batchId` une seule fois par
+ * lot et de savoir si CET appel est la toute première tentative d'un
+ * fileKey ou un retry -- ce module se contente de relayer. Un retry
+ * dont le serveur détecte un CONFLICT (un autre changement de photo
+ * légitime a eu lieu entre-temps) lève `PhotoConflictError`, distincte
+ * de `PhotoUploadError`.
  */
 
-const BUCKET = "product-photos";
+const PHOTO_ROUTE = "/api/dashboard/catalogue/product-photo";
+const PHOTO_RETRY_CLEANUP_ROUTE = "/api/dashboard/catalogue/product-photo/retry-cleanup";
 
-/** Doit rester synchronisé avec `file_size_limit` dans migration-v67-product-photos.sql. */
-export const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-
-export class InvalidFileTypeError extends Error {
-  constructor() {
-    super("Invalid file type");
-    this.name = "InvalidFileTypeError";
-  }
-}
-
-export class FileTooLargeError extends Error {
-  constructor() {
-    super("File too large");
-    this.name = "FileTooLargeError";
-  }
-}
+export {
+  detectImageType,
+  validateProductPhotoFile,
+  extractStoragePath,
+  MAX_FILE_SIZE_BYTES,
+  InvalidFileTypeError,
+  FileTooLargeError,
+};
 
 /**
- * Échec d'ajout/remplacement de photo (upload Storage OU RPC
- * set_product_photo). Le message technique d'origine reste
- * disponible via `cause` (pour un log/debug), mais n'est jamais celui
- * affiché à l'utilisateur : l'appelant (dashboard) affiche un message
- * traduit générique (mcPhotoUploadError) — corrigé après audit Work
- * (M-01), qui a relevé que e.message brut (Postgres/Storage, souvent
- * en anglais technique) fuitait jusqu'à l'UI.
+ * Échec d'ajout/remplacement de photo (validation locale OU appel à
+ * la route de confiance). Le message technique d'origine reste
+ * disponible via `cause` (pour un log/debug), jamais celui affiché à
+ * l'utilisateur : l'appelant (dashboard) affiche un message traduit
+ * générique (mcPhotoUploadError).
  */
 export class PhotoUploadError extends Error {
   constructor(cause: unknown) {
@@ -48,7 +85,7 @@ export class PhotoUploadError extends Error {
   }
 }
 
-/** Même principe que PhotoUploadError, pour la suppression (RPC set_product_photo(null)). */
+/** Même principe que PhotoUploadError, pour la suppression. */
 export class PhotoRemoveError extends Error {
   constructor(cause: unknown) {
     super("Photo remove failed", { cause });
@@ -56,195 +93,286 @@ export class PhotoRemoveError extends Error {
   }
 }
 
-interface ImageSignature {
-  mime: "image/jpeg" | "image/png" | "image/webp";
-  ext: "jpg" | "png" | "webp";
-  matches: (head: Uint8Array) => boolean;
-}
-
-// Doit rester synchronisé avec `allowed_mime_types` dans
-// migration-v67-product-photos.sql.
-const SIGNATURES: ImageSignature[] = [
-  {
-    mime: "image/jpeg",
-    ext: "jpg",
-    matches: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  },
-  {
-    mime: "image/png",
-    ext: "png",
-    matches: (b) =>
-      b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-  },
-  {
-    mime: "image/webp",
-    ext: "webp",
-    // RIFF <4 octets taille> WEBP
-    matches: (b) =>
-      b[0] === 0x52 &&
-      b[1] === 0x49 &&
-      b[2] === 0x46 &&
-      b[3] === 0x46 &&
-      b[8] === 0x57 &&
-      b[9] === 0x45 &&
-      b[10] === 0x42 &&
-      b[11] === 0x50,
-  },
-];
-
 /**
- * Détecte le type d'image réel à partir des octets du fichier (pas de
- * l'extension du nom, pas seulement de `file.type`). Renvoie `null`
- * si aucune signature connue ne correspond.
+ * NOUVEAU v2.2 (BULK PRODUCT PHOTOS -- FINAL SIMPLIFICATION, SAFE
+ * RETRY). Distincte de `PhotoUploadError` : un retry Bulk a été
+ * explicitement REFUSÉ par le serveur parce que l'image actuellement
+ * autoritaire du produit n'est ni celle produite par cette opération
+ * ni celle observée avant sa toute première tentative -- un autre
+ * changement de photo légitime a eu lieu entre-temps (mandat : "do NOT
+ * overwrite it during an uncertain retry"). AUCUN upload, AUCUNE
+ * mutation n'a eu lieu côté serveur pour CET appel. Ne survient JAMAIS
+ * pour Single Photo Edit (qui ne transmet jamais de contexte Bulk) ni
+ * pour la toute première tentative d'un fileKey (voir
+ * BulkPhotoApplyContext ci-dessous).
  */
-export async function detectImageType(
-  file: Pick<File, "slice">
-): Promise<{ mime: string; ext: string } | null> {
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-  for (const sig of SIGNATURES) {
-    if (sig.matches(head)) return { mime: sig.mime, ext: sig.ext };
-  }
-  return null;
-}
-
-/**
- * Valide un fichier candidat avant tout upload : taille, puis type
- * réel (signature binaire). Lève une erreur typée précise, jamais un
- * message générique, pour que l'appelant affiche le bon texte
- * traduit.
- */
-export async function validateProductPhotoFile(
-  file: Pick<File, "slice" | "size">
-): Promise<{ mime: string; ext: string }> {
-  if (file.size > MAX_FILE_SIZE_BYTES) throw new FileTooLargeError();
-  const detected = await detectImageType(file);
-  if (!detected) throw new InvalidFileTypeError();
-  return detected;
-}
-
-/**
- * Nom de fichier de stockage : jamais dérivé de l'entrée utilisateur.
- * Un nom de fichier fourni par l'utilisateur ("../../etc", "a/b.jpg",
- * un nom déjà utilisé par un autre produit…) n'entre jamais dans le
- * chemin final.
- */
-function randomFileName(ext: string): string {
-  return `${crypto.randomUUID()}.${ext}`;
-}
-
-/**
- * Chemin de stockage déterministe et multi-tenant :
- * {restaurant_id}/{product_id}/{nom généré}. Les deux premiers
- * segments sont des UUID, jamais des slugs ni une entrée utilisateur
- * — aucune ambiguïté entre établissements, condition exploitée
- * directement par les policies storage.objects (migration-v67).
- */
-function objectPath(
-  restaurantId: string,
-  productId: string,
-  fileName: string
-): string {
-  return `${restaurantId}/${productId}/${fileName}`;
-}
-
-function publicPhotoUrl(path: string): string {
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
-}
-
-/**
- * Chemin de stockage extrait d'une URL publique du bucket
- * product-photos, ou `null` si l'URL ne vient pas de ce bucket (ex.
- * anciennes photos statiques servies depuis /public/photos, jamais
- * uploadées par ce module) : dans ce cas il n'y a rien à supprimer
- * côté Storage, ce n'est pas une erreur.
- */
-export function extractStoragePath(imageUrl: string | null): string | null {
-  if (!imageUrl) return null;
-  const marker = `/object/public/${BUCKET}/`;
-  const idx = imageUrl.indexOf(marker);
-  if (idx === -1) return null;
-  return imageUrl.slice(idx + marker.length);
-}
-
-/** Best-effort : un échec de suppression Storage ne doit jamais bloquer le flux utilisateur (fichier orphelin toléré, documenté). */
-async function deleteStorageFileBestEffort(
-  imageUrl: string | null
-): Promise<void> {
-  const path = extractStoragePath(imageUrl);
-  if (!path) return;
-  try {
-    await supabase.storage.from(BUCKET).remove([path]);
-  } catch {
-    // Volontairement ignoré : voir commentaire ci-dessus.
+export class PhotoConflictError extends Error {
+  constructor(cause?: unknown) {
+    super("Photo replace conflict", cause !== undefined ? { cause } : undefined);
+    this.name = "PhotoConflictError";
   }
 }
 
 /**
- * Ajoute ou remplace la photo d'un produit. Ordre exact des
- * opérations (documenté dans le rapport de livraison) :
- *   1. upload du nouveau fichier vers un chemin neuf (jamais un
- *      remplacement en place) ;
- *   2. mise à jour de menu_items.image_url via la RPC
- *      set_product_photo (source de vérité) ;
- *   3. si (2) échoue : suppression best-effort du fichier tout juste
- *      uploadé (pas d'orphelin créé par une tentative ratée), l'ancienne
- *      photo reste référencée, PUIS l'erreur est relancée ;
- *   4. si (2) réussit : suppression best-effort de l'ANCIENNE photo,
- *      seulement après que la DB pointe déjà vers la nouvelle — la DB
- *      ne référence jamais un fichier supprimé.
+ * NOUVEAU v2.2 -- contexte Bulk optionnel transmis à
+ * `addOrReplaceProductPhoto`. `batchId` : identifiant OPAQUE d'un lot
+ * Bulk, généré UNE SEULE FOIS par lot par l'appelant
+ * (BulkPhotoUpload.tsx), réutilisé pour CHAQUE produit du lot et pour
+ * TOUT retry.
+ *
+ * v2.2.1 (Cat Stevens, SOLE BLOCKER FIX) -- APLATI depuis l'ancienne
+ * union discriminée à deux variantes (`isRetry: false` sans champ
+ * supplémentaire, vs `isRetry: true` avec `expectedPriorImageUrl`
+ * OBLIGATOIRE). `expectedPriorImageUrl` est RETIRÉ : la décision
+ * ALREADY_APPLIED / CONFLICT est désormais prise ENTIÈREMENT côté SQL,
+ * SOUS le verrou de ligne autoritaire (voir lib/server/
+ * product-photo-service.ts, ADDENDUM v2.2.1 dans
+ * DRAFT-lot-bulk-product-photos-storage-authorization-v1.sql) --
+ * AUCUNE valeur "image attendue" fournie par ce module n'est plus
+ * nécessaire ni utilisée : seule la cible déterministe
+ * (batchId×restaurant_id×product_id, déjà résolue côté serveur) compte.
+ * Ce module se contente toujours de relayer `isRetry` tel quel -- il ne
+ * décide JAMAIS lui-même si un appel est un retry, c'est à l'appelant
+ * (BulkPhotoUpload.tsx) de le savoir (voir en-tête de fichier).
+ */
+export interface BulkPhotoApplyContext {
+  batchId: string;
+  isRetry: boolean;
+}
+
+/**
+ * Jeton d'accès de la session courante -- transmis explicitement dans
+ * l'en-tête `Authorization` de l'appel à la route de confiance,
+ * jamais lu depuis une variable d'environnement ni un secret serveur
+ * (il s'agit du jeton du NAVIGATEUR appelant lui-même). Lève une
+ * erreur typée si aucune session n'est active -- la route de confiance
+ * la refuserait de toute façon (401), mais échouer ici évite un
+ * aller-retour réseau inutile pour un cas déjà connu localement.
+ */
+async function requireAccessToken(): Promise<string> {
+  const session = await getSession();
+  if (!session?.access_token) {
+    throw new Error("No active session");
+  }
+  return session.access_token;
+}
+
+/**
+ * Résultat d'un ajout/remplacement réussi -- `oldImageCleanup`
+ * (BULK PRODUCT PHOTOS v1.5, Cat Stevens MEDIUM -- "DB SUCCESS + OLD
+ * DELETE FAILURE NOT SURFACED TO UI") est désormais PROPAGÉ jusqu'ici,
+ * jamais silencieusement ignoré comme avant v1.5 : le remplacement
+ * reste réussi quel que soit son contenu (`imageUrl` est toujours
+ * autoritaire), mais un appelant qui souhaite avertir l'utilisateur
+ * d'un nettoyage non garanti (échec Storage best-effort, ou référence
+ * historique jugée non sûre et jamais tentée -- voir
+ * FAILURE-COMPENSATION-MATRIX.md) peut désormais le faire.
+ */
+export interface AddOrReplaceProductPhotoResult {
+  imageUrl: string;
+  oldImageCleanup: OldImageCleanupOutcome;
+  /**
+   * NOUVEAU v1.7 (REMPLACE `oldPath`, v1.6). Identifiant OPAQUE (uuid),
+   * tel que renvoyé par la route de confiance (jamais une valeur
+   * inventée ici, jamais un chemin Storage) -- ce module ne reçoit et
+   * ne manipule plus JAMAIS de chemin Storage pour ce flux. N'a
+   * d'utilité que lorsque `oldImageCleanup === "failed"` -- à conserver
+   * TEL QUEL par l'appelant (état du composant) pour un éventuel retry
+   * via retryOldPhotoCleanup ; `null` sinon.
+   */
+  cleanupId: string | null;
+  /**
+   * NOUVEAU v2.2 -- `true` UNIQUEMENT quand un contexte Bulk était
+   * fourni ET que le serveur a reconnu cet appel, AVANT tout upload,
+   * comme un rejeu d'une opération déjà appliquée avec succès (réponse
+   * HTTP précédente perdue) -- ZÉRO mutation supplémentaire n'a eu
+   * lieu. Toujours `false` pour Single Photo Edit.
+   */
+  alreadyApplied: boolean;
+}
+
+/**
+ * Ajoute ou remplace la photo d'un produit. Validation locale
+ * (confort UX) puis délégation intégrale à la route de confiance --
+ * ce module ne choisit plus jamais le chemin Storage final, ne parle
+ * plus jamais à Storage lui-même, et ne transmet plus jamais de
+ * "chemin ancien" au serveur (voir en-tête de fichier).
+ *
+ * `bulk` (NOUVEAU v2.2, LOST HTTP RESPONSE / SUCCESSFUL REPLAY) --
+ * ANNULE ET REMPLACE le paramètre `idempotencyKey` v2.1. Optionnel ;
+ * omis pour Single Photo Edit (comportement byte pour byte inchangé).
+ * Voir BulkPhotoApplyContext ci-dessus et lib/server/
+ * product-photo-service.ts pour le mécanisme serveur complet. Une
+ * réponse serveur CONFLICT (409) lève `PhotoConflictError`, jamais
+ * `PhotoUploadError` -- l'appelant peut ainsi distinguer un échec réel
+ * d'un refus délibéré de retry incertain.
  */
 export async function addOrReplaceProductPhoto(
   restaurantId: string,
   productId: string,
   file: File,
-  previousImageUrl: string | null
-): Promise<string> {
-  const { mime, ext } = await validateProductPhotoFile(file);
-  const path = objectPath(restaurantId, productId, randomFileName(ext));
+  bulk?: BulkPhotoApplyContext
+): Promise<AddOrReplaceProductPhotoResult> {
+  // Validation locale (confort UX uniquement -- la route de confiance
+  // revalide les octets réels de façon autoritaire).
+  await validateProductPhotoFile(file);
+  void restaurantId; // résolu AUTORITAIREMENT côté serveur (begin_product_photo_replacement) -- jamais transmis ni fait confiance ici.
 
-  // Le MIME envoyé à Storage est celui RÉELLEMENT détecté par
-  // inspection binaire (validateProductPhotoFile), jamais file.type
-  // (annoncé par le navigateur, non fiable — c'est précisément ce que
-  // ce module refuse de faire confiance ailleurs).
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, file, { contentType: mime, upsert: false });
-  if (uploadError) throw new PhotoUploadError(uploadError);
-
-  const newUrl = publicPhotoUrl(path);
-
+  let accessToken: string;
   try {
-    await setProductPhoto(productId, newUrl);
+    accessToken = await requireAccessToken();
   } catch (e) {
-    await deleteStorageFileBestEffort(newUrl);
     throw new PhotoUploadError(e);
   }
 
-  if (previousImageUrl && previousImageUrl !== newUrl) {
-    await deleteStorageFileBestEffort(previousImageUrl);
+  const form = new FormData();
+  form.set("productId", productId);
+  form.set("file", file);
+  if (bulk) {
+    form.set("batchId", bulk.batchId);
+    // v2.2.1 -- signal `isRetry` toujours transmis tel quel (plus de
+    // discriminant imbriqué) ; aucune valeur "image attendue" n'existe
+    // plus à transmettre (voir BulkPhotoApplyContext ci-dessus).
+    form.set("isRetry", bulk.isRetry ? "1" : "0");
   }
 
-  return newUrl;
+  let response: Response;
+  try {
+    response = await fetch(PHOTO_ROUTE, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+  } catch (e) {
+    throw new PhotoUploadError(e);
+  }
+
+  if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // pas de corps JSON exploitable -- l'erreur générique suffit.
+    }
+    if (response.status === 409) {
+      throw new PhotoConflictError(body ?? { status: response.status });
+    }
+    throw new PhotoUploadError(body ?? { status: response.status });
+  }
+
+  const data = (await response.json()) as {
+    imageUrl?: string;
+    oldImageCleanup?: OldImageCleanupOutcome;
+    cleanupId?: string | null;
+    alreadyApplied?: boolean;
+  };
+  if (!data.imageUrl) {
+    throw new PhotoUploadError(new Error("Trusted route returned no imageUrl"));
+  }
+  return {
+    imageUrl: data.imageUrl,
+    oldImageCleanup: data.oldImageCleanup ?? "not_applicable",
+    cleanupId: data.cleanupId ?? null,
+    alreadyApplied: data.alreadyApplied ?? false,
+  };
 }
 
 /**
- * Supprime la photo d'un produit. Ordre exact : la DB est mise à jour
- * (image_url = null) AVANT toute suppression Storage — si la DB
- * échoue, rien n'est supprimé côté Storage et l'ancienne photo reste
- * intacte et référencée (aucun état où la DB pointerait vers un
- * fichier absent). Le menu public revient immédiatement au rendu
- * "sans photo" dès que la DB est mise à jour, indépendamment du
- * nettoyage Storage qui suit.
+ * Supprime la photo d'un produit -- délégation intégrale à la route
+ * de confiance (DELETE), qui capture et supprime l'ancienne image
+ * exactement comme pour un remplacement. `oldImageCleanup` propagé
+ * (v1.5, même raison que addOrReplaceProductPhoto ci-dessus).
  */
 export async function removeProductPhoto(
-  productId: string,
-  currentImageUrl: string | null
-): Promise<void> {
+  productId: string
+): Promise<{ oldImageCleanup: OldImageCleanupOutcome; cleanupId: string | null }> {
+  let accessToken: string;
   try {
-    await setProductPhoto(productId, null);
+    accessToken = await requireAccessToken();
   } catch (e) {
     throw new PhotoRemoveError(e);
   }
-  await deleteStorageFileBestEffort(currentImageUrl);
+
+  let response: Response;
+  try {
+    response = await fetch(PHOTO_ROUTE, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ productId }),
+    });
+  } catch (e) {
+    throw new PhotoRemoveError(e);
+  }
+
+  if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // pas de corps JSON exploitable -- l'erreur générique suffit.
+    }
+    throw new PhotoRemoveError(body ?? { status: response.status });
+  }
+
+  const data = (await response.json()) as {
+    oldImageCleanup?: OldImageCleanupOutcome;
+    cleanupId?: string | null;
+  };
+  return { oldImageCleanup: data.oldImageCleanup ?? "not_applicable", cleanupId: data.cleanupId ?? null };
+}
+
+/**
+ * v1.6 (MEDIUM cleanup retry -- Cat Stevens : "échec de nettoyage doit
+ * être ré-essayable de bout en bout SANS rejouer le remplacement
+ * complet"), SIGNATURE RÉÉCRITE v1.7 (Cat Stevens, SEUL blocker de
+ * v1.6 -- TRUST BOUNDARY). Retente UNIQUEMENT le nettoyage Storage de
+ * l'ancienne image -- délégation intégrale à la route FRÈRE dédiée
+ * (product-photo/retry-cleanup), qui n'appelle jamais
+ * replaceProductPhoto/removeProductPhoto : AUCUN nouvel upload, AUCUNE
+ * écriture menu_items rejouée. `cleanupId` (JAMAIS un chemin, JAMAIS
+ * `oldPath`) DOIT être exactement la valeur `cleanupId` déjà reçue une
+ * fois via AddOrReplaceProductPhotoResult/removeProductPhoto ci-dessus
+ * -- ce module ne construit, ne parse, ni ne transmet plus JAMAIS de
+ * chemin Storage pour ce flux.
+ */
+export async function retryOldPhotoCleanup(
+  productId: string,
+  cleanupId: string
+): Promise<{ oldImageCleanup: OldImageCleanupOutcome }> {
+  let accessToken: string;
+  try {
+    accessToken = await requireAccessToken();
+  } catch (e) {
+    throw new PhotoRemoveError(e);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(PHOTO_RETRY_CLEANUP_ROUTE, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ productId, cleanupId }),
+    });
+  } catch (e) {
+    throw new PhotoRemoveError(e);
+  }
+
+  if (!response.ok) {
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // pas de corps JSON exploitable -- l'erreur générique suffit.
+    }
+    throw new PhotoRemoveError(body ?? { status: response.status });
+  }
+
+  const data = (await response.json()) as { oldImageCleanup?: OldImageCleanupOutcome };
+  return { oldImageCleanup: data.oldImageCleanup ?? "not_applicable" };
 }

@@ -116,6 +116,21 @@ const STUART_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   // demande de facture, jamais Monetico/Stuart/un autre module server.
   "app/api/checkout/invoice-request/route.ts":
     /^@\/lib\/server\/invoice-request-service$/,
+  // BULK PRODUCT PHOTOS v1.4 -- TRUSTED SERVER-SIDE REPLACEMENT
+  // HARDENING (lot ULTÉRIEUR et SANS RAPPORT avec PAYMENT
+  // P3-A1/Stuart/invoice-request) : même mécanisme exact -- la seule
+  // route de remplacement/retrait de photo produit n'importe QUE le
+  // module de service dédié à ce flux de confiance, jamais
+  // Monetico/Stuart/invoice-request/un autre module server.
+  "app/api/dashboard/catalogue/product-photo/route.ts":
+    /^@\/lib\/server\/product-photo-service$/,
+  // BULK PRODUCT PHOTOS v1.6 -- MEDIUM cleanup retry (lot ULTÉRIEUR et
+  // SANS RAPPORT avec PAYMENT P3-A1/Stuart/invoice-request) : route
+  // FRÈRE dédiée exclusivement au retry de nettoyage Storage (AUCUN
+  // nouvel upload, AUCUNE écriture menu_items) -- même mécanisme
+  // exact, même module de service unique autorisé.
+  "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts":
+    /^@\/lib\/server\/product-photo-service$/,
 };
 const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/payments/monetico/checkout/route.ts",
@@ -327,9 +342,18 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // lecture seule, chacun authentifié par un secret dédié DISTINCT)
   // + 1 route CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST
   // v1.1 (également ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 --
-  // capture de données uniquement, aucun paiement/Stuart déclenché).
+  // capture de données uniquement, aucun paiement/Stuart déclenché)
+  // + 1 route BULK PRODUCT PHOTOS v1.4 -- TRUSTED SERVER-SIDE
+  // REPLACEMENT HARDENING (également ULTÉRIEURE et SANS RAPPORT avec
+  // PAYMENT P3-A1 -- remplacement/retrait de photo produit de
+  // confiance, aucun paiement/Stuart/suivi déclenché) + 1 route
+  // FRÈRE BULK PRODUCT PHOTOS v1.6 -- MEDIUM CLEANUP RETRY (même lot,
+  // sans rapport avec PAYMENT P3-A1 -- retry de nettoyage Storage
+  // UNIQUEMENT, aucun nouvel upload/écriture menu_items).
   assert.deepEqual(routeFiles, [
     "app/api/checkout/invoice-request/route.ts",
+    "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
+    "app/api/dashboard/catalogue/product-photo/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",

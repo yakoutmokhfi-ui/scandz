@@ -221,10 +221,36 @@ test("OB-1 v1.1 : aucune fausse appartenance restaurant_users n'est jamais cré�
   }
 });
 
-test("non-régression : DashboardNav.tsx (nav marchande) et lib/services/dashboard.ts (services marchand partagés) sont INCHANGÉS", () => {
+// CORRECTIF (BULK PRODUCT PHOTOS v1.4 -- TRUSTED SERVER-SIDE
+// REPLACEMENT HARDENING, Claude Nougaro, ENTIÈREMENT SANS RAPPORT
+// avec OB-1) : Cat Stevens (audit final v1.3, Blocker 1 --
+// provenance de l'ancienne image empoisonnable) exige la suppression
+// COMPLÈTE de la RPC `set_product_photo(uuid,text)` (jamais une
+// simple restriction cosmétique -- voir CAT-STEVENS-FINDINGS-
+// REMEDIATION.md), remplacée par `begin_/apply_
+// product_photo_replacement`. `lib/services/dashboard.ts` exportait
+// un unique wrapper fin `setProductPhoto()` appelant CETTE RPC
+// précise : la RPC disparaissant, le wrapper devient un appel mort
+// vers une fonction SQL inexistante et DOIT disparaître avec elle --
+// laissé en place, il romprait silencieusement au premier appel en
+// Production. Le changement est donc STRICTEMENT le retrait de ce
+// wrapper mort (remplacé par un commentaire explicatif) ; AUCUNE
+// autre fonction exportée par ce fichier n'est touchée (voir
+// NON-MODIFICATION-PROOF.md, section "dashboard.ts diff exact").
+// `components/dashboard/DashboardNav.tsx` (navigation marchande),
+// lui, reste STRICTEMENT INCHANGÉ par v1.4 -- la protection ci-dessous
+// n'est donc PAS affaiblie pour ce fichier.
+test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ ; lib/services/dashboard.ts (services marchand partagés) INCHANGÉ SAUF retrait du wrapper mort setProductPhoto (BULK PRODUCT PHOTOS v1.4, RPC sous-jacente supprimée par Cat Stevens Blocker 1 -- voir CAT-STEVENS-FINDINGS-REMEDIATION.md)", () => {
   const files = changedFiles();
   assert.ok(!files.includes("components/dashboard/DashboardNav.tsx"));
-  assert.ok(!files.includes("lib/services/dashboard.ts"));
+  if (files.includes("lib/services/dashboard.ts")) {
+    const src = readFileSync("lib/services/dashboard.ts", "utf8");
+    assert.ok(
+      !/export\s+(async\s+)?function\s+setProductPhoto\b/.test(src) &&
+        !/export\s+const\s+setProductPhoto\b/.test(src),
+      "lib/services/dashboard.ts modifié : setProductPhoto devrait être ENTIÈREMENT retiré (RPC supprimée, jamais réintroduit), pas seulement édité"
+    );
+  }
 });
 
 test("app/admin/establishments/new/page.tsx : seule modification = le lien additif vers le répertoire (aucune ligne métier existante supprimée)", () => {
