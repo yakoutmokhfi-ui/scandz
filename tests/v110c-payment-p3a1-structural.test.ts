@@ -303,7 +303,25 @@ test("archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMEN
   // paiement) ajoute à son tour SON PROPRE unique fichier SQL
   // top-level (DRAFT-lot-catalogue-operator-authorization-v1.sql),
   // portant le compte total à 84 -- mesuré directement.
-  assert.equal(sqlFiles.length, 85, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, désignation synthétique, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) + 1 (CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1, également sans rapport avec le paiement) attendu`);
+  //
+  // REFRESH OB-4 v1.2 (onto current main post-Bulk v2.2.1) -- depuis,
+  // CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1 (+1,
+  // sans rapport avec le paiement) porte le compte à 85 ; INVOICE
+  // REQUEST FOUNDATION v1 + son ROLLBACK (+2, sans rapport avec le
+  // paiement) porte le compte à 87 ; INVOICE REQUEST PRODUCTION ACL
+  // REMEDIATION v1 (+1, sans rapport avec le paiement) porte le compte
+  // à 88 ; CHECKOUT EMAIL VALIDATION v1.1 DELTA + son ROLLBACK (+2,
+  // sans rapport avec le paiement) porte le compte à 90 ; PAYMENT
+  // OPERATOR AUTHORIZATION v1 + son ROLLBACK (+2, sans rapport avec
+  // P3-A1 lui-même) porte le compte à 92 ; BULK PRODUCT PHOTOS v2.2.1
+  // + son ROLLBACK (+2, stream désormais CLOS, sans rapport avec le
+  // paiement) porte le compte à 94 -- mesuré directement, aucun de ces
+  // 10 nouveaux fichiers ne contient "p3a1". OPERATOR BACKOFFICE OB-4
+  // -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY (également sans rapport
+  // avec le paiement) ajoute à son tour SON PROPRE unique fichier SQL
+  // top-level (DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql),
+  // portant le compte total à 95 -- mesuré directement.
+  assert.equal(sqlFiles.length, 95, `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné, mesuré directement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1 -- Stream A, sans rapport avec le paiement) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation d'audit Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, également sans rapport avec le paiement) + 1 (MERCHANT LEGAL & TAX PROFILE v1 -- Stream A, également sans rapport avec le paiement) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, désignation synthétique, également sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également sans rapport avec le paiement) + 1 (CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1, également sans rapport avec le paiement) + 2 (INVOICE REQUEST FOUNDATION v1 + ROLLBACK, également sans rapport avec le paiement) + 1 (INVOICE REQUEST PRODUCTION ACL REMEDIATION v1, également sans rapport avec le paiement) + 2 (CHECKOUT EMAIL VALIDATION v1.1 DELTA + ROLLBACK, également sans rapport avec le paiement) + 2 (PAYMENT OPERATOR AUTHORIZATION v1 + ROLLBACK, sans rapport avec P3-A1 lui-même) + 2 (BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK, stream désormais CLOS, sans rapport avec le paiement) + 1 (OPERATOR BACKOFFICE OB-4 -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY v1.2 -- FINAL REFRESH, SON PROPRE unique fichier SQL top-level DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql, également sans rapport avec le paiement) attendu`);
   const p3a1Named = sqlFiles.filter((f) => /p3a1/i.test(f));
   assert.deepEqual(p3a1Named, []);
 });

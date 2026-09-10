@@ -1,12 +1,21 @@
 "use client";
 
 /**
- * Scanym — OPERATOR BACKOFFICE — OB-3 — CATALOGUE IMPORT.
- * Upload -> Analyse -> Preview -> Errors/Warnings -> éligibilité.
- * AUCUNE action de commit/import active dans cette page (mandat :
- * "There must be NO active import/commit action" -- le bouton
- * "Importer" reste TOUJOURS désactivé, placeholder "Import will be
- * enabled in OB-4").
+ * Scanym — OPERATOR BACKOFFICE — OB-3/OB-4 v1.1 — CATALOGUE IMPORT.
+ * Upload -> Analyse -> Preview -> Errors/Warnings -> éligibilité ->
+ * Confirmation explicite -> Résultat (mandat OB-4 v1.1 : "Preview
+ * approved -> explicit Confirm import -> server-side revalidation ->
+ * deterministic catalogue commit -> result summary. No automatic
+ * commit.").
+ *
+ * Le bouton de confirmation n'est JAMAIS actif tant qu'aucun Preview
+ * ÉLIGIBLE (ELIGIBLE ou ELIGIBLE_WITH_WARNINGS) n'a été affiché pour LE
+ * MÊME fichier -- et sa propre action ré-analyse intégralement le
+ * fichier (jamais le `report` déjà affiché) : voir lib/services/
+ * catalogue-import-commit.ts, "SERVER-SIDE REVALIDATION" -- un Preview
+ * affiché puis un catalogue qui change avant la confirmation (import
+ * concurrent, autre onglet) ne peut donc jamais produire un commit
+ * incohérent avec l'état réel au moment du clic.
  *
  * TENANT ISOLATION : le restaurant cible est TOUJOURS explicite,
  * jamais implicite -- via le paramètre d'URL `?r=<restaurant_id>`
@@ -31,7 +40,18 @@ import {
   analyzeCatalogueImportFile,
   type CatalogueImportAnalysisResult,
 } from "@/lib/services/catalogue-import";
+import {
+  commitCatalogueImport,
+  type CatalogueImportCommitResult,
+} from "@/lib/services/catalogue-import-commit";
 import type { PreviewRow } from "@/lib/catalogue-import/types";
+
+const COMMIT_ROW_OUTCOME_LABEL: Record<string, string> = {
+  CREATED: "Créé",
+  UPDATED: "Mis à jour",
+  SKIPPED: "Sans changement",
+  FAILED: "Échec",
+};
 
 const STATUS_LABEL: Record<PreviewRow["status"], string> = {
   OK: "OK",
@@ -67,6 +87,9 @@ export default function CatalogueImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<CatalogueImportAnalysisResult | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [commitResult, setCommitResult] = useState<CatalogueImportCommitResult | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -95,6 +118,8 @@ export default function CatalogueImportPage() {
     if (!file || !restaurantId) return;
     setAnalyzing(true);
     setResult(null);
+    setCommitResult(null);
+    setConfirmOpen(false);
     try {
       const analysis = await analyzeCatalogueImportFile(file, restaurantId);
       setResult(analysis);
@@ -106,6 +131,34 @@ export default function CatalogueImportPage() {
       });
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  /**
+   * Confirmation explicite (mandat OB-4 v1.1). N'utilise JAMAIS
+   * `result` (le Preview déjà affiché) pour décider quoi écrire --
+   * `commitCatalogueImport` ré-analyse intégralement `file` en interne
+   * (relecture fraîche du fichier ET du catalogue). `result` sert
+   * uniquement à AFFICHER le résumé Preview et à activer le bouton --
+   * jamais d'entrée de l'écriture elle-même.
+   */
+  async function handleConfirmCommit() {
+    if (!file || !restaurantId) return;
+    setCommitting(true);
+    setCommitResult(null);
+    try {
+      const commit = await commitCatalogueImport(file, restaurantId);
+      setCommitResult(commit);
+      setConfirmOpen(false);
+    } catch (e) {
+      setCommitResult({
+        kind: "STRUCTURAL_ERROR",
+        code: "MALFORMED_WORKBOOK",
+        message: e instanceof Error ? e.message : "Erreur inattendue pendant la confirmation d'import.",
+      });
+      setConfirmOpen(false);
+    } finally {
+      setCommitting(false);
     }
   }
 
@@ -127,8 +180,9 @@ export default function CatalogueImportPage() {
 
       <p className="mb-4 text-sm text-gray-600">
         Cette page analyse un fichier <code>catalogue.xlsx</code> (ou <code>.csv</code>) et affiche un aperçu
-        détaillé, ligne par ligne — <strong>aucune modification n&rsquo;est appliquée au catalogue</strong>. La
-        confirmation d&rsquo;import est un lot séparé (OB-4), pas encore disponible.
+        détaillé, ligne par ligne — <strong>aucune modification n&rsquo;est appliquée au catalogue tant que
+        l&rsquo;import n&rsquo;est pas explicitement confirmé</strong>. La confirmation relit systématiquement
+        l&rsquo;état réel du catalogue au moment du clic, jamais l&rsquo;aperçu affiché.
       </p>
 
       <div className="mb-6 rounded-lg border border-gray-200 p-4">
@@ -167,7 +221,12 @@ export default function CatalogueImportPage() {
           <input
             type="file"
             accept=".xlsx,.csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setResult(null);
+              setCommitResult(null);
+              setConfirmOpen(false);
+            }}
             className="block w-full text-sm"
           />
         </div>
@@ -183,13 +242,112 @@ export default function CatalogueImportPage() {
 
         <button
           type="button"
-          disabled
-          title="Import will be enabled in OB-4"
-          className="ml-3 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-400 cursor-not-allowed"
+          disabled={
+            !file ||
+            !restaurantId ||
+            result?.kind !== "OK" ||
+            result.report.eligibility === "NOT_ELIGIBLE" ||
+            committing
+          }
+          title={
+            result?.kind === "OK" && result.report.eligibility === "NOT_ELIGIBLE"
+              ? "Le fichier contient des lignes bloquées — corrigez-les puis ré-analysez avant de confirmer."
+              : undefined
+          }
+          onClick={() => setConfirmOpen(true)}
+          className="ml-3 rounded border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 disabled:cursor-not-allowed disabled:border-gray-300 disabled:text-gray-400"
         >
-          Importer (activé dans OB-4)
+          Confirmer l&rsquo;import
         </button>
       </div>
+
+      {confirmOpen && result?.kind === "OK" && (
+        <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm">
+          <p className="mb-2 font-medium text-blue-900">Confirmer cet import ?</p>
+          <p className="mb-3 text-blue-800">
+            {result.report.rows.filter((r) => r.plannedAction === "CREATE").length} produit(s) créé(s),{" "}
+            {result.report.rows.filter((r) => r.plannedAction === "UPDATE").length} mis à jour,{" "}
+            {result.report.rows.filter((r) => r.plannedAction === "SKIP").length} sans changement.
+            {result.report.eligibility === "ELIGIBLE_WITH_WARNINGS" &&
+              " Le fichier contient des avertissements (non bloquants) — vérifiez le détail des lignes ci-dessous avant de continuer."}{" "}
+            L&rsquo;état réel du catalogue sera relu au moment de la confirmation : si un import concurrent a
+            entre-temps modifié le catalogue, le résultat reflétera cet état réel, jamais cet aperçu figé.
+          </p>
+          <button
+            type="button"
+            disabled={committing}
+            onClick={handleConfirmCommit}
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+          >
+            {committing ? "Import en cours…" : "Oui, importer maintenant"}
+          </button>
+          <button
+            type="button"
+            disabled={committing}
+            onClick={() => setConfirmOpen(false)}
+            className="ml-3 rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+
+      {commitResult?.kind === "STRUCTURAL_ERROR" && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+          <p className="font-medium">Import impossible ({commitResult.code})</p>
+          <p>{commitResult.message}</p>
+        </div>
+      )}
+
+      {commitResult?.kind === "NOT_ELIGIBLE" && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-medium">Import refusé — le catalogue a changé depuis l&rsquo;aperçu</p>
+          <p>
+            La relecture fraîche effectuée au moment de la confirmation a trouvé {commitResult.report.blockedRows}{" "}
+            ligne(s) désormais bloquée(s) (ex. un import concurrent a créé une catégorie ambiguë entre-temps).
+            Ré-analysez le fichier pour voir l&rsquo;état à jour avant de confirmer à nouveau.
+          </p>
+        </div>
+      )}
+
+      {commitResult?.kind === "COMMITTED" && (
+        <div className="mb-6 rounded-lg border border-green-300 bg-green-50 p-4 text-sm text-green-900">
+          <p className="mb-2 font-medium">Import terminé — {commitResult.fileName}</p>
+          <p className="mb-2">
+            {commitResult.categoriesCreated} catégorie(s) créée(s) · {commitResult.subcategoriesCreated} sous-catégorie(s)
+            créée(s) · {commitResult.productsCreated} produit(s) créé(s) · {commitResult.productsUpdated} mis à jour ·{" "}
+            {commitResult.productsSkipped} sans changement
+            {commitResult.productsFailed > 0 && (
+              <span className="font-semibold text-red-700"> · {commitResult.productsFailed} ligne(s) en échec</span>
+            )}
+            .
+          </p>
+          {commitResult.productsFailed > 0 && (
+            <div className="mt-2 overflow-x-auto rounded border border-red-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-red-50 text-left uppercase text-red-700">
+                  <tr>
+                    <th className="p-2">Ligne</th>
+                    <th className="p-2">Résultat</th>
+                    <th className="p-2">Détail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commitResult.rows
+                    .filter((r) => r.outcome === "FAILED")
+                    .map((r) => (
+                      <tr key={r.row} className="border-t border-red-100 align-top">
+                        <td className="p-2">{r.row}</td>
+                        <td className="p-2">{COMMIT_ROW_OUTCOME_LABEL[r.outcome]}</td>
+                        <td className="p-2">{r.errorMessage ?? "—"}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {result?.kind === "STRUCTURAL_ERROR" && (
         <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800">
