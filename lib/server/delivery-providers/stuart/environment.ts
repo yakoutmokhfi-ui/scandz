@@ -63,3 +63,20 @@ export function resolveStuartEnvironment(): { environment: StuartEnvironment; ba
   }
   return { environment: raw, baseUrl: OFFICIAL_BASE_URLS[raw] };
 }
+
+/**
+ * STUART LOT A — QUOTE / VALIDATE / ETA / SCHEDULING FOUNDATION v1.
+ *
+ * Fonction PURE additive (aucune lecture de `process.env` -- à la
+ * différence de `resolveStuartEnvironment()` ci-dessus) -- dérive
+ * l'URL de base OFFICIELLE à partir d'un `StuartEnvironment` DÉJÀ
+ * résolu par ailleurs (pour LOT A : `delivery_provider_configs.mode`,
+ * jamais `STUART_ENV`). Réutilise `OFFICIAL_BASE_URLS`, SEULE source
+ * de vérité pour les deux URLs -- jamais dupliquées ailleurs dans le
+ * dépôt. N'altère AUCUN comportement existant de
+ * `resolveStuartEnvironment()` -- ajout pur, aucun export existant
+ * modifié.
+ */
+export function resolveStuartBaseUrlForEnvironment(environment: StuartEnvironment): string {
+  return OFFICIAL_BASE_URLS[environment];
+}

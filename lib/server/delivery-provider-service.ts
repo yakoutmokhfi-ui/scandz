@@ -10,9 +10,12 @@ import {
  * LOT A-0 — MERCHANT STUART CREDENTIAL FOUNDATION v1.
  *
  * Couche serveur de confiance pour `public.delivery_provider_configs`
- * et ses trois RPC SECURITY DEFINER (`set_/clear_/get_
- * delivery_provider_credentials`, `supabase/DRAFT-lot-stuart-merchant-
- * credential-foundation-v1.sql`). Domaine PARALLÈLE et SÉPARÉ de
+ * et ses RPC SECURITY DEFINER : les trois de LOT A-0 (`set_/clear_/
+ * get_delivery_provider_credentials`, `supabase/DRAFT-lot-stuart-
+ * merchant-credential-foundation-v1.sql`, INCHANGÉES par ce lot) plus
+ * `get_delivery_provider_config_status` (STUART LOT A, ADDITIVE,
+ * `supabase/DRAFT-lot-stuart-quote-validate-foundation-v1.sql`).
+ * Domaine PARALLÈLE et SÉPARÉ de
  * `lib/server/payment-service.ts` (décision CIO/CTO explicite du
  * mandat LOT A-0) — ce fichier n'importe rien de `payment-service.ts`
  * et n'appelle aucune RPC `*_payment_provider_*`.
@@ -222,4 +225,81 @@ export async function getDeliveryProviderCredential(
   }
 
   return data;
+}
+
+// ------------------------------------------------------------------
+// STUART LOT A — get_delivery_provider_config_status(p_restaurant_id
+//   uuid, p_provider_code text) returns table (config_id, provider_code,
+//   mode, configuration_status)
+//
+// Fonction SQL ADDITIVE (supabase/DRAFT-lot-stuart-quote-validate-
+// foundation-v1.sql) -- ne modifie AUCUNE des trois RPC LOT A-0
+// ci-dessus, ni leur contrat, ni leurs GRANT/REVOKE. Ajoutée pour
+// fermer le A-0 LOW finding (mode authoritative UNIQUEMENT depuis
+// delivery_provider_configs.mode, jamais depuis le payload credential
+// -- voir lib/server/delivery-providers/stuart/credentials.ts) : cette
+// fonction est le SEUL moyen serveur de lire le mode AUTORITATIF sans
+// toucher Vault ni le secret.
+// ------------------------------------------------------------------
+
+export interface GetDeliveryProviderConfigStatusInput {
+  restaurantId: string;
+  providerCode: string;
+}
+
+export interface DeliveryProviderConfigStatus {
+  configId: string;
+  providerCode: string;
+  mode: string;
+  configurationStatus: string;
+}
+
+/**
+ * Lit les MÉTADONNÉES de configuration (mode, configuration_status)
+ * pour un restaurant/provider donné -- JAMAIS le secret, JAMAIS
+ * credentials_ref, ne touche JAMAIS Vault (cette fonction est
+ * structurellement incapable d'exposer un secret, quel que soit
+ * l'appelant). Lève systématiquement (jamais de valeur par défaut) si
+ * aucune configuration n'existe -- c'est au SEUL appelant
+ * (`credential-resolver.ts`) de décider comment traduire cette absence
+ * pour son propre domaine.
+ */
+export async function getDeliveryProviderConfigStatus(
+  input: GetDeliveryProviderConfigStatusInput
+): Promise<DeliveryProviderConfigStatus> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: unknown;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("get_delivery_provider_config_status", {
+      p_restaurant_id: input.restaurantId,
+      p_provider_code: input.providerCode,
+    }));
+  } catch {
+    throw new DeliveryProviderServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("get_delivery_provider_config_status", error.code);
+    throw new DeliveryProviderServerRpcError("get_delivery_provider_config_status", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : null;
+  if (
+    !row ||
+    typeof row !== "object" ||
+    typeof (row as Record<string, unknown>).config_id !== "string"
+  ) {
+    logRpcFailure("get_delivery_provider_config_status", "EMPTY_RESULT");
+    throw new DeliveryProviderServerRpcError("get_delivery_provider_config_status", null);
+  }
+
+  const r = row as Record<string, unknown>;
+  return {
+    configId: String(r.config_id),
+    providerCode: String(r.provider_code),
+    mode: String(r.mode),
+    configurationStatus: String(r.configuration_status),
+  };
 }
