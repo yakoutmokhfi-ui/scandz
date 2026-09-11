@@ -66,21 +66,25 @@ export default function DeliveryPricingPage() {
   // que app/dashboard/settings/page.tsx (F-01) : un opérateur Scanym
   // consultant un établissement hors de ses propres rattachements
   // restaurant_users doit voir le restaurant CIBLÉ (?r=<id>), jamais
-  // un repli silencieux vers son propre rattachement. `canEdit` reste
-  // délibérément INCHANGÉ (owner/manager uniquement, ci-dessous) :
-  // contrairement au catalogue, les RPC sous-jacentes de ce module
-  // (get_merchant_delivery_fulfillment_pricing en LECTURE,
-  // update_merchant_delivery_fulfillment_pricing en ÉCRITURE) sont
-  // encore is_member_of()/has_role_in(['owner','manager']) UNIQUEMENT
-  // aujourd'hui, sans aucun bypass is_scanym_operator() côté SQL --
-  // proposer un bouton "Modifier" à un opérateur ici échouerait donc
-  // TOUJOURS côté serveur (42501) : ce lot ne l'active pas (voir
-  // OPERATOR-CONTEXT-CONTRACT.md, "OPERATOR CONTEXT SQL REQUIRED").
-  // isOperator sert ici UNIQUEMENT à la résolution du restaurant
-  // affiché (fail closed, jamais Sanaa) -- un opérateur verra
-  // désormais le BON restaurant ciblé, avec l'échec de LECTURE déjà
-  // existant (pageError générique, voir plus bas) tant que ce lot SQL
-  // séparé n'aura pas ajouté le bypass.
+  // un repli silencieux vers son propre rattachement.
+  //
+  // DELIVERY PRICING OPERATOR AUTHORIZATION v1.1 (CIO GO) : les RPC
+  // sous-jacentes de ce module (get_merchant_delivery_fulfillment_pricing
+  // en LECTURE, update_merchant_delivery_fulfillment_pricing en
+  // ÉCRITURE) acceptent désormais aussi is_scanym_operator() à côté de
+  // is_member_of()/has_role_in(['owner','manager']) (contrat marchand
+  // inchangé, voir DRAFT-lot-delivery-pricing-operator-authorization-
+  // v1.sql). `canEdit` ci-dessous reflète ce delta minimal : un
+  // opérateur authentique, ciblant un établissement HORS de ses
+  // propres rattachements restaurant_users (`!mapping`), obtient
+  // désormais l'édition pour l'établissement déjà résolu par le
+  // contexte opérateur (F-01, ?r=<id> fait foi) -- le comportement
+  // marchand (owner/manager) reste STRICTEMENT inchangé, aucun rôle
+  // staff/non-marchand n'obtient l'édition par ce delta, et un
+  // opérateur qui a AUSSI un rattachement restaurant_users explicite
+  // sur cet établissement (mapping non nul) continue de suivre
+  // exactement la règle marchande de ce mapping (jamais de double
+  // chemin, jamais de contournement du rôle marchand réel).
   const [isOperator, setIsOperator] = useState(false);
   const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>("fr");
@@ -92,7 +96,24 @@ export default function DeliveryPricingPage() {
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
 
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
-  const canEdit = mapping?.role === "owner" || mapping?.role === "manager";
+  // DELIVERY PRICING OPERATOR AUTHORIZATION v1.2 (audit Cat Woman —
+  // remédiation ciblée). v1.1 limitait le bypass opérateur au cas
+  // `isOperator && !mapping`, ce qui refusait à tort l'édition à un
+  // opérateur authentique possédant AUSSI un rattachement
+  // restaurant_users de rôle "staff" sur l'établissement ciblé --
+  // alors que l'autorisation SQL (is_scanym_operator(), indépendante
+  // de toute adhésion marchande) l'autorise déjà sans condition. La
+  // logique frontend reflète maintenant exactement ce contrat SQL :
+  // un opérateur Scanym authentique (isOperator) peut TOUJOURS éditer
+  // l'établissement déjà résolu par le contexte opérateur ci-dessus,
+  // quel que soit son éventuel rôle marchand sur cet établissement
+  // (aucun mapping, ou mapping staff/manager/owner) -- owner/manager
+  // non-opérateur gardent exactement le même accès qu'avant, staff
+  // non-opérateur reste refusé (contrat marchand inchangé).
+  const canEdit =
+    isOperator ||
+    mapping?.role === "owner" ||
+    mapping?.role === "manager";
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
@@ -140,15 +161,18 @@ export default function DeliveryPricingPage() {
           // OPERATOR DASHBOARD CONTEXT v1 : même correction F-01 que
           // settings/page.tsx et dashboard/catalogue/page.tsx. Le lien
           // ?r=<id> fait foi côté affichage uniquement -- la protection
-          // réelle reste côté RPC. Ici get_merchant_delivery_fulfillment_pricing
-          // et update_merchant_delivery_fulfillment_pricing n'ont PAS de
-          // bypass is_scanym_operator() (contrairement au catalogue) : un
-          // opérateur ciblant un établissement hors de ses propres
-          // rattachements verra donc l'ID restaurant correctement retenu
-          // ici, mais recevra une erreur explicite et sûre du RPC lors du
-          // chargement des tarifs (fail-closed), jamais les tarifs d'un
-          // autre restaurant. JAMAIS de repli sur next[0] ici : vérifié
-          // AVANT le test `next.length === 0` ci-dessous.
+          // réelle reste côté RPC. Depuis DELIVERY PRICING OPERATOR
+          // AUTHORIZATION v1.1, get_merchant_delivery_fulfillment_pricing
+          // et update_merchant_delivery_fulfillment_pricing acceptent
+          // aussi is_scanym_operator() à côté de la condition marchande
+          // existante (préservée à l'identique) : un opérateur ciblant
+          // un établissement hors de ses propres rattachements verra
+          // donc l'ID restaurant correctement retenu ici ET pourra
+          // désormais lire/modifier les tarifs de CET établissement
+          // (fail-closed pour tout autre restaurant_id que le RPC
+          // résoudrait, jamais les tarifs d'un autre restaurant).
+          // JAMAIS de repli sur next[0] ici : vérifié AVANT le test
+          // `next.length === 0` ci-dessous.
           setRestaurantId(wanted);
           try {
             const summary = await getEstablishmentSummary(wanted);
