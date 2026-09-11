@@ -51,15 +51,20 @@ const { createRoot } = await import("react-dom/client");
 const REPO_ROOT = process.cwd();
 
 // ---- Scenario fixtures --------------------------------------------
-// r1 = merchant's OWN restaurant (they have a restaurant_users row)
-// r2 = another establishment the merchant has no relationship with
-const MAPPINGS_FOR_MERCHANT_R1 = [
-  { restaurant_id: "r1", restaurants: { name: "Au Lait Cru" } },
+// v1.2: the establishment source is now listOperatorEstablishments()
+// (Admin/Operator directory, RLS is_scanym_operator(), NOT
+// restaurant_users membership) -- r1/r2 below stand in for that
+// directory's rows. For every merchant/anon/stranger scenario in this
+// file the directory is never even reached (the operator gate
+// redirects first), so the same fixture is reused everywhere.
+const DIRECTORY_R1_R2 = [
+  { restaurantId: "r1", name: "Au Lait Cru", slug: "au-lait-cru", country: "FR", status: "active" },
+  { restaurantId: "r2", name: "Sanaa Cookies & Fondant", slug: "sanaa-cookies-fondant", country: "FR", status: "active" },
 ];
 
 (globalThis as any).__mockUser = { id: "user-1" };
 (globalThis as any).__mockIsOperator = false;
-(globalThis as any).__mockMappings = [] as any[];
+(globalThis as any).__mockEstablishments = [] as any[];
 (globalThis as any).__mockReplaceCalls = [] as string[];
 (globalThis as any).__mockAnalyzeCalls = [] as Array<{ restaurantId: string }>;
 (globalThis as any).__mockCommitCalls = [] as Array<{ restaurantId: string }>;
@@ -120,11 +125,9 @@ const MOCK_ESTABLISHMENTS = `
 export async function isScanymOperator() { return (globalThis).__mockIsOperator; }
 `;
 
-const MOCK_DASHBOARD = `
-export async function getMerchantRestaurants() {
-  const m = (globalThis).__mockMappings;
-  if (!m || m.length === 0) { throw new Error("no restaurant_users row"); }
-  return m;
+const MOCK_OPERATOR_DIRECTORY = `
+export async function listOperatorEstablishments() {
+  return (globalThis).__mockEstablishments ?? [];
 }
 `;
 
@@ -146,7 +149,7 @@ const mocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
-  "@/lib/services/dashboard": MOCK_DASHBOARD,
+  "@/lib/services/operator-directory": MOCK_OPERATOR_DIRECTORY,
   "@/lib/services/catalogue-import": MOCK_CATALOGUE_IMPORT,
   "@/lib/services/catalogue-import-commit": MOCK_CATALOGUE_IMPORT_COMMIT,
 };
@@ -219,11 +222,11 @@ async function waitFor(check: () => boolean, timeoutMs = 1500, intervalMs = 25):
 function resetMocks(opts: {
   user: { id: string } | null;
   isOperator: boolean;
-  mappings?: any[];
+  establishments?: any[];
 }) {
   (globalThis as any).__mockUser = opts.user;
   (globalThis as any).__mockIsOperator = opts.isOperator;
-  (globalThis as any).__mockMappings = opts.mappings ?? [];
+  (globalThis as any).__mockEstablishments = opts.establishments ?? DIRECTORY_R1_R2;
   (globalThis as any).__mockReplaceCalls = [];
   (globalThis as any).__mockAnalyzeCalls = [];
   (globalThis as any).__mockCommitCalls = [];
@@ -300,7 +303,7 @@ test("v1.1 AUTHZ : le contexte restaurant (?r=r1) est correctement propagé jusq
 // ====================================================================
 
 test("v1.1 AUTHZ : marchand, URL directe SANS ?r= -> DENIED (redirection /dashboard, aucune UI d'import)", async () => {
-  resetMocks({ user: { id: "merchant-1" }, isOperator: false, mappings: MAPPINGS_FOR_MERCHANT_R1 });
+  resetMocks({ user: { id: "merchant-1" }, isOperator: false, establishments: DIRECTORY_R1_R2 });
   window.history.pushState({}, "", "/dashboard/catalogue-import");
   const { container, root } = render();
   await waitFor(() => (globalThis as any).__mockReplaceCalls.length > 0);
@@ -314,7 +317,7 @@ test("v1.1 AUTHZ : marchand, URL directe SANS ?r= -> DENIED (redirection /dashbo
 });
 
 test("v1.1 AUTHZ : marchand, URL directe avec ?r=<son PROPRE restaurant> -> DENIED (pas de contournement via restaurant en propre)", async () => {
-  resetMocks({ user: { id: "merchant-1" }, isOperator: false, mappings: MAPPINGS_FOR_MERCHANT_R1 });
+  resetMocks({ user: { id: "merchant-1" }, isOperator: false, establishments: DIRECTORY_R1_R2 });
   window.history.pushState({}, "", "/dashboard/catalogue-import?r=r1");
   const { container, root } = render();
   await waitFor(() => (globalThis as any).__mockReplaceCalls.length > 0);
@@ -333,7 +336,7 @@ test("v1.1 AUTHZ : marchand, URL directe avec ?r=<son PROPRE restaurant> -> DENI
 });
 
 test("v1.1 AUTHZ : marchand, URL directe avec ?r=<un AUTRE restaurant> -> DENIED", async () => {
-  resetMocks({ user: { id: "merchant-1" }, isOperator: false, mappings: MAPPINGS_FOR_MERCHANT_R1 });
+  resetMocks({ user: { id: "merchant-1" }, isOperator: false, establishments: DIRECTORY_R1_R2 });
   window.history.pushState({}, "", "/dashboard/catalogue-import?r=r2");
   const { container, root } = render();
   await waitFor(() => (globalThis as any).__mockReplaceCalls.length > 0);
@@ -370,7 +373,7 @@ test("v1.1 AUTHZ : anonyme (aucune session) -> DENIED (redirection /dashboard/lo
 // ====================================================================
 
 test("v1.1 AUTHZ : utilisateur authentifié SANS lien avec un établissement (ni opérateur, ni restaurant_users) -> DENIED", async () => {
-  resetMocks({ user: { id: "stranger-1" }, isOperator: false, mappings: [] });
+  resetMocks({ user: { id: "stranger-1" }, isOperator: false, establishments: [] });
   window.history.pushState({}, "", "/dashboard/catalogue-import?r=r1");
   const { container, root } = render();
   await waitFor(() => (globalThis as any).__mockReplaceCalls.length > 0);

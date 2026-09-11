@@ -22,13 +22,42 @@
  * (même convention que app/dashboard/catalogue, seul point d'entrée
  * déjà utilisé par un opérateur Scanym aujourd'hui -- voir
  * FINDINGS.md, "Constat UI role gating"), ou via le sélecteur
- * ci-dessous quand le compte courant a au moins un restaurant en
- * propre (`getMerchantRestaurants`, qui ne liste QUE les restaurants
- * où l'utilisateur a une ligne restaurant_users -- un opérateur sans
- * ligne restaurant_users, cas normal, doit donc obligatoirement
- * arriver via `?r=`). Tant qu'aucun restaurant n'est résolu,
- * l'analyse reste bloquée : "Preview must operate only on the
- * explicitly selected restaurant."
+ * ci-dessous. Tant qu'aucun restaurant n'est résolu, l'analyse reste
+ * bloquée : "Preview must operate only on the explicitly selected
+ * restaurant."
+ *
+ * CONTEXTE ÉTABLISSEMENT SÉLECTIONNÉ (v1.2, remédiation ciblée) --
+ * BUG DE PRODUCTION CONSTATÉ ET CORRIGÉ : avant v1.2, ce fichier
+ * résolvait correctement `restaurantId` depuis `?r=` MAIS peuplait le
+ * SÉLECTEUR affiché depuis `getMerchantRestaurants()` (autorité
+ * MARCHAND, restaurant_users) -- une source sans rapport avec `?r=`.
+ * Quand le compte opérateur utilisé possédait par ailleurs une ligne
+ * restaurant_users pour un AUTRE établissement que celui du cockpit
+ * (ex. "Sanaa Cookies & Fondant" alors que le cockpit affichait "Au
+ * lait cru"), le `<select value={restaurantId}>` ne trouvait aucune
+ * `<option>` correspondant à `restaurantId` (l'établissement du
+ * cockpit n'étant pas dans la liste "mes restaurants" de ce compte) --
+ * le navigateur affichait alors silencieusement la première (et
+ * seule) option réelle du menu, soit un établissement DIFFÉRENT de
+ * celui explicitement sélectionné dans le cockpit. Root cause vérifié
+ * indépendamment (jamais supposé), voir le paquet livré.
+ *
+ * CORRECTIF : le sélecteur utilise désormais EXCLUSIVEMENT la source
+ * Admin/Opérateur déjà publiée et déjà auditée,
+ * `listOperatorEstablishments()` (lib/services/operator-directory.ts,
+ * OB-1 -- policy RLS "lecture operateur restaurants",
+ * `is_scanym_operator()`, AUCUNE ligne restaurant_users requise,
+ * AUCUNE nouvelle RPC/policy). `getMerchantRestaurants()` n'est plus
+ * appelé du tout par cette page -- l'appartenance restaurant_users
+ * marchande n'est plus jamais une autorité pour ce qui s'affiche ou se
+ * présélectionne ici. `?r=` reste TOUJOURS la valeur par défaut
+ * (jamais silencieusement remplacée par l'ordre du tableau, le
+ * premier établissement, ou une appartenance restaurant_users) ; en
+ * son absence, aucune présélection automatique n'a lieu -- l'Admin
+ * choisit explicitement. Changer d'établissement via le sélecteur
+ * invalide immédiatement tout Preview/résultat de commit déjà affiché
+ * (voir handlers ci-dessous) : jamais de confirmation sur un aperçu
+ * généré pour un autre établissement.
  *
  * AUTORISATION -- ADMIN ONLY (v1.1, remédiation ciblée) : l'import
  * de catalogue en masse est une règle métier ADMIN ONLY, distincte de
@@ -65,14 +94,57 @@
  * masse, réservé à is_scanym_operator()) nécessiterait un changement
  * SQL -- explicitement hors périmètre de ce lot (voir STOP-REPORT
  * dans le paquet livré).
+ *
+ * RACE ASYNCHRONE PREVIEW (v1.3, remédiation ciblée) -- INVARIANT
+ * CRITIQUE : ÉTABLISSEMENT AFFICHÉ = CIBLE PREVIEW = CIBLE COMMIT.
+ * `analyzeCatalogueImportFile`/`commitCatalogueImport` sont
+ * asynchrones ; sans protection, une réponse Preview obsolète (partie
+ * pour l'établissement A, résolue APRÈS que l'Admin a basculé vers B)
+ * pouvait écraser `result` avec l'aperçu de A alors que `restaurantId`
+ * valait déjà B -- gouvernant ainsi l'éligibilité de confirmation avec
+ * un Preview pour un établissement différent de la cible réelle du
+ * Commit. Root cause vérifié (audit Catimini) : `setResult(analysis)`
+ * dans la continuation `await` de `handleAnalyze` s'exécutait
+ * inconditionnellement, sans revérifier que le contexte (établissement
+ * ET fichier) n'avait pas changé entre le lancement de l'analyse et sa
+ * résolution.
+ *
+ * CORRECTIF -- jeton de génération de requête (`analyzeTokenRef`,
+ * `useRef<number>`), incrémenté à CHAQUE événement qui invalide un
+ * Preview en vol : nouveau clic Analyser, changement d'établissement,
+ * changement de fichier. `handleAnalyze` capture le jeton courant
+ * (`myToken`) ET le `restaurantId` cible AVANT l'appel asynchrone ; à
+ * la résolution (succès ou erreur), la réponse n'est acceptée QUE si
+ * `analyzeTokenRef.current === myToken` -- toute réponse dont le jeton
+ * ne correspond plus au dernier événement de contexte est silencieusement
+ * ignorée (jamais affichée, jamais éligible au commit). Ce mécanisme
+ * couvre à la fois : (a) bascule d'établissement pendant un Preview en
+ * vol, (b) changement de fichier pendant un Preview en vol, et (c)
+ * deux clics Analyser qui se chevauchent (le plus récent gagne
+ * toujours, même si l'ancien se résout après -- classique "latest
+ * request wins", pas de complexité supplémentaire type AbortController
+ * puisqu'aucune primitive d'annulation réseau n'existe déjà sur le
+ * chemin `analyzeCatalogueImportFile`/`commitCatalogueImport`, mandat
+ * "Do not introduce unnecessary complexity").
+ *
+ * SEUIL EXPLICITE SUPPLÉMENTAIRE (défense en profondeur, pas
+ * seulement un nettoyage visuel) : `previewRestaurantId` mémorise
+ * l'établissement pour lequel le Preview actuellement affiché a
+ * réellement été généré. `handleConfirmCommit` refuse explicitement de
+ * committer si `previewRestaurantId !== restaurantId` -- un garde-fou
+ * indépendant du jeton, vérifiable par lecture directe du code,
+ * jamais une simple absence-de-`result`. La revalidation serveur déjà
+ * en place côté OB-4 (relecture complète du fichier ET du catalogue à
+ * la confirmation, jamais le `report` déjà affiché) reste inchangée et
+ * s'exécute toujours en plus de ce garde-fou côté page.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import { isScanymOperator } from "@/lib/services/establishments";
-import { getMerchantRestaurants } from "@/lib/services/dashboard";
-import type { MerchantRestaurant } from "@/lib/dashboard-types";
+import { listOperatorEstablishments } from "@/lib/services/operator-directory";
+import type { OperatorEstablishmentListItem } from "@/lib/operator-cockpit";
 import {
   analyzeCatalogueImportFile,
   type CatalogueImportAnalysisResult,
@@ -121,14 +193,29 @@ export default function CatalogueImportPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [restaurantId, setRestaurantId] = useState("");
-  const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
+  const [establishments, setEstablishments] = useState<OperatorEstablishmentListItem[]>([]);
+  const [establishmentsError, setEstablishmentsError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<CatalogueImportAnalysisResult | null>(null);
+  // v1.3 -- établissement pour lequel `result` a RÉELLEMENT été généré
+  // (capturé au lancement de l'analyse, jamais déduit de `restaurantId`
+  // courant). Garde-fou explicite pour l'invariant "établissement
+  // affiché = cible Preview = cible Commit", voir l'en-tête de ce
+  // fichier.
+  const [previewRestaurantId, setPreviewRestaurantId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [commitResult, setCommitResult] = useState<CatalogueImportCommitResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // v1.3 -- jeton de génération de requête Analyser : incrémenté à
+  // chaque événement qui invalide un Preview en vol (nouveau clic
+  // Analyser, changement d'établissement, changement de fichier). Une
+  // réponse asynchrone dont le jeton capturé ne correspond plus à
+  // `analyzeTokenRef.current` à sa résolution est silencieusement
+  // ignorée -- jamais affichée, jamais éligible au commit. Voir
+  // l'en-tête de ce fichier ("RACE ASYNCHRONE PREVIEW").
+  const analyzeTokenRef = useRef(0);
 
   useEffect(() => {
     (async () => {
@@ -138,11 +225,11 @@ export default function CatalogueImportPage() {
         return;
       }
       // ADMIN ONLY (v1.1) -- voir l'en-tête de ce fichier. Aucune
-      // résolution de restaurant, aucun chargement de
-      // getMerchantRestaurants(), tant que l'opérateur n'est pas
-      // confirmé : un marchand authentifié (avec ou sans restaurant
-      // en propre) est redirigé ici, avant que quoi que ce soit lié à
-      // l'import ne soit résolu ou rendu.
+      // résolution de restaurant, aucun chargement du répertoire des
+      // établissements, tant que l'opérateur n'est pas confirmé : un
+      // marchand authentifié (avec ou sans restaurant en propre) est
+      // redirigé ici, avant que quoi que ce soit lié à l'import ne
+      // soit résolu ou rendu.
       const ok = await isScanymOperator();
       setAuthorized(ok);
       setAuthChecked(true);
@@ -150,39 +237,110 @@ export default function CatalogueImportPage() {
         router.replace("/dashboard");
         return;
       }
+      // v1.2 -- `?r=` est TOUJOURS la valeur par défaut, posée AVANT
+      // le chargement de la liste des établissements et JAMAIS
+      // réécrite ensuite par cette liste (ordre du tableau, premier
+      // élément, ou toute autre heuristique) : voir l'en-tête de ce
+      // fichier pour le bug de Production corrigé par ce lot. En
+      // l'absence de `?r=`, `restaurantId` reste vide -- l'Admin
+      // choisit explicitement, aucune présélection automatique.
       const wanted = new URLSearchParams(window.location.search).get("r");
       if (wanted) setRestaurantId(wanted);
       try {
-        const next = await getMerchantRestaurants();
-        setMappings(next);
-        if (!wanted && next.length > 0) setRestaurantId(next[0].restaurant_id);
+        const list = await listOperatorEstablishments();
+        setEstablishments(list);
       } catch {
-        // Un opérateur sans aucune ligne restaurant_users obtient une
-        // liste vide ici (comportement attendu, pas une erreur) --
-        // seul `?r=` lui permet de continuer, voir en-tête de fichier.
+        // Échec de chargement du répertoire Admin/Opérateur : `?r=`
+        // (s'il est présent) reste utilisable pour Analyser/Confirmer,
+        // mais aucun changement d'établissement explicite n'est
+        // proposé tant que la liste n'a pas pu être chargée.
+        setEstablishmentsError(true);
       } finally {
         setLoading(false);
       }
     })();
   }, [router]);
 
+  /**
+   * v1.2 -- changer d'établissement (sélection explicite de l'Admin)
+   * invalide immédiatement tout Preview/résultat de commit déjà
+   * affiché : jamais de confirmation sur un aperçu généré pour un
+   * autre établissement (règle mandatée, voir en-tête de fichier).
+   * Même réinitialisation que le changement de fichier ci-dessous.
+   *
+   * v1.3 -- incrémente AUSSI `analyzeTokenRef` : une analyse déjà en
+   * vol pour l'ANCIEN établissement, même si aucun nouveau clic
+   * Analyser n'a encore eu lieu, doit être invalidée immédiatement
+   * (race asynchrone Preview, voir en-tête de fichier) -- pas
+   * seulement le nettoyage visuel de `result`/`commitResult` ci-dessus.
+   * Réinitialise aussi `analyzing` : la requête en vol (le cas
+   * échéant) vient d'être invalidée par le changement de jeton --
+   * son `finally` ne réinitialisera plus jamais `analyzing` lui-même
+   * (jeton devenu obsolète), donc sans cette ligne le bouton
+   * "Analyser" resterait bloqué indéfiniment sur "Analyse en cours…"
+   * au lieu de permettre immédiatement une nouvelle Analyse pour le
+   * nouvel établissement.
+   */
+  function handleRestaurantChange(nextRestaurantId: string) {
+    analyzeTokenRef.current += 1;
+    setRestaurantId(nextRestaurantId);
+    setResult(null);
+    setPreviewRestaurantId(null);
+    setCommitResult(null);
+    setConfirmOpen(false);
+    setAnalyzing(false);
+  }
+
+  /**
+   * v1.3 -- même raisonnement que `handleRestaurantChange` ci-dessus,
+   * appliqué au fichier sélectionné : un Preview en vol pour l'ANCIEN
+   * fichier doit être invalidé dès que le fichier change, avant même
+   * qu'un nouveau clic Analyser n'ait lieu. Réinitialise aussi
+   * `analyzing` pour la même raison (voir commentaire ci-dessus).
+   */
+  function handleFileChange(nextFile: File | null) {
+    analyzeTokenRef.current += 1;
+    setFile(nextFile);
+    setResult(null);
+    setPreviewRestaurantId(null);
+    setCommitResult(null);
+    setConfirmOpen(false);
+    setAnalyzing(false);
+  }
+
+  /**
+   * RACE ASYNCHRONE PREVIEW (v1.3) -- voir l'en-tête de ce fichier.
+   * `analysisRestaurantId` et `myToken` sont capturés AVANT l'appel
+   * asynchrone ; à la résolution (succès ou erreur), la réponse n'est
+   * acceptée QUE si `analyzeTokenRef.current === myToken`, c'est-à-dire
+   * si aucun événement invalidant (nouveau clic Analyser, changement
+   * d'établissement, changement de fichier) n'a eu lieu entre-temps.
+   * Toute réponse obsolète est silencieusement ignorée -- jamais
+   * affichée, jamais éligible au commit ("latest request wins").
+   */
   async function handleAnalyze() {
     if (!file || !restaurantId) return;
+    const myToken = (analyzeTokenRef.current += 1);
+    const analysisRestaurantId = restaurantId;
     setAnalyzing(true);
     setResult(null);
+    setPreviewRestaurantId(null);
     setCommitResult(null);
     setConfirmOpen(false);
     try {
-      const analysis = await analyzeCatalogueImportFile(file, restaurantId);
+      const analysis = await analyzeCatalogueImportFile(file, analysisRestaurantId);
+      if (analyzeTokenRef.current !== myToken) return; // réponse obsolète, ignorée
       setResult(analysis);
+      setPreviewRestaurantId(analysisRestaurantId);
     } catch (e) {
+      if (analyzeTokenRef.current !== myToken) return; // réponse obsolète, ignorée
       setResult({
         kind: "STRUCTURAL_ERROR",
         code: "MALFORMED_WORKBOOK",
         message: e instanceof Error ? e.message : "Erreur inattendue pendant l'analyse.",
       });
     } finally {
-      setAnalyzing(false);
+      if (analyzeTokenRef.current === myToken) setAnalyzing(false);
     }
   }
 
@@ -193,9 +351,17 @@ export default function CatalogueImportPage() {
    * (relecture fraîche du fichier ET du catalogue). `result` sert
    * uniquement à AFFICHER le résumé Preview et à activer le bouton --
    * jamais d'entrée de l'écriture elle-même.
+   *
+   * v1.3 -- garde-fou explicite supplémentaire (défense en profondeur,
+   * pas seulement l'état désactivé du bouton) : le commit est refusé
+   * si `previewRestaurantId` (l'établissement pour lequel le Preview
+   * affiché a réellement été généré) ne correspond plus exactement à
+   * `restaurantId` (l'établissement actuellement sélectionné). La
+   * revalidation serveur OB-4 ci-dessous reste inchangée et s'exécute
+   * toujours en plus de ce garde-fou.
    */
   async function handleConfirmCommit() {
-    if (!file || !restaurantId) return;
+    if (!file || !restaurantId || result?.kind !== "OK" || previewRestaurantId !== restaurantId) return;
     setCommitting(true);
     setCommitResult(null);
     try {
@@ -252,31 +418,39 @@ export default function CatalogueImportPage() {
 
       <div className="mb-6 rounded-lg border border-gray-200 p-4">
         <div className="mb-3">
-          <label className="mb-1 block text-sm font-medium text-gray-700">Restaurant</label>
-          {mappings.length > 0 ? (
-            <select
-              className="w-full rounded border border-gray-300 p-2 text-sm"
-              value={restaurantId}
-              onChange={(e) => setRestaurantId(e.target.value)}
-            >
-              {mappings.map((m) => (
-                <option key={m.restaurant_id} value={m.restaurant_id}>
-                  {m.restaurants?.name ?? m.restaurant_id}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              className="w-full rounded border border-gray-300 p-2 text-sm"
-              placeholder="Identifiant du restaurant (paramètre ?r= de l'URL)"
-              value={restaurantId}
-              onChange={(e) => setRestaurantId(e.target.value)}
-            />
-          )}
-          {mappings.length === 0 && (
-            <p className="mt-1 text-xs text-gray-500">
-              Aucun restaurant en propre trouvé pour ce compte — accès opérateur : indiquez l&rsquo;identifiant du
-              restaurant explicitement, ou ouvrez cette page avec <code>?r=&lt;restaurant_id&gt;</code>.
+          <label className="mb-1 block text-sm font-medium text-gray-700">Établissement</label>
+          <select
+            className="w-full rounded border border-gray-300 p-2 text-sm"
+            value={restaurantId}
+            onChange={(e) => handleRestaurantChange(e.target.value)}
+          >
+            <option value="">— Sélectionner un établissement —</option>
+            {restaurantId && !establishments.some((e) => e.restaurantId === restaurantId) && (
+              // `?r=` (ou une sélection précédente) ne correspond à
+              // aucun établissement du répertoire Admin/Opérateur
+              // chargé -- affiché explicitement plutôt que de laisser
+              // le navigateur retomber silencieusement sur le premier
+              // élément réel de la liste (c'est exactement le bug de
+              // Production corrigé par ce lot).
+              <option value={restaurantId}>Établissement inconnu ({restaurantId})</option>
+            )}
+            {establishments.map((e) => (
+              <option key={e.restaurantId} value={e.restaurantId}>
+                {e.name} ({e.slug})
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-sm font-semibold text-gray-800">
+            Établissement sélectionné :{" "}
+            {restaurantId
+              ? (establishments.find((e) => e.restaurantId === restaurantId)?.name ??
+                `établissement inconnu (${restaurantId})`)
+              : "aucun"}
+          </p>
+          {establishmentsError && (
+            <p className="mt-1 text-xs text-red-600">
+              Impossible de charger le répertoire des établissements — le changement explicite d&rsquo;établissement
+              est indisponible pour le moment ; l&rsquo;établissement fourni via <code>?r=</code> reste utilisable.
             </p>
           )}
         </div>
@@ -286,12 +460,7 @@ export default function CatalogueImportPage() {
           <input
             type="file"
             accept=".xlsx,.csv"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setResult(null);
-              setCommitResult(null);
-              setConfirmOpen(false);
-            }}
+            onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
             className="block w-full text-sm"
           />
         </div>
@@ -312,6 +481,14 @@ export default function CatalogueImportPage() {
             !restaurantId ||
             result?.kind !== "OK" ||
             result.report.eligibility === "NOT_ELIGIBLE" ||
+            // v1.3 -- garde-fou explicite : jamais actif si le Preview
+            // affiché ne cible pas l'établissement ACTUELLEMENT
+            // sélectionné (voir en-tête de fichier, "RACE ASYNCHRONE
+            // PREVIEW"). En pratique déjà garanti par le nettoyage de
+            // `result`/`previewRestaurantId` sur tout changement de
+            // contexte, mais vérifié ici indépendamment plutôt que de
+            // se reposer uniquement sur cette absence de valeur.
+            previewRestaurantId !== restaurantId ||
             committing
           }
           title={
