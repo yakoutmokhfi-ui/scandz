@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 
 // ====================================================================
 // Scanym — LOT A-0 — MERCHANT STUART CREDENTIAL FOUNDATION v1.
+// ÉDITÉ PAR STUART LOT A (QUOTE / VALIDATE / ETA / SCHEDULING
+// FOUNDATION v1) — fermeture du A-0 LOW finding (mode authoritative
+// UNIQUEMENT depuis delivery_provider_configs.mode, jamais depuis le
+// payload credential) : le parseur n'accepte plus `mode`, le résolveur
+// résout désormais en DEUX appels RPC séquentiels (config-status PUIS
+// credential), et `getDeliveryProviderConfigStatus` (nouvelle
+// enveloppe RPC, STUART LOT A) est testée ici avec le même patron que
+// les trois enveloppes LOT A-0 déjà présentes dans ce fichier.
 //
 // Couche APPLICATIVE (Node/TS) de ce lot : le parseur/sérialiseur
 // strict `lib/server/delivery-providers/stuart/credentials.ts`
@@ -12,19 +20,19 @@ import assert from "node:assert/strict";
 // (traduction d'erreur RPC -> StuartMerchantCredentialMissingError, et
 // preuve structurelle d'absence de repli sur les variables globales
 // Sandbox), et `lib/server/delivery-provider-service.ts` (enveloppes
-// RPC set_/clear_/get_delivery_provider_credentials — patron :
+// RPC set_/clear_/get_delivery_provider_credentials +
+// get_delivery_provider_config_status — patron :
 // tests/v110b-payment-p3a1-service.test.ts, même `t.mock.method(client,
 // "rpc", ...)` sur le client réel partagé plutôt qu'un mock de
 // createClient).
 //
-// La preuve SQL des 17 scénarios de sécurité/isolation multi-tenant
+// La preuve SQL des scénarios de sécurité/isolation multi-tenant
 // mandatés est couverte séparément par
 // supabase/tests/stuart-merchant-credential-foundation-v1-check.sh
-// (30 PASS / 0 FAIL) — ce fichier ne duplique pas cette preuve, il
-// couvre la couche applicative qui n'existe pas côté SQL : le
-// parsing/la validation stricte du payload JSON, la traduction
-// d'erreur du résolveur, et le contrat exact des enveloppes RPC
-// (arguments envoyés, absence de fuite du secret).
+// (LOT A-0, 30 PASS / 0 FAIL) et
+// supabase/tests/stuart-quote-validate-foundation-v1-check.sh (STUART
+// LOT A) — ce fichier ne duplique pas cette preuve, il couvre la
+// couche applicative qui n'existe pas côté SQL.
 // ====================================================================
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
@@ -41,6 +49,7 @@ const {
   setDeliveryProviderCredentials,
   clearDeliveryProviderCredentials,
   getDeliveryProviderCredential,
+  getDeliveryProviderConfigStatus,
 } = await import("../lib/server/delivery-provider-service.ts");
 const { DeliveryProviderServerRpcError, DeliveryProviderServerUnavailableError, StuartMerchantCredentialMissingError } =
   await import("../lib/server/delivery-provider-errors.ts");
@@ -55,19 +64,24 @@ const VALID_CLIENT_SECRET = "lota0-synth-client-secret-0123456789";
 // parseStuartMerchantCredential / serializeStuartMerchantCredential
 // --------------------------------------------------------------
 
-test("parseStuartMerchantCredential: charge JSON valide (sans mode) analysée correctement", () => {
+test("parseStuartMerchantCredential: charge JSON valide analysée correctement", () => {
   const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
   const parsed = parseStuartMerchantCredential(raw);
-  assert.equal(parsed.clientId, VALID_CLIENT_ID);
-  assert.equal(parsed.clientSecret, VALID_CLIENT_SECRET);
-  assert.equal(parsed.mode, undefined);
+  assert.deepEqual(parsed, { clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
 });
 
-test("parseStuartMerchantCredential: charge JSON valide avec mode explicite acceptée", () => {
-  for (const mode of ["sandbox", "production"] as const) {
+test("parseStuartMerchantCredential: STUART LOT A -- `mode` REJETÉ de façon déterministe (fermeture du A-0 LOW finding, même voie que tout champ inattendu)", () => {
+  for (const mode of ["sandbox", "production", "live", "anything"]) {
     const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET, mode });
-    const parsed = parseStuartMerchantCredential(raw);
-    assert.equal(parsed.mode, mode);
+    assert.throws(
+      () => parseStuartMerchantCredential(raw),
+      (err: unknown) => {
+        assert.ok(err instanceof StuartCredentialError);
+        assert.equal((err as Error).message, "STUART_CREDENTIAL_UNEXPECTED_FIELD");
+        return true;
+      },
+      `mode="${mode}" aurait dû être rejeté comme champ inattendu`
+    );
   }
 });
 
@@ -78,11 +92,6 @@ test("parseStuartMerchantCredential: clientId manquant rejeté", () => {
 
 test("parseStuartMerchantCredential: clientSecret manquant rejeté", () => {
   const raw = JSON.stringify({ clientId: VALID_CLIENT_ID });
-  assert.throws(() => parseStuartMerchantCredential(raw), StuartCredentialError);
-});
-
-test("parseStuartMerchantCredential: mode invalide (ni sandbox ni production) rejeté", () => {
-  const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET, mode: "live" });
   assert.throws(() => parseStuartMerchantCredential(raw), StuartCredentialError);
 });
 
@@ -141,21 +150,17 @@ test("parseStuartMerchantCredential: aucun secret n'apparaît jamais dans un mes
   }
 });
 
-test("serializeStuartMerchantCredential: round-trip exact (avec et sans mode)", () => {
-  const withMode = { clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET, mode: "production" as const };
-  const roundTripped = parseStuartMerchantCredential(serializeStuartMerchantCredential(withMode));
-  assert.deepEqual(roundTripped, withMode);
-
-  const withoutMode = { clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET };
-  const roundTripped2 = parseStuartMerchantCredential(serializeStuartMerchantCredential(withoutMode));
-  assert.deepEqual(roundTripped2, withoutMode);
+test("serializeStuartMerchantCredential: round-trip exact, ne porte plus jamais `mode`", () => {
+  const payload = { clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET };
+  const roundTripped = parseStuartMerchantCredential(serializeStuartMerchantCredential(payload));
+  assert.deepEqual(roundTripped, payload);
 });
 
-test("serializeStuartMerchantCredential: ne produit JAMAIS de champ hors ALLOWED_KEYS", () => {
+test("serializeStuartMerchantCredential: ne produit JAMAIS de champ hors ALLOWED_KEYS (mode exclu, STUART LOT A)", () => {
   const out = JSON.parse(
-    serializeStuartMerchantCredential({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET, mode: "sandbox" })
+    serializeStuartMerchantCredential({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET })
   );
-  assert.deepEqual(Object.keys(out).sort(), ["clientId", "clientSecret", "mode"]);
+  assert.deepEqual(Object.keys(out).sort(), ["clientId", "clientSecret"]);
 });
 
 // --------------------------------------------------------------
@@ -375,45 +380,189 @@ test("getDeliveryProviderCredential: résultat vide/non-chaîne -> DeliveryProvi
 });
 
 // --------------------------------------------------------------
-// credential-resolver.ts : getStuartCredentialForRestaurant
+// STUART LOT A — delivery-provider-service.ts :
+// get_delivery_provider_config_status
 // --------------------------------------------------------------
 
-test("getStuartCredentialForRestaurant: succès -> combine restaurantId + payload analysé", async (t) => {
-  const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET, mode: "sandbox" });
-  t.mock.method(client, "rpc", async () => ({ data: raw, error: null }));
+test("getDeliveryProviderConfigStatus: appelle EXACTEMENT get_delivery_provider_config_status avec p_restaurant_id/p_provider_code, rien d'autre", async (t) => {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  t.mock.method(client, "rpc", async (name: string, args: unknown) => {
+    calls.push({ name, args });
+    return {
+      data: [{ config_id: "cfg-20", provider_code: "stuart", mode: "sandbox", configuration_status: "configured" }],
+      error: null,
+    };
+  });
 
-  const result = await getStuartCredentialForRestaurant("r-11");
+  await getDeliveryProviderConfigStatus({ restaurantId: "r-20", providerCode: "stuart" });
+
+  assert.equal(calls[0]!.name, "get_delivery_provider_config_status");
+  const args = calls[0]!.args as Record<string, unknown>;
+  assert.deepEqual(Object.keys(args).sort(), ["p_provider_code", "p_restaurant_id"]);
+  assert.equal(args.p_restaurant_id, "r-20");
+  assert.equal(args.p_provider_code, "stuart");
+});
+
+test("getDeliveryProviderConfigStatus: mapping succès -> métadonnées exactes, AUCUN champ secret/credentials_ref dans le résultat", async (t) => {
+  t.mock.method(client, "rpc", async () => ({
+    data: [{ config_id: "cfg-21", provider_code: "stuart", mode: "production", configuration_status: "verified" }],
+    error: null,
+  }));
+
+  const result = await getDeliveryProviderConfigStatus({ restaurantId: "r-21", providerCode: "stuart" });
   assert.deepEqual(result, {
-    restaurantId: "r-11",
+    configId: "cfg-21",
+    providerCode: "stuart",
+    mode: "production",
+    configurationStatus: "verified",
+  });
+  assert.deepEqual(Object.keys(result).sort(), ["configId", "configurationStatus", "mode", "providerCode"]);
+});
+
+test("getDeliveryProviderConfigStatus: erreur RPC P0002 (configuration introuvable) -> DeliveryProviderServerRpcError, sqlstate préservé", async (t) => {
+  t.mock.method(client, "rpc", async () => ({
+    data: null,
+    error: { code: "P0002", message: "configuration introuvable", details: null, hint: null },
+  }));
+  await assert.rejects(
+    () => getDeliveryProviderConfigStatus({ restaurantId: "r-22", providerCode: "stuart" }),
+    (err: unknown) => {
+      assert.ok(err instanceof DeliveryProviderServerRpcError);
+      assert.equal(err.sqlstate, "P0002");
+      return true;
+    }
+  );
+});
+
+test("getDeliveryProviderConfigStatus: la RPC lève (indisponibilité réseau/transport) -> DeliveryProviderServerUnavailableError", async (t) => {
+  t.mock.method(client, "rpc", async () => {
+    throw new Error("fetch failed");
+  });
+  await assert.rejects(
+    () => getDeliveryProviderConfigStatus({ restaurantId: "r-23", providerCode: "stuart" }),
+    DeliveryProviderServerUnavailableError
+  );
+});
+
+// --------------------------------------------------------------
+// credential-resolver.ts : getStuartCredentialForRestaurant
+// (STUART LOT A : résolution en DEUX étapes -- config-status PUIS
+// credential -- mode AUTORITATIF exclusivement depuis l'étape 1)
+// --------------------------------------------------------------
+
+function mockTwoStepRpc(
+  t: { mock: { method: (obj: unknown, name: string, fn: unknown) => void } },
+  configStatusResponse: { data: unknown; error: unknown },
+  credentialResponse: { data: unknown; error: unknown }
+): Array<{ name: string; args: unknown }> {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  t.mock.method(client, "rpc", async (name: string, args: unknown) => {
+    calls.push({ name, args });
+    if (name === "get_delivery_provider_config_status") return configStatusResponse;
+    if (name === "get_delivery_provider_credential") return credentialResponse;
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+  return calls;
+}
+
+test("getStuartCredentialForRestaurant: succès -> appelle get_delivery_provider_config_status PUIS get_delivery_provider_credential, dans cet ordre, chacun scopé au même restaurant/provider", async (t) => {
+  const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+  const calls = mockTwoStepRpc(
+    t,
+    { data: [{ config_id: "cfg-30", provider_code: "stuart", mode: "sandbox", configuration_status: "configured" }], error: null },
+    { data: raw, error: null }
+  );
+
+  const result = await getStuartCredentialForRestaurant("r-30");
+
+  assert.deepEqual(result, {
+    restaurantId: "r-30",
     clientId: VALID_CLIENT_ID,
     clientSecret: VALID_CLIENT_SECRET,
     mode: "sandbox",
   });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]!.name, "get_delivery_provider_config_status");
+  assert.equal(calls[1]!.name, "get_delivery_provider_credential");
+  for (const call of calls) {
+    const args = call.args as Record<string, unknown>;
+    assert.equal(args.p_restaurant_id, "r-30");
+    assert.equal(args.p_provider_code, "stuart");
+  }
 });
 
-test("getStuartCredentialForRestaurant: erreur RPC P0002 (configuration introuvable) -> StuartMerchantCredentialMissingError, jamais une valeur par défaut", async (t) => {
-  t.mock.method(client, "rpc", async () => ({
-    data: null,
-    error: { code: "P0002", message: "config introuvable", details: null, hint: null },
-  }));
-  await assert.rejects(() => getStuartCredentialForRestaurant("r-12"), StuartMerchantCredentialMissingError);
+test("getStuartCredentialForRestaurant: STUART LOT A -- mode AUTORITATIF provient EXCLUSIVEMENT de get_delivery_provider_config_status (étape 1), jamais du payload credential -- aucune divergence possible", async (t) => {
+  // Le payload credential (étape 2) ne PEUT structurellement plus
+  // porter `mode` (parser STUART LOT A) -- ce test le confirme d'un
+  // point de vue résolveur : même si la config déclare "production",
+  // le résultat porte "production", jamais une valeur qui aurait pu
+  // être lue ailleurs.
+  const raw = JSON.stringify({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+  mockTwoStepRpc(
+    t,
+    { data: [{ config_id: "cfg-31", provider_code: "stuart", mode: "production", configuration_status: "verified" }], error: null },
+    { data: raw, error: null }
+  );
+
+  const result = await getStuartCredentialForRestaurant("r-31");
+  assert.equal(result.mode, "production");
 });
 
-test("getStuartCredentialForRestaurant: erreur RPC 42501 (non éligible / not_configured) -> StuartMerchantCredentialMissingError également", async (t) => {
-  t.mock.method(client, "rpc", async () => ({
-    data: null,
-    error: { code: "42501", message: "insufficient_privilege", details: null, hint: null },
-  }));
-  await assert.rejects(() => getStuartCredentialForRestaurant("r-13"), StuartMerchantCredentialMissingError);
+test("getStuartCredentialForRestaurant: mode invalide retourné par get_delivery_provider_config_status -> StuartMerchantCredentialMissingError (défense en profondeur), AUCUN appel à get_delivery_provider_credential", async (t) => {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  t.mock.method(client, "rpc", async (name: string, args: unknown) => {
+    calls.push({ name, args });
+    if (name === "get_delivery_provider_config_status") {
+      return { data: [{ config_id: "cfg-32", provider_code: "stuart", mode: "not-a-real-mode", configuration_status: "configured" }], error: null };
+    }
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+
+  await assert.rejects(() => getStuartCredentialForRestaurant("r-32"), StuartMerchantCredentialMissingError);
+  assert.equal(calls.length, 1, "get_delivery_provider_credential ne doit jamais être appelée si le mode est invalide");
 });
 
-test("getStuartCredentialForRestaurant: toute AUTRE erreur RPC (panne infrastructure) est propagée TELLE QUELLE, jamais masquée en StuartMerchantCredentialMissingError", async (t) => {
-  t.mock.method(client, "rpc", async () => ({
-    data: null,
-    error: { code: "53300", message: "too many connections", details: null, hint: null },
-  }));
+test("getStuartCredentialForRestaurant: erreur RPC P0002 sur get_delivery_provider_config_status (configuration introuvable) -> StuartMerchantCredentialMissingError, AUCUN appel à get_delivery_provider_credential", async (t) => {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  t.mock.method(client, "rpc", async (name: string, args: unknown) => {
+    calls.push({ name, args });
+    if (name === "get_delivery_provider_config_status") {
+      return { data: null, error: { code: "P0002", message: "configuration introuvable", details: null, hint: null } };
+    }
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+
+  await assert.rejects(() => getStuartCredentialForRestaurant("r-33"), StuartMerchantCredentialMissingError);
+  assert.equal(calls.length, 1);
+});
+
+test("getStuartCredentialForRestaurant: erreur RPC P0002 sur get_delivery_provider_credential (étape 2) -> StuartMerchantCredentialMissingError, jamais une valeur par défaut", async (t) => {
+  mockTwoStepRpc(
+    t,
+    { data: [{ config_id: "cfg-34", provider_code: "stuart", mode: "sandbox", configuration_status: "configured" }], error: null },
+    { data: null, error: { code: "P0002", message: "config introuvable", details: null, hint: null } }
+  );
+  await assert.rejects(() => getStuartCredentialForRestaurant("r-34"), StuartMerchantCredentialMissingError);
+});
+
+test("getStuartCredentialForRestaurant: erreur RPC 42501 sur get_delivery_provider_credential (étape 2, non éligible / not_configured) -> StuartMerchantCredentialMissingError également", async (t) => {
+  mockTwoStepRpc(
+    t,
+    { data: [{ config_id: "cfg-35", provider_code: "stuart", mode: "sandbox", configuration_status: "not_configured" }], error: null },
+    { data: null, error: { code: "42501", message: "insufficient_privilege", details: null, hint: null } }
+  );
+  await assert.rejects(() => getStuartCredentialForRestaurant("r-35"), StuartMerchantCredentialMissingError);
+});
+
+test("getStuartCredentialForRestaurant: toute AUTRE erreur RPC (panne infrastructure) sur l'une ou l'autre étape est propagée TELLE QUELLE, jamais masquée en StuartMerchantCredentialMissingError", async (t) => {
+  t.mock.method(client, "rpc", async (name: string) => {
+    if (name === "get_delivery_provider_config_status") {
+      return { data: null, error: { code: "53300", message: "too many connections", details: null, hint: null } };
+    }
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
   await assert.rejects(
-    () => getStuartCredentialForRestaurant("r-14"),
+    () => getStuartCredentialForRestaurant("r-36"),
     (err: unknown) => {
       assert.ok(err instanceof DeliveryProviderServerRpcError);
       assert.ok(!(err instanceof StuartMerchantCredentialMissingError));
@@ -423,11 +572,15 @@ test("getStuartCredentialForRestaurant: toute AUTRE erreur RPC (panne infrastruc
 });
 
 test("getStuartCredentialForRestaurant: payload stocké corrompu (JSON invalide) -> StuartCredentialError, jamais silencieusement accepté", async (t) => {
-  t.mock.method(client, "rpc", async () => ({ data: "{not valid json", error: null }));
-  await assert.rejects(() => getStuartCredentialForRestaurant("r-15"), StuartCredentialError);
+  mockTwoStepRpc(
+    t,
+    { data: [{ config_id: "cfg-37", provider_code: "stuart", mode: "sandbox", configuration_status: "configured" }], error: null },
+    { data: "{not valid json", error: null }
+  );
+  await assert.rejects(() => getStuartCredentialForRestaurant("r-37"), StuartCredentialError);
 });
 
-test("getStuartCredentialForRestaurant: restaurantId vide/invalide -> StuartMerchantCredentialMissingError immédiatement, aucun appel RPC", async (t) => {
+test("getStuartCredentialForRestaurant: restaurantId vide/invalide -> StuartMerchantCredentialMissingError immédiatement, AUCUN appel RPC (ni étape 1 ni étape 2)", async (t) => {
   let called = false;
   t.mock.method(client, "rpc", async () => {
     called = true;

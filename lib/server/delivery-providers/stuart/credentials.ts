@@ -17,11 +17,30 @@ import "server-only";
  * discovery (STUART-PRICING-SCHEDULING-DISCOVERY-v1.md,
  * STUART-ACCOUNT-MODEL-ADDENDUM-v1.md) : `lib/server/delivery-
  * providers/stuart/auth.ts` lit aujourd'hui `STUART_CLIENT_ID`/
- * `STUART_CLIENT_SECRET` (identifiants OAuth client-credentials) et
- * `STUART_ENV` (sandbox/production) au niveau global — ce sont les
- * TROIS seules valeurs dont un adaptateur Stuart a besoin pour
- * fonctionner par marchand ; ce lot n'en invente aucune autre
- * (mandat : "Do NOT add unsupported Stuart fields").
+ * `STUART_CLIENT_SECRET` (identifiants OAuth client-credentials) au
+ * niveau global — ce sont les DEUX seules valeurs dont un adaptateur
+ * Stuart a besoin pour s'authentifier par marchand ; ce lot n'en
+ * invente aucune autre (mandat : "Do NOT add unsupported Stuart
+ * fields").
+ *
+ * CORRECTIF STUART LOT A (mandat, "FIRST — CLOSE A-0 LOW FINDING") :
+ * `mode` a été RETIRÉ de ce payload et de `ALLOWED_KEYS` ci-dessous.
+ * L'A-0 LOW finding (Cat Stevens) signalait une divergence possible
+ * entre `delivery_provider_configs.mode` (colonne SQL, déjà
+ * authoritative pour `set_/clear_delivery_provider_credentials`) et un
+ * `mode` optionnel autrefois accepté ICI, dans le payload credential
+ * lui-même — DEUX sources de vérité possibles pour la même donnée.
+ * Direction retenue (mandat, "Preferred direction") :
+ * `delivery_provider_configs.mode` devient l'UNIQUE source de vérité ;
+ * le payload credential ne contient plus JAMAIS `mode` — toute
+ * tentative de le fournir est REJETÉE DE FAÇON DÉTERMINISTE (même
+ * discipline stricte que tout autre champ inattendu, voir
+ * `ALLOWED_KEYS`/`STUART_CREDENTIAL_UNEXPECTED_FIELD` ci-dessous),
+ * jamais silencieusement ignorée — aucune divergence de configuration
+ * n'est donc plus structurellement possible. Le mode AUTORITATIF pour
+ * un usage runtime est désormais lu séparément, via
+ * `getDeliveryProviderConfigStatus()` (lib/server/delivery-provider-
+ * service.ts, STUART LOT A) — voir `credential-resolver.ts`.
  *
  * Ne journalise JAMAIS le contenu analysé, sous quelque forme que ce
  * soit — ni en cas de succès, ni en cas d'échec.
@@ -34,14 +53,6 @@ export interface StuartMerchantCredentialPayload {
   /** Secret client OAuth Stuart de CE marchand (équivalent
    *  marchand-scopé de STUART_CLIENT_SECRET). */
   clientSecret: string;
-  /** sandbox/production — mode d'exécution Stuart de CE marchand,
-   *  indépendant des autres marchands. Optionnel dans le payload JSON
-   *  (par défaut 'sandbox' si absent) — le mode AUTORITATIF reste
-   *  toutefois `delivery_provider_configs.mode` (colonne SQL dédiée,
-   *  déjà validée par set_delivery_provider_credentials) ; ce champ
-   *  n'est ici qu'une redondance de confort pour un appelant qui ne
-   *  relirait que le secret déchiffré sans la ligne de config. */
-  mode?: "sandbox" | "production";
 }
 
 export class StuartCredentialError extends Error {
@@ -54,12 +65,14 @@ export class StuartCredentialError extends Error {
 const CLIENT_ID_MAX_LENGTH = 512;
 const CLIENT_SECRET_MAX_LENGTH = 512;
 
-/** Seules ces trois propriétés sont acceptées — toute propriété
+/** Seules ces DEUX propriétés sont acceptées — toute propriété
  *  supplémentaire inattendue est REJETÉE (même discipline que
  *  monetico/credentials.ts), pour empêcher qu'un champ additionnel non
  *  prévu ne soit silencieusement ignoré ou ne finisse par fuiter plus
- *  loin dans le pipeline. */
-const ALLOWED_KEYS = new Set(["clientId", "clientSecret", "mode"]);
+ *  loin dans le pipeline. `mode` retiré ici délibérément (STUART LOT A,
+ *  fermeture du A-0 LOW finding) — un payload contenant `mode` est
+ *  désormais rejeté par la même voie que tout autre champ inattendu. */
+const ALLOWED_KEYS = new Set(["clientId", "clientSecret"]);
 
 export function parseStuartMerchantCredential(raw: string): StuartMerchantCredentialPayload {
   if (typeof raw !== "string" || raw.length === 0) {
@@ -86,7 +99,6 @@ export function parseStuartMerchantCredential(raw: string): StuartMerchantCreden
 
   const clientId = obj.clientId;
   const clientSecret = obj.clientSecret;
-  const mode = obj.mode;
 
   if (typeof clientId !== "string" || clientId.length === 0) {
     throw new StuartCredentialError("STUART_CREDENTIAL_MISSING_CLIENT_ID");
@@ -101,15 +113,7 @@ export function parseStuartMerchantCredential(raw: string): StuartMerchantCreden
     throw new StuartCredentialError("STUART_CREDENTIAL_INVALID_CLIENT_SECRET");
   }
 
-  if (mode !== undefined && mode !== "sandbox" && mode !== "production") {
-    throw new StuartCredentialError("STUART_CREDENTIAL_INVALID_MODE");
-  }
-
-  return {
-    clientId,
-    clientSecret,
-    ...(mode !== undefined ? { mode } : {}),
-  };
+  return { clientId, clientSecret };
 }
 
 /**
@@ -119,15 +123,12 @@ export function parseStuartMerchantCredential(raw: string): StuartMerchantCreden
  * Admin/Operator (hors périmètre de ce lot) avant d'appeler
  * `setDeliveryProviderCredentials` — fournie ici pour garantir que la
  * seule fabrique de ce format vit à côté de son seul parseur, jamais
- * dupliquée ailleurs.
+ * dupliquée ailleurs. Ne sérialise plus `mode` (STUART LOT A, fermeture
+ * du A-0 LOW finding) — voir le commentaire d'en-tête du fichier.
  */
 export function serializeStuartMerchantCredential(payload: StuartMerchantCredentialPayload): string {
-  const out: Record<string, string> = {
+  return JSON.stringify({
     clientId: payload.clientId,
     clientSecret: payload.clientSecret,
-  };
-  if (payload.mode !== undefined) {
-    out.mode = payload.mode;
-  }
-  return JSON.stringify(out);
+  });
 }
