@@ -29,11 +29,48 @@
  * arriver via `?r=`). Tant qu'aucun restaurant n'est résolu,
  * l'analyse reste bloquée : "Preview must operate only on the
  * explicitly selected restaurant."
+ *
+ * AUTORISATION -- ADMIN ONLY (v1.1, remédiation ciblée) : l'import
+ * de catalogue en masse est une règle métier ADMIN ONLY, distincte de
+ * la lecture/édition unitaire du catalogue (que `get_merchant_catalogue`
+ * et les RPC `create_*`/`update_*` continuent d'autoriser au
+ * propriétaire/manager de son propre restaurant, sans changement --
+ * ce lot ne touche NI OB-3 NI OB-4). Même idiome, réutilisé tel quel,
+ * que app/admin/establishments/page.tsx, app/admin/establishments/new/
+ * page.tsx et app/admin/establishments/cockpit/page.tsx :
+ * authChecked/authorized + `isScanymOperator()` + redirection
+ * `router.replace("/dashboard")` pour tout compte authentifié mais non
+ * opérateur -- AVANT toute résolution de restaurant, tout chargement
+ * de fichier, tout appel à `analyzeCatalogueImportFile`/
+ * `commitCatalogueImport`. Un marchand (propriétaire de son propre
+ * restaurant ou non) qui arrive ici par navigation directe -- avec ou
+ * sans `?r=`, avec son propre restaurant_id ou un autre -- est
+ * redirigé avant que la sélection de fichier ou les boutons
+ * Analyser/Confirmer n'existent dans le DOM.
+ *
+ * LIMITE DOCUMENTÉE (frontière app-layer vs RPC/RLS) : comme rappelé
+ * explicitement par lib/services/establishments.ts ("isScanymOperator()
+ * ... sert uniquement à l'affichage (masquer/rediriger), jamais seule
+ * protection"), cette redirection est un contrôle d'application (UI),
+ * pas une garantie PostgreSQL. `get_merchant_catalogue` et les RPC
+ * d'écriture du catalogue (create_category/create_product/etc.)
+ * restent, par conception OB-2 v1.1, accessibles à la fois à
+ * `is_scanym_operator()` ET au propriétaire/manager légitime de SON
+ * PROPRE restaurant -- exactement ce qui permet à un marchand
+ * d'éditer normalement son propre catalogue ailleurs dans l'app. Ces
+ * RPC ne distinguent donc pas "édition unitaire légitime" de "import
+ * en masse", et ne peuvent pas être restreintes à is_scanym_operator()
+ * seul sans casser l'édition marchande normale. Une garantie
+ * équivalente côté base de données (un chemin RPC dédié à l'import en
+ * masse, réservé à is_scanym_operator()) nécessiterait un changement
+ * SQL -- explicitement hors périmètre de ce lot (voir STOP-REPORT
+ * dans le paquet livré).
  */
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
+import { isScanymOperator } from "@/lib/services/establishments";
 import { getMerchantRestaurants } from "@/lib/services/dashboard";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import {
@@ -81,6 +118,8 @@ function formatResolution(res: { state: string; displayName: string } | null): s
 
 export default function CatalogueImportPage() {
   const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
   const [restaurantId, setRestaurantId] = useState("");
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +135,19 @@ export default function CatalogueImportPage() {
       const user = await getUser();
       if (!user) {
         router.replace("/dashboard/login");
+        return;
+      }
+      // ADMIN ONLY (v1.1) -- voir l'en-tête de ce fichier. Aucune
+      // résolution de restaurant, aucun chargement de
+      // getMerchantRestaurants(), tant que l'opérateur n'est pas
+      // confirmé : un marchand authentifié (avec ou sans restaurant
+      // en propre) est redirigé ici, avant que quoi que ce soit lié à
+      // l'import ne soit résolu ou rendu.
+      const ok = await isScanymOperator();
+      setAuthorized(ok);
+      setAuthChecked(true);
+      if (!ok) {
+        router.replace("/dashboard");
         return;
       }
       const wanted = new URLSearchParams(window.location.search).get("r");
@@ -160,6 +212,19 @@ export default function CatalogueImportPage() {
     } finally {
       setCommitting(false);
     }
+  }
+
+  if (!authChecked) {
+    return <div className="p-6 text-sm text-gray-500">Vérification des autorisations…</div>;
+  }
+
+  if (!authorized) {
+    // Ne laisse jamais cette page affichée à un utilisateur légitime
+    // mais non-opérateur : redirection déjà déclenchée ci-dessus
+    // (router.replace("/dashboard")), pas un simple masquage de
+    // bouton -- même idiome que app/admin/establishments/{page,new,
+    // cockpit}.tsx.
+    return <div className="p-6 text-sm text-gray-500">Accès réservé aux opérateurs Scanym.</div>;
   }
 
   if (loading) {

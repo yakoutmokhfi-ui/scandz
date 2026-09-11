@@ -153,6 +153,14 @@ const dict = {
   secCatalogueLink: "Ouvrir le catalogue marchand (édition)",
   secCatalogueSummary: "{categories} catégorie(s), {products} produit(s) actif(s).",
   secCatalogueEmpty: "Aucune catégorie ou aucun produit actif pour le moment.",
+  // MERCHANT CATALOGUE IMPORT ENTRY POINT v1 (scope corrigé : ADMIN
+  // ONLY) -- lien vers la page d'import déjà publiée et déjà auditée
+  // (OB-3/OB-4, app/dashboard/catalogue-import/page.tsx), qui accepte
+  // déjà `?r=<restaurant_id>` pour un accès opérateur (voir l'en-tête
+  // de ce fichier). Aucune logique d'analyse/preview/commit dupliquée
+  // ici -- ce lien ouvre l'écran existant, pour L'ÉTABLISSEMENT
+  // COURANT du cockpit uniquement.
+  secCatalogueImportLink: "Importer un catalogue",
 
   // v1.1 — PHOTOS : dérivé du même résumé catalogue déjà chargé
   // (aucune lecture Storage). L'upload/remplacement reste hors

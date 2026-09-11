@@ -305,6 +305,25 @@ function CockpitBody({
           ) : (
             <p>{tAdmin("secCatalogueEmpty")}</p>
           )}
+          {/* MERCHANT CATALOGUE IMPORT ENTRY POINT v1 (ADMIN ONLY,
+              scope corrigé) -- lien direct vers la page d'import
+              déjà publiée et déjà auditée (OB-3/OB-4,
+              app/dashboard/catalogue-import/page.tsx), jamais
+              réimplémentée ici. Cette page accepte déjà
+              `?r=<restaurant_id>` pour un accès opérateur (voir son
+              propre en-tête) -- aucun changement requis côté OB-3/OB-4
+              pour que ce lien fonctionne. Rendu comme un second lien
+              d'action à l'intérieur de la carte (CockpitSectionCard
+              n'expose qu'UN SEUL actionHref/actionLabel, volontairement
+              non modifié par ce lot -- composant partagé par 9
+              sections) plutôt que comme une nouvelle action de la
+              carte elle-même. */}
+          <a
+            href={`/dashboard/catalogue-import?r=${restaurantId}`}
+            className="mt-3 block text-sm font-semibold text-emerald-700 underline"
+          >
+            {tAdmin("secCatalogueImportLink")}
+          </a>
           <p className="mt-2 text-xs text-stone-400">{tAdmin("secExistingScreenCaveat")}</p>
         </CockpitSectionCard>
 
