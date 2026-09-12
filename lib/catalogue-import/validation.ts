@@ -139,7 +139,24 @@ export function validateRow(input: RowValidationInput): ImportIssue[] {
     unitWeightGrams: values.unitWeightGrams === undefined ? null : values.unitWeightGrams,
     weightIsApproximate: values.weightIsApproximate,
   });
-  if (values.taxRate === null) {
+  if (values.taxRate === undefined) {
+    // CATALOGUE VAT COMPLETENESS GUARD v1 -- TVA absente (colonne non
+    // fournie/vide) N'EST PAS bloquant (Layer A, "may exist in
+    // draft/incomplete state") -- contrairement à un format non
+    // numérique (branche ci-dessous, BLOCKING_ERROR, INCHANGÉE). Le
+    // produit sera importé (create_product/update_product, inchangés
+    // par ce fichier) mais créé/laissé indisponible tant que la TVA
+    // n'est pas renseignée -- même invariant que le formulaire manuel
+    // (voir app/dashboard/catalogue/page.tsx), seule l'AUTORITÉ réelle
+    // reste la contrainte CHECK menu_items_availability_requires_tax_
+    // rate_chk en base.
+    issues.push({
+      code: "SCANYM_IMPORT_MISSING_TAX_RATE",
+      severity: "WARNING",
+      message: "TVA absente (colonne « TVA (%) ») -- produit importé mais créé/laissé indisponible tant que la TVA n'est pas renseignée.",
+      field: "TVA (%)",
+    });
+  } else if (values.taxRate === null) {
     issues.push({
       code: "SCANYM_IMPORT_INVALID_TAX_FORMAT",
       severity: "BLOCKING_ERROR",

@@ -57,10 +57,14 @@ import Ltr from "@/components/Bidi";
 import {
   validateFiscalMeasurementFields,
   referencePricePerKg,
+  canProductBeAvailableWithTaxRate,
   type FiscalMeasurementFields,
   type FiscalValidationErrorCode,
 } from "@/lib/catalogue-fiscal";
-import { FiscalMeasurementValidationError } from "@/lib/services/catalogue-error";
+import {
+  FiscalMeasurementValidationError,
+  TaxRateRequiredForAvailabilityError,
+} from "@/lib/services/catalogue-error";
 
 type ProductDraft = {
   name: string;
@@ -472,6 +476,13 @@ export default function CataloguePage() {
         setError(t("mcPhotoRemoveError"));
       } else if (e instanceof FiscalMeasurementValidationError) {
         setError(fiscalErrorMessage(e.code, t));
+      } else if (e instanceof TaxRateRequiredForAvailabilityError) {
+        // CATALOGUE VAT COMPLETENESS GUARD v1 -- update_product/
+        // set_product_availability rejettent (jamais ne désactivent
+        // silencieusement) toute tentative de laisser/rendre un
+        // produit disponible sans taux de TVA. Message applicatif
+        // clair, jamais le texte brut de la contrainte Postgres.
+        setError(t("mcTaxRateRequiredForAvailability"));
       } else {
         setError(e instanceof Error ? e.message : t("mcRefused"));
       }
@@ -1694,6 +1705,16 @@ function ProductForm({
 
         {fiscalError && (
           <p className="text-xs font-semibold text-amber-700">{fiscalErrorMessage(fiscalError, t)}</p>
+        )}
+
+        {/* CATALOGUE VAT COMPLETENESS GUARD v1 -- avertissement NON
+            BLOQUANT (Layer A) : n'affecte jamais `valid` ci-dessus.
+            Affiché uniquement quand le champ TVA lui-même est par
+            ailleurs valide (fiscalError === null) et vide -- une
+            erreur de format/plage a déjà sa propre alerte ci-dessus,
+            pas besoin de doubler le message. */}
+        {fiscalError === null && !canProductBeAvailableWithTaxRate(fiscalFields.taxRate) && (
+          <p className="text-xs text-stone-500">{t("fiscalTaxMissingAvailabilityNotice")}</p>
         )}
       </div>
 

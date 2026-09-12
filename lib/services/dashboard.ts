@@ -16,6 +16,7 @@ import {
   isSubcategoryDuplicateNameError,
   isSubcategoryCategoryMismatchError,
   isProductDuplicateNameError,
+  isTaxRateRequiredForAvailabilityError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
@@ -24,6 +25,7 @@ import {
   SubcategoryDuplicateNameError,
   SubcategoryCategoryMismatchError,
   ProductDuplicateNameError,
+  TaxRateRequiredForAvailabilityError,
 } from "@/lib/services/catalogue-error";
 
 export {
@@ -34,6 +36,7 @@ export {
   SubcategoryDuplicateNameError,
   SubcategoryCategoryMismatchError,
   ProductDuplicateNameError,
+  TaxRateRequiredForAvailabilityError,
 } from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
@@ -478,7 +481,15 @@ export async function setProductAvailability(
     p_product_id: productId,
     p_is_available: isAvailable,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // CATALOGUE VAT COMPLETENESS GUARD v1 -- basculer un produit vers
+    // disponible=true sans taux de TVA est rejeté par la contrainte
+    // CHECK (menu_items_availability_requires_tax_rate_chk), jamais
+    // silencieusement ignoré/accepté -- même patron que
+    // throwFiscalOrCatalogueError ci-dessous.
+    if (isTaxRateRequiredForAvailabilityError(error)) throw new TaxRateRequiredForAvailabilityError();
+    throw new Error(error.message);
+  }
 }
 
 /**
@@ -500,6 +511,10 @@ function throwFiscalOrCatalogueError(error: { code?: string | null; message?: st
   if (isDescriptionTooLongError(error)) throw new DescriptionTooLongError();
   if (isFiscalMeasurementValidationError(error)) throw new FiscalMeasurementValidationError(error.message ?? "");
   if (isSubcategoryCategoryMismatchError(error)) throw new SubcategoryCategoryMismatchError();
+  // CATALOGUE VAT COMPLETENESS GUARD v1 -- update_product rejette
+  // (jamais ne désactive silencieusement) l'effacement de la TVA d'un
+  // produit actuellement disponible ; voir isTaxRateRequiredForAvailabilityError.
+  if (isTaxRateRequiredForAvailabilityError(error)) throw new TaxRateRequiredForAvailabilityError();
   throw new Error(error.message ?? "Unknown error");
 }
 

@@ -42,6 +42,20 @@ export const SUBCATEGORY_CATEGORY_MISMATCH_CODE = "SCANYM_SUBCATEGORY_CATEGORY_M
  *  SUBCATEGORY_DUPLICATE_NAME_CODE ci-dessus. */
 export const PRODUCT_DUPLICATE_NAME_CODE = "SCANYM_PRODUCT_DUPLICATE_NAME";
 
+/** CATALOGUE VAT COMPLETENESS GUARD v1 — même constante EXACTE que le
+ *  `raise exception ...` de update_product/set_product_availability
+ *  (voir supabase/DRAFT-lot-catalogue-vat-completeness-guard-v1.sql) :
+ *  traduction d'une violation RÉELLE de la contrainte CHECK
+ *  menu_items_availability_requires_tax_rate_chk, SQLSTATE réel 23514
+ *  (check_violation), jamais un code inventé — même discipline exacte
+ *  que PRODUCT_DUPLICATE_NAME_CODE (23505, unique_violation). Un
+ *  produit DISPONIBLE ne peut jamais rester/devenir disponible sans
+ *  taux de TVA, quel que soit le chemin d'écriture (update_product,
+ *  set_product_availability) — create_product n'émet jamais ce code :
+ *  il satisfait l'invariant par construction (is_available calculé
+ *  depuis la présence de tax_rate). */
+export const TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE = "SCANYM_TAX_RATE_REQUIRED_FOR_AVAILABILITY";
+
 export class ShortDescriptionTooLongError extends Error {
   constructor() {
     super(SHORT_DESCRIPTION_TOO_LONG_CODE);
@@ -121,6 +135,17 @@ export class SubcategoryCategoryMismatchError extends Error {
   }
 }
 
+/** CATALOGUE VAT COMPLETENESS GUARD v1 — voir
+ *  TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE ci-dessus. Une seule classe
+ *  (aucun paramètre) : contrairement à FiscalMeasurementValidationError,
+ *  il n'existe qu'un seul code possible ici. */
+export class TaxRateRequiredForAvailabilityError extends Error {
+  constructor() {
+    super(TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE);
+    this.name = "TaxRateRequiredForAvailabilityError";
+  }
+}
+
 export interface RpcErrorLike {
   message?: string | null;
   code?: string | null;
@@ -186,6 +211,21 @@ export function isSubcategoryCategoryMismatchError(
 ): boolean {
   if (!error) return false;
   return error.code === "22023" && error.message === SUBCATEGORY_CATEGORY_MISMATCH_CODE;
+}
+
+/**
+ * Violation de l'invariant de disponibilité : remonte via la
+ * contrainte CHECK menu_items_availability_requires_tax_rate_chk
+ * (CATALOGUE VAT COMPLETENESS GUARD v1), donc via le vrai SQLSTATE
+ * Postgres de violation de contrainte CHECK (23514) -- même patron
+ * exact que isCategoryDuplicateNameError/isProductDuplicateNameError
+ * (23505, unique_violation).
+ */
+export function isTaxRateRequiredForAvailabilityError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "23514" && error.message === TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE;
 }
 
 const FISCAL_MEASUREMENT_ERROR_CODES: readonly string[] = [
