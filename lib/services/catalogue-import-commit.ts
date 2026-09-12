@@ -58,6 +58,7 @@ import {
   CategoryDuplicateNameError,
   SubcategoryDuplicateNameError,
   ProductDuplicateNameError,
+  TaxRateRequiredForAvailabilityError,
 } from "@/lib/services/dashboard";
 
 export type CommitRowOutcome = "CREATED" | "UPDATED" | "SKIPPED" | "FAILED";
@@ -298,10 +299,21 @@ export async function commitCatalogueImport(
         productsFailed++;
       }
     } catch (e) {
+      // CATALOGUE VAT COMPLETENESS GUARD v1 -- une ligne UPDATE qui
+      // effacerait la TVA d'un produit EXISTANT actuellement disponible
+      // est rejetée par la contrainte serveur (jamais une désactivation
+      // silencieuse) : cette ligne échoue (FAILED, errorCode dédié),
+      // les lignes suivantes continuent (même modèle "best-effort" que
+      // ProductDuplicateNameError ci-dessous -- AUCUNE transaction
+      // unique ne couvre l'import, voir en-tête de ce fichier).
       rows.push({
         row: row.row,
         outcome: "FAILED",
-        errorCode: e instanceof ProductDuplicateNameError ? "SCANYM_PRODUCT_DUPLICATE_NAME" : undefined,
+        errorCode: e instanceof ProductDuplicateNameError
+          ? "SCANYM_PRODUCT_DUPLICATE_NAME"
+          : e instanceof TaxRateRequiredForAvailabilityError
+            ? "SCANYM_TAX_RATE_REQUIRED_FOR_AVAILABILITY"
+            : undefined,
         errorMessage: e instanceof Error ? e.message : String(e),
       });
       productsFailed++;

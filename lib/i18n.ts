@@ -534,6 +534,11 @@ const fr: Dict = {
   fiscalPerKgSuffix: "/kg",
   fiscalErrorInvalidTaxRate: "Taux de TVA invalide (0 à 100).",
   fiscalErrorInvalidWeightValue: "Le poids doit être un nombre positif.",
+  // CATALOGUE VAT COMPLETENESS GUARD v1 -- parité EXACTE fr/en/ar
+  // exigée par tests/v64-auth-whatsapp.test.ts, même discipline que
+  // les clés fiscalXxx ci-dessus.
+  fiscalTaxMissingAvailabilityNotice: "Ce produit peut être enregistré sans TVA, mais restera indisponible tant qu'un taux de TVA n'est pas renseigné.",
+  mcTaxRateRequiredForAvailability: "Impossible : ce produit ne peut pas être disponible sans taux de TVA renseigné. Renseignez un taux (0% possible) avant de le rendre disponible.",
 
   // MERCHANT LEGAL & TAX PROFILE v1 — section "Informations légales
   // et fiscales" (app/dashboard/settings/page.tsx). Les intitulés de
@@ -1049,6 +1054,9 @@ const en: Dict = {
   fiscalPerKgSuffix: "/kg",
   fiscalErrorInvalidTaxRate: "Invalid tax rate (0 to 100).",
   fiscalErrorInvalidWeightValue: "Weight must be a positive number.",
+  // CATALOGUE VAT COMPLETENESS GUARD v1.
+  fiscalTaxMissingAvailabilityNotice: "This product can be saved without a tax rate, but will stay unavailable until a tax rate is provided.",
+  mcTaxRateRequiredForAvailability: "Not possible: this product cannot be available without a tax rate. Enter a tax rate (0% is allowed) before making it available.",
 
   // MERCHANT LEGAL & TAX PROFILE v1 — "Legal & Tax Information"
   // section (app/dashboard/settings/page.tsx). registration_number/
@@ -1560,6 +1568,9 @@ const ar: Dict = {
   fiscalPerKgSuffix: "/كغ",
   fiscalErrorInvalidTaxRate: "نسبة ضريبة غير صالحة (من 0 إلى 100).",
   fiscalErrorInvalidWeightValue: "يجب أن يكون الوزن رقمًا موجبًا.",
+  // CATALOGUE VAT COMPLETENESS GUARD v1.
+  fiscalTaxMissingAvailabilityNotice: "يمكن حفظ هذا المنتج بدون نسبة ضريبة، لكنه سيبقى غير متاح إلى أن يتم تحديد نسبة الضريبة.",
+  mcTaxRateRequiredForAvailability: "غير ممكن: لا يمكن لهذا المنتج أن يكون متاحًا بدون نسبة ضريبة. حدد نسبة (0% ممكنة) قبل جعله متاحًا.",
 
   // MERCHANT LEGAL & TAX PROFILE v1 — قسم "المعلومات القانونية
   // والضريبية" (app/dashboard/settings/page.tsx). عناوين

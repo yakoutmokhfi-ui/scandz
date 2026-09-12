@@ -84,6 +84,32 @@ export function validateFiscalMeasurementFields(fields: FiscalMeasurementFields)
 }
 
 /**
+ * CATALOGUE VAT COMPLETENESS GUARD v1 — question DISTINCTE de
+ * validateFiscalMeasurementFields ci-dessus (qui reste un contrôle de
+ * PLAGE uniquement : NULL y est TOUJOURS valide, reflet exact de la
+ * contrainte CHECK menu_items_tax_rate_range_chk — son contrat n'est
+ * PAS modifié par ce lot). Cette fonction répond à une question
+ * différente : ce taux de TVA permet-il à un produit d'être
+ * SELLABLE/DISPONIBLE (Layer B) ? `0` est valide (TVA à 0% renseignée
+ * délibérément) ; seul `null` (TVA absente) ne l'est pas.
+ *
+ * PURE, ne mute rien, ne décide rien côté client — sert uniquement à
+ * afficher un avertissement/blocage cohérent AVANT tout aller-retour
+ * serveur. L'autorité réelle reste TOUJOURS la contrainte CHECK
+ * menu_items_availability_requires_tax_rate_chk en base (mandat §23,
+ * même discipline que validateFiscalMeasurementFields).
+ *
+ * Ne JAMAIS conflate ce résultat avec celui de
+ * validateFiscalMeasurementFields : un taux `null` est un champ
+ * "valide" au sens plage (retourne `null`, pas d'erreur) mais rend le
+ * produit non sellable au sens de cette fonction (retourne `false`) —
+ * deux notions indépendantes, chacune sa propre fonction.
+ */
+export function canProductBeAvailableWithTaxRate(taxRate: number | null): boolean {
+  return taxRate !== null;
+}
+
+/**
  * Prix de référence au kilogramme — MÉTADONNÉE DE RÉFÉRENCE
  * UNIQUEMENT (mandat §6), jamais une autorité de panier/commande/
  * paiement. Reproduit CÔTÉ CLIENT (pour un affichage immédiat avant

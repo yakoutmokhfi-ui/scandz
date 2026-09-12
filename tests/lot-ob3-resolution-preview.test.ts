@@ -174,15 +174,21 @@ test("pas de doublon si les catégories WOULD_CREATE diffèrent", () => {
 // buildPreviewReport -- orchestration complète, PLANNED ACTION
 // ------------------------------------------------------------------
 
-test("PLANNED ACTION = CREATE pour une catégorie/produit intégralement nouveaux, ligne sans erreur -> status OK", () => {
+test("PLANNED ACTION = CREATE pour une catégorie/produit intégralement nouveaux, ligne sans erreur bloquante -> status WARNING (TVA absente, CATALOGUE VAT COMPLETENESS GUARD v1)", () => {
   const report = buildPreviewReport(
     [{ row: 2, cells: { Nom: "Pizza", "Catégorie parent": "Pizzas", "Prix TTC (€)": "9.9" } }],
     [],
     []
   );
   assert.equal(report.rows[0].plannedAction, "CREATE");
-  assert.equal(report.rows[0].status, "OK");
-  assert.equal(report.eligibility, "ELIGIBLE");
+  // CATALOGUE VAT COMPLETENESS GUARD v1 (Layer A) -- cette ligne ne
+  // fournit aucune colonne TVA : auparavant silencieusement ignoré,
+  // désormais un WARNING non bloquant (SCANYM_IMPORT_MISSING_TAX_RATE)
+  // -- le produit sera importé mais créé indisponible tant que la TVA
+  // n'est pas renseignée. Toujours ELIGIBLE_WITH_WARNINGS, jamais
+  // NOT_ELIGIBLE : Layer A n'est jamais bloquant.
+  assert.equal(report.rows[0].status, "WARNING");
+  assert.equal(report.eligibility, "ELIGIBLE_WITH_WARNINGS");
 });
 
 test("PLANNED ACTION = UPDATE quand une valeur diffère du produit existant matché", () => {
@@ -202,7 +208,7 @@ test("PLANNED ACTION = UPDATE quand une valeur diffère du produit existant matc
   assert.equal(report.rows[0].plannedAction, "UPDATE");
 });
 
-test("PLANNED ACTION = SKIP quand toutes les valeurs sont déjà identiques au produit existant (aucune écriture utile)", () => {
+test("PLANNED ACTION = SKIP quand toutes les valeurs sont déjà identiques au produit existant (aucune écriture utile) -> status WARNING (TVA absente du fichier, CATALOGUE VAT COMPLETENESS GUARD v1)", () => {
   const existing = [
     makeCategory({
       category_id: "c1",
@@ -226,7 +232,10 @@ test("PLANNED ACTION = SKIP quand toutes les valeurs sont déjà identiques au p
     []
   );
   assert.equal(report.rows[0].plannedAction, "SKIP");
-  assert.equal(report.rows[0].status, "OK");
+  // CATALOGUE VAT COMPLETENESS GUARD v1 (Layer A) -- même raison que
+  // le test CREATE ci-dessus : colonne TVA absente du fichier ->
+  // WARNING non bloquant, jamais silencieux.
+  assert.equal(report.rows[0].status, "WARNING");
 });
 
 test("PLANNED ACTION = BLOCKED dès qu'une erreur bloquante existe, quel que soit l'état de correspondance produit", () => {
