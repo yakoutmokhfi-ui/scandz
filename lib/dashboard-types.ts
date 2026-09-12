@@ -33,6 +33,45 @@ export interface DashboardOrderItem {
   quantity: number;
   unit_price: number;
   line_total: number;
+  /**
+   * STUART LOT C v1.2 (LOT-C-12-03) -- taux de TVA (%) FIGÉ au moment
+   * de create_order (RECEIPT / INVOICE TAX DETAIL v1.1, colonne déjà
+   * existante, ajoutée ici au type/à la requête pour la PREMIÈRE fois
+   * -- aucune lecture TypeScript n'en existait avant ce lot). Même
+   * discipline d'instantané immuable que le reste de cet objet --
+   * jamais `menu_items.tax_rate` courant. `null` = donnée fiscale par
+   * article indisponible pour cette commande (commande antérieure à
+   * RECEIPT / INVOICE TAX DETAIL v1.1, ou article non fiscalement
+   * configuré) -- dans ce cas lib/receipt.ts n'active PAS le rendu
+   * multi-taux et replie sur le calcul à taux unique existant,
+   * inchangé.
+   */
+  tax_rate_snapshot: number | null;
+}
+
+/**
+ * STUART LOT C v1.2 (LOT-C-12-03) -- une ligne = un taux de TVA
+ * présent sur la commande, ventilation du frais de livraison CLIENT
+ * (`orders.delivery_fee`) pour ce taux. Instantané IMMUABLE persisté
+ * par le déclencheur `compute_delivery_fee_tax_allocation()`
+ * (DRAFT-lot-delivery-fee-vat-allocation-foundation-v1.sql, LOT C
+ * v1.1/v1.2) -- jamais recalculé côté client. Ne contient et
+ * n'exposera JAMAIS `provider_cost` ni `delivery_merchant_subsidy`
+ * (colonnes distinctes, LOT C v1, jamais lues par cette table ni par
+ * ce type -- LOT-C-BIZ-01/mandat v1.1, "public/internal exposure").
+ * Tableau VIDE = livraison gratuite (delivery_fee=0, légitime) -- une
+ * commande à delivery_fee>0 échoue désormais entièrement à la création
+ * si la ventilation est incomplète (LOT-C-12-01), donc un tableau vide
+ * avec delivery_fee>0 ne peut plus survenir pour une commande créée
+ * après ce lot (reste théoriquement possible pour une commande LOT C
+ * v1.1 antérieure à ce durcissement -- lib/receipt.ts le traite comme
+ * "pas de ventilation disponible", jamais une décomposition fabriquée).
+ */
+export interface DashboardOrderDeliveryTaxAllocation {
+  tax_rate_snapshot: number;
+  delivery_fee_gross_share: number;
+  delivery_fee_net_share: number;
+  delivery_fee_tax_amount: number;
 }
 
 export interface DashboardOrder {
@@ -80,6 +119,18 @@ export interface DashboardOrder {
   tax_settings_snapshot_prices_include_tax: boolean | null;
   tax_settings_snapshot_tax_label: string | null;
   tax_settings_snapshot_show_tax_summary: boolean | null;
+  /**
+   * STUART LOT C v1.2 (LOT-C-12-03) -- ventilation TVA du frais de
+   * livraison client, une ligne par taux réellement présent sur la
+   * commande (voir DashboardOrderDeliveryTaxAllocation ci-dessus).
+   * Tableau VIDE = livraison gratuite ou ventilation indisponible
+   * (jamais distingué ici -- lib/receipt.ts se replie sans jamais
+   * fabriquer de décomposition). Optionnel (`?`) uniquement pour ne
+   * pas casser un appelant TypeScript existant qui construirait un
+   * DashboardOrder sans cette clé (aucun connu à ce jour) -- toujours
+   * fourni par lib/services/dashboard.ts après ce lot.
+   */
+  order_delivery_tax_allocations?: DashboardOrderDeliveryTaxAllocation[];
 }
 
 /**

@@ -62,7 +62,11 @@ export async function getDashboardOrders(
       tax_settings_snapshot_tax_label, tax_settings_snapshot_show_tax_summary,
       order_items (
         id, item_name, option_name, quantity, unit_price, line_total,
-        menu_item_id, option_item_id
+        menu_item_id, option_item_id, tax_rate_snapshot
+      ),
+      order_delivery_tax_allocations (
+        tax_rate_snapshot, delivery_fee_gross_share, delivery_fee_net_share,
+        delivery_fee_tax_amount
       )
     `
     )
