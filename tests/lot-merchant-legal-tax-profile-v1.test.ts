@@ -501,7 +501,20 @@ test("lib/receipt.ts -- MLTP-V1-HISTORICAL-TAX-01 : décomposition HT/TVA/TTC ut
     .filter((line) => !line.trim().startsWith("//"))
     .join("\n");
   assert.ok(!receiptCodeOnly.includes("menu_items.tax_rate"), "menu_items.tax_rate ne doit jamais devenir autoritaire pour une commande ancienne (interdiction explicite du mandat) -- hors commentaire explicatif");
-  assert.ok(!receiptCodeOnly.includes("tax_rate_snapshot"), "ce lot n'introduit pas de schéma de taxe par ligne -- resterait un gap séparé, non couvert ici");
+  // NOTE STUART LOT C v1.2 (LOT-C-12-03, CTO pre-control) : cette
+  // assertion affirmait à l'origine (LOT C v1.1) que ce fichier
+  // n'introduisait PAS de schéma de taxe par ligne ("resterait un gap
+  // séparé, non couvert ici"). Le CTO pre-control de LOT C v1.1 a
+  // explicitement jugé cette absence FAUSSE pour une commande
+  // multi-taux ("classifying lib/receipt.ts as 'A / unchanged' is
+  // incorrect for LOT C") et a mandaté la correction exacte que
+  // l'assertion précédente interdisait -- order_items.tax_rate_snapshot
+  // est désormais lu (voir buildMixedRateTaxGroups(), gardé par les 3
+  // conditions d'éligibilité, jamais pour une commande à taux
+  // unique/HT/historique, voir tests dédiés LOT-C-12-03 ci-dessous).
+  // L'assertion est retirée ici (obsolète par mandat CTO explicite), PAS
+  // affaiblie : `menu_items.tax_rate` reste interdit ci-dessus, et le
+  // fichier reste guidé exclusivement par des instantanés immuables.
   assert.ok(receiptSrc.includes("hasTaxSnapshot"), "doit distinguer explicitement commande AVEC instantané vs SANS (repli option B)");
   // Ces 3 identifiants apparaissent aussi dans le commentaire explicatif
   // (décrivant le défaut D'AVANT v1.1) -- on vérifie donc le CODE seul.
