@@ -358,6 +358,23 @@ export function parseWorksheet(xml: string, sharedStrings: string[]): ParsedShee
   return { rows, rowNumbers };
 }
 
+/** Extrait la valeur d'un attribut XML donné dans le texte des
+ *  attributs d'une balise (tout ce qui suit le nom de la balise et
+ *  précède `>`), INDÉPENDAMMENT de sa position parmi les autres
+ *  attributs. `(?:^|\s)` (plutôt qu'un simple `\b`) exige que le nom
+ *  d'attribut soit précédé du début de chaîne ou d'un espace, pour ne
+ *  jamais matcher la fin d'un autre nom d'attribut qui partagerait le
+ *  même suffixe (ex. Target="..." ne doit jamais être confondu avec
+ *  TargetMode="..." -- `\bTarget="` seul suffirait déjà ici puisque
+ *  "TargetMode=" n'est jamais suivi de `="`, mais `(?:^|\s)` est une
+ *  garde supplémentaire, sans coût). Retourne `null` si l'attribut est
+ *  absent -- ne lève jamais. */
+function extractXmlAttribute(attributeText: string, name: string): string | null {
+  const re = new RegExp(`(?:^|\\s)${name}="([^"]*)"`);
+  const match = re.exec(attributeText);
+  return match ? match[1] : null;
+}
+
 function findFirstSheetPath(zip: Record<string, Uint8Array>): string {
   const workbookXmlBytes = zip["xl/workbook.xml"];
   const relsBytes = zip["xl/_rels/workbook.xml.rels"];
@@ -377,12 +394,26 @@ function findFirstSheetPath(zip: Record<string, Uint8Array>): string {
   }
   const relId = sheetMatch[1];
 
-  const relRe = new RegExp(`<Relationship\\b[^>]*\\bId="${relId}"[^>]*\\bTarget="([^"]+)"[^>]*/?>`);
-  const relMatch = relRe.exec(relsXml);
-  if (!relMatch) {
+  // v1 (robustesse ordre d'attributs) -- les attributs XML ne sont
+  // PAS ordonnés : un classeur valide peut déclarer Target, puis
+  // Type, puis Id, dans n'importe quel ordre. On repère chaque balise
+  // <Relationship ...> une à une (`/g`), puis on extrait Id et Target
+  // INDÉPENDAMMENT l'un de l'autre dans le texte de ses attributs --
+  // jamais via un seul regex qui imposerait un ordre relatif entre
+  // les deux. Voir l'en-tête de ce fichier / le rapport du lot pour
+  // le défaut corrigé ici.
+  const relTagRe = /<Relationship\b([^>]*)\/?>/g;
+  let target: string | null = null;
+  let relMatch: RegExpExecArray | null;
+  while ((relMatch = relTagRe.exec(relsXml)) !== null) {
+    const attributeText = relMatch[1];
+    if (extractXmlAttribute(attributeText, "Id") !== relId) continue;
+    target = extractXmlAttribute(attributeText, "Target");
+    break;
+  }
+  if (!target) {
     throw new XlsxReadError("NO_WORKSHEET_FOUND", "Relation de feuille introuvable dans le classeur.");
   }
-  let target = relMatch[1];
   if (target.startsWith("/")) target = target.slice(1);
   else target = `xl/${target}`;
   return target;
