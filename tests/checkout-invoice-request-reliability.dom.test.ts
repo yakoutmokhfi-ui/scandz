@@ -251,6 +251,112 @@ async function renderFillPickupAndReachSubmit() {
   return { container, root, submitBtn: submitBtn! };
 }
 
+// ====================================================================
+// INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) --
+// fixtures/mock DÉDIÉS pour le mode LIVRAISON, jamais réutilisés par
+// les scénarios pickup existants ci-dessus (mockRpc/mockRpcEmailRequired
+// INCHANGÉS). `delivery_info` doit obligatoirement retourner une ligne
+// (préfixe de zone correspondant au code postal saisi, minimum
+// d'articles à 0) -- sinon `getDeliveryStatusFromPublicInfo`
+// (lib/delivery.ts) traite l'absence de ligne comme "hors zone" et le
+// panier ne devient jamais éligible, quelle que soit l'adresse saisie
+// (voir tests/v91-lot2b4a2-dynamic-form.dom.test.ts, même contrainte).
+// ====================================================================
+
+const DELIVERY_REQS = [
+  { field: "customer_name", requirement: "required", one_of_group: null },
+  { field: "delivery_address", requirement: "required", one_of_group: null },
+  { field: "phone", requirement: "required", one_of_group: null },
+  { field: "email", requirement: "optional", one_of_group: null },
+];
+
+const DELIVERY_INFO_PARIS = { delivery_zone_prefixes: ["75"], delivery_min_items: 0, delivery_area_label: "Paris" };
+
+function mockRpcDelivery(t: { mock: { method: Function } }, createOrderCalls: { count: number } = { count: 0 }) {
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
+  t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") return { data: PICKUP_SALE_MODE_ROWS, error: null };
+    if (name === "get_restaurant_public_field_requirements") {
+      if (args.p_mode_code === "delivery") return { data: DELIVERY_REQS, error: null };
+      return { data: [], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_info") return { data: [DELIVERY_INFO_PARIS], error: null };
+    if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
+    if (name === "create_order") {
+      createOrderCalls.count += 1;
+      return {
+        data: [{ order_id: ORDER_ID, order_number: 42, public_token: TOKEN, total: 3.5, subtotal: 3.5, delivery_fee: 0 }],
+        error: null,
+      };
+    }
+    if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+  return createOrderCalls;
+}
+
+/**
+ * Rend MenuView, ajoute un article, bascule en mode LIVRAISON et
+ * remplit les champs client requis (nom, téléphone, adresse complète
+ * ET dans la zone mockée) jusqu'à atteindre le bouton d'envoi -- sans
+ * jamais toucher à la demande de facture (comportement de base,
+ * réutilisé par les scénarios 1-3/5 ci-dessous).
+ */
+async function renderFillDeliveryAndReachSubmit() {
+  const restaurant = sanaaCookiesRestaurant();
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(React.createElement(MenuView, { restaurant }));
+  await flush();
+
+  const addBtn = buttonWithText(container, "Ajouter");
+  assert.ok(addBtn, "le bouton Ajouter doit être présent");
+  click(addBtn!);
+  await flush();
+
+  const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+  if (cartBar) { click(cartBar); await flush(); }
+
+  selectServiceMode(container, "Livraison");
+  await waitFor(() => inputById(container, "customer_name") !== null, "champs delivery rendus");
+
+  setNativeValue(inputById(container, "customer_name")!, "Yakout");
+  setNativeValue(inputById(container, "phone")!, "0612345678");
+  setNativeValue(inputById(container, "street")!, "10 rue de Rivoli");
+  setNativeValue(inputById(container, "postalCode")!, "75001");
+  setNativeValue(inputById(container, "city")!, "Paris");
+  await flush(50);
+  await flush();
+
+  const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+  assert.ok(submitBtn, "le bouton d'envoi doit être atteignable en mode livraison, adresse dans la zone mockée");
+  return { container, root, submitBtn: submitBtn! };
+}
+
+/**
+ * Comme `renderFillDeliveryAndReachSubmit`, mais coche en plus "Besoin
+ * d'une facture ?" -- ne touche PAS au toggle "adresse différente"
+ * (laissé décoché, comportement par défaut du mandat), donc les champs
+ * d'adresse de facturation manuels ne doivent PAS être requis pour
+ * atteindre le bouton d'envoi.
+ */
+async function renderFillDeliveryCheckInvoiceAndReachSubmit() {
+  const { container, root } = await renderFillDeliveryAndReachSubmit();
+
+  const invoiceCheckbox = [...container.querySelectorAll('input[type="checkbox"]')]
+    .find((el) => el.closest("label")?.textContent?.includes("Besoin d'une facture"));
+  assert.ok(invoiceCheckbox, "la case à cocher de demande de facture doit être présente");
+  toggleCheckbox(invoiceCheckbox as HTMLInputElement);
+  await flush();
+  await flush();
+
+  return { container, root };
+}
+
 async function renderFillPickupCheckInvoiceAndReachSubmit() {
   const { container, root } = await renderFillPickupAndReachSubmit();
 
@@ -866,6 +972,215 @@ test("EMAIL-VALIDATION-RETRY. facture société avec email de contact, échec r�
   } finally {
     (window as any).open = realOpen;
     (globalThis as any).fetch = realFetch;
+  }
+});
+
+// ====================================================================
+// INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) --
+// matrice de test §I du mandat, éléments 1 à 3 et 5. Les éléments
+// 4/6/7/8/9/10 sont déjà couverts par les tests ci-dessus (pickup +
+// facture, société, VAT optionnel, validation existante) et ne sont
+// PAS dupliqués ici -- seul le comportement NOUVEAU introduit par ce
+// lot (toggle "adresse différente" en mode livraison, champs contact
+// désormais universels) est testé ci-dessous.
+// ====================================================================
+
+test("Delivery-1. Livraison + AUCUNE facture demandée -- checkout inchangé, aucun toggle de réutilisation visible, aucun appel fetch", async (t) => {
+  mockRpcDelivery(t);
+  let fetchCalled = false;
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async () => { fetchCalled = true; throw new Error("ne doit jamais être appelé"); };
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const { container, root, submitBtn } = await renderFillDeliveryAndReachSubmit();
+  try {
+    assert.equal(
+      inputById(container, "invoice-billing-address-differs"),
+      null,
+      "le toggle de réutilisation ne doit apparaître que si une facture est demandée"
+    );
+    click(submitBtn);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation directe attendue");
+    assert.equal(fetchCalled, false, "aucun appel fetch ne doit avoir lieu sans demande de facture");
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
+
+test("Delivery-2. Livraison + facture + réutilisation de l'adresse de livraison (réglage par défaut, toggle décoché) -- champs manuels masqués, adresse de facturation dérivée de l'adresse de livraison envoyée telle quelle", async (t) => {
+  mockRpcDelivery(t);
+  let invoicePayload: any = null;
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    invoicePayload = JSON.parse(init.body);
+    return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  };
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const { container, root } = await renderFillDeliveryCheckInvoiceAndReachSubmit();
+  try {
+    // Toggle présent (mode livraison + facture demandée) mais DÉCOCHÉ
+    // par défaut (mandat, littéral : "defaulting to NO").
+    const reuseToggle = inputById(container, "invoice-billing-address-differs") as HTMLInputElement | null;
+    assert.ok(reuseToggle, "le toggle de réutilisation doit être visible en mode livraison dès qu'une facture est demandée");
+    assert.equal(reuseToggle!.checked, false, "décoché par défaut");
+
+    // Champs d'adresse de facturation manuels MASQUÉS -- aucune
+    // saisie manuelle requise (mandat : "do not require manual
+    // billing-address entry").
+    assert.equal(inputById(container, "invoice-address-line-1"), null, "les champs manuels ne doivent pas être rendus tant que le toggle est décoché");
+
+    // Les champs contact (désormais universels, section C) restent
+    // accessibles même en réutilisation d'adresse.
+    assert.ok(inputById(container, "invoice-contact-name"), "le nom de contact doit être disponible même pour une facture individuelle");
+    assert.ok(inputById(container, "invoice-contact-email"), "l'email de contact doit être disponible même pour une facture individuelle");
+
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submitBtn, "l'envoi doit être atteignable SANS aucune saisie manuelle d'adresse de facturation");
+    click(submitBtn!);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue");
+
+    assert.ok(invoicePayload, "un appel fetch doit avoir eu lieu");
+    assert.equal(invoicePayload.addressLine1, "10 rue de Rivoli", "l'adresse de facturation dérivée doit être EXACTEMENT l'adresse de livraison saisie (street)");
+    assert.equal(invoicePayload.city, "Paris");
+    assert.equal(invoicePayload.postalCode, "75001");
+    assert.equal(invoicePayload.country, "FR");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
+
+test("Delivery-3. Livraison + facture + adresse de facturation DIFFÉRENTE (toggle coché) -- les champs manuels réapparaissent, sont éditables, et l'adresse manuellement saisie (jamais l'adresse de livraison) est celle envoyée", async (t) => {
+  mockRpcDelivery(t);
+  let invoicePayload: any = null;
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    invoicePayload = JSON.parse(init.body);
+    return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  };
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const { container, root } = await renderFillDeliveryCheckInvoiceAndReachSubmit();
+  try {
+    assert.equal(inputById(container, "invoice-address-line-1"), null, "masqués avant de cocher le toggle");
+
+    const reuseToggle = inputById(container, "invoice-billing-address-differs") as HTMLInputElement;
+    toggleCheckbox(reuseToggle);
+    await flush();
+
+    await waitFor(() => inputById(container, "invoice-address-line-1") !== null, "les champs manuels doivent réapparaître une fois le toggle coché");
+    setNativeValue(inputById(container, "invoice-address-line-1")!, "5 avenue Facturation");
+    setNativeValue(inputById(container, "invoice-city")!, "Marseille");
+    setNativeValue(inputById(container, "invoice-postal-code")!, "13001");
+    await flush(50);
+    await flush();
+
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submitBtn, "l'envoi doit être atteignable une fois l'adresse manuelle complète");
+    click(submitBtn!);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue");
+
+    assert.ok(invoicePayload, "un appel fetch doit avoir eu lieu");
+    assert.equal(invoicePayload.addressLine1, "5 avenue Facturation", "l'adresse MANUELLE doit être envoyée, jamais l'adresse de livraison ('10 rue de Rivoli')");
+    assert.equal(invoicePayload.city, "Marseille");
+    assert.equal(invoicePayload.postalCode, "13001");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
+
+test("Delivery-3b. Livraison + facture + adresse différente PUIS décochée à nouveau -- l'adresse de facturation revient se resynchroniser sur l'adresse de livraison courante", async (t) => {
+  mockRpcDelivery(t);
+  let invoicePayload: any = null;
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = async (_url: string, init: any) => {
+    invoicePayload = JSON.parse(init.body);
+    return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  };
+  const realOpen = window.open;
+  (window as any).open = () => ({});
+
+  const { container, root } = await renderFillDeliveryCheckInvoiceAndReachSubmit();
+  try {
+    const reuseToggle = inputById(container, "invoice-billing-address-differs") as HTMLInputElement;
+    toggleCheckbox(reuseToggle);
+    await waitFor(() => inputById(container, "invoice-address-line-1") !== null, "champs manuels visibles");
+    setNativeValue(inputById(container, "invoice-address-line-1")!, "5 avenue Facturation");
+    setNativeValue(inputById(container, "invoice-city")!, "Marseille");
+    setNativeValue(inputById(container, "invoice-postal-code")!, "13001");
+    await flush(50);
+    await flush();
+
+    // Redécoche -- la synchronisation doit reprendre immédiatement sur
+    // l'adresse de livraison courante, jamais conserver la saisie
+    // manuelle précédente (comportement du toggle décoché = TOUJOURS
+    // dérivé, mandat).
+    toggleCheckbox(reuseToggle);
+    await flush(50);
+    await flush();
+    assert.equal(inputById(container, "invoice-address-line-1"), null, "les champs manuels redisparaissent");
+
+    const submitBtn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submitBtn);
+    click(submitBtn!);
+    await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue");
+
+    assert.ok(invoicePayload);
+    assert.equal(invoicePayload.addressLine1, "10 rue de Rivoli", "revient à l'adresse de livraison, jamais la saisie manuelle abandonnée ('5 avenue Facturation')");
+    assert.equal(invoicePayload.city, "Paris");
+    assert.equal(invoicePayload.postalCode, "75001");
+
+    root.unmount();
+    container.remove();
+  } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+});
+
+test("5. Facture INDIVIDUELLE (mode pickup, type par défaut) -- ferme l'écart Section C : contactName/contactEmail désormais disponibles même hors facture société", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderFillPickupCheckInvoiceAndReachSubmit();
+  try {
+    // Type de facture par défaut = individuelle (EMPTY_INVOICE_REQUEST.invoiceType).
+    const companyRadio = [...container.querySelectorAll('input[type="radio"]')]
+      .find((el) => (el as HTMLInputElement).checked) as HTMLInputElement | undefined;
+    assert.ok(companyRadio, "un type de facture doit être sélectionné par défaut");
+
+    assert.ok(
+      inputById(container, "invoice-contact-name"),
+      "AVANT ce lot, ce champ n'était rendu que pour une facture société -- il doit désormais être présent pour une facture individuelle aussi"
+    );
+    assert.ok(
+      inputById(container, "invoice-contact-email"),
+      "idem pour l'email de contact"
+    );
+    // Le champ TVA, lui, reste réservé à la facture société (mandat,
+    // Section D -- INCHANGÉ).
+    assert.equal(
+      inputById(container, "invoice-vat-number"),
+      null,
+      "le numéro de TVA doit rester réservé à la facture société, jamais rendu pour une facture individuelle"
+    );
+
+    root.unmount();
+    container.remove();
+  } finally {
+    // aucun mock fetch/open nécessaire -- ce test ne soumet rien.
   }
 });
 

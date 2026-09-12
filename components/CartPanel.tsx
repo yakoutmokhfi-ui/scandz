@@ -422,6 +422,8 @@ export default function CartPanel({
                   info={invoiceRequest}
                   errors={invoiceRequestErrors}
                   onChange={onChangeInvoiceRequest}
+                  serviceMode={serviceMode}
+                  customer={customer}
                 />
               </div>
 

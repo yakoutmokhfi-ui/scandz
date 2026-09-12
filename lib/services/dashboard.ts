@@ -46,6 +46,18 @@ export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
   return (data ?? []) as unknown as MerchantRestaurant[];
 }
 
+/**
+ * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) --
+ * embarque désormais la relation 1:1 `order_invoice_request` (comme
+ * `order_items`/`order_delivery_tax_allocations` ci-dessous, même
+ * patron PostgREST déjà établi). Aucun endpoint élevé/privilégié
+ * introduit : ce embed passe par le même client `supabase` navigateur
+ * authentifié qu'avant ce lot, donc par la RLS EXISTANTE et
+ * INCHANGÉE de `order_invoice_request`
+ * (`order_invoice_request_select_staff`, authenticated +
+ * restaurant_users) -- aucune exposition anonyme, aucun contournement
+ * multi-tenant, aucune clé serveur privilégiée côté navigateur.
+ */
 export async function getDashboardOrders(
   restaurantId: string,
   includeCompleted = false
@@ -67,6 +79,11 @@ export async function getDashboardOrders(
       order_delivery_tax_allocations (
         tax_rate_snapshot, delivery_fee_gross_share, delivery_fee_net_share,
         delivery_fee_tax_amount
+      ),
+      order_invoice_request (
+        invoice_type, company_legal_name, vat_number, contact_name,
+        contact_email, address_line_1, address_line_2, city, postal_code,
+        country, updated_at
       )
     `
     )

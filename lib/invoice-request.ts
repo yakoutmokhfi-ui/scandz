@@ -27,8 +27,20 @@
  * valeur non vide est saisie (contactEmail reste un champ
  * OPTIONNEL, inchangé -- ce lot ajoute une règle de FORMAT, jamais
  * une règle d'obligation nouvelle).
+ *
+ * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) :
+ * ajoute `deriveInvoiceAddressFromCustomer` ci-dessous -- fonction
+ * PURE, sans effet de bord, utilisée par
+ * `components/InvoiceRequestFields.tsx` UNIQUEMENT lorsque le client
+ * indique (mode livraison) que sa facturation N'EST PAS différente de
+ * sa livraison ("Adresse de facturation différente de l'adresse de
+ * livraison ?" -> NON, réglage par défaut). Aucune persistance d'un
+ * indicateur de réutilisation quelconque -- c'est un état d'interface
+ * uniquement (mandat, littéral : "Do not persist a separate reuse
+ * flag. The flag is checkout UI state only.").
  */
 import { isValidEmail } from "@/lib/customer";
+import type { CustomerInfo } from "@/lib/customer";
 
 export type InvoiceType = "individual" | "company";
 
@@ -79,6 +91,39 @@ export const INVOICE_FIELD_MAX_LENGTHS = {
   contactName: 45,
   contactEmail: 100,
 } as const;
+
+/**
+ * Dérive l'adresse de facturation depuis l'adresse de LIVRAISON du
+ * client (`customer`) -- utilisée UNIQUEMENT lorsque le client répond
+ * NON (réglage par défaut) à "Adresse de facturation différente de
+ * l'adresse de livraison ?" en mode livraison. Fonction PURE, aucun
+ * effet de bord, aucune persistance -- l'état "réutiliser l'adresse
+ * de livraison" reste un booléen d'interface local à
+ * `components/InvoiceRequestFields.tsx`, jamais transmis ni stocké
+ * (mandat, littéral : "Do not persist a separate reuse flag. The
+ * flag is checkout UI state only.").
+ *
+ * `country` est fixé à "FR" -- `CustomerInfo` ne porte aucun champ
+ * pays (le checkout est implicitement France uniquement, cf.
+ * `isValidPostalCode` dans lib/customer.ts) ; c'est exactement la
+ * valeur par défaut déjà utilisée par `EMPTY_INVOICE_REQUEST.country`
+ * ci-dessus, donc aucune nouvelle valeur inventée.
+ *
+ * `addressLine2` reste vide -- `CustomerInfo` ne porte qu'une seule
+ * ligne d'adresse (`street`), jamais de complément d'adresse
+ * distinct.
+ */
+export function deriveInvoiceAddressFromCustomer(
+  customer: Pick<CustomerInfo, "street" | "postalCode" | "city">
+): Pick<InvoiceRequestInfo, "addressLine1" | "addressLine2" | "city" | "postalCode" | "country"> {
+  return {
+    addressLine1: customer.street.trim(),
+    addressLine2: "",
+    city: customer.city.trim(),
+    postalCode: customer.postalCode.trim(),
+    country: "FR",
+  };
+}
 
 export type InvoiceRequestErrors = Partial<
   Record<
