@@ -49,6 +49,16 @@ export interface BuildXlsxOptions {
    *  décompressée DÉCLARÉE arbitrairement grande sans que leur contenu
    *  réel ne change. */
   extraFiles?: Record<string, string>;
+  /** XLSX RELATIONSHIP ATTRIBUTE-ORDER ROBUSTNESS v1 -- remplace
+   *  intégralement le contenu par défaut de
+   *  `xl/_rels/workbook.xml.rels` par ce texte XML brut, tel quel --
+   *  sert UNIQUEMENT à fabriquer des fixtures de régression pour
+   *  l'ordre des attributs `<Relationship>` (Id/Target dans un ordre
+   *  différent, relation non pertinente précédant la bonne, Target
+   *  manquant, XML malformé) sans toucher au reste du classeur. Le
+   *  contenu par défaut (Id puis Type puis Target, `rId1`/`rId2`)
+   *  reste inchangé quand cette option est omise. */
+  workbookRelsXmlOverride?: string;
 }
 
 /** Construit un classeur .xlsx valide (un seul onglet) à partir d'une
@@ -121,7 +131,9 @@ ${sharedStrings.map((s) => `<si><t xml:space="preserve">${xmlEscape(s)}</t></si>
 <sheets><sheet name="Feuil1" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`;
 
-  const workbookRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const workbookRelsXml =
+    options.workbookRelsXmlOverride ??
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>

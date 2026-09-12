@@ -13,6 +13,106 @@ const { readXlsxWorkbook, XlsxReadError, MAX_IMPORT_FILE_SIZE_BYTES, checkZipSig
   await import("../lib/catalogue-import/xlsx-reader.ts");
 const { buildImportXlsx, buildXlsxWorkbook } = await import("./helpers/xlsx-fixture-builder.ts");
 
+// ====================================================================
+// CATALOGUE XLSX RELATIONSHIP ATTRIBUTE-ORDER ROBUSTNESS v1.
+//
+// DÉFAUT CORRIGÉ : `findFirstSheetPath` (xlsx-reader.ts) résolvait la
+// relation de la première feuille avec un unique regex qui imposait
+// implicitement Id AVANT Target dans la balise <Relationship .../> --
+// alors que les attributs XML ne sont PAS ordonnés. Un classeur réel
+// de test Scanym a échoué avec "Relation de feuille introuvable dans
+// le classeur." pour cette exacte raison (ordre Type -> Target -> Id),
+// et ne fonctionnait qu'après réordonnancement mécanique des
+// attributs. Ce bloc reproduit cet ordre exact comme fixture de
+// régression, ainsi que les 3 autres combinaisons mandatées et les
+// cas négatifs -- chacune de ces fixtures utilise
+// `workbookRelsXmlOverride` (ajout additif au fixture builder, voir
+// son en-tête) pour remplacer `xl/_rels/workbook.xml.rels` par un XML
+// contrôlé au caractère près, sans toucher au reste du classeur.
+// ====================================================================
+
+const RELS_HEADER = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`;
+const RELS_FOOTER = `</Relationships>`;
+const WORKSHEET_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet";
+
+test("RELATIONSHIP ORDER 1. Id avant Target (Id / Target / Type) -> résolution correcte", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="${WORKSHEET_TYPE}"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  const sheet = readXlsxWorkbook(buf);
+  assert.deepEqual(sheet.rows[1], ["Pizza"]);
+});
+
+test("RELATIONSHIP ORDER 2. Target avant Id (Target / Id / Type) -> résolution correcte", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Target="worksheets/sheet1.xml" Id="rId1" Type="${WORKSHEET_TYPE}"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  const sheet = readXlsxWorkbook(buf);
+  assert.deepEqual(sheet.rows[1], ["Pizza"]);
+});
+
+test("RELATIONSHIP ORDER 3. Type / Target / Id -> résolution correcte (FIXTURE DE RÉGRESSION : ordre exact du classeur réel qui a échoué en production ; échouait contre la baseline avant ce lot)", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Type="${WORKSHEET_TYPE}" Target="worksheets/sheet1.xml" Id="rId1"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  const sheet = readXlsxWorkbook(buf);
+  assert.deepEqual(sheet.rows[1], ["Pizza"]);
+});
+
+test("RELATIONSHIP ORDER 4. Type / Id / Target -> résolution correcte", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Type="${WORKSHEET_TYPE}" Id="rId1" Target="worksheets/sheet1.xml"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  const sheet = readXlsxWorkbook(buf);
+  assert.deepEqual(sheet.rows[1], ["Pizza"]);
+});
+
+test("RELATIONSHIP ORDER 5. relation non pertinente (rId2, Target volontairement erroné) déclarée AVANT la bonne (rId1) -> le bon Id est quand même sélectionné", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="does-not-exist.xml"/>
+<Relationship Type="${WORKSHEET_TYPE}" Target="worksheets/sheet1.xml" Id="rId1"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  const sheet = readXlsxWorkbook(buf);
+  assert.deepEqual(sheet.rows[1], ["Pizza"]);
+});
+
+test("RELATIONSHIP ORDER 6. Id correct mais Target absent -> NO_WORKSHEET_FOUND (échec fermé)", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Id="rId1" Type="${WORKSHEET_TYPE}"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  assert.throws(
+    () => readXlsxWorkbook(buf),
+    (e: unknown) => e instanceof XlsxReadError && e.code === "NO_WORKSHEET_FOUND"
+  );
+});
+
+test("RELATIONSHIP ORDER 7. aucun Id ne correspond à rId1 -> NO_WORKSHEET_FOUND (échec fermé)", () => {
+  const relsXml = `${RELS_HEADER}
+<Relationship Id="rId9" Type="${WORKSHEET_TYPE}" Target="worksheets/sheet1.xml"/>
+${RELS_FOOTER}`;
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  assert.throws(
+    () => readXlsxWorkbook(buf),
+    (e: unknown) => e instanceof XlsxReadError && e.code === "NO_WORKSHEET_FOUND"
+  );
+});
+
+test("RELATIONSHIP ORDER 8. XML de relations malformé (aucune balise <Relationship> exploitable) -> NO_WORKSHEET_FOUND (échec fermé, jamais d'exception non contrôlée)", () => {
+  const relsXml = "ceci n'est pas du XML de relations valide du tout";
+  const buf = buildImportXlsx(["Nom"], [["Pizza"]], { workbookRelsXmlOverride: relsXml });
+  assert.throws(
+    () => readXlsxWorkbook(buf),
+    (e: unknown) => e instanceof XlsxReadError && e.code === "NO_WORKSHEET_FOUND"
+  );
+});
+
 test("1. valid XLSX parse : en-tête + lignes de données lues correctement, y compris accents", () => {
   const header = ["Nom", "Prix TTC (€)"];
   const rows = [["Café allongé", 2.5], ["Thé à la menthe", 3]];
