@@ -5,6 +5,7 @@ import {
   getInvoiceRequestErrors,
   hasInvoiceRequestErrors,
   normalizeOptional,
+  deriveInvoiceAddressFromCustomer,
   INVOICE_FIELD_MAX_LENGTHS,
   type InvoiceRequestInfo,
 } from "../lib/invoice-request.ts";
@@ -308,4 +309,62 @@ test("27. contactEmail trop long PRIME sur le format -- même invalide en format
 test("28. hasInvoiceRequestErrors reflète bien un contactEmail invalide (gating réel utilisé par MenuView.tsx)", () => {
   assert.equal(hasInvoiceRequestErrors(withCompanyEmail("not-an-email")), true);
   assert.equal(hasInvoiceRequestErrors(withCompanyEmail("valid@example.com")), false);
+});
+
+// ====================================================================
+// INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) --
+// `deriveInvoiceAddressFromCustomer` : fonction PURE, aucun effet de
+// bord, utilisée EXCLUSIVEMENT par
+// components/InvoiceRequestFields.tsx lorsque le client répond NON
+// (mode livraison, réglage par défaut) à "Adresse de facturation
+// différente de l'adresse de livraison ?". Aucun indicateur de
+// réutilisation n'est en jeu ici -- ce module ne connaît même pas ce
+// booléen (état d'interface, jamais transmis à ce module).
+// ====================================================================
+
+test("29. deriveInvoiceAddressFromCustomer -- dérive addressLine1/city/postalCode depuis street/city/postalCode, addressLine2 vide, country FR fixe", () => {
+  const derived = deriveInvoiceAddressFromCustomer({
+    street: "12 rue des Lilas",
+    city: "Paris",
+    postalCode: "75011",
+  });
+  assert.deepEqual(derived, {
+    addressLine1: "12 rue des Lilas",
+    addressLine2: "",
+    city: "Paris",
+    postalCode: "75011",
+    country: "FR",
+  });
+});
+
+test("30. deriveInvoiceAddressFromCustomer -- ne mute jamais l'objet en entrée (fonction pure)", () => {
+  const customer = { street: "1 rue Test", city: "Lyon", postalCode: "69001" };
+  const snapshot = { ...customer };
+  deriveInvoiceAddressFromCustomer(customer);
+  assert.deepEqual(customer, snapshot);
+});
+
+test("31. deriveInvoiceAddressFromCustomer -- espaces superflus retirés (trim), jamais transmis tels quels", () => {
+  const derived = deriveInvoiceAddressFromCustomer({
+    street: "  1 rue Test  ",
+    city: "  Lyon  ",
+    postalCode: "  69001  ",
+  });
+  assert.equal(derived.addressLine1, "1 rue Test");
+  assert.equal(derived.city, "Lyon");
+  assert.equal(derived.postalCode, "69001");
+});
+
+test("32. deriveInvoiceAddressFromCustomer -- le résultat, une fois fusionné dans un InvoiceRequestInfo par ailleurs complet, ne produit aucune erreur de validation", () => {
+  const derived = deriveInvoiceAddressFromCustomer({
+    street: "12 rue des Lilas",
+    city: "Paris",
+    postalCode: "75011",
+  });
+  const info = withInfo({
+    wantsInvoice: true,
+    invoiceType: "individual",
+    ...derived,
+  });
+  assert.deepEqual(getInvoiceRequestErrors(info), {});
 });

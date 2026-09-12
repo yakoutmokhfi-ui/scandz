@@ -144,9 +144,16 @@ export default function OrderCard({
             {service(order, lang)} · {ageDisplay}
           </p>
         </div>
-        <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">
-          {t(STATUS_KEY[order.status])}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">
+            {t(STATUS_KEY[order.status])}
+          </span>
+          {order.order_invoice_request && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+              {t("dsInvoiceRequested")}
+            </span>
+          )}
+        </div>
       </header>
 
       <div className="mt-4 space-y-3 border-y border-dashed border-stone-200 py-4">
@@ -171,6 +178,54 @@ export default function OrderCard({
           {order.customer_phone && <p>{order.customer_phone}</p>}
           {order.delivery_address && <p>{order.delivery_address}</p>}
           {order.customer_note && <p className="mt-1 italic">Note : {order.customer_note}</p>}
+        </div>
+      )}
+
+      {/*
+       * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude
+       * Monet) -- affiche la demande de facture QUAND ELLE EXISTE,
+       * telle que saisie au checkout. Aucune colonne de statut de
+       * génération/envoi n'est introduite ni affichée ici (mandat,
+       * littéral : "Do NOT display 'Facture générée'/'Envoyée'").
+       */}
+      {order.order_invoice_request && (
+        <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-stone-700">
+          <p className="font-bold text-amber-900">
+            {order.order_invoice_request.invoice_type === "company"
+              ? t("invTypeCompany")
+              : t("invTypeIndividual")}
+          </p>
+          {order.order_invoice_request.company_legal_name && (
+            <p>
+              {t("invCompanyLegalName")} : {order.order_invoice_request.company_legal_name}
+            </p>
+          )}
+          {order.order_invoice_request.vat_number && (
+            <p>
+              {t("dsInvoiceVatNumber")} : {order.order_invoice_request.vat_number}
+            </p>
+          )}
+          {order.order_invoice_request.contact_name && (
+            <p>
+              {t("invContactName")} : {order.order_invoice_request.contact_name}
+            </p>
+          )}
+          {order.order_invoice_request.contact_email && (
+            <p>
+              {t("invContactEmail")} : {order.order_invoice_request.contact_email}
+            </p>
+          )}
+          <p>
+            {order.order_invoice_request.address_line_1}
+            {order.order_invoice_request.address_line_2
+              ? `, ${order.order_invoice_request.address_line_2}`
+              : ""}
+          </p>
+          <p>
+            {order.order_invoice_request.postal_code} {order.order_invoice_request.city}
+            {", "}
+            {order.order_invoice_request.country}
+          </p>
         </div>
       )}
 

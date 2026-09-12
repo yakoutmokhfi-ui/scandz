@@ -131,6 +131,41 @@ export interface DashboardOrder {
    * fourni par lib/services/dashboard.ts après ce lot.
    */
   order_delivery_tax_allocations?: DashboardOrderDeliveryTaxAllocation[];
+  /**
+   * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet)
+   * -- instantané de la demande de facture client/société saisie au
+   * checkout (public.order_invoice_request, relation 1:1 avec
+   * `orders`, RLS INCHANGÉE -- `order_invoice_request_select_staff`,
+   * authenticated + restaurant_users, déjà en place avant ce lot).
+   * `undefined`/`null` = aucune facture demandée pour cette commande
+   * (cas normal, majoritaire) -- `components/dashboard/OrderCard.tsx`
+   * n'affiche alors aucun badge ni bloc supplémentaire. Ce lot
+   * n'introduit AUCUNE colonne de statut ("générée"/"envoyée") : la
+   * seule information disponible est la DEMANDE elle-même, telle que
+   * saisie au checkout.
+   */
+  order_invoice_request?: DashboardOrderInvoiceRequest | null;
+}
+
+/**
+ * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) --
+ * miroir exact des colonnes de public.order_invoice_request lues par
+ * `lib/services/dashboard.ts` (aucune colonne de statut de génération
+ * d'envoi -- ce lot ne crée ni PDF ni numérotation ni envoi de
+ * facture).
+ */
+export interface DashboardOrderInvoiceRequest {
+  invoice_type: "individual" | "company";
+  company_legal_name: string | null;
+  vat_number: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  address_line_1: string;
+  address_line_2: string | null;
+  city: string;
+  postal_code: string;
+  country: string;
+  updated_at: string;
 }
 
 /**

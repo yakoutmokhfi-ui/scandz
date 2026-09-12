@@ -591,6 +591,10 @@ const fr: Dict = {
   invoiceContactEmailInvalid: "Adresse e-mail invalide",
   invoiceRequestFailed: "Votre commande a bien été créée, mais votre demande de facture n'a pas pu être enregistrée. Réessayez.",
   invoiceRetry: "Réessayer la demande de facture",
+  // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
+  invBillingAddressDiffers: "Adresse de facturation différente de l'adresse de livraison ?",
+  dsInvoiceRequested: "Facture demandée",
+  dsInvoiceVatNumber: "N° TVA",
 };
 
 const en: Dict = {
@@ -1102,6 +1106,10 @@ const en: Dict = {
   invoiceContactEmailInvalid: "Invalid email address",
   invoiceRequestFailed: "Your order was created successfully, but your invoice request could not be saved. Please retry.",
   invoiceRetry: "Retry invoice request",
+  // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
+  invBillingAddressDiffers: "Billing address different from delivery address?",
+  dsInvoiceRequested: "Invoice requested",
+  dsInvoiceVatNumber: "VAT number",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -1608,6 +1616,10 @@ const ar: Dict = {
   invoiceContactEmailInvalid: "بريد إلكتروني غير صالح",
   invoiceRequestFailed: "تم إنشاء طلبك بنجاح، لكن تعذر حفظ طلب الفاتورة. يرجى المحاولة مرة أخرى.",
   invoiceRetry: "إعادة محاولة طلب الفاتورة",
+  // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
+  invBillingAddressDiffers: "هل عنوان الفوترة مختلف عن عنوان التوصيل؟",
+  dsInvoiceRequested: "طلب فاتورة",
+  dsInvoiceVatNumber: "رقم التعريف الضريبي",
 };
 
 const DICTS: Record<Lang, Dict> = { fr, en, ar };

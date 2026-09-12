@@ -127,6 +127,40 @@ const LATER_APPROVED_UNRELATED_LOT_FILES = new Set([
   "tests/v110c-payment-p3a1-structural.test.ts",
   "tests/v111h-payment-p3a2-structural.test.ts",
   "tests/v122j-tracking-structural.test.ts",
+
+  // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet)
+  // -- ENTIÈREMENT SANS RAPPORT avec OB-1. Étend l'embed PostgREST
+  // déjà existant de `getDashboardOrders` (order_items,
+  // order_delivery_tax_allocations, motif inchangé) à la relation 1:1
+  // `order_invoice_request` (table/RPC déjà listées ci-dessus, créées
+  // par le lot Customer Checkout Invoice Request -- jamais une
+  // modification d'un objet utilisé par OB-1) ; ajoute le type miroir
+  // correspondant dans `lib/dashboard-types.ts` ; étend
+  // `components/dashboard/OrderCard.tsx` pour AFFICHER cette même
+  // demande de facture (badge + détails) quand elle existe -- AUCUNE
+  // colonne de statut de génération/envoi n'est introduite. Preuve
+  // que ce lot ne touche JAMAIS le périmètre protégé d'OB-1 :
+  // - `lib/services/dashboard.ts` change UNIQUEMENT la chaîne
+  //   `.select()` de `getDashboardOrders` (ajout d'un embed
+  //   supplémentaire, RLS/RPC INCHANGÉES) -- `setProductPhoto` reste
+  //   entièrement absent (voir le test dédié plus bas, toujours vrai
+  //   après ce lot) ;
+  // - `components/dashboard/DashboardNav.tsx` (navigation marchande)
+  //   n'est PAS dans cette liste et reste donc strictement inchangé ;
+  // - aucun fichier `supabase/`, `app/api/payments*`,
+  //   `app/dashboard/payment/`, `app/dashboard/catalogue/`,
+  //   `lib/services/product-photo.ts`, ni aucune mention Stuart ;
+  // - `lib/dashboard-types.ts`/`components/dashboard/OrderCard.tsx`
+  //   sont des additions/extensions strictement additives (nouveau
+  //   champ optionnel `order_invoice_request?`, nouveau bloc
+  //   d'affichage conditionnel), jamais une modification du
+  //   comportement existant du tableau de bord marchand pour une
+  //   commande SANS demande de facture.
+  "lib/services/dashboard.ts",
+  "lib/dashboard-types.ts",
+  "components/dashboard/OrderCard.tsx",
+  "tests/invoice-backoffice-visibility-v1.dom.test.ts",
+  "tests/invoice-backoffice-visibility-v1-query.test.ts",
 ]);
 
 function isAllowed(file: string): boolean {
