@@ -1,10 +1,11 @@
 "use client";
 
 import type { RestaurantFull } from "@/lib/types";
-import type { OrderContext } from "@/lib/whatsapp";
+import { formatPrice, type OrderContext } from "@/lib/whatsapp";
 import { formatAddress } from "@/lib/customer";
 import { useI18n } from "@/lib/i18n-context";
 import type { Translator } from "@/lib/i18n";
+import Ltr from "@/components/Bidi";
 
 function contextSummary(ctx: OrderContext | null, t: Translator): string[] {
   if (!ctx) return [];
@@ -35,6 +36,8 @@ export default function OrderConfirmation({
   context,
   orderNumber,
   trackingPath,
+  totalAmount,
+  invoiceRequested,
   onBackToMenu,
   onNewOrder,
 }: {
@@ -54,6 +57,28 @@ export default function OrderConfirmation({
    * order creation failed").
    */
   trackingPath: string | null;
+  /**
+   * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "total amount
+   * visibility") — montant TOTAL AUTORITATIF de la commande, tel que
+   * renvoyé par `create_order` (lib/services/orders.ts::CreatedOrder
+   * ::total ; jamais recalculé côté client -- même source que
+   * SADFP-V2-01 pour le message WhatsApp). `undefined`/`null` :
+   * n'affiche aucune ligne de montant (repli défensif, jamais un
+   * "0" ou un montant inventé) -- ce prop est optionnel afin de ne
+   * jamais casser un appelant existant qui ne le fournit pas encore.
+   */
+  totalAmount?: number | null;
+  /**
+   * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "invoice-request
+   * indicator") — `true` UNIQUEMENT lorsque l'appelant a atteint cet
+   * écran APRÈS une demande de facture explicitement CONFIRMÉE
+   * (persistée avec succès) -- `completeOrderFlow` n'est jamais appelé
+   * tant que l'issue de la demande de facture n'est pas connue (voir
+   * components/MenuView.tsx). `false`/`undefined` : aucune facture
+   * demandée -- aucun indicateur affiché, jamais un état par défaut
+   * "facture en cours".
+   */
+  invoiceRequested?: boolean;
   onBackToMenu: () => void;
   onNewOrder: () => void;
 }) {
@@ -77,6 +102,20 @@ export default function OrderConfirmation({
         {orderNumber !== null && (
           <p className="mt-4 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink">
             {t("orderNumber", { n: orderNumber })}
+          </p>
+        )}
+
+        {/* CUSTOMER CONFIRMATION + TRACKING FINAL v1 : montant total
+            AUTORITATIF (order.total, jamais recalculé ici). Absent
+            (undefined/null) : aucune ligne rendue -- jamais un montant
+            par défaut. Libellé et montant restent deux fragments
+            SÉPARÉS (jamais interpolés dans une seule phrase traduite)
+            et `Ltr` isole l'affichage du prix en RTL (arabe) -- même
+            convention que components/CartPanel.tsx. */}
+        {totalAmount !== null && totalAmount !== undefined && (
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-ink-on-bg-muted">
+            <span>{t("confirmTotalLabel")}</span>
+            <Ltr>{formatPrice(totalAmount, restaurant.config.currency)}</Ltr>
           </p>
         )}
 
@@ -116,6 +155,17 @@ export default function OrderConfirmation({
           {isTable && (
             <p className="text-ink-on-bg-muted">
               {t("confirmServed")}
+            </p>
+          )}
+          {/* CUSTOMER CONFIRMATION + TRACKING FINAL v1 : n'apparaît que
+              lorsque la demande de facture a été explicitement
+              CONFIRMÉE (persistée avec succès) avant cet écran --
+              `completeOrderFlow` (components/MenuView.tsx) n'est
+              jamais atteint tant que l'issue reste inconnue ou en
+              échec. Jamais un état "facture en cours" par défaut. */}
+          {invoiceRequested && (
+            <p className="text-ink-on-bg-muted">
+              {t("confirmInvoiceRequested")}
             </p>
           )}
         </div>

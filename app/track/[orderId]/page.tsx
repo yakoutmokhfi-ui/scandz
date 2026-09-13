@@ -18,10 +18,12 @@ import {
 } from "@/lib/tracking/status";
 import { buildCleanTrackingPath } from "@/lib/tracking/link";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
-import { translate, type Lang } from "@/lib/i18n";
+import { translate, resolveLangFromParam } from "@/lib/i18n";
+import { formatPrice } from "@/lib/whatsapp";
 import TrackingAutoRefresh from "@/components/TrackingAutoRefresh";
 import TrackingEntryGate from "@/components/TrackingEntryGate";
 import TrackingFragmentScrubber from "@/components/TrackingFragmentScrubber";
+import Ltr from "@/components/Bidi";
 
 /**
  * CUSTOMER TRACKING EXPERIENCE v2 — page de suivi client PUBLIQUE,
@@ -46,17 +48,42 @@ import TrackingFragmentScrubber from "@/components/TrackingFragmentScrubber";
  */
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Scanym — Suivi de commande",
-  robots: { index: false, follow: false, nocache: true },
-};
-
-function resolveLang(rawLang: string | string[] | undefined): Lang {
-  const value = Array.isArray(rawLang) ? rawLang[0] : rawLang;
-  // Mandat §25 : démarrage en français, structure prête pour
-  // l'anglais -- même posture que v1, architecture i18n inchangée.
-  return value === "en" ? "en" : "fr";
+/**
+ * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "FR/EN/AR i18n") —
+ * CORRECTIF : le `<title>` d'onglet était un objet `metadata` STATIQUE,
+ * donc littéralement figé en français quelle que soit `?lang=`, alors
+ * même que le reste de la page traduit déjà correctement son contenu
+ * (mandat §25). Converti en `generateMetadata` (mécanisme Next.js
+ * standard pour un titre dépendant des `searchParams`) et réutilise
+ * `resolveLang`/`translate("trackingPageTitle")` -- SEULE autorité
+ * pour cette chaîne, jamais un second texte dupliqué.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const lang = resolveLang((await searchParams).lang);
+  return {
+    title: `Scanym — ${translate(lang, "trackingPageTitle")}`,
+    robots: { index: false, follow: false, nocache: true },
+  };
 }
+
+/**
+ * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "FR/EN/AR i18n") —
+ * CORRECTIF : la version précédente ne pouvait renvoyer que "en" ou
+ * "fr" (`value === "en" ? "en" : "fr"`), rendant `?lang=ar`
+ * STRUCTURELLEMENT inatteignable alors que le dictionnaire `ar` existe
+ * déjà avec une parité complète pour toutes les clés de cette page
+ * (`trackingStatus_*`, `trackingPageTitle`, etc. -- voir
+ * lib/i18n.ts et le test de parité des clés,
+ * tests/v64-auth-whatsapp.test.ts). Délègue désormais à
+ * `resolveLangFromParam` (lib/i18n.ts), SEULE autorité -- jamais une
+ * seconde liste dupliquée qui pourrait diverger. Repli français
+ * inchangé pour toute valeur absente/inconnue.
+ */
+const resolveLang = resolveLangFromParam;
 
 export default async function TrackingPage({
   params,
@@ -159,6 +186,31 @@ export default async function TrackingPage({
       <p className="mt-1 text-sm text-ink-on-bg-muted">
         {t("trackingOrderNumber", { n: tracking.orderNumber })}
       </p>
+
+      {/* CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 (remédiation
+          CCTF-V1-TRACKING-FISCAL-SUMMARY-01) : montant total
+          AUTORITATIF ET HISTORIQUE (orders.total/orders.currency,
+          jamais recalculé -- voir lib/server/tracking-service.ts).
+          Mêmes libellés/i18n que l'écran de confirmation
+          (components/OrderConfirmation.tsx, "confirmTotalLabel"),
+          SEULE autorité de traduction, jamais un second texte dupliqué.
+          Absent (null) : aucune ligne rendue, jamais un montant
+          inventé -- ne devrait structurellement jamais se produire
+          (colonne `not null`), mais reste défensif. */}
+      {tracking.orderTotal !== null && tracking.orderCurrency !== null && (
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-ink-on-bg-muted">
+          <span>{t("confirmTotalLabel")}</span>
+          <Ltr>{formatPrice(tracking.orderTotal, tracking.orderCurrency)}</Ltr>
+        </p>
+      )}
+
+      {/* CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 : indicateur de
+          facture -- `invoiceRequested` reflète UNIQUEMENT l'existence
+          d'une demande PERSISTÉE (jamais un état "facture en cours"
+          par défaut). Même libellé que l'écran de confirmation. */}
+      {tracking.invoiceRequested && (
+        <p className="mt-1 text-sm text-ink-on-bg-muted">{t("confirmInvoiceRequested")}</p>
+      )}
 
       <p
         className="mt-6 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink"
