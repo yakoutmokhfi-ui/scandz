@@ -10,6 +10,7 @@ import {
   PaymentServerRpcError,
   classifyRpcSqlstate,
 } from "@/lib/server/payment-errors";
+import { triggerStuartPostPaymentOrchestration } from "@/lib/server/delivery-providers/stuart/post-payment-hook-wiring";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — STAGE B : TRAITEMENT
@@ -380,6 +381,35 @@ export async function processClaimedPaymentProviderEvent(
         ? "CONFIRM_ATTEMPT_PERMANENT_FAILURE"
         : "CONFIRM_ATTEMPT_TRANSIENT_FAILURE"
     );
+  }
+
+  // STUART LOT D1 v1.1 — REMEDIATION CIBLÉE (blocage scope-compliance
+  // CTO) : point d'accroche post-paiement câblé ICI, immédiatement
+  // APRÈS que `confirmPaymentAttempt` ait RÉELLEMENT réussi (jamais
+  // avant -- "NO payment confirmation → NO Stuart job allocation/send
+  // path" reste garanti même en amont de la ré-évaluation d'éligibilité
+  // interne au hook, mandat D1 v1 §B, INCHANGÉE).
+  //
+  // STRICTEMENT best-effort (mandat v1.1, "existing payment processing
+  // behavior unchanged" / "payment-provider event recovery/replay
+  // unchanged", items 7/8) : AUCUNE exception issue de l'orchestration
+  // Stuart n'est JAMAIS laissée remonter -- ce chemin ne doit avoir
+  // STRICTEMENT AUCUNE incidence sur la finalisation de l'évènement de
+  // paiement ci-dessous (`finalize(claimed, "applied")` s'exécute
+  // TOUJOURS, quel que soit le résultat de l'orchestration Stuart).
+  // Le transport utilisé est structurellement non-live (voir
+  // `post-payment-hook-wiring.ts`) -- AUCUN appel réseau réel n'est
+  // jamais possible depuis ce point d'appel.
+  try {
+    await triggerStuartPostPaymentOrchestration({
+      orderId: correlation.orderId,
+      restaurantId: correlation.restaurantId,
+    });
+  } catch {
+    // Jamais remontée -- voir le commentaire ci-dessus. Un futur D2
+    // (worker de reprise/observabilité dédiée) reste responsable
+    // d'une éventuelle alerte sur cette classe d'échec ; ce chemin
+    // synchrone de paiement n'en est jamais responsable.
   }
 
   // `confirmPaymentAttempt` est idempotent sous verrouillage terminal

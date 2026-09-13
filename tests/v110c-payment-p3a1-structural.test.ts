@@ -131,6 +131,14 @@ const STUART_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   // exact, même module de service unique autorisé.
   "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts":
     /^@\/lib\/server\/product-photo-service$/,
+  // STUART LOT D1 -- WEBHOOK ROUTE FOUNDATION (lot ULTÉRIEUR et SANS
+  // RAPPORT avec PAYMENT P3-A1) : fondation NON-LIVE (adaptateur
+  // d'authentification rejette inconditionnellement, mandat §E) --
+  // n'importe QUE l'adaptateur d'authentification et le module
+  // d'ingestion dédiés, jamais l'orchestration/allocation/create-job,
+  // jamais Monetico, jamais un autre prestataire.
+  "app/api/internal/stuart/webhook/route.ts":
+    /^@\/lib\/server\/delivery-providers\/stuart\/(webhook-auth-adapter|webhook-ingestion)$/,
 };
 const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/payments/monetico/checkout/route.ts",
@@ -367,6 +375,13 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // + 1 route CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST
   // v1.1 (également ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 --
   // capture de données uniquement, aucun paiement/Stuart déclenché)
+  // + 1 route STUART LOT D1 §E -- WEBHOOK ROUTE FOUNDATION (également
+  // ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 -- fondation
+  // d'ingestion pour test local/fixture UNIQUEMENT, adaptateur
+  // d'authentification NON-LIVE qui rejette INCONDITIONNELLEMENT toute
+  // requête, mandat D1 §E ; entrée ajoutée à cette liste FERMÉE par
+  // STUART LOT D1 v1.2 -- remédiation Cat Stevens, blocker 3 MEDIUM --
+  // jamais une correspondance large, une seule route exacte ajoutée)
   // + 1 route BULK PRODUCT PHOTOS v1.4 -- TRUSTED SERVER-SIDE
   // REPLACEMENT HARDENING (également ULTÉRIEURE et SANS RAPPORT avec
   // PAYMENT P3-A1 -- remplacement/retrait de photo produit de
@@ -381,6 +396,7 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",
+    "app/api/internal/stuart/webhook/route.ts",
     "app/api/payments/monetico/callback/route.ts",
     "app/api/payments/monetico/checkout/route.ts",
     "app/api/track/exchange/route.ts",
