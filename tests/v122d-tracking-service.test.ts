@@ -7,9 +7,15 @@ import assert from "node:assert/strict";
 //
 // Couvre le SEUL wrapper serveur autour de la RPC déjà publiée/auditée
 // get_order_tracking (CUSTOMER ORDER TRACKING FOUNDATION v3, contrat
-// inchangé) : validation de forme AVANT tout appel réseau, mapping
-// snake_case -> camelCase, taxonomie d'erreurs à deux catégories
-// (mandat §25/§45).
+// ÉTENDU par CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 -- voir
+// tests/v166-tracking-final-fiscal-summary.test.ts pour la couverture
+// dédiée order_total/order_currency/invoice_requested (mandat items
+// "authoritative historical total returned"/"no catalogue
+// recomputation"/"invoice-request true"/"invoice-request false") ;
+// VALID_ROW ci-dessous inclut désormais ces 3 champs pour que CE
+// fichier reste un mapping fidèle COMPLET, jamais partiel) :
+// validation de forme AVANT tout appel réseau, mapping snake_case ->
+// camelCase, taxonomie d'erreurs à deux catégories (mandat §25/§45).
 //
 // Patron déjà établi par ce dépôt (tests/v110b-payment-p3a1-
 // service.test.ts, tests/v112-payment-p3b0-service.test.ts) :
@@ -42,6 +48,10 @@ const VALID_ROW = {
   completed_at: null,
   rejected_at: null,
   cancelled_at: null,
+  // CUSTOMER CONFIRMATION + TRACKING FINAL v1.1.
+  order_total: 24.9,
+  order_currency: "EUR",
+  invoice_requested: true,
 };
 
 test("getOrderTracking: appelle EXACTEMENT get_order_tracking avec p_order_id/p_public_token, rien d'autre", async (t) => {
@@ -79,6 +89,9 @@ test("getOrderTracking: ligne valide -- mapping camelCase complet et fidèle", a
     completedAt: null,
     rejectedAt: null,
     cancelledAt: null,
+    orderTotal: 24.9,
+    orderCurrency: "EUR",
+    invoiceRequested: true,
   });
 });
 

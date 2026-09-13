@@ -20,6 +20,7 @@ import { deriveMoneticoReference } from "@/lib/server/payment-providers/monetico
 import { resolveMoneticoSubmissionUrl } from "@/lib/server/payment-providers/monetico/endpoint";
 import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-origin";
 import { createReturnRelayToken } from "@/lib/server/payment-return-relay";
+import { resolveLangFromParam } from "@/lib/i18n";
 import type { MoneticoPaymentRequestFields } from "@/lib/server/payment-providers/monetico/types";
 import {
   mapToMoneticoBilling,
@@ -412,7 +413,42 @@ export async function initiateCheckout(
   // ------------------------------------------------------------
   // 18. Jeton de relais de retour mintable -- `public_token` JAMAIS
   // transmis en clair à Monetico (ferme P3B-V3-PUBLIC-TOKEN-URL-01).
+  //
+  // CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 (remédiation
+  // CCTF-V1-PAYMENT-RETURN-LANGUAGE-REACHABILITY-01, audit Cat Woman,
+  // MEDIUM) : `app/checkout/return/{ok,err}/page.tsx` supportent déjà
+  // `?lang=fr/en/ar` (CUSTOMER CONFIRMATION + TRACKING FINAL v1) --
+  // mais CE runtime, seule autorité de construction de ces URLs
+  // (§17/§18 ci-dessus, depuis P3B-V3-RETURN-AUTHORITY-01), n'y portait
+  // jusqu'ici JAMAIS ce paramètre : EN/AR étaient donc STRUCTURELLEMENT
+  // inatteignables par un vrai parcours de paiement, quelle que soit la
+  // langue choisie par le client au checkout. Corrigé : la langue
+  // affichée sur la page de retour est dérivée ICI de `input.language`
+  // -- le MÊME champ d'entrée DÉJÀ VALIDÉ EN §1b ci-dessus
+  // (`canonicalizeMoneticoLanguage`), jamais un second champ nouveau ni
+  // une valeur brute non validée -- via `resolveLangFromParam`
+  // (lib/i18n.ts), SEULE autorité déjà partagée par les pages de retour
+  // elles-mêmes et par la page de suivi. DEUX ESPACES DE LANGUE
+  // DISTINCTS ET INDÉPENDANTS, jamais confondus :
+  //   - `canonicalLanguage` (ci-dessus, §1b) : langue de la page de
+  //     paiement HÉBERGÉE MONETICO elle-même (FR/EN uniquement --
+  //     `SUPPORTED_LANGUAGES` dans monetico/request.ts -- Monetico ne
+  //     supporte PAS l'arabe) ;
+  //   - `appReturnLang` (ici) : langue de la page de RETOUR Scanym
+  //     elle-même (fr/en/ar -- lib/i18n.ts, indépendante du prestataire
+  //     de paiement, déjà utilisée par la page de suivi).
+  // Aucune autorité de paiement n'est élargie au navigateur par ce
+  // paramètre : il ne fait que sélectionner un TEXTE affiché après
+  // coup, le statut de paiement RÉEL restant lu exclusivement via le
+  // jeton de relais + `get_order_payment_status` (PAYMENT P3-B0,
+  // INCHANGÉ) -- jamais depuis `?lang=` ni depuis aucun autre paramètre
+  // de requête. Sémantique du jeton de relais/orderId/callback/MAC/
+  // corrélation prestataire : STRICTEMENT INCHANGÉE (ce paramètre est
+  // additif, purement cosmétique, jamais lu par la vérification de
+  // paiement elle-même).
   // ------------------------------------------------------------
+  const appReturnLang = resolveLangFromParam(input.language);
+
   let urlRetourOk: string;
   let urlRetourErr: string;
   try {
@@ -429,11 +465,13 @@ export async function initiateCheckout(
     const urlOk = new URL("/checkout/return/ok", origin);
     urlOk.searchParams.set("orderId", input.orderId);
     urlOk.searchParams.set("token", tokenOk);
+    urlOk.searchParams.set("lang", appReturnLang);
     urlRetourOk = urlOk.toString();
 
     const urlErr = new URL("/checkout/return/err", origin);
     urlErr.searchParams.set("orderId", input.orderId);
     urlErr.searchParams.set("token", tokenErr);
+    urlErr.searchParams.set("lang", appReturnLang);
     urlRetourErr = urlErr.toString();
   } catch {
     return { outcome: "provider_unavailable" };

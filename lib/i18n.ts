@@ -173,6 +173,11 @@ const fr: Dict = {
     "Si vous êtes sur place, elle sera servie directement à votre table.",
   confirmThanks: "Merci d'avoir choisi {name} !",
   confirmEnjoy: "Nous préparons votre commande avec soin. Bonne dégustation !",
+  // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : montant total et
+  // indicateur de facture sur l'écran de confirmation (composant
+  // components/OrderConfirmation.tsx).
+  confirmTotalLabel: "Montant total :",
+  confirmInvoiceRequested: "🧾 Facture demandée — vous recevrez les détails séparément.",
   backToMenu: "Retour au menu",
   newOrder: "Passer une autre commande",
 
@@ -522,6 +527,26 @@ const fr: Dict = {
   trackingStatus_rejected: "Commande refusée",
   trackingStatus_cancelled: "Commande annulée",
 
+  // CUSTOMER CONFIRMATION + TRACKING FINAL v1 — pages de retour de
+  // paiement (components/PaymentReturnStatus.tsx), auparavant 100%
+  // français codé en dur.
+  paymentReturnPaidTitle: "Paiement confirmé",
+  paymentReturnPaidBody:
+    "Votre paiement a bien été reçu et confirmé. Merci pour votre commande.",
+  paymentReturnPendingTitle: "Paiement en cours de traitement",
+  paymentReturnPendingBody:
+    "Votre paiement est en cours de validation par votre banque ou par le prestataire de paiement. Cette page se met à jour automatiquement dès que la confirmation est reçue -- vous pouvez aussi la recharger dans quelques instants.",
+  paymentReturnNotRequiredTitle: "Aucun paiement requis",
+  paymentReturnNotRequiredBody:
+    "Cette commande ne nécessite pas de paiement en ligne.",
+  paymentReturnFailedTitle: "Paiement non abouti",
+  paymentReturnFailedBody:
+    "Ce paiement n'a pas pu être finalisé. Vous pouvez retourner à votre commande pour réessayer.",
+  paymentReturnUnavailableTitle: "Statut indisponible",
+  paymentReturnUnavailableBody:
+    "Nous ne parvenons pas à afficher le statut de ce paiement pour le moment. Si le débit a bien eu lieu sur votre moyen de paiement, votre commande sera automatiquement mise à jour dès réception de la confirmation -- aucune action n'est requise de votre part.",
+  paymentReturnBackHome: "Retour à l'accueil",
+
   // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1 — voir
   // lib/catalogue-fiscal.ts. Parité EXACTE fr/en/ar exigée par
   // tests/v64-auth-whatsapp.test.ts ("i18n: les dictionnaires fr/en/ar
@@ -699,6 +724,8 @@ const en: Dict = {
   confirmDeliveryTime: "⏱️ We will confirm the delivery slot by message",
   confirmStaff: "A member of our team will confirm your order.",
   confirmServed: "If you are dining in, it will be brought to your table.",
+  confirmTotalLabel: "Total amount:",
+  confirmInvoiceRequested: "🧾 Invoice requested — you'll receive the details separately.",
   confirmThanks: "Thank you for choosing {name}!",
   confirmEnjoy: "We are preparing your order with care. Enjoy!",
   backToMenu: "Back to menu",
@@ -1046,6 +1073,23 @@ const en: Dict = {
   trackingStatus_rejected: "Order rejected",
   trackingStatus_cancelled: "Order cancelled",
 
+  paymentReturnPaidTitle: "Payment confirmed",
+  paymentReturnPaidBody:
+    "Your payment has been received and confirmed. Thank you for your order.",
+  paymentReturnPendingTitle: "Payment being processed",
+  paymentReturnPendingBody:
+    "Your payment is being validated by your bank or payment provider. This page updates automatically once confirmation is received -- you can also reload it in a moment.",
+  paymentReturnNotRequiredTitle: "No payment required",
+  paymentReturnNotRequiredBody:
+    "This order does not require an online payment.",
+  paymentReturnFailedTitle: "Payment not completed",
+  paymentReturnFailedBody:
+    "This payment could not be completed. You can go back to your order to try again.",
+  paymentReturnUnavailableTitle: "Status unavailable",
+  paymentReturnUnavailableBody:
+    "We can't display this payment's status right now. If the charge went through on your payment method, your order will be updated automatically as soon as confirmation is received -- no action is needed on your part.",
+  paymentReturnBackHome: "Back to home",
+
   // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.
   fiscalTaxRateLabel: "Tax rate (%)",
   fiscalUnitWeightLabel: "Portion weight (g)",
@@ -1214,6 +1258,8 @@ const ar: Dict = {
   confirmDeliveryTime: "⏱️ سنؤكد لك موعد التوصيل برسالة",
   confirmStaff: "سيؤكد أحد أفراد فريقنا طلبك.",
   confirmServed: "إن كنت في المحل، سيُقدَّم الطلب إلى طاولتك مباشرة.",
+  confirmTotalLabel: "المبلغ الإجمالي:",
+  confirmInvoiceRequested: "🧾 تم طلب الفاتورة — ستصلك التفاصيل بشكل منفصل.",
   confirmThanks: "شكراً لاختيارك {name}!",
   confirmEnjoy: "نحضّر طلبك بعناية. بالهناء والشفاء!",
   backToMenu: "العودة إلى القائمة",
@@ -1560,6 +1606,20 @@ const ar: Dict = {
   trackingStatus_rejected: "تم رفض الطلب",
   trackingStatus_cancelled: "تم إلغاء الطلب",
 
+  paymentReturnPaidTitle: "تم تأكيد الدفع",
+  paymentReturnPaidBody: "تم استلام دفعتك وتأكيدها. شكراً لطلبك.",
+  paymentReturnPendingTitle: "جارٍ معالجة الدفع",
+  paymentReturnPendingBody:
+    "دفعتك قيد التحقق من قبل بنكك أو مزود الدفع. تتحدث هذه الصفحة تلقائياً بمجرد استلام التأكيد -- يمكنك أيضاً إعادة تحميلها بعد قليل.",
+  paymentReturnNotRequiredTitle: "لا حاجة لدفع",
+  paymentReturnNotRequiredBody: "لا تتطلب هذه الطلبية دفعاً إلكترونياً.",
+  paymentReturnFailedTitle: "لم يكتمل الدفع",
+  paymentReturnFailedBody: "تعذر إتمام هذا الدفع. يمكنك العودة إلى طلبك للمحاولة مرة أخرى.",
+  paymentReturnUnavailableTitle: "الحالة غير متاحة",
+  paymentReturnUnavailableBody:
+    "لا يمكننا عرض حالة هذا الدفع حالياً. إذا تم خصم المبلغ من وسيلة الدفع الخاصة بك، فسيتم تحديث طلبك تلقائياً فور استلام التأكيد -- لا حاجة لاتخاذ أي إجراء من جانبك.",
+  paymentReturnBackHome: "العودة إلى الصفحة الرئيسية",
+
   // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.
   fiscalTaxRateLabel: "نسبة الضريبة (%)",
   fiscalUnitWeightLabel: "وزن الحصة (غ)",
@@ -1633,7 +1693,56 @@ const ar: Dict = {
   dsInvoiceVatNumber: "رقم التعريف الضريبي",
 };
 
-const DICTS: Record<Lang, Dict> = { fr, en, ar };
+/**
+ * CUSTOMER CONFIRMATION + TRACKING FINAL v1 : exporté pour que
+ * `resolveLang` (app/track/[orderId]/page.tsx) dérive la liste des
+ * langues RÉELLEMENT prises en charge depuis cette SEULE autorité
+ * (`Object.keys(DICTS)`), jamais une seconde liste littérale
+ * dupliquée et potentiellement divergente.
+ */
+export const DICTS: Record<Lang, Dict> = { fr, en, ar };
+
+/**
+ * CUSTOMER CONFIRMATION + TRACKING FINAL v1 — SEULE autorité pour
+ * résoudre une langue candidate (`?lang=` d'un composant serveur) vers
+ * une `Lang` réellement prise en charge, à partir de `DICTS` (jamais
+ * une liste littérale dupliquée qui pourrait diverger). Repli
+ * français pour toute valeur absente/inconnue/tableau vide -- jamais
+ * une erreur. Utilisée par app/track/[orderId]/page.tsx (repris d'un
+ * correctif local qui ne gérait que "en"/"fr", rendant "ar"
+ * inatteignable malgré une parité de clés complète), par
+ * app/checkout/return/{ok,err}/page.tsx, et par
+ * lib/server/payment-checkout-runtime.ts (v1.1, remédiation
+ * CCTF-V1-PAYMENT-RETURN-LANGUAGE-REACHABILITY-01 -- dérive la langue
+ * portée par les URLs de retour Monetico depuis cette MÊME autorité,
+ * jamais une seconde liste dupliquée).
+ *
+ * CORRECTIF v1.1 (Cat Woman, audit indépendant,
+ * CCTF-V1-LANG-PROTOTYPE-MEMBERSHIP-01, LOW) : la version précédente
+ * testait `value in DICTS`, qui accepte à tort toute clé HÉRITÉE du
+ * prototype (`Object.prototype`) -- "toString", "constructor",
+ * "__proto__", etc. -- puisque l'opérateur `in` de JavaScript parcourt
+ * la CHAÎNE DE PROTOTYPES entière, jamais seulement les propriétés
+ * PROPRES de l'objet. Un appelant fournissant `?lang=constructor`
+ * aurait donc vu `value` (la chaîne "constructor", une clé RÉELLEMENT
+ * présente sur `Object.prototype`) renvoyée telle quelle comme `Lang`
+ * "valide", jamais retenue par le typage `Lang = string` -- un état
+ * absurde silencieusement accepté qui n'a jamais correspondu à un
+ * dictionnaire RÉEL. Remplacé par une vérification de propriété
+ * PROPRE explicite (`Object.prototype.hasOwnProperty.call`), qui
+ * n'interroge JAMAIS la chaîne de prototypes -- seules les 3 clés
+ * RÉELLEMENT posées par `DICTS` ("fr"/"en"/"ar") sont désormais
+ * acceptées ; "toString"/"constructor"/"__proto__"/toute autre valeur
+ * non reconnue/valeur vide retombent tous, identiquement, sur le repli
+ * français existant -- comportement inchangé pour tout appelant
+ * légitime.
+ */
+export function resolveLangFromParam(rawLang: string | string[] | undefined): Lang {
+  const value = Array.isArray(rawLang) ? rawLang[0] : rawLang;
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(DICTS, value)
+    ? value
+    : "fr";
+}
 
 /** Traduit une clé, avec substitution de {paramètres}. */
 export function translate(

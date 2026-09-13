@@ -1,5 +1,6 @@
 import { resolvePaymentReturnStatus } from "@/app/checkout/return/shared";
 import PaymentReturnStatusView from "@/components/PaymentReturnStatus";
+import { resolveLangFromParam } from "@/lib/i18n";
 
 /**
  * DÉLIBÉRÉMENT IDENTIQUE à app/checkout/return/ok/page.tsx dans sa
@@ -24,5 +25,10 @@ export default async function CheckoutReturnErrPage({
 }) {
   const resolved = await searchParams;
   const status = await resolvePaymentReturnStatus(resolved);
-  return <PaymentReturnStatusView status={status} />;
+  // Voir app/checkout/return/ok/page.tsx : même repli français en
+  // attendant qu'un futur lot fasse circuler `?lang=` jusqu'ici depuis
+  // `payment-checkout-runtime.ts` (hors périmètre SQL/paiement de ce
+  // lot).
+  const lang = resolveLangFromParam(resolved.lang);
+  return <PaymentReturnStatusView status={status} lang={lang} />;
 }

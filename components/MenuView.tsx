@@ -478,6 +478,14 @@ export default function MenuView({
   const [confirmedTrackingPath, setConfirmedTrackingPath] = useState<
     string | null
   >(null);
+  // CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "total amount
+  // visibility" / "invoice-request indicator") — figés par
+  // completeOrderFlow() à partir de la réponse AUTORITATIVE de
+  // create_order (order.total) et de l'issue CONNUE de la demande de
+  // facture, jamais recalculés/déduits ici.
+  const [confirmedTotal, setConfirmedTotal] = useState<number | null>(null);
+  const [confirmedInvoiceRequested, setConfirmedInvoiceRequested] =
+    useState(false);
 
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -863,7 +871,14 @@ export default function MenuView({
     order: CreatedOrder,
     frozenLines: CartEntry[],
     frozenOrderContext: OrderContext,
-    frozenNote: string
+    frozenNote: string,
+    // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : paramètre EXPLICITE
+    // (même discipline que frozenLines/frozenOrderContext/frozenNote),
+    // toujours lu au moment de l'appel -- `completeOrderFlow` n'est
+    // JAMAIS invoqué tant que l'issue de la demande de facture reste
+    // inconnue ou en échec (voir handleSendOrder/handleRetryInvoiceRequest),
+    // donc `true` ici signifie toujours "confirmée avec succès".
+    invoiceRequested: boolean
   ) {
     const url = buildWhatsAppUrl(
       restaurant,
@@ -903,6 +918,11 @@ export default function MenuView({
     setConfirmedTrackingPath(
       buildTrackingPath(order.orderId, order.publicToken)
     );
+    // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : `order.total` est le
+    // même champ AUTORITATIF déjà utilisé ci-dessus pour le résumé
+    // WhatsApp (SADFP-V2-01) -- jamais une seconde source.
+    setConfirmedTotal(order.total);
+    setConfirmedInvoiceRequested(invoiceRequested);
     setIsCartOpen(false);
     setIsConfirmationOpen(true);
 
@@ -993,7 +1013,13 @@ export default function MenuView({
         }
       }
 
-      completeOrderFlow(order, frozenLines, frozenOrderContext, frozenNote);
+      completeOrderFlow(
+        order,
+        frozenLines,
+        frozenOrderContext,
+        frozenNote,
+        invoiceRequest.wantsInvoice
+      );
     } catch (err) {
       // Le rejet serveur de note trop longue (V65) a un message dédié ;
       // toute autre erreur (réseau, règle métier, etc.) reste générique.
@@ -1037,7 +1063,13 @@ export default function MenuView({
         buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
       );
       if (outcome.ok) {
-        completeOrderFlow(order, frozenLines, frozenOrderContext, frozenNote);
+        completeOrderFlow(
+          order,
+          frozenLines,
+          frozenOrderContext,
+          frozenNote,
+          invoiceRequest.wantsInvoice
+        );
       } else {
         setInvoiceRequestError(t("invoiceRequestFailed"));
       }
@@ -1281,6 +1313,8 @@ export default function MenuView({
           context={confirmedContext}
           orderNumber={confirmedNumber}
           trackingPath={confirmedTrackingPath}
+          totalAmount={confirmedTotal}
+          invoiceRequested={confirmedInvoiceRequested}
           onBackToMenu={closeConfirmation}
           onNewOrder={closeConfirmation}
         />

@@ -12,9 +12,19 @@ import { isPlausibleUuid } from "@/lib/tracking/uuid";
  * CUSTOMER TRACKING EXPERIENCE v1 — enveloppe TYPÉE et SERVEUR autour
  * de la RPC `public.get_order_tracking(p_order_id uuid, p_public_token
  * uuid)`, déjà publiée et AUDITÉE par CUSTOMER ORDER TRACKING
- * FOUNDATION v3 (contrat PRÉSERVÉ à l'identique -- voir
- * TRACKING-V3-NONREGRESSION-REPORT.txt, aucune colonne ajoutée/
- * retirée/renommée ici).
+ * FOUNDATION v3 (contrat alors PRÉSERVÉ à l'identique -- voir
+ * TRACKING-V3-NONREGRESSION-REPORT.txt).
+ *
+ * ÉTENDU par CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 (remédiation
+ * CCTF-V1-TRACKING-FISCAL-SUMMARY-01, audit Cat Woman) : la RPC passe
+ * de 10 à 13 colonnes de sortie (voir supabase/DRAFT-lot-tracking-
+ * final-fiscal-summary-v1-1.sql pour la migration SQL réelle et son
+ * garde-fou anti-double-application) -- `orderTotal`/`orderCurrency`
+ * (`orders.total`/`orders.currency`, valeurs PERSISTÉES HISTORIQUES,
+ * jamais recalculées) et `invoiceRequested` (existence, et existence
+ * SEULE, d'une ligne `order_invoice_request` persistée -- jamais son
+ * contenu). Les 10 colonnes v1 restent inchangées, à la même position
+ * logique.
  *
  * DÉLIBÉRÉMENT appelée avec le client `anon` PARTAGÉ (lib/supabase.ts,
  * le même que le reste du code navigateur/serveur) et NON le client
@@ -59,6 +69,29 @@ export interface OrderTracking {
   completedAt: string | null;
   rejectedAt: string | null;
   cancelledAt: string | null;
+  /**
+   * CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 (remédiation
+   * CCTF-V1-TRACKING-FISCAL-SUMMARY-01) — montant total AUTORITAIRE
+   * ET HISTORIQUE de la commande (`orders.total`, jamais recalculé
+   * ici ni côté serveur RPC -- voir le commentaire de la migration
+   * SQL, supabase/DRAFT-lot-tracking-final-fiscal-summary-v1-1.sql,
+   * pour la garantie complète). `null`/`undefined` ne devrait
+   * structurellement jamais se produire (colonne `not null` sur
+   * `orders`), mais le type reste défensif plutôt que de supposer.
+   */
+  orderTotal: number | null;
+  /** Voir `orderTotal` -- devise associée (`orders.currency`), même
+   *  paire immuable que celle utilisée à la création de la commande. */
+  orderCurrency: string | null;
+  /**
+   * CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 (remédiation
+   * CCTF-V1-TRACKING-FISCAL-SUMMARY-01) — `true` UNIQUEMENT si une
+   * demande de facture a été EFFECTIVEMENT PERSISTÉE
+   * (`set_order_invoice_request`, upsert déterministe) -- jamais un
+   * état déduit d'une simple intention client non confirmée. Absence
+   * de ligne (RPC : `exists(...)` = false) -- jamais une erreur.
+   */
+  invoiceRequested: boolean;
 }
 
 interface OrderTrackingRow {
@@ -72,6 +105,9 @@ interface OrderTrackingRow {
   completed_at: string | null;
   rejected_at: string | null;
   cancelled_at: string | null;
+  order_total: number | string | null;
+  order_currency: string | null;
+  invoice_requested: boolean | null;
 }
 
 /**
@@ -148,6 +184,18 @@ export async function getOrderTracking(
     completedAt: row.completed_at,
     rejectedAt: row.rejected_at,
     cancelledAt: row.cancelled_at,
+    // CUSTOMER CONFIRMATION + TRACKING FINAL v1.1 -- `row.order_total`
+    // peut revenir en `string` depuis postgrest pour un `numeric`
+    // Postgres ; converti explicitement, jamais laissé tel quel
+    // (même discipline que `orderNumber` ci-dessus). `null`/`undefined`
+    // préservés tels quels plutôt que coercés en `0` (jamais un
+    // montant inventé -- voir OrderConfirmation.tsx, même convention).
+    orderTotal:
+      row.order_total === null || row.order_total === undefined
+        ? null
+        : Number(row.order_total),
+    orderCurrency: row.order_currency ?? null,
+    invoiceRequested: row.invoice_requested === true,
   };
 }
 

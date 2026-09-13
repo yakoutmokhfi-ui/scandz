@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PaymentReturnStatus } from "@/app/checkout/return/shared";
+import { translate, type Lang } from "@/lib/i18n";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3 — présentation pure des
@@ -8,44 +9,59 @@ import type { PaymentReturnStatus } from "@/app/checkout/return/shared";
  * lui-même ni requête, ni recherche de commande, ni RPC : aucune
  * décision de confiance n'est prise ici, uniquement de l'affichage.
  *
- * Texte statique en français uniquement dans ce lot (le système i18n
- * existant, `lib/i18n-context`, n'est pas câblé ici -- hors périmètre
- * de ce lot, qui est une orchestration serveur, pas une refonte UX ;
- * suivi documenté dans le rapport livré, PAS un OPEN GAP de sécurité).
+ * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "payment-return
+ * experience" / "FR/EN/AR i18n") — CORRECTIF : le texte était
+ * auparavant 100% français codé en dur (aucun câblage i18n, gap
+ * documenté par la Phase 0 de ce mandat). Ce composant reste un
+ * Server Component (pas de "use client", même discipline que
+ * app/track/[orderId]/page.tsx) : `lang` est résolue par l'appelant
+ * (app/checkout/return/{ok,err}/page.tsx, via
+ * `resolveLangFromParam`/lib/i18n.ts -- SEULE autorité, jamais un
+ * second mécanisme) et transmise en prop ; ce composant appelle
+ * directement `translate(lang, ...)`, exactement comme la page de
+ * suivi -- jamais `useI18n()` (hook client, hors de propos ici).
+ *
+ * Le lien de suivi (`status.trackingPath`, présent sur toute variante
+ * RÉSOLUE -- voir app/checkout/return/shared.ts) donne au client un
+ * chemin de retour vers sa commande quelle que soit l'issue du
+ * paiement -- jamais reconstruit ici, jamais un second jeton.
  */
-export default function PaymentReturnStatusView({ status }: { status: PaymentReturnStatus }) {
+export default function PaymentReturnStatusView({
+  status,
+  lang,
+}: {
+  status: PaymentReturnStatus;
+  lang: Lang;
+}) {
+  const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
+
   const content = (() => {
     switch (status.kind) {
       case "paid":
         return {
-          title: "Paiement confirmé",
-          body: "Votre paiement a bien été reçu et confirmé. Merci pour votre commande.",
-          tone: "success" as const,
+          title: t("paymentReturnPaidTitle"),
+          body: t("paymentReturnPaidBody"),
         };
       case "pending":
         return {
-          title: "Paiement en cours de traitement",
-          body: "Votre paiement est en cours de validation par votre banque ou par le prestataire de paiement. Cette page se met à jour automatiquement dès que la confirmation est reçue -- vous pouvez aussi la recharger dans quelques instants.",
-          tone: "pending" as const,
+          title: t("paymentReturnPendingTitle"),
+          body: t("paymentReturnPendingBody"),
         };
       case "not_required":
         return {
-          title: "Aucun paiement requis",
-          body: "Cette commande ne nécessite pas de paiement en ligne.",
-          tone: "pending" as const,
+          title: t("paymentReturnNotRequiredTitle"),
+          body: t("paymentReturnNotRequiredBody"),
         };
       case "failed_or_cancelled":
         return {
-          title: "Paiement non abouti",
-          body: "Ce paiement n'a pas pu être finalisé. Vous pouvez retourner à votre commande pour réessayer.",
-          tone: "error" as const,
+          title: t("paymentReturnFailedTitle"),
+          body: t("paymentReturnFailedBody"),
         };
       case "unavailable":
       default:
         return {
-          title: "Statut indisponible",
-          body: "Nous ne parvenons pas à afficher le statut de ce paiement pour le moment. Si le débit a bien eu lieu sur votre moyen de paiement, votre commande sera automatiquement mise à jour dès réception de la confirmation -- aucune action n'est requise de votre part.",
-          tone: "error" as const,
+          title: t("paymentReturnUnavailableTitle"),
+          body: t("paymentReturnUnavailableBody"),
         };
     }
   })();
@@ -55,11 +71,19 @@ export default function PaymentReturnStatusView({ status }: { status: PaymentRet
       <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
         <h1 className="mb-3 text-xl font-semibold">{content.title}</h1>
         <p className="mb-6 text-sm text-neutral-600">{content.body}</p>
+        {status.kind !== "unavailable" && (
+          <Link
+            href={status.trackingPath}
+            className="mb-3 block w-full rounded-full bg-caramel px-6 py-2 text-sm font-bold text-caramel-ink"
+          >
+            {t("trackYourOrder")}
+          </Link>
+        )}
         <Link
           href="/"
           className="inline-block rounded-full bg-neutral-900 px-6 py-2 text-sm font-medium text-white"
         >
-          Retour à l&apos;accueil
+          {t("paymentReturnBackHome")}
         </Link>
       </div>
     </div>
