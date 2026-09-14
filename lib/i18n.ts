@@ -231,6 +231,20 @@ const fr: Dict = {
   // components/OrderConfirmation.tsx).
   confirmTotalLabel: "Montant total :",
   confirmInvoiceRequested: "🧾 Facture demandée — vous recevrez les détails séparément.",
+  // N1-A — CUSTOMER EMAIL NOTIFICATION FOUNDATION + ORDER RECEIVED :
+  // gabarit de l'e-mail transactionnel « commande reçue ». Réutilise
+  // délibérément orderNumber/confirmTotalLabel/trackYourOrder/
+  // confirmThanks (ci-dessus/ci-dessous) plutôt que de dupliquer une
+  // formulation -- seules les clés propres au contenu SPÉCIFIQUE à
+  // l'e-mail (objet, wording de fulfillment minimal sans zone/table
+  // -- non snapshotté, pied de page automatique) sont ajoutées ici.
+  emailOrderReceivedSubject: "{merchant} — commande reçue #{n}",
+  emailOrderReceivedHeading: "Commande reçue",
+  emailOrderReceivedIntro: "Nous avons bien reçu votre commande n°{n}.",
+  emailOrderReceivedFulfillmentTable: "Vous êtes à table — votre commande arrive directement.",
+  emailOrderReceivedFulfillmentPickup: "Votre commande sera à retirer sur place.",
+  emailOrderReceivedFulfillmentDelivery: "Votre commande vous sera livrée.",
+  emailOrderReceivedFooter: "Cet e-mail est envoyé automatiquement, merci de ne pas y répondre.",
   backToMenu: "Retour au menu",
   newOrder: "Passer une autre commande",
 
@@ -833,6 +847,13 @@ const en: Dict = {
   confirmServed: "If you are dining in, it will be brought to your table.",
   confirmTotalLabel: "Total amount:",
   confirmInvoiceRequested: "🧾 Invoice requested — you'll receive the details separately.",
+  emailOrderReceivedSubject: "{merchant} — order received #{n}",
+  emailOrderReceivedHeading: "Order received",
+  emailOrderReceivedIntro: "We have received your order #{n}.",
+  emailOrderReceivedFulfillmentTable: "You're seated at a table — your order is on its way.",
+  emailOrderReceivedFulfillmentPickup: "Your order will be ready for pickup in store.",
+  emailOrderReceivedFulfillmentDelivery: "Your order will be delivered to you.",
+  emailOrderReceivedFooter: "This is an automated email, please do not reply.",
   confirmThanks: "Thank you for choosing {name}!",
   confirmEnjoy: "We are preparing your order with care. Enjoy!",
   backToMenu: "Back to menu",
@@ -1421,6 +1442,13 @@ const ar: Dict = {
   confirmServed: "إن كنت في المحل، سيُقدَّم الطلب إلى طاولتك مباشرة.",
   confirmTotalLabel: "المبلغ الإجمالي:",
   confirmInvoiceRequested: "🧾 تم طلب الفاتورة — ستصلك التفاصيل بشكل منفصل.",
+  emailOrderReceivedSubject: "{merchant} — تم استلام الطلب #{n}",
+  emailOrderReceivedHeading: "تم استلام الطلب",
+  emailOrderReceivedIntro: "لقد استلمنا طلبك رقم {n}.",
+  emailOrderReceivedFulfillmentTable: "أنتم على الطاولة — طلبكم في الطريق إليكم.",
+  emailOrderReceivedFulfillmentPickup: "سيكون طلبكم جاهزًا للاستلام من المتجر.",
+  emailOrderReceivedFulfillmentDelivery: "سيتم توصيل طلبكم إليكم.",
+  emailOrderReceivedFooter: "هذه رسالة آلية، يُرجى عدم الرد عليها.",
   confirmThanks: "شكراً لاختيارك {name}!",
   confirmEnjoy: "نحضّر طلبك بعناية. بالهناء والشفاء!",
   backToMenu: "العودة إلى القائمة",

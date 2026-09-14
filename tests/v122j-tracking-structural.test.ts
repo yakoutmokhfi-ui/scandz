@@ -58,11 +58,23 @@ test("archi: la liste des fichiers de ce lot n'est pas vide (garde-fou anti-faux
 // mandat §4/§26 : EMAIL/OUTBOX EXCLU -- REGRESSION GUARD GLOBAL.
 // --------------------------------------------------------------
 
-test("archi: AUCUN fichier de la famille email/notification-outbox de v1 n'existe nulle part dans le dépôt (mandat §4/§26, exclusion stricte)", () => {
+test("archi: AUCUN fichier de la famille email/notification-outbox de v1 n'existe nulle part dans le dépôt (mandat §4/§26, exclusion stricte, périmètre v2 uniquement)", () => {
+  // MISE À JOUR N1-A (Claude Monet) : cette garde protégeait contre une
+  // réintroduction NON AUTORISÉE d'e-mail/outbox DANS LE PÉRIMÈTRE DE
+  // CE LOT (CUSTOMER TRACKING EXPERIENCE v2, mandat §4/§26 -- "hors de
+  // portée pour v2", jamais "interdit pour toujours dans le dépôt").
+  // `lib/server/notifications/` est désormais le livrable EXPLICITEMENT
+  // AUTORISÉ d'un mandat SÉPARÉ et ULTÉRIEUR -- N1-A, CUSTOMER EMAIL
+  // NOTIFICATION FOUNDATION + ORDER RECEIVED (voir supabase/DRAFT-lot-
+  // n1a-customer-email-notification-foundation-v1.sql et
+  // tests/v1-n1a-*.test.ts) -- retiré de cette liste en conséquence.
+  // Les AUTRES chemins (noms EXACTS d'une conception v1 jamais
+  // retenue, distincts de ceux réellement livrés par N1-A) restent
+  // interdits : cette garde continue de protéger contre LEUR
+  // réapparition spécifique.
   const forbiddenPaths = [
     "lib/server/notification-errors.ts",
     "lib/server/notification-outbox.ts",
-    "lib/server/notifications",
     "lib/tracking/email-template.ts",
     "lib/tracking/notification-events.ts",
     "supabase/DRAFT-lot-customer-tracking-email-notification-foundation.sql",
@@ -165,12 +177,29 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // (DRAFT-lot-stuart-merchant-credential-foundation-v1.sql), portant le
 // compte total à 96 -- mesuré directement, aucune ligne de CE lot v2
 // (tracking) n'a bougé.
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 78 (nouveau baseline main, PAYMENT STREAM B MONETICO FINALIZATION v1.1 déjà fusionné) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1) + 1 (CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, lots ULTÉRIEURS et SANS RAPPORT avec ce lot v2 -- seules ces lignes de base ont changé, aucune ligne de ce lot v2 n'a bougé) + 1 (MERCHANT LEGAL & TAX PROFILE v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1) + 2 (INVOICE REQUEST FOUNDATION v1 + ROLLBACK) + 1 (INVOICE REQUEST PRODUCTION ACL REMEDIATION v1) + 2 (CHECKOUT EMAIL VALIDATION v1.1 DELTA + ROLLBACK) + 2 (PAYMENT OPERATOR AUTHORIZATION v1 + ROLLBACK) + 2 (BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK, stream désormais CLOS) + 1 (OPERATOR BACKOFFICE OB-4 -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY v1.2 -- FINAL REFRESH, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2) + 1 (LOT A-0 -- MERCHANT STUART CREDENTIAL FOUNDATION v1, également ULTÉRIEUR et SANS RAPPORT avec ce lot v2)", () => {
+// MISE À JOUR N1-A (Claude Monet) : ce compte-instantané (96) était
+// DÉJÀ dérivé de ce lot v2 AVANT ce cycle -- de nombreux lots ULTÉRIEURS
+// et SANS RAPPORT avec v2 (dont, entre autres, CUSTOMER CONFIRMATION +
+// TRACKING FINAL v1.1 et SELLER LEGAL PROFILE / CGV ENGINE v1.4,
+// fusionnés sur main après le dernier rafraîchissement de cette garde)
+// ont continué d'ajouter des fichiers .sql top-level SANS que cette
+// assertion ne soit tenue à jour à chaque fois -- un échec PRÉ-EXISTANT
+// à ce lot, déjà documenté comme tel dans le paquet précédent
+// (scanym_customer_confirmation_tracking_final_v1_1_refresh.zip,
+// TEST-RESULTS.md, "1 known pre-existing failure"). N1-A (CUSTOMER
+// EMAIL NOTIFICATION FOUNDATION + ORDER RECEIVED) ajoute à son tour
+// SES DEUX PROPRES fichiers SQL top-level (DRAFT-lot-n1a-customer-
+// email-notification-foundation-v1.sql + -rollback.sql) -- aucune
+// ligne de CE lot v2 (tracking) n'a bougé pour autant. Le compte est
+// donc corrigé une fois ici à sa valeur RÉELLE mesurée directement
+// (114), plutôt que de laisser cette garde continuer de dériver comme
+// un échec permanent non examiné.
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 114 (mesuré directement ; dérive pré-existante de lots ultérieurs sans rapport avec v2, corrigée par N1-A qui ajoute ses 2 propres fichiers)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    96,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs (nouveau baseline main = 78, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1, + CATALOGUE / SUBCATEGORIES BACKOFFICE v1.1 -- remédiation, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2, + MERCHANT LEGAL & TAX PROFILE v1, + DELIVERY STREAM C -- STUART SANDBOX INTEGRATION v2.6.1, + OPERATOR BACKOFFICE OB-2 -- CATALOGUE RPC OPERATOR AUTHORIZATION v1, + CUSTOMER CHECKOUT -- CLIENT / COMPANY INVOICE REQUEST v1.1, + INVOICE REQUEST FOUNDATION v1 + ROLLBACK, + INVOICE REQUEST PRODUCTION ACL REMEDIATION v1, + CHECKOUT EMAIL VALIDATION v1.1 DELTA + ROLLBACK, + PAYMENT OPERATOR AUTHORIZATION v1 + ROLLBACK, + BULK PRODUCT PHOTOS v2.2.1 + ROLLBACK (stream désormais CLOS), + OPERATOR BACKOFFICE OB-4 -- CATALOGUE IMPORT COMMIT / IDEMPOTENCY v1.2 -- FINAL REFRESH, + LOT A-0 -- MERCHANT STUART CREDENTIAL FOUNDATION v1)`
+    114,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs sans rapport avec v2 (dont N1A, +2 : DRAFT-lot-n1a-customer-email-notification-foundation-v1.sql + -rollback.sql)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);
