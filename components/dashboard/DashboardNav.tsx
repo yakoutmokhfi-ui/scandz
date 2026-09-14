@@ -50,6 +50,10 @@ export default function DashboardNav({
   // exclu explicitement du repli générique de l'onglet "Commandes"
   // pour ne pas reproduire L1B-02.
   const onPayment = pathname?.startsWith("/dashboard/payment");
+  // Onglet "CGV" (Seller Legal Profile + CGV Engine v1) : même patron
+  // que les onglets ci-dessus -- exclu explicitement du repli
+  // générique de l'onglet "Commandes" pour ne pas reproduire L1B-02.
+  const onLegalCgv = pathname?.startsWith("/dashboard/legal-cgv");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -135,7 +139,7 @@ export default function DashboardNav({
           <a
             href={href("/dashboard")}
             className={tab(
-              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment
+              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv
             )}
           >
             {t("dsOrders")}
@@ -151,6 +155,9 @@ export default function DashboardNav({
           </a>
           <a href={href("/dashboard/payment")} className={tab(!!onPayment)}>
             {t("dsPayment")}
+          </a>
+          <a href={href("/dashboard/legal-cgv")} className={tab(!!onLegalCgv)}>
+            {t("dsLegalCgv")}
           </a>
           <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
             {t("dsTranslations")}

@@ -54,6 +54,10 @@ export default function CartPanel({
   onSelectFulfillment,
   onChangeCustomer,
   onChangeNote,
+  cgvEnforced,
+  cgvAccepted,
+  onChangeCgvAccepted,
+  cgvLegalHref,
   onSendOrder,
   onClose,
 }: {
@@ -123,6 +127,22 @@ export default function CartPanel({
   onSelectFulfillment: (t: ServiceMode) => void;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
   onChangeNote: (value: string) => void;
+  /**
+   * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1 (referme le
+   * "FUTURE LEGAL TODO" laissé par SADFP-02 CORRECTION v2 ci-dessous,
+   * maintenant qu'une page légale réelle existe -- app/legal/[slug]).
+   * `cgvEnforced` reflète EXACTEMENT le statut serveur du marchand
+   * (CGV_ACTIVE, via get_restaurant_public_cgv().enforced) -- jamais
+   * une supposition côté client. Quand false (marchand non configuré
+   * ou pas encore activé), aucune case n'est affichée : comportement
+   * strictement identique à avant ce lot pour tout marchand existant.
+   */
+  cgvEnforced: boolean;
+  cgvAccepted: boolean;
+  onChangeCgvAccepted: (accepted: boolean) => void;
+  /** Lien vers la page légale publique du marchand (app/legal/[slug]),
+   *  non-null uniquement quand `cgvEnforced` l'est aussi. */
+  cgvLegalHref: string | null;
   onSendOrder: () => void;
   onClose: () => void;
 }) {
@@ -580,32 +600,59 @@ export default function CartPanel({
             ) : (
               <>
 
-            {/* SADFP-02 (CORRECTION v2) : l'acquittement obligatoire
-                "vie privée / conditions" a été RETIRÉ. Les liens
-                pointaient vers /legal/privacy et /legal/terms, des
-                pages qui n'existent pas -- le checkout ne doit jamais
-                exiger l'acceptation de documents inaccessibles. Aucune
-                page légale n'est créée ici (aucun contenu légal
-                inventé) ; voir le rapport de mission, section "FUTURE
-                LEGAL TODO" pour la ré-introduction future, une fois des
-                pages légales validées disponibles. Comportement de
-                soumission restauré à son état pré-lot : aucune case,
-                aucun lien, aucune persistance de consentement, aucun
-                consentement marketing introduit. */}
+            {/* SADFP-02 (CORRECTION v2), maintenant REFERMÉ par SELLER
+                LEGAL PROFILE + CGV ENGINE v1 : l'acquittement avait été
+                retiré ici car les liens pointaient vers des pages
+                légales inexistantes (/legal/privacy, /legal/terms) --
+                le checkout ne doit jamais exiger l'acceptation de
+                documents inaccessibles. `cgvLegalHref`/`cgvEnforced`
+                proviennent désormais d'une page légale RÉELLE
+                (app/legal/[slug]) et du statut serveur authentique du
+                marchand (CGV_ACTIVE) -- jamais un lien ou un contenu
+                inventé ici. Pour tout marchand `cgvEnforced === false`
+                (non configuré ou pas encore activé), le comportement
+                reste EXACTEMENT celui d'avant ce lot : aucune case,
+                aucun lien, aucun blocage supplémentaire. */}
 
             {canSubmit && noteState.isValid ? (
               <>
+                {cgvEnforced && (
+                  <label className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted">
+                    <input
+                      type="checkbox"
+                      checked={cgvAccepted}
+                      onChange={(e) => onChangeCgvAccepted(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>
+                      {t("cgvAcceptancePrefix")}{" "}
+                      {cgvLegalHref ? (
+                        <a
+                          href={cgvLegalHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline"
+                        >
+                          {t("cgvAcceptanceLinkLabel")}
+                        </a>
+                      ) : (
+                        t("cgvAcceptanceLinkLabel")
+                      )}
+                      . {t("cgvAcceptanceObligation")}
+                    </span>
+                  </label>
+                )}
                 <p className="mb-2 text-center text-sm text-ink-on-bg-muted">
                   {t("whatsappNotice")}
                 </p>
                 <button
                   onClick={onSendOrder}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
                   aria-busy={isSubmitting}
                   className={
                     "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
-                    (isSubmitting
-                      ? "cursor-wait bg-[#25D366]/60"
+                    (isSubmitting || (cgvEnforced && !cgvAccepted)
+                      ? "cursor-not-allowed bg-[#25D366]/60"
                       : "bg-[#25D366]")
                   }
                 >

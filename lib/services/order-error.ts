@@ -41,3 +41,36 @@ export function isOrderNoteTooLongError(
   if (!error) return false;
   return error.code === "22001" && error.message === ORDER_NOTE_TOO_LONG_CODE;
 }
+
+/**
+ * SELLER LEGAL PROFILE + CGV ENGINE v1 -- classification des deux
+ * erreurs déterministes levées par create_order quand le marchand est
+ * CGV_ACTIVE (voir DRAFT-lot-seller-legal-profile-cgv-engine-v1.sql,
+ * section M). Même discipline que ci-dessus : code ET message exigés
+ * ensemble, jamais le code seul (P0001 est le SQLSTATE générique de
+ * `raise exception`, partagé par de nombreuses erreurs applicatives
+ * sans rapport avec la CGV).
+ */
+export const CGV_ACCEPTANCE_REQUIRED_CODE = "CGV_ACCEPTANCE_REQUIRED";
+export const CGV_NOT_PUBLISHED_CODE = "CGV_REQUIRED_BUT_NOT_PUBLISHED";
+
+export class CgvAcceptanceRequiredError extends Error {
+  constructor() {
+    super(CGV_ACCEPTANCE_REQUIRED_CODE);
+    this.name = "CgvAcceptanceRequiredError";
+  }
+}
+
+export function isCgvAcceptanceRequiredError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "P0001" && error.message === CGV_ACCEPTANCE_REQUIRED_CODE;
+}
+
+export function isCgvNotPublishedError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "P0001" && error.message === CGV_NOT_PUBLISHED_CODE;
+}

@@ -883,8 +883,14 @@ test("P2B-B DOM: navigation Dashboard -- stratégie explicite anti-débordement 
     "la nav doit porter la classe flex-wrap (stratégie anti-débordement mobile)"
   );
 
+  // Mis à jour par SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) :
+  // un 7e onglet ("CGV") a été ajouté à DashboardNav.tsx (même patron
+  // flex-wrap déjà en place, non modifié par ce lot) -- décompte
+  // attendu passe de 6 à 7. La preuve elle-même (flex-wrap, aucun
+  // onglet masqué) reste inchangée et continue de s'appliquer à tous
+  // les onglets, ancien compte ou nouveau.
   const tabs = Array.from(navEl!.querySelectorAll("a"));
-  assert.equal(tabs.length, 6, "les 6 onglets doivent tous être présents dans le DOM");
+  assert.equal(tabs.length, 7, "les 7 onglets doivent tous être présents dans le DOM (6 + CGV, Seller Legal Profile v1)");
   for (const tabEl of tabs) {
     assert.notEqual((tabEl as HTMLElement).hidden, true, "aucun onglet ne doit être masqué (hidden)");
     assert.notEqual(tabEl.getAttribute("aria-hidden"), "true", "aucun onglet ne doit être aria-hidden");

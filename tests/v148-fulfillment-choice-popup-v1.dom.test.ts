@@ -272,6 +272,17 @@ function mockRpc(
     if (name === "get_restaurant_public_delivery_fulfillments") {
       return { data: [], error: null };
     }
+    // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) : MenuView.tsx
+    // appelle désormais get_restaurant_public_cgv() une fois par
+    // montage (voir le useEffect dédié) pour savoir si l'acquittement
+    // CGV doit être affiché au checkout -- RPC de lecture publique,
+    // tenant-safe, indépendante de toute sélection de mode. Réponse
+    // neutre (aucune ligne -- marchand sans CGV publiée) : reproduit
+    // exactement le comportement pré-lot pour ce fixture de test,
+    // n'invente aucun contenu légal.
+    if (name === "get_restaurant_public_cgv") {
+      return { data: [], error: null };
+    }
     throw new Error(`RPC inattendue dans ce test (ne devrait JAMAIS être appelée par une simple sélection de mode) : ${name}`);
   });
   return { calledRpcNames, calledRpcArgs };
@@ -620,6 +631,10 @@ test("Scénario 10/11/12 -- trace exhaustive des RPC : jamais create_order, jama
       "get_restaurant_public_field_requirements",
       "get_restaurant_public_delivery_info",
       "get_restaurant_public_delivery_fulfillments",
+      // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) : nouvel appel
+      // de lecture publique, tenant-safe, fait une fois par montage de
+      // MenuView (jamais lié à create_order/Stuart/paiement).
+      "get_restaurant_public_cgv",
     ]);
     const unexpected = calledRpcNames.filter((n) => !KNOWN_SAFE_RPCS.has(n));
     assert.deepEqual(

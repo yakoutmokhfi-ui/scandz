@@ -246,3 +246,64 @@ export interface ReceiptSettings {
    */
   restaurant_country: string | null;
 }
+
+// ============================================================
+// SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1. Types miroir des
+// lignes retournées par get_merchant_legal_profile / get_merchant_cgv_profile
+// (voir DRAFT-lot-seller-legal-profile-cgv-engine-v1.sql). snake_case
+// pour rester cohérent avec le reste de ce fichier (colonnes SQL
+// transmises telles quelles par PostgREST/RPC, jamais camelCase à ce
+// niveau -- la conversion, si besoin, se fait dans lib/services/legal-cgv.ts).
+// ============================================================
+
+export interface MerchantLegalProfile {
+  restaurant_id: string;
+  legal_form: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  postal_code: string | null;
+  city: string | null;
+  governing_country: string | null;
+  customer_service_email: string | null;
+  customer_service_phone: string | null;
+  consumer_mediator_name: string | null;
+  consumer_mediator_address: string | null;
+  consumer_mediator_website: string | null;
+  updated_at: string | null;
+}
+
+export type WithdrawalRegime = "EXEMPT_PERISHABLE" | "STANDARD_14_DAYS" | "MIXED";
+export type PreparationTimeUnit = "MINUTES" | "HOURS";
+export type CgvPresentationVariant = "FORMAL" | "WARM" | "PREMIUM" | "SIMPLE";
+export type CgvProfileStatus = "CGV_NOT_CONFIGURED" | "CGV_DRAFT" | "CGV_READY" | "CGV_ACTIVE";
+
+export interface MerchantCgvProfile {
+  restaurant_id: string;
+  withdrawal_regime: WithdrawalRegime | null;
+  preparation_time_min: number | null;
+  preparation_time_max: number | null;
+  preparation_time_unit: PreparationTimeUnit | null;
+  cancellation_policy_text: string | null;
+  substitution_policy_text: string | null;
+  presentation_variant: CgvPresentationVariant;
+  status: CgvProfileStatus;
+  profile_version: number;
+  updated_at: string | null;
+  /** Codes déterministes (voir cgv_completeness_errors) ; [] = complet. */
+  completeness_errors: string[];
+}
+
+export interface MerchantCgvVersion {
+  id: string;
+  restaurant_id: string;
+  template_id: string;
+  template_version: number;
+  merchant_profile_version: number;
+  locale: string;
+  presentation_variant: CgvPresentationVariant;
+  rendered_content: string;
+  content_hash: string;
+  effective_from: string;
+  published_at: string;
+  status: "ACTIVE" | "SUPERSEDED";
+}
