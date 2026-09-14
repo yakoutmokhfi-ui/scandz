@@ -7,13 +7,17 @@ import {
   isOrderNoteTooLongError,
   OrderNoteTooLongError,
   ORDER_NOTE_TOO_LONG_CODE,
+  isCgvAcceptanceRequiredError,
+  isCgvNotPublishedError,
+  CgvAcceptanceRequiredError,
+  CGV_ACCEPTANCE_REQUIRED_CODE,
 } from "@/lib/services/order-error";
 
 // Réexportés pour compatibilité : components/MenuView.tsx importe ces
 // symboles depuis "@/lib/services/orders". La classification elle-même
 // vit dans lib/services/order-error.ts (fonction pure, testable sans
 // dépendance Supabase — voir tests/v65-order-note.test.ts).
-export { OrderNoteTooLongError, ORDER_NOTE_TOO_LONG_CODE };
+export { OrderNoteTooLongError, ORDER_NOTE_TOO_LONG_CODE, CgvAcceptanceRequiredError, CGV_ACCEPTANCE_REQUIRED_CODE };
 
 export interface CreatedOrder {
   orderId: string;
@@ -50,6 +54,8 @@ export async function createOrder(params: {
   lines: CartLine[];
   lang: Lang;
   note?: string | null;
+  /** SELLER LEGAL PROFILE + CGV ENGINE v1 -- voir buildCreateOrderPayload. */
+  cgvAccepted?: boolean;
 }): Promise<CreatedOrder> {
   const payload = buildCreateOrderPayload(params);
 
@@ -63,6 +69,16 @@ export async function createOrder(params: {
     // ne doit jamais être requalifiée en "note trop longue".
     if (isOrderNoteTooLongError(error)) {
       throw new OrderNoteTooLongError();
+    }
+    // CGV_REQUIRED_BUT_NOT_PUBLISHED (marchand CGV_ACTIVE sans version
+    // publiée -- une incohérence de configuration côté marchand, pas
+    // une faute du client) est volontairement traduite avec le MÊME
+    // message générique que le cas nominal ci-dessous : le client
+    // n'a de toute façon aucune action à faire de plus que réessayer
+    // plus tard / contacter le marchand, jamais lui exposer un détail
+    // de configuration interne.
+    if (isCgvAcceptanceRequiredError(error) || isCgvNotPublishedError(error)) {
+      throw new CgvAcceptanceRequiredError();
     }
     throw new Error(error.message);
   }

@@ -263,6 +263,11 @@ function mockRpc(
     if (name === "get_restaurant_public_delivery_fulfillments") {
       return { data: [], error: null };
     }
+    // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) : voir la même
+    // note dans tests/v148-fulfillment-choice-popup-v1.dom.test.ts.
+    if (name === "get_restaurant_public_cgv") {
+      return { data: [], error: null };
+    }
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
   return { calledRpcNames };
@@ -554,6 +559,8 @@ test("11/12/13 -- trace exhaustive des RPC pendant sélection + bascule : jamais
       "get_restaurant_public_field_requirements",
       "get_restaurant_public_delivery_info",
       "get_restaurant_public_delivery_fulfillments",
+      // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1).
+      "get_restaurant_public_cgv",
     ]);
     const unexpected = calledRpcNames.filter((n) => !KNOWN_SAFE_RPCS.has(n));
     assert.deepEqual(

@@ -15,6 +15,17 @@ export interface CreateOrderPayload {
   p_customer: Record<string, string | null | undefined>;
   p_note: string | null;
   p_language: Lang;
+  /**
+   * SELLER LEGAL PROFILE + CGV ENGINE v1 -- signal de consentement
+   * UNIQUEMENT (le client a coché la case). Ni la version CGV
+   * acceptée, ni son hash ne transitent jamais par ce payload : le
+   * serveur (create_order) résout lui-même la version active du
+   * marchand et son hash -- CRITICAL TRUST RULE, voir
+   * DRAFT-lot-seller-legal-profile-cgv-engine-v1.sql. Absent/false
+   * est sans effet pour un marchand qui n'est pas CGV_ACTIVE (aucune
+   * régression du comportement existant).
+   */
+  p_cgv_accepted: boolean;
 }
 
 /**
@@ -32,8 +43,13 @@ export function buildCreateOrderPayload(params: {
   lines: CartLine[];
   lang: Lang;
   note?: string | null;
+  /** Défaut false : un appelant qui ne transmet rien (comportement
+   *  historique, avant ce lot) obtient exactement le même résultat
+   *  qu'avant pour un marchand non CGV_ACTIVE, et est bloqué serveur
+   *  (jamais silencieusement autorisé) pour un marchand CGV_ACTIVE. */
+  cgvAccepted?: boolean;
 }): CreateOrderPayload {
-  const { slug, context, lines, lang, note } = params;
+  const { slug, context, lines, lang, note, cgvAccepted } = params;
 
   const items = lines.map((l) => ({
     menu_item_id: l.item.id,
@@ -86,5 +102,6 @@ export function buildCreateOrderPayload(params: {
     p_customer: customer,
     p_note: orderNotePayload(note),
     p_language: lang,
+    p_cgv_accepted: cgvAccepted === true,
   };
 }

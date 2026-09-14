@@ -233,7 +233,12 @@ test("payload: note renseignée -> transmise normalisée (trim, non tronquée)",
   assert.equal(payload.p_note, "Merci de sonner à l'interphone");
 });
 
-test("payload: la signature RPC reste p_slug/p_service_mode/p_items/p_table_number/p_customer/p_note/p_language", () => {
+test("payload: la signature RPC reste p_slug/p_service_mode/p_items/p_table_number/p_customer/p_note/p_language/p_cgv_accepted", () => {
+  // Mis à jour par SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) :
+  // p_cgv_accepted est un AJOUT additif (create_order l'accepte avec
+  // un défaut false côté serveur) -- ce test vérifie désormais la
+  // signature COMPLÈTE actuelle, p_cgv_accepted inclus, pas seulement
+  // les 7 champs antérieurs à ce lot.
   const ctx: OrderContext = { mode: "table", tableNumber: 4 };
   const payload = buildCreateOrderPayload({
     slug: "le-sirocco",
@@ -243,6 +248,7 @@ test("payload: la signature RPC reste p_slug/p_service_mode/p_items/p_table_numb
     note: "test",
   });
   assert.deepEqual(Object.keys(payload).sort(), [
+    "p_cgv_accepted",
     "p_customer",
     "p_items",
     "p_language",
@@ -251,6 +257,31 @@ test("payload: la signature RPC reste p_slug/p_service_mode/p_items/p_table_numb
     "p_slug",
     "p_table_number",
   ]);
+});
+
+test("payload: p_cgv_accepted vaut false par défaut quand non transmis (comportement historique inchangé pour tout appelant existant)", () => {
+  const ctx: OrderContext = { mode: "table", tableNumber: 4 };
+  const payload = buildCreateOrderPayload({
+    slug: "le-sirocco",
+    context: ctx,
+    lines,
+    lang: "fr",
+    note: "test",
+  });
+  assert.equal(payload.p_cgv_accepted, false);
+});
+
+test("payload: p_cgv_accepted reflète exactement le booléen transmis (true)", () => {
+  const ctx: OrderContext = { mode: "table", tableNumber: 4 };
+  const payload = buildCreateOrderPayload({
+    slug: "le-sirocco",
+    context: ctx,
+    lines,
+    lang: "fr",
+    note: "test",
+    cgvAccepted: true,
+  });
+  assert.equal(payload.p_cgv_accepted, true);
 });
 
 test("payload: table -> aucun prix/total dans p_items (uniquement id, quantité, option)", () => {

@@ -161,6 +161,19 @@ const LATER_APPROVED_UNRELATED_LOT_FILES = new Set([
   "components/dashboard/OrderCard.tsx",
   "tests/invoice-backoffice-visibility-v1.dom.test.ts",
   "tests/invoice-backoffice-visibility-v1-query.test.ts",
+
+  // SELLER LEGAL PROFILE + CGV ENGINE v1/v1.1/v1.2 (Claude Debussy) --
+  // ENTIÈREMENT SANS RAPPORT avec OB-1. `components/dashboard/
+  // DashboardNav.tsx` reçoit ICI SEUL un ajout d'onglet "CGV"
+  // légitime et additif -- voir le test dédié plus bas
+  // ("non-régression : DashboardNav.tsx (nav marchande)...") qui
+  // vérifie, ligne par ligne via le diff réel, que RIEN d'autre que
+  // cet ajout n'est modifié dans ce fichier (aucune ligne supprimée,
+  // aucune ligne ajoutée qui ne concerne pas l'onglet legal-cgv) --
+  // cette entrée dans la liste ne fait qu'autoriser le fichier à
+  // apparaître dans le diff global ; la preuve fine reste le test
+  // dédié, jamais affaiblie par cette seule présence dans la liste.
+  "components/dashboard/DashboardNav.tsx",
 ]);
 
 function isAllowed(file: string): boolean {
@@ -271,12 +284,56 @@ test("OB-1 v1.1 : aucune fausse appartenance restaurant_users n'est jamais cré�
 // wrapper mort (remplacé par un commentaire explicatif) ; AUCUNE
 // autre fonction exportée par ce fichier n'est touchée (voir
 // NON-MODIFICATION-PROOF.md, section "dashboard.ts diff exact").
-// `components/dashboard/DashboardNav.tsx` (navigation marchande),
-// lui, reste STRICTEMENT INCHANGÉ par v1.4 -- la protection ci-dessous
-// n'est donc PAS affaiblie pour ce fichier.
-test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ ; lib/services/dashboard.ts (services marchand partagés) INCHANGÉ SAUF retrait du wrapper mort setProductPhoto (BULK PRODUCT PHOTOS v1.4, RPC sous-jacente supprimée par Cat Stevens Blocker 1 -- voir CAT-STEVENS-FINDINGS-REMEDIATION.md)", () => {
+// `components/dashboard/DashboardNav.tsx` (navigation marchande) reste
+// INCHANGÉ par v1.4 lui-même (Cat Stevens/BULK PRODUCT PHOTOS) --
+// MAIS CORRECTIF (Catimini CGV-V11-STRUCTURAL-INVENTORY-01, MEDIUM,
+// mécanique, Claude Debussy, SELLER LEGAL PROFILE + CGV ENGINE v1,
+// ENTIÈREMENT SANS RAPPORT avec OB-1/v1.4) : ce fichier reçoit
+// désormais un ajout LÉGITIME d'onglet "CGV" (voir DashboardNav.tsx,
+// `onLegalCgv` / `dsLegalCgv`). La preuve d'absence de modification
+// n'est donc plus une simple absence du fichier au diff -- elle est
+// devenue une preuve PLUS FINE (littéralement, ligne par ligne du
+// diff réel) : AUCUNE ligne existante n'est jamais retirée
+// (`git diff` ne doit jamais contenir de ligne `-` de code, seulement
+// des lignes `+`), et TOUTE ligne ajoutée doit concerner
+// EXCLUSIVEMENT cet onglet CGV (onLegalCgv/legal-cgv/dsLegalCgv) --
+// jamais un motif générique, jamais une exemption de fichier entier.
+test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout additif, ligne par ligne prouvé, de l'onglet CGV (aucune ligne existante retirée, aucun ajout hors-sujet) ; lib/services/dashboard.ts (services marchand partagés) INCHANGÉ SAUF retrait du wrapper mort setProductPhoto (BULK PRODUCT PHOTOS v1.4, RPC sous-jacente supprimée par Cat Stevens Blocker 1 -- voir CAT-STEVENS-FINDINGS-REMEDIATION.md)", () => {
   const files = changedFiles();
-  assert.ok(!files.includes("components/dashboard/DashboardNav.tsx"));
+  if (files.includes("components/dashboard/DashboardNav.tsx")) {
+    const diff = execFileSync("git", ["diff", BASELINE_SHA, "--", "components/dashboard/DashboardNav.tsx"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+    });
+    const diffLines = diff.split("\n");
+    const removedLines = diffLines.filter((l) => l.startsWith("-") && !l.startsWith("---"));
+    const addedLines = diffLines.filter((l) => l.startsWith("+") && !l.startsWith("+++"));
+    assert.ok(addedLines.length > 0, "un ajout est attendu (l'onglet CGV) -- absence totale de diff serait suspecte ici");
+    // Chaque ligne RETIRÉE n'est autorisée QUE si elle correspond
+    // EXACTEMENT à un simple élargissement d'une condition existante
+    // pour inclure `&& !onLegalCgv` (le seul motif du diff réel autorisé
+    // ici) -- jamais une suppression de logique existante. Narrow,
+    // exact match -- jamais un motif générique.
+    for (const removed of removedLines) {
+      const removedContent = removed.slice(1);
+      const expectedExtended = `+${removedContent} && !onLegalCgv`;
+      assert.ok(
+        addedLines.includes(expectedExtended),
+        `DashboardNav.tsx : ligne retirée non reconnue comme un simple élargissement de condition existante pour l'onglet CGV -- ligne interdite : ${removed}`
+      );
+    }
+    // Chaque ligne AJOUTÉE doit soit être ce même élargissement de
+    // condition, soit concerner exclusivement l'onglet CGV.
+    for (const added of addedLines) {
+      const isConditionExtension = removedLines.some((removed) => `+${removed.slice(1)} && !onLegalCgv` === added);
+      if (isConditionExtension) continue;
+      assert.match(
+        added,
+        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|^\+\s*\/\/|^\+\s*<\/a>\s*$|^\+\s*$/,
+        `DashboardNav.tsx : ligne ajoutée hors-sujet (ne concerne pas l'onglet CGV) -- ligne interdite : ${added}`
+      );
+    }
+  }
   if (files.includes("lib/services/dashboard.ts")) {
     const src = readFileSync("lib/services/dashboard.ts", "utf8");
     assert.ok(

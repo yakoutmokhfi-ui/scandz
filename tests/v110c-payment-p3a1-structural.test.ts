@@ -146,6 +146,16 @@ const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/internal/payments/monetico/recover/route.ts",
   "app/checkout/return/shared.ts",
 ]);
+// CORRECTIF (Catimini CGV-V11-STRUCTURAL-INVENTORY-01, MEDIUM,
+// mécanique, Claude Debussy, SELLER LEGAL PROFILE + CGV ENGINE v1.2 --
+// lot ULTÉRIEUR et SANS RAPPORT avec PAYMENT P3-A1/Stuart/invoice-
+// request/product-photo) : même mécanisme exact que
+// TRACKING_ALLOWED_SERVER_IMPORTERS/STUART_ALLOWED_SERVER_IMPORTERS
+// ci-dessus -- UNE SEULE route, UN SEUL module server autorisé, jamais
+// une exemption de répertoire ("legal-*"), jamais un motif générique.
+const LEGAL_CGV_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+  "app/api/dashboard/legal-cgv/publish/route.ts": /^@\/lib\/server\/legal-cgv-publish-service$/,
+};
 test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from \"...\"')", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
@@ -155,7 +165,8 @@ test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF
     const { references, hasNonLiteralModuleReference } = scanModuleReferences(file);
     const serverReferences = references.filter((r) => r.startsWith("@/lib/server/"));
 
-    const allowedPattern = TRACKING_ALLOWED_SERVER_IMPORTERS[file] ?? STUART_ALLOWED_SERVER_IMPORTERS[file];
+    const allowedPattern =
+      TRACKING_ALLOWED_SERVER_IMPORTERS[file] ?? STUART_ALLOWED_SERVER_IMPORTERS[file] ?? LEGAL_CGV_ALLOWED_SERVER_IMPORTERS[file];
     if (!allowedPattern) {
       // Fichier NON allowlisté : AUCUNE référence lib/server/* n'est
       // tolérée, littérale OU non littérale (fail-closed explicite).
@@ -388,11 +399,16 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // confiance, aucun paiement/Stuart/suivi déclenché) + 1 route
   // FRÈRE BULK PRODUCT PHOTOS v1.6 -- MEDIUM CLEANUP RETRY (même lot,
   // sans rapport avec PAYMENT P3-A1 -- retry de nettoyage Storage
-  // UNIQUEMENT, aucun nouvel upload/écriture menu_items).
+  // UNIQUEMENT, aucun nouvel upload/écriture menu_items) + 1 route
+  // SELLER LEGAL PROFILE + CGV ENGINE v1 (également ULTÉRIEURE et SANS
+  // RAPPORT avec PAYMENT P3-A1 -- publication CGV serveur-autoritaire
+  // uniquement, aucun paiement/Stuart/suivi/photo déclenché ; entrée
+  // EXACTE unique, jamais une correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/checkout/invoice-request/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",
+    "app/api/dashboard/legal-cgv/publish/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",

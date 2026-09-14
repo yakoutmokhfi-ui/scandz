@@ -60,10 +60,12 @@ import { buildTrackingPath } from "@/lib/tracking/link";
 import { I18nProvider } from "@/lib/i18n-context";
 import { getTheme, themeStyle } from "@/lib/themes";
 import { patternUrl } from "@/lib/pattern";
+import { getRestaurantPublicCgv, type PublicCgv } from "@/lib/services/legal-cgv";
 import {
   createOrder,
   markWhatsappOpened,
   OrderNoteTooLongError,
+  CgvAcceptanceRequiredError,
   type CreatedOrder,
 } from "@/lib/services/orders";
 import {
@@ -490,6 +492,40 @@ export default function MenuView({
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  /**
+   * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1. `cgvInfo` reflète
+   * l'état SERVEUR authentique (RPC publique, tenant-safe) -- jamais
+   * une supposition ; `cgvInfo === null` (marchand sans CGV publiée,
+   * ou requête pas encore résolue) laisse le checkout STRICTEMENT
+   * inchangé (aucune case, aucun blocage), comme avant ce lot. Chargée
+   * une seule fois par slug -- une CGV nouvellement publiée par le
+   * marchand pendant la session du client n'est prise en compte qu'au
+   * prochain chargement de page (comportement acceptable en v1 : le
+   * serveur reste de toute façon la seule autorité au moment de
+   * `create_order`, quel que soit ce que cet état local affiche).
+   */
+  const [cgvInfo, setCgvInfo] = useState<PublicCgv | null>(null);
+  const [cgvAccepted, setCgvAccepted] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRestaurantPublicCgv(restaurant.slug)
+      .then((info) => {
+        if (!cancelled) setCgvInfo(info);
+      })
+      .catch(() => {
+        // Échec de résolution (réseau, etc.) -- repli sur le
+        // comportement pré-lot (aucune case affichée), jamais un
+        // blocage du checkout à cause d'une info non critique pour
+        // l'affichage : le serveur reste l'unique autorité à
+        // create_order de toute façon.
+        if (!cancelled) setCgvInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurant.slug]);
   /**
    * CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2 (FERME
    * "SILENT INVOICE LOSS"). Non-null UNIQUEMENT lorsqu'une commande a
@@ -952,6 +988,9 @@ export default function MenuView({
     if (isSubmitting) return;          // double-clic
     if (!orderContext || lines.length === 0) return;
     if (!invoiceRequestValid) return;  // garde défensif, cohérent avec canSubmit
+    // Garde défensif, cohérent avec le bouton désactivé de
+    // CartPanel : ne dépend jamais uniquement du disabled côté UI.
+    if (cgvInfo?.enforced && !cgvAccepted) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -977,6 +1016,10 @@ export default function MenuView({
         lines: frozenLines,
         lang,
         note: frozenNote,
+        // Signal de consentement uniquement -- voir buildCreateOrderPayload.
+        // Sans effet pour un marchand non CGV_ACTIVE (comportement
+        // historique inchangé).
+        cgvAccepted,
       });
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -1025,7 +1068,11 @@ export default function MenuView({
       // toute autre erreur (réseau, règle métier, etc.) reste générique.
       // Le message Postgres brut n'est jamais affiché tel quel.
       setSubmitError(
-        err instanceof OrderNoteTooLongError ? t("noteTooLong") : t("orderFailed")
+        err instanceof OrderNoteTooLongError
+          ? t("noteTooLong")
+          : err instanceof CgvAcceptanceRequiredError
+            ? t("cgvAcceptanceRequiredError")
+            : t("orderFailed")
       );
     } finally {
       setIsSubmitting(false);
@@ -1302,6 +1349,10 @@ export default function MenuView({
             setCustomer((prev) => ({ ...prev, ...patch }))
           }
           onChangeNote={setNote}
+          cgvEnforced={!!cgvInfo?.enforced}
+          cgvAccepted={cgvAccepted}
+          onChangeCgvAccepted={setCgvAccepted}
+          cgvLegalHref={cgvInfo?.enforced ? `/legal/${restaurant.slug}` : null}
           onSendOrder={handleSendOrder}
           onClose={() => setIsCartOpen(false)}
         />
