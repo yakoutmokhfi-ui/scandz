@@ -324,6 +324,23 @@ function CockpitBody({
           >
             {tAdmin("secCatalogueImportLink")}
           </a>
+          {/* OPERATOR BACKOFFICE — SAFE CATALOGUE RESET v1 (Claude
+              Nougaro) -- second lien d'action, même patron que le lien
+              d'import ci-dessus (CockpitSectionCard n'expose qu'UN
+              SEUL actionHref/actionLabel) -- vers la page dédiée
+              NOUVELLE app/admin/establishments/catalogue-reset/page.tsx,
+              qui applique elle-même son propre garde `isScanymOperator()`
+              et sa propre confirmation forte avant toute mutation --
+              rien n'est déclenché depuis ce lien lui-même, qui ne fait
+              que naviguer, pour L'ÉTABLISSEMENT COURANT du cockpit
+              uniquement (même paramètre ?r= que les autres liens de
+              cette carte). */}
+          <a
+            href={`/admin/establishments/catalogue-reset?r=${restaurantId}`}
+            className="mt-2 block text-sm font-semibold text-red-700 underline"
+          >
+            {tAdmin("secCatalogueResetLink")}
+          </a>
           <p className="mt-2 text-xs text-stone-400">{tAdmin("secExistingScreenCaveat")}</p>
         </CockpitSectionCard>
 

@@ -40,6 +40,10 @@ export function makeSubcategory(
 ): CatalogueSubcategory {
   return {
     subcategory_display_order: 0,
+    // OPERATOR CATALOGUE RESET v1.1 -- `true` par défaut (comportement
+    // historique/non-reseté) ; un test spécifique au reset peut passer
+    // `subcategory_is_active: false` via `overrides`.
+    subcategory_is_active: true,
     products: [],
     ...overrides,
   };
@@ -55,6 +59,9 @@ export function makeCategory(
     category_is_option_source: false,
     category_description: null,
     category_description_hash: null,
+    // OPERATOR CATALOGUE RESET v1.1 -- même défaut que
+    // subcategory_is_active ci-dessus.
+    category_is_active: true,
     products: [],
     subcategories: [],
     ...overrides,

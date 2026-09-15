@@ -194,12 +194,19 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // donc corrigé une fois ici à sa valeur RÉELLE mesurée directement
 // (114), plutôt que de laisser cette garde continuer de dériver comme
 // un échec permanent non examiné.
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 114 (mesuré directement ; dérive pré-existante de lots ultérieurs sans rapport avec v2, corrigée par N1-A qui ajoute ses 2 propres fichiers)", () => {
+// MISE À JOUR OPERATOR BACKOFFICE — SAFE CATALOGUE RESET v1 (Claude
+// Nougaro) : même mécanique exactement -- ce lot RESET, entièrement
+// SANS RAPPORT avec CUSTOMER TRACKING EXPERIENCE v2, ajoute à son tour
+// SES DEUX PROPRES fichiers SQL top-level (DRAFT-lot-operator-
+// catalogue-reset-v1.sql + -ROLLBACK.sql), portant le compte total à
+// 116 -- mesuré directement, aucune ligne de CE lot v2 (tracking) n'a
+// bougé pour autant.
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 116 (mesuré directement ; dérive pré-existante de lots ultérieurs sans rapport avec v2, corrigée par OPERATOR BACKOFFICE SAFE CATALOGUE RESET v1 qui ajoute ses 2 propres fichiers)", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
   assert.equal(
     sqlFiles.length,
-    114,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs sans rapport avec v2 (dont N1A, +2 : DRAFT-lot-n1a-customer-email-notification-foundation-v1.sql + -rollback.sql)`
+    116,
+    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs sans rapport avec v2 (dont N1A +2, et désormais OPERATOR BACKOFFICE SAFE CATALOGUE RESET v1 +2 : DRAFT-lot-operator-catalogue-reset-v1.sql + -ROLLBACK.sql)`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);

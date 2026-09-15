@@ -17,13 +17,30 @@ interface CategoryIndexEntry {
 }
 
 /** Index des catégories existantes par clé normalisée -- plusieurs
- *  `category_id` peuvent partager la même clé (voir commentaire
- *  détaillé dans AUTHORIZATION... non, ici : get_merchant_catalogue
+ *  `category_id` peuvent partager la même clé (get_merchant_catalogue
  *  ne filtre pas par is_active, une collision réelle entre catégories
- *  existantes reste possible ; c'est exactement le cas AMBIGUOUS). */
+ *  ACTIVES existantes reste possible ; c'est exactement le cas
+ *  AMBIGUOUS).
+ *
+ *  OPERATOR CATALOGUE RESET v1.1 -- toute catégorie
+ *  `category_is_active === false` est IGNORÉE ici (jamais indexée) :
+ *  une telle catégorie a été RETENUE (jamais supprimée, pour ne
+ *  jamais perdre son historique de commande) mais DÉSACTIVÉE par un
+ *  reset (supabase/DRAFT-lot-operator-catalogue-reset-v1.sql).
+ *  L'ignorer pour la résolution d'import fait qu'une ligne de fichier
+ *  portant le MÊME nom résout en `WOULD_CREATE` (nouvelle catégorie
+ *  active) plutôt qu'en `EXISTING`/`AMBIGUOUS` -- un réimport après
+ *  reset ne réutilise donc JAMAIS silencieusement une structure
+ *  désactivée (mandat v1.1 §3/§4, "clean import must not accidentally
+ *  reuse unwanted legacy structure"). `idx_menu_categories_unique_
+ *  active_name` (partiel, `where is_active = true`) garantit déjà,
+ *  côté base, qu'une catégorie active et une catégorie inactive
+ *  peuvent coexister sous le même nom sans jamais entrer en conflit à
+ *  la création. */
 function indexCategoriesByKey(categories: CatalogueCategory[]): Map<string, CategoryIndexEntry> {
   const index = new Map<string, CategoryIndexEntry>();
   for (const c of categories) {
+    if (c.category_is_active === false) continue;
     const key = normalizedKey(c.category_name);
     const entry = index.get(key);
     if (entry) {
@@ -35,9 +52,13 @@ function indexCategoriesByKey(categories: CatalogueCategory[]): Map<string, Cate
   return index;
 }
 
+/** OPERATOR CATALOGUE RESET v1.1 -- même exclusion des sous-catégories
+ *  désactivées (`subcategory_is_active === false`) que
+ *  indexCategoriesByKey ci-dessus, même rationale. */
 function indexSubcategoriesByKey(category: CatalogueCategory): Map<string, CategoryIndexEntry> {
   const index = new Map<string, CategoryIndexEntry>();
   for (const s of category.subcategories) {
+    if (s.subcategory_is_active === false) continue;
     const key = normalizedKey(s.subcategory_name);
     const entry = index.get(key);
     if (entry) {
