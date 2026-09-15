@@ -39,6 +39,69 @@ export function groupMenuItemsBySubcategory(items: readonly MenuItem[]): MenuIte
 }
 
 // ======================================================================
+// CUSTOMER MENU / SUBCATEGORY FILTER NAVIGATION v1 -- logique PURE de
+// sélection pour la barre de filtre de components/SubcategoryFilter.tsx,
+// consommée par components/MenuView.tsx. Séparée ici (plutôt que
+// laissée inline dans le composant React) pour rester testable sans
+// rendu DOM, à l'image de groupMenuItemsBySubcategory ci-dessus.
+//
+// Ces deux fonctions NE recalculent AUCUN ordre ni AUCUN filtre de
+// disponibilité -- elles font entièrement confiance aux groupes déjà
+// produits par groupMenuItemsBySubcategory (déjà : uniquement des
+// groupes avec >= 1 produit visible, déjà dans l'ordre d'affichage
+// public). Une sous-catégorie qui n'a plus aucun produit visible
+// (archivé/indisponible) n'apparaît donc déjà plus dans `groups` --
+// jamais une pilule de filtre vide.
+// ======================================================================
+
+export interface SubcategoryFilterOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * Options de la barre de filtre : une entrée par groupe de
+ * sous-catégorie RÉELLE (subcategoryId non nul). Le groupe "direct"
+ * (subcategoryId === null) n'a JAMAIS de pilule dédiée -- il est
+ * représenté par le pseudo-onglet "Tous" (voir
+ * filterMenuItemGroupsBySubcategory ci-dessous), qui n'existe qu'en UI
+ * et ne correspond à aucune sous-catégorie en base.
+ */
+export function deriveSubcategoryFilterOptions(
+  groups: readonly MenuItemGroup[]
+): SubcategoryFilterOption[] {
+  return groups
+    .filter((group) => group.subcategoryId !== null)
+    .map((group) => ({
+      id: group.subcategoryId as string,
+      name: group.subcategoryName ?? "",
+    }));
+}
+
+/**
+ * Applique le filtre de sous-catégorie sélectionné aux groupes de la
+ * catégorie active.
+ *
+ * `activeSubcategoryId === null` ("Tous") : TOUS les groupes, y
+ * compris le groupe "direct" -- mandat, littéral : "Products with
+ * subcategory_id = null [...] must remain visible under 'Tous'".
+ *
+ * `activeSubcategoryId` précis : UNIQUEMENT le groupe dont
+ * `subcategoryId` correspond exactement -- jamais le groupe "direct"
+ * (mandat, littéral : "must NOT appear under a specific subcategory
+ * filter"), et jamais une autre sous-catégorie.
+ */
+export function filterMenuItemGroupsBySubcategory(
+  groups: readonly MenuItemGroup[],
+  activeSubcategoryId: string | null
+): MenuItemGroup[] {
+  if (activeSubcategoryId === null) {
+    return [...groups];
+  }
+  return groups.filter((group) => group.subcategoryId === activeSubcategoryId);
+}
+
+// ======================================================================
 // CATALOGUE / SUBCATEGORIES v1.1 -- remédiation CAT-SUB-V1-PUBLIC-GROUPING-01
 // (audit Work). groupMenuItemsBySubcategory() ci-dessus est une PURE
 // segmentation en groupes CONSÉCUTIFS : elle suppose déjà que le

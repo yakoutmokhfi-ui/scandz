@@ -6,14 +6,27 @@ import Ltr from "@/components/Bidi";
 import { ClockIcon, PhoneIcon, PinIcon } from "@/components/Icons";
 
 /**
- * Bandeau compact d'informations, intégré au bas de la bannière.
- *
- * Remplace le bloc blanc vertical, qui occupait une hauteur
- * importante avant les catégories. Fond sombre translucide avec
- * flou : la photo reste visible dessous.
+ * Bandeau d'informations, intégré au bas de la bannière. Fond sombre
+ * opaque : la photo reste visible dessous, la lisibilité ne dépend
+ * jamais de sa luminosité (voir V72-02 plus bas).
  *
  * Toutes les valeurs proviennent des données de l'établissement —
  * aucune adresse, aucun numéro et aucun horaire n'est codé en dur.
+ *
+ * CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 — remplace
+ * l'ancienne grille responsive (Adresse/Téléphone/Horaires côte à côte
+ * dès `sm`, jusqu'à 3-4 colonnes) par un empilement VERTICAL PLEINE
+ * LARGEUR, identique sur mobile, tablette ET ordinateur (mandat,
+ * littéral : "Do not switch back to a two-column layout on larger
+ * screens"). Adresse en premier, Horaires DIRECTEMENT en dessous
+ * (mandat : "Address first. Opening hours directly below.") — le
+ * téléphone (non mentionné par le mandat, mais dont la disparition
+ * romprait une fonctionnalité existante) est conservé, affiché APRÈS
+ * les horaires plutôt qu'entre adresse et horaires, pour respecter cet
+ * ordre littéral sans supprimer aucune donnée affichée. Chaque champ
+ * occupe systématiquement 100% de la largeur de la carte — plus de
+ * `truncate` sur l'adresse (elle peut désormais s'enrouler
+ * naturellement, mandat §6), plus de grille CSS ni de `col-span`.
  */
 export default function RestaurantInfoBar({
   restaurant,
@@ -46,32 +59,19 @@ export default function RestaurantInfoBar({
     content: ReactNode;
     href?: string;
     aria?: string;
-    wide?: boolean;
-    /** Corrige BUG UI 1 (fiche publique, zone Horaires trop étroite) :
-     *  réservé aux horaires. Sur mobile (grid-cols-2), donne aux
-     *  horaires la même largeur pleine ligne que `wide` (adresse),
-     *  au lieu de partager la moitié de la ligne avec le téléphone.
-     *  À partir de sm (grid-cols-4, voir plus bas), les horaires
-     *  occupent 2 colonnes sur 4 (la moitié de la largeur totale) au
-     *  lieu d'1 sur 3 auparavant -- adresse et téléphone conservent
-     *  chacun 1 colonne, sans changement de comportement pour eux au-
-     *  delà du nombre total de colonnes de la grille (3 -> 4, pour que
-     *  1+1+2 remplisse exactement la ligne sans espace résiduel). Ne
-     *  modifie ni le multiline existant, ni les données, ni
-     *  adresse/téléphone. */
-    wideDesktop?: boolean;
-    /** Corrige UI MULTILINE FIX v2 (root cause réelle confirmée en
-     *  Production -- RestaurantInfoBar est l'UNIQUE composant public
-     *  réellement affiché pour ce bandeau, RestaurantInfoCard n'étant
-     *  importé nulle part dans l'arbre de rendu réel). Réservé aux
-     *  horaires : les retours à la ligne réellement saisis (désormais
-     *  possibles depuis le passage à un <textarea> côté Dashboard)
-     *  doivent être préservés visuellement. Adresse/téléphone
-     *  restent volontairement compacts (truncate), leur contenu est
-     *  par nature court et mono-ligne. */
+    /** Réservé aux horaires : les retours à la ligne réellement saisis
+     *  (possibles depuis le passage à un <textarea> côté Dashboard)
+     *  doivent être préservés visuellement. */
     multiline?: boolean;
   }[] = [];
 
+  // CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 -- ordre de
+  // construction volontairement Adresse PUIS Horaires PUIS Téléphone
+  // (jamais Adresse/Téléphone/Horaires comme avant ce lot), pour que
+  // les Horaires apparaissent TOUJOURS directement sous l'Adresse dans
+  // le DOM, quels que soient les champs présents ou absents pour cet
+  // établissement (mandat, littéral : "Address first. Opening hours
+  // directly below.").
   if (config.address) {
     cells.push({
       key: "address",
@@ -80,9 +80,15 @@ export default function RestaurantInfoBar({
       content: <Ltr>{config.address}</Ltr>,
       href: mapsUrl ?? undefined,
       aria: mapsUrl ? t("ariaOpenMaps", { name: restaurant.name }) : undefined,
-      // L'adresse est la valeur la plus longue : elle occupe la
-      // première ligne entière sur mobile.
-      wide: true,
+    });
+  }
+  if (hoursContent) {
+    cells.push({
+      key: "hours",
+      icon: <ClockIcon />,
+      label: t("labelHours"),
+      content: hoursContent,
+      multiline: true,
     });
   }
   if (phone) {
@@ -95,18 +101,6 @@ export default function RestaurantInfoBar({
       aria: t("ariaCallRestaurant", { name: restaurant.name }),
     });
   }
-  if (hoursContent) {
-    cells.push({
-      key: "hours",
-      icon: <ClockIcon />,
-      label: t("labelHours"),
-      content: hoursContent,
-      multiline: true,
-      // Corrige BUG UI 1 : voir le commentaire de doc sur le champ
-      // `wideDesktop` ci-dessus pour le raisonnement complet.
-      wideDesktop: true,
-    });
-  }
 
   if (cells.length === 0) return null;
 
@@ -115,33 +109,42 @@ export default function RestaurantInfoBar({
       {/* Corrige V72-02 (contre-audit Work, 3e tour) : fond ENTIÈREMENT
           OPAQUE (plus de "/55"), positionné sur la photo de bannière.
           La lisibilité ne doit pas dépendre de la luminosité de la
-          photo téléchargée -- voir LanguageSelector.tsx pour le même
+          photo téléchargée — voir LanguageSelector.tsx pour le même
           raisonnement. */}
       <div className="rounded-xl border border-gold/25 bg-espresso p-1">
-        {/* Mobile : l'adresse sur toute la largeur, téléphone et
-            horaires côte à côte. Tablette et ordinateur : trois
-            colonnes égales.
-            Corrige V73-02 (contre-audit Work, 4e tour) : le libellé
-            (ADRESSE/TÉLÉPHONE/HORAIRES) utilisait
-            text-highlight-on-ink/80 -- une opacité sur une valeur déjà
-            calculée en dégrade la garantie (même raisonnement que
-            RestaurantHeader.tsx). Icône aria-hidden inchangée
-            (décorative, hors champ WCAG). */}
-        <div className="grid grid-cols-2 gap-px sm:grid-cols-4">
+        {/* CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 --
+            empilement vertical `flex flex-col` (jamais une grille CSS
+            à colonnes) : chaque champ occupe systématiquement 100% de
+            la largeur de la carte, sur mobile, tablette ET ordinateur
+            -- aucune classe `sm:`/`md:`/`lg:` ne réintroduit de
+            disposition en colonnes (mandat, littéral : "Do not switch
+            back to a two-column layout on larger screens"). Corrige
+            V73-02 (contre-audit Work, 4e tour) : le libellé
+            (ADRESSE/HORAIRES/TÉLÉPHONE) utilise text-highlight-on-ink
+            en pleine opacité (jamais une opacité sur une valeur déjà
+            calculée, même raisonnement que RestaurantHeader.tsx).
+            Icône aria-hidden inchangée (décorative, hors champ WCAG). */}
+        <div className="flex flex-col divide-y divide-gold/10">
           {cells.map((cell) => {
             const inner = (
               <>
                 <span aria-hidden className="mt-0.5 shrink-0 text-highlight-on-ink">
                   {cell.icon}
                 </span>
-                <span className="min-w-0">
+                <span className="min-w-0 flex-1">
                   <span className="block text-[0.6rem] font-semibold uppercase tracking-wider text-highlight-on-ink">
                     {cell.label}
                   </span>
                   <span
                     className={
                       "block text-xs text-ink-text " +
-                      (cell.multiline ? "whitespace-pre-wrap" : "truncate sm:whitespace-normal")
+                      // Remédiation §6 : l'adresse (et le téléphone)
+                      // s'enroulent naturellement sur toute la largeur
+                      // désormais disponible -- plus de `truncate`
+                      // (qui coupait le texte avec "…" dans l'ancienne
+                      // colonne étroite). Les horaires conservent leur
+                      // préservation des retours à la ligne saisis.
+                      (cell.multiline ? "whitespace-pre-wrap" : "whitespace-normal")
                     }
                   >
                     {cell.content}
@@ -150,18 +153,9 @@ export default function RestaurantInfoBar({
               </>
             );
 
-            // Corrige BUG UI 1 : `wideDesktop` (horaires) obtient toute la
-            // largeur sur mobile (comme `wide`/adresse) ET 2 colonnes sur
-            // 4 à partir de sm (au lieu d'1 sur 3 auparavant) -- adresse
-            // (`wide` seul) ne change pas de comportement : pleine largeur
-            // sur mobile, puis retour à 1 colonne à partir de sm.
-            const classes =
-              "flex items-start gap-2 px-3 py-2 text-left " +
-              (cell.wideDesktop
-                ? "col-span-2 sm:col-span-2 "
-                : cell.wide
-                  ? "col-span-2 sm:col-span-1 "
-                  : "");
+            // Pleine largeur systématique : un simple `flex` par ligne,
+            // jamais de `col-span`/`grid-cols` à aucun palier.
+            const classes = "flex w-full items-start gap-2 px-3 py-2.5 text-left";
 
             return cell.href ? (
               <a
@@ -170,7 +164,7 @@ export default function RestaurantInfoBar({
                 target={cell.href.startsWith("http") ? "_blank" : undefined}
                 rel={cell.href.startsWith("http") ? "noopener noreferrer" : undefined}
                 aria-label={cell.aria}
-                className={classes + "rounded-lg hover:bg-black/10"}
+                className={classes + " rounded-lg hover:bg-black/10"}
               >
                 {inner}
               </a>

@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
-import { groupMenuItemsBySubcategory } from "@/lib/catalogue-subcategory-grouping";
+import {
+  groupMenuItemsBySubcategory,
+  deriveSubcategoryFilterOptions,
+  filterMenuItemGroupsBySubcategory,
+} from "@/lib/catalogue-subcategory-grouping";
 import {
   buildWhatsAppUrl,
   formatPrice,
@@ -50,6 +54,7 @@ import {
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import CategoryNav from "@/components/CategoryNav";
+import SubcategoryFilter from "@/components/SubcategoryFilter";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import OptionModal from "@/components/OptionModal";
@@ -311,6 +316,33 @@ export default function MenuView({
   const [activeCategoryId, setActiveCategoryId] = useState<string>(
     restaurant.categories[0]?.id ?? ""
   );
+
+  // CUSTOMER MENU / SUBCATEGORY FILTER v1 -- null = "Tous" (aucun
+  // filtre de sous-catégorie). Purement un état d'affichage : ne
+  // modifie jamais le panier, ni la liste plate `menu_items` consommée
+  // ailleurs (toujours indexée par item.id). Réinitialisé ci-dessous
+  // à chaque changement de catégorie active pour qu'un filtre choisi
+  // dans une catégorie ne "fuie" jamais vers une autre (mandat
+  // scénario H : "switching category must not contaminate it").
+  const [activeSubcategoryId, setActiveSubcategoryId] = useState<string | null>(null);
+
+  // Corrige un piège classique useEffect(() => reset, [activeCategoryId]) :
+  // un effect keyed sur activeCategoryId se déclenche de façon
+  // ASYNCHRONE (passive effect), donc son flush peut se chevaucher avec
+  // une mise à jour synchrone ultérieure de activeSubcategoryId (ex.
+  // React flushe l'effect de montage EN RETARD, juste avant de traiter
+  // le clic suivant sur une pilule de filtre -- l'effect écrase alors
+  // silencieusement la sélection qui vient d'être faite, car les deux
+  // setActiveSubcategoryId ciblent le même état et le dernier
+  // enqueued gagne). La réinitialisation est donc faite ICI, de façon
+  // SYNCHRONE, au même endroit exact que chaque changement de
+  // activeCategoryId (jamais via un effect) -- voir
+  // changeActiveCategory ci-dessous, seul point d'entrée pour changer
+  // de catégorie active dans ce composant.
+  function changeActiveCategory(categoryId: string) {
+    setActiveCategoryId(categoryId);
+    setActiveSubcategoryId(null);
+  }
 
   // Récupération de la commande
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -587,6 +619,19 @@ export default function MenuView({
   const activeCategoryItemGroups = useMemo(
     () => groupMenuItemsBySubcategory(activeCategory?.menu_items ?? []),
     [activeCategory]
+  );
+
+  // CUSTOMER MENU / SUBCATEGORY FILTER v1 -- options de la barre de
+  // filtre + application du filtre sélectionné, via les fonctions
+  // PURES de lib/catalogue-subcategory-grouping.ts (testables sans
+  // rendu DOM ; voir tests/v169-*).
+  const subcategoryFilterOptions = useMemo(
+    () => deriveSubcategoryFilterOptions(activeCategoryItemGroups),
+    [activeCategoryItemGroups]
+  );
+  const visibleCategoryItemGroups = useMemo(
+    () => filterMenuItemGroupsBySubcategory(activeCategoryItemGroups, activeSubcategoryId),
+    [activeCategoryItemGroups, activeSubcategoryId]
   );
 
   const isInlineOptions = settings.optionsDisplay === "inline";
@@ -1127,7 +1172,7 @@ export default function MenuView({
 
   function closeConfirmation() {
     setIsConfirmationOpen(false);
-    setActiveCategoryId(restaurant.categories[0]?.id ?? "");
+    changeActiveCategory(restaurant.categories[0]?.id ?? "");
     // Mandat §11 : jamais d'état de suivi résiduel entre deux
     // commandes -- la prochaine commande reconstruira son propre
     // chemin depuis sa propre réponse create_order.
@@ -1203,7 +1248,7 @@ export default function MenuView({
         <CategoryNav
           categories={restaurant.categories}
           activeId={activeCategoryId}
-          onSelect={setActiveCategoryId}
+          onSelect={changeActiveCategory}
           variant={menuVariant}
         />
       </div>
@@ -1225,8 +1270,23 @@ export default function MenuView({
             </div>
             {/* Filet laiton : marque la section sans aplat doré */}
             <div className="mt-1.5 h-px w-12 bg-gold" />
+            {/* CUSTOMER MENU / SUBCATEGORY FILTER v1.1 -- barre de FILTRE
+                à l'intérieur de la catégorie active, jamais une
+                nouvelle section. Masquée automatiquement par
+                SubcategoryFilter lui-même UNIQUEMENT si la catégorie
+                compte zéro sous-catégorie réelle (scénario A : rendu
+                historique inchangé) -- dès qu'une seule existe, elle
+                s'affiche (remédiation ONE-SUBCATEGORY CASE : jamais de
+                cas particulier pour "une seule sous-catégorie couvrant
+                tout"). */}
+            <SubcategoryFilter
+              options={subcategoryFilterOptions}
+              activeId={activeSubcategoryId}
+              onSelect={setActiveSubcategoryId}
+              allLabel={t("subcategoryFilterAll")}
+            />
             <div className="mt-4 space-y-6">
-              {activeCategoryItemGroups.map((itemGroup) => (
+              {visibleCategoryItemGroups.map((itemGroup) => (
                 <div
                   key={itemGroup.subcategoryId ?? "__direct__"}
                   className="space-y-4"

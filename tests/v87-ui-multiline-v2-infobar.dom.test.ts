@@ -142,18 +142,23 @@ test("UI MULTILINE FIX v2: RestaurantInfoBar (composant RÉELLEMENT rendu en Pro
   root.unmount();
 });
 
-test("UI MULTILINE FIX v2: RestaurantInfoBar -- adresse/téléphone restent compacts (truncate), non affectés par ce correctif", async () => {
+test("CUSTOMER INFO CARD v1.1 : RestaurantInfoBar -- l'adresse n'est plus tronquée (plus de `truncate`), elle s'enroule naturellement sur toute la largeur désormais disponible", async () => {
   const restaurant = baseRestaurant("07:00 – 23:00");
-  (restaurant.config as any).address = "10 rue de Paris, 75001 Paris, une adresse volontairement très longue pour tester la troncature";
+  (restaurant.config as any).address = "10 rue de Paris, 75001 Paris, une adresse volontairement très longue pour prouver qu'elle n'est plus tronquée";
   const { container, root } = render(restaurant);
   await flush();
 
-  const addressCell = Array.from(container.querySelectorAll("span.truncate")).find((s) =>
+  const addressCell = Array.from(container.querySelectorAll("span.whitespace-normal")).find((s) =>
     s.textContent?.includes("rue de Paris")
   );
-  assert.ok(addressCell, "la cellule adresse (truncate) doit être présente");
-  assert.ok(addressCell!.className.includes("truncate"), "l'adresse doit rester tronquée, comportement compact inchangé");
-  assert.ok(!addressCell!.className.includes("whitespace-pre-wrap"), "l'adresse ne doit jamais recevoir whitespace-pre-wrap");
+  assert.ok(addressCell, "la cellule adresse doit être présente");
+  assert.equal(
+    addressCell!.textContent,
+    "10 rue de Paris, 75001 Paris, une adresse volontairement très longue pour prouver qu'elle n'est plus tronquée",
+    "le texte complet doit être rendu tel quel, jamais coupé"
+  );
+  assert.ok(!addressCell!.className.includes("truncate"), "l'adresse ne doit plus jamais être tronquée (remédiation v1.1 -- pleine largeur disponible)");
+  assert.ok(addressCell!.className.includes("whitespace-normal"), "l'adresse doit s'enrouler normalement, jamais whitespace-pre-wrap (réservé aux horaires)");
   root.unmount();
 });
 
@@ -183,52 +188,72 @@ test("UI MULTILINE FIX v2: aucun parsing sémantique des horaires -- une valeur 
 });
 
 // ====================================================================
-// Corrige BUG UI 1 (fiche publique, zone Horaires trop étroite) :
-// preuve comportementale RÉELLE (rendu DOM) que la cellule horaires
-// obtient désormais davantage de largeur -- pleine ligne sur mobile
-// (comme l'adresse), 2 colonnes sur 4 à partir de sm (au lieu d'1 sur
-// 3 auparavant) -- SANS régresser ni l'adresse, ni le téléphone, ni
-// le comportement multiline déjà couvert plus haut dans ce fichier.
+// CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 -- preuve
+// comportementale RÉELLE (rendu DOM) que la carte d'informations
+// utilise désormais un empilement VERTICAL PLEINE LARGEUR (jamais une
+// grille CSS à colonnes, à aucun palier) : Adresse en premier, Horaires
+// DIRECTEMENT en dessous, Téléphone ensuite -- SANS régresser le
+// comportement multiline déjà couvert plus haut dans ce fichier.
+//
+// Remplace les anciens tests "BUG UI 1" (grid-cols-4/col-span), qui
+// vérifiaient l'ancienne disposition en colonnes que ce lot supprime
+// intentionnellement (mandat : "Do not switch back to a two-column
+// layout on larger screens").
 // ====================================================================
 
-test("BUG UI 1 : la cellule horaires obtient col-span-2 sm:col-span-2 (pleine largeur mobile + moitié à partir de sm), grille passée à sm:grid-cols-4", async () => {
+test("CUSTOMER INFO CARD v1.1 : aucune grille CSS à colonnes -- le conteneur des champs est un empilement flex vertical (flex-col), à AUCUN palier de largeur", async () => {
   const restaurant = baseRestaurant("Mar – Ven 10:00 – 14:00 / 16:00 – 20:00");
   (restaurant.config as any).address = "10 rue de Paris, 75001 Paris";
   const { container, root } = render(restaurant);
   await flush();
 
-  const grid = container.querySelector(".grid");
-  assert.ok(grid, "le conteneur grille doit être présent");
-  assert.ok(grid!.className.includes("sm:grid-cols-4"), `la grille doit désormais utiliser sm:grid-cols-4, reçu: "${grid!.className}"`);
-  assert.ok(!grid!.className.includes("sm:grid-cols-3"), "l'ancienne valeur sm:grid-cols-3 ne doit plus être présente");
-
-  const hoursCell = container.querySelector("span.whitespace-pre-wrap")!;
-  const hoursWrapper = hoursCell.closest('[class*="items-start"]')!;
-  assert.ok(hoursWrapper.className.includes("col-span-2"), "la cellule horaires doit occuper toute la largeur sur mobile (col-span-2)");
-  assert.ok(hoursWrapper.className.includes("sm:col-span-2"), `la cellule horaires doit occuper 2 colonnes sur 4 à partir de sm, reçu: "${hoursWrapper.className}"`);
-  assert.ok(hoursCell.className.includes("whitespace-pre-wrap"), "le multiline existant (Bug 1 ne doit pas y toucher) reste préservé");
+  assert.equal(container.querySelector(".grid"), null, "aucun conteneur '.grid' ne doit plus exister -- la disposition en colonnes est supprimée");
+  const stack = container.querySelector(".flex-col");
+  assert.ok(stack, "un conteneur flex-col (empilement vertical) doit envelopper les champs");
+  assert.ok(!stack!.className.includes("grid-cols"), "aucune classe grid-cols ne doit subsister sur ce conteneur");
+  assert.ok(!stack!.className.includes("sm:grid-cols"), "aucune classe sm:grid-cols ne doit réintroduire une disposition en colonnes à partir d'un certain palier");
 
   root.unmount();
 });
 
-test("BUG UI 1 : l'adresse (wide) conserve exactement son comportement d'avant -- col-span-2 sm:col-span-1, jamais sm:col-span-2", async () => {
-  const restaurant = baseRestaurant("07:00 – 23:00");
+test("CUSTOMER INFO CARD v1.1 : Adresse en premier, Horaires DIRECTEMENT en dessous (jamais le téléphone entre les deux) -- ordre exact requis par le mandat", async () => {
+  const restaurant = baseRestaurant("Mar – Ven 10:00 – 14:00 / 16:00 – 20:00");
+  restaurant.slug = "illico-presto"; // seul slug statique avec un téléphone configuré
   (restaurant.config as any).address = "10 rue de Paris, 75001 Paris";
   const { container, root } = render(restaurant);
   await flush();
 
-  const addressCell = Array.from(container.querySelectorAll('[class*="items-start"]')).find((el) =>
-    el.textContent?.includes("rue de Paris")
-  )!;
-  assert.ok(addressCell, "la cellule adresse doit être présente");
-  assert.ok(addressCell.className.includes("col-span-2"), "l'adresse reste pleine largeur sur mobile, comme avant");
-  assert.ok(addressCell.className.includes("sm:col-span-1"), `l'adresse doit rester sur 1 colonne à partir de sm (comportement inchangé), reçu: "${addressCell.className}"`);
-  assert.ok(!addressCell.className.includes("sm:col-span-2"), "l'adresse ne doit jamais recevoir le nouveau span réservé aux horaires");
+  const rowLabels = Array.from(container.querySelectorAll(".flex-col > *")).map(
+    (row) => row.querySelector(".uppercase")?.textContent
+  );
+  assert.deepEqual(
+    rowLabels,
+    ["Adresse", "Horaires", "Téléphone"],
+    `l'ordre affiché doit être Adresse, Horaires, Téléphone (horaires DIRECTEMENT après adresse) -- reçu: ${JSON.stringify(rowLabels)}`
+  );
 
   root.unmount();
 });
 
-test("BUG UI 1 : le téléphone (ni wide ni wideDesktop) n'obtient aucun span explicite -- comportement par défaut (1 colonne) inchangé", async () => {
+test("CUSTOMER INFO CARD v1.1 : chaque champ (adresse, horaires, téléphone) occupe systématiquement 100% de la largeur de la carte, sur tous les paliers -- aucun col-span, aucune classe responsive de largeur partielle", async () => {
+  const restaurant = baseRestaurant("07:00 – 23:00");
+  restaurant.slug = "illico-presto";
+  (restaurant.config as any).address = "10 rue de Paris, 75001 Paris";
+  const { container, root } = render(restaurant);
+  await flush();
+
+  const rows = Array.from(container.querySelectorAll(".flex-col > *"));
+  assert.equal(rows.length, 3, "3 champs attendus (adresse, horaires, téléphone)");
+  for (const row of rows) {
+    assert.ok(row.className.includes("w-full"), `chaque ligne doit porter w-full (pleine largeur), reçu pour "${row.textContent?.slice(0, 20)}": "${row.className}"`);
+    assert.ok(!row.className.includes("col-span"), "aucune classe col-span ne doit subsister sur aucune ligne");
+    assert.ok(!/\bsm:w-|md:w-|lg:w-/.test(row.className), "aucune classe de largeur responsive partielle ne doit réintroduire un comportement en colonnes à un palier plus large");
+  }
+
+  root.unmount();
+});
+
+test("CUSTOMER INFO CARD v1.1 : le téléphone (dernier de l'empilement) n'obtient aucun col-span -- comportement par défaut, pleine largeur comme les autres champs", async () => {
   // getSettings(slug).phone n'est renseigné que pour certains slugs
   // réels du fichier de configuration statique (lib/restaurants-config.ts)
   // -- "au-lait-cru-inexistant" (utilisé par baseRestaurant()) n'y
@@ -242,7 +267,8 @@ test("BUG UI 1 : le téléphone (ni wide ni wideDesktop) n'obtient aucun span ex
 
   const phoneCell = container.querySelector('a[href^="tel:"]');
   assert.ok(phoneCell, "la cellule téléphone (lien tel:) doit être présente");
-  assert.ok(!phoneCell.className.includes("col-span-2"), "le téléphone ne doit gagner aucun col-span (comportement par défaut inchangé)");
+  assert.ok(!phoneCell.className.includes("col-span"), "le téléphone ne doit gagner aucun col-span");
+  assert.ok(phoneCell.className.includes("w-full"), "le téléphone doit occuper toute la largeur, comme les autres champs");
 
   root.unmount();
 });
