@@ -52,6 +52,13 @@ const fr: Dict = {
 
   add: "Ajouter",
   ourFlavors: "Nos goûts",
+  // CUSTOMER MENU / SUBCATEGORY FILTER v1 -- libellé du filtre "Tous"
+  // affiché dans la barre de sous-catégories (composant
+  // SubcategoryFilter.tsx). Purement UI : ne correspond à AUCUNE
+  // sous-catégorie en base, jamais persisté (mandat, littéral : "Tous"
+  // is UI-only [...] do NOT create a database subcategory named
+  // "Tous"").
+  subcategoryFilterAll: "Tous",
   alreadyInCart: "{n} déjà dans votre panier",
 
   cartBarItems: "{n} article",
@@ -705,6 +712,7 @@ const en: Dict = {
 
   add: "Add",
   ourFlavors: "Our flavours",
+  subcategoryFilterAll: "All",
   alreadyInCart: "{n} already in your cart",
 
   cartBarItems: "{n} item",
@@ -1304,6 +1312,7 @@ const ar: Dict = {
 
   add: "إضافة",
   ourFlavors: "نكهاتنا",
+  subcategoryFilterAll: "الكل",
   alreadyInCart: "{n} في سلتك",
 
   cartBarItems: "{n} منتج",

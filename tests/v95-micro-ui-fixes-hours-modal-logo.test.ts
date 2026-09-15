@@ -31,36 +31,59 @@ test("BUG UI 1: le composant RÉEL et UNIQUE de la fiche publique est Restaurant
   assert.ok(!codeOnly.includes("RestaurantInfoCard"), "RestaurantHeader ne doit jamais importer RestaurantInfoCard (code mort)");
 });
 
-test("BUG UI 1: la cellule horaires porte désormais wideDesktop: true, réservé aux horaires (adresse/téléphone non concernés)", () => {
+// --------------------------------------------------------------
+// CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 -- remplace les
+// 4 tests structurels ci-dessus, qui vérifiaient l'ancienne disposition
+// en grille (wideDesktop/col-span/sm:grid-cols-4). Ce lot postérieur
+// supprime intentionnellement cette grille au profit d'un empilement
+// vertical pleine largeur (mandat, littéral : "Do not switch back to a
+// two-column layout on larger screens"). Les preuves comportementales
+// (rendu DOM réel) sont dans tests/v87-ui-multiline-v2-infobar.dom.test.ts.
+// --------------------------------------------------------------
+
+test("CUSTOMER INFO CARD v1.1: aucune trace du champ wideDesktop/wide (ancien mécanisme de grille) ne subsiste dans RestaurantInfoBar.tsx", () => {
   const src = readFileSync("components/RestaurantInfoBar.tsx", "utf8");
+  assert.ok(!src.includes("wideDesktop"), "le champ wideDesktop (ancien mécanisme de grille, remplacé par un empilement vertical) ne doit plus exister");
+  assert.ok(!/\bwide\??:\s*(true|boolean)/.test(src), "le champ wide (ancien mécanisme de grille) ne doit plus exister");
+
   const hoursPush = src.slice(src.indexOf('key: "hours"'), src.indexOf("});", src.indexOf('key: "hours"')));
-  assert.ok(hoursPush.includes("wideDesktop: true"), "la cellule horaires doit porter wideDesktop: true");
-  assert.ok(hoursPush.includes("multiline: true"), "le multiline existant (déjà validé) ne doit pas être retiré par ce correctif");
-
-  const addressPush = src.slice(src.indexOf('key: "address"'), src.indexOf("});", src.indexOf('key: "address"')));
-  assert.ok(!addressPush.includes("wideDesktop"), "l'adresse ne doit jamais recevoir wideDesktop");
-
-  const phonePush = src.slice(src.indexOf('key: "phone"'), src.indexOf("});", src.indexOf('key: "phone"')));
-  assert.ok(!phonePush.includes("wideDesktop") && !phonePush.includes("wide:"), "le téléphone ne doit jamais recevoir wide ni wideDesktop");
+  assert.ok(hoursPush.includes("multiline: true"), "le multiline existant (déjà validé) ne doit pas être retiré par ce lot");
 });
 
-test("BUG UI 1: la grille passe de sm:grid-cols-3 à sm:grid-cols-4 (1+1+2 remplit exactement la ligne, sans espace résiduel)", () => {
+test("CUSTOMER INFO CARD v1.1: le conteneur des champs utilise un empilement vertical (flex flex-col), plus aucune grille CSS (grid/grid-cols) dans le fichier", () => {
   const src = readFileSync("components/RestaurantInfoBar.tsx", "utf8");
-  assert.ok(src.includes("grid grid-cols-2 gap-px sm:grid-cols-4"), "le conteneur grille doit utiliser sm:grid-cols-4");
-  assert.ok(!src.includes("sm:grid-cols-3"), "l'ancienne valeur sm:grid-cols-3 ne doit plus exister dans le fichier");
+  assert.ok(src.includes("flex flex-col"), "le conteneur des champs doit utiliser flex flex-col (empilement vertical)");
+  assert.ok(!/\bgrid-cols-\d/.test(src), "aucune classe grid-cols-N ne doit plus exister dans le fichier (ancienne disposition en colonnes supprimée)");
+  assert.ok(!src.includes("className=\"grid "), "le conteneur ne doit plus être une grille CSS");
 });
 
-test("BUG UI 1: la classe calculée pour wideDesktop est col-span-2 sm:col-span-2, distincte de wide seul (col-span-2 sm:col-span-1)", () => {
+test("CUSTOMER INFO CARD v1.1: la classe calculée pour chaque ligne est pleine largeur (w-full), sans jamais de col-span ni de classe responsive de largeur partielle", () => {
   const src = readFileSync("components/RestaurantInfoBar.tsx", "utf8");
-  const classesBlock = src.slice(src.indexOf("const classes ="), src.indexOf(");", src.indexOf("const classes =")));
-  assert.ok(classesBlock.includes("cell.wideDesktop"), "la logique doit brancher sur cell.wideDesktop");
-  assert.ok(classesBlock.includes('"col-span-2 sm:col-span-2 "'), "wideDesktop doit produire col-span-2 sm:col-span-2");
-  assert.ok(classesBlock.includes("cell.wide") && classesBlock.includes('"col-span-2 sm:col-span-1 "'), "wide seul (adresse) doit conserver exactement col-span-2 sm:col-span-1, comportement inchangé");
+  const classesBlock = src.slice(src.indexOf("const classes ="), src.indexOf(";", src.indexOf("const classes =")));
+  assert.ok(classesBlock.includes("w-full"), "chaque ligne doit recevoir w-full (pleine largeur)");
+  assert.ok(!classesBlock.includes("col-span"), "aucun col-span ne doit plus être calculé pour aucune ligne");
+  assert.ok(!/sm:|md:|lg:/.test(classesBlock), "aucune classe responsive ne doit réintroduire une disposition différente à un palier plus large");
 });
 
-test("BUG UI 1: aucune donnée ni logique de troncature/multiline n'est modifiée -- seules les classes de disposition (grid/col-span) changent", () => {
+test("CUSTOMER INFO CARD v1.1: Adresse construite AVANT Horaires, Horaires construites AVANT Téléphone -- garantit l'ordre d'affichage Adresse puis Horaires directement en dessous, Téléphone ensuite", () => {
   const src = readFileSync("components/RestaurantInfoBar.tsx", "utf8");
-  assert.ok(src.includes('(cell.multiline ? "whitespace-pre-wrap" : "truncate sm:whitespace-normal")'), "la logique multiline/troncature doit rester identique, non touchée par ce correctif");
+  const addressIdx = src.indexOf('key: "address"');
+  const hoursIdx = src.indexOf('key: "hours"');
+  const phoneIdx = src.indexOf('key: "phone"');
+  assert.ok(addressIdx !== -1 && hoursIdx !== -1 && phoneIdx !== -1, "les 3 champs doivent exister dans le fichier source");
+  assert.ok(addressIdx < hoursIdx, "l'adresse doit être poussée dans `cells` AVANT les horaires (mandat : 'Opening hours directly below')");
+  assert.ok(hoursIdx < phoneIdx, "les horaires doivent être poussées AVANT le téléphone, pour que rien ne s'intercale entre adresse et horaires");
+});
+
+test("CUSTOMER INFO CARD v1.1: aucune donnée ni logique de préservation multiligne n'est modifiée -- seule la disposition (grille -> empilement vertical) change ; l'adresse n'est plus tronquée", () => {
+  const src = readFileSync("components/RestaurantInfoBar.tsx", "utf8");
+  assert.ok(src.includes('(cell.multiline ? "whitespace-pre-wrap" : "whitespace-normal")'), "la logique multiline des horaires doit rester identique, non touchée par ce lot");
+  // "truncate" peut légitimement apparaître dans un COMMENTAIRE
+  // expliquant sa suppression (voir l'en-tête du fichier) -- seule la
+  // présence de la classe CSS réelle (dans une chaîne className) est
+  // interdite ici, jamais une simple mention documentaire.
+  const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert.ok(!codeOnly.includes("truncate"), "l'ancienne classe CSS truncate (incompatible avec la pleine largeur) ne doit plus exister dans le CODE réel");
   assert.ok(!/\.rpc\(/.test(src), "aucun appel RPC ne doit être introduit par un correctif UI pur");
 });
 
