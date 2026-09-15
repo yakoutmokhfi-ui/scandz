@@ -43,6 +43,20 @@
  * Collections, AUCUNE écriture liée à Photo (le nom de fichier est lu
  * par preview.ts mais n'est JAMAIS transmis à create_product/
  * update_product ici -- aucun paramètre photo n'existe sur ces RPC).
+ *
+ * CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remédiation ciblée) -- une
+ * ligne dont `rowType` est CATEGORY ou SUBCATEGORY n'aboutit JAMAIS à
+ * un appel `create_product`/`update_product` (mandat, section 3/4 :
+ * "do NOT create a product") : son seul rôle est déjà rempli par la
+ * création de catégorie/sous-catégorie ci-dessous (étapes 1-2, plan
+ * DÉJÀ dédupliqué par clé normalisée -- `buildCommitPlan`,
+ * commit-plan.ts, INCHANGÉ). La boucle "étape 3" se contente de
+ * RAPPORTER, pour CETTE ligne précise, le résultat de la création de
+ * SA clé (CREATED si nouvellement créée par ce commit, SKIPPED si déjà
+ * existante/réutilisée, FAILED si la création de cette clé a échoué en
+ * amont -- ex. collision de concurrence) -- jamais une seconde
+ * tentative de création, jamais un produit fabriqué à partir d'une
+ * ligne structurelle.
  */
 
 import { analyzeCatalogueImportFile } from "@/lib/services/catalogue-import";
@@ -78,6 +92,15 @@ export interface CatalogueImportCommitSummary {
   fileName: string;
   categoriesCreated: number;
   subcategoriesCreated: number;
+  /** CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- lignes CATEGORY dont la
+   *  création de la clé référencée a échoué (ex. collision de
+   *  concurrence détectée à l'étape 1) ; DISTINCT de `productsFailed`
+   *  (une ligne structurelle en échec n'est jamais un "produit en
+   *  échec" -- décompte honnête, jamais une catégorie sémantique
+   *  inventée). */
+  categoriesFailed: number;
+  /** Même principe que `categoriesFailed`, pour les lignes SUBCATEGORY. */
+  subcategoriesFailed: number;
   productsCreated: number;
   productsUpdated: number;
   productsSkipped: number;
@@ -191,20 +214,61 @@ export async function commitCatalogueImport(
   }
 
   // ------------------------------------------------------------
-  // 3. Produits -- une exécution par ligne, dans l'ordre du fichier.
-  //    Best-effort (voir TRANSACTION MODEL en en-tête de fichier).
+  // 3. Lignes restantes -- une exécution par ligne, dans l'ordre du
+  //    fichier. Best-effort (voir TRANSACTION MODEL en en-tête de
+  //    fichier). CATEGORY / SUBCATEGORY ROW SUPPORT v1 : une ligne
+  //    CATEGORY ou SUBCATEGORY ne crée/modifie JAMAIS de produit --
+  //    voir le commentaire d'en-tête de ce fichier.
   // ------------------------------------------------------------
   const rows: CommitRowResult[] = [];
   let productsCreated = 0;
   let productsUpdated = 0;
   let productsSkipped = 0;
   let productsFailed = 0;
+  let categoriesFailed = 0;
+  let subcategoriesFailed = 0;
 
   for (const row of report.rows) {
     // Ne devrait jamais se produire : l'éligibilité du fichier entier a
     // déjà été vérifiée ci-dessus (report.eligibility !== NOT_ELIGIBLE
     // implique zéro ligne BLOCKED). Filet de sécurité déterministe.
     if (row.plannedAction === "BLOCKED") continue;
+
+    if (row.rowType === "CATEGORY") {
+      const key = normalizedKey(row.normalizedValues.categoryNameRaw);
+      if (categoryIdByKey.has(key)) {
+        rows.push({ row: row.row, outcome: row.plannedAction === "CREATE" ? "CREATED" : "SKIPPED" });
+      } else {
+        const failure = categoryCreationFailure.get(key);
+        rows.push({
+          row: row.row,
+          outcome: "FAILED",
+          errorCode: failure?.code,
+          errorMessage: failure?.message ?? "Catégorie non disponible.",
+        });
+        categoriesFailed++;
+      }
+      continue;
+    }
+
+    if (row.rowType === "SUBCATEGORY") {
+      const catKey = normalizedKey(row.normalizedValues.categoryNameRaw);
+      const subKey = normalizedKey(row.normalizedValues.subcategoryNameRaw);
+      const scoped = `${catKey}\0${subKey}`;
+      if (subcategoryIdByKey.has(scoped)) {
+        rows.push({ row: row.row, outcome: row.plannedAction === "CREATE" ? "CREATED" : "SKIPPED" });
+      } else {
+        const failure = subcategoryCreationFailure.get(scoped);
+        rows.push({
+          row: row.row,
+          outcome: "FAILED",
+          errorCode: failure?.code,
+          errorMessage: failure?.message ?? "Sous-catégorie non disponible.",
+        });
+        subcategoriesFailed++;
+      }
+      continue;
+    }
 
     const categoryKey = normalizedKey(row.normalizedValues.categoryNameRaw);
     const categoryId = categoryIdByKey.get(categoryKey);
@@ -325,6 +389,8 @@ export async function commitCatalogueImport(
     fileName: analysis.fileName,
     categoriesCreated,
     subcategoriesCreated,
+    categoriesFailed,
+    subcategoriesFailed,
     productsCreated,
     productsUpdated,
     productsSkipped,

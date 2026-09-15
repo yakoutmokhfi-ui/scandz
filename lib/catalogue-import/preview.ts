@@ -1,16 +1,40 @@
 /**
  * Scanym — OPERATOR BACKOFFICE — OB-3 — CATALOGUE IMPORT.
+ * CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remédiation ciblée).
  * Orchestrateur PUR du modèle de Preview (mandat OB-3, "PREVIEW
  * MODEL") -- combine normalisation, résolution catégorie/
  * sous-catégorie, correspondance produit et validation en un rapport
  * ligne par ligne. AUCUN accès réseau, AUCUNE écriture, AUCUN appel
  * RPC -- "Preview must be a true dry run."
+ *
+ * ROW-TYPE-AWARE (ce lot) : "Type" détermine désormais QUEL nom
+ * (« Nom » lui-même, ou « Catégorie parent »/« Sous-catégorie
+ * parent ») alimente `resolveCategoriesForRows`/
+ * `resolveSubcategoriesForRows` (resolution.ts, INCHANGÉ -- ces
+ * fonctions restent des résolveurs génériques "ce nom, pour cette
+ * ligne", agnostiques de la RAISON pour laquelle une ligne référence
+ * un nom donné) :
+ *   - ligne CATEGORY  : categoryNameRaw    = Nom (la ligne SE déclare
+ *                                            elle-même) ; subcategoryNameRaw = "".
+ *   - ligne SUBCATEGORY : categoryNameRaw = Catégorie parent (le
+ *                                            parent déclaré) ;
+ *                         subcategoryNameRaw = Nom (la ligne SE
+ *                                            déclare elle-même).
+ *   - ligne PRODUCT/UNKNOWN : INCHANGÉ -- categoryNameRaw = Catégorie
+ *                             parent, subcategoryNameRaw = Sous-
+ *                             catégorie parent.
+ * Cette seule réaffectation permet à `buildCommitPlan`
+ * (commit-plan.ts, INCHANGÉ) de dédupliquer AUTOMATIQUEMENT une
+ * catégorie référencée à la fois par une ligne CATEGORY explicite et
+ * par une ligne PRODUCT/SUBCATEGORY du même fichier (mandat, section 7
+ * "SAME-FILE DEPENDENCIES" / section 8 "IMPORT ORDER") -- sans AUCUNE
+ * modification de resolution.ts ni commit-plan.ts.
  */
 
 import type { CatalogueCategory } from "@/lib/services/dashboard";
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
 import {
-  classifyType,
+  classifyRowType,
   coerceInteger,
   coerceNumeric,
   normalizedKey,
@@ -31,6 +55,8 @@ import type {
   PreviewFileEligibility,
   PreviewReport,
   PreviewRow,
+  ProductMatch,
+  RowType,
 } from "@/lib/catalogue-import/types";
 
 export interface RawImportRow {
@@ -39,6 +65,7 @@ export interface RawImportRow {
 }
 
 function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedRowValues {
+  const type = classifyRowType(cells["Type"]);
   const name = normalizeText(cells["Nom"] ?? "", Number.POSITIVE_INFINITY).value;
   const shortDescriptionRaw = cells["Description courte"];
   const descriptionRaw = cells["Description longue"];
@@ -54,6 +81,27 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
   const photoRaw = cells["Photo fichier"];
   const photoFilename = photoRaw === undefined ? null : normalizeText(photoRaw, Number.POSITIVE_INFINITY).value || null;
 
+  // CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- le nom à RÉSOUDRE en tant
+  // que catégorie/sous-catégorie dépend du type de ligne (voir
+  // commentaire d'en-tête). resolution.ts (INCHANGÉ) ne voit jamais la
+  // différence : il résout toujours "ce nom, pour cette ligne".
+  let categoryNameRaw: string;
+  let subcategoryNameRaw: string;
+  if (type.kind === "CATEGORY") {
+    categoryNameRaw = name;
+    subcategoryNameRaw = "";
+  } else if (type.kind === "SUBCATEGORY") {
+    categoryNameRaw = cells["Catégorie parent"] ?? "";
+    subcategoryNameRaw = name;
+  } else {
+    // PRODUCT (explicite ou implicite) et UNKNOWN (filet de sécurité --
+    // tant qu'on ignore la nature réelle de la ligne, on continue de la
+    // résoudre comme un produit ; elle sera de toute façon bloquée
+    // d'office par validateRow pour "Type" inconnu).
+    categoryNameRaw = cells["Catégorie parent"] ?? "";
+    subcategoryNameRaw = cells["Sous-catégorie parent"] ?? "";
+  }
+
   return {
     name,
     shortDescription,
@@ -67,9 +115,9 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
     // préparatoire, §2).
     weightIsApproximate: false,
     tags: splitTagsColumn(cells["Tags / Collections"]),
-    type: classifyType(cells["Type"]),
-    categoryNameRaw: cells["Catégorie parent"] ?? "",
-    subcategoryNameRaw: cells["Sous-catégorie parent"] ?? "",
+    type,
+    categoryNameRaw,
+    subcategoryNameRaw,
     photoFilename,
   };
 }
@@ -107,6 +155,9 @@ export function buildPreviewReport(
 ): PreviewReport {
   const normalized = rawRows.map((r) => ({ row: r.row, values: normalizeRow(r.cells) }));
 
+  // Résolution catégorie/sous-catégorie -- TOUTES les lignes, quel que
+  // soit leur type (voir commentaire d'en-tête : categoryNameRaw/
+  // subcategoryNameRaw portent déjà la bonne signification par type).
   const categoryResolutions = resolveCategoriesForRows(
     existingCategories,
     normalized.map((r) => ({ row: r.row, categoryNameRaw: r.values.categoryNameRaw }))
@@ -122,13 +173,45 @@ export function buildPreviewReport(
     }))
   );
 
+  // mandat section 4 ("resolve parent category from either: A. an
+  // existing merchant category; or B. a CATEGORY row in the same
+  // import") -- clés normalisées de TOUTE ligne CATEGORY explicite non
+  // vide de ce fichier, pour distinguer, pour une ligne SUBCATEGORY,
+  // une catégorie parent WOULD_CREATE explicitement déclarée (option B)
+  // d'une catégorie WOULD_CREATE seulement par la référence implicite
+  // d'une AUTRE ligne (ex. Produit) -- cette dernière reste bloquante
+  // pour la ligne SUBCATEGORY (voir validation.ts,
+  // subcategoryParentResolvable).
+  const explicitCategoryKeys = new Set<string>();
+  for (const { values } of normalized) {
+    if (values.type.kind === "CATEGORY" && values.name.trim() !== "") {
+      explicitCategoryKeys.add(normalizedKey(values.name));
+    }
+  }
+  function isSubcategoryParentResolvable(row: number): boolean {
+    const res = categoryResolutions.get(row)!;
+    if (res.state === "EXISTING") return true;
+    if (res.state !== "WOULD_CREATE") return false; // ERROR / AMBIGUOUS -- déjà signalés séparément
+    const values = normalized.find((r) => r.row === row)!.values;
+    return explicitCategoryKeys.has(normalizedKey(values.categoryNameRaw));
+  }
+
+  // Correspondance produit / doublons intra-fichier -- UNIQUEMENT les
+  // lignes PRODUCT (explicite ou implicite) et UNKNOWN (filet de
+  // sécurité, comportement produit par défaut) : une ligne CATEGORY ou
+  // SUBCATEGORY ne "correspond" jamais à un produit existant et ne
+  // participe jamais à la détection de doublon PRODUIT (mandat : "do
+  // NOT create a product" -- ces concepts n'ont simplement aucun sens
+  // pour une ligne structurelle).
+  const productLikeRows = normalized.filter((r) => r.values.type.kind !== "CATEGORY" && r.values.type.kind !== "SUBCATEGORY");
+
   const productMatches = matchProductsForRows(
     existingCategories,
-    normalized.map((r) => ({ row: r.row, productNameRaw: r.values.name, categoryResolution: categoryResolutions.get(r.row)! }))
+    productLikeRows.map((r) => ({ row: r.row, productNameRaw: r.values.name, categoryResolution: categoryResolutions.get(r.row)! }))
   );
 
   const duplicates = detectDuplicateRowsWithinFile(
-    normalized.map((r) => ({
+    productLikeRows.map((r) => ({
       row: r.row,
       categoryNameRaw: r.values.categoryNameRaw,
       productNameRaw: r.values.name,
@@ -136,11 +219,14 @@ export function buildPreviewReport(
     }))
   );
 
+  const DEFAULT_PRODUCT_MATCH: ProductMatch = { state: "NEW" };
+
   const rows: PreviewRow[] = normalized.map(({ row, values }) => {
     const categoryResolution = categoryResolutions.get(row)!;
     const subcategoryResolution = subcategoryResolutions.get(row) ?? null;
-    const productMatch = productMatches.get(row)!;
+    const productMatch = productMatches.get(row) ?? DEFAULT_PRODUCT_MATCH;
     const duplicateOfRow = duplicates.get(row);
+    const rowType: RowType = values.type.kind;
 
     const issues = validateRow({
       values,
@@ -148,6 +234,7 @@ export function buildPreviewReport(
       subcategoryResolution,
       productMatch,
       duplicateOfRow,
+      subcategoryParentResolvable: rowType === "SUBCATEGORY" ? isSubcategoryParentResolvable(row) : undefined,
     });
 
     const errors = issues.filter((i) => i.severity === "BLOCKING_ERROR");
@@ -157,7 +244,16 @@ export function buildPreviewReport(
     let plannedAction: PreviewRow["plannedAction"];
     if (errors.length > 0) {
       plannedAction = "BLOCKED";
+    } else if (rowType === "CATEGORY") {
+      // mandat section 3 : "Créer la catégorie" si elle n'existe pas
+      // encore, réutilisée (aucune écriture) si elle existe déjà --
+      // jamais UPDATE (l'import ne modifie jamais une catégorie
+      // existante, seulement sa création/réutilisation).
+      plannedAction = categoryResolution.state === "EXISTING" ? "SKIP" : "CREATE";
+    } else if (rowType === "SUBCATEGORY") {
+      plannedAction = subcategoryResolution?.state === "EXISTING" ? "SKIP" : "CREATE";
     } else if (productMatch.state === "NEW") {
+      // PRODUCT (explicite ou implicite) -- comportement INCHANGÉ.
       plannedAction = "CREATE";
     } else if (productMatch.state === "EXISTING_MATCH" && productMatch.existingId) {
       const existing = findExistingProductById(existingCategories, productMatch.existingId);
@@ -183,6 +279,7 @@ export function buildPreviewReport(
       normalizedValues: values,
       photoFilename: values.photoFilename,
       productMatch,
+      rowType,
       plannedAction,
     };
   });

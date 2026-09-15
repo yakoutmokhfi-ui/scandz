@@ -68,32 +68,88 @@ export function coerceInteger(raw: string): number | null | undefined {
 }
 
 /**
- * TYPE — mandat OB-3 : "Do not guess. If 'Type' cannot be
- * deterministically mapped to the current Scanym model, surface it
- * as a documented unsupported/decision-required field."
+ * TYPE — CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remplace la sémantique
+ * OB-3 d'origine, ci-dessous documentée pour mémoire historique).
  *
- * Le modèle Scanym actuel (menu_items, plat) ne connaît qu'UNE seule
- * nature de ligne catalogue : un produit simple, à prix fixe, sans
- * modèle de composition/menu/formule (voir lib/catalogue-fiscal.ts,
- * "SCANYM v1 NE SUPPORTE PAS..."). Aucune valeur de "Type" ne peut
- * donc être mappée avec certitude vers une distinction qui n'existe
- * PAS dans le schéma actuel -- TOUTE valeur, y compris "Produit" ou
- * "Plat", est donc classée UNSUPPORTED/DECISION_REQUIRED par ce lot,
- * jamais silencieusement acceptée ni rejetée : elle est SURFACÉE à
- * l'opérateur (mandat), sans jamais bloquer la ligne pour autant
- * (aucun champ `menu_items` ne dépend de "Type" aujourd'hui -- une
- * ligne reste important-able sans lui, "Type" n'étant qu'informatif
- * tant qu'aucune décision produit n'a tranché sa sémantique).
+ * ANCIENNE SÉMANTIQUE (OB-3, RETIRÉE PAR CE LOT -- c'était le bug) :
+ * TOUTE valeur non vide de "Type" (y compris "Produit") était classée
+ * UNSUPPORTED_DECISION_REQUIRED -- une classification purement
+ * informative, JAMAIS utilisée pour faire varier la validation d'une
+ * ligne. Conséquence directe : une ligne structurelle "Catégorie" ou
+ * "Sous-catégorie" était validée EXACTEMENT comme un produit (Prix
+ * TTC/TVA exigés), d'où les diagnostics erronés "Prix manquant"/"TVA
+ * absente" sur des lignes qui ne sont pas des produits.
+ *
+ * NOUVELLE SÉMANTIQUE (ce lot) : "Type" est désormais AUTORITAIRE --
+ * il détermine quel schéma de validation la ligne doit satisfaire
+ * (mandat, "ROW-TYPE-AWARE VALIDATION" / "The authoritative import
+ * parser / validation layer must understand the row type"). Trois
+ * valeurs reconnues, chacune mappée à un ensemble d'alias EXPLICITE
+ * et FINI (jamais une correspondance floue/heuristique -- même
+ * discipline que HEADER_ALIASES, column-mapping.ts) :
+ *   "Catégorie"       -> CATEGORY
+ *   "Sous-catégorie"  -> SUBCATEGORY
+ *   "Produit"         -> PRODUCT
+ * Colonne absente ou cellule vide -> PRODUCT (comportement historique
+ * préservé à l'identique : TOUTE ligne d'un fichier antérieur à ce
+ * lot, qui ne renseignait jamais "Type", continue d'être traitée
+ * exactement comme avant -- mandat item M, "Existing catalogue import
+ * regression tests remain green" / column-mapping.ts, "Type" reste
+ * une colonne OPTIONNELLE, décision inchangée par ce lot).
+ * Toute autre valeur non vide -> UNKNOWN (mandat : "Do not silently
+ * interpret unknown Type values. Unknown Type: BLOCK the row with a
+ * clear diagnostic.") -- rawValue conservé pour le diagnostic.
  */
-export type TypeClassification =
-  | { kind: "ABSENT" }
-  | { kind: "UNSUPPORTED_DECISION_REQUIRED"; rawValue: string };
+export type RowTypeClassification =
+  | { kind: "CATEGORY" }
+  | { kind: "SUBCATEGORY" }
+  | { kind: "PRODUCT" }
+  | { kind: "UNKNOWN"; rawValue: string };
 
-export function classifyType(raw: string | undefined): TypeClassification {
-  if (raw === undefined) return { kind: "ABSENT" };
-  const { value, isEmpty } = normalizeText(raw, Number.POSITIVE_INFINITY);
-  if (isEmpty) return { kind: "ABSENT" };
-  return { kind: "UNSUPPORTED_DECISION_REQUIRED", rawValue: value };
+/**
+ * Repliement pour la SEULE comparaison de la valeur "Type" -- espaces
+ * de bordure et espaces internes normalisés à un seul, casse ignorée,
+ * accents français normaux retirés (mandat : "Matching must be robust
+ * to: surrounding whitespace; case differences; normal French
+ * accents."). JAMAIS utilisé pour `normalizedKey` (clé catégorie/
+ * sous-catégorie/produit, qui reste délibérément SANS retrait d'accent
+ * -- voir `normalizedKey` ci-dessus, RÈGLE INCHANGÉE par ce lot) : ce
+ * repliement est strictement local à la reconnaissance du MOT-CLÉ
+ * "Type", jamais des noms métier eux-mêmes. Même technique que
+ * `foldAccents` (column-mapping.ts, résolution des alias d'en-tête),
+ * dupliquée ici plutôt que partagée -- module normalization.ts
+ * délibérément sans dépendance vers column-mapping.ts (sens inverse
+ * existant : column-mapping.ts ne dépend pas non plus de ce module).
+ */
+function foldRowTypeValue(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+// Alias explicites, finis, documentés -- jamais une correspondance
+// floue générique (même discipline que HEADER_ALIASES,
+// column-mapping.ts). "sous categorie" (espace) ET "sous-categorie"
+// (trait d'union) sont TOUS DEUX tolérés : même tolérance EXACTE déjà
+// accordée à l'en-tête de colonne homonyme ("Sous-catégorie parent",
+// voir HEADER_ALIASES) -- rester cohérent avec un précédent déjà
+// établi dans ce même fichier de mandat, jamais une invention isolée.
+const ROW_TYPE_ALIASES: ReadonlyMap<string, "CATEGORY" | "SUBCATEGORY" | "PRODUCT"> = new Map([
+  ["categorie", "CATEGORY"],
+  ["sous-categorie", "SUBCATEGORY"],
+  ["sous categorie", "SUBCATEGORY"],
+  ["produit", "PRODUCT"],
+]);
+
+export function classifyRowType(raw: string | undefined): RowTypeClassification {
+  const { value, isEmpty } = normalizeText(raw ?? "", Number.POSITIVE_INFINITY);
+  if (isEmpty) return { kind: "PRODUCT" };
+  const mapped = ROW_TYPE_ALIASES.get(foldRowTypeValue(value));
+  if (mapped) return { kind: mapped };
+  return { kind: "UNKNOWN", rawValue: value };
 }
 
 /** Découpe "Tags / Collections" en valeurs individuelles -- séparateur

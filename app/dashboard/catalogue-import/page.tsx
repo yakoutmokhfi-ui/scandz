@@ -168,6 +168,12 @@ const STATUS_LABEL: Record<PreviewRow["status"], string> = {
   BLOCKED: "Bloqué",
 };
 
+// CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- libellé générique, réutilisé
+// TEL QUEL pour les lignes PRODUIT (comportement/texte INCHANGÉS,
+// mandat "Do NOT weaken current product validation merely to fix
+// category rows"). Les lignes CATEGORY/SUBCATEGORY utilisent désormais
+// `describeAction` ci-dessous (texte spécifique au type de ligne,
+// mandat section 14 "UI COPY").
 const ACTION_LABEL: Record<PreviewRow["plannedAction"], string> = {
   CREATE: "Créera",
   UPDATE: "Mettra à jour",
@@ -182,10 +188,38 @@ const RESOLUTION_LABEL: Record<string, string> = {
   ERROR: "Erreur",
 };
 
+const ROW_TYPE_LABEL: Record<PreviewRow["rowType"], string> = {
+  CATEGORY: "Catégorie",
+  SUBCATEGORY: "Sous-catégorie",
+  PRODUCT: "Produit",
+  UNKNOWN: "Type inconnu",
+};
+
 function formatResolution(res: { state: string; displayName: string } | null): string {
   if (!res) return "—";
   const label = RESOLUTION_LABEL[res.state] ?? res.state;
   return res.displayName ? `${label} (${res.displayName})` : label;
+}
+
+/**
+ * CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- texte d'action prévue
+ * spécifique au type de ligne (mandat section 3/4/14, "UI COPY") :
+ *   Catégorie   : "Créer la catégorie" / "Catégorie existante — sera réutilisée"
+ *   Sous-catégorie : "Créer la sous-catégorie sous « X »" / "Sous-catégorie existante sous « X » — sera réutilisée"
+ *   Produit (et Type inconnu, toujours BLOCKED) : comportement INCHANGÉ (`ACTION_LABEL`).
+ */
+function describeAction(row: PreviewRow): string {
+  if (row.plannedAction === "BLOCKED") return ACTION_LABEL.BLOCKED;
+  if (row.rowType === "CATEGORY") {
+    return row.plannedAction === "CREATE" ? "Créer la catégorie" : "Catégorie existante — sera réutilisée";
+  }
+  if (row.rowType === "SUBCATEGORY") {
+    const parentName = row.resolvedCategory.displayName || "—";
+    return row.plannedAction === "CREATE"
+      ? `Créer la sous-catégorie sous « ${parentName} »`
+      : `Sous-catégorie existante sous « ${parentName} » — sera réutilisée`;
+  }
+  return ACTION_LABEL[row.plannedAction];
 }
 
 export default function CatalogueImportPage() {
@@ -507,9 +541,11 @@ export default function CatalogueImportPage() {
         <div className="mb-6 rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm">
           <p className="mb-2 font-medium text-blue-900">Confirmer cet import ?</p>
           <p className="mb-3 text-blue-800">
-            {result.report.rows.filter((r) => r.plannedAction === "CREATE").length} produit(s) créé(s),{" "}
+            {result.report.rows.filter((r) => r.rowType === "CATEGORY" && r.plannedAction === "CREATE").length} catégorie(s) à créer,{" "}
+            {result.report.rows.filter((r) => r.rowType === "SUBCATEGORY" && r.plannedAction === "CREATE").length} sous-catégorie(s) à créer,{" "}
+            {result.report.rows.filter((r) => r.rowType === "PRODUCT" && r.plannedAction === "CREATE").length} produit(s) créé(s),{" "}
             {result.report.rows.filter((r) => r.plannedAction === "UPDATE").length} mis à jour,{" "}
-            {result.report.rows.filter((r) => r.plannedAction === "SKIP").length} sans changement.
+            {result.report.rows.filter((r) => r.rowType === "PRODUCT" && r.plannedAction === "SKIP").length} sans changement.
             {result.report.eligibility === "ELIGIBLE_WITH_WARNINGS" &&
               " Le fichier contient des avertissements (non bloquants) — vérifiez le détail des lignes ci-dessous avant de continuer."}{" "}
             L&rsquo;état réel du catalogue sera relu au moment de la confirmation : si un import concurrent a
@@ -559,12 +595,15 @@ export default function CatalogueImportPage() {
             {commitResult.categoriesCreated} catégorie(s) créée(s) · {commitResult.subcategoriesCreated} sous-catégorie(s)
             créée(s) · {commitResult.productsCreated} produit(s) créé(s) · {commitResult.productsUpdated} mis à jour ·{" "}
             {commitResult.productsSkipped} sans changement
-            {commitResult.productsFailed > 0 && (
-              <span className="font-semibold text-red-700"> · {commitResult.productsFailed} ligne(s) en échec</span>
+            {commitResult.categoriesFailed + commitResult.subcategoriesFailed + commitResult.productsFailed > 0 && (
+              <span className="font-semibold text-red-700">
+                {" "}
+                · {commitResult.categoriesFailed + commitResult.subcategoriesFailed + commitResult.productsFailed} ligne(s) en échec
+              </span>
             )}
             .
           </p>
-          {commitResult.productsFailed > 0 && (
+          {commitResult.categoriesFailed + commitResult.subcategoriesFailed + commitResult.productsFailed > 0 && (
             <div className="mt-2 overflow-x-auto rounded border border-red-200 bg-white">
               <table className="min-w-full text-xs">
                 <thead className="bg-red-50 text-left uppercase text-red-700">
@@ -646,6 +685,7 @@ export default function CatalogueImportPage() {
                 <tr>
                   <th className="p-2">Ligne</th>
                   <th className="p-2">Statut</th>
+                  <th className="p-2">Type</th>
                   <th className="p-2">Nom</th>
                   <th className="p-2">Catégorie</th>
                   <th className="p-2">Sous-catégorie</th>
@@ -671,11 +711,12 @@ export default function CatalogueImportPage() {
                         {STATUS_LABEL[row.status]}
                       </span>
                     </td>
+                    <td className="p-2">{ROW_TYPE_LABEL[row.rowType]}</td>
                     <td className="p-2">{row.normalizedValues.name || "—"}</td>
                     <td className="p-2">{formatResolution(row.resolvedCategory)}</td>
                     <td className="p-2">{formatResolution(row.resolvedSubcategory)}</td>
                     <td className="p-2">{row.photoFilename ?? "—"}</td>
-                    <td className="p-2">{ACTION_LABEL[row.plannedAction]}</td>
+                    <td className="p-2">{describeAction(row)}</td>
                     <td className="p-2">
                       {[...row.errors, ...row.warnings, ...row.infos].map((issue, i) => (
                         <div

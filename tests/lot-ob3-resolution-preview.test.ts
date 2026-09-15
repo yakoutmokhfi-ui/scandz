@@ -250,8 +250,19 @@ test("PLANNED ACTION = BLOCKED dès qu'une erreur bloquante existe, quel que soi
 });
 
 test("éligibilité ELIGIBLE_WITH_WARNINGS : aucune ligne bloquée mais au moins un avertissement", () => {
+  // CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- ce test utilisait
+  // auparavant `Type: "Menu"` pour produire un WARNING non bloquant
+  // (ancienne sémantique OB-3 : toute valeur de "Type" était purement
+  // informative). "Type" étant désormais AUTORITAIRE, une valeur non
+  // reconnue comme "Menu" BLOQUE la ligne (mandat, "Unknown Type:
+  // BLOCK the row with a clear diagnostic" -- couvert par
+  // tests/catalogue-import-row-type-support.test.ts, item I). Ce test
+  // continue de vérifier la MÊME propriété (éligibilité
+  // ELIGIBLE_WITH_WARNINGS) via une autre cause de WARNING déjà
+  // établie et INCHANGÉE : la colonne TVA absente (CATALOGUE VAT
+  // COMPLETENESS GUARD v1, voir le test juste au-dessus).
   const report = buildPreviewReport(
-    [{ row: 2, cells: { Nom: "Pizza", "Catégorie parent": "Pizzas", "Prix TTC (€)": "9.9", Type: "Menu" } }],
+    [{ row: 2, cells: { Nom: "Pizza", "Catégorie parent": "Pizzas", "Prix TTC (€)": "9.9" } }],
     [],
     []
   );
