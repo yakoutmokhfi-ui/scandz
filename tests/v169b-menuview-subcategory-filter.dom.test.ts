@@ -455,19 +455,79 @@ test("Remédiation ONE-SUBCATEGORY CASE — 4. PLUSIEURS sous-catégories réell
 });
 
 // --------------------------------------------------------------
-// Scénario K (partiel, contrainte du DOM jsdom : pas de mesure réelle
-// de recouvrement/scroll) : la structure porte bien la classe de
-// défilement horizontal utilisée ailleurs dans l'app (CategoryNav.tsx)
-// -- le motif "scrollbar-none overflow-x-auto" est réutilisé, jamais
-// réinventé.
+// CUSTOMER MENU / SUBCATEGORY FILTER WRAP v1 -- remplace le défilement
+// horizontal par un empilement en lignes multiples (flex-wrap).
+// Scénarios D et E du mandat de remédiation. La barre de filtre est
+// localisée précisément via son `<nav aria-label="Tous">` (jamais tout
+// le `container`, qui inclut aussi CategoryNav.tsx -- un AUTRE composant,
+// explicitement hors périmètre de ce lot, qui continue lui-même
+// d'utiliser overflow-x-auto pour SA propre navigation de catégories ;
+// vérifier ".overflow-x-auto" sur tout le container donnerait un faux
+// positif en comptant le défilement de CategoryNav).
+//
+// jsdom ne dispose pas d'un véritable moteur de mise en page CSS : il ne
+// peut pas calculer où une pilule "tombe" réellement à la ligne
+// suivante (getBoundingClientRect renvoie toujours des zéros). Les
+// scénarios I (mobile ~360px, plusieurs lignes) et J (desktop ~1280px,
+// une seule ligne compacte) du mandat exigent donc une vérification en
+// navigateur réel (Playwright, capture des coordonnées Y des pilules +
+// captures d'écran) -- fournie séparément comme preuve visuelle du
+// paquet, et non par ce fichier de tests unitaires jsdom.
 // --------------------------------------------------------------
-test("Scénario K (structurel) : la barre de filtre utilise le même motif de défilement horizontal que CategoryNav.tsx (overflow-x-auto)", async () => {
+
+function subcategoryFilterNav(container: Element): Element | null {
+  return container.querySelector('nav[aria-label="Tous"]');
+}
+
+test("Scénario D : la barre de filtre utilise un conteneur flex-wrap (empilement en lignes multiples), sans hauteur fixe imposée", async () => {
   const restaurant = baseRestaurant([fromagesCategory()]);
   const { container, root } = render(restaurant);
   try {
     await flush();
-    const scrollers = [...container.querySelectorAll(".overflow-x-auto")];
-    assert.ok(scrollers.length >= 1, "au moins un conteneur à défilement horizontal doit envelopper la barre de filtre");
+    const nav = subcategoryFilterNav(container);
+    assert.ok(nav, "le <nav> de la barre de filtre doit être présent");
+
+    const wrappers = [...nav!.querySelectorAll(".flex-wrap")];
+    assert.ok(wrappers.length >= 1, "un conteneur flex-wrap doit envelopper les pilules de filtre");
+
+    // Aucune hauteur fixe (h-10, max-h-64, etc. -- valeur numérique ou
+    // arbitraire) ne doit être imposée au conteneur -- le nombre de
+    // lignes doit rester entièrement libre, déterminé par le nombre de
+    // pilules et la largeur disponible.
+    const fixedHeightPattern = /(^|\s)(h|max-h)-(\d|\[)/;
+    for (const el of [nav!, ...nav!.querySelectorAll("*")]) {
+      const cls = el.getAttribute("class") ?? "";
+      assert.ok(
+        !fixedHeightPattern.test(cls),
+        `aucune classe de hauteur fixe attendue, trouvé dans "${cls}"`
+      );
+    }
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("Scénario E : aucune dépendance au défilement horizontal (overflow-x-auto / scrollbar-none / min-w-full retirés de la barre de filtre)", async () => {
+  const restaurant = baseRestaurant([fromagesCategory()]);
+  const { container, root } = render(restaurant);
+  try {
+    await flush();
+    const nav = subcategoryFilterNav(container);
+    assert.ok(nav, "le <nav> de la barre de filtre doit être présent");
+
+    assert.equal(nav!.querySelectorAll(".overflow-x-auto").length, 0, "la barre de filtre ne doit plus dépendre d'un défilement horizontal");
+    assert.equal(nav!.querySelectorAll(".scrollbar-none").length, 0, "classe de défilement obsolète, ne doit plus apparaître dans la barre de filtre");
+    assert.equal(nav!.querySelectorAll(".min-w-full").length, 0, "min-w-full forçait l'ancien défilement horizontal, ne doit plus apparaître");
+
+    // Preuve de scoping : le <nav> de la barre de filtre (aria-label
+    // "Tous") est bien distinct du <nav> de CategoryNav.tsx (autre
+    // composant, hors périmètre de ce lot, qui n'a pas d'aria-label) --
+    // les assertions ci-dessus portent uniquement sur la barre de
+    // filtre, jamais sur tout le DOM de la page.
+    const categoryNavElement = container.querySelector("nav:not([aria-label])");
+    assert.ok(categoryNavElement, "CategoryNav.tsx doit toujours être présent, inchangé, hors périmètre de ce lot");
+    assert.notEqual(categoryNavElement, nav, "le <nav> de CategoryNav.tsx doit rester distinct du <nav> de la barre de filtre");
   } finally {
     root.unmount();
     container.remove();
