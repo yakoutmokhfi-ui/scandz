@@ -1,10 +1,42 @@
 /**
  * Scanym — OPERATOR BACKOFFICE — OB-3 — CATALOGUE IMPORT.
- * Validation par ligne, PURE. Réutilise EXACTEMENT les bornes déjà
- * publiées et déjà auditées (lib/catalogue-text.ts,
- * lib/catalogue-fiscal.ts, lib/catalogue-import/price-validation.ts)
- * -- "Reuse existing published catalogue read paths and validation
- * contracts... Do not create a conflicting validation contract."
+ * CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remédiation ciblée) -- voir
+ * lib/catalogue-import/normalization.ts pour la classification
+ * `classifyRowType` (autoritaire depuis ce lot, plus informative).
+ *
+ * Validation par ligne, PURE, désormais SENSIBLE AU TYPE DE LIGNE
+ * (mandat : "ROW-TYPE-AWARE VALIDATION" / "The authoritative import
+ * parser / validation layer must understand the row type. Do not
+ * implement this as fragile UI-only logic.") -- une ligne CATEGORY ou
+ * SUBCATEGORY n'est PLUS jamais validée avec les règles produit (Prix
+ * TTC, TVA, correspondance produit, doublon produit) : c'était
+ * exactement le bug corrigé par ce lot ("Prix manquant"/"TVA absente"
+ * affichés à tort sur des lignes structurelles).
+ *
+ * Matrice de validation (mandat, section 6), implémentée ci-dessous
+ * par TROIS fonctions dédiées, une par type de ligne connu :
+ *
+ *   | Champ                  | Catégorie | Sous-catégorie | Produit |
+ *   |-------------------------|-----------|-----------------|---------|
+ *   | Type                    | requis    | requis          | requis  |
+ *   | Nom                     | requis    | requis          | requis  |
+ *   | Catégorie parent        | non       | requis          | selon schéma produit |
+ *   | Sous-catégorie parent   | non       | non             | optionnel/selon schéma |
+ *   | Prix TTC                | non       | non             | requis  |
+ *   | TVA                     | non       | non             | règle produit |
+ *   | Photo                   | non       | non             | règle produit |
+ *   | Disponibilité           | s/o       | s/o             | règle produit |
+ *
+ * "Type" lui-même reste validé une seule fois, EN AMONT des trois
+ * fonctions (une valeur UNKNOWN bloque la ligne AVANT toute tentative
+ * de validation plus fine -- impossible de savoir quel schéma
+ * appliquer, mandat "Unknown Type: BLOCK the row with a clear
+ * diagnostic" / "Do not silently interpret unknown Type values").
+ *
+ * PRODUIT : comportement à l'IDENTIQUE de la version précédente de ce
+ * fichier -- AUCUN champ, AUCUNE borne, AUCUN message n'a changé pour
+ * les lignes Produit (mandat : "Do NOT weaken current product
+ * validation merely to fix category rows.").
  */
 
 import {
@@ -24,16 +56,171 @@ export interface RowValidationInput {
   productMatch: ProductMatch;
   /** Numéro de la ligne d'origine si CETTE ligne est un doublon
    *  intra-fichier (voir resolution.ts, detectDuplicateRowsWithinFile) ;
-   *  `undefined` si cette ligne n'est pas un doublon. */
+   *  `undefined` si cette ligne n'est pas un doublon. Toujours
+   *  `undefined` pour une ligne CATEGORY/SUBCATEGORY (non applicable --
+   *  voir preview.ts, ces lignes ne sont jamais soumises à
+   *  detectDuplicateRowsWithinFile). */
   duplicateOfRow?: number;
+  /**
+   * SUBCATEGORY UNIQUEMENT (mandat, section 4 : "Preview must resolve
+   * parent category from either: A. an existing merchant category; or
+   * B. a CATEGORY row in the same import. If parent category cannot
+   * be resolved: BLOCK the subcategory row with a clear diagnostic.").
+   * `true` si `categoryResolution` est EXISTING, OU WOULD_CREATE ET
+   * épaulée par au moins une ligne explicite Type=Catégorie du MÊME
+   * fichier portant ce nom normalisé (calculé par preview.ts). Une
+   * ligne SUBCATEGORY dont le parent ne serait WOULD_CREATE que par la
+   * référence implicite d'une AUTRE ligne (ex. une ligne Produit) est
+   * délibérément traitée comme NON résolue -- jamais une sous-catégorie
+   * qui invente silencieusement une toute nouvelle catégorie de premier
+   * niveau que rien d'autre dans le fichier n'a explicitement déclarée.
+   * Ignoré pour les autres types de ligne.
+   */
+  subcategoryParentResolvable?: boolean;
 }
 
-/** Valide une ligne normalisée et retourne la liste complète de ses
- *  problèmes (tous niveaux confondus -- preview.ts les répartit
- *  ensuite par sévérité). Couvre, au minimum, chaque item listé par
- *  le mandat OB-3 section "VALIDATION". */
-export function validateRow(input: RowValidationInput): ImportIssue[] {
-  const { values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow } = input;
+// ------------------------------------------------------------------
+// CATEGORY -- mandat section 3.
+// ------------------------------------------------------------------
+
+function validateCategoryRow(values: NormalizedRowValues, categoryResolution: CategoryResolution): ImportIssue[] {
+  const issues: ImportIssue[] = [];
+
+  if (values.name === "") {
+    issues.push({
+      code: "SCANYM_IMPORT_MISSING_CATEGORY_NAME",
+      severity: "BLOCKING_ERROR",
+      message: "Nom de catégorie manquant (colonne « Nom »).",
+      field: "Nom",
+    });
+    return issues; // rien d'autre à évaluer sans nom -- categoryResolution est déjà ERROR pour la même raison, jamais un second message redondant.
+  }
+
+  if (values.name.length > CATEGORY_NAME_MAX_LENGTH) {
+    issues.push({
+      code: "SCANYM_IMPORT_CATEGORY_NAME_TOO_LONG",
+      severity: "BLOCKING_ERROR",
+      message: `Nom de catégorie trop long (${values.name.length} caractères, maximum ${CATEGORY_NAME_MAX_LENGTH}).`,
+      field: "Nom",
+    });
+  }
+
+  if (categoryResolution.state === "AMBIGUOUS") {
+    issues.push({
+      code: "SCANYM_IMPORT_AMBIGUOUS_CATEGORY",
+      severity: "BLOCKING_ERROR",
+      message: `Le nom de catégorie « ${categoryResolution.displayName} » correspond à plusieurs catégories existantes distinctes -- résolution automatique refusée.`,
+      field: "Nom",
+    });
+  } else if (categoryResolution.state === "WOULD_CREATE" && categoryResolution.casingConflict) {
+    issues.push({
+      code: "SCANYM_IMPORT_CATEGORY_CASING_CONFLICT",
+      severity: "WARNING",
+      message: `Cette catégorie apparaît avec plusieurs casses différentes dans le fichier (${(categoryResolution.casingVariants ?? []).join(", ")}) -- « ${categoryResolution.displayName} » (première occurrence) sera utilisée.`,
+      field: "Nom",
+    });
+  }
+
+  return issues;
+}
+
+// ------------------------------------------------------------------
+// SUBCATEGORY -- mandat section 4.
+// ------------------------------------------------------------------
+
+function validateSubcategoryRow(
+  values: NormalizedRowValues,
+  categoryResolution: CategoryResolution,
+  subcategoryResolution: SubcategoryResolution | null,
+  subcategoryParentResolvable: boolean
+): ImportIssue[] {
+  const issues: ImportIssue[] = [];
+
+  if (values.name === "") {
+    issues.push({
+      code: "SCANYM_IMPORT_MISSING_SUBCATEGORY_NAME",
+      severity: "BLOCKING_ERROR",
+      message: "Nom de sous-catégorie manquant (colonne « Nom »).",
+      field: "Nom",
+    });
+  } else if (values.name.length > CATEGORY_NAME_MAX_LENGTH) {
+    issues.push({
+      code: "SCANYM_IMPORT_SUBCATEGORY_NAME_TOO_LONG",
+      severity: "BLOCKING_ERROR",
+      message: `Nom de sous-catégorie trop long (${values.name.length} caractères, maximum ${CATEGORY_NAME_MAX_LENGTH}).`,
+      field: "Nom",
+    });
+  }
+
+  // --- Catégorie parent (mandat : "require Catégorie parent") ---
+  if (categoryResolution.state === "ERROR") {
+    issues.push({
+      code: "SCANYM_IMPORT_SUBCATEGORY_MISSING_PARENT_CATEGORY",
+      severity: "BLOCKING_ERROR",
+      message: "Catégorie parent manquante pour cette sous-catégorie (colonne « Catégorie parent »).",
+      field: "Catégorie parent",
+    });
+  } else if (categoryResolution.state === "AMBIGUOUS") {
+    issues.push({
+      code: "SCANYM_IMPORT_AMBIGUOUS_CATEGORY",
+      severity: "BLOCKING_ERROR",
+      message: `Catégorie parent « ${categoryResolution.displayName} » ambiguë (plusieurs catégories existantes distinctes portent ce nom) -- résolution automatique refusée.`,
+      field: "Catégorie parent",
+    });
+  } else if (!subcategoryParentResolvable) {
+    // mandat section 4 : "resolve parent category from either: A. an
+    // existing merchant category; or B. a CATEGORY row in the same
+    // import. If parent category cannot be resolved: BLOCK." --
+    // categoryResolution est WOULD_CREATE (ni ERROR ni AMBIGUOUS) mais
+    // SEULEMENT parce qu'une autre ligne (ex. Produit) y fait
+    // implicitement référence : cette ligne Sous-catégorie, ELLE,
+    // refuse de créer silencieusement une catégorie de premier niveau
+    // que rien d'explicite (existante OU ligne Catégorie du même
+    // fichier) ne confirme.
+    issues.push({
+      code: "SCANYM_IMPORT_SUBCATEGORY_PARENT_CATEGORY_NOT_FOUND",
+      severity: "BLOCKING_ERROR",
+      message: `Catégorie parent « ${values.categoryNameRaw.trim()} » introuvable -- ni catégorie existante, ni ligne « Catégorie » explicite dans ce fichier.`,
+      field: "Catégorie parent",
+    });
+  }
+
+  // --- Résolution de la sous-catégorie elle-même ---
+  if (subcategoryResolution && subcategoryResolution.state === "AMBIGUOUS") {
+    issues.push({
+      code: "SCANYM_IMPORT_AMBIGUOUS_SUBCATEGORY",
+      severity: "BLOCKING_ERROR",
+      message: `Le nom de sous-catégorie « ${subcategoryResolution.displayName} » correspond à plusieurs sous-catégories existantes distinctes sous cette catégorie -- résolution automatique refusée.`,
+      field: "Nom",
+    });
+  } else if (subcategoryResolution && subcategoryResolution.state === "WOULD_CREATE" && subcategoryResolution.casingConflict) {
+    issues.push({
+      code: "SCANYM_IMPORT_SUBCATEGORY_CASING_CONFLICT",
+      severity: "WARNING",
+      message: `Cette sous-catégorie apparaît avec plusieurs casses différentes dans le fichier (${(subcategoryResolution.casingVariants ?? []).join(", ")}) -- « ${subcategoryResolution.displayName} » (première occurrence) sera utilisée.`,
+      field: "Nom",
+    });
+  }
+
+  return issues;
+}
+
+// ------------------------------------------------------------------
+// PRODUCT -- mandat section 5 ("retain product validation... Do NOT
+// weaken current product validation"). Corps INCHANGÉ (aucun champ,
+// aucune borne, aucun message modifié) par rapport à la version
+// précédente de ce fichier -- seuls le NOM de cette fonction et son
+// point d'appel (dispatch par type de ligne, voir validateRow
+// ci-dessous) sont nouveaux.
+// ------------------------------------------------------------------
+
+function validateProductRow(
+  values: NormalizedRowValues,
+  categoryResolution: CategoryResolution,
+  subcategoryResolution: SubcategoryResolution | null,
+  productMatch: ProductMatch,
+  duplicateOfRow: number | undefined
+): ImportIssue[] {
   const issues: ImportIssue[] = [];
 
   // --- Nom du produit ---
@@ -224,16 +411,6 @@ export function validateRow(input: RowValidationInput): ImportIssue[] {
     });
   }
 
-  // --- Type (mandat : "Do not guess") ---
-  if (values.type.kind === "UNSUPPORTED_DECISION_REQUIRED") {
-    issues.push({
-      code: "SCANYM_IMPORT_TYPE_UNSUPPORTED",
-      severity: "WARNING",
-      message: `Valeur « ${values.type.rawValue} » de la colonne « Type » ne correspond à aucune notion actuellement modélisée par Scanym -- décision produit requise, ignorée pour cet import.`,
-      field: "Type",
-    });
-  }
-
   // --- Tags / Collections (mandat : "UNSUPPORTED IN CURRENT BACKEND") ---
   if (values.tags.length > 0) {
     issues.push({
@@ -255,4 +432,50 @@ export function validateRow(input: RowValidationInput): ImportIssue[] {
   }
 
   return issues;
+}
+
+// ------------------------------------------------------------------
+// Point d'entrée -- dispatch par type de ligne (mandat : "the
+// authoritative import parser / validation layer must understand the
+// row type").
+// ------------------------------------------------------------------
+
+/** Valide une ligne normalisée et retourne la liste complète de ses
+ *  problèmes (tous niveaux confondus -- preview.ts les répartit
+ *  ensuite par sévérité). Couvre, au minimum, chaque item listé par
+ *  le mandat OB-3 section "VALIDATION" (produit) et le mandat CATEGORY
+ *  / SUBCATEGORY ROW SUPPORT v1 section "VALIDATION MATRIX" (catégorie/
+ *  sous-catégorie). */
+export function validateRow(input: RowValidationInput): ImportIssue[] {
+  const { values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow, subcategoryParentResolvable } = input;
+
+  if (values.type.kind === "UNKNOWN") {
+    // mandat : "Do not silently interpret unknown Type values. Unknown
+    // Type: BLOCK the row with a clear diagnostic." -- impossible de
+    // savoir quel schéma (catégorie / sous-catégorie / produit)
+    // appliquer, donc AUCUNE autre vérification spécifique à un type
+    // n'est tentée : un unique diagnostic clair, jamais une cascade de
+    // messages contradictoires pour une ligne dont la nature même est
+    // inconnue.
+    return [
+      {
+        code: "SCANYM_IMPORT_UNKNOWN_ROW_TYPE",
+        severity: "BLOCKING_ERROR",
+        message: `Valeur « ${values.type.rawValue} » de la colonne « Type » non reconnue -- valeurs acceptées : « Catégorie », « Sous-catégorie », « Produit » (espaces/casse/accents tolérés ; colonne vide = « Produit »).`,
+        field: "Type",
+      },
+    ];
+  }
+
+  if (values.type.kind === "CATEGORY") {
+    return validateCategoryRow(values, categoryResolution);
+  }
+
+  if (values.type.kind === "SUBCATEGORY") {
+    return validateSubcategoryRow(values, categoryResolution, subcategoryResolution, subcategoryParentResolvable ?? false);
+  }
+
+  // PRODUCT (explicite "Type = Produit", ou implicite -- colonne
+  // absente/vide, comportement historique préservé à l'identique).
+  return validateProductRow(values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow);
 }

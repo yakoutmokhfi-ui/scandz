@@ -5,7 +5,7 @@
  */
 
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
-import type { TypeClassification } from "@/lib/catalogue-import/normalization";
+import type { RowTypeClassification } from "@/lib/catalogue-import/normalization";
 
 export type IssueSeverity = "BLOCKING_ERROR" | "WARNING" | "INFO";
 
@@ -50,6 +50,11 @@ export type PlannedAction = "CREATE" | "UPDATE" | "SKIP" | "BLOCKED";
 export type RowStatus = "OK" | "WARNING" | "BLOCKED";
 
 export interface NormalizedRowValues {
+  /** Nom PROPRE de la ligne : nom de catégorie (ligne CATEGORY), nom
+   *  de sous-catégorie (ligne SUBCATEGORY), ou nom de produit (ligne
+   *  PRODUCT/UNKNOWN) -- toujours la colonne « Nom », jamais réinter-
+   *  prétée différemment selon le type (CATEGORY / SUBCATEGORY / ROW
+   *  SUPPORT v1). */
   name: string;
   shortDescription: string | null;
   description: string | null;
@@ -60,11 +65,27 @@ export interface NormalizedRowValues {
   unitWeightGrams: number | null | undefined;
   weightIsApproximate: boolean;
   tags: string[];
-  type: TypeClassification;
+  type: RowTypeClassification;
+  /** Nom de catégorie à RÉSOUDRE pour cette ligne (jamais interrogé
+   *  hors de resolution.ts) : le nom PROPRE de la ligne pour une ligne
+   *  CATEGORY, le parent déclaré (« Catégorie parent ») pour une ligne
+   *  SUBCATEGORY ou PRODUCT/UNKNOWN -- calculé une seule fois par
+   *  preview.ts::normalizeRow, jamais recalculé ailleurs (CATEGORY /
+   *  SUBCATEGORY ROW SUPPORT v1). */
   categoryNameRaw: string;
+  /** Nom de sous-catégorie à RÉSOUDRE pour cette ligne : le nom PROPRE
+   *  de la ligne pour une ligne SUBCATEGORY, « Sous-catégorie parent »
+   *  pour une ligne PRODUCT/UNKNOWN, toujours vide pour une ligne
+   *  CATEGORY (non applicable). */
   subcategoryNameRaw: string;
   photoFilename: string | null;
 }
+
+/** Simplifiée pour un accès direct au niveau ligne (même précédent que
+ *  `PreviewRow.photoFilename`, déjà dupliqué depuis
+ *  `normalizedValues.photoFilename` pour éviter à chaque consommateur
+ *  -- UI, tests -- de redescendre dans `normalizedValues.type.kind`). */
+export type RowType = "CATEGORY" | "SUBCATEGORY" | "PRODUCT" | "UNKNOWN";
 
 export interface PreviewRow {
   row: number;
@@ -72,11 +93,25 @@ export interface PreviewRow {
   errors: ImportIssue[];
   warnings: ImportIssue[];
   infos: ImportIssue[];
+  /** Pour une ligne CATEGORY : résolution de LA CATÉGORIE DÉCLARÉE
+   *  PAR CETTE LIGNE elle-même. Pour une ligne SUBCATEGORY ou
+   *  PRODUCT/UNKNOWN : résolution de SA CATÉGORIE PARENTE (« Catégorie
+   *  parent »), comportement historique inchangé pour ces deux
+   *  derniers cas (CATEGORY / SUBCATEGORY ROW SUPPORT v1). */
   resolvedCategory: CategoryResolution;
+  /** Pour une ligne SUBCATEGORY : résolution de LA SOUS-CATÉGORIE
+   *  DÉCLARÉE PAR CETTE LIGNE elle-même. Pour une ligne PRODUCT/
+   *  UNKNOWN : résolution de sa sous-catégorie parente optionnelle
+   *  (comportement historique inchangé). Toujours `null` pour une
+   *  ligne CATEGORY (non applicable). */
   resolvedSubcategory: SubcategoryResolution | null;
   normalizedValues: NormalizedRowValues;
   photoFilename: string | null;
+  /** Toujours calculé (même pour une ligne CATEGORY/SUBCATEGORY, où sa
+   *  valeur n'a aucune influence sur `plannedAction`) -- jamais utilisé
+   *  hors des lignes PRODUCT/UNKNOWN. */
   productMatch: ProductMatch;
+  rowType: RowType;
   plannedAction: PlannedAction;
 }
 

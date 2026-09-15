@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 // price-validation.ts.
 // ====================================================================
 
-const { normalizedKey, coerceNumeric, coerceInteger, classifyType, splitTagsColumn } = await import(
+const { normalizedKey, coerceNumeric, coerceInteger, classifyRowType, splitTagsColumn } = await import(
   "../lib/catalogue-import/normalization.ts"
 );
 const { isValidProductPrice, PRODUCT_PRICE_MIN, PRODUCT_PRICE_MAX } = await import(
@@ -98,34 +98,36 @@ test("7. coerceInteger : entier valide accepté, cellule absente -> undefined", 
 });
 
 // ------------------------------------------------------------------
-// 16. Type ambiguity handled deterministically
+// 16. CATEGORY / SUBCATEGORY ROW SUPPORT v1 -- "Type" est désormais
+// AUTORITAIRE (remplace l'ancienne sémantique OB-3 purement
+// informative, ci-dessous testée pour mémoire dans
+// tests/catalogue-import-row-type-support.test.ts).
 // ------------------------------------------------------------------
 
-test("16. classifyType : colonne absente/vide -> ABSENT, jamais une erreur", () => {
-  assert.deepEqual(classifyType(undefined), { kind: "ABSENT" });
-  assert.deepEqual(classifyType(""), { kind: "ABSENT" });
-  assert.deepEqual(classifyType("   "), { kind: "ABSENT" });
+test("16. classifyRowType : colonne absente/vide -> PRODUCT (comportement historique préservé, jamais une erreur)", () => {
+  assert.deepEqual(classifyRowType(undefined), { kind: "PRODUCT" });
+  assert.deepEqual(classifyRowType(""), { kind: "PRODUCT" });
+  assert.deepEqual(classifyRowType("   "), { kind: "PRODUCT" });
 });
 
-test("16. classifyType : TOUTE valeur non vide -> UNSUPPORTED_DECISION_REQUIRED, jamais une devinette de sémantique (mandat 'Do not guess')", () => {
-  assert.deepEqual(classifyType("Produit"), { kind: "UNSUPPORTED_DECISION_REQUIRED", rawValue: "Produit" });
-  assert.deepEqual(classifyType("Menu"), { kind: "UNSUPPORTED_DECISION_REQUIRED", rawValue: "Menu" });
+test("16. classifyRowType : « Catégorie »/« Sous-catégorie »/« Produit » reconnues, jamais une devinette au-delà de cette liste explicite", () => {
+  assert.deepEqual(classifyRowType("Catégorie"), { kind: "CATEGORY" });
+  assert.deepEqual(classifyRowType("Sous-catégorie"), { kind: "SUBCATEGORY" });
+  assert.deepEqual(classifyRowType("Produit"), { kind: "PRODUCT" });
+  assert.deepEqual(classifyRowType("Menu"), { kind: "UNKNOWN", rawValue: "Menu" });
 });
 
-test("16. Type inconnu -> WARNING non bloquant (SCANYM_IMPORT_TYPE_UNSUPPORTED), jamais un blocage de la ligne pour ce seul motif", () => {
+test("16. Type inconnu -> BLOCKING_ERROR (SCANYM_IMPORT_UNKNOWN_ROW_TYPE), plus aucune autre vérification tentée (mandat 'Do not silently interpret unknown Type values')", () => {
   const issues = validateRow({
-    values: baseValues({ type: { kind: "UNSUPPORTED_DECISION_REQUIRED", rawValue: "Formule" } }),
+    values: baseValues({ type: { kind: "UNKNOWN", rawValue: "Formule" } }),
     categoryResolution: { state: "EXISTING", displayName: "Boissons", existingId: "c1" },
     subcategoryResolution: null,
     productMatch: { state: "NEW" },
   });
-  const issue = issues.find((i) => i.code === "SCANYM_IMPORT_TYPE_UNSUPPORTED");
+  const issue = issues.find((i) => i.code === "SCANYM_IMPORT_UNKNOWN_ROW_TYPE");
   assert.ok(issue);
-  assert.equal(issue.severity, "WARNING");
-  assert.equal(
-    issues.some((i) => i.severity === "BLOCKING_ERROR"),
-    false
-  );
+  assert.equal(issue.severity, "BLOCKING_ERROR");
+  assert.equal(issues.length, 1, "aucune autre vérification tentée pour un Type inconnu");
 });
 
 // ------------------------------------------------------------------
@@ -258,7 +260,7 @@ function baseValues(overrides: Partial<Record<string, unknown>>) {
     unitWeightGrams: 350,
     weightIsApproximate: false,
     tags: [] as string[],
-    type: { kind: "ABSENT" as const },
+    type: { kind: "PRODUCT" as const },
     categoryNameRaw: "Pizzas",
     subcategoryNameRaw: "",
     photoFilename: null,
