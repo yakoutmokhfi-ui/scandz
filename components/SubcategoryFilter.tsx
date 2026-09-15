@@ -33,6 +33,33 @@
  * couvre l'intégralité des produits de la catégorie : le mandat exige
  * qu'elle apparaisse quand même, pour que les sous-catégories
  * s'affichent toujours directement sous leur catégorie parente.
+ *
+ * CUSTOMER MENU / SUBCATEGORY FILTER WRAP v1 -- remplace le défilement
+ * horizontal (`overflow-x-auto` + `min-w-full`, qui laissait les
+ * dernières pilules hors écran sur mobile tant que l'utilisateur ne
+ * faisait pas défiler) par un empilement en LIGNES MULTIPLES
+ * (`flex flex-wrap`) : chaque pilule qui ne tient plus sur la ligne
+ * courante passe naturellement à la ligne suivante, dans le flux normal
+ * de la page -- jamais de défilement requis pour découvrir une option,
+ * jamais de pilule masquée. Le nombre de pilules par ligne n'est jamais
+ * figé : il découle uniquement de la largeur disponible (mandat,
+ * littéral : "The number of pills per line must be determined naturally
+ * by available width"). Sur un écran assez large pour que toutes les
+ * pilules tiennent, elles restent sur une seule ligne -- `flex-wrap`
+ * ne force aucun retour à la ligne artificiel quand il n'est pas
+ * nécessaire.
+ *
+ * `shrink-0` est retiré : dans un conteneur `flex-wrap`, il n'empêchait
+ * déjà pas un retour à la ligne (le wrap se déclenche indépendamment de
+ * la valeur de shrink), mais sa présence était trompeuse dans le
+ * contexte de l'ancien layout à défilement -- retiré pour ne laisser
+ * aucune classe héritée de ce layout. `whitespace-nowrap` est CONSERVÉ
+ * sur le texte de chaque pilule : il ne cause plus aucun débordement ni
+ * découpage maintenant que le conteneur enveloppe la pilule ENTIÈRE
+ * (jamais son texte) à la ligne suivante -- un libellé long (ex.
+ * "Fromage à la truffe") reste lisible sur une seule ligne à
+ * l'intérieur de sa propre pilule, comme n'importe quel composant
+ * "pill/tag" standard.
  */
 import type { SubcategoryFilterOption } from "@/lib/catalogue-subcategory-grouping";
 
@@ -71,47 +98,51 @@ export default function SubcategoryFilter({
       aria-label={allLabel}
       className="mt-3 border-b border-espresso/10 pb-3"
     >
-      <div className="scrollbar-none overflow-x-auto overscroll-x-contain">
-        <ul className="flex min-w-full gap-2">
-          <li key="__all__" className="shrink-0">
-            <button
-              type="button"
-              onClick={() => onSelect(null)}
-              aria-pressed={activeId === null}
-              data-subcategory-filter-option="__all__"
-              className={
-                "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
-                (activeId === null
-                  ? "bg-caramel text-caramel-ink shadow-sm"
-                  : "bg-crema text-ink-on-bg-muted shadow-sm")
-              }
-            >
-              {allLabel}
-            </button>
-          </li>
-          {options.map((option) => {
-            const isActive = option.id === activeId;
-            return (
-              <li key={option.id} className="shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onSelect(option.id)}
-                  aria-pressed={isActive}
-                  data-subcategory-filter-option={option.id}
-                  className={
-                    "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
-                    (isActive
-                      ? "bg-caramel text-caramel-ink shadow-sm"
-                      : "bg-crema text-ink-on-bg-muted shadow-sm")
-                  }
-                >
-                  {option.name}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      {/* SUBCATEGORY FILTER WRAP v1 -- flex-wrap remplace le défilement
+          horizontal : chaque pilule qui ne tient plus sur la ligne
+          courante passe à la ligne suivante, jamais hors du flux normal
+          de la page. Aucune hauteur fixe n'est imposée à ce conteneur
+          -- le nombre de lignes nécessaires reste entièrement determiné
+          par le nombre de pilules et la largeur disponible. */}
+      <ul className="flex flex-wrap gap-2">
+        <li key="__all__">
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            aria-pressed={activeId === null}
+            data-subcategory-filter-option="__all__"
+            className={
+              "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
+              (activeId === null
+                ? "bg-caramel text-caramel-ink shadow-sm"
+                : "bg-crema text-ink-on-bg-muted shadow-sm")
+            }
+          >
+            {allLabel}
+          </button>
+        </li>
+        {options.map((option) => {
+          const isActive = option.id === activeId;
+          return (
+            <li key={option.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(option.id)}
+                aria-pressed={isActive}
+                data-subcategory-filter-option={option.id}
+                className={
+                  "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
+                  (isActive
+                    ? "bg-caramel text-caramel-ink shadow-sm"
+                    : "bg-crema text-ink-on-bg-muted shadow-sm")
+                }
+              >
+                {option.name}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }
