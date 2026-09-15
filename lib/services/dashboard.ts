@@ -267,6 +267,17 @@ export interface CatalogueSubcategory {
   subcategory_id: string;
   subcategory_name: string;
   subcategory_display_order: number;
+  /** OPERATOR CATALOGUE RESET v1.1 -- `false` si cette sous-catégorie a
+   *  été RETENUE (jamais supprimée) mais DÉSACTIVÉE par un reset
+   *  (voir supabase/DRAFT-lot-operator-catalogue-reset-v1.sql).
+   *  `true` par défaut pour tout commerçant/sous-catégorie jamais
+   *  concerné(e) par un reset. Repli défensif `true` pour une base non
+   *  encore migrée (colonne absente de get_merchant_catalogue) --
+   *  même patron que weight_is_approximate ci-dessous. Consommé
+   *  exclusivement par lib/catalogue-import/resolution.ts pour ignorer
+   *  toute sous-catégorie désactivée lors de la résolution d'un
+   *  import ultérieur -- jamais affiché/filtré ailleurs par ce lot. */
+  subcategory_is_active: boolean;
   products: CatalogueProduct[];
 }
 
@@ -284,6 +295,14 @@ export interface CatalogueCategory {
   category_description: string | null;
   /** LOT 1B — hash canonique de category_description. */
   category_description_hash: string | null;
+  /** OPERATOR CATALOGUE RESET v1.1 -- `false` si cette catégorie a été
+   *  RETENUE (jamais supprimée) mais DÉSACTIVÉE par un reset (voir
+   *  supabase/DRAFT-lot-operator-catalogue-reset-v1.sql). `true` par
+   *  défaut (colonne préexistante depuis schema.sql, jamais modifiée
+   *  avant ce lot). Repli défensif `true` pour une base non encore
+   *  migrée. Même usage que CatalogueSubcategory.subcategory_is_active
+   *  ci-dessus. */
+  category_is_active: boolean;
   /** Produits directement rattachés à la catégorie (subcategory_id
    *  NULL) -- comportement historique, inchangé pour tout commerçant
    *  sans sous-catégorie. */
@@ -384,6 +403,8 @@ export async function getMerchantCatalogue(
     unit_weight_grams: number | null;
     weight_is_approximate: boolean | null;
     reference_price_per_kg: number | null;
+    category_is_active: boolean | null;
+    subcategory_is_active: boolean | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -400,6 +421,12 @@ export async function getMerchantCatalogue(
         category_is_option_source: r.category_is_option_source,
         category_description: r.category_description,
         category_description_hash: r.category_description_hash,
+        // OPERATOR CATALOGUE RESET v1.1 -- repli défensif `true` pour
+        // une base non encore migrée (colonne absente de la ligne,
+        // `undefined`/`null`), même philosophie que le repli fiscal
+        // v1.1 plus haut (mandat §17) : jamais casser l'écran
+        // catalogue, jamais une catégorie à tort marquée inactive.
+        category_is_active: r.category_is_active ?? true,
         products: [],
         subcategories: [],
       };
@@ -428,6 +455,9 @@ export async function getMerchantCatalogue(
           subcategory_id: r.subcategory_id,
           subcategory_name: r.subcategory_name as string,
           subcategory_display_order: r.subcategory_display_order as number,
+          // OPERATOR CATALOGUE RESET v1.1 -- même repli défensif que
+          // category_is_active ci-dessus.
+          subcategory_is_active: r.subcategory_is_active ?? true,
           products: [],
         };
         cat.subcategories.push(sub);

@@ -162,6 +162,14 @@ const dict = {
   // COURANT du cockpit uniquement.
   secCatalogueImportLink: "Importer un catalogue",
 
+  // OPERATOR BACKOFFICE — SAFE CATALOGUE RESET v1 (Claude Nougaro) --
+  // second lien d'action à l'intérieur de la carte CATALOGUE, même
+  // patron que secCatalogueImportLink ci-dessus (CockpitSectionCard
+  // n'expose qu'UN SEUL actionHref/actionLabel), vers une page
+  // dédiée NOUVELLE (app/admin/establishments/catalogue-reset/page.tsx)
+  // qui accepte `?r=<restaurant_id>` selon la même convention.
+  secCatalogueResetLink: "Réinitialiser le catalogue",
+
   // v1.1 — PHOTOS : dérivé du même résumé catalogue déjà chargé
   // (aucune lecture Storage). L'upload/remplacement reste hors
   // périmètre (Storage RLS operator non publiée par OB-2 v1.1).
@@ -209,6 +217,60 @@ const dict = {
   secPublishReady: "L'établissement est actif.",
   secPublishIncomplete: "L'établissement n'est pas (encore) actif.",
   secPublishStatusLabel: "Statut restaurant : {status}",
+
+  // ============================================================
+  // OPERATOR BACKOFFICE — SAFE CATALOGUE RESET v1.1 (Claude Nougaro).
+  // Page dédiée app/admin/establishments/catalogue-reset/page.tsx.
+  // ============================================================
+  catResetTitle: "Réinitialiser le catalogue",
+  catResetBack: "Retour au Cockpit",
+  catResetMerchantLabel: "Marchand :",
+  catResetMerchantIdLabel: "Identifiant établissement :",
+  catResetMissingId:
+    "Aucun établissement sélectionné — ouvrez cette page depuis le Cockpit d'un établissement (?r=<id>).",
+  catResetLoading: "Chargement…",
+  catResetIntro:
+    "Cette action archive le catalogue actif de ce marchand (produits), supprime les catégories/sous-catégories structurellement vides et DÉSACTIVE celles qui sont conservées, pour préparer un import propre. L'historique des commandes est toujours conservé — aucun produit n'est jamais supprimé physiquement.",
+
+  catResetPreviewButton: "Aperçu de la réinitialisation",
+  catResetPreviewing: "Analyse en cours…",
+  catResetPreviewError: "Impossible de charger l'aperçu.",
+  catResetPreviewTitle: "Aperçu — aucune modification n'a encore été appliquée",
+  catResetPreviewActiveProducts: "{count} produit(s) actif(s) seront archivés",
+  catResetPreviewArchivedProducts: "{count} produit(s) déjà archivé(s) (non recomptés)",
+  catResetPreviewSubRemovable: "{count} sous-catégorie(s) seront supprimées (structurellement vides)",
+  catResetPreviewSubRetained: "{count} sous-catégorie(s) seront conservées et désactivées (contiennent des produits)",
+  catResetPreviewCatRemovable: "{count} catégorie(s) seront supprimées si vides/sûres",
+  catResetPreviewCatRetained:
+    "{count} catégorie(s) seront conservées et désactivées (contiennent des produits ou sous-catégories)",
+  catResetPreviewOrderHistory:
+    "{count} produit(s) actif(s) déjà référencé(s) par une commande historique (information seule — archivés comme les autres)",
+  catResetPreviewCatActiveAfter: "Catégories actives après réinitialisation : {count}",
+  catResetPreviewSubActiveAfter: "Sous-catégories actives après réinitialisation : {count}",
+  catResetPreviewHistoryNote: "Historique des commandes : sera conservé.",
+
+  catResetConfirmWarning:
+    "Cette action archive le catalogue actif de ce marchand. L'historique des commandes sera conservé.",
+  catResetConfirmLabel: "Pour confirmer, tapez exactement la phrase suivante :",
+  catResetConfirmPlaceholder: "Tapez la phrase de confirmation",
+  catResetConfirmMismatch: "La phrase saisie ne correspond pas — la réinitialisation reste désactivée.",
+  catResetConfirmButton: "Réinitialiser le catalogue",
+  catResetCommitting: "Réinitialisation en cours…",
+  catResetCommitError: "La réinitialisation a échoué.",
+  catResetCommitConfirmRejected:
+    "Le serveur a refusé la phrase de confirmation — aucune modification n'a été appliquée. Revérifiez le nom du marchand et retapez la phrase exactement.",
+
+  catResetResultTitle: "Réinitialisation terminée",
+  catResetResultNoOp: "Catalogue déjà réinitialisé — aucune action supplémentaire n'était nécessaire.",
+  catResetResultProductsArchived: "Produits archivés : {count}",
+  catResetResultSubRemoved: "Sous-catégories supprimées : {count}",
+  catResetResultSubRetained: "Sous-catégories conservées et désactivées (références) : {count}",
+  catResetResultCatRemoved: "Catégories supprimées : {count}",
+  catResetResultCatRetained: "Catégories conservées et désactivées (références) : {count}",
+  catResetResultCatActiveAfter: "Catégories actives restantes : {count}",
+  catResetResultSubActiveAfter: "Sous-catégories actives restantes : {count}",
+  catResetResultHistoryPreserved: "Historique des commandes préservé : oui",
+  catResetResultBackToImport: "Prévisualiser le fichier catalogue à importer",
 } as const;
 
 export type AdminDictKey = keyof typeof dict;
