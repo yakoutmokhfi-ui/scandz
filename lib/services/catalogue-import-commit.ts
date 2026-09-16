@@ -38,9 +38,14 @@
  * toute ligne déjà appliquée ressort EXISTING/SKIP à la ré-exécution,
  * jamais recréée).
  *
- * STRICT SCOPE (mandat) : catégories, sous-catégories, produits
- * UNIQUEMENT. AUCUN upload Storage, AUCUNE persistance Tags/
- * Collections, AUCUNE écriture liée à Photo (le nom de fichier est lu
+ * STRICT SCOPE : catégories, sous-catégories, produits, et -- depuis
+ * COLLECTIONS / TAGS FOUNDATION v1 -- association des Tags/Collections
+ * aux produits écrits (via la RPC add_product_tags, idempotente et
+ * STRICTEMENT ADDITIVE : un import n'enlève jamais un tag posé à la
+ * main). Un échec d'association ne fait jamais échouer la ligne : le
+ * produit est écrit, l'échec est compté à part (tagAssociationFailures)
+ * et rattrapé par une simple ré-exécution. AUCUN upload Storage,
+ * AUCUNE écriture liée à Photo (le nom de fichier est lu
  * par preview.ts mais n'est JAMAIS transmis à create_product/
  * update_product ici -- aucun paramètre photo n'existe sur ces RPC).
  *
@@ -62,6 +67,7 @@
 import { analyzeCatalogueImportFile } from "@/lib/services/catalogue-import";
 import type { CatalogueImportStructuralError } from "@/lib/services/catalogue-import";
 import { buildCommitPlan } from "@/lib/catalogue-import/commit-plan";
+import { addProductTags } from "@/lib/services/catalogue-tags";
 import { normalizedKey } from "@/lib/catalogue-import/normalization";
 import type { PreviewReport } from "@/lib/catalogue-import/types";
 import {
@@ -105,6 +111,17 @@ export interface CatalogueImportCommitSummary {
   productsUpdated: number;
   productsSkipped: number;
   productsFailed: number;
+  /** COLLECTIONS / TAGS FOUNDATION v1 -- associations de tags
+   *  RÉELLEMENT créées par ce commit (0 = tout était déjà à jour, ce
+   *  qui est le cas normal d'un réimport : l'association est
+   *  idempotente côté serveur). */
+  tagsAssociated: number;
+  /** Produits correctement écrits dont l'association de tags a
+   *  échoué. Un échec de tag ne fait JAMAIS échouer la ligne : le
+   *  produit, lui, a bien été créé/mis à jour -- le compter comme
+   *  `productsFailed` serait un mensonge. Compté à part pour rester
+   *  visible plutôt que silencieux. */
+  tagAssociationFailures: number;
   rows: CommitRowResult[];
 }
 
@@ -225,8 +242,30 @@ export async function commitCatalogueImport(
   let productsUpdated = 0;
   let productsSkipped = 0;
   let productsFailed = 0;
+  let tagsAssociated = 0;
+  let tagAssociationFailures = 0;
   let categoriesFailed = 0;
   let subcategoriesFailed = 0;
+
+  /**
+   * Associe les tags d'une ligne au produit qui vient d'être écrit.
+   *
+   * NE PROPAGE JAMAIS : à ce point, le produit EST créé/mis à jour en
+   * base. Faire échouer la ligne pour un tag non associé décrirait
+   * faussement ce qui s'est passé et, à la ré-exécution, ferait
+   * ressortir la ligne comme déjà appliquée (SKIP) -- l'échec de tag
+   * deviendrait invisible. Il est donc compté séparément, et une
+   * simple ré-exécution de l'import le rattrape (add_product_tags est
+   * idempotente).
+   */
+  async function associateTags(menuItemId: string, tagNames: string[]): Promise<void> {
+    if (tagNames.length === 0) return;
+    try {
+      tagsAssociated += await addProductTags(menuItemId, tagNames);
+    } catch {
+      tagAssociationFailures++;
+    }
+  }
 
   for (const row of report.rows) {
     // Ne devrait jamais se produire : l'éligibilité du fichier entier a
@@ -303,13 +342,30 @@ export async function commitCatalogueImport(
       subcategoryId = id;
     }
 
+    const values = row.normalizedValues;
+
     if (row.plannedAction === "SKIP") {
-      rows.push({ row: row.row, outcome: "SKIPPED", productId: row.productMatch.existingId });
+      // COLLECTIONS / TAGS v1.1 — CONSTAT A (Cat Stevens 2, reproduit
+      // puis confirmé). Une ligne SKIP signifie « les champs CATALOGUE
+      // du produit sont déjà identiques », jamais « il n'y a plus rien
+      // à faire » : la colonne « Tags / Collections » peut parfaitement
+      // désigner un tag que ce produit ne porte pas encore. En v1 le
+      // `continue` ci-dessous sautait aussi l'association, si bien
+      // qu'un produit déjà à jour ne recevait JAMAIS ses nouveaux tags.
+      //
+      // L'association est donc indépendante de la mutation produit :
+      // le produit reste SKIP (jamais transformé en faux UPDATE pour
+      // faire passer les tags), et `add_product_tags` — idempotente et
+      // strictement additive côté serveur — est appelée pour lui.
+      const skippedProductId = row.productMatch.existingId;
+      if (skippedProductId) {
+        await associateTags(skippedProductId, values.tags);
+      }
+      rows.push({ row: row.row, outcome: "SKIPPED", productId: skippedProductId });
       productsSkipped++;
       continue;
     }
 
-    const values = row.normalizedValues;
     // Filet de sécurité déterministe (jamais censé se déclencher : une
     // ligne CREATE/UPDATE d'un fichier éligible a toujours un prix
     // numérique valide, cf. validateRow) -- jamais transmettre une
@@ -341,6 +397,7 @@ export async function commitCatalogueImport(
           fiscal,
           subcategoryId
         );
+        await associateTags(productId, values.tags);
         rows.push({ row: row.row, outcome: "CREATED", productId });
         productsCreated++;
       } else if (row.plannedAction === "UPDATE" && row.productMatch.existingId) {
@@ -353,6 +410,7 @@ export async function commitCatalogueImport(
           fiscal,
           subcategoryId
         );
+        await associateTags(row.productMatch.existingId, values.tags);
         rows.push({ row: row.row, outcome: "UPDATED", productId: row.productMatch.existingId });
         productsUpdated++;
       } else {
@@ -395,6 +453,8 @@ export async function commitCatalogueImport(
     productsUpdated,
     productsSkipped,
     productsFailed,
+    tagsAssociated,
+    tagAssociationFailures,
     rows,
   };
 }

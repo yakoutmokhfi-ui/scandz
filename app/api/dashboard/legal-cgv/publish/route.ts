@@ -65,6 +65,14 @@ function statusForReason(reason: LegalCgvPublishServerError["reason"]): number {
       // like an "incomplete profile" or "template unresolved" outcome
       // — never a permanent client error.
       return 409;
+    case "withdrawal_runtime_not_ready":
+    case "placeholder_text_detected":
+    case "legal_guarantee_block_missing":
+      // v2.5 — configuration/content-level publication hard-blocks
+      // (Tasks 4/5): the merchant can change their withdrawal regime,
+      // remove the placeholder text, or re-pin to a compliant
+      // template, then retry — never a permanent client error either.
+      return 409;
     default:
       return 502;
   }

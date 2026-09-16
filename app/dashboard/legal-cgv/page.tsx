@@ -136,6 +136,12 @@ export default function LegalCgvPage() {
         consumerMediatorName: legal.consumer_mediator_name ?? null,
         consumerMediatorAddress: legal.consumer_mediator_address ?? null,
         consumerMediatorWebsite: legal.consumer_mediator_website ?? null,
+        legalEntityName: legal.legal_entity_name ?? null,
+        siren: legal.siren ?? null,
+        siret: legal.siret ?? null,
+        vatNumber: legal.vat_number ?? null,
+        consumerMediatorPhone: legal.consumer_mediator_phone ?? null,
+        consumerMediatorEmail: legal.consumer_mediator_email ?? null,
       });
       await load(restaurantId);
       setActionMessage(t("legalCgvSaved"));
@@ -160,6 +166,8 @@ export default function LegalCgvPage() {
         cancellationPolicyText: cgv.cancellation_policy_text,
         substitutionPolicyText: cgv.substitution_policy_text,
         presentationVariant: cgv.presentation_variant,
+        coldChainApplicable: cgv.cold_chain_applicable ?? false,
+        weightPricingMode: cgv.weight_pricing_mode ?? null,
       });
       await load(restaurantId);
       setActionMessage(t("legalCgvSaved"));
@@ -190,6 +198,12 @@ export default function LegalCgvPage() {
           mediatorName: legal.consumer_mediator_name ?? "",
           mediatorAddress: legal.consumer_mediator_address ?? "",
           mediatorWebsite: legal.consumer_mediator_website ?? "",
+          legalEntityName: legal.legal_entity_name ?? null,
+          siren: legal.siren ?? null,
+          siret: legal.siret ?? null,
+          vatNumber: legal.vat_number ?? null,
+          mediatorPhone: legal.consumer_mediator_phone ?? null,
+          mediatorEmail: legal.consumer_mediator_email ?? null,
         },
         business: {
           withdrawalRegime: cgv.withdrawal_regime,
@@ -198,11 +212,20 @@ export default function LegalCgvPage() {
           preparationTimeUnit: cgv.preparation_time_unit,
           cancellationPolicyText: cgv.cancellation_policy_text,
           substitutionPolicyText: cgv.substitution_policy_text,
+          coldChainApplicable: cgv.cold_chain_applicable ?? false,
+          weightPricingMode: cgv.weight_pricing_mode ?? null,
         },
         locale: "fr",
         presentationVariant: cgv.presentation_variant,
       });
     } catch {
+      // Couvre à la fois le régime de rétractation non résolu (MIXED)
+      // ET, depuis v2.1, ActualWeightPriceUnsupportedError
+      // (weight_pricing_mode = ACTUAL_WEIGHT_PRICE) -- l'aperçu
+      // affiche simplement "profil incomplet" (voir section 6 du
+      // rendu), jamais une erreur brute ; la publication réelle échoue
+      // fermé indépendamment côté serveur (persist_merchant_cgv_
+      // version).
       return null;
     }
   }
@@ -293,6 +316,8 @@ export default function LegalCgvPage() {
 
         <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
           <h2 className="font-bold text-stone-900">2. {t("legalCgvSectionMandatory")}</h2>
+          <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvLegalEntityName")}
+            value={legal.legal_entity_name ?? ""} onChange={(e) => setLegal((p) => ({ ...p, legal_entity_name: e.target.value }))} />
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvLegalForm")}
             value={legal.legal_form ?? ""} onChange={(e) => setLegal((p) => ({ ...p, legal_form: e.target.value }))} />
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvAddressLine1")}
@@ -303,6 +328,14 @@ export default function LegalCgvPage() {
             <input disabled={!canEdit} className="w-2/3 rounded-lg border p-2 text-sm" placeholder={t("legalCgvCity")}
               value={legal.city ?? ""} onChange={(e) => setLegal((p) => ({ ...p, city: e.target.value }))} />
           </div>
+          <div className="flex gap-2">
+            <input disabled={!canEdit} className="w-1/2 rounded-lg border p-2 text-sm" placeholder={t("legalCgvSiren")}
+              value={legal.siren ?? ""} onChange={(e) => setLegal((p) => ({ ...p, siren: e.target.value }))} />
+            <input disabled={!canEdit} className="w-1/2 rounded-lg border p-2 text-sm" placeholder={t("legalCgvSiret")}
+              value={legal.siret ?? ""} onChange={(e) => setLegal((p) => ({ ...p, siret: e.target.value }))} />
+          </div>
+          <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvVatNumber")}
+            value={legal.vat_number ?? ""} onChange={(e) => setLegal((p) => ({ ...p, vat_number: e.target.value }))} />
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvCustomerServiceEmail")}
             value={legal.customer_service_email ?? ""} onChange={(e) => setLegal((p) => ({ ...p, customer_service_email: e.target.value }))} />
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvMediatorName")}
@@ -311,6 +344,12 @@ export default function LegalCgvPage() {
             value={legal.consumer_mediator_address ?? ""} onChange={(e) => setLegal((p) => ({ ...p, consumer_mediator_address: e.target.value }))} />
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvMediatorWebsite")}
             value={legal.consumer_mediator_website ?? ""} onChange={(e) => setLegal((p) => ({ ...p, consumer_mediator_website: e.target.value }))} />
+          <div className="flex gap-2">
+            <input disabled={!canEdit} className="w-1/2 rounded-lg border p-2 text-sm" placeholder={t("legalCgvMediatorPhone")}
+              value={legal.consumer_mediator_phone ?? ""} onChange={(e) => setLegal((p) => ({ ...p, consumer_mediator_phone: e.target.value }))} />
+            <input disabled={!canEdit} className="w-1/2 rounded-lg border p-2 text-sm" placeholder={t("legalCgvMediatorEmail")}
+              value={legal.consumer_mediator_email ?? ""} onChange={(e) => setLegal((p) => ({ ...p, consumer_mediator_email: e.target.value }))} />
+          </div>
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder="FR"
             value={legal.governing_country ?? ""} onChange={(e) => setLegal((p) => ({ ...p, governing_country: e.target.value.toUpperCase() }))} />
           {canEdit && <button disabled={saving} onClick={saveLegal} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
@@ -343,6 +382,35 @@ export default function LegalCgvPage() {
             </section>
 
             <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
+              <h2 className="font-bold text-stone-900">{t("legalCgvSectionColdChainPricing")}</h2>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  disabled={!canEdit}
+                  checked={cgv.cold_chain_applicable ?? false}
+                  onChange={(e) => setCgv({ ...cgv, cold_chain_applicable: e.target.checked })}
+                />
+                {t("legalCgvColdChainApplicable")}
+              </label>
+              <div>
+                <label className="mb-1 block text-xs text-stone-500">{t("legalCgvWeightPricingMode")}</label>
+                <select
+                  disabled={!canEdit}
+                  className="w-full rounded-lg border p-2 text-sm"
+                  value={cgv.weight_pricing_mode ?? ""}
+                  onChange={(e) =>
+                    setCgv({ ...cgv, weight_pricing_mode: (e.target.value || null) as typeof cgv.weight_pricing_mode })
+                  }
+                >
+                  <option value="">{t("legalCgvWeightPricingModeNone")}</option>
+                  <option value="FIXED_PORTION_PRICE">{t("legalCgvWeightPricingModeFixedPortion")}</option>
+                  <option value="ACTUAL_WEIGHT_PRICE">{t("legalCgvWeightPricingModeActualWeight")}</option>
+                </select>
+              </div>
+              {canEdit && <button disabled={saving} onClick={saveCgvProfile} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
+            </section>
+
+            <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
               <h2 className="font-bold text-stone-900">5. {t("legalCgvSectionWithdrawal")}</h2>
               <select disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm"
                 value={cgv.withdrawal_regime ?? ""} onChange={(e) => setCgv({ ...cgv, withdrawal_regime: (e.target.value || null) as typeof cgv.withdrawal_regime })}>
@@ -351,6 +419,21 @@ export default function LegalCgvPage() {
                 <option value="STANDARD_14_DAYS">{t("legalCgvStandard14Days")}</option>
                 <option value="MIXED">{t("legalCgvMixed")}</option>
               </select>
+              {/*
+               * v2.4 -- advisory-only warning banner. Derived LOCALLY
+               * from cgv.withdrawal_regime (already loaded), IDENTICAL
+               * to the `online_withdrawal_function_gap` boolean the
+               * SQL RPC resolve_cgv_publication_context now also
+               * returns (see DRAFT-lot-seller-legal-profile-cgv-
+               * engine-v2-4.sql) -- computing it here avoids adding a
+               * new client-side RPC call to this page (a larger
+               * change than this legal-content remediation lot
+               * warrants). Purely informational: never disables Save/
+               * Publish/Activate below.
+               */}
+              {cgv.withdrawal_regime === "STANDARD_14_DAYS" && (
+                <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{t("legalCgvOnlineWithdrawalFunctionGap")}</p>
+              )}
               {canEdit && <button disabled={saving} onClick={saveCgvProfile} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
             </section>
 

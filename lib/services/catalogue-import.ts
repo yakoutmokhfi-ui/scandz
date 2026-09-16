@@ -27,6 +27,7 @@ import { resolveColumnMap, type ImportColumn } from "@/lib/catalogue-import/colu
 import { buildPreviewReport, type RawImportRow } from "@/lib/catalogue-import/preview";
 import type { ImportIssue, PreviewReport } from "@/lib/catalogue-import/types";
 import { getMerchantCatalogue } from "@/lib/services/dashboard";
+import { getRestaurantTags } from "@/lib/services/catalogue-tags";
 
 export type CatalogueImportStructuralErrorCode =
   | "UNSUPPORTED_FILE_TYPE"
@@ -219,7 +220,29 @@ export async function analyzeCatalogueImportFile(
     };
   }
 
-  const report = buildPreviewReport(rawRows, existingCategories, unrecognizedHeaderIssues(columnMap.unrecognizedHeaders));
+  // COLLECTIONS / TAGS FOUNDATION v1 -- tags ACTIFS déjà existants,
+  // pour que la preview distingue « ce tag existe » de « ce tag sera
+  // créé ». Lecture TOLÉRANTE À L'ÉCHEC, délibérément : un tenant dont
+  // la migration tags n'est pas encore appliquée, ou une RPC
+  // momentanément indisponible, ne doit JAMAIS rendre un import
+  // impossible -- la preview retombe alors sur « tous les tags seront
+  // créés », ce qui reste exact du point de vue de l'affichage (la
+  // preview n'écrit rien) et ne change strictement rien à ce que le
+  // commit persistera réellement, puisque add_product_tags re-résout
+  // côté serveur.
+  let existingTags: Awaited<ReturnType<typeof getRestaurantTags>> = [];
+  try {
+    existingTags = await getRestaurantTags(restaurantId);
+  } catch {
+    existingTags = [];
+  }
+
+  const report = buildPreviewReport(
+    rawRows,
+    existingCategories,
+    unrecognizedHeaderIssues(columnMap.unrecognizedHeaders),
+    existingTags
+  );
 
   return { kind: "OK", fileName: file.name, sourceFormat, report };
 }

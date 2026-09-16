@@ -7,6 +7,7 @@ import {
   type WithdrawalRegime,
   type PreparationTimeUnit,
   type PresentationVariant,
+  type WeightPricingMode,
 } from "@/lib/legal/render";
 
 /**
@@ -95,7 +96,21 @@ export type LegalCgvPublishFailureReason =
   | "incomplete"
   | "template_unresolved"
   | "stale_context"
-  | "unavailable";
+  | "unavailable"
+  /** CGV ENGINE v2.5 (Task 4) -- STANDARD_14_DAYS resolved but Scanym's
+   *  runtime has no online withdrawal-request function. Enforced,
+   *  non-ignorable -- raised by resolve_cgv_publication_context AND
+   *  persist_merchant_cgv_version (see DRAFT-lot-seller-legal-profile-
+   *  cgv-engine-v2-5.sql). Never fires for EXEMPT_PERISHABLE. */
+  | "withdrawal_runtime_not_ready"
+  /** CGV ENGINE v2.5 (Task 5) -- persist_merchant_cgv_version's new
+   *  hard-block checks on the FINAL rendered content: an unresolved
+   *  placeholder marker (item 1, also the forward-defense for a future
+   *  fabricated/placeholder privacy-policy URL, item 4) or the
+   *  mandatory D.211-2 legal-guarantee encadré (Task 1) missing from
+   *  the rendered output (item 5). */
+  | "placeholder_text_detected"
+  | "legal_guarantee_block_missing";
 
 export class LegalCgvPublishServerError extends Error {
   reason: LegalCgvPublishFailureReason;
@@ -153,6 +168,33 @@ interface PublicationContextRow {
    *  against CURRENT state at the persistence boundary, not merely
    *  trust that this resolve call once succeeded. */
   acting_user_id: string;
+  /** v2.1 — 8 new authoritative fields, resolved server-side exactly
+   *  like every other field above, so the REAL publish path renders
+   *  the same content the dashboard's own advisory preview would
+   *  (which reads these same fields directly via get_merchant_legal_
+   *  profile/get_merchant_cgv_profile). */
+  legal_entity_name: string | null;
+  siren: string | null;
+  siret: string | null;
+  vat_number: string | null;
+  consumer_mediator_phone: string | null;
+  consumer_mediator_email: string | null;
+  cold_chain_applicable: boolean | null;
+  weight_pricing_mode: WeightPricingMode | null;
+  /** v2.4 -- ADVISORY ONLY, never read or acted on by this module.
+   *  True iff withdrawal_regime === "STANDARD_14_DAYS" (the only
+   *  regime with a real withdrawal right, hence the only one the
+   *  statutory "online withdrawal function" obligation could apply
+   *  to). Surfaced here purely for typing completeness with the SQL
+   *  RPC's actual return shape (see DRAFT-lot-seller-legal-profile-
+   *  cgv-engine-v2-4.sql) -- it never blocks publication/activation,
+   *  and this module never branches on it. The dashboard's own
+   *  advisory warning banner (app/dashboard/legal-cgv/page.tsx)
+   *  computes the IDENTICAL boolean directly from the already-loaded
+   *  merchant_cgv_profile.withdrawal_regime, rather than by adding a
+   *  new client-side call to resolve_cgv_publication_context (a
+   *  larger change -- see that file's own comment). */
+  online_withdrawal_function_gap?: boolean;
 }
 
 /**
@@ -188,6 +230,12 @@ function classifyResolveError(error: { code?: string; message?: string } | null)
   const message = error?.message ?? "";
   if (error?.code === "28000") return new LegalCgvPublishServerError("auth", null, error);
   if (error?.code === "42501") return new LegalCgvPublishServerError("forbidden", null, error);
+  // v2.5 -- checked BEFORE CGV_INCOMPLETE: WITHDRAWAL_RUNTIME_NOT_READY
+  // is its own distinct, enforced gate (see this file's own header),
+  // never folded into the generic completeness-error array.
+  if (message.includes("WITHDRAWAL_RUNTIME_NOT_READY")) {
+    return new LegalCgvPublishServerError("withdrawal_runtime_not_ready", message, error);
+  }
   if (message.includes("CGV_INCOMPLETE")) return new LegalCgvPublishServerError("incomplete", message, error);
   if (message.includes("TEMPLATE_UNRESOLVED")) return new LegalCgvPublishServerError("template_unresolved", null, error);
   return new LegalCgvPublishServerError("unavailable", message || null, error);
@@ -203,6 +251,18 @@ function classifyPersistError(error: { code?: string; message?: string } | null)
   // authorization recheck raises identically), never conflated with a
   // completeness or template-applicability failure.
   if (error?.code === "42501") return new LegalCgvPublishServerError("forbidden", null, error);
+  // v2.5 -- checked FIRST, same reasoning as classifyResolveError above
+  // (persist_merchant_cgv_version's OWN independent copy of this gate
+  // -- defense in depth, mandate: "check both").
+  if (message.includes("WITHDRAWAL_RUNTIME_NOT_READY")) {
+    return new LegalCgvPublishServerError("withdrawal_runtime_not_ready", message, error);
+  }
+  if (message.includes("PLACEHOLDER_TEXT_DETECTED")) {
+    return new LegalCgvPublishServerError("placeholder_text_detected", message, error);
+  }
+  if (message.includes("LEGAL_GUARANTEE_BLOCK_MISSING")) {
+    return new LegalCgvPublishServerError("legal_guarantee_block_missing", message, error);
+  }
   if (message.includes("STALE_CONTEXT")) return new LegalCgvPublishServerError("stale_context", message, error);
   if (message.includes("CGV_INCOMPLETE")) return new LegalCgvPublishServerError("incomplete", message, error);
   if (message.includes("TEMPLATE_NOT_APPLICABLE") || message.includes("template_id")) {
@@ -255,6 +315,12 @@ export async function publishMerchantCgvVersionServerAuthoritative(
         mediatorName: ctx.mediator_name ?? "",
         mediatorAddress: ctx.mediator_address ?? "",
         mediatorWebsite: ctx.mediator_website ?? "",
+        legalEntityName: ctx.legal_entity_name ?? null,
+        siren: ctx.siren ?? null,
+        siret: ctx.siret ?? null,
+        vatNumber: ctx.vat_number ?? null,
+        mediatorPhone: ctx.consumer_mediator_phone ?? null,
+        mediatorEmail: ctx.consumer_mediator_email ?? null,
       },
       business: {
         withdrawalRegime: ctx.withdrawal_regime as WithdrawalRegime,
@@ -263,6 +329,8 @@ export async function publishMerchantCgvVersionServerAuthoritative(
         preparationTimeUnit: ctx.preparation_time_unit as PreparationTimeUnit,
         cancellationPolicyText: ctx.cancellation_policy_text,
         substitutionPolicyText: ctx.substitution_policy_text,
+        coldChainApplicable: ctx.cold_chain_applicable ?? false,
+        weightPricingMode: ctx.weight_pricing_mode ?? null,
       },
       locale: ctx.locale,
       presentationVariant: ctx.presentation_variant,

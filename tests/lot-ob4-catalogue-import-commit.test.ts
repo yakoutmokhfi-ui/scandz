@@ -183,6 +183,19 @@ function installMocks(t: any, h: RpcHarness) {
       return { data: h.catalogueRows, error: null };
     }
 
+    // COLLECTIONS / TAGS FOUNDATION v1 -- lecture des tags existants
+    // (preview) et association des tags (commit). Aucune fixture de ce
+    // fichier ne porte de tag, donc add_product_tags n'est jamais
+    // atteinte ici : `associateTags` sort immédiatement quand la
+    // colonne « Tags / Collections » est vide -- ce qui est en soi la
+    // preuve que le chemin tags n'est pas emprunté sans raison.
+    if (name === "get_restaurant_tags") {
+      return { data: [], error: null };
+    }
+    if (name === "add_product_tags") {
+      return { data: 0, error: null };
+    }
+
     if (name === "create_category") {
       const key = normKey(args.p_name);
       if (h.forceDuplicateOnCategoryName?.has(key)) {
@@ -254,7 +267,7 @@ test("1. Nouvelle catégorie + nouveau produit -> create_category puis create_pr
   assert.equal(result.rows[0].outcome, "CREATED");
   assert.deepEqual(
     h.rpcCalls.map((c) => c.name),
-    ["get_merchant_catalogue", "create_category", "create_product"]
+    ["get_merchant_catalogue", "get_restaurant_tags", "create_category", "create_product"]
   );
 });
 
@@ -274,9 +287,15 @@ test("2. Catégorie existante + nouveau produit -> AUCUN create_category, create
   assert.equal(result.productsCreated, 1);
   assert.deepEqual(
     h.rpcCalls.map((c) => c.name),
-    ["get_merchant_catalogue", "create_product"]
+    ["get_merchant_catalogue", "get_restaurant_tags", "create_product"]
   );
-  assert.equal(h.rpcCalls[1].args.p_category_id, "cat-1");
+  // Recherche PAR NOM plutôt que par position : la séquence des RPC
+  // peut légitimement s'allonger (ex. lecture des tags ajoutée par
+  // COLLECTIONS/TAGS v1) sans que ce que ce test vérifie change.
+  assert.equal(
+    h.rpcCalls.find((c) => c.name === "create_product")!.args.p_category_id,
+    "cat-1"
+  );
 });
 
 // ------------------------------------------------------------------
@@ -354,7 +373,7 @@ test("7. Produit existant, valeurs STRICTEMENT identiques -> SKIP, AUCUN appel R
   assert.equal(result.rows[0].productId, "prod-1");
   assert.deepEqual(
     h.rpcCalls.map((c) => c.name),
-    ["get_merchant_catalogue"],
+    ["get_merchant_catalogue", "get_restaurant_tags"],
     "SKIP = aucune écriture, ni create_product ni update_product"
   );
 });
@@ -375,7 +394,7 @@ test("8. Une ligne BLOCKED (prix manquant) parmi plusieurs -> NOT_ELIGIBLE, ZÉR
   assert.equal(result.report.blockedRows, 1);
   assert.deepEqual(
     h.rpcCalls.map((c) => c.name),
-    ["get_merchant_catalogue"],
+    ["get_merchant_catalogue", "get_restaurant_tags"],
     "NOT_ELIGIBLE = aucune écriture, même pour les lignes par ailleurs valides"
   );
 });
@@ -392,7 +411,7 @@ test("9. Catégorie ambiguë (2 catégories existantes de même clé normalisée
   assert.equal(result.report.rows[0].resolvedCategory.state, "AMBIGUOUS");
   assert.deepEqual(
     h.rpcCalls.map((c) => c.name),
-    ["get_merchant_catalogue"]
+    ["get_merchant_catalogue", "get_restaurant_tags"]
   );
 });
 

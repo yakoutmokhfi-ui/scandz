@@ -70,6 +70,14 @@ function mockGetMerchantCatalogueRpc(t: any, expectedRestaurantId: string, rpcCa
       assert.equal(args.p_restaurant_id, expectedRestaurantId, "restaurant_id transmis à get_merchant_catalogue doit être EXACTEMENT celui explicitement sélectionné");
       return { data: [], error: null };
     }
+    // COLLECTIONS / TAGS FOUNDATION v1 : la preview lit désormais AUSSI
+    // les tags existants du tenant, pour distinguer « ce tag existe »
+    // de « ce tag sera créé ». C'est une LECTURE (RPC `stable`) --
+    // l'invariant du test 17 est inchangé : aucune RPC MUTANTE.
+    if (name === "get_restaurant_tags") {
+      assert.equal(args.p_restaurant_id, expectedRestaurantId, "restaurant_id transmis à get_restaurant_tags doit être EXACTEMENT celui explicitement sélectionné");
+      return { data: [], error: null };
+    }
     throw new Error(`RPC inattendue dans ce test OB-3 : ${name}`);
   });
   t.mock.method(supabase, "from", (table: string) => {
@@ -81,7 +89,7 @@ function mockGetMerchantCatalogueRpc(t: any, expectedRestaurantId: string, rpcCa
 // 17. no mutating RPC called
 // ------------------------------------------------------------------
 
-test("17. analyzeCatalogueImportFile n'appelle JAMAIS de RPC catalogue mutante -- SEULE get_merchant_catalogue est appelée", async (t) => {
+test("17. analyzeCatalogueImportFile n'appelle JAMAIS de RPC catalogue mutante -- UNIQUEMENT des lectures (get_merchant_catalogue + get_restaurant_tags)", async (t) => {
   const rpcCalls: string[] = [];
   mockGetMerchantCatalogueRpc(t, "resto-1", rpcCalls);
   t.mock.method(supabase.storage, "from", () => {
@@ -94,7 +102,8 @@ test("17. analyzeCatalogueImportFile n'appelle JAMAIS de RPC catalogue mutante -
   const result = await analyzeCatalogueImportFile(file, "resto-1");
 
   assert.equal(result.kind, "OK");
-  assert.deepEqual(rpcCalls, ["get_merchant_catalogue"]);
+  // Liste EXHAUSTIVE et ORDONNÉE des RPC appelées : toutes en lecture.
+  assert.deepEqual(rpcCalls, ["get_merchant_catalogue", "get_restaurant_tags"]);
   for (const forbidden of MUTATING_RPC_NAMES) {
     assert.equal(rpcCalls.includes(forbidden), false, `${forbidden} ne doit jamais être appelée par OB-3`);
   }

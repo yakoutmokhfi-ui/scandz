@@ -7,6 +7,7 @@ import type {
   WithdrawalRegime,
   PreparationTimeUnit,
   CgvPresentationVariant,
+  WeightPricingMode,
 } from "@/lib/dashboard-types";
 
 /**
@@ -48,6 +49,13 @@ export async function updateMerchantLegalProfile(params: {
   consumerMediatorName: string | null;
   consumerMediatorAddress: string | null;
   consumerMediatorWebsite: string | null;
+  /** CGV ENGINE v2.1 */
+  legalEntityName?: string | null;
+  siren?: string | null;
+  siret?: string | null;
+  vatNumber?: string | null;
+  consumerMediatorPhone?: string | null;
+  consumerMediatorEmail?: string | null;
 }): Promise<void> {
   const { error } = await supabase.rpc("update_merchant_legal_profile", {
     p_restaurant_id: params.restaurantId,
@@ -62,6 +70,12 @@ export async function updateMerchantLegalProfile(params: {
     p_consumer_mediator_name: params.consumerMediatorName,
     p_consumer_mediator_address: params.consumerMediatorAddress,
     p_consumer_mediator_website: params.consumerMediatorWebsite,
+    p_legal_entity_name: params.legalEntityName ?? null,
+    p_siren: params.siren ?? null,
+    p_siret: params.siret ?? null,
+    p_vat_number: params.vatNumber ?? null,
+    p_consumer_mediator_phone: params.consumerMediatorPhone ?? null,
+    p_consumer_mediator_email: params.consumerMediatorEmail ?? null,
   });
   if (error) throw new Error(error.message);
 }
@@ -84,6 +98,9 @@ export async function updateMerchantCgvProfile(params: {
   cancellationPolicyText: string | null;
   substitutionPolicyText: string | null;
   presentationVariant: CgvPresentationVariant;
+  /** CGV ENGINE v2.1 */
+  coldChainApplicable?: boolean;
+  weightPricingMode?: WeightPricingMode | null;
 }): Promise<void> {
   const { error } = await supabase.rpc("update_merchant_cgv_profile", {
     p_restaurant_id: params.restaurantId,
@@ -94,6 +111,8 @@ export async function updateMerchantCgvProfile(params: {
     p_cancellation_policy_text: params.cancellationPolicyText,
     p_substitution_policy_text: params.substitutionPolicyText,
     p_presentation_variant: params.presentationVariant,
+    p_cold_chain_applicable: params.coldChainApplicable ?? false,
+    p_weight_pricing_mode: params.weightPricingMode ?? null,
   });
   if (error) throw new Error(error.message);
 }
@@ -104,7 +123,20 @@ export async function updateMerchantCgvProfile(params: {
  * stable renvoyé par la route (jamais un message serveur brut).
  */
 export class PublishCgvError extends Error {
-  reason: "auth" | "forbidden" | "incomplete" | "template_unresolved" | "stale_context" | "unavailable" | "invalid_field";
+  reason:
+    | "auth"
+    | "forbidden"
+    | "incomplete"
+    | "template_unresolved"
+    | "stale_context"
+    | "unavailable"
+    | "invalid_field"
+    // CGV ENGINE v2.5 (Tasks 4/5) -- see lib/server/legal-cgv-publish-
+    // service.ts's own LegalCgvPublishFailureReason for the SQL-level
+    // origin of each.
+    | "withdrawal_runtime_not_ready"
+    | "placeholder_text_detected"
+    | "legal_guarantee_block_missing";
   constructor(reason: PublishCgvError["reason"]) {
     super(`PublishCgvError: ${reason}`);
     this.name = "PublishCgvError";
@@ -162,7 +194,18 @@ export async function publishMerchantCgvVersion(params: { restaurantId: string }
   if (!response.ok || body.outcome !== "ok") {
     const reason = body.outcome as PublishCgvError["reason"] | undefined;
     throw new PublishCgvError(
-      reason && ["auth", "forbidden", "incomplete", "template_unresolved", "stale_context", "invalid_field"].includes(reason)
+      reason &&
+      [
+        "auth",
+        "forbidden",
+        "incomplete",
+        "template_unresolved",
+        "stale_context",
+        "invalid_field",
+        "withdrawal_runtime_not_ready",
+        "placeholder_text_detected",
+        "legal_guarantee_block_missing",
+      ].includes(reason)
         ? reason
         : "unavailable"
     );

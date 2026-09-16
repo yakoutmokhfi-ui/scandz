@@ -77,12 +77,52 @@ export default function OrderCard({
   order,
   restaurantName,
   receiptSettings,
+  receiptSettingsReady = true,
+  printRestaurantId,
   onStatus,
   busy,
   staffLanguage,}: {
   order: DashboardOrder;
   restaurantName: string;
   receiptSettings: ReceiptSettings | null;
+  /**
+   * PRINTED MERCHANT RECEIPT / VAT + LEGAL INFO FIX v1 -- `true`
+   * uniquement une fois qu'une réponse (positive OU "aucune ligne
+   * receipt_settings", les deux légitimes) est arrivée pour le
+   * restaurant COURANT depuis app/dashboard/page.tsx.
+   * `receiptSettings` seul ne suffit PAS à le déduire : `null` peut
+   * aussi bien signifier "chargement encore en cours" que "aucune
+   * ligne pour cet établissement" (voir commentaire jumeau dans
+   * app/dashboard/page.tsx). Par défaut `true` -- ne change RIEN pour
+   * un appelant qui ne connaît pas encore ce concept (ex. les tests
+   * DOM existants qui rendent OrderCard isolément, hors du cycle de
+   * chargement réel de la page tableau de bord).
+   */
+  receiptSettingsReady?: boolean;
+  /**
+   * RECEIPT v1.1 -- remédiation RECEIPT-V1-ORDER-SETTINGS-RACE-01.
+   *
+   * Établissement pour lequel TOUT l'état d'impression est cohérent
+   * (restaurant sélectionné == provenance des commandes == provenance
+   * des réglages, réglages prêts) -- voir `printRestaurantId` dans
+   * app/dashboard/page.tsx. `null` = rien n'est imprimable.
+   *
+   * Cette carte y ajoute la vérification qui lui est propre :
+   * `order.restaurant_id === printRestaurantId`. Une commande d'un
+   * AUTRE établissement reste donc non imprimable même si la porte
+   * globale était ouverte -- c'est la garantie demandée au §3.D du
+   * mandat ("order.restaurant_id === current restaurantId"), et elle
+   * ne dépend d'aucun état d'UI.
+   *
+   * `undefined` (prop omise) = appelant historique qui ne connaît pas
+   * encore ce concept : la vérification d'appartenance est alors
+   * inapplicable et seule `receiptSettingsReady` gouverne, exactement
+   * comme en v1. Le seul appelant réel (app/dashboard/page.tsx) la
+   * fournit toujours ; les tests DOM préexistants d'autres lots, qui
+   * rendent OrderCard isolément pour des sujets sans rapport, ne sont
+   * donc pas affectés.
+   */
+  printRestaurantId?: string | null;
   onStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   busy: boolean;
   staffLanguage?: string;}) {
@@ -118,7 +158,40 @@ export default function OrderCard({
       ? formatElapsedMinutesFr(ageMinutes)
       : t("dsMinutes", { n: ageMinutes });
 
+  /**
+   * RECEIPT v1.1 -- condition UNIQUE d'autorisation d'impression,
+   * partagée par l'attribut `disabled` du bouton ET par la garde
+   * défensive de `handlePrint()` : les deux ne peuvent donc jamais
+   * diverger.
+   *
+   * `printRestaurantId === undefined` (prop non fournie par un
+   * appelant historique) neutralise la seule vérification
+   * d'appartenance -- voir la documentation de la prop ci-dessus.
+   */
+  const ownershipSatisfied =
+    printRestaurantId === undefined ||
+    (printRestaurantId !== null && order.restaurant_id === printRestaurantId);
+  const canPrint = receiptSettingsReady && ownershipSatisfied;
+
   function handlePrint() {
+    // Garde DÉFENSIVE, en plus de la désactivation visuelle du bouton
+    // ci-dessous (voir <button onClick={handlePrint}>) -- le bouton
+    // désactivé empêche déjà normalement cet appel, mais cette
+    // fonction ne présume jamais que son seul appelant est ce bouton
+    // précis (mandat, littéral : "guarantee the print handler
+    // receives a complete settings object"). Sans cette garde, un
+    // clic pendant la fenêtre de chargement produirait un ticket SANS
+    // AUCUNE information légale (lib/receipt.ts lit
+    // legal_name/legal_address/phone/email/tax_identifier/
+    // registration_number/footer_text UNIQUEMENT depuis `settings`,
+    // sans repli).
+    //
+    // RECEIPT v1.1 : cette garde couvre desormais AUSSI l'appartenance
+    // de la commande au restaurant selectionne (RECEIPT-V1-ORDER-
+    // SETTINGS-RACE-01) -- imprimer une commande du restaurant A avec
+    // les mentions legales du restaurant B doit rester impossible meme
+    // si l'attribut `disabled` du bouton etait retire cote DOM.
+    if (!canPrint) return;
     try {
       printReceipt(
         { order, restaurantName, settings: receiptSettings },
@@ -231,7 +304,15 @@ export default function OrderCard({
 
       <div className="mt-4 flex items-center justify-between">
         <span className="text-lg font-black">{formatPrice(Number(order.total), order.currency)}</span>
-        <button onClick={handlePrint} className="rounded-xl border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800">
+        <button
+          onClick={handlePrint}
+          disabled={!canPrint}
+          aria-disabled={!canPrint}
+          title={!canPrint ? t("dsPrintSettingsLoading") : undefined}
+          data-receipt-settings-ready={receiptSettingsReady}
+          data-print-allowed={canPrint}
+          className="rounded-xl border border-stone-300 px-3 py-2 text-sm font-bold text-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
           {t("dsPrint")}
         </button>
       </div>

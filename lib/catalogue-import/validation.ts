@@ -47,6 +47,7 @@ import {
 } from "@/lib/catalogue-text";
 import { validateFiscalMeasurementFields } from "@/lib/catalogue-fiscal";
 import { isValidProductPrice } from "@/lib/catalogue-import/price-validation";
+import type { TagResolution } from "@/lib/catalogue-import/tag-resolution";
 import type { CategoryResolution, ImportIssue, NormalizedRowValues, ProductMatch, SubcategoryResolution } from "@/lib/catalogue-import/types";
 
 export interface RowValidationInput {
@@ -61,6 +62,12 @@ export interface RowValidationInput {
    *  voir preview.ts, ces lignes ne sont jamais soumises à
    *  detectDuplicateRowsWithinFile). */
   duplicateOfRow?: number;
+  /** COLLECTIONS / TAGS FOUNDATION v1 -- résolution des tags de cette
+   *  ligne (EXISTING / WOULD_CREATE), déjà dédupliquée. */
+  resolvedTags?: TagResolution[];
+  /** Type de la ligne -- nécessaire pour n'annoncer une association de
+   *  tags que là où un produit est réellement écrit. */
+  rowType?: "CATEGORY" | "SUBCATEGORY" | "PRODUCT" | "UNKNOWN";
   /**
    * SUBCATEGORY UNIQUEMENT (mandat, section 4 : "Preview must resolve
    * parent category from either: A. an existing merchant category; or
@@ -118,6 +125,18 @@ function validateCategoryRow(values: NormalizedRowValues, categoryResolution: Ca
       severity: "WARNING",
       message: `Cette catégorie apparaît avec plusieurs casses différentes dans le fichier (${(categoryResolution.casingVariants ?? []).join(", ")}) -- « ${categoryResolution.displayName} » (première occurrence) sera utilisée.`,
       field: "Nom",
+    });
+  }
+
+  // COLLECTIONS / TAGS FOUNDATION v1 -- une ligne structurelle n'écrit
+  // aucun produit : il n'y a rien à taguer. Le dire explicitement
+  // plutôt que de laisser croire que la colonne a été prise en compte.
+  if (values.tags.length > 0) {
+    issues.push({
+      code: "SCANYM_IMPORT_TAGS_IGNORED_ON_STRUCTURAL_ROW",
+      severity: "WARNING",
+      message: `${values.tags.length} tag(s) présent(s) sur une ligne de type CATEGORY -- les tags s'appliquent aux PRODUITS uniquement, ils seront ignorés pour cette ligne.`,
+      field: "Tags / Collections",
     });
   }
 
@@ -202,6 +221,18 @@ function validateSubcategoryRow(
     });
   }
 
+  // COLLECTIONS / TAGS FOUNDATION v1 -- une ligne structurelle n'écrit
+  // aucun produit : il n'y a rien à taguer. Le dire explicitement
+  // plutôt que de laisser croire que la colonne a été prise en compte.
+  if (values.tags.length > 0) {
+    issues.push({
+      code: "SCANYM_IMPORT_TAGS_IGNORED_ON_STRUCTURAL_ROW",
+      severity: "WARNING",
+      message: `${values.tags.length} tag(s) présent(s) sur une ligne de type SUBCATEGORY -- les tags s'appliquent aux PRODUITS uniquement, ils seront ignorés pour cette ligne.`,
+      field: "Tags / Collections",
+    });
+  }
+
   return issues;
 }
 
@@ -219,7 +250,8 @@ function validateProductRow(
   categoryResolution: CategoryResolution,
   subcategoryResolution: SubcategoryResolution | null,
   productMatch: ProductMatch,
-  duplicateOfRow: number | undefined
+  duplicateOfRow: number | undefined,
+  resolvedTags: TagResolution[]
 ): ImportIssue[] {
   const issues: ImportIssue[] = [];
 
@@ -411,12 +443,29 @@ function validateProductRow(
     });
   }
 
-  // --- Tags / Collections (mandat : "UNSUPPORTED IN CURRENT BACKEND") ---
+  // --- Tags / Collections (COLLECTIONS / TAGS FOUNDATION v1) ---
+  // Remplace l'ancien INFO SCANYM_IMPORT_TAGS_UNSUPPORTED : les tags
+  // sont désormais RÉELLEMENT persistés (menu_tags / menu_item_tags),
+  // l'opérateur doit donc voir ce qui va se passer, pas qu'on ignore
+  // sa colonne. Nous sommes ici dans validateProductRow : la ligne
+  // écrit bien un produit, donc les tags seront bien associés.
   if (values.tags.length > 0) {
+    const existing = resolvedTags.filter((r) => r.state === "EXISTING");
+    const toCreate = resolvedTags.filter((r) => r.state === "WOULD_CREATE");
+    const parts: string[] = [];
+    if (existing.length > 0) {
+      parts.push(`${existing.length} existant(s) : ${existing.map((r) => r.displayName).join(", ")}`);
+    }
+    if (toCreate.length > 0) {
+      parts.push(`${toCreate.length} à créer : ${toCreate.map((r) => r.displayName).join(", ")}`);
+    }
     issues.push({
-      code: "SCANYM_IMPORT_TAGS_UNSUPPORTED",
+      code: "SCANYM_IMPORT_TAGS_RESOLVED",
       severity: "INFO",
-      message: `${values.tags.length} tag(s)/collection(s) détecté(s) (${values.tags.join(", ")}) -- non pris en charge par le backend actuel, ignoré(s) pour cet import.`,
+      message:
+        `${resolvedTags.length} tag(s) seront associés à ce produit` +
+        (parts.length > 0 ? ` (${parts.join(" ; ")})` : "") +
+        ". Un tag créé par import reste masqué du menu client tant qu'il n'est pas publié comme collection.",
       field: "Tags / Collections",
     });
   }
@@ -447,7 +496,7 @@ function validateProductRow(
  *  / SUBCATEGORY ROW SUPPORT v1 section "VALIDATION MATRIX" (catégorie/
  *  sous-catégorie). */
 export function validateRow(input: RowValidationInput): ImportIssue[] {
-  const { values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow, subcategoryParentResolvable } = input;
+  const { values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow, subcategoryParentResolvable, resolvedTags, rowType } = input;
 
   if (values.type.kind === "UNKNOWN") {
     // mandat : "Do not silently interpret unknown Type values. Unknown
@@ -477,5 +526,5 @@ export function validateRow(input: RowValidationInput): ImportIssue[] {
 
   // PRODUCT (explicite "Type = Produit", ou implicite -- colonne
   // absente/vide, comportement historique préservé à l'identique).
-  return validateProductRow(values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow);
+  return validateProductRow(values, categoryResolution, subcategoryResolution, productMatch, duplicateOfRow, resolvedTags ?? []);
 }
