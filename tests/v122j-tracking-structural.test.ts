@@ -201,12 +201,39 @@ test("archi: aucun fichier de ce lot ne construit/documente une URL au format v1
 // catalogue-reset-v1.sql + -ROLLBACK.sql), portant le compte total à
 // 116 -- mesuré directement, aucune ligne de CE lot v2 (tracking) n'a
 // bougé pour autant.
-test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- décompte total sous supabase/ = 116 (mesuré directement ; dérive pré-existante de lots ultérieurs sans rapport avec v2, corrigée par OPERATOR BACKOFFICE SAFE CATALOGUE RESET v1 qui ajoute ses 2 propres fichiers)", () => {
+// MISE À JOUR CGV ENGINE v2.6.1 (Claude Debussy) -- MAINTENANCE DE TEST
+// STRUCTUREL, clôture de la constatation d'audit CGV-V26-FULL-SUITE-01.
+//
+// Constat : l'assertion de décompte EXACT ci-dessous a dérivé DIX fois
+// (85, 87, 88, 90, 92, 94, 95, 96, 114, 116), et CHAQUE fois à cause
+// d'un lot ULTÉRIEUR et SANS RAPPORT avec CUSTOMER TRACKING EXPERIENCE
+// v2, jamais à cause d'une ligne de CE lot. Elle ne mesure donc PAS ce
+// que le mandat §29 lui demande de protéger : elle mesure l'activité SQL
+// de TOUT le dépôt. C'est l'assertion NOMMÉE (trackingV2Sql) juste en
+// dessous qui exprime réellement l'intention « ce lot n'ajoute aucun
+// fichier SQL », et elle, elle est exacte et stable depuis l'origine.
+//
+// Remédiation MINIMALE (aucun élargissement) : le décompte exact devient
+// un PLANCHER (>=), figé à l'inventaire autorisé de la baseline
+// a81ce3988da48f6d79246bee46dbdc1cd951230a (= 116 fichiers .sql
+// top-level). Ce plancher conserve la seule chose qu'un décompte protège
+// réellement -- la DISPARITION accidentelle de fichiers SQL -- tout en
+// restant insensible aux ajouts LÉGITIMES de lots sans rapport (ici les
+// 6 fichiers du stream SELLER LEGAL PROFILE / CGV ENGINE v2.1/v2.2/
+// v2.4/v2.5, portant le total réel à 122). L'assertion nommée reste
+// inchangée et demeure la garde de fond de ce test.
+//
+// Limite assumée et documentée : un plancher ne détecte pas un
+// remplacement net (N suppressions compensées par N ajouts). C'est un
+// arbitrage délibéré contre une assertion qui a produit dix faux échecs
+// et zéro vrai positif en dix rafraîchissements.
+const SQL_INVENTORY_FLOOR_BASELINE_A81CE39 = 116;
+
+test("archi: ce lot (CUSTOMER TRACKING EXPERIENCE v2) n'ajoute AUCUN fichier .sql (mandat §29, 'prefer ZERO new SQL') -- garde nommée + plancher d'inventaire >= 116 (baseline a81ce39), insensible aux ajouts légitimes de lots sans rapport", () => {
   const sqlFiles = readdirSync("supabase").filter((f) => f.endsWith(".sql"));
-  assert.equal(
-    sqlFiles.length,
-    116,
-    `nombre de fichiers .sql sous supabase/ inattendu (${sqlFiles.length}) -- CUSTOMER TRACKING EXPERIENCE v2 n'ajoute délibérément aucun fichier SQL ; le delta légitime attendu vient de lots ultérieurs sans rapport avec v2 (dont N1A +2, et désormais OPERATOR BACKOFFICE SAFE CATALOGUE RESET v1 +2 : DRAFT-lot-operator-catalogue-reset-v1.sql + -ROLLBACK.sql)`
+  assert.ok(
+    sqlFiles.length >= SQL_INVENTORY_FLOOR_BASELINE_A81CE39,
+    `inventaire SQL top-level EN BAISSE sous supabase/ : ${sqlFiles.length} fichier(s) trouvé(s) pour un plancher autorisé de ${SQL_INVENTORY_FLOOR_BASELINE_A81CE39} (baseline a81ce3988da48f6d79246bee46dbdc1cd951230a) -- une DISPARITION de fichier SQL est un incident structurel ; les AJOUTS de lots sans rapport avec CUSTOMER TRACKING EXPERIENCE v2 sont eux légitimes et n'ont pas à faire échouer cette garde`
   );
   const trackingV2Sql = sqlFiles.filter((f) => /tracking.*v2|v2.*tracking/i.test(f));
   assert.deepEqual(trackingV2Sql, [], `fichier SQL propre à v2 trouvé alors qu'aucun n'est attendu : ${trackingV2Sql.join(", ")}`);

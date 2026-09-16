@@ -327,12 +327,17 @@ test("I. Ligne avec Type inconnu -> BLOQUÉE avec un diagnostic explicite, jamai
 // tests/lot-ob3-catalogue-import-service.test.ts).
 // --------------------------------------------------------------
 
-test("K. analyzeCatalogueImportFile (Preview) sur un fichier Catégorie+Sous-catégorie+Produit -> AUCUN appel RPC mutant, seulement get_merchant_catalogue", async (t) => {
+test("K. analyzeCatalogueImportFile (Preview) sur un fichier Catégorie+Sous-catégorie+Produit -> AUCUN appel RPC mutant, uniquement des LECTURES", async (t) => {
   const { analyzeCatalogueImportFile } = await import("../lib/services/catalogue-import.ts");
   const rpcCalls: string[] = [];
   t.mock.method(supabase, "rpc", async (name: string) => {
     rpcCalls.push(name);
     if (name === "get_merchant_catalogue") return { data: [], error: null };
+    // COLLECTIONS / TAGS FOUNDATION v1 -- lecture supplémentaire
+    // (RPC `stable`) : la preview distingue désormais un tag existant
+    // d'un tag à créer. L'invariant testé ici est inchangé : aucune
+    // RPC MUTANTE pendant un preview.
+    if (name === "get_restaurant_tags") return { data: [], error: null };
     throw new Error(`RPC MUTANTE INATTENDUE PENDANT UN PREVIEW : ${name}`);
   });
   const file = xlsxFile("c.xlsx", VALID_HEADER, [
@@ -342,7 +347,7 @@ test("K. analyzeCatalogueImportFile (Preview) sur un fichier Catégorie+Sous-cat
   ]);
   const result = await analyzeCatalogueImportFile(file, "resto-1");
   assert.equal(result.kind, "OK");
-  assert.deepEqual(rpcCalls, ["get_merchant_catalogue"]);
+  assert.deepEqual(rpcCalls, ["get_merchant_catalogue", "get_restaurant_tags"]);
 });
 
 // ====================================================================
@@ -441,6 +446,8 @@ function freshHarness(initialByTenant: Record<string, RawCatalogueRow[]> = {}): 
 function installMocks(t: any, h: RpcHarness) {
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
     h.rpcCalls.push({ name, args });
+    if (name === "get_restaurant_tags") return { data: [], error: null };
+    if (name === "add_product_tags") return { data: 0, error: null };
 
     if (name === "get_merchant_catalogue") {
       return { data: h.catalogueRowsByTenant.get(args.p_restaurant_id) ?? [], error: null };
@@ -503,7 +510,10 @@ test("D/L. Commit Catégorie+Sous-catégorie+Produit dans le MÊME fichier -> cr
   // produit, quel que soit l'ordre des lignes dans le fichier lui-même
   // (mandat section 8, "Commit processing order must guarantee: 1.
   // categories; 2. subcategories; 3. products").
-  const mutatingOrder = h.rpcCalls.map((c) => c.name).filter((n) => n !== "get_merchant_catalogue");
+  // Seules les RPC MUTANTES nous intéressent ici : les deux lectures
+  // (catalogue + tags existants) sont exclues par nom.
+  const READ_ONLY_RPCS = ["get_merchant_catalogue", "get_restaurant_tags"];
+  const mutatingOrder = h.rpcCalls.map((c) => c.name).filter((n) => !READ_ONLY_RPCS.includes(n));
   assert.deepEqual(mutatingOrder, ["create_category", "create_subcategory", "create_product"]);
 
   // La ligne CATEGORY elle-même ne crée JAMAIS de produit ; son résultat

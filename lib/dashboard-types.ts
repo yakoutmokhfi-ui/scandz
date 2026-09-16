@@ -270,12 +270,27 @@ export interface MerchantLegalProfile {
   consumer_mediator_address: string | null;
   consumer_mediator_website: string | null;
   updated_at: string | null;
+  /** CGV ENGINE v2.1 -- dénomination sociale, distincte du nom
+   *  commercial (restaurants.name). Null = non renseignée, jamais
+   *  inventée -- le rendu se replie sur le nom commercial seul. */
+  legal_entity_name: string | null;
+  siren: string | null;
+  siret: string | null;
+  vat_number: string | null;
+  consumer_mediator_phone: string | null;
+  consumer_mediator_email: string | null;
 }
 
 export type WithdrawalRegime = "EXEMPT_PERISHABLE" | "STANDARD_14_DAYS" | "MIXED";
 export type PreparationTimeUnit = "MINUTES" | "HOURS";
 export type CgvPresentationVariant = "FORMAL" | "WARM" | "PREMIUM" | "SIMPLE";
 export type CgvProfileStatus = "CGV_NOT_CONFIGURED" | "CGV_DRAFT" | "CGV_READY" | "CGV_ACTIVE";
+/** CGV ENGINE v2.1 -- ACTUAL_WEIGHT_PRICE is a valid stored value but
+ *  is REJECTED, fail-closed, both at persistence (persist_merchant_cgv_
+ *  version, SQL) and at render (lib/legal/render.ts,
+ *  ActualWeightPriceUnsupportedError) -- Scanym does not currently
+ *  support it. */
+export type WeightPricingMode = "FIXED_PORTION_PRICE" | "ACTUAL_WEIGHT_PRICE";
 
 export interface MerchantCgvProfile {
   restaurant_id: string;
@@ -291,6 +306,9 @@ export interface MerchantCgvProfile {
   updated_at: string | null;
   /** Codes déterministes (voir cgv_completeness_errors) ; [] = complet. */
   completeness_errors: string[];
+  /** CGV ENGINE v2.1 */
+  cold_chain_applicable: boolean;
+  weight_pricing_mode: WeightPricingMode | null;
 }
 
 export interface MerchantCgvVersion {

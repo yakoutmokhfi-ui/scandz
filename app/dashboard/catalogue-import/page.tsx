@@ -603,6 +603,36 @@ export default function CatalogueImportPage() {
             )}
             .
           </p>
+          {/* COLLECTIONS / TAGS v1.1 — CONSTAT B (Cat Stevens 2,
+              reproduit puis confirmé). `tagAssociationFailures` était
+              compté par le service mais n'atteignait JAMAIS cet écran :
+              l'opérateur pouvait lire un résultat d'apparence
+              pleinement réussie alors que des associations
+              produit-tag avaient échoué.
+
+              Le message ci-dessous est délibérément DISTINCT du bloc
+              « ligne(s) en échec » : un échec d'association n'est pas
+              un échec de ligne produit. Les produits concernés ONT été
+              écrits -- c'est précisément pourquoi le message affiché
+              n'emploie aucun vocabulaire de reprise arrière : aucune
+              écriture produit n'a été défaite. */}
+          {commitResult.tagAssociationFailures > 0 && (
+            <p className="mb-2 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
+              <span className="font-semibold">
+                Attention — {commitResult.tagAssociationFailures} produit(s) : association des tags/collections en échec.
+              </span>{" "}
+              Ces produits ont bien été enregistrés dans le catalogue et y restent : seule l&rsquo;association de
+              leurs tags/collections a échoué. Les tags déjà associés sont conservés. Relancez le même import pour
+              rattraper uniquement les associations manquantes : l&rsquo;opération est idempotente et ne créera
+              aucun doublon.
+            </p>
+          )}
+          {commitResult.tagsAssociated > 0 && (
+            <p className="mb-2 text-green-900">
+              {commitResult.tagsAssociated} association(s) de tag/collection créée(s). Un tag créé par import reste
+              masqué du menu client tant qu&rsquo;il n&rsquo;est pas publié comme collection.
+            </p>
+          )}
           {commitResult.categoriesFailed + commitResult.subcategoriesFailed + commitResult.productsFailed > 0 && (
             <div className="mt-2 overflow-x-auto rounded border border-red-200 bg-white">
               <table className="min-w-full text-xs">

@@ -140,16 +140,42 @@ test("splitTagsColumn : virgule/point-virgule, trim, dédoublonnage insensible �
   assert.deepEqual(splitTagsColumn(""), []);
 });
 
-test("14. tags présents -> INFO 'UNSUPPORTED IN CURRENT BACKEND', jamais bloquant", () => {
+test("14. [COLLECTIONS/TAGS v1] tags présents sur une ligne PRODUIT -> INFO de RÉSOLUTION (remplace l'ancien 'UNSUPPORTED IN CURRENT BACKEND'), jamais bloquant", () => {
   const issues = validateRow({
     values: baseValues({ tags: ["Bestseller"] }),
     categoryResolution: { state: "EXISTING", displayName: "Boissons", existingId: "c1" },
     subcategoryResolution: null,
     productMatch: { state: "NEW" },
+    resolvedTags: [{ state: "WOULD_CREATE", displayName: "Bestseller" }],
+    rowType: "PRODUCT",
   });
-  const issue = issues.find((i) => i.code === "SCANYM_IMPORT_TAGS_UNSUPPORTED");
+  // L'ancien code a DISPARU : les tags ne sont plus « non pris en
+  // charge », ils sont réellement persistés par ce lot.
+  assert.equal(issues.some((i) => i.code === "SCANYM_IMPORT_TAGS_UNSUPPORTED"), false);
+  const issue = issues.find((i) => i.code === "SCANYM_IMPORT_TAGS_RESOLVED");
   assert.ok(issue);
   assert.equal(issue.severity, "INFO");
+  assert.ok(issue.message.includes("Bestseller"));
+  // Le mandat §1 : un tag importé ne devient jamais une collection
+  // publiée -- l'opérateur doit le lire dans la preview.
+  assert.ok(issue.message.includes("masqué du menu client"));
+});
+
+test("14b. [COLLECTIONS/TAGS v1] tags présents sur une ligne CATEGORY -> WARNING explicite (les tags s'appliquent aux produits), jamais silencieux", () => {
+  const issues = validateRow({
+    // Le TYPE de ligne est porté par values.type.kind -- c'est lui qui
+    // pilote le dispatch de validateRow, jamais un paramètre séparé.
+    values: baseValues({ tags: ["Bio"], type: { kind: "CATEGORY" as const } }),
+    categoryResolution: { state: "WOULD_CREATE", displayName: "Boissons" },
+    subcategoryResolution: null,
+    productMatch: { state: "NEW" },
+    resolvedTags: [{ state: "WOULD_CREATE", displayName: "Bio" }],
+    rowType: "CATEGORY",
+  });
+  const issue = issues.find((i) => i.code === "SCANYM_IMPORT_TAGS_IGNORED_ON_STRUCTURAL_ROW");
+  assert.ok(issue);
+  assert.equal(issue.severity, "WARNING");
+  assert.equal(issues.some((i) => i.severity === "BLOCKING_ERROR"), false);
 });
 
 // ------------------------------------------------------------------

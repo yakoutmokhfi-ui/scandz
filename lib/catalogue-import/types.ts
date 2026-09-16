@@ -6,6 +6,7 @@
 
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
 import type { RowTypeClassification } from "@/lib/catalogue-import/normalization";
+import type { TagResolution } from "@/lib/catalogue-import/tag-resolution";
 
 export type IssueSeverity = "BLOCKING_ERROR" | "WARNING" | "INFO";
 
@@ -111,6 +112,13 @@ export interface PreviewRow {
    *  valeur n'a aucune influence sur `plannedAction`) -- jamais utilisé
    *  hors des lignes PRODUCT/UNKNOWN. */
   productMatch: ProductMatch;
+  /** COLLECTIONS / TAGS FOUNDATION v1 -- résolution des tags de la
+   *  colonne « Tags / Collections » de CETTE ligne, dédupliquée
+   *  insensiblement à la casse, dans l'ordre du fichier. Toujours
+   *  calculée ; n'a d'effet réel que pour une ligne PRODUCT/UNKNOWN
+   *  (une ligne CATEGORY/SUBCATEGORY ne crée aucun produit, donc
+   *  n'associe aucun tag -- voir validation.ts). */
+  resolvedTags: TagResolution[];
   rowType: RowType;
   plannedAction: PlannedAction;
 }

@@ -522,6 +522,18 @@ export function buildReceiptHtml(params: {
     .map((line) => `<div>${esc(String(line))}</div>`)
     .join("");
 
+  // PRINTED MERCHANT RECEIPT / VAT + LEGAL INFO FIX v1 -- ferme un
+  // écart confirmé : `settings.email` est chargé par
+  // getReceiptSettings() (lib/services/dashboard.ts) et saisi par le
+  // marchand dans la MÊME section "informations légales" du formulaire
+  // de réglages (app/dashboard/settings/page.tsx, aux côtés de
+  // legal_name/legal_address/phone/tax_identifier/registration_number
+  // -- tous déjà rendus ci-dessous) depuis MERCHANT LEGAL & TAX
+  // PROFILE v1 ("ajouté, absent de V29", voir lib/dashboard-types.ts)
+  // -- mais n'était encore JAMAIS rendu sur le ticket imprimé
+  // lui-même. Traitement CONDITIONNEL identique aux champs voisins
+  // (rendu uniquement si configuré, jamais inventé), positionné
+  // naturellement à côté du téléphone dans le HTML ci-dessous.
   return `<!doctype html>
 <html lang="${esc(order.customer_language || "fr")}" dir="auto">
 <head>
@@ -548,6 +560,7 @@ export function buildReceiptHtml(params: {
   ${settings?.legal_name ? `<div class="center">${esc(settings.legal_name)}</div>` : ""}
   ${settings?.legal_address ? `<div class="center muted">${esc(settings.legal_address)}</div>` : ""}
   ${settings?.phone ? `<div class="center muted">${esc(settings.phone)}</div>` : ""}
+  ${settings?.email ? `<div class="center muted">${esc(settings.email)}</div>` : ""}
   ${settings?.tax_identifier ? `<div class="center muted">${esc(settings.tax_label)}: ${esc(settings.tax_identifier)}</div>` : ""}
   ${settings?.registration_number ? `<div class="center muted">N°: ${esc(settings.registration_number)}</div>` : ""}
   <div class="rule"></div>

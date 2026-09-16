@@ -49,6 +49,11 @@ import {
   resolveSubcategoriesForRows,
 } from "@/lib/catalogue-import/resolution";
 import { validateRow } from "@/lib/catalogue-import/validation";
+import {
+  resolveTagsForRow,
+  type ExistingTagLike,
+  type TagResolution,
+} from "@/lib/catalogue-import/tag-resolution";
 import type {
   ImportIssue,
   NormalizedRowValues,
@@ -151,7 +156,14 @@ function valuesEqualExisting(
 export function buildPreviewReport(
   rawRows: RawImportRow[],
   existingCategories: CatalogueCategory[],
-  columnMapWarnings: ImportIssue[]
+  columnMapWarnings: ImportIssue[],
+  /** COLLECTIONS / TAGS FOUNDATION v1 -- tags ACTIFS déjà existants
+   *  pour ce tenant. Optionnel et défaut `[]` : un appelant qui ne les
+   *  fournit pas obtient simplement des résolutions WOULD_CREATE, ce
+   *  qui reste exact du point de vue de l'affichage (rien n'est écrit
+   *  par la preview) et garde les ~15 appels de test existants
+   *  compilables sans modification. */
+  existingTags: ExistingTagLike[] = []
 ): PreviewReport {
   const normalized = rawRows.map((r) => ({ row: r.row, values: normalizeRow(r.cells) }));
 
@@ -161,6 +173,10 @@ export function buildPreviewReport(
   const categoryResolutions = resolveCategoriesForRows(
     existingCategories,
     normalized.map((r) => ({ row: r.row, categoryNameRaw: r.values.categoryNameRaw }))
+  );
+
+  const tagResolutions = new Map<number, TagResolution[]>(
+    normalized.map((r) => [r.row, resolveTagsForRow(existingTags, r.values.tags)])
   );
 
   const subcategoryResolutions = resolveSubcategoriesForRows(
@@ -228,6 +244,8 @@ export function buildPreviewReport(
     const duplicateOfRow = duplicates.get(row);
     const rowType: RowType = values.type.kind;
 
+    const resolvedTags = tagResolutions.get(row) ?? [];
+
     const issues = validateRow({
       values,
       categoryResolution,
@@ -235,6 +253,8 @@ export function buildPreviewReport(
       productMatch,
       duplicateOfRow,
       subcategoryParentResolvable: rowType === "SUBCATEGORY" ? isSubcategoryParentResolvable(row) : undefined,
+      resolvedTags,
+      rowType,
     });
 
     const errors = issues.filter((i) => i.severity === "BLOCKING_ERROR");
@@ -279,6 +299,7 @@ export function buildPreviewReport(
       normalizedValues: values,
       photoFilename: values.photoFilename,
       productMatch,
+      resolvedTags,
       rowType,
       plannedAction,
     };

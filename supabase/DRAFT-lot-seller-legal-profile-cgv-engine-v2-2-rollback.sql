@@ -1,0 +1,99 @@
+-- =============================================================================
+-- ROLLBACK — SELLER LEGAL PROFILE + CGV ENGINE v2.2 (ENRICHMENT CYCLE)
+--
+-- Baseline: yakoutmokhfi-ui/scandz, origin
+--   SHA  b2c3bd2d9a13a29453913f6f081c544f45cd5f84
+--   TREE c270ca699e139062d81d5fc27828a0d23834be9e
+--
+-- WHY THIS FILE EXISTS (rather than relying on the pre-existing v1.2 +
+-- v2.1 rollbacks alone): those two files, run in sequence
+-- (v1.2 rollback, THEN v2.1 rollback addendum), already handle every
+-- one of v2.2's own new columns and its new template row correctly, by
+-- construction -- the v1.2 rollback `drop table`s cgv_template and
+-- merchant_cgv_profile outright, which removes v2.2's `is_default`
+-- column, its new unique index, the version-3 template row, and the
+-- `pinned_template_id` column automatically (a dropped table takes
+-- every one of its columns, rows and indexes with it, regardless of
+-- when they were added). They also correctly re-drop
+-- persist_merchant_cgv_version(uuid,uuid,text,text,uuid),
+-- resolve_cgv_publication_context(uuid),
+-- _compute_cgv_publication_context_fingerprint(uuid) and
+-- get_applicable_cgv_template(uuid) — v2.2 changed NONE of these four
+-- functions' INPUT argument lists (only bodies, via CREATE OR
+-- REPLACE), and PostgreSQL resolves DROP FUNCTION by (schema, name,
+-- INPUT argument types) only, so the pre-existing DROP statements
+-- still match and still correctly remove v2.2's versions of these four
+-- functions.
+--
+-- BUT it does NOT correctly handle the ONE function whose INPUT
+-- argument list itself changed:
+--   - _resolve_applicable_cgv_template: the v1.2 rollback names the
+--     OLD `(text)` signature (`drop function if exists public.
+--     _resolve_applicable_cgv_template(text);`). v2.2 DROPPED that
+--     signature entirely and installed a NEW `(uuid)` signature (see
+--     the forward migration's section D). The old rollback's
+--     `(text)`-typed DROP does NOT match the new `(uuid)`-typed
+--     function -- IF EXISTS makes it a silent no-op, and the `(uuid)`
+--     function SURVIVES the "rollback", orphaned, referencing tables
+--     (merchant_cgv_profile, cgv_template) the same rollback goes on
+--     to drop a few statements later -- the exact same class of gap
+--     v2.1's own rollback addendum already closed once, for a
+--     different pair of functions (update_merchant_legal_profile /
+--     update_merchant_cgv_profile).
+--
+-- Confirmed by this cycle's own harness (see supabase/tests/seller-
+-- legal-profile-cgv-engine-v2-2-check.sh, [ROLLBACK] section) that this
+-- gap is WORSE than the v2.1 addendum's gap, and closing it requires a
+-- DIFFERENT ordering than the v2.1 addendum uses. v2.1's own addendum
+-- closes a SILENT-orphan gap (the old, stale-signature functions
+-- survive but broken -- everything else in the v1.2 rollback still
+-- succeeds), so it is safe to run it AFTER the v1.2 rollback. This
+-- file closes a HARD-FAILURE gap instead: the new
+-- `_resolve_applicable_cgv_template(uuid)` function's RETURN TYPE is
+-- `public.cgv_template` (a real, catalog-tracked `pg_depend` type
+-- dependency, exactly like the OLD `(text)` signature had -- which is
+-- exactly why the ORIGINAL v1.2 rollback already drops that OLD
+-- signature before dropping the table). The v1.2 rollback's own
+-- `drop function if exists public._resolve_applicable_cgv_template
+-- (text);` statement does NOT match this new `(uuid)` signature (IF
+-- EXISTS makes it a silent no-op for a signature that no longer
+-- exists), so the dependency is never removed, and the v1.2 rollback's
+-- later `drop table cgv_template` statement then FAILS outright with
+-- "cannot drop table cgv_template because other objects depend on it
+-- / DETAIL: function _resolve_applicable_cgv_template(uuid) depends on
+-- type cgv_template" -- and because the entire v1.2 rollback file is
+-- one single `begin;...commit;` transaction, THIS ONE FAILING
+-- STATEMENT ABORTS EVERY STATEMENT IN THAT FILE, so NOTHING is rolled
+-- back at all (strictly worse than a silently-surviving orphan: the
+-- v1.2 rollback cannot make ANY progress until this function is gone).
+--
+-- This file exists to close exactly that gap -- and nothing else: it
+-- does NOT repeat any statement from either prior rollback file, it
+-- only drops the one function that blocks the v1.2 rollback's table
+-- drop.
+--
+-- USAGE (ORDERING IS THE OPPOSITE OF THE v2.1 ADDENDUM -- READ
+-- CAREFULLY): run THIS FILE FIRST, BEFORE the existing v1.2 rollback
+-- (which would otherwise fail outright, as described above). Only
+-- once this file has run does the v1.2 rollback's `drop table
+-- cgv_template` succeed. The existing v2.1 rollback addendum keeps its
+-- own, unchanged position: it still runs AFTER the v1.2 rollback (its
+-- gap is a silent-orphan gap, unaffected by this one). The full
+-- correct sequence for a complete rollback of every lot through v2.2
+-- is therefore:
+--   1. THIS FILE (seller-legal-profile-cgv-engine-v2-2-rollback.sql)
+--   2. the EXISTING v1.2 rollback
+--   3. the EXISTING v2.1 rollback addendum
+-- Running this file out of order (e.g. after the v1.2 rollback has
+-- already failed) is harmless on its own (the DROP is IF EXISTS and
+-- touches no table), but does not undo a v1.2 rollback attempt that
+-- already aborted -- simply re-run the v1.2 rollback again after this
+-- file, since an aborted transaction leaves the database exactly as
+-- it was before that attempt.
+-- =============================================================================
+
+begin;
+
+drop function if exists public._resolve_applicable_cgv_template(uuid);
+
+commit;
