@@ -14,6 +14,7 @@ import type {
 } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { translate, type Lang } from "@/lib/i18n";
 
 /**
@@ -186,6 +187,8 @@ export default function PaymentPage() {
   // contre-audit Work (mission v3 section 2/3), une garantie de
   // PROPRIÉTÉ des données, pas seulement de timing.
   const [loadedRestaurantId, setLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
 
   // PAY-P2B-B-01/03 -- garde anti-réponse-tardive : incrémentée à
   // chaque nouvel appel de load() ET à chaque sélection synchrone d'un
@@ -312,27 +315,29 @@ export default function PaymentPage() {
         setIsOperator(opFlag);
         setMappings(next);
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted ? next.find((m) => m.restaurant_id === wanted) : undefined;
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée. Elle
+        // reproduit exactement la décision déjà prise ici (contexte
+        // opérateur résolu AVANT le test `next.length === 0`), en
+        // supprimant le seul point restant de bascule silencieuse :
+        // `match ?? next[0]` sur un `?r=` explicite non résoluble.
+        // La protection ASYNCHRONE de cette page (requestSeqRef,
+        // commit atomique, garde de rendu `loadedRestaurantId ===
+        // restaurantId`) est volontairement laissée INTACTE : elle
+        // servait déjà de référence, et le mandat v1.1 interdit
+        // explicitement de l'affaiblir.
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
 
-        if (wanted && !match && opFlag) {
-          // OPERATOR DASHBOARD CONTEXT v1 (même correction F-01 que
-          // settings/page.tsx) : le lien ?r=<id> fait foi pour un
-          // opérateur Scanym, MÊME si `next` est vide (un opérateur
-          // sans aucun rattachement restaurant_users doit quand même
-          // pouvoir consulter le restaurant ciblé) -- vérifié AVANT le
-          // test `next.length === 0` ci-dessous, contrairement à
-          // l'ordre précédent de ce bloc.
-          setRestaurantId(wanted);
-          try {
-            const summary = await getEstablishmentSummary(wanted);
-            setOperatorRestaurantName(summary.name);
-          } catch {
-            // Best-effort : un nom introuvable n'empêche pas de
-            // continuer -- load() gère déjà, séparément, l'échec de
-            // get_merchant_payment_provider_config lui-même (fail
-            // closed, message payLoadFailed générique).
-          }
-        } else if (next.length === 0) {
+        if (resolution.kind === "unavailable") {
+          // §4.B -- fail closed : aucune sélection, donc load() n'est
+          // jamais appelée. `payLoading` doit retomber explicitement,
+          // pour la même raison que le cas "aucun restaurant".
+          setUnavailableContextId(resolution.requestedId);
+          setPayLoading(false);
+        } else if (resolution.kind === "none") {
           // Aucun restaurant : load() ne sera jamais appelée (elle
           // n'est déclenchée que par un restaurantId non vide), donc
           // rien d'autre ne ferait jamais retomber payLoading à false
@@ -341,7 +346,22 @@ export default function PaymentPage() {
           setPageError(t("mcNoRestaurant"));
           setPayLoading(false);
         } else {
-          setRestaurantId((match ?? next[0]).restaurant_id);
+          setUnavailableContextId(null);
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            // OPERATOR DASHBOARD CONTEXT v1 (même correction F-01 que
+            // settings/page.tsx) : le lien ?r=<id> fait foi pour un
+            // opérateur Scanym, MÊME si `next` est vide.
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+            } catch {
+              // Best-effort : un nom introuvable n'empêche pas de
+              // continuer -- load() gère déjà, séparément, l'échec de
+              // get_merchant_payment_provider_config lui-même (fail
+              // closed, message payLoadFailed générique).
+            }
+          }
         }
       } catch {
         setPageError(t("payLoadFailed"));
@@ -359,6 +379,22 @@ export default function PaymentPage() {
 
   if (loading) {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
+  }
+
+  // CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble :
+  // état dédié, aucun établissement sélectionné, aucune donnée chargée.
+  if (unavailableContextId) {
+    return (
+      <main className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {t("dsContextUnavailable")}
+        </div>
+      </main>
+    );
   }
 
   return (

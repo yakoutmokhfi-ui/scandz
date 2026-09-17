@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "@/lib/services/auth";
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { translate, type Lang } from "@/lib/i18n";
-import { publicMenuHref as getPublicMenuHref } from "@/lib/dashboard-nav";
+import { publicMenuHref as getPublicMenuHref, buildRestaurantSelectorModel } from "@/lib/dashboard-nav";
 
 /**
  * Barre de navigation partagée par les pages commerçant.
@@ -66,6 +66,20 @@ export default function DashboardNav({
   // /r/undefined ou /r/null (voir lib/dashboard-nav.ts).
   const publicMenuHref = getPublicMenuHref(restaurantId, mappings);
 
+  /**
+   * CONTEXT HARDENING v1 (§17) -- le sélecteur ne doit JAMAIS annoncer
+   * un établissement différent de celui sur lequel la page travaille.
+   * En contexte opérateur (établissement hors rattachements), aucune
+   * option ne correspondait et le navigateur retombait sur la PREMIÈRE
+   * option : le sélecteur affichait "Sanaa" pendant que la page
+   * travaillait sur "Au lait cru".
+   */
+  const selectorModel = buildRestaurantSelectorModel({
+    restaurantId,
+    mappings,
+    currentContextName: restaurantName,
+  });
+
   async function logout() {
     await signOut();
     router.replace("/dashboard/login");
@@ -91,18 +105,29 @@ export default function DashboardNav({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {mappings.length > 1 && (
+            {selectorModel.mode === "select" && (
               <select
                 value={restaurantId}
                 onChange={(e) => onSelectRestaurant(e.target.value)}
                 className="rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
               >
-                {mappings.map((m) => (
-                  <option key={m.restaurant_id} value={m.restaurant_id}>
-                    {m.restaurants?.name ?? m.restaurant_id}
+                {selectorModel.options.map((o) => (
+                  <option key={o.restaurantId} value={o.restaurantId}>
+                    {o.label}
                   </option>
                 ))}
               </select>
+            )}
+            {selectorModel.mode === "current-context" && (
+              // §17 -- contexte consulté hors rattachements : affiché en
+              // lecture seule. Jamais un sélecteur qui désignerait un
+              // autre établissement que celui réellement chargé.
+              <span
+                data-current-context={selectorModel.restaurantId}
+                className="rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-700"
+              >
+                {selectorModel.label}
+              </span>
             )}
             {publicMenuHref && (
               <a

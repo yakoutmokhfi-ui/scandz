@@ -171,6 +171,20 @@ export async function isScanymOperator() { return false; }
 export async function getEstablishmentSummary() { throw new Error("not used in this scenario"); }
 `;
 
+// CATALOGUE MANAGEMENT UX v1 -- app/dashboard/catalogue/page.tsx consomme
+// désormais le service de tags (fondation COLLECTIONS / TAGS déjà publiée).
+// Ce harnais le neutralise comme il neutralise DÉJÀ dashboard / auth /
+// establishments / product-photo : sans cela, le service réel tirerait le
+// client Supabase dans le graphe de modules de l'écran. AUCUNE assertion de
+// ce fichier n'est modifiée -- seul un stub inerte est ajouté.
+const MOCK_CATALOGUE_TAGS = `
+export async function getRestaurantProductTags() { return []; }
+export async function getRestaurantTags() { return []; }
+export async function addProductTags() { return 0; }
+export async function removeProductTag() { return 0; }
+export class TagDuplicateNameError extends Error {}
+`;
+
 const mocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
@@ -178,6 +192,7 @@ const mocks: Record<string, string> = {
   "@/lib/services/product-photo": MOCK_PRODUCT_PHOTO,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
   "@/components/dashboard/DashboardNav": MOCK_DASHBOARD_NAV,
+  "@/lib/services/catalogue-tags": MOCK_CATALOGUE_TAGS,
 };
 
 const mockPlugin: esbuild.Plugin = {

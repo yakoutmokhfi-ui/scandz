@@ -17,6 +17,8 @@ import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { canEditProducts } from "@/lib/roles";
 import { getTranslationStatus, type TranslationDisplayStatus } from "@/lib/translation-resolver";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, dirOf, type Lang } from "@/lib/i18n";
 
 type ActiveLang = { code: string; label: string; dir: "ltr" | "rtl"; display_order: number };
@@ -44,6 +46,16 @@ export default function TranslationsPage() {
   const [activeLanguages, setActiveLanguages] = useState<ActiveLang[]>([]);
   const [catalogue, setCatalogue] = useState<CatalogueCategory[]>([]);
   const [targetLang, setTargetLang] = useState<string>("");
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite du contenu en
+   * mémoire (réglages, langues actives, catalogue). `null` = rien de
+   * fiable pour le contexte courant.
+   */
+  const [contentLoadedRestaurantId, setContentLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
+  const guard = useRestaurantContextGuard();
+  /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
 
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
   const canEditFull = canEditProducts(mapping?.role);
@@ -51,12 +63,19 @@ export default function TranslationsPage() {
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
+    // CONTEXT HARDENING v1.1 -- ferme CTXHARD-V1-STALE-RESPONSE-01 sur
+    // ce module (même contrat partagé que les autres pages).
+    const token = guard.beginRequest(id);
+    // §5 -- invalidation IMMÉDIATE de la provenance.
+    setContentLoadedRestaurantId(null);
     try {
       const [s, langs, cat] = await Promise.all([
         getRestaurantTranslationSettings(id),
         getRestaurantActiveLanguages(id),
         getMerchantCatalogue(id),
       ]);
+      // Réponse PÉRIMÉE -> ABANDONNÉE intégralement.
+      if (!token.isCurrent()) return;
       setSettings(s);
       setActiveLanguages(langs);
       setCatalogue(cat);
@@ -64,11 +83,39 @@ export default function TranslationsPage() {
         if (prev && langs.some((l) => l.code === prev) && prev !== s?.source_language) return prev;
         return langs.find((l) => l.code !== s?.source_language)?.code ?? "";
       });
+      // Commit ATOMIQUE : contenu et provenance dans la même passe.
+      setContentLoadedRestaurantId(id);
       setError(null);
     } catch (e) {
+      if (!token.isCurrent()) return;
       setError(e instanceof Error ? e.message : "Échec du chargement");
     }
-  }, []);
+  }, [guard]);
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- bascule pilotée par l'utilisateur :
+   * invalidation et changement de contexte dans le MÊME gestionnaire.
+   */
+  const handleSelectRestaurant = useCallback(
+    (id: string) => {
+      guard.enterContext(id);
+      setSettings(null);
+      setActiveLanguages([]);
+      setCatalogue([]);
+      setContentLoadedRestaurantId(null);
+      setRestaurantId(id);
+    },
+    [guard]
+  );
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- SEULES sources d'affichage
+   * locataire : le rendu exige `provenance === contexte courant`.
+   */
+  const contentInContext = contentLoadedRestaurantId === restaurantId && !!restaurantId;
+  const settingsInContext = contentInContext ? settings : null;
+  const activeLanguagesInContext = contentInContext ? activeLanguages : [];
+  const catalogueInContext = contentInContext ? catalogue : [];
 
   useEffect(() => {
     (async () => {
@@ -81,8 +128,25 @@ export default function TranslationsPage() {
         const [next, opFlag] = await Promise.all([getMerchantRestaurants(), isScanymOperator()]);
         setIsOperator(opFlag);
         setMappings(next);
-        if (next.length > 0) setRestaurantId(next[0].restaurant_id);
-        else setError("Aucun établissement rattaché à ce compte.");
+        // CONTEXT HARDENING v1 -- cette page IGNORAIT `?r=` et ouvrait
+        // toujours le premier rattachement : venir de "Réglages / Au
+        // lait cru" atterrissait sur un AUTRE établissement. Elle
+        // utilise désormais le même résolveur partagé que les autres.
+        const wanted = new URLSearchParams(window.location.search).get("r");
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
+        if (resolution.kind === "unavailable") {
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
+          setError("Aucun établissement rattaché à ce compte.");
+        } else {
+          setUnavailableContextId(null);
+          guard.enterContext(resolution.restaurantId);
+          setRestaurantId(resolution.restaurantId);
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Échec du chargement");
       } finally {
@@ -96,7 +160,7 @@ export default function TranslationsPage() {
     void load(restaurantId);
   }, [restaurantId, load]);
 
-  const dir = dirOf(uiLang, activeLanguages);
+  const dir = dirOf(uiLang, activeLanguagesInContext);
 
   async function handleSave(
     entityType: "restaurant" | "category" | "item",
@@ -118,6 +182,22 @@ export default function TranslationsPage() {
     return <main className="p-6 text-sm text-stone-500">Chargement…</main>;
   }
 
+  // CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble :
+  // état dédié, aucun établissement sélectionné, aucune donnée chargée.
+  if (unavailableContextId) {
+    return (
+      <main className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {t("dsContextUnavailable")}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <>
       <DashboardNav
@@ -125,7 +205,7 @@ export default function TranslationsPage() {
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}
-        onSelectRestaurant={setRestaurantId}
+        onSelectRestaurant={handleSelectRestaurant}
       />
       <main dir={dir} className="mx-auto max-w-2xl px-4 py-6">
         <a
@@ -158,8 +238,8 @@ export default function TranslationsPage() {
         <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
           <p className="text-xs font-semibold text-stone-500">Langue source</p>
           <p className="text-sm text-stone-900">
-            {activeLanguages.find((l) => l.code === settings?.source_language)?.label ??
-              settings?.source_language}
+            {activeLanguagesInContext.find((l) => l.code === settingsInContext?.source_language)?.label ??
+              settingsInContext?.source_language}
           </p>
 
           <p className="mt-3 text-xs font-semibold text-stone-500">Langue à traduire</p>
@@ -168,15 +248,15 @@ export default function TranslationsPage() {
             onChange={(e) => setTargetLang(e.target.value)}
             className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm"
           >
-            {activeLanguages
-              .filter((l) => l.code !== settings?.source_language)
+            {activeLanguagesInContext
+              .filter((l) => l.code !== settingsInContext?.source_language)
               .map((l) => (
                 <option key={l.code} value={l.code}>
                   {l.label}
                 </option>
               ))}
           </select>
-          {activeLanguages.length <= 1 && (
+          {activeLanguagesInContext.length <= 1 && (
             <p className="mt-2 text-xs text-stone-400">
               Cet établissement n'a qu'une seule langue active — aucune traduction possible tant
               qu'une deuxième langue n'est pas activée dans Réglages.
@@ -184,13 +264,13 @@ export default function TranslationsPage() {
           )}
         </section>
 
-        {targetLang && settings && (
+        {targetLang && settingsInContext && (
           <>
             <TranslationField
               label="Texte de présentation"
-              sourceValue={settings.intro_text}
-              sourceHash={settings.intro_text_hash}
-              translations={settings.translations}
+              sourceValue={settingsInContext.intro_text}
+              sourceHash={settingsInContext.intro_text_hash}
+              translations={settingsInContext.translations}
               field="intro_text"
               lang={targetLang}
               canEdit={canEdit}
@@ -198,16 +278,16 @@ export default function TranslationsPage() {
             />
             <TranslationField
               label="Message temporaire"
-              sourceValue={settings.announcement_text}
-              sourceHash={settings.announcement_text_hash}
-              translations={settings.translations}
+              sourceValue={settingsInContext.announcement_text}
+              sourceHash={settingsInContext.announcement_text_hash}
+              translations={settingsInContext.translations}
               field="announcement_text"
               lang={targetLang}
               canEdit={canEdit}
               onSave={(v, status) => handleSave("restaurant", restaurantId, "announcement_text", v, status)}
             />
 
-            {catalogue.map((cat) => (
+            {catalogueInContext.map((cat) => (
               <section key={cat.category_id} className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
                 <h3 className="font-bold text-stone-900">{cat.category_name}</h3>
 

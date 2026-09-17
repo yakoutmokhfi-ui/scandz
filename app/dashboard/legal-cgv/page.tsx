@@ -7,6 +7,8 @@ import { getMerchantRestaurants } from "@/lib/services/dashboard";
 import type { MerchantRestaurant, MerchantLegalProfile, MerchantCgvProfile } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, type Lang } from "@/lib/i18n";
 import {
   getMerchantLegalProfile,
@@ -19,6 +21,7 @@ import {
 } from "@/lib/services/legal-cgv";
 import { supabase } from "@/lib/supabase";
 import { renderCgv, type CgvTemplateControlledSections } from "@/lib/legal/render";
+import CommercialTermsField, { isCustomCommercialTerms } from "@/components/dashboard/CommercialTermsField";
 
 /**
  * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1, Section M.
@@ -50,7 +53,26 @@ export default function LegalCgvPage() {
   const [cgv, setCgv] = useState<MerchantCgvProfile | null>(null);
   const [template, setTemplate] = useState<CgvTemplateControlledSections & { id: string } | null>(null);
   const [sellerName, setSellerName] = useState("");
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite des données
+   * légales/CGV en mémoire. `null` = rien de fiable pour le contexte
+   * courant : aucune donnée dérivée du locataire n'est rendue.
+   */
+  const [legalLoadedRestaurantId, setLegalLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
+  const guard = useRestaurantContextGuard();
+  /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // STANDARD COMMERCIAL TERMS UX v1 -- état PUREMENT d'interface :
+  // quelles sections ont leur éditeur ouvert, et laquelle demande une
+  // confirmation de rétablissement. Rien de tout cela n'est persisté :
+  // la seule source de vérité reste le texte marchand lui-même.
+  const [editingTerms, setEditingTerms] = useState<{ cancellation: boolean; substitution: boolean }>({
+    cancellation: false,
+    substitution: false,
+  });
+  const [confirmRestore, setConfirmRestore] = useState<"cancellation" | "substitution" | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
@@ -58,6 +80,15 @@ export default function LegalCgvPage() {
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
+    // CONTEXT HARDENING v1.1 -- ferme CTXHARD-V1-STALE-RESPONSE-01 sur
+    // ce module de configuration. Le jeton devra prouver, au retour,
+    // qu'il appartient toujours au restaurant actif ET à la génération
+    // courante ; sinon la réponse est ABANDONNÉE.
+    const token = guard.beginRequest(id);
+    // §5 -- invalidation IMMÉDIATE de la provenance : les informations
+    // légales précédentes cessent d'être affichables à l'instant même
+    // du changement, sans attendre aucune réponse réseau.
+    setLegalLoadedRestaurantId(null);
     setPageError(null);
     try {
       const [legalRow, cgvRow, templateRow] = await Promise.all([
@@ -65,15 +96,51 @@ export default function LegalCgvPage() {
         getMerchantCgvProfile(id),
         supabase.rpc("get_applicable_cgv_template", { p_restaurant_id: id }),
       ]);
+      if (!token.isCurrent()) return;
+      const tpl = templateRow.data as { id: string; controlled_sections: CgvTemplateControlledSections } | null;
+      // Commit ATOMIQUE : valeurs et provenance posées dans la même
+      // passe de rendu -- elles ne peuvent jamais se contredire.
       setLegal(legalRow ?? {});
       setCgv(cgvRow);
-      const tpl = templateRow.data as { id: string; controlled_sections: CgvTemplateControlledSections } | null;
       setTemplate(tpl?.id ? { id: tpl.id, ...tpl.controlled_sections } : null);
+      // STANDARD COMMERCIAL TERMS UX v1 -- rechargement (y compris
+      // changement d'établissement en contexte opérateur) : on repart
+      // d'un état d'interface neutre, sinon un éditeur ouvert ou une
+      // confirmation en attente survivrait d'un établissement à
+      // l'autre. Placé à l'intérieur du même commit atomique que les
+      // données et leur provenance (§5) : gardé par le même `token`.
+      setEditingTerms({ cancellation: false, substitution: false });
+      setConfirmRestore(null);
+      setLegalLoadedRestaurantId(id);
     } catch {
+      if (!token.isCurrent()) return;
       setPageError(t("legalCgvLoadFailed"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [guard]);
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- bascule pilotée par l'utilisateur :
+   * invalidation et changement de contexte dans le MÊME gestionnaire,
+   * donc regroupés par React en un seul rendu.
+   */
+  const handleSelectRestaurant = useCallback(
+    (id: string) => {
+      guard.enterContext(id);
+      setLegal({});
+      setCgv(null);
+      setTemplate(null);
+      setSellerName("");
+      setLegalLoadedRestaurantId(null);
+      // STANDARD COMMERCIAL TERMS UX v1 -- même raison que dans load() :
+      // un éditeur ouvert ou une confirmation en attente pour
+      // l'établissement précédent ne doit pas survivre à la bascule.
+      setEditingTerms({ cancellation: false, substitution: false });
+      setConfirmRestore(null);
+      setRestaurantId(id);
+    },
+    [guard]
+  );
 
   useEffect(() => {
     (async () => {
@@ -88,23 +155,35 @@ export default function LegalCgvPage() {
         setMappings(next);
 
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted ? next.find((m) => m.restaurant_id === wanted) : undefined;
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée. Plus
+        // aucun `match ?? next[0]` : un `?r=` explicite non résoluble
+        // ne bascule plus silencieusement sur un autre établissement.
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
 
-        if (wanted && !match && opFlag) {
-          setRestaurantId(wanted);
-          try {
-            const summary = await getEstablishmentSummary(wanted);
-            setOperatorRestaurantName(summary.name);
-            setSellerName(summary.name);
-          } catch {
-            // best-effort
-          }
-        } else if (next.length === 0) {
+        if (resolution.kind === "unavailable") {
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
           setPageError(t("legalCgvNoRestaurant"));
         } else {
-          const chosen = match ?? next[0];
-          setRestaurantId(chosen.restaurant_id);
-          setSellerName(chosen.restaurants?.name ?? "");
+          setUnavailableContextId(null);
+          guard.enterContext(resolution.restaurantId);
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+              setSellerName(summary.name);
+            } catch {
+              // best-effort
+            }
+          } else {
+            const chosen = next.find((m) => m.restaurant_id === resolution.restaurantId);
+            setSellerName(chosen?.restaurants?.name ?? "");
+          }
         }
       } catch {
         setPageError(t("legalCgvLoadFailed"));
@@ -289,6 +368,22 @@ export default function LegalCgvPage() {
 
   if (loading) return <div className="p-6 text-center text-sm text-stone-500">…</div>;
 
+  // CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble :
+  // état dédié, aucun établissement sélectionné, aucune donnée chargée.
+  if (unavailableContextId) {
+    return (
+      <div className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {translate(uiLang, "dsContextUnavailable")}
+        </div>
+      </div>
+    );
+  }
+
   const restaurantName =
     mappings.find((m) => m.restaurant_id === restaurantId)?.restaurants?.name ?? operatorRestaurantName ?? "";
 
@@ -300,7 +395,7 @@ export default function LegalCgvPage() {
         restaurantName={restaurantName}
         restaurantId={restaurantId}
         mappings={mappings}
-        onSelectRestaurant={setRestaurantId}
+        onSelectRestaurant={handleSelectRestaurant}
         staffLanguage={uiLang}
       />
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
@@ -309,6 +404,19 @@ export default function LegalCgvPage() {
         {actionMessage && <p className="rounded-xl bg-stone-100 p-3 text-sm text-stone-700">{actionMessage}</p>}
         {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t("legalCgvReadOnly")}</p>}
 
+        {/* CONTEXT HARDENING v1.1 (§5) -- PORTE DE PROVENANCE. Rien de
+            dérivé du locataire n'est rendu tant que les données en
+            mémoire n'ont pas été chargées pour l'établissement
+            ACTUELLEMENT affiché. Sans cette porte, un rendu
+            intermédiaire pourrait montrer les informations légales de
+            l'établissement précédent sous l'entête du nouveau -- c'est
+            exactement ce que le mandat interdit. */}
+        {legalLoadedRestaurantId !== restaurantId ? (
+          <p data-context-loading="1" className="rounded-xl bg-stone-100 p-3 text-sm text-stone-500">
+            {t("mcLoading")}
+          </p>
+        ) : (
+          <>
         <section className="rounded-2xl border border-stone-200 bg-white p-4">
           <h2 className="mb-1 font-bold text-stone-900">1. {t("legalCgvSectionIdentity")}</h2>
           <p className="text-sm text-stone-500">{sellerName}</p>
@@ -357,12 +465,36 @@ export default function LegalCgvPage() {
 
         {cgv && (
           <>
-            <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
+            <section className="space-y-4 rounded-2xl border border-stone-200 bg-white p-4">
               <h2 className="font-bold text-stone-900">3. {t("legalCgvSectionBusiness")}</h2>
-              <textarea disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvCancellationPolicy")}
-                value={cgv.cancellation_policy_text ?? ""} onChange={(e) => setCgv({ ...cgv, cancellation_policy_text: e.target.value })} />
-              <textarea disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder={t("legalCgvSubstitutionPolicy")}
-                value={cgv.substitution_policy_text ?? ""} onChange={(e) => setCgv({ ...cgv, substitution_policy_text: e.target.value })} />
+              <CommercialTermsField
+                sectionKey="cancellation"
+                label={t("legalCgvCancellationPolicy")}
+                standardText={template?.cancellation_clause_fallback}
+                value={cgv.cancellation_policy_text}
+                onChange={(next) => setCgv({ ...cgv, cancellation_policy_text: next })}
+                canEdit={canEdit}
+                editing={editingTerms.cancellation}
+                onEditingChange={(open) => setEditingTerms((p) => ({ ...p, cancellation: open }))}
+                confirmingRestore={confirmRestore === "cancellation"}
+                onRequestRestore={() => setConfirmRestore("cancellation")}
+                onCancelRestore={() => setConfirmRestore(null)}
+                t={t}
+              />
+              <CommercialTermsField
+                sectionKey="substitution"
+                label={t("legalCgvSubstitutionPolicy")}
+                standardText={template?.substitution_clause_fallback}
+                value={cgv.substitution_policy_text}
+                onChange={(next) => setCgv({ ...cgv, substitution_policy_text: next })}
+                canEdit={canEdit}
+                editing={editingTerms.substitution}
+                onEditingChange={(open) => setEditingTerms((p) => ({ ...p, substitution: open }))}
+                confirmingRestore={confirmRestore === "substitution"}
+                onRequestRestore={() => setConfirmRestore("substitution")}
+                onCancelRestore={() => setConfirmRestore(null)}
+                t={t}
+              />
             </section>
 
             <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
@@ -439,6 +571,37 @@ export default function LegalCgvPage() {
 
             <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
               <h2 className="font-bold text-stone-900">6. {t("legalCgvSectionPreview")}</h2>
+              {/*
+                STANDARD COMMERCIAL TERMS UX v1 -- état standard/personnalisé
+                affiché À CÔTÉ de l'aperçu, jamais INJECTÉ DEDANS : le contenu
+                juridique rendu par renderCgv() reste strictement inchangé par
+                ce lot (c'est lui qui sera publié). Cet encadré est du chrome
+                d'interface, pas du contenu de CGV.
+              */}
+              <div
+                data-testid="commercial-terms-status"
+                className="rounded-xl bg-stone-50 p-3 text-sm text-stone-700"
+              >
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                  {t("legalCgvTermsStatusTitle")}
+                </p>
+                <p data-testid="commercial-terms-status-cancellation">
+                  {t("legalCgvCancellationPolicy")} —{" "}
+                  <span className="font-semibold">
+                    {isCustomCommercialTerms(cgv.cancellation_policy_text)
+                      ? t("legalCgvTermsCustomBadge")
+                      : t("legalCgvTermsStandardBadge")}
+                  </span>
+                </p>
+                <p data-testid="commercial-terms-status-substitution">
+                  {t("legalCgvSubstitutionPolicy")} —{" "}
+                  <span className="font-semibold">
+                    {isCustomCommercialTerms(cgv.substitution_policy_text)
+                      ? t("legalCgvTermsCustomBadge")
+                      : t("legalCgvTermsStandardBadge")}
+                  </span>
+                </p>
+              </div>
               {cgv.completeness_errors.length > 0 ? (
                 <ul className="list-inside list-disc text-sm text-amber-800">
                   {cgv.completeness_errors.map((code) => (
@@ -468,6 +631,8 @@ export default function LegalCgvPage() {
                 </div>
               )}
             </section>
+          </>
+        )}
           </>
         )}
       </div>

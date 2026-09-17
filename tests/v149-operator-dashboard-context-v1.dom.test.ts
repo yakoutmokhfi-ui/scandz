@@ -216,12 +216,27 @@ export async function removeProductPhoto() {}
 export async function retryOldPhotoCleanup() { return { oldImageCleanup: "removed" }; }
 `;
 
+// CATALOGUE MANAGEMENT UX v1 -- app/dashboard/catalogue/page.tsx consomme
+// désormais le service de tags (fondation COLLECTIONS / TAGS déjà publiée).
+// Ce harnais le neutralise comme il neutralise DÉJÀ dashboard / auth /
+// establishments / product-photo : sans cela, le service réel tirerait le
+// client Supabase dans le graphe de modules de l'écran. AUCUNE assertion de
+// ce fichier n'est modifiée -- seul un stub inerte est ajouté.
+const MOCK_CATALOGUE_TAGS = `
+export async function getRestaurantProductTags() { return []; }
+export async function getRestaurantTags() { return []; }
+export async function addProductTags() { return 0; }
+export async function removeProductTag() { return 0; }
+export class TagDuplicateNameError extends Error {}
+`;
+
 const mocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/product-photo": MOCK_PRODUCT_PHOTO,
+  "@/lib/services/catalogue-tags": MOCK_CATALOGUE_TAGS,
 };
 
 const mockPlugin: esbuild.Plugin = {
@@ -438,13 +453,31 @@ test("Scénario 9 — Catalogue : navigation (back/forward simulé) entre deux ?
   c.root.unmount(); c.container.remove();
 });
 
-test("Scénario 10 — Catalogue : un utilisateur authentifié NON opérateur ne peut PAS utiliser ?r= pour accéder à un autre établissement (repli sur sa propre adhésion, comportement inchangé)", async () => {
+// SUPERSÉDÉ par DASHBOARD RESTAURANT CONTEXT HARDENING v1 (§4.C).
+//
+// La GARANTIE DE SÉCURITÉ de ce scénario est inchangée et reste
+// vérifiée : un `?r=` seul ne doit JAMAIS suffire à un non-opérateur
+// pour atteindre un autre établissement ("Royal Hotel" reste absent).
+//
+// Ce qui change, volontairement, c'est le REMÈDE. L'ancien contrat
+// repliait silencieusement l'utilisateur sur son propre rattachement
+// ("Sanaa Cookies" s'affichait) ; le nouveau contrat global interdit
+// tout basculement silencieux d'établissement et exige un échec
+// explicite (fail closed), sans charger aucune donnée. L'attente
+// historique de "Sanaa Cookies" est donc remplacée par l'attente de
+// l'état de contexte indisponible -- garantie strictement PLUS forte,
+// jamais plus faible.
+test("Scénario 10 — Catalogue : un utilisateur authentifié NON opérateur ne peut PAS utiliser ?r= pour accéder à un autre établissement (désormais fail closed, cf. CONTEXT HARDENING v1 §4.C)", async () => {
   resetGlobalMockState();
   (globalThis as any).__mockIsOperator = false;
   window.history.pushState({}, "", "/dashboard/catalogue?r=r-royal-hotel");
   const { container, root } = render(CataloguePage);
-  await waitFor(() => container.textContent!.includes("Sanaa Cookies"));
+  await waitFor(() => container.querySelector("[data-context-unavailable]") !== null);
   assert.ok(!container.textContent!.includes("Royal Hotel"), "?r= seul ne doit jamais suffire à autoriser un non-opérateur");
+  assert.ok(
+    !container.textContent!.includes("Sanaa Cookies"),
+    "plus aucun repli silencieux sur le propre rattachement : le contexte demandé échoue explicitement"
+  );
   root.unmount();
   container.remove();
 });

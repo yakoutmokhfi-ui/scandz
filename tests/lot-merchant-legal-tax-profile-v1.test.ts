@@ -25,6 +25,17 @@ const dashboardTypesSrc = readFileSync("lib/dashboard-types.ts", "utf8");
 const dashboardServiceSrc = readFileSync("lib/services/dashboard.ts", "utf8");
 const settingsPageSrc = readFileSync("app/dashboard/settings/page.tsx", "utf8");
 const receiptSrc = readFileSync("lib/receipt.ts", "utf8");
+/**
+ * TVA / HT / TTC COMPLETION v1 -- le moteur de décision fiscale a été
+ * DÉPLACÉ de lib/receipt.ts vers lib/order-fiscal-summary.ts (contrat
+ * unique partagé back-office / ticket / future facture). Les garanties
+ * ci-dessous sont INCHANGÉES : elles portent désormais sur le module
+ * qui détient réellement la logique. L'équivalence du rendu ticket est
+ * prouvée octet pour octet par le test "golden" du lot.
+ */
+const fiscalSrc = readFileSync("lib/order-fiscal-summary.ts", "utf8");
+/** Les deux fichiers réunis : la garantie vaut pour le chemin complet. */
+const receiptFiscalSrc = receiptSrc + "\n" + fiscalSrc;
 const i18nSrc = readFileSync("lib/i18n.ts", "utf8");
 
 // --------------------------------------------------------------------
@@ -489,14 +500,14 @@ test("i18n: les 3 dictionnaires (fr/en/ar) portent bien les nouvelles clés stLe
 // COURANTS ni menu_items.tax_rate, et les champs d'affichage restent
 // pilotés par les réglages courants (non concernés par le figement).
 test("lib/receipt.ts -- MLTP-V1-HISTORICAL-TAX-01 : décomposition HT/TVA/TTC utilise l'instantané figé (order.tax_settings_snapshot_*), jamais les réglages courants ni menu_items.tax_rate", () => {
-  assert.ok(receiptSrc.includes("order.tax_settings_snapshot_default_tax_rate"), "le taux doit venir de l'instantané figé à la commande");
-  assert.ok(receiptSrc.includes("order.tax_settings_snapshot_prices_include_tax"));
-  assert.ok(receiptSrc.includes("order.tax_settings_snapshot_tax_label"));
-  assert.ok(receiptSrc.includes("order.tax_settings_snapshot_show_tax_summary"));
+  assert.ok(receiptFiscalSrc.includes("order.tax_settings_snapshot_default_tax_rate"), "le taux doit venir de l'instantané figé à la commande");
+  assert.ok(receiptFiscalSrc.includes("order.tax_settings_snapshot_prices_include_tax"));
+  assert.ok(receiptFiscalSrc.includes("order.tax_settings_snapshot_tax_label"));
+  assert.ok(receiptFiscalSrc.includes("order.tax_settings_snapshot_show_tax_summary"));
   // Le fichier CITE volontairement "menu_items.tax_rate" dans un
   // commentaire explicatif (pour documenter l'interdiction du mandat) --
   // on vérifie donc le CODE (lignes non-commentaires), pas la prose.
-  const receiptCodeOnly = receiptSrc
+  const receiptCodeOnly = receiptFiscalSrc
     .split("\n")
     .filter((line) => !line.trim().startsWith("//"))
     .join("\n");
@@ -515,7 +526,7 @@ test("lib/receipt.ts -- MLTP-V1-HISTORICAL-TAX-01 : décomposition HT/TVA/TTC ut
   // L'assertion est retirée ici (obsolète par mandat CTO explicite), PAS
   // affaiblie : `menu_items.tax_rate` reste interdit ci-dessus, et le
   // fichier reste guidé exclusivement par des instantanés immuables.
-  assert.ok(receiptSrc.includes("hasTaxSnapshot"), "doit distinguer explicitement commande AVEC instantané vs SANS (repli option B)");
+  assert.ok(receiptFiscalSrc.includes("hasTaxSnapshot"), "doit distinguer explicitement commande AVEC instantané vs SANS (repli option B)");
   // Ces 3 identifiants apparaissent aussi dans le commentaire explicatif
   // (décrivant le défaut D'AVANT v1.1) -- on vérifie donc le CODE seul.
   assert.ok(!/settings\?\.default_tax_rate/.test(receiptCodeOnly), "le calcul fiscal ne doit plus lire le taux COURANT du marchand (c'était le défaut bloquant v1) -- hors commentaire explicatif");
@@ -524,9 +535,9 @@ test("lib/receipt.ts -- MLTP-V1-HISTORICAL-TAX-01 : décomposition HT/TVA/TTC ut
 });
 
 test("lib/receipt.ts -- repli (option B) : commande SANS instantané fiscal -- aucune décomposition HT/TVA/TTC fabriquée, seul le total autoritaire de la commande est affiché", () => {
-  const showTaxDeclIdx = receiptSrc.indexOf("const showTax");
+  const showTaxDeclIdx = fiscalSrc.indexOf("const showTax");
   assert.ok(showTaxDeclIdx > 0, "showTax doit être calculé explicitement");
-  const showTaxDecl = receiptSrc.slice(showTaxDeclIdx, receiptSrc.indexOf(";", showTaxDeclIdx));
+  const showTaxDecl = fiscalSrc.slice(showTaxDeclIdx, fiscalSrc.indexOf(";", showTaxDeclIdx));
   assert.ok(showTaxDecl.includes("hasTaxSnapshot"), "showTax doit dépendre de la présence de l'instantané -- jamais affiché sans lui");
   assert.ok(receiptSrc.includes("const total = Number(order.total);"), "order.total reste l'unique autorité financière, jamais recalculé depuis les lignes");
 });

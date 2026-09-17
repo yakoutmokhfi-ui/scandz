@@ -314,7 +314,23 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
     // pour inclure `&& !onLegalCgv` (le seul motif du diff réel autorisé
     // ici) -- jamais une suppression de logique existante. Narrow,
     // exact match -- jamais un motif générique.
+    // DASHBOARD RESTAURANT CONTEXT HARDENING v1 (§17) -- ce mandat
+    // impose de corriger le sélecteur d'établissement de CE fichier :
+    // il annonçait un établissement DIFFÉRENT de celui réellement
+    // chargé en contexte opérateur. La garde reste donc en vigueur,
+    // mais son ensemble de lignes retirées autorisées est élargi
+    // NARROWLY, à une liste EXACTE (jamais un motif générique, jamais
+    // une exemption de fichier entier) : toute autre suppression reste
+    // interdite.
+    const CONTEXT_HARDENING_ALLOWED_REMOVALS = new Set([
+      '-import { publicMenuHref as getPublicMenuHref } from "@/lib/dashboard-nav";',
+      "-            {mappings.length > 1 && (",
+      "-                {mappings.map((m) => (",
+      "-                  <option key={m.restaurant_id} value={m.restaurant_id}>",
+      "-                    {m.restaurants?.name ?? m.restaurant_id}",
+    ]);
     for (const removed of removedLines) {
+      if (CONTEXT_HARDENING_ALLOWED_REMOVALS.has(removed)) continue;
       const removedContent = removed.slice(1);
       const expectedExtended = `+${removedContent} && !onLegalCgv`;
       assert.ok(
@@ -324,13 +340,32 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
     }
     // Chaque ligne AJOUTÉE doit soit être ce même élargissement de
     // condition, soit concerner exclusivement l'onglet CGV.
+    // Lignes STRUCTURELLES autorisées : uniquement de la ponctuation
+    // JSX/TypeScript, jamais de la logique. Ensemble EXACT.
+    const CONTEXT_HARDENING_ALLOWED_STRUCTURE = new Set([
+      "+  /**",
+      "+   */",
+      "+  });",
+      "+",
+      "+              <span",
+      "+              >",
+      "+              </span>",
+      "+            )}",
+      "+                  </option>",
+      // Unique ligne de STYLE du bloc §17 (représentation en
+      // lecture seule du contexte courant) -- littéral EXACT.
+      '+                className="rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-700"',
+    ]);
     for (const added of addedLines) {
       const isConditionExtension = removedLines.some((removed) => `+${removed.slice(1)} && !onLegalCgv` === added);
       if (isConditionExtension) continue;
+      if (CONTEXT_HARDENING_ALLOWED_STRUCTURE.has(added.trimEnd())) continue;
       assert.match(
         added,
-        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|^\+\s*\/\/|^\+\s*<\/a>\s*$|^\+\s*$/,
-        `DashboardNav.tsx : ligne ajoutée hors-sujet (ne concerne pas l'onglet CGV) -- ligne interdite : ${added}`
+        // Onglet CGV (garantie historique) OU §17 -- jetons NOMMÉS du
+        // durcissement de contexte, jamais un motif générique.
+        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|selectorModel|buildRestaurantSelectorModel|data-current-context|CONTEXT HARDENING|o[.]restaurantId|o[.]label|restaurantId,|mappings,|currentContextName|^\+\s*\/\/|^\+\s*\*|^\+\s*<\/a>\s*$|^\+\s*$/,
+        `DashboardNav.tsx : ligne ajoutée hors-sujet (ni onglet CGV, ni durcissement de contexte §17) -- ligne interdite : ${added}`
       );
     }
   }

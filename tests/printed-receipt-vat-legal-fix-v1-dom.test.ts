@@ -335,11 +335,62 @@ export async function getRestaurantSettings(_restaurantId) {
 export async function updateOrderStatus() {}
 `;
 
+// RESTAURANT CONTEXT HARDENING v1.2 -- ferme
+// CTXHARD-V11-RECEIPT-HARNESS-COMPAT-03.
+//
+// POURQUOI CE MOCK EXISTE
+// -----------------------
+// Depuis le durcissement du contexte restaurant, app/dashboard/page.tsx
+// résout l'établissement via le résolveur partagé et a donc besoin de
+// savoir si le compte est opérateur Scanym. Son initialisation fait
+// désormais :
+//
+//     const [nextMappings, opFlag] = await Promise.all([
+//       getMerchantRestaurants(),   // déjà simulé ici
+//       isScanymOperator(),         // ne l'était PAS
+//     ]);
+//
+// `@/lib/services/establishments` n'étant pas simulé, c'est le module
+// RÉEL qui était embarqué : `isScanymOperator()` lançait un vrai
+// `supabase.rpc("is_scanym_operator")`. Comme `Promise.all` attend les
+// DEUX promesses, l'initialisation ne pouvait pas atteindre
+// `setRestaurantId(...)` tant que cet appel réseau n'avait pas abouti
+// -- donc AUCUN `getDashboardOrders()` n'était émis, et les six
+// scénarios qui montent la page échouaient sur le budget d'attente
+// d'une seconde de `waitForPending` (« aucune requête ... en attente »).
+//
+// Le défaut était DÉPENDANT DE L'ENVIRONNEMENT : là où l'appel échoue
+// en quelques millisecondes il passait inaperçu, là où il dépasse une
+// seconde la suite tombait à 6/12. Reproduit de façon déterministe en
+// ralentissant volontairement `isScanymOperator()` : exactement 6/12,
+// exactement ces six scénarios. Une barrière de publication permanente
+// ne doit JAMAIS dépendre de la vitesse à laquelle un appel réseau non
+// simulé échoue -- c'est la même classe de défaut que les délais fixes
+// déjà éliminés de ces suites.
+//
+// Le mock est volontairement MINIMAL et ne change AUCUNE garantie du
+// ticket : `false` = compte marchand ordinaire, exactement le contexte
+// que tous les scénarios de ce fichier supposent déjà (aucun n'exerce
+// l'autorité opérateur). `getEstablishmentSummary` n'est fourni que
+// parce que la page l'importe depuis le même module ; avec un compte
+// non-opérateur, cette branche n'est jamais empruntée -- elle lève donc
+// si elle est appelée, pour que ce mock ne puisse pas masquer
+// silencieusement un changement de comportement futur.
+const MOCK_ESTABLISHMENTS = `
+export async function isScanymOperator() { return false; }
+export async function getEstablishmentSummary() {
+  throw new Error(
+    "getEstablishmentSummary ne doit pas être appelé : ces scénarios s'exécutent avec un compte NON opérateur"
+  );
+}
+`;
+
 const gMocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/realtime": MOCK_REALTIME,
   "@/lib/services/dashboard": MOCK_DASHBOARD_SERVICE,
+  "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
 };
 
 const gMockPlugin: esbuild.Plugin = {

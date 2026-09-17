@@ -34,6 +34,8 @@ import type { MerchantRestaurant } from "@/lib/dashboard-types";
 import { moveLanguageInList } from "@/lib/types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, type Lang } from "@/lib/i18n";
 import { isValidWhatsappNumber, normalizeWhatsappNumber } from "@/lib/whatsapp";
 import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
@@ -123,6 +125,24 @@ export default function SettingsPage() {
   // restaurant OU premier montage), permet d'ignorer toute réponse qui
   // arriverait APRÈS qu'un changement plus récent l'a déjà invalidée.
   const legalRequestSeqRef = useRef(0);
+  /**
+   * CONTEXT HARDENING v1.1 -- PROVENANCE explicite des réglages
+   * GÉNÉRAUX (adresse, horaires, identité, couleurs, langues actives).
+   *
+   * v1.1 de MERCHANT LEGAL & TAX PROFILE avait protégé la section
+   * LÉGALE/FISCALE (legalRequestSeqRef / legalProfileLoadedRestaurantId
+   * ci-dessus), mais PAS le reste de load() : une réponse
+   * `getRestaurantSettings()` de l'établissement précédent, résolue en
+   * retard, écrasait donc encore l'adresse, le nom affiché et les
+   * couleurs de l'établissement courant (constat d'audit
+   * CTXHARD-V1-STALE-RESPONSE-01). Cette provenance ferme ce trou avec
+   * exactement le même contrat, désormais partagé.
+   */
+  const [settingsLoadedRestaurantId, setSettingsLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
+  const guard = useRestaurantContextGuard();
+  /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,13 +235,30 @@ export default function SettingsPage() {
   // correctif.
   const handleSelectRestaurant = useCallback((id: string) => {
     resetLegalProfileState();
+    // CONTEXT HARDENING v1.1 -- invalidation de la provenance GÉNÉRALE
+    // dans le MÊME gestionnaire que le changement de restaurant : React
+    // regroupe ces mises à jour en un seul rendu, il ne peut donc
+    // exister aucun rendu où l'entête affiche B pendant que le
+    // formulaire montre encore les réglages de A.
+    guard.enterContext(id);
+    setSettingsLoadedRestaurantId(null);
     setRestaurantId(id);
-  }, [resetLegalProfileState]);
+  }, [resetLegalProfileState, guard]);
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
+    // CONTEXT HARDENING v1.1 -- contrat partagé : la réponse devra
+    // prouver, au retour, qu'elle appartient toujours au restaurant
+    // actif ET à la génération courante.
+    const token = guard.beginRequest(id);
+    // §5 -- invalidation IMMÉDIATE de la provenance générale.
+    setSettingsLoadedRestaurantId(null);
     try {
       const s = await getRestaurantSettings(id);
+      // Réponse PÉRIMÉE -> ABANDONNÉE intégralement : aucun des
+      // ~20 champs ci-dessous n'est écrit avec les données d'un
+      // établissement qui n'est plus celui affiché.
+      if (!token.isCurrent()) return;
       setLang(s.staff_receipt_language ?? "fr");
       setUiLang((s.staff_receipt_language ?? "fr") as Lang);
       setAddress(s.address ?? "");
@@ -242,6 +279,9 @@ export default function SettingsPage() {
       setTiktokUrl(s.tiktok_url ?? "");
       setFacebookUrl(s.facebook_url ?? "");
       setSourceLanguage(s.source_language ?? "fr");
+      // Commit ATOMIQUE de la provenance générale, dans la même passe
+      // de rendu que les champs ci-dessus.
+      setSettingsLoadedRestaurantId(id);
       // MERCHANT LEGAL & TAX PROFILE v1.1 -- ferme
       // MLTP-V1-DASHBOARD-STALE-WRITE-01. Réinitialisation SYNCHRONE
       // (couvre le premier montage -- handleSelectRestaurant couvre
@@ -321,10 +361,12 @@ export default function SettingsPage() {
       }
       try {
         const activeLangs = await getRestaurantActiveLanguages(id);
+        if (!token.isCurrent()) return;
         setActiveLanguageCodes(
           activeLangs.length > 0 ? activeLangs.map((l) => l.code) : ["fr"]
         );
       } catch {
+        if (!token.isCurrent()) return;
         // Best-effort : une erreur de lecture des langues actives
         // n'empêche pas d'afficher le reste des réglages ; repli sur
         // la langue source seule, cohérent avec l'invariant "au moins
@@ -333,9 +375,11 @@ export default function SettingsPage() {
       }
       setError(null);
     } catch (e) {
+      if (!token.isCurrent()) return;
       setError(e instanceof Error ? e.message : t("mcLoadFailed"));
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guard]);
 
   useEffect(() => {
     (async () => {
@@ -353,27 +397,37 @@ export default function SettingsPage() {
         setMappings(next);
 
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted
-          ? next.find((m) => m.restaurant_id === wanted)
-          : undefined;
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée : plus
+        // aucun `match ?? next[0]`, donc plus de bascule silencieuse.
+        // L'autorité opérateur vient toujours d'isScanymOperator(),
+        // jamais de l'URL (mandat §11).
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
 
-        if (wanted && !match && opFlag) {
-          // Opérateur Scanym consultant un établissement hors de ses
-          // propres rattachements restaurant_users (F-01) : le lien
-          // ?r=<id> fait foi, la protection réelle reste côté RPC
-          // (assert_restaurant_asset_role côté SQL).
-          setRestaurantId(wanted);
-          try {
-            const summary = await getEstablishmentSummary(wanted);
-            setOperatorRestaurantName(summary.name);
-          } catch {
-            // Best-effort : un nom introuvable n'empêche pas de
-            // continuer, l'ID reste affiché par défaut (voir plus bas).
-          }
-        } else if (next.length === 0) {
+        if (resolution.kind === "unavailable") {
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
           setError(t("mcNoRestaurant"));
         } else {
-          setRestaurantId((match ?? next[0]).restaurant_id);
+          setUnavailableContextId(null);
+          guard.enterContext(resolution.restaurantId);
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            // Opérateur Scanym consultant un établissement hors de ses
+            // propres rattachements restaurant_users (F-01) : la
+            // protection réelle reste côté RPC
+            // (assert_restaurant_asset_role côté SQL).
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+            } catch {
+              // Best-effort : un nom introuvable n'empêche pas de
+              // continuer, l'ID reste affiché par défaut.
+            }
+          }
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : t("mcLoadFailed"));
@@ -710,6 +764,22 @@ export default function SettingsPage() {
     setActiveLanguageCodes((prev) => moveLanguageInList(prev, code, direction));
   }
 
+  // CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble :
+  // état dédié, aucun établissement sélectionné, aucune donnée chargée.
+  if (!loading && unavailableContextId) {
+    return (
+      <main className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {t("dsContextUnavailable")}
+        </div>
+      </main>
+    );
+  }
+
   if (loading) {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
   }
@@ -755,6 +825,17 @@ export default function SettingsPage() {
           </p>
         )}
 
+        {/* CONTEXT HARDENING v1.1 (§5) -- PORTE DE PROVENANCE. Le
+            formulaire, entièrement dérivé du locataire, n'est rendu que
+            si les réglages en mémoire ont été chargés pour
+            l'établissement ACTUELLEMENT affiché. Sans cette porte, un
+            rendu intermédiaire montrerait l'adresse et l'identité de
+            l'établissement précédent sous l'entête du nouveau. */}
+        {settingsLoadedRestaurantId !== restaurantId ? (
+          <p data-context-loading="1" className="rounded-xl bg-stone-100 p-3 text-sm text-stone-500">
+            {t("mcLoading")}
+          </p>
+        ) : (
         <form onSubmit={submit}>
         {!isOperatorOnlyMode && (
         <section className="mt-5 rounded-2xl border border-stone-200 bg-white p-4">
@@ -1402,6 +1483,7 @@ export default function SettingsPage() {
           </div>
         )}
         </form>
+        )}
       </main>
     </>
   );

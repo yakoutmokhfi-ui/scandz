@@ -167,3 +167,64 @@ export async function getRestaurantCollections(
     menuItemIds: r.menu_item_ids ?? [],
   }));
 }
+
+/* ====================================================================
+ * CATALOGUE MANAGEMENT UX v1 — deux ajouts au MÊME service, sur le
+ * MÊME modèle (menu_tags / menu_item_tags). Aucun second modèle de
+ * tags n'est introduit.
+ * ==================================================================== */
+
+/** Carte produit -> tags, vue BACKOFFICE. */
+export interface ProductTags {
+  menuItemId: string;
+  tagIds: string[];
+  tagNames: string[];
+}
+
+interface ProductTagsRow {
+  menu_item_id: string;
+  tag_ids: string[] | null;
+  tag_names: string[] | null;
+}
+
+/**
+ * Tous les tags de tous les produits du tenant, pour le backoffice.
+ *
+ * Distinct de `getRestaurantCollections`, qui est le contrat CLIENT :
+ * celui-ci n'expose que les collections PUBLIÉES d'un établissement
+ * publié, et seulement ses produits disponibles et non archivés. Le
+ * marchand, lui, doit voir TOUS ses tags (publiés ou non) sur TOUS ses
+ * produits -- sans quoi il ne peut ni les afficher ni filtrer dessus.
+ *
+ * Une ligne par produit, tags agrégés : aucune multiplication
+ * produit × tag.
+ */
+export async function getRestaurantProductTags(restaurantId: string): Promise<ProductTags[]> {
+  const { data, error } = await supabase.rpc("get_restaurant_product_tags", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as ProductTagsRow[]).map((r) => ({
+    menuItemId: r.menu_item_id,
+    tagIds: r.tag_ids ?? [],
+    tagNames: r.tag_names ?? [],
+  }));
+}
+
+/**
+ * Retire UNE association produit <-> tag.
+ *
+ * Ne supprime JAMAIS le tag lui-même : il reste disponible pour le
+ * tenant et pour ses autres produits. Idempotente -- retirer une
+ * association déjà absente retourne 0 sans erreur, donc un double clic
+ * ou un retry réseau ne produit aucun échec visible. Retourne le
+ * nombre d'associations réellement retirées (0 ou 1).
+ */
+export async function removeProductTag(menuItemId: string, tagId: string): Promise<number> {
+  const { data, error } = await supabase.rpc("remove_product_tag", {
+    p_menu_item_id: menuItemId,
+    p_tag_id: tagId,
+  });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
