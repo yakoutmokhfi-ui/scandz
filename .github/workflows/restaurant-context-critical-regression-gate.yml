@@ -1,0 +1,96 @@
+name: Restaurant Context Critical Regression Gate
+
+# ============================================================================
+# PERMANENT, RELEASE-BLOCKING regression gate for one specific invariant:
+#
+#   When a merchant/staff user switches the SELECTED RESTAURANT in the
+#   dashboard (SAME component instance, no unmount/remount), a stale or
+#   late-resolving asynchronous response that was in flight for the
+#   PREVIOUSLY selected restaurant must NEVER become visible, printable, or
+#   actionable once another restaurant is selected.
+#
+# This workflow does not implement or modify any functional fix. It runs
+# the real dashboard components (esbuild + jsdom, no mocked React) against
+# a fixed set of adversarial scenarios (out-of-order responses, stale
+# realtime events, stale action preconditions, ?r= handling) and fails the
+# job -- hard, unconditionally -- whenever any scenario does not hold.
+#
+# NO warning-only mode. This job has no `continue-on-error`, no
+# `if: always()` escape hatch on the assertion step, and its check MUST be
+# added as a required status check on the default branch's protection
+# rules for this gate to actually block merges/releases; this workflow
+# alone enforces "does it pass", branch protection enforces "and you can't
+# merge/release until it does".
+#
+# Module coverage (current suite):
+#   - Orders            (app/dashboard/page.tsx)             -- guarded
+#   - Legal/CGV          (app/dashboard/legal-cgv/page.tsx)    -- UNGUARDED
+#   - Catalogue          (app/dashboard/catalogue/page.tsx)     -- UNGUARDED
+#
+# Orders is already remediated (RECEIPT v1.1 / RECEIPT-V1-ORDER-SETTINGS-
+# RACE-01 guards) and is expected to be fully GREEN, including three
+# additional adversarial scenarios (A->B->A out-of-order, explicit valid
+# ?r= preserved, stale mutation/print precondition rejected) beyond the
+# minimum A->B->late-A + stale-subscription + invalid-?r= set.
+#
+# Legal/CGV and Catalogue have NO such guard yet (confirmed by direct
+# source reading, not assumption) and are therefore EXPECTED to fail RED
+# today. That red is intentional and correct: it is what keeps this gate
+# release-blocking until the functional fix for those two modules lands
+# (out of scope for this gate -- see repository history / mission scope
+# for "Restaurant Context Critical Regression Gate v1", CI/test-harness
+# only, no functional fix included).
+# ============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  restaurant-context-regression-gate:
+    name: Restaurant Context Critical Regression Gate (release-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Run the Restaurant Context Critical Regression Gate suite
+        id: gate
+        # Deliberately scoped to ONLY this gate's own test files -- not
+        # the full `npm test` corpus, which carries pre-existing,
+        # unrelated failures (stale historical baseline/scope-proof
+        # tests predating this work) that must not mask or be conflated
+        # with THIS invariant. No continue-on-error: a non-zero exit here
+        # fails the job outright.
+        run: |
+          node --experimental-strip-types --import ./tests/register.mjs \
+            --test tests/restaurant-context-critical-regression-gate-*.dom.test.ts
+
+      - name: Gate result
+        if: always()
+        run: |
+          if [ "${{ steps.gate.outcome }}" != "success" ]; then
+            echo "::error::Restaurant Context Critical Regression Gate FAILED. This blocks release until every scenario passes. If Orders regressed, that is a NEW bug. If Catalogue/Legal-CGV are the only failures, the pre-existing, source-confirmed stale-response regression in their reload()/load() functions is still unresolved -- see app/dashboard/catalogue/page.tsx and app/dashboard/legal-cgv/page.tsx. This is a release hold, not a flaky test: do not re-run to green, do not mark this check as non-required, and do not skip it."
+            exit 1
+          fi
+          echo "Restaurant Context Critical Regression Gate: all scenarios passed."

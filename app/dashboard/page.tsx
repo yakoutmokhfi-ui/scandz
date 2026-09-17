@@ -19,11 +19,27 @@ import type {
 } from "@/lib/dashboard-types";
 import OrderCard from "@/components/dashboard/OrderCard";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import { translate, type Lang } from "@/lib/i18n";
 
 export default function DashboardPage() {
   const router = useRouter();
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
+  /**
+   * CONTEXT HARDENING v1 (§4.B) -- établissement explicitement demandé
+   * par `?r=` mais non résoluble : AUCUN établissement n'est
+   * sélectionné, donc aucune commande n'est chargée et aucun
+   * abonnement temps réel n'est ouvert.
+   */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
+  /**
+   * CONTEXT HARDENING v1 -- nom de l'établissement consulté en contexte
+   * OPÉRATEUR (hors des rattachements du compte), résolu via l'aide
+   * existante `getEstablishmentSummary`. L'autorité opérateur vient
+   * d'`isScanymOperator()`, jamais de l'URL (mandat §11).
+   */
+  const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [restaurantId, setRestaurantId] = useState("");
   const [orders, setOrders] = useState<DashboardOrder[]>([]);
   const [staffLanguage, setStaffLanguage] = useState<string>("fr");
@@ -117,7 +133,8 @@ export default function DashboardPage() {
   const selectedRestaurantIdRef = useRef("");
 
   const currentMapping = mappings.find((item) => item.restaurant_id === restaurantId);
-  const restaurantName = currentMapping?.restaurants?.name ?? "Restaurant";
+  const restaurantName =
+    currentMapping?.restaurants?.name ?? operatorRestaurantName ?? "Restaurant";
 
   const playSound = useCallback(() => {
     if (!soundEnabled) return;
@@ -193,19 +210,50 @@ export default function DashboardPage() {
       }
 
       try {
-        const nextMappings = await getMerchantRestaurants();
-        if (nextMappings.length === 0) {
+        const [nextMappings, opFlag] = await Promise.all([
+          getMerchantRestaurants(),
+          isScanymOperator(),
+        ]);
+        setMappings(nextMappings);
+        // Conserve l'établissement choisi sur l'autre page. Lu depuis
+        // l'URL côté client : évite d'imposer une frontière Suspense au
+        // prérendu.
+        //
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée
+        // (lib/dashboard-nav.ts). Cette page repliait sur
+        // `nextMappings[0]` quand `?r=` désignait un établissement
+        // introuvable, et n'avait AUCUNE branche opérateur : venir de
+        // "Réglages / Au lait cru" ouvrait donc les commandes d'un
+        // AUTRE établissement. Les deux défauts sont corrigés ici.
+        const wanted = new URLSearchParams(window.location.search).get("r");
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: nextMappings,
+          isOperator: opFlag,
+        });
+
+        if (resolution.kind === "unavailable") {
+          // §4.B -- fail closed : aucune sélection, donc aucun
+          // chargement de commandes et aucun abonnement.
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
           setError("Ce compte n'est lié à aucun restaurant.");
         } else {
-          setMappings(nextMappings);
-          // Conserve l'établissement choisi sur l'autre page
-          // Lu depuis l'URL côté client : évite d'imposer une
-          // frontière Suspense au prérendu.
-          const wanted = new URLSearchParams(window.location.search).get("r");
-          const match = wanted
-            ? nextMappings.find((m) => m.restaurant_id === wanted)
-            : undefined;
-          setRestaurantId((match ?? nextMappings[0]).restaurant_id);
+          setUnavailableContextId(null);
+          // La référence utilisée par les gardes asynchrones est posée
+          // AVANT toute requête (voir l'effet de changement
+          // d'établissement plus bas).
+          selectedRestaurantIdRef.current = resolution.restaurantId;
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+            } catch {
+              // Best-effort : un nom introuvable n'empêche pas de
+              // continuer (l'ID reste la source de vérité).
+            }
+          }
         }
       } catch (initError) {
         setError(initError instanceof Error ? initError.message : "Initialisation impossible");
@@ -341,6 +389,23 @@ export default function DashboardPage() {
       : null;
 
   if (loading) return <main className="min-h-screen bg-stone-100 p-8">Chargement…</main>;
+
+  // CONTEXT HARDENING v1 (§4.B) -- contexte explicitement demandé mais
+  // non résoluble : état dédié, aucun établissement sélectionné, aucune
+  // commande chargée, aucun abonnement ouvert.
+  if (unavailableContextId) {
+    return (
+      <main className="min-h-screen bg-stone-100 p-8">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {dt("dsContextUnavailable")}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-stone-100 pb-12">

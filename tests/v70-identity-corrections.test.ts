@@ -129,12 +129,35 @@ test("F-01: canEdit inclut isOperator -- un opérateur peut modifier même sans 
   assert.ok(source.includes("const canEdit = isOperator || canEditFull;"));
 });
 
+// SUPERSÉDÉ (forme, pas garantie) par DASHBOARD RESTAURANT CONTEXT
+// HARDENING v1 (§4).
+//
+// Ce test vérifiait une FORME de code propre à la page (`if (wanted &&
+// !match && opFlag)` ...). Le mandat de durcissement impose justement
+// de supprimer les résolutions propres à chaque page au profit d'un
+// résolveur PARTAGÉ (lib/dashboard-nav.ts) -- la forme littérale ne
+// peut donc plus exister, alors que la GARANTIE est inchangée.
+//
+// La garantie est réaffirmée ici contre la nouvelle architecture, et
+// surtout prouvée à l'exécution (rendu réel de la page) par
+// tests/dashboard-restaurant-context-hardening-v1.dom.test.ts,
+// scénario "[Settings] B — contexte OPÉRATEUR Scanym" -- une preuve
+// comportementale, plus forte qu'une inspection de texte.
 test("F-01: un opérateur consultant un établissement hors de ses rattachements (?r=<id>, pas dans mappings) charge quand même cet établissement", () => {
   const source = readFileSync("app/dashboard/settings/page.tsx", "utf8");
   const fn = source.slice(source.indexOf("useEffect(() => {\n    (async () => {"), source.indexOf("[router]);"));
-  assert.ok(fn.includes("if (wanted && !match && opFlag)"));
-  assert.ok(fn.includes("setRestaurantId(wanted)"));
-  assert.ok(fn.includes("getEstablishmentSummary(wanted)"), "réutilise le même service que app/admin/establishments/new pour afficher le nom");
+  assert.ok(
+    fn.includes("resolveRestaurantContext("),
+    "la résolution de contexte doit passer par le résolveur partagé"
+  );
+  assert.ok(
+    fn.includes('resolution.source === "operator"'),
+    "le cas opérateur doit rester explicitement traité"
+  );
+  assert.ok(
+    fn.includes("getEstablishmentSummary(resolution.restaurantId)"),
+    "réutilise le même service que app/admin/establishments/new pour afficher le nom"
+  );
 });
 
 test("F-01: la page de création d'établissement (Super Admin) propose un lien direct vers Dashboard Settings pour le nouvel établissement", () => {

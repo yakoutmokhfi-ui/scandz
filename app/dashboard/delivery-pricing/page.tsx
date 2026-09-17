@@ -14,6 +14,8 @@ import type {
 } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, type Lang } from "@/lib/i18n";
 
 /**
@@ -89,6 +91,15 @@ export default function DeliveryPricingPage() {
   const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>("fr");
   const [rows, setRows] = useState<MerchantDeliveryFulfillmentPricingRule[]>([]);
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite des tarifs en
+   * mémoire. `null` = rien de fiable pour le contexte courant.
+   */
+  const [pricingLoadedRestaurantId, setPricingLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
+  const guard = useRestaurantContextGuard();
+  /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -117,10 +128,20 @@ export default function DeliveryPricingPage() {
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
+    // CONTEXT HARDENING v1.1 -- ferme CTXHARD-V1-STALE-RESPONSE-01 sur
+    // ce module de configuration (même contrat partagé que Catalogue et
+    // CGV : génération + restaurant actif + composant monté).
+    const token = guard.beginRequest(id);
+    // §5 -- invalidation IMMÉDIATE de la provenance.
+    setPricingLoadedRestaurantId(null);
     setPageError(null);
     try {
       const next = await getMerchantDeliveryFulfillmentPricing(id);
+      // Réponse PÉRIMÉE -> ABANDONNÉE intégralement.
+      if (!token.isCurrent()) return;
+      // Commit ATOMIQUE : tarifs et provenance dans la même passe.
       setRows(next);
+      setPricingLoadedRestaurantId(id);
       setDrafts((prev) => {
         const merged: Record<string, RuleDraft> = {};
         for (const rule of next) {
@@ -133,9 +154,33 @@ export default function DeliveryPricingPage() {
         return merged;
       });
     } catch {
+      if (!token.isCurrent()) return;
       setPageError(t("dpLoadFailed"));
     }
-  }, [uiLang]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiLang, guard]);
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- bascule pilotée par l'utilisateur :
+   * invalidation et changement de contexte dans le MÊME gestionnaire.
+   */
+  const handleSelectRestaurant = useCallback(
+    (id: string) => {
+      guard.enterContext(id);
+      setRows([]);
+      setDrafts({});
+      setPricingLoadedRestaurantId(null);
+      setRestaurantId(id);
+    },
+    [guard]
+  );
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- SEULE source d'affichage locataire :
+   * le rendu exige `provenance === contexte courant`.
+   */
+  const rowsInContext =
+    pricingLoadedRestaurantId === restaurantId && restaurantId ? rows : [];
 
   useEffect(() => {
     (async () => {
@@ -153,38 +198,42 @@ export default function DeliveryPricingPage() {
         setMappings(next);
 
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted
-          ? next.find((m) => m.restaurant_id === wanted)
-          : undefined;
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée : plus
+        // aucun `match ?? next[0]`, donc plus de bascule silencieuse.
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
 
-        if (wanted && !match && opFlag) {
-          // OPERATOR DASHBOARD CONTEXT v1 : même correction F-01 que
-          // settings/page.tsx et dashboard/catalogue/page.tsx. Le lien
-          // ?r=<id> fait foi côté affichage uniquement -- la protection
-          // réelle reste côté RPC. Depuis DELIVERY PRICING OPERATOR
-          // AUTHORIZATION v1.1, get_merchant_delivery_fulfillment_pricing
-          // et update_merchant_delivery_fulfillment_pricing acceptent
-          // aussi is_scanym_operator() à côté de la condition marchande
-          // existante (préservée à l'identique) : un opérateur ciblant
-          // un établissement hors de ses propres rattachements verra
-          // donc l'ID restaurant correctement retenu ici ET pourra
-          // désormais lire/modifier les tarifs de CET établissement
-          // (fail-closed pour tout autre restaurant_id que le RPC
-          // résoudrait, jamais les tarifs d'un autre restaurant).
-          // JAMAIS de repli sur next[0] ici : vérifié AVANT le test
-          // `next.length === 0` ci-dessous.
-          setRestaurantId(wanted);
-          try {
-            const summary = await getEstablishmentSummary(wanted);
-            setOperatorRestaurantName(summary.name);
-          } catch {
-            // Best-effort : un nom introuvable n'empêche pas de
-            // continuer (l'ID reste la source de vérité).
-          }
-        } else if (next.length === 0) {
+        if (resolution.kind === "unavailable") {
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
           setPageError(t("mcNoRestaurant"));
         } else {
-          setRestaurantId((match ?? next[0]).restaurant_id);
+          setUnavailableContextId(null);
+          guard.enterContext(resolution.restaurantId);
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            // OPERATOR DASHBOARD CONTEXT v1 : même correction F-01 que
+            // settings/page.tsx et dashboard/catalogue/page.tsx. Le lien
+            // ?r=<id> fait foi côté affichage uniquement -- la
+            // protection réelle reste côté RPC. Depuis DELIVERY PRICING
+            // OPERATOR AUTHORIZATION v1.1,
+            // get_merchant_delivery_fulfillment_pricing et
+            // update_merchant_delivery_fulfillment_pricing acceptent
+            // aussi is_scanym_operator() à côté de la condition
+            // marchande existante (préservée à l'identique).
+            // JAMAIS de repli sur next[0] : c'est désormais le
+            // résolveur partagé qui le garantit (fail closed).
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+            } catch {
+              // Best-effort : un nom introuvable n'empêche pas de
+              // continuer (l'ID reste la source de vérité).
+            }
+          }
         }
       } catch {
         setPageError(t("dpLoadFailed"));
@@ -274,6 +323,22 @@ export default function DeliveryPricingPage() {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
   }
 
+  // CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble :
+  // état dédié, aucun établissement sélectionné, aucune donnée chargée.
+  if (unavailableContextId) {
+    return (
+      <main className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {t("dsContextUnavailable")}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <>
       <DashboardNav
@@ -281,7 +346,7 @@ export default function DeliveryPricingPage() {
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={uiLang}
-        onSelectRestaurant={setRestaurantId}
+        onSelectRestaurant={handleSelectRestaurant}
       />
 
       <main className="mx-auto max-w-2xl px-4 py-6">
@@ -307,13 +372,13 @@ export default function DeliveryPricingPage() {
           </p>
         )}
 
-        {!pageError && rows.length === 0 && (
+        {!pageError && rowsInContext.length === 0 && (
           <p className="mt-4 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-500">
             {t("dpEmpty")}
           </p>
         )}
 
-        {rows.map((rule) => {
+        {rowsInContext.map((rule) => {
           const draft = drafts[rule.ruleId] ?? draftFromRule(rule);
           return (
             <section

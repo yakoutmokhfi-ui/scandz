@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import {
@@ -52,6 +52,31 @@ import {
   CATEGORY_NAME_MAX_LENGTH,
 } from "@/lib/catalogue-text";
 import DashboardNav from "@/components/dashboard/DashboardNav";
+import { resolveRestaurantContext } from "@/lib/dashboard-nav";
+import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
+// CATALOGUE MANAGEMENT UX v1 -- fondation COLLECTIONS / TAGS déjà
+// publiée, consommée telle quelle (aucun second modèle de tags).
+import {
+  addProductTags,
+  removeProductTag,
+  getRestaurantProductTags,
+  getRestaurantTags,
+  type ProductTags,
+  type RestaurantTag,
+} from "@/lib/services/catalogue-tags";
+import {
+  flattenCatalogue,
+  applyCatalogueFilters,
+  availableFilterOptions,
+  isDefaultFilters,
+  EMPTY_FILTERS,
+  type CatalogueFilters,
+  type SortKey,
+} from "@/lib/catalogue-management/filtering";
+import {
+  buildCatalogueExport,
+  catalogueExportFileName,
+} from "@/lib/catalogue-management/export";
 import { translate, type Lang } from "@/lib/i18n";
 import Ltr from "@/components/Bidi";
 import {
@@ -184,6 +209,35 @@ export default function CataloguePage() {
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState("");
   const [categories, setCategories] = useState<CatalogueCategory[]>([]);
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite du catalogue
+   * actuellement en mémoire : pour QUEL établissement a-t-il été
+   * chargé ? `null` = rien de fiable en mémoire pour le contexte
+   * courant. Rien de dérivé du locataire n'est rendu tant que cette
+   * provenance ne désigne pas exactement `restaurantId`.
+   */
+  const [catalogueLoadedRestaurantId, setCatalogueLoadedRestaurantId] = useState<string | null>(null);
+  /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
+  const guard = useRestaurantContextGuard();
+  /**
+   * CONTEXT HARDENING v1 (§4.B) -- établissement explicitement demandé
+   * par `?r=` mais non résoluble (ni rattaché au compte, ni accessible
+   * en tant qu'opérateur). On n'en sélectionne alors AUCUN : aucune
+   * donnée métier n'est chargée, et un état dédié est affiché.
+   */
+  const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- SEULE source d'affichage locataire.
+   * Le rendu exige `provenance === contexte courant` : tant que le
+   * catalogue de l'établissement affiché n'est pas revenu, rien du
+   * précédent ne reste lisible sous son entête. CATALOGUE MANAGEMENT
+   * UX v1.1 : c'est aussi la SEULE source que consomment désormais la
+   * recherche/les filtres/le tri/l'export (`flatProducts` ci-dessous),
+   * afin qu'aucun de ces dérivés n'expose jamais un catalogue encore
+   * périmé.
+   */
+  const categoriesInContext =
+    catalogueLoadedRestaurantId === restaurantId && restaurantId ? categories : [];
   const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -266,7 +320,7 @@ export default function CataloguePage() {
   // chargé.
   const flatProductsForBulkPhoto: BulkPhotoMatchProduct[] = useMemo(() => {
     const flat: BulkPhotoMatchProduct[] = [];
-    for (const cat of categories) {
+    for (const cat of categoriesInContext) {
       for (const p of cat.products) {
         flat.push({
           product_id: p.product_id,
@@ -289,7 +343,7 @@ export default function CataloguePage() {
       }
     }
     return flat;
-  }, [categories]);
+  }, [categoriesInContext]);
   const lang = staffLang as Lang;
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
@@ -305,6 +359,203 @@ export default function CataloguePage() {
     field: "name" | "description" | "short_description"
   ) => (lang === "fr" ? base : (tr?.[lang]?.[field] ?? base));
 
+  /* ================================================================
+   * CATALOGUE MANAGEMENT UX v1 -- recherche / filtres / tri / export.
+   *
+   * ÉTAT STRICTEMENT D'AFFICHAGE : `categories` (la source chargée par
+   * getMerchantCatalogue) n'est jamais modifiée par un filtre. Les
+   * listes filtrées sont dérivées à chaque rendu, donc basculer un
+   * filtre ne peut ni altérer le catalogue ni la charge utile d'une
+   * écriture ultérieure.
+   * ================================================================ */
+  const [filters, setFilters] = useState<CatalogueFilters>(EMPTY_FILTERS);
+  const [productTags, setProductTags] = useState<ProductTags[]>([]);
+  const [knownTags, setKnownTags] = useState<RestaurantTag[]>([]);
+
+  /** Carte produit -> tags, indexée une seule fois par chargement. */
+  const tagsByProductId = useMemo(() => {
+    const m = new Map<string, { tagIds: string[]; tagNames: string[] }>();
+    for (const pt of productTags) m.set(pt.menuItemId, { tagIds: pt.tagIds, tagNames: pt.tagNames });
+    return m;
+  }, [productTags]);
+
+  // CONTEXT HARDENING v1.1 -- dérivé de `categoriesInContext`, jamais de
+  // `categories` brut : recherche, filtres, tri et export ne doivent
+  // jamais exposer un catalogue qui n'a pas encore été confirmé comme
+  // appartenant au restaurant actuellement affiché.
+  const flatProducts = useMemo(
+    () => flattenCatalogue(categoriesInContext, tagsByProductId),
+    [categoriesInContext, tagsByProductId]
+  );
+  const filteredProducts = useMemo(
+    () => applyCatalogueFilters(flatProducts, filters),
+    [flatProducts, filters]
+  );
+  const filterOptions = useMemo(() => availableFilterOptions(flatProducts), [flatProducts]);
+  /** Identifiants des produits retenus par la recherche/les filtres.
+   *  Le rendu reste GROUPÉ PAR CATÉGORIE -- la structure que le
+   *  marchand connaît -- et se contente de masquer ce qui ne
+   *  correspond pas, plutôt que de réorganiser l'écran sous ses yeux. */
+  const visibleProductIds = useMemo(
+    () => new Set(filteredProducts.map((f) => f.product.product_id)),
+    [filteredProducts]
+  );
+  /**
+   * Rang de chaque produit dans la liste TRIÉE. Le regroupement par
+   * catégorie / sous-catégorie est conservé (voir ci-dessus), mais
+   * l'ordre À L'INTÉRIEUR de chaque groupe suit le tri demandé : sans
+   * cela le sélecteur « Trier par » n'aurait AUCUN effet visible, ce
+   * qui serait pire que de ne pas l'offrir.
+   */
+  const productRank = useMemo(() => {
+    const m = new Map<string, number>();
+    filteredProducts.forEach((f, i) => m.set(f.product.product_id, i));
+    return m;
+  }, [filteredProducts]);
+  /** Produits d'un groupe, restreints aux visibles puis réordonnés
+   *  selon le tri courant. Ne mute jamais le tableau reçu. */
+  const orderForDisplay = useCallback(
+    (products: CatalogueProduct[]) =>
+      products
+        .filter((p) => visibleProductIds.has(p.product_id))
+        .sort(
+          (a, b) =>
+            (productRank.get(a.product_id) ?? 0) - (productRank.get(b.product_id) ?? 0)
+        ),
+    [visibleProductIds, productRank]
+  );
+  const filtersActive = !isDefaultFilters(filters);
+
+  /* ================================================================
+   * CATALOGUE MANAGEMENT UX v1.1 -- GARDE ANTI-RÉPONSE PÉRIMÉE
+   * (remédiation ciblée CMUX-V1-TAG-CONTEXT-RACE-01, HIGH).
+   *
+   * LE DÉFAUT CORRIGÉ. En v1, `reloadTags(id)` écrivait
+   * `setProductTags` / `setKnownTags` SANS vérifier que la réponse
+   * appartenait encore au restaurant affiché. Scénario réel :
+   *
+   *   1. le restaurant A est actif ;
+   *   2. une requête de tags A part et reste en attente ;
+   *   3. l'utilisateur bascule sur le restaurant B ;
+   *   4. le catalogue et les tags de B se chargent ;
+   *   5. la requête A se résout APRÈS ;
+   *   6. son écriture écrase l'état partagé ;
+   *   7. l'écran de B expose alors des métadonnées de tags de A.
+   *
+   * Les RPC restent sûres (chacune vérifie le tenant côté serveur) :
+   * la fuite est purement côté client, mais elle est réelle et visible.
+   *
+   * LA PROTECTION. Deux barrières INDÉPENDANTES, toutes deux exigées
+   * avant la moindre écriture d'état :
+   *
+   *   1. GÉNÉRATION MONOTONE. Chaque chargement réserve un numéro
+   *      strictement croissant. Une réponse n'écrit que si son numéro
+   *      est TOUJOURS le dernier réservé. Cela couvre aussi le cas de
+   *      deux requêtes CONCURRENTES SUR LE MÊME RESTAURANT : si la
+   *      requête n°1 se résout après la n°2, elle est rejetée -- la
+   *      plus récente reste l'autorité (une comparaison d'identifiant
+   *      de restaurant seule ne verrait pas ce cas).
+   *
+   *   2. PROVENANCE DE TENANT. La réponse n'écrit que si elle porte
+   *      l'identifiant du restaurant ACTUELLEMENT actif.
+   *
+   * DEUX compteurs distincts, et non un seul partagé : sans cela, un
+   * rechargement de tags (après ajout/retrait) invaliderait le
+   * chargement de catalogue légitime en cours, qui serait alors
+   * silencieusement perdu. Catalogue et tags ont des cycles de vie
+   * propres ; leurs générations aussi.
+   *
+   * Les deux compteurs sont également incrémentés au CHANGEMENT DE
+   * RESTAURANT (voir l'effet d'invalidation plus bas), de sorte que
+   * toute requête déjà en vol est périmée AVANT même que la nouvelle
+   * ne parte. Vider l'état ne suffirait pas : une écriture tardive le
+   * re-remplirait.
+   * ================================================================ */
+  const catalogueGenerationRef = useRef(0);
+  const tagGenerationRef = useRef(0);
+  const currentRestaurantRef = useRef("");
+
+  /** Réserve une génération de chargement de CATALOGUE. */
+  const beginCatalogueLoad = useCallback(() => ++catalogueGenerationRef.current, []);
+  /** Réserve une génération de chargement de TAGS. */
+  const beginTagLoad = useCallback(() => ++tagGenerationRef.current, []);
+
+  /** La réponse peut-elle encore écrire ? Génération toujours la plus
+   *  récente ET restaurant toujours actif -- les deux, jamais l'une. */
+  const isCurrentCatalogueLoad = useCallback(
+    (gen: number, id: string) =>
+      gen === catalogueGenerationRef.current && id === currentRestaurantRef.current,
+    []
+  );
+  const isCurrentTagLoad = useCallback(
+    (gen: number, id: string) =>
+      gen === tagGenerationRef.current && id === currentRestaurantRef.current,
+    []
+  );
+
+  /**
+   * Charge les tags du tenant COURANT. Tolérant à l'échec : un tenant
+   * dont la migration tags n'est pas encore appliquée doit continuer à
+   * voir et éditer son catalogue -- l'absence de tags n'est jamais une
+   * raison de casser l'écran.
+   *
+   * AUCUNE écriture n'a lieu si la réponse n'est plus d'actualité --
+   * ni en succès, ni en échec : un échec tardif venant de A ne doit
+   * pas davantage vider les tags de B qu'un succès tardif ne doit les
+   * remplacer.
+   */
+  const reloadTags = useCallback(
+    async (id: string) => {
+      const gen = beginTagLoad();
+      if (!id) {
+        setProductTags([]);
+        setKnownTags([]);
+        return;
+      }
+      try {
+        const [pt, kt] = await Promise.all([getRestaurantProductTags(id), getRestaurantTags(id)]);
+        if (!isCurrentTagLoad(gen, id)) return;
+        setProductTags(pt);
+        setKnownTags(kt);
+      } catch {
+        if (!isCurrentTagLoad(gen, id)) return;
+        setProductTags([]);
+        setKnownTags([]);
+      }
+    },
+    [beginTagLoad, isCurrentTagLoad]
+  );
+
+  function resetFilters() {
+    setFilters(EMPTY_FILTERS);
+  }
+
+  /** Télécharge un classeur .xlsx. Best-effort : un environnement sans
+   *  API de téléchargement n'interrompt jamais l'écran. */
+  function downloadXlsx(scope: "complet" | "filtre") {
+    const rows = scope === "complet" ? flatProducts : filteredProducts;
+    const bytes = buildCatalogueExport(rows);
+    try {
+      // `bytes.buffer` est typé ArrayBufferLike ; on en extrait la
+      // tranche exacte pour obtenir un ArrayBuffer strict, seul type
+      // accepté par BlobPart.
+      const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const blob = new Blob([ab], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = catalogueExportFileName(scope);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      /* environnement sans téléchargement : ignoré volontairement */
+    }
+  }
+
   const productLabels = {
     name: t("mcName"),
     shortDescription: t("mcShortDescription"),
@@ -317,14 +568,70 @@ export default function CataloguePage() {
   const reload = useCallback(
     async (id: string, archived: boolean) => {
       if (!id) return;
+      // CONTEXT HARDENING v1.1 -- ferme CTXHARD-V1-STALE-RESPONSE-01.
+      // La requête est ouverte AVANT tout appel : son jeton devra
+      // prouver, au retour, qu'il appartient toujours au restaurant
+      // actif ET à la génération courante.
+      const token = guard.beginRequest(id);
+      // §5 -- invalidation IMMÉDIATE : le catalogue précédent cesse
+      // d'être considéré comme chargé dès l'instant du changement,
+      // sans attendre la moindre réponse réseau.
+      setCatalogueLoadedRestaurantId(null);
+      // CATALOGUE MANAGEMENT UX v1.1 -- même garde que pour les tags,
+      // mais via un compteur INDÉPENDANT du guard partagé ci-dessus
+      // (remédiation CMUX-V1-TAG-CONTEXT-RACE-01) : un rechargement de
+      // tags seul (après ajout/retrait) ne doit jamais invalider un
+      // chargement de catalogue légitime en cours, ce qu'un compteur
+      // unique partagé entre catalogue et tags ferait. Les deux gardes
+      // sont donc appliquées ENSEMBLE ci-dessous, aucune ne remplace
+      // l'autre : un catalogue de A qui arrive alors que B est affiché
+      // est REJETÉ par l'une ET l'autre, au lieu d'écraser l'écran de B.
+      const gen = beginCatalogueLoad();
       try {
-        setCategories(await getMerchantCatalogue(id, archived));
+        const next = await getMerchantCatalogue(id, archived);
+        // Réponse PÉRIMÉE -> ABANDONNÉE intégralement. Aucun setState :
+        // ni les données, ni l'effacement de l'erreur, sans quoi une
+        // réponse d'un AUTRE établissement influencerait encore l'écran.
+        if (!token.isCurrent() || !isCurrentCatalogueLoad(gen, id)) return;
+        // Commit ATOMIQUE (même passe de rendu) : les données et leur
+        // provenance sont posées ensemble et ne peuvent jamais se
+        // contredire, même un instant.
+        setCategories(next);
+        setCatalogueLoadedRestaurantId(id);
+        // CATALOGUE MANAGEMENT UX v1 -- les tags suivent EXACTEMENT le
+        // cycle de vie du catalogue : même identifiant de restaurant,
+        // même rechargement. Aucun état de tags ne peut donc survivre
+        // à un changement d'établissement.
+        await reloadTags(id);
+        if (!token.isCurrent() || !isCurrentCatalogueLoad(gen, id)) return;
         setError(null);
       } catch (e) {
+        // Une erreur PÉRIMÉE ne s'affiche pas davantage qu'une donnée
+        // périmée : elle porterait sur un établissement que
+        // l'utilisateur ne regarde plus.
+        if (!token.isCurrent() || !isCurrentCatalogueLoad(gen, id)) return;
         setError(e instanceof Error ? e.message : t("mcLoadFailed"));
       }
     },
-    []
+    [guard, reloadTags, beginCatalogueLoad, isCurrentCatalogueLoad]
+  );
+
+  /**
+   * CONTEXT HARDENING v1.1 (§5) -- bascule d'établissement pilotée par
+   * l'utilisateur. `enterContext` et `setRestaurantId` sont appelés dans
+   * le MÊME gestionnaire : React regroupe ces mises à jour en un seul
+   * rendu, il ne peut donc exister aucun rendu intermédiaire où le
+   * contexte a déjà changé alors qu'une réponse de l'ancien
+   * établissement serait encore acceptée.
+   */
+  const handleSelectRestaurant = useCallback(
+    (id: string) => {
+      guard.enterContext(id);
+      setCategories([]);
+      setCatalogueLoadedRestaurantId(null);
+      setRestaurantId(id);
+    },
+    [guard]
   );
 
   useEffect(() => {
@@ -343,34 +650,42 @@ export default function CataloguePage() {
         setMappings(next);
 
         const wanted = new URLSearchParams(window.location.search).get("r");
-        const match = wanted
-          ? next.find((m) => m.restaurant_id === wanted)
-          : undefined;
+        // CONTEXT HARDENING v1 -- résolution UNIQUE et partagée
+        // (lib/dashboard-nav.ts). Remplace la logique de sélection
+        // propre à cette page : plus aucun `match ?? next[0]`, donc plus
+        // aucun basculement silencieux d'établissement. L'autorité
+        // opérateur continue de venir d'isScanymOperator() -- jamais de
+        // l'URL (mandat §11).
+        const resolution = resolveRestaurantContext({
+          requestedId: wanted,
+          mappings: next,
+          isOperator: opFlag,
+        });
 
-        if (wanted && !match && opFlag) {
-          // OPERATOR DASHBOARD CONTEXT v1 : opérateur Scanym consultant
-          // un établissement hors de ses propres rattachements
-          // restaurant_users (même correction F-01 que settings/page.tsx)
-          // -- le lien ?r=<id> fait foi, la protection réelle reste
-          // côté RPC (assert_product_role/assert_category_role/
-          // assert_subcategory_role). JAMAIS de repli sur next[0] ici :
-          // un opérateur qui n'a lui-même AUCUN rattachement (next
-          // vide) doit quand même pouvoir consulter le restaurant
-          // ciblé -- vérifié AVANT le test `next.length === 0`
-          // ci-dessous, contrairement à l'ordre précédent de ce bloc.
-          setRestaurantId(wanted);
-          try {
-            const summary = await getEstablishmentSummary(wanted);
-            setOperatorRestaurantName(summary.name);
-          } catch {
-            // Best-effort : un nom introuvable n'empêche pas de
-            // continuer (l'ID reste la source de vérité pour le
-            // chargement du catalogue -- voir reload() plus haut).
-          }
-        } else if (next.length === 0) {
+        if (resolution.kind === "unavailable") {
+          // §4.B -- fail closed : aucun établissement sélectionné, donc
+          // aucun chargement (reload() est gardée par un id vide).
+          setUnavailableContextId(resolution.requestedId);
+        } else if (resolution.kind === "none") {
           setError(t("mcNoRestaurant"));
         } else {
-          setRestaurantId((match ?? next[0]).restaurant_id);
+          setUnavailableContextId(null);
+          guard.enterContext(resolution.restaurantId);
+          setRestaurantId(resolution.restaurantId);
+          if (resolution.source === "operator") {
+            // OPERATOR DASHBOARD CONTEXT v1 : opérateur Scanym consultant
+            // un établissement hors de ses propres rattachements
+            // restaurant_users -- la protection réelle reste côté RPC
+            // (assert_product_role / assert_category_role /
+            // assert_subcategory_role).
+            try {
+              const summary = await getEstablishmentSummary(resolution.restaurantId);
+              setOperatorRestaurantName(summary.name);
+            } catch {
+              // Best-effort : un nom introuvable n'empêche pas de
+              // continuer (l'ID reste la source de vérité).
+            }
+          }
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : t("mcLoadFailed"));
@@ -379,10 +694,6 @@ export default function CataloguePage() {
       }
     })();
   }, [router]);
-
-  useEffect(() => {
-    void reload(restaurantId, showArchived);
-  }, [restaurantId, showArchived, reload]);
 
   // Corrigé après audit indépendant (M-06) : un utilisateur autorisé
   // sur plusieurs établissements pouvait changer de restaurant sans
@@ -395,7 +706,39 @@ export default function CataloguePage() {
   // category_id si deux restaurants partageaient par coïncidence un
   // id affiché de façon ambiguë dans l'UI. Réinitialisation explicite
   // à chaque changement de restaurant, avant même le rechargement.
+  //
+  // CATALOGUE MANAGEMENT UX v1.1 (CMUX-V1-TAG-CONTEXT-RACE-01) : cet
+  // effet est désormais déclaré AVANT celui qui recharge, afin de
+  // s'exécuter le premier -- ce que son propre commentaire décrivait
+  // déjà (« avant même le rechargement ») sans que l'ordre de
+  // déclaration ne le garantisse. Il devient le point d'invalidation
+  // du contexte :
+  //
+  //   - les DEUX générations sont incrémentées : toute requête déjà en
+  //     vol pour l'établissement précédent devient périmée AVANT que
+  //     la nouvelle ne parte, et ne pourra plus écrire ;
+  //   - `currentRestaurantRef` devient la provenance de référence ;
+  //   - les métadonnées de tags du tenant précédent (associations ET
+  //     suggestions) sont vidées IMMÉDIATEMENT : elles ne doivent pas
+  //     rester affichées pendant que le nouveau contexte charge.
+  //
+  // Vider ne suffit PAS à lui seul (une réponse tardive re-remplirait
+  // l'état) ; garder ne suffit pas non plus (l'ancien contenu resterait
+  // visible pendant le chargement). Les deux sont nécessaires.
   useEffect(() => {
+    currentRestaurantRef.current = restaurantId;
+    catalogueGenerationRef.current += 1;
+    tagGenerationRef.current += 1;
+
+    setProductTags([]);
+    setKnownTags([]);
+    // Un filtre par catégorie/sous-catégorie/tag porte des
+    // identifiants du tenant PRÉCÉDENT : le conserver laisserait un
+    // critère invisible et inapplicable actif sur le nouveau
+    // catalogue. La recherche et le tri repartent donc aussi de leur
+    // état par défaut.
+    setFilters(EMPTY_FILTERS);
+
     setEditingId(null);
     setCreatingIn(null);
     setEditingCategoryId(null);
@@ -408,6 +751,10 @@ export default function CataloguePage() {
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
+
+  useEffect(() => {
+    void reload(restaurantId, showArchived);
+  }, [restaurantId, showArchived, reload]);
 
   useEffect(() => {
     if (!restaurantId) return;
@@ -721,6 +1068,21 @@ export default function CataloguePage() {
                 )}
               </div>
             )}
+            {/* CATALOGUE MANAGEMENT UX v1 -- tags du produit en cours
+                d'édition. Placé AU-DESSUS du formulaire parce que les
+                tags sont enregistrés immédiatement par leurs propres
+                RPC (idempotentes) : ils ne font pas partie du brouillon
+                soumis par « Enregistrer », et les mêler aux champs du
+                formulaire laisserait croire le contraire. */}
+            <ProductTagsEditor
+              productId={p.product_id}
+              tagNames={tagsByProductId.get(p.product_id)?.tagNames ?? []}
+              tagIds={tagsByProductId.get(p.product_id)?.tagIds ?? []}
+              knownTags={knownTags.map((kt) => ({ id: kt.id, name: kt.name }))}
+              onChanged={() => reloadTags(restaurantId)}
+              t={t}
+            />
+
             <ProductForm
               labels={productLabels}
               draft={draft}
@@ -876,6 +1238,23 @@ export default function CataloguePage() {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
   }
 
+  // CONTEXT HARDENING v1 (§4.B) -- contexte explicitement demandé mais
+  // non résoluble : état dédié, aucun établissement sélectionné, aucune
+  // donnée métier chargée.
+  if (unavailableContextId) {
+    return (
+      <main className="p-6">
+        <div
+          role="alert"
+          data-context-unavailable={unavailableContextId}
+          className="mx-auto max-w-2xl rounded-2xl bg-white p-6 text-sm font-semibold text-red-700 shadow-sm"
+        >
+          {t("dsContextUnavailable")}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <>
       <DashboardNav
@@ -883,7 +1262,7 @@ export default function CataloguePage() {
         restaurantId={restaurantId}
         mappings={mappings}
         staffLanguage={staffLang}
-        onSelectRestaurant={setRestaurantId}
+        onSelectRestaurant={handleSelectRestaurant}
       />
 
       <main
@@ -970,13 +1349,206 @@ export default function CataloguePage() {
           </div>
         )}
 
-        {categories.length === 0 && (
+        {/* ============================================================
+            CATALOGUE MANAGEMENT UX v1 -- barre de gestion.
+            Recherche, filtres combinables (ET), tri, compteur de
+            résultats, réinitialisation et export. Tout est PUREMENT
+            d'affichage : `categories` n'est jamais modifié ici.
+            ============================================================ */}
+        {flatProducts.length > 0 && (
+          <div
+            data-testid="catalogue-toolbar"
+            className="mb-4 space-y-3 rounded-xl border border-stone-200 bg-white p-3"
+          >
+            <div>
+              <label htmlFor="catalogue-search" className="mb-1 block text-xs font-semibold text-stone-600">
+                {t("mcSearchLabel")}
+              </label>
+              <input
+                id="catalogue-search"
+                data-testid="catalogue-search"
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                placeholder={t("mcSearchPlaceholder")}
+                className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label htmlFor="filter-category" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("mcFilterCategory")}
+                </label>
+                <select
+                  id="filter-category"
+                  data-testid="filter-category"
+                  value={filters.categoryId ?? ""}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      categoryId: e.target.value === "" ? null : e.target.value,
+                      // Une sous-catégorie appartient à une catégorie :
+                      // changer de catégorie rendrait le filtre de
+                      // sous-catégorie incohérent, il est donc remis à
+                      // zéro plutôt que de produire zéro résultat
+                      // inexplicable.
+                      subcategoryId: null,
+                    })
+                  }
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="">{t("mcFilterAll")}</option>
+                  {filterOptions.categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="filter-subcategory" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("mcFilterSubcategory")}
+                </label>
+                <select
+                  id="filter-subcategory"
+                  data-testid="filter-subcategory"
+                  value={filters.subcategoryId ?? ""}
+                  onChange={(e) =>
+                    setFilters({ ...filters, subcategoryId: e.target.value === "" ? null : e.target.value })
+                  }
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="">{t("mcFilterAll")}</option>
+                  {filterOptions.subcategories
+                    .filter((sc) => filters.categoryId === null || sc.categoryId === filters.categoryId)
+                    .map((sc) => (
+                      <option key={sc.id} value={sc.id}>{sc.name}</option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="filter-tag" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("mcFilterTag")}
+                </label>
+                <select
+                  id="filter-tag"
+                  data-testid="filter-tag"
+                  value={filters.tagId ?? ""}
+                  onChange={(e) => setFilters({ ...filters, tagId: e.target.value === "" ? null : e.target.value })}
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="">{t("mcFilterAll")}</option>
+                  {filterOptions.tags.map((tg) => (
+                    <option key={tg.id} value={tg.id}>{tg.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="filter-availability" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("mcFilterAvailability")}
+                </label>
+                <select
+                  id="filter-availability"
+                  data-testid="filter-availability"
+                  value={filters.available === null ? "" : filters.available ? "yes" : "no"}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      available: e.target.value === "" ? null : e.target.value === "yes",
+                    })
+                  }
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="">{t("mcFilterAll")}</option>
+                  <option value="yes">{t("mcFilterAvailableYes")}</option>
+                  <option value="no">{t("mcFilterAvailableNo")}</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="catalogue-sort" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("mcSortLabel")}
+                </label>
+                <select
+                  id="catalogue-sort"
+                  data-testid="catalogue-sort"
+                  value={filters.sort}
+                  onChange={(e) => setFilters({ ...filters, sort: e.target.value as SortKey })}
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="name-asc">{t("mcSortNameAsc")}</option>
+                  <option value="name-desc">{t("mcSortNameDesc")}</option>
+                  <option value="price-asc">{t("mcSortPriceAsc")}</option>
+                  <option value="price-desc">{t("mcSortPriceDesc")}</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-stone-700" data-testid="catalogue-result-count" aria-live="polite">
+                {t("mcResultCount", { shown: filteredProducts.length, total: flatProducts.length })}
+              </p>
+              {filtersActive && (
+                <button
+                  type="button"
+                  data-testid="catalogue-reset-filters"
+                  onClick={resetFilters}
+                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-800"
+                >
+                  {t("mcResetFilters")}
+                </button>
+              )}
+              <span className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  data-testid="catalogue-export-all"
+                  onClick={() => downloadXlsx("complet")}
+                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm text-stone-800"
+                >
+                  {t("mcExportAll")} ({flatProducts.length})
+                </button>
+                <button
+                  type="button"
+                  data-testid="catalogue-export-filtered"
+                  onClick={() => downloadXlsx("filtre")}
+                  className="rounded-xl border border-stone-300 px-3 py-1.5 text-sm text-stone-800"
+                >
+                  {t("mcExportFiltered")} ({filteredProducts.length})
+                </button>
+              </span>
+            </div>
+
+            {filteredProducts.length === 0 && (
+              <p className="rounded-xl bg-stone-100 p-3 text-sm text-stone-500" data-testid="catalogue-no-result">
+                {t("mcNoResult")}
+              </p>
+            )}
+          </div>
+        )}
+
+        {categoriesInContext.length === 0 && (
           <p className="rounded-xl bg-stone-100 p-4 text-sm text-stone-500">
             {showArchived ? t("mcEmptyArchived") : t("mcEmpty")}
           </p>
         )}
 
-        {categories.map((cat) => (
+        {categoriesInContext
+          .filter(
+            (cat) =>
+              // Sans filtre actif, le comportement historique est
+              // strictement conservé : toutes les catégories sont
+              // affichées, y compris les vides (le marchand doit
+              // pouvoir y créer un produit). Avec un filtre actif, une
+              // catégorie sans aucun produit retenu n'a rien à montrer
+              // et serait un titre vide de plus à faire défiler.
+              !filtersActive ||
+              cat.products.some((p) => visibleProductIds.has(p.product_id)) ||
+              cat.subcategories.some((sub) =>
+                sub.products.some((p) => visibleProductIds.has(p.product_id))
+              )
+          )
+          .map((cat) => (
           <section key={cat.category_id} className="mb-6">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
@@ -1141,7 +1713,9 @@ export default function CataloguePage() {
             )}
 
             <ul className="space-y-2">
-              {cat.products.map((p) => renderProductRow(p, cat.subcategories))}
+              {orderForDisplay(cat.products).map((p) =>
+                renderProductRow(p, cat.subcategories)
+              )}
             </ul>
 
             {/* CATALOGUE / SUBCATEGORIES v1 -- chaque sous-catégorie de
@@ -1149,7 +1723,12 @@ export default function CataloguePage() {
                 produits directs ci-dessus. Tableau vide pour tout
                 commerçant sans sous-catégorie (comportement historique
                 strictement inchangé). */}
-            {cat.subcategories.map((sub) => (
+            {cat.subcategories
+              .filter(
+                (sub) =>
+                  !filtersActive || sub.products.some((p) => visibleProductIds.has(p.product_id))
+              )
+              .map((sub) => (
               <div key={sub.subcategory_id} className="mt-4">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h3 className="truncate text-xs font-bold uppercase tracking-wide text-stone-600">
@@ -1172,7 +1751,9 @@ export default function CataloguePage() {
                 )}
 
                 <ul className="space-y-2">
-                  {sub.products.map((p) => renderProductRow(p, cat.subcategories))}
+                  {orderForDisplay(sub.products).map((p) =>
+                    renderProductRow(p, cat.subcategories)
+                  )}
                 </ul>
               </div>
             ))}
@@ -1199,6 +1780,165 @@ export default function CataloguePage() {
  * que déclencher l'action et refléter son état (busy), sans dupliquer
  * de logique de validation.
  */
+
+/**
+ * CATALOGUE MANAGEMENT UX v1 -- champ à LIBELLÉ PERSISTANT.
+ *
+ * Avant ce lot, les champs du formulaire produit n'avaient qu'un
+ * `placeholder` comme libellé. Un placeholder DISPARAÎT dès qu'une
+ * valeur est saisie : un produit enregistré s'affichait donc comme une
+ * colonne de valeurs nues -- « 5.4 / Raclette / 5.5 / 200 » -- que
+ * seul quelqu'un connaissant l'ordre des champs pouvait interpréter.
+ * Le prix, le taux de TVA et le poids étaient en particulier
+ * indiscernables.
+ *
+ * Le libellé est ici un vrai <label> lié au champ par `htmlFor` : il
+ * reste visible en permanence ET il est associé au champ pour les
+ * lecteurs d'écran, ce qu'un placeholder ne fait pas.
+ */
+function LabeledField({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-semibold text-stone-600">
+        {label}
+      </label>
+      {children}
+      {hint && <p className="mt-0.5 text-xs text-stone-400">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * CATALOGUE MANAGEMENT UX v1 -- affichage et édition des tags d'un
+ * produit, sur la fondation COLLECTIONS / TAGS déjà publiée.
+ *
+ * Consomme les contrats existants, sans second modèle de tags :
+ *   - `addProductTags` résout-ou-crée côté SERVEUR puis associe, de
+ *     façon idempotente et strictement additive -- ajouter un tag déjà
+ *     présent ne crée donc aucun doublon (le bouton reste inoffensif) ;
+ *   - `removeProductTag` retire UNE association, sans jamais supprimer
+ *     l'entité tag du tenant : le tag reste disponible pour les autres
+ *     produits.
+ *
+ * Le même champ sert à ajouter un tag EXISTANT (proposé par la liste
+ * de suggestions) et à en créer un nouveau : côté serveur c'est la
+ * même opération « résoudre ou créer », il n'y a donc aucune raison
+ * d'imposer deux gestes différents au marchand.
+ */
+function ProductTagsEditor({
+  productId,
+  tagNames,
+  tagIds,
+  knownTags,
+  onChanged,
+  t,
+}: {
+  productId: string;
+  tagNames: string[];
+  tagIds: string[];
+  knownTags: { id: string; name: string }[];
+  onChanged: () => void | Promise<void>;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setTagError(null);
+    try {
+      await fn();
+      await onChanged();
+    } catch (e) {
+      setTagError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-2.5" data-testid="product-tags-editor">
+      <p className="text-xs font-semibold text-stone-600">{t("mcProductTagsLabel")}</p>
+
+      {tagNames.length === 0 ? (
+        <p className="text-xs text-stone-400" data-testid="product-tags-empty">
+          {t("mcProductTagsNone")}
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5">
+          {tagNames.map((name, i) => (
+            <li key={tagIds[i] ?? name}>
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs text-stone-800 ring-1 ring-stone-300">
+                <span data-testid="product-tag-name">{name}</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  data-testid="product-tag-remove"
+                  data-tag-id={tagIds[i]}
+                  aria-label={t("mcProductTagRemove", { name })}
+                  onClick={() => run(() => removeProductTag(productId, tagIds[i]))}
+                  className="text-stone-500 hover:text-red-700"
+                >
+                  ×
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          list="product-tag-suggestions"
+          value={input}
+          disabled={busy}
+          data-testid="product-tag-input"
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={t("mcProductTagNewPlaceholder")}
+          aria-label={t("mcProductTagAdd")}
+          className="min-w-0 flex-1 rounded-xl border border-stone-300 p-2 text-sm"
+        />
+        <datalist id="product-tag-suggestions">
+          {knownTags.map((tg) => (
+            <option key={tg.id} value={tg.name} />
+          ))}
+        </datalist>
+        <button
+          type="button"
+          disabled={busy || input.trim() === ""}
+          data-testid="product-tag-add"
+          onClick={() =>
+            run(async () => {
+              await addProductTags(productId, [input.trim()]);
+              setInput("");
+            })
+          }
+          className="rounded-xl border border-stone-300 px-3 py-2 text-sm font-medium text-stone-800 disabled:text-stone-400"
+        >
+          {t("mcProductTagAdd")}
+        </button>
+      </div>
+
+      {tagError && (
+        <p className="text-xs font-semibold text-amber-700" data-testid="product-tag-error">
+          {tagError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProductPhotoField({
   productId,
   imageUrl,
@@ -1581,15 +2321,22 @@ function ProductForm({
         </div>
       )}
 
-      <input
-        value={draft.name}
-        onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-        placeholder={labels.name}
-        className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
-      />
+      <LabeledField id="product-name" label={labels.name}>
+        <input
+          id="product-name"
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          placeholder={labels.name}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        />
+      </LabeledField>
 
       <div>
+        <label htmlFor="product-short-description" className="mb-1 block text-xs font-semibold text-stone-600">
+          {labels.shortDescription}
+        </label>
         <input
+          id="product-short-description"
           value={draft.shortDescription}
           onChange={(e) => setDraft({ ...draft, shortDescription: e.target.value })}
           placeholder={labels.shortDescription}
@@ -1609,7 +2356,11 @@ function ProductForm({
       </div>
 
       <div>
+        <label htmlFor="product-description" className="mb-1 block text-xs font-semibold text-stone-600">
+          {labels.description}
+        </label>
         <textarea
+          id="product-description"
           value={draft.description}
           onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           placeholder={labels.description}
@@ -1629,15 +2380,18 @@ function ProductForm({
         </p>
       </div>
 
-      <input
-        value={draft.price}
-        onChange={(e) =>
-          setDraft({ ...draft, price: e.target.value.replace(",", ".") })
-        }
-        inputMode="decimal"
-        placeholder={labels.price}
-        className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
-      />
+      <LabeledField id="product-price" label={labels.price}>
+        <input
+          id="product-price"
+          value={draft.price}
+          onChange={(e) =>
+            setDraft({ ...draft, price: e.target.value.replace(",", ".") })
+          }
+          inputMode="decimal"
+          placeholder={labels.price}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        />
+      </LabeledField>
 
       {/* CATALOGUE / SUBCATEGORIES v1 -- placement optionnel du
           produit dans une sous-catégorie de sa catégorie actuelle.
@@ -1645,7 +2399,9 @@ function ProductForm({
           sous-catégorie : un commerçant qui n'en utilise aucune ne
           voit jamais ce sélecteur (formulaire inchangé). */}
       {subcategories.length > 0 && (
+        <LabeledField id="product-subcategory" label={t("mcProductSubcategoryLabel")}>
         <select
+          id="product-subcategory"
           value={draft.subcategoryId ?? ""}
           onChange={(e) =>
             setDraft({
@@ -1662,6 +2418,7 @@ function ProductForm({
             </option>
           ))}
         </select>
+        </LabeledField>
       )}
 
       {/* CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §8) --
@@ -1671,21 +2428,27 @@ function ProductForm({
           information catalogue/logistique, jamais un second calcul de
           prix (mandat §11). */}
       <div className="space-y-2 rounded-xl border border-stone-200 bg-stone-50 p-2.5">
-        <input
-          value={draft.taxRate}
-          onChange={(e) => setDraft({ ...draft, taxRate: e.target.value.replace(",", ".") })}
-          inputMode="decimal"
-          placeholder={t("fiscalTaxRateLabel")}
-          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
-        />
+        <LabeledField id="product-tax-rate" label={t("fiscalTaxRateLabel")}>
+          <input
+            id="product-tax-rate"
+            value={draft.taxRate}
+            onChange={(e) => setDraft({ ...draft, taxRate: e.target.value.replace(",", ".") })}
+            inputMode="decimal"
+            placeholder={t("fiscalTaxRateLabel")}
+            className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+          />
+        </LabeledField>
 
-        <input
-          value={draft.unitWeightGrams}
-          onChange={(e) => setDraft({ ...draft, unitWeightGrams: e.target.value })}
-          inputMode="numeric"
-          placeholder={t("fiscalUnitWeightLabel")}
-          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
-        />
+        <LabeledField id="product-unit-weight" label={t("fiscalUnitWeightLabel")}>
+          <input
+            id="product-unit-weight"
+            value={draft.unitWeightGrams}
+            onChange={(e) => setDraft({ ...draft, unitWeightGrams: e.target.value })}
+            inputMode="numeric"
+            placeholder={t("fiscalUnitWeightLabel")}
+            className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+          />
+        </LabeledField>
 
         <label className="flex items-center gap-2 text-sm text-stone-700">
           <input
@@ -1696,12 +2459,23 @@ function ProductForm({
           {t("fiscalWeightIsApproximateLabel")}
         </label>
 
-        {referencePreview !== null && (
-          <p className="text-xs text-stone-500">
-            {t("fiscalReferencePricePerKgLabel")}: <Ltr>{referencePreview.toFixed(2)}</Ltr>
-            {t("fiscalPerKgSuffix")}
-          </p>
-        )}
+        {/* CATALOGUE MANAGEMENT UX v1 -- le libellé du prix de
+            référence est désormais TOUJOURS affiché (mandat §4 le
+            liste parmi les champs devant porter un libellé explicite).
+            Auparavant, faute de poids saisi, la ligne disparaissait
+            entièrement et le marchand ne savait pas que cette donnée
+            existait. La valeur reste, elle, calculée par la base. */}
+        <p className="text-xs text-stone-500" data-testid="reference-price-per-kg">
+          {t("fiscalReferencePricePerKgLabel")}:{" "}
+          {referencePreview !== null ? (
+            <>
+              <Ltr>{referencePreview.toFixed(2)}</Ltr>
+              {t("fiscalPerKgSuffix")}
+            </>
+          ) : (
+            "—"
+          )}
+        </p>
 
         {fiscalError && (
           <p className="text-xs font-semibold text-amber-700">{fiscalErrorMessage(fiscalError, t)}</p>

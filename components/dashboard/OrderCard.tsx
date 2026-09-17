@@ -5,6 +5,7 @@ import { printReceipt } from "@/lib/receipt";
 import { translate, type Lang } from "@/lib/i18n";
 import { formatElapsedMinutesFr } from "@/lib/format-elapsed-time";
 import { formatPrice } from "@/lib/whatsapp";
+import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
 const STATUS_KEY: Record<OrderStatus, string> = {
@@ -168,6 +169,20 @@ export default function OrderCard({
    * appelant historique) neutralise la seule vérification
    * d'appartenance -- voir la documentation de la prop ci-dessus.
    */
+  /**
+   * TVA / HT / TTC COMPLETION v1 (§4, §6) -- résumé fiscal de la
+   * commande, issu du CONTRAT UNIQUE partagé avec le ticket imprimé et,
+   * demain, la facture. Aucun calcul n'est refait ici : le composant
+   * n'affiche que ce que `computeOrderFiscalSummary` retourne, donc
+   * back-office et ticket ne peuvent pas diverger.
+   *
+   * Pas de repli sur les réglages courants pour le libellé : dans le
+   * back-office la commande est la seule source affichée, et une
+   * commande sans instantané fiscal tombe de toute façon dans le mode
+   * `unavailable` (aucune TVA fabriquée -- mandat §3).
+   */
+  const fiscal = computeOrderFiscalSummary(order);
+
   const ownershipSatisfied =
     printRestaurantId === undefined ||
     (printRestaurantId !== null && order.restaurant_id === printRestaurantId);
@@ -301,6 +316,73 @@ export default function OrderCard({
           </p>
         </div>
       )}
+
+      {/*
+        * §6 -- récapitulatif fiscal compact. Le gérant ne doit déduire
+        * aucune valeur : HT, TVA et TTC sont affichés explicitement, et
+        * le détail par taux apparaît dès qu'il y a plusieurs taux.
+        * Aucune refonte de la page commande (mandat §6).
+        */}
+      <div
+        data-fiscal-mode={fiscal.mode}
+        className="mt-4 rounded-xl bg-stone-50 p-3 text-sm text-stone-700"
+      >
+        {fiscal.mode === "unavailable" ? (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-stone-500">{t("dsVatUnavailable")}</span>
+            <span data-fiscal="total-ttc" className="whitespace-nowrap font-black">
+              {formatPrice(fiscal.totalGross, order.currency)}
+            </span>
+          </div>
+        ) : (
+          <>
+            {fiscal.rates.filter((r) => r.rate > 0).length > 1 && (
+              <div className="mb-2 border-b border-stone-200 pb-2">
+                <p className="mb-1 text-xs font-bold uppercase tracking-wide text-stone-500">
+                  {t("dsVatDetail")}
+                </p>
+                {fiscal.rates
+                  .filter((r) => r.rate > 0)
+                  .map((r) => (
+                    <div key={r.rate} data-fiscal-rate={r.rate} className="flex justify-between gap-3 text-xs">
+                      <span className="font-semibold">{r.rate}%</span>
+                      <span className="whitespace-nowrap text-stone-500">
+                        {t("dsVatBase")} {formatPrice(r.net, order.currency)}
+                      </span>
+                      <span data-fiscal="rate-tax" className="whitespace-nowrap">
+                        {t("dsVat")} {formatPrice(r.tax, order.currency)}
+                      </span>
+                      <span className="whitespace-nowrap font-semibold">
+                        {formatPrice(r.gross, order.currency)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+            <div className="flex justify-between gap-3">
+              <span>{t("dsTotalHt")}</span>
+              <span data-fiscal="total-ht" className="whitespace-nowrap font-semibold">
+                {formatPrice(fiscal.totalNet, order.currency)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>
+                {t("dsVat")}
+                {fiscal.mode === "flat-rate" ? ` ${fiscal.rate}%` : ""}
+              </span>
+              <span data-fiscal="total-vat" className="whitespace-nowrap font-semibold">
+                {formatPrice(fiscal.totalTax, order.currency)}
+              </span>
+            </div>
+            <div className="mt-1 flex justify-between gap-3 border-t border-stone-200 pt-1">
+              <span className="font-bold">{t("dsTotalTtc")}</span>
+              <span data-fiscal="total-ttc" className="whitespace-nowrap font-black">
+                {formatPrice(fiscal.totalGross, order.currency)}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="mt-4 flex items-center justify-between">
         <span className="text-lg font-black">{formatPrice(Number(order.total), order.currency)}</span>
