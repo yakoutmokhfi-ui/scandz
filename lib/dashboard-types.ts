@@ -169,6 +169,25 @@ export interface DashboardOrderInvoiceRequest {
 }
 
 /**
+ * ORDERS OPERATOR READ v1 -- ligne de get_operator_restaurant_orders.
+ * Liste FIGÉE des champs approuvés : aucune donnée client (nom,
+ * e-mail, téléphone, adresse), aucune ligne de commande, aucun
+ * contenu de demande de facture.
+ */
+export interface OperatorOrderSummary {
+  id: string;
+  order_number: number;
+  status: OrderStatus;
+  service_mode: ServiceMode;
+  created_at: string;
+  updated_at: string;
+  total: number;
+  currency: string;
+  item_count: number;
+  has_invoice_request: boolean;
+}
+
+/**
  * Dashboard Delivery Pricing v1 — forme MARCHAND, volontairement
  * DISTINCTE de `PublicDeliveryFulfillmentRule` (lib/sale-modes-types.ts,
  * client-facing, lecture seule) pour ne pas coupler les deux

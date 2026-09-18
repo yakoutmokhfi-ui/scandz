@@ -331,9 +331,10 @@ test("archi: .env.example documente TRACKING_SESSION_SECRET (v2, serveur uniquem
 // tests/v122a-tracking-status.test.ts et tests/v122d-tracking-service.test.ts).
 // --------------------------------------------------------------
 
-test("archi: lib/server/tracking-service.ts appelle EXCLUSIVEMENT la RPC publiée get_order_tracking(uuid,uuid) -- aucune autorité order-number/email/merchant-slug introduite (mandat §5)", () => {
+test("archi: lib/server/tracking-service.ts appelle EXCLUSIVEMENT les RPC v3.1 get_order_tracking_by_capability (lecture liée) et upgrade_legacy_tracking_capability (échange one-shot) -- aucune autorité order-number/email/merchant-slug introduite (mandat §5)", () => {
   const src = readFileSync("lib/server/tracking-service.ts", "utf8");
-  assert.match(src, /supabase\.rpc\(\s*["']get_order_tracking["']/, "l'appel RPC get_order_tracking doit rester présent tel quel");
+  const rpcNames = [...src.matchAll(/supabase\.rpc\(\s*["']([a-z_]+)["']/g)].map((m) => m[1]).sort();
+  assert.deepEqual(rpcNames, ["get_order_tracking_by_capability", "upgrade_legacy_tracking_capability"]);
   assert.equal(/order_number\s*[:=].*(lookup|authority|where)/i.test(src), false);
   assert.equal(/merchant[_-]?slug/i.test(src), false, "aucune autorité par slug marchand ne doit être introduite");
 });

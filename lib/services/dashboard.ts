@@ -4,6 +4,7 @@ import type {
   MerchantDeliveryFulfillmentPricingRule,
   MerchantPaymentProviderConfig,
   MerchantRestaurant,
+  OperatorOrderSummary,
   OrderStatus,
   ReceiptSettings,
 } from "@/lib/dashboard-types";
@@ -101,6 +102,41 @@ export async function getDashboardOrders(
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as DashboardOrder[];
+}
+
+/**
+ * ORDERS OPERATOR READ v1 -- liste MINIMALE et en LECTURE SEULE des
+ * commandes d'un restaurant pour un opérateur Scanym, via la RPC
+ * SECURITY DEFINER get_operator_restaurant_orders
+ * (supabase/DRAFT-lot-orders-operator-read-v1.sql). L'autorité vient
+ * UNIQUEMENT de is_scanym_operator() côté SQL, jamais d'une
+ * membership restaurant_users. Aucune donnée client n'est retournée.
+ *
+ * Une erreur est TOUJOURS propagée : l'appelant ne doit jamais se
+ * rabattre sur getDashboardOrders (lecture marchande, RLS
+ * is_member_of) qui renverrait silencieusement une liste vide.
+ */
+export async function getOperatorRestaurantOrders(
+  restaurantId: string,
+  includeCompleted = false
+): Promise<OperatorOrderSummary[]> {
+  const { data, error } = await supabase.rpc("get_operator_restaurant_orders", {
+    p_restaurant_id: restaurantId,
+    p_include_completed: includeCompleted,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as OperatorOrderSummary[]).map((row) => ({
+    id: row.id,
+    order_number: Number(row.order_number),
+    status: row.status,
+    service_mode: row.service_mode,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    total: Number(row.total),
+    currency: row.currency,
+    item_count: Number(row.item_count),
+    has_invoice_request: row.has_invoice_request === true,
+  }));
 }
 
 export async function updateOrderStatus(

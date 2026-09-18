@@ -11,10 +11,11 @@ import assert from "node:assert/strict";
 process.env.SCANYM_PUBLIC_ORIGIN ??= "https://app.scanym.example";
 
 const { renderOrderReceivedEmail } = await import("../lib/server/notifications/order-received-template.ts");
-const { buildTrackingPath } = await import("../lib/tracking/link.ts");
+const { buildCapabilityTrackingPath } = await import("../lib/tracking/link.ts");
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
-const TOKEN = "22222222-2222-4222-8222-222222222222";
+const CAP_ID = "22222222-2222-4222-8222-222222222222";
+const SECRET = "ab".repeat(32);
 
 function baseInput(overrides: Partial<Parameters<typeof renderOrderReceivedEmail>[0]> = {}) {
   return {
@@ -25,7 +26,8 @@ function baseInput(overrides: Partial<Parameters<typeof renderOrderReceivedEmail
     currency: "EUR",
     serviceMode: "pickup",
     orderId: ORDER_ID,
-    publicToken: TOKEN,
+    trackingCapabilityId: CAP_ID,
+    trackingSecret: SECRET,
     ...overrides,
   };
 }
@@ -39,7 +41,7 @@ test("FR : objet, corps et lien de suivi corrects", () => {
   assert.match(rendered.html, /Montant total/);
   assert.match(rendered.html, /24,90/); // Intl.NumberFormat("fr-FR") group/decimal separators
   assert.match(rendered.text, /Commande reçue/);
-  const expectedPath = buildTrackingPath(ORDER_ID, TOKEN);
+  const expectedPath = buildCapabilityTrackingPath(ORDER_ID, CAP_ID, SECRET);
   assert.ok(rendered.html.includes(`https://app.scanym.example${expectedPath}`));
   assert.ok(rendered.text.includes(`https://app.scanym.example${expectedPath}`));
 });
@@ -78,12 +80,15 @@ test("HTML SECURITY : le nom d'expéditeur marchand est échappé, jamais interp
   assert.match(rendered.html, /&quot;/);
 });
 
-test("tracking link reuse : utilise EXACTEMENT buildTrackingPath (jamais un second système de jeton)", () => {
+test("tracking link v3.1 : capacité réutilisable en FRAGMENT uniquement (buildCapabilityTrackingPath), jamais un public_token legacy", () => {
   const rendered = renderOrderReceivedEmail(baseInput());
-  const expectedPath = buildTrackingPath(ORDER_ID, TOKEN);
-  // Le chemin de suivi apparaît tel quel -- même construction que
-  // components/OrderConfirmation.tsx / app/track/[orderId]/page.tsx.
+  const expectedPath = buildCapabilityTrackingPath(ORDER_ID, CAP_ID, SECRET);
   assert.ok(rendered.html.includes(expectedPath));
+  assert.ok(expectedPath.startsWith(`/track/${ORDER_ID}#c1.`));
+  const url = new URL(`https://app.scanym.example${expectedPath}`);
+  assert.equal(url.pathname, `/track/${ORDER_ID}`);
+  assert.equal(url.search, "");
+  assert.equal(url.pathname.includes(SECRET) || url.pathname.includes(CAP_ID), false);
 });
 
 test("le total 0 est rendu (jamais confondu avec absent) -- même convention que la page de suivi", () => {

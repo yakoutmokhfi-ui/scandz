@@ -7,6 +7,7 @@ import {
 } from "@/lib/server/tracking-errors";
 import { isCanonicalOrderStatus, type OrderStatus } from "@/lib/tracking/status";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
+import { isPlausibleCapabilitySecret } from "@/lib/tracking/capability";
 
 /**
  * CUSTOMER TRACKING EXPERIENCE v1 — enveloppe TYPÉE et SERVEUR autour
@@ -51,11 +52,32 @@ import { isPlausibleUuid } from "@/lib/tracking/uuid";
  * lib/server/payment-service.ts::getOrderPaymentContext) : seul un
  * indicateur de succès/échec GÉNÉRIQUE (booléen "empty result" ou
  * SQLSTATE) est éventuellement consigné.
+ *
+ * CUSTOMER TRACKING v3.1 (supabase/DRAFT-lot-customer-tracking-
+ * capability-v3-1.sql) : la LECTURE passe désormais EXCLUSIVEMENT par
+ * `get_order_tracking_by_capability(p_order_id, p_capability_id,
+ * p_secret)` -- capacité liée à la commande côté SQL, ET re-vérifiée
+ * ici (`bound_order_id` doit être la commande demandée). Le
+ * `public_token` legacy n'est plus utilisé qu'une fois, par
+ * `upgradeLegacyTrackingCapability` (échange one-shot appelé depuis le
+ * corps POST de app/api/track/exchange/route.ts). Le secret de
+ * capacité n'est jamais journalisé non plus.
  */
 
 export interface OrderTrackingInput {
   orderId: string;
+  capabilityId: string;
+  secret: string;
+}
+
+export interface LegacyUpgradeInput {
+  orderId: string;
   publicToken: string;
+}
+
+export interface TrackingCapability {
+  capabilityId: string;
+  secret: string;
 }
 
 export interface OrderTracking {
@@ -95,6 +117,7 @@ export interface OrderTracking {
 }
 
 interface OrderTrackingRow {
+  bound_order_id: string | null;
   order_status: string;
   service_mode: string;
   order_number: number | string;
@@ -110,12 +133,18 @@ interface OrderTrackingRow {
   invoice_requested: boolean | null;
 }
 
+interface TrackingCapabilityRow {
+  capability_id: string | null;
+  capability_secret: string | null;
+}
+
 /**
- * Lit le suivi d'une commande par sa preuve de possession.
+ * Lit le suivi d'une commande par sa capacité de suivi v3.1.
  *
  * Rejette IMMÉDIATEMENT, SANS appel réseau, une entrée dont la FORME
- * n'est même pas un UUID plausible (mandat §25/§34, "NULL/malformed
- * route input -> safe failure") -- avec EXACTEMENT la même erreur
+ * n'est même pas plausible (UUID pour order_id/capability_id, 64 hex
+ * pour le secret -- mandat §25/§34, "NULL/malformed route input -> safe
+ * failure") -- avec EXACTEMENT la même erreur
  * (`TrackingLinkInvalidError`, message générique) qu'un couple bien
  * formé mais incorrect, pour ne jamais introduire de distinction
  * observable entre "malformé" et "bien formé mais faux" (mandat §25,
@@ -135,30 +164,45 @@ interface OrderTrackingRow {
 export async function getOrderTracking(
   input: OrderTrackingInput
 ): Promise<OrderTracking> {
-  if (!isPlausibleUuid(input.orderId) || !isPlausibleUuid(input.publicToken)) {
+  if (
+    !isPlausibleUuid(input.orderId) ||
+    !isPlausibleUuid(input.capabilityId) ||
+    !isPlausibleCapabilitySecret(input.secret)
+  ) {
     throw new TrackingLinkInvalidError();
   }
 
   let data: OrderTrackingRow[] | OrderTrackingRow | null;
   let error: PostgrestError | null;
   try {
-    ({ data, error } = await supabase.rpc("get_order_tracking", {
+    ({ data, error } = await supabase.rpc("get_order_tracking_by_capability", {
       p_order_id: input.orderId,
-      p_public_token: input.publicToken,
+      p_capability_id: input.capabilityId,
+      p_secret: input.secret,
     }));
   } catch {
     throw new TrackingServerUnavailableError();
   }
 
   if (error) {
-    logRpcFailure(error.code);
+    logRpcFailure("get_order_tracking_by_capability", error.code);
     throw new TrackingServerUnavailableError();
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) {
-    // Résultat vide SANS erreur : couple possession incorrect --
+    // Résultat vide SANS erreur : capacité incorrecte --
     // jamais une panne serveur (mandat §25, catégorie séparée).
+    throw new TrackingLinkInvalidError();
+  }
+
+  // v3.1 : vérification INDÉPENDANTE de la liaison capacité/commande,
+  // en plus du prédicat SQL -- une ligne liée à une autre commande
+  // n'est jamais rendue.
+  if (
+    typeof row.bound_order_id !== "string" ||
+    row.bound_order_id.toLowerCase() !== input.orderId.toLowerCase()
+  ) {
     throw new TrackingLinkInvalidError();
   }
 
@@ -169,7 +213,7 @@ export async function getOrderTracking(
     // lib/server/payment-service.ts). Ne devrait jamais se produire
     // tant que le garde de dérive SQL du lot FOUNDATION reste en
     // place ; défensif, pas une hypothèse de schéma non vérifiée.
-    logRpcFailure("UNEXPECTED_ORDER_STATUS");
+    logRpcFailure("get_order_tracking_by_capability", "UNEXPECTED_ORDER_STATUS");
     throw new TrackingServerUnavailableError();
   }
 
@@ -199,9 +243,55 @@ export async function getOrderTracking(
   };
 }
 
-/** Jamais order_id/public_token -- uniquement un SQLSTATE ou un
- *  marqueur interne fixe, même discipline que
+/**
+ * CUSTOMER TRACKING v3.1 — échange ONE-SHOT de la preuve legacy
+ * (`order_id` + `public_token`) contre une capacité de suivi liée à la
+ * commande (`upgrade_legacy_tracking_capability`).
+ *
+ * Le secret n'est renvoyé par la RPC qu'au PREMIER appel réussi ; tout
+ * rejeu (capacité déjà réclamée), toute paire incorrecte et toute
+ * entrée malformée produisent la MÊME `TrackingLinkInvalidError` --
+ * jamais de distinction observable, jamais de réémission.
+ */
+export async function upgradeLegacyTrackingCapability(
+  input: LegacyUpgradeInput
+): Promise<TrackingCapability> {
+  if (!isPlausibleUuid(input.orderId) || !isPlausibleUuid(input.publicToken)) {
+    throw new TrackingLinkInvalidError();
+  }
+
+  let data: TrackingCapabilityRow[] | TrackingCapabilityRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await supabase.rpc("upgrade_legacy_tracking_capability", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    }));
+  } catch {
+    throw new TrackingServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("upgrade_legacy_tracking_capability", error.code);
+    throw new TrackingServerUnavailableError();
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw new TrackingLinkInvalidError();
+  }
+
+  if (!isPlausibleUuid(row.capability_id) || !isPlausibleCapabilitySecret(row.capability_secret)) {
+    logRpcFailure("upgrade_legacy_tracking_capability", "UNEXPECTED_CAPABILITY_SHAPE");
+    throw new TrackingServerUnavailableError();
+  }
+
+  return { capabilityId: row.capability_id, secret: row.capability_secret };
+}
+
+/** Jamais order_id/public_token/secret -- uniquement le nom fixe de la
+ *  RPC et un SQLSTATE ou un marqueur interne fixe, même discipline que
  *  lib/server/payment-service.ts::logRpcFailure. */
-function logRpcFailure(sqlstate: string | null | undefined): void {
-  console.error(`[tracking-service] get_order_tracking a échoué (SQLSTATE=${sqlstate ?? "?"})`);
+function logRpcFailure(rpcName: string, sqlstate: string | null | undefined): void {
+  console.error(`[tracking-service] ${rpcName} a échoué (SQLSTATE=${sqlstate ?? "?"})`);
 }

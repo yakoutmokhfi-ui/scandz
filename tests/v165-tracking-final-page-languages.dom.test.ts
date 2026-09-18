@@ -33,8 +33,10 @@ const { createTrackingSessionToken, TRACKING_SESSION_COOKIE_NAME } = await impor
 );
 
 const ORDER_ID = "33333333-3333-4333-8333-333333333333";
-const TOKEN = "44444444-4444-4444-8444-444444444444";
-const SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, TOKEN);
+// CUSTOMER TRACKING v3.1 : the session carries the tracking capability.
+const CAP_ID = "44444444-4444-4444-8444-444444444444";
+const SECRET = "34".repeat(32);
+const SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, CAP_ID, SECRET);
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: `http://localhost/track/${ORDER_ID}`,
@@ -149,6 +151,7 @@ const { TrackingPage } = await import(pathToFileURL(tmpFile).href);
 rmSync(tmpDir, { recursive: true, force: true });
 
 const VALID_ROW = {
+  bound_order_id: ORDER_ID,
   order_status: "preparing",
   service_mode: "table",
   order_number: 77,
@@ -192,7 +195,7 @@ async function renderTrackingPage(lang?: string) {
 
 test("mandat « tracking FR » : sans ?lang= (repli par défaut), la page de suivi affiche le statut en français", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") return { data: [VALID_ROW], error: null };
+    if (name === "get_order_tracking_by_capability") return { data: [VALID_ROW], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 
@@ -212,7 +215,7 @@ test("mandat « tracking FR » : sans ?lang= (repli par défaut), la page de sui
 
 test("mandat « tracking EN » : ?lang=en -- la page de suivi affiche le statut en anglais", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") return { data: [VALID_ROW], error: null };
+    if (name === "get_order_tracking_by_capability") return { data: [VALID_ROW], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 
@@ -231,7 +234,7 @@ test("mandat « tracking EN » : ?lang=en -- la page de suivi affiche le statut 
 
 test("mandat « tracking AR » : ?lang=ar -- CORRECTIF de ce lot -- la page de suivi affiche RÉELLEMENT le statut en arabe (auparavant repliée silencieusement sur le français, voir resolveLang avant correctif)", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") return { data: [VALID_ROW], error: null };
+    if (name === "get_order_tracking_by_capability") return { data: [VALID_ROW], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 

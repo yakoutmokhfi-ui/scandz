@@ -38,8 +38,10 @@ const { createTrackingSessionToken, TRACKING_SESSION_COOKIE_NAME } = await impor
 );
 
 const ORDER_ID = "55555555-5555-4555-8555-555555555555";
-const TOKEN = "66666666-6666-4666-8666-666666666666";
-const SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, TOKEN);
+// CUSTOMER TRACKING v3.1 : la session porte la capacité de suivi.
+const CAP_ID = "66666666-6666-4666-8666-666666666666";
+const SECRET = "12".repeat(32);
+const SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, CAP_ID, SECRET);
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: `http://localhost/track/${ORDER_ID}`,
@@ -154,6 +156,7 @@ const { TrackingPage } = await import(pathToFileURL(tmpFile).href);
 rmSync(tmpDir, { recursive: true, force: true });
 
 const BASE_ROW = {
+  bound_order_id: ORDER_ID,
   order_status: "new",
   service_mode: "pickup",
   order_number: 88,
@@ -185,7 +188,7 @@ async function renderTrackingPage() {
 
 test("mandat « invoice-request false » (page réelle) : invoice_requested=false -- AUCUN indicateur de facture rendu, jamais un état « en cours » par défaut", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") {
+    if (name === "get_order_tracking_by_capability") {
       return {
         data: [{ ...BASE_ROW, order_total: 10, order_currency: "EUR", invoice_requested: false }],
         error: null,
@@ -205,7 +208,7 @@ test("mandat « invoice-request false » (page réelle) : invoice_requested=fals
 
 test("mandat « authoritative historical total returned » (page réelle) : order_total/order_currency null (défensif -- ne devrait structurellement jamais se produire) -- AUCUNE ligne de montant rendue, jamais un montant inventé", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") {
+    if (name === "get_order_tracking_by_capability") {
       return {
         data: [{ ...BASE_ROW, order_total: null, order_currency: null, invoice_requested: false }],
         error: null,
@@ -224,7 +227,7 @@ test("mandat « authoritative historical total returned » (page réelle) : orde
 
 test("mandat « authoritative historical total returned » (page réelle) : order_total=0 -- la ligne EST rendue (0 est une valeur légitime, jamais confondue avec « absent », même convention que components/OrderConfirmation.tsx)", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") {
+    if (name === "get_order_tracking_by_capability") {
       return {
         data: [{ ...BASE_ROW, order_total: 0, order_currency: "EUR", invoice_requested: false }],
         error: null,

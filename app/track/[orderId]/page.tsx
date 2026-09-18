@@ -35,11 +35,12 @@ import Ltr from "@/components/Bidi";
  * possession n'apparaît plus JAMAIS dans le chemin de requête HTTP
  * envoyé au serveur -- voir TOKEN-TRANSPORT-SECURITY-REPORT.txt.
  *
- * Server Component DÉLIBÉRÉMENT (mandat §5/§40) : la lecture de
- * `get_order_tracking` se fait entièrement côté serveur, à partir
- * d'une preuve de possession reconstituée depuis le COOKIE DE SESSION
- * HttpOnly (lib/server/tracking-session.ts) -- jamais depuis l'URL, et
- * jamais lisible par du JavaScript navigateur.
+ * Server Component DÉLIBÉRÉMENT (mandat §5/§40) : la lecture du suivi
+ * se fait entièrement côté serveur (v3.1 :
+ * `get_order_tracking_by_capability`), à partir de la capacité de
+ * suivi reconstituée depuis le COOKIE DE SESSION HttpOnly
+ * (lib/server/tracking-session.ts) -- jamais depuis l'URL, et jamais
+ * lisible par du JavaScript navigateur.
  *
  * `force-dynamic` (mandat §21, "no cache of private content") --
  * inchangé depuis v1. Combiné à `next.config.mjs`
@@ -128,7 +129,11 @@ export default async function TrackingPage({
 
   let tracking;
   try {
-    tracking = await getOrderTracking({ orderId: session.orderId, publicToken: session.publicToken });
+    tracking = await getOrderTracking({
+      orderId: session.orderId,
+      capabilityId: session.capabilityId,
+      secret: session.secret,
+    });
   } catch (err) {
     if (err instanceof TrackingLinkInvalidError) {
       return (

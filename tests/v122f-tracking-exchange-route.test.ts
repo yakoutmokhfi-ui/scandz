@@ -34,18 +34,12 @@ const { verifyTrackingSessionToken, TRACKING_SESSION_COOKIE_NAME } = await impor
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "22222222-2222-4222-8222-222222222222";
 
-const VALID_ROW = {
-  order_status: "ready",
-  service_mode: "pickup",
-  order_number: 104,
-  created_at: "2026-01-01T10:00:00Z",
-  accepted_at: "2026-01-01T10:05:00Z",
-  preparing_at: "2026-01-01T10:10:00Z",
-  ready_at: "2026-01-01T10:20:00Z",
-  completed_at: null,
-  rejected_at: null,
-  cancelled_at: null,
-};
+// CUSTOMER TRACKING v3.1 : le handler n'appelle plus get_order_tracking
+// mais l'échange one-shot upgrade_legacy_tracking_capability, qui
+// renvoie la capacité (id + secret) une seule fois.
+const CAP_ID = "33333333-3333-4333-8333-333333333333";
+const SECRET = "ef".repeat(32);
+const VALID_ROW = { capability_id: CAP_ID, capability_secret: SECRET };
 
 function makeRequest(body: unknown): InstanceType<typeof NextRequest> {
   return new NextRequest("https://example.com/api/track/exchange", {
@@ -127,7 +121,9 @@ test("mandat §30.E : preuve de possession valide -- session établie (cookie Se
   assert.ok(setCookie, "un en-tête Set-Cookie doit être présent");
   assert.ok(setCookie!.startsWith(`${TRACKING_SESSION_COOKIE_NAME}=`));
   assert.ok(/HttpOnly/i.test(setCookie!), "HttpOnly requis (mandat §10)");
-  assert.ok(/SameSite=Strict/i.test(setCookie!), "SameSite=Strict requis");
+  // v3.1 : Lax -- le cookie doit accompagner la navigation GET de premier
+  // niveau depuis un webmail externe (voir route.ts + tests/v169).
+  assert.ok(/SameSite=Lax/i.test(setCookie!), "SameSite=Lax requis");
   assert.ok(
     setCookie!.includes(`Path=/track/${ORDER_ID}`),
     "Path doit être scindé par commande (mandat §10, 'narrow path where practical')"
@@ -139,6 +135,11 @@ test("mandat §30.E : preuve de possession valide -- session établie (cookie Se
   // CLAIR nulle part dans Set-Cookie -- ni dans la VALEUR du cookie
   // (chiffrée, lib/server/tracking-session.ts) ni dans ses attributs.
   assert.equal(setCookie!.includes(TOKEN), false, "le jeton ne doit jamais apparaître en clair dans Set-Cookie");
+  assert.equal(setCookie!.includes(SECRET), false, "le secret de capacité ne doit jamais apparaître en clair dans Set-Cookie");
+  assert.equal(setCookie!.includes(CAP_ID), false, "capability_id ne doit jamais apparaître en clair dans Set-Cookie");
+  // v3.1 : cookie PERSISTANT (réutilisable au-delà d'une session de
+  // navigateur) -- 30 jours.
+  assert.ok(/Max-Age=2592000(;|$)/i.test(setCookie!), `Max-Age de 30 jours attendu : ${setCookie}`);
   // order_id N'EST PAS un secret (il est déjà visible dans l'URL
   // /track/<order_id> elle-même) -- son apparition dans l'attribut
   // Path=/track/<order_id> est INTENTIONNELLE (mandat §10, "narrow
@@ -159,7 +160,60 @@ test("mandat §30.E : preuve de possession valide -- session établie (cookie Se
   // La session émise doit être RÉELLEMENT vérifiable et fidèle.
   const cookieValue = setCookie!.split(";")[0]!.split("=").slice(1).join("=");
   const verified = verifyTrackingSessionToken(cookieValue, ORDER_ID);
-  assert.deepEqual(verified, { orderId: ORDER_ID, publicToken: TOKEN });
+  assert.deepEqual(verified, { orderId: ORDER_ID, capabilityId: CAP_ID, secret: SECRET });
+});
+
+test("v3.1 : le handler appelle EXACTEMENT upgrade_legacy_tracking_capability (p_order_id/p_public_token) -- jamais get_order_tracking", async (t) => {
+  const calls: Array<{ name: string; args: unknown }> = [];
+  t.mock.method(supabase, "rpc", async (name: string, args: unknown) => {
+    calls.push({ name, args });
+    return { data: [VALID_ROW], error: null };
+  });
+  const res = await POST(makeRequest({ orderId: ORDER_ID, publicToken: TOKEN }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(calls, [
+    { name: "upgrade_legacy_tracking_capability", args: { p_order_id: ORDER_ID, p_public_token: TOKEN } },
+  ]);
+});
+
+test("v3.1 : REJEU du lien legacy (capacité déjà réclamée -> ensemble vide) -- réponse générique invalide, AUCUN cookie posé", async (t) => {
+  let n = 0;
+  t.mock.method(supabase, "rpc", async () => {
+    n += 1;
+    return n === 1 ? { data: [VALID_ROW], error: null } : { data: [], error: null };
+  });
+  const first = await POST(makeRequest({ orderId: ORDER_ID, publicToken: TOKEN }));
+  assert.equal(first.status, 200);
+  const replay = await POST(makeRequest({ orderId: ORDER_ID, publicToken: TOKEN }));
+  assert.equal(replay.status, 400);
+  assert.deepEqual(await replay.json(), { ok: false, reason: "invalid" });
+  assert.equal(replay.headers.get("set-cookie"), null, "un rejeu ne doit jamais obtenir de session");
+});
+
+test("v3.1 : TRACKING_SESSION_SECRET absent -- l'échange one-shot n'est JAMAIS consommé (aucun appel RPC)", async (t) => {
+  let called = false;
+  t.mock.method(supabase, "rpc", async () => {
+    called = true;
+    return { data: [VALID_ROW], error: null };
+  });
+  const saved = process.env.TRACKING_SESSION_SECRET;
+  try {
+    delete process.env.TRACKING_SESSION_SECRET;
+    const res = await POST(makeRequest({ orderId: ORDER_ID, publicToken: TOKEN }));
+    assert.equal(res.status, 503);
+  } finally {
+    process.env.TRACKING_SESSION_SECRET = saved;
+  }
+  assert.equal(called, false, "la capacité ne doit pas être mintée si elle ne peut pas être posée en cookie");
+});
+
+test("v3.1 : le corps de réponse ne renvoie JAMAIS la capacité (id/secret) ni le jeton legacy", async (t) => {
+  t.mock.method(supabase, "rpc", async () => ({ data: [VALID_ROW], error: null }));
+  const res = await POST(makeRequest({ orderId: ORDER_ID, publicToken: TOKEN }));
+  const text = await res.text();
+  assert.equal(text.includes(SECRET), false);
+  assert.equal(text.includes(CAP_ID), false);
+  assert.equal(text.includes(TOKEN), false);
 });
 
 test("mandat §30.F : jeton correctement formé mais possession incorrecte -- même comportement générique qu'un jeton malformé (aucune distinction observable)", async (t) => {
@@ -197,6 +251,7 @@ test("mandat §30.L : aucun appel de ce handler (succès ou échec) n'invoque co
   for (const call of logs) {
     const serialized = call.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
     assert.equal(serialized.includes(TOKEN), false, `le jeton ne doit jamais apparaître dans les logs : ${serialized}`);
+    assert.equal(serialized.includes(SECRET), false, `le secret de capacité ne doit jamais apparaître dans les logs : ${serialized}`);
     assert.equal(serialized.includes(ORDER_ID), false, `order_id ne doit jamais apparaître dans les logs : ${serialized}`);
   }
 });

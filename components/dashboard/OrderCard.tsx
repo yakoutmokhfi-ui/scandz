@@ -8,7 +8,7 @@ import { formatPrice } from "@/lib/whatsapp";
 import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
-const STATUS_KEY: Record<OrderStatus, string> = {
+export const STATUS_KEY: Record<OrderStatus, string> = {
   new: "dsNew",
   accepted: "dsAccepted",
   preparing: "dsPreparing",

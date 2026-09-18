@@ -1,5 +1,7 @@
 import "server-only";
 import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
+import { isPlausibleUuid } from "@/lib/tracking/uuid";
+import { isPlausibleCapabilitySecret } from "@/lib/tracking/capability";
 
 /**
  * N1-A — CUSTOMER EMAIL NOTIFICATION FOUNDATION + ORDER RECEIVED.
@@ -164,6 +166,49 @@ export async function completeNotificationAttempt(
   if (error) {
     throw new NotificationOutboxError(`NOTIFICATION_OUTBOX_COMPLETE_FAILED_${error.code ?? "UNKNOWN"}`);
   }
+}
+
+export interface EmailTrackingCapability {
+  capabilityId: string;
+  secret: string;
+}
+
+/**
+ * CUSTOMER TRACKING v3.1 — émet l'identifiant de suivi RÉUTILISABLE
+ * d'un e-mail de commande via `issue_order_email_tracking_capability`
+ * (service_role uniquement, supabase/DRAFT-lot-customer-tracking-
+ * capability-v3-1.sql) : capacité liée à `orderId`, seul son sha256
+ * est stocké, expiration SQL bornée. Le secret n'existe qu'en mémoire,
+ * le temps de rendre le lien -- jamais journalisé, jamais persisté ici.
+ *
+ * `null` : aucune capacité émise (commande inexistante ou plafond par
+ * commande atteint). Lève `NotificationOutboxError` sur panne.
+ */
+export async function issueOrderEmailTrackingCapability(
+  orderId: string
+): Promise<EmailTrackingCapability | null> {
+  const client = getServiceRoleSupabaseClient();
+  let data:
+    | Array<{ capability_id: string | null; capability_secret: string | null }>
+    | { capability_id: string | null; capability_secret: string | null }
+    | null;
+  let error: { code?: string; message: string } | null;
+  try {
+    ({ data, error } = await client.rpc("issue_order_email_tracking_capability", {
+      p_order_id: orderId,
+    }));
+  } catch {
+    throw new NotificationOutboxError("NOTIFICATION_TRACKING_CAPABILITY_UNAVAILABLE");
+  }
+  if (error) {
+    throw new NotificationOutboxError(`NOTIFICATION_TRACKING_CAPABILITY_FAILED_${error.code ?? "UNKNOWN"}`);
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  if (!isPlausibleUuid(row.capability_id) || !isPlausibleCapabilitySecret(row.capability_secret)) {
+    throw new NotificationOutboxError("NOTIFICATION_TRACKING_CAPABILITY_UNEXPECTED_SHAPE");
+  }
+  return { capabilityId: row.capability_id, secret: row.capability_secret };
 }
 
 /**

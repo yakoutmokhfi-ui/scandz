@@ -54,8 +54,13 @@ const TOKEN_B = "44444444-4444-4444-8444-444444444444";
 // Commande TIERCE, sans rapport -- aucune session n'est jamais établie
 // pour elle dans ce test (mandat §8, "unrelated order gets neither").
 const ORDER_C = "55555555-5555-4555-8555-555555555555";
+const CAP_A = "66666666-6666-4666-8666-666666666666";
+const SECRET_A = "aa".repeat(32);
+const CAP_B = "77777777-7777-4777-8777-777777777777";
+const SECRET_B = "bb".repeat(32);
 
 const ROW_A = {
+  bound_order_id: ORDER_A,
   order_status: "ready",
   service_mode: "pickup",
   order_number: 104,
@@ -68,6 +73,7 @@ const ROW_A = {
   cancelled_at: null,
 };
 const ROW_B = {
+  bound_order_id: ORDER_B,
   order_status: "preparing",
   service_mode: "dine_in",
   order_number: 205,
@@ -287,19 +293,39 @@ async function renderTrackingPage(
 }
 
 test("CTE-V2-MULTIORDER-COVERAGE-01 (ferme) : deux sessions coexistent dans un même jar de cookies -- chaque commande reste accessible, aucune fuite croisée, commande tierce sans session", async (t) => {
-  t.mock.method(supabase, "rpc", async (name: string, params: { p_order_id: string; p_public_token: string }) => {
-    if (name !== "get_order_tracking") throw new Error(`RPC inattendue : ${name}`);
-    if (params.p_order_id === ORDER_A && params.p_public_token === TOKEN_A) {
-      return { data: [ROW_A], error: null };
+  // CUSTOMER TRACKING v3.1 : l'échange appelle
+  // upgrade_legacy_tracking_capability (capacité par commande), la page
+  // lit via get_order_tracking_by_capability (capacité LIÉE à la
+  // commande demandée) -- le mock reproduit ce prédicat de liaison.
+  t.mock.method(
+    supabase,
+    "rpc",
+    async (
+      name: string,
+      params: { p_order_id: string; p_public_token?: string; p_capability_id?: string; p_secret?: string }
+    ) => {
+      if (name === "upgrade_legacy_tracking_capability") {
+        if (params.p_order_id === ORDER_A && params.p_public_token === TOKEN_A) {
+          return { data: [{ capability_id: CAP_A, capability_secret: SECRET_A }], error: null };
+        }
+        if (params.p_order_id === ORDER_B && params.p_public_token === TOKEN_B) {
+          return { data: [{ capability_id: CAP_B, capability_secret: SECRET_B }], error: null };
+        }
+        return { data: [], error: null };
+      }
+      if (name !== "get_order_tracking_by_capability") throw new Error(`RPC inattendue : ${name}`);
+      if (params.p_order_id === ORDER_A && params.p_capability_id === CAP_A && params.p_secret === SECRET_A) {
+        return { data: [ROW_A], error: null };
+      }
+      if (params.p_order_id === ORDER_B && params.p_capability_id === CAP_B && params.p_secret === SECRET_B) {
+        return { data: [ROW_B], error: null };
+      }
+      // Tout autre triplet (y compris la capacité d'une commande
+      // utilisée pour une autre) -- ensemble vide (même comportement
+      // RÉEL que la RPC pour une capacité non liée).
+      return { data: [], error: null };
     }
-    if (params.p_order_id === ORDER_B && params.p_public_token === TOKEN_B) {
-      return { data: [ROW_B], error: null };
-    }
-    // Tout autre couple (y compris un jeton d'une commande utilisé
-    // pour une autre) -- possession incorrecte, ensemble vide (même
-    // comportement RÉEL que la RPC publiée pour un couple croisé).
-    return { data: [], error: null };
-  });
+  );
 
   // --------------------------------------------------------------
   // Établit la session A, PUIS la session B, dans le MÊME jar --
