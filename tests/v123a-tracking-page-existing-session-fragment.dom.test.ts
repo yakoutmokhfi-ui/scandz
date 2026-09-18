@@ -58,7 +58,10 @@ const TOKEN = "22222222-2222-4222-8222-222222222222";
 // La commande RÉELLEMENT ouverte a une session VALIDE ET EXISTANTE --
 // construite avec le VRAI mécanisme de chiffrement AES-256-GCM, jamais
 // une chaîne fabriquée à la main.
-const EXISTING_SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, TOKEN);
+// CUSTOMER TRACKING v3.1 : la session porte la capacité de suivi.
+const CAP_ID = "33333333-3333-4333-8333-333333333333";
+const SECRET = "ab".repeat(32);
+const EXISTING_SESSION_TOKEN = createTrackingSessionToken(ORDER_ID, CAP_ID, SECRET);
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   // L'URL initiale porte ENCORE le fragment d'origine -- exactement le
@@ -219,6 +222,7 @@ async function waitFor(check: () => boolean, description: string, timeoutMs = 30
 }
 
 const VALID_ROW = {
+  bound_order_id: ORDER_ID,
   order_status: "ready",
   service_mode: "pickup",
   order_number: 104,
@@ -233,7 +237,7 @@ const VALID_ROW = {
 
 test("mandat §5 (test comportemental REQUIS) : session valide EXISTANTE + réouverture du lien d'origine avec fragment -- données de suivi disponibles, AUCUN POST d'échange, URL propre, fragment retiré, jeton jamais rendu/copié", async (t) => {
   t.mock.method(supabase, "rpc", async (name: string) => {
-    if (name === "get_order_tracking") return { data: [VALID_ROW], error: null };
+    if (name === "get_order_tracking_by_capability") return { data: [VALID_ROW], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
 

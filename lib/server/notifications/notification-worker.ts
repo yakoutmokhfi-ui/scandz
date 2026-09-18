@@ -5,6 +5,8 @@ import { renderOrderReceivedEmail } from "@/lib/server/notifications/order-recei
 import {
   claimPendingNotifications,
   completeNotificationAttempt,
+  issueOrderEmailTrackingCapability,
+  type EmailTrackingCapability,
 } from "@/lib/server/notifications/notification-outbox-service";
 import { normalizeNotificationErrorCode } from "@/lib/server/notifications/notification-error-taxonomy";
 
@@ -20,6 +22,9 @@ import { normalizeNotificationErrorCode } from "@/lib/server/notifications/notif
  * AUCUNE AUTORITÉ MÉTIER (mandat §"NO BUSINESS COUPLING") : ce module
  * ne lit ni n'écrit jamais `orders.status`/paiement/Stuart/facture/
  * suivi/fulfillment -- pur observateur d'un événement déjà créé.
+ * Seule exception (CUSTOMER TRACKING v3.1) : l'émission, par tentative,
+ * d'une capacité de suivi e-mail liée à la commande
+ * (`issueOrderEmailTrackingCapability`), lecture seule pour le client.
  *
  * Provider INJECTÉ (jamais résolu par ce module lui-même) -- ce lot
  * n'autorise que `FakeEmailProvider` (voir fake-email-provider.ts) ;
@@ -118,6 +123,44 @@ export async function processPendingNotifications(
       continue;
     }
 
+    // CUSTOMER TRACKING v3.1 — lien de suivi RÉUTILISABLE : une
+    // capacité liée à la commande est émise à CHAQUE tentative
+    // (seul son sha256 est stocké côté SQL ; le secret ne vit qu'en
+    // mémoire, le temps du rendu). Jamais le public_token legacy du
+    // payload_snapshot, qui ne donnerait qu'un échange one-shot. Une
+    // tentative antérieure éventuellement livrée garde sa propre
+    // capacité, jamais invalidée par celle-ci.
+    let trackingCapability: EmailTrackingCapability | null;
+    try {
+      trackingCapability = await issueOrderEmailTrackingCapability(notification.orderId);
+    } catch {
+      // Panne transitoire : jamais d'envoi sans lien valide.
+      await completeNotificationAttempt({
+        outboxId: notification.outboxId,
+        claimToken: notification.claimToken,
+        attemptNumber,
+        provider: provider.name,
+        result: "retryable_failure",
+        errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
+      });
+      retriedRetryable += 1;
+      continue;
+    }
+    if (!trackingCapability) {
+      // Commande introuvable ou plafond de capacités atteint : état
+      // terminal explicite, jamais un e-mail sans lien de suivi.
+      await completeNotificationAttempt({
+        outboxId: notification.outboxId,
+        claimToken: notification.claimToken,
+        attemptNumber,
+        provider: provider.name,
+        result: "terminal_failure",
+        errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
+      });
+      failedTerminal += 1;
+      continue;
+    }
+
     const payload = notification.payloadSnapshot;
     const rendered = renderOrderReceivedEmail({
       locale: notification.locale as Lang,
@@ -127,7 +170,8 @@ export async function processPendingNotifications(
       currency: payload.currency,
       serviceMode: payload.service_mode,
       orderId: notification.orderId,
-      publicToken: payload.public_token,
+      trackingCapabilityId: trackingCapability.capabilityId,
+      trackingSecret: trackingCapability.secret,
     });
 
     // v1.2 — N1A-IDEMPOTENCY-KEY-CONTRACT-01 : clé d'idempotence

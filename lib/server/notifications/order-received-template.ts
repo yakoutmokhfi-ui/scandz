@@ -1,17 +1,18 @@
 import "server-only";
 import { translate, type Lang } from "@/lib/i18n";
 import { formatPrice } from "@/lib/whatsapp";
-import { buildTrackingPath } from "@/lib/tracking/link";
+import { buildCapabilityTrackingPath } from "@/lib/tracking/link";
 import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-origin";
 
 /**
  * N1-A — SCANYM-CONTROLLED ORDER_RECEIVED EMAIL TEMPLATE.
  *
  * Réutilise l'autorité i18n EXISTANTE (`translate`/`DICTS`, lib/i18n.ts)
- * -- jamais une seconde table de traduction. Réutilise le lien de
- * suivi EXISTANT (`buildTrackingPath` + `resolveCanonicalPublicOrigin`)
- * -- jamais un second système de jeton (voir README-AUDIT.md §"TRACKING
- * LINK").
+ * -- jamais une seconde table de traduction. CUSTOMER TRACKING v3.1 :
+ * le lien de suivi porte la capacité v3.1 RÉUTILISABLE de l'e-mail
+ * (`buildCapabilityTrackingPath` + `resolveCanonicalPublicOrigin`, en
+ * fragment uniquement) -- jamais le public_token legacy, dont l'échange
+ * est one-shot.
  *
  * SÉCURITÉ HTML (mandat §"HTML SECURITY") : `escapeHtml` échappe TOUTE
  * valeur marchand/client avant insertion dans le HTML -- aucun HTML
@@ -42,7 +43,11 @@ export interface OrderReceivedTemplateInput {
   currency: string;
   serviceMode: string;
   orderId: string;
-  publicToken: string;
+  /** CUSTOMER TRACKING v3.1 — capacité RÉUTILISABLE liée à `orderId`
+   *  (issue_order_email_tracking_capability) ; jamais le public_token
+   *  legacy, jamais journalisée. */
+  trackingCapabilityId: string;
+  trackingSecret: string;
 }
 
 export interface RenderedEmail {
@@ -77,7 +82,11 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   const thanks = t("confirmThanks", { name: input.merchantSenderName });
   const footer = t("emailOrderReceivedFooter");
 
-  const trackingPath = buildTrackingPath(input.orderId, input.publicToken);
+  const trackingPath = buildCapabilityTrackingPath(
+    input.orderId,
+    input.trackingCapabilityId,
+    input.trackingSecret
+  );
   const trackingUrl = `${resolveCanonicalPublicOrigin()}${trackingPath}`;
 
   const html = [

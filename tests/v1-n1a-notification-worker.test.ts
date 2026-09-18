@@ -21,11 +21,21 @@ const client = getServiceRoleSupabaseClient();
 const { processPendingNotifications } = await import("../lib/server/notifications/notification-worker.ts");
 const { FakeEmailProvider } = await import("../lib/server/notifications/fake-email-provider.ts");
 
+// CUSTOMER TRACKING v3.1 : le worker émet une capacité de suivi e-mail
+// par tentative (issue_order_email_tracking_capability) avant le rendu.
+const EMAIL_CAP_ID = "ffffffff-0000-4000-8000-00000000000c";
+const EMAIL_SECRET = "c0".repeat(32);
+
 function routeRpc(
   t: { mock: { method: Function } },
   handler: (name: string, args: Record<string, unknown>) => unknown
 ) {
-  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => handler(name, args));
+  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
+    if (name === "issue_order_email_tracking_capability") {
+      return { data: [{ capability_id: EMAIL_CAP_ID, capability_secret: EMAIL_SECRET }], error: null };
+    }
+    return handler(name, args);
+  });
 }
 
 function claimRow(overrides: Record<string, unknown> = {}) {
@@ -152,6 +162,8 @@ test("scénario 5 : échec terminal du provider -> result=terminal_failure, aucu
 
   assert.equal(result.failedTerminal, 1);
   assert.equal((completeArgs as any).p_result, "terminal_failure");
+  // issue_order_email_tracking_capability est routée par routeRpc (hors
+  // `handler`) : seule écriture autorisée, une capacité de suivi.
   assert.deepEqual(calledRpcNames.sort(), ["claim_pending_notifications", "complete_notification_attempt"]);
 });
 

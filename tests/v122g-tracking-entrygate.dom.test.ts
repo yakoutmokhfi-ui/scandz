@@ -186,6 +186,53 @@ test("hash présent + jeton bien formé + échange RÉUSSI -- history.replaceSta
   container.remove();
 });
 
+test("v3.1 : fragment capacité e-mail (#c1.<capability_id>.<secret>) -- POST { orderId, capabilityId, secret } en corps, fragment retiré, router.refresh()", async () => {
+  const CAP_ID = "33333333-3333-4333-8333-333333333333";
+  const SECRET = "ab".repeat(32);
+  setHash(`#c1.${CAP_ID}.${SECRET}`);
+  const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+  (globalThis as any).fetch = async (url: string, init: RequestInit) => {
+    fetchCalls.push({ url, init });
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  const before = (globalThis as any).__mockRefreshCount;
+
+  const { container, root } = render();
+  await waitFor(() => (globalThis as any).__mockRefreshCount > before, "router.refresh() après échange capacité");
+
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0]!.url, "/api/track/exchange");
+  assert.equal(fetchCalls[0]!.init.credentials, "same-origin");
+  assert.deepEqual(JSON.parse(fetchCalls[0]!.init.body as string), { orderId: ORDER_ID, capabilityId: CAP_ID, secret: SECRET });
+  assert.equal(window.location.hash, "");
+  assert.equal(container.textContent!.includes(SECRET), false);
+
+  root.unmount();
+  container.remove();
+});
+
+for (const hash of [
+  "#c1.33333333-3333-4333-8333-333333333333",
+  `#c1.33333333-3333-4333-8333-333333333333.${"ab".repeat(31)}`,
+  `#c1.not-a-uuid.${"ab".repeat(32)}`,
+  `#c1.33333333-3333-4333-8333-333333333333.${"AB".repeat(32)}`,
+  `#c2.33333333-3333-4333-8333-333333333333.${"ab".repeat(32)}`,
+]) {
+  test(`v3.1 : fragment capacité mal formé (${hash.slice(0, 24)}…) -- invalide générique, AUCUN appel réseau`, async () => {
+    setHash(hash);
+    let fetchCalled = false;
+    (globalThis as any).fetch = async () => {
+      fetchCalled = true;
+      return { ok: true, json: async () => ({ ok: true }) };
+    };
+    const { container, root } = render();
+    await waitFor(() => container.textContent!.includes("Lien de suivi introuvable"), "invalide générique");
+    assert.equal(fetchCalled, false);
+    root.unmount();
+    container.remove();
+  });
+}
+
 test("hash absent -- état invalide générique IMMÉDIAT, AUCUN appel réseau (mandat §13, scanner de lien sans JS -- mandat §23)", async () => {
   setHash("");
   let fetchCalled = false;

@@ -10,10 +10,29 @@ import assert from "node:assert/strict";
 // blocage de publication CTE-V1-TOKEN-LOG-01).
 // ====================================================================
 
-const { buildTrackingPath, buildCleanTrackingPath } = await import("../lib/tracking/link.ts");
+const { buildTrackingPath, buildCleanTrackingPath, buildCapabilityTrackingPath, parseTrackingFragment } =
+  await import("../lib/tracking/link.ts");
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "22222222-2222-4222-8222-222222222222";
+
+test("v3.1 buildCapabilityTrackingPath : capacité EXCLUSIVEMENT en fragment #c1., chemin identique au chemin propre, aucune query", () => {
+  const cap = "33333333-3333-4333-8333-333333333333";
+  const secret = "ab".repeat(32);
+  const path = buildCapabilityTrackingPath(ORDER_ID, cap, secret);
+  assert.equal(path, `/track/${ORDER_ID}#c1.${cap}.${secret}`);
+  const url = new URL(`https://app.example${path}`);
+  assert.equal(url.pathname, buildCleanTrackingPath(ORDER_ID));
+  assert.equal(url.search, "");
+  assert.deepEqual(parseTrackingFragment(url.hash.slice(1)), { kind: "capability", capabilityId: cap, secret });
+});
+
+test("v3.1 parseTrackingFragment : legacy UUID nu reconnu tel quel ; toute autre forme -> null", () => {
+  assert.deepEqual(parseTrackingFragment(TOKEN), { kind: "legacy", publicToken: TOKEN });
+  for (const bad of ["", "c1.", `c1.${TOKEN}`, `c1.${TOKEN}.${"ab".repeat(31)}`, `c1.${TOKEN}.${"ab".repeat(32)}.x`, `c1.${TOKEN}.${"AB".repeat(32)}`, `x${TOKEN}`, "ab".repeat(32)]) {
+    assert.equal(parseTrackingFragment(bad), null, bad);
+  }
+});
 
 test("buildTrackingPath: le jeton apparaît EXCLUSIVEMENT après '#' (fragment), jamais avant", () => {
   const path = buildTrackingPath(ORDER_ID, TOKEN);

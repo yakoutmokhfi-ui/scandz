@@ -66,6 +66,7 @@ function makeDeferred<T>(): Deferred<T> {
 
 (globalThis as any).__ordersDeferred = new Map<string, Deferred<unknown[]>>();
 (globalThis as any).__ordersCallLog = [] as string[];
+(globalThis as any).__operatorOrdersCallLog = [] as string[];
 (globalThis as any).__mappings = [
   { restaurant_id: "resto-a", role: "owner", restaurants: { id: "resto-a", name: "Restaurant A", slug: "a" } },
   { restaurant_id: "resto-b", role: "owner", restaurants: { id: "resto-b", name: "Restaurant B", slug: "b" } },
@@ -169,6 +170,13 @@ export async function getRestaurantSettings(restaurantId) {
   return { staff_receipt_language: "fr" };
 }
 export async function updateOrderStatus() {}
+// ORDERS OPERATOR READ v1 -- lecture opérateur minimale, appels tracés
+// séparément de getDashboardOrders pour prouver l'absence de repli.
+export async function getOperatorRestaurantOrders(restaurantId, showHistory) {
+  (globalThis).__operatorOrdersCallLog.push(restaurantId);
+  if ((globalThis).__operatorOrdersError) throw new Error((globalThis).__operatorOrdersError);
+  return (globalThis).__operatorOrdersFallback?.[restaurantId] ?? [];
+}
 `;
 
 // --------------------------------------------------------------
@@ -320,6 +328,9 @@ function resetSharedMockState() {
   (globalThis as any).__ordersLastId = undefined;
   (globalThis as any).__ordersVisitIndex = new Map();
   (globalThis as any).__ordersFallback = undefined;
+  (globalThis as any).__operatorOrdersCallLog = [];
+  (globalThis as any).__operatorOrdersFallback = undefined;
+  (globalThis as any).__operatorOrdersError = undefined;
   (globalThis as any).__settingsDeferred = new Map();
   (globalThis as any).__settingsCallLog = [];
   (globalThis as any).__subscribeCalls = [];
@@ -679,11 +690,47 @@ test("ORDERS — RCG-V12-MONET-COMPAT-04 operator case: a genuine Scanym operato
   // other scenario in this file -- including Root Cause B immediately
   // above -- runs with __navIsOperator left at its default `false` and
   // still fails closed on the identical URL).
+  //
+  // ORDERS OPERATOR READ v1 -- in operator context the orders are read
+  // ONLY through getOperatorRestaurantOrders (minimal, read-only
+  // operator RPC). The merchant read (getDashboardOrders, RLS
+  // is_member_of) returned an empty list in Production for an
+  // unattached operator; it must never be issued here, not even as a
+  // fallback.
   beforeEachScenario();
   (globalThis as any).__navIsOperator = true;
+  (globalThis as any).__operatorOrdersFallback = {
+    "someone-elses-restaurant": [
+      {
+        id: "order-someone-elses-restaurant",
+        order_number: 4242,
+        status: "new",
+        service_mode: "pickup",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        total: 10,
+        currency: "EUR",
+        item_count: 3,
+        has_invoice_request: false,
+      },
+    ],
+    "resto-a": [
+      {
+        id: "order-resto-a",
+        order_number: 9999,
+        status: "new",
+        service_mode: "pickup",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        total: 10,
+        currency: "EUR",
+        item_count: 1,
+        has_invoice_request: false,
+      },
+    ],
+  };
   (globalThis as any).__ordersFallback = {
-    "someone-elses-restaurant": [orderFor("someone-elses-restaurant", "MARKER_OPERATOR_VIEW")],
-    "resto-a": [orderFor("resto-a", "MARKER_OPERATOR_OWN_MAPPING_SHOULD_NOT_APPEAR")],
+    "someone-elses-restaurant": [orderFor("someone-elses-restaurant", "MARKER_MERCHANT_PATH_SHOULD_NOT_APPEAR")],
   };
 
   let rendered: ReturnType<typeof render> | undefined;
@@ -691,7 +738,7 @@ test("ORDERS — RCG-V12-MONET-COMPAT-04 operator case: a genuine Scanym operato
     dom.reconfigure({ url: "http://localhost/dashboard?r=someone-elses-restaurant" });
     rendered = render();
     const { container } = rendered;
-    await waitFor(() => container.textContent!.includes("MARKER_OPERATOR_VIEW"));
+    await waitFor(() => container.querySelector('[data-operator-order-id="order-someone-elses-restaurant"]') !== null);
 
     assert.equal(
       container.querySelector("[data-context-unavailable]"),
@@ -699,19 +746,76 @@ test("ORDERS — RCG-V12-MONET-COMPAT-04 operator case: a genuine Scanym operato
       "a genuine Scanym operator must NOT see the context-unavailable state for an explicit, foreign restaurant id"
     );
     assert.ok(
-      container.textContent!.includes("MARKER_OPERATOR_VIEW"),
+      container.textContent!.includes("#4242"),
       "the operator-authorized, explicitly-requested foreign restaurant's own orders must be rendered"
     );
     assert.ok(
-      !container.textContent!.includes("MARKER_OPERATOR_VIEW_SHOULD_NOT_APPEAR"),
-      "sanity: the should-not-appear marker text must never leak from an unrelated fixture"
+      !container.textContent!.includes("#9999"),
+      "the operator's own mappings[0] orders must never appear"
+    );
+    assert.ok(
+      container.querySelector('[data-operator-orders="read-only"]') !== null,
+      "operator context must render the read-only operator list"
+    );
+    assert.ok(
+      !container.textContent!.includes("MARKER_MERCHANT_PATH_SHOULD_NOT_APPEAR"),
+      "the merchant read path must never be used in operator context"
     );
 
-    const calls: string[] = (globalThis as any).__ordersCallLog;
-    assert.ok(calls.length > 0, "at least one orders request must have been issued");
+    const operatorCalls: string[] = (globalThis as any).__operatorOrdersCallLog;
+    assert.equal(
+      operatorCalls.length,
+      1,
+      `ORDERS OPERATOR READ v1: exactly one operator read per page load. Actual calls: ${JSON.stringify(operatorCalls)}`
+    );
     assert.ok(
-      calls.every((id) => id === "someone-elses-restaurant"),
-      `only the explicitly-requested, operator-authorized restaurant may ever be read -- never the operator's own mappings[0] (resto-a) as a default. Actual calls: ${JSON.stringify(calls)}`
+      operatorCalls.every((id) => id === "someone-elses-restaurant"),
+      `only the explicitly-requested, operator-authorized restaurant may ever be read -- never the operator's own mappings[0] (resto-a) as a default. Actual calls: ${JSON.stringify(operatorCalls)}`
+    );
+    assert.deepEqual(
+      (globalThis as any).__ordersCallLog,
+      [],
+      "ORDERS OPERATOR READ v1: no merchant-membership read (getDashboardOrders) in operator context, not even as a fallback"
+    );
+    assert.deepEqual(
+      (globalThis as any).__subscribeCalls,
+      [],
+      "ORDERS OPERATOR READ v1: no realtime subscription in the read-only operator view"
+    );
+  } finally {
+    rendered?.root.unmount();
+    rendered?.container.remove();
+    afterEachScenario();
+  }
+});
+
+test("ORDERS — ORDERS OPERATOR READ v1: operator RPC failure is surfaced, never silently replaced by the merchant read", async () => {
+  beforeEachScenario();
+  (globalThis as any).__navIsOperator = true;
+  (globalThis as any).__operatorOrdersError = "Not authorized for this restaurant";
+  (globalThis as any).__ordersFallback = {
+    "someone-elses-restaurant": [orderFor("someone-elses-restaurant", "MARKER_MERCHANT_FALLBACK_SHOULD_NOT_APPEAR")],
+  };
+
+  let rendered: ReturnType<typeof render> | undefined;
+  try {
+    dom.reconfigure({ url: "http://localhost/dashboard?r=someone-elses-restaurant" });
+    rendered = render();
+    const { container } = rendered;
+    await waitFor(() => container.textContent!.includes("Not authorized for this restaurant"));
+
+    assert.ok(
+      !container.textContent!.includes("MARKER_MERCHANT_FALLBACK_SHOULD_NOT_APPEAR"),
+      "an operator RPC failure must never fall back to merchant-membership data"
+    );
+    assert.ok(
+      !container.textContent!.includes("Aucune commande à afficher"),
+      "ORDERS OPERATOR READ v1: a failed operator read must not be presented as an empty order list"
+    );
+    assert.deepEqual(
+      (globalThis as any).__ordersCallLog,
+      [],
+      "getDashboardOrders must never be issued in operator context, even after an operator RPC failure"
     );
   } finally {
     rendered?.root.unmount();

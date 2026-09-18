@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Lang } from "@/lib/i18n";
-import { isPlausibleUuid } from "@/lib/tracking/uuid";
-import { buildCleanTrackingPath } from "@/lib/tracking/link";
+import {
+  buildCleanTrackingPath,
+  parseTrackingFragment,
+  type TrackingFragment,
+} from "@/lib/tracking/link";
 
 /**
  * CUSTOMER TRACKING EXPERIENCE v2 — porte d'ENTRÉE côté client
@@ -96,29 +99,36 @@ export default function TrackingEntryGate({
       setState("invalid");
       return;
     }
-    let publicToken: string;
+    let fragment: TrackingFragment | null;
     try {
       // Mandat CTE-V2-MALFORMED-FRAGMENT-01 : décodage protégé -- voir
       // le commentaire de tête v2.1.
-      publicToken = decodeURIComponent(rawHash.slice(1));
+      fragment = parseTrackingFragment(decodeURIComponent(rawHash.slice(1)));
     } catch {
       setState("invalid");
       return;
     }
-    if (!isPlausibleUuid(publicToken)) {
+    if (!fragment) {
       setState("invalid");
       return;
     }
+    // CUSTOMER TRACKING v3.1 : fragment legacy (public_token, échange
+    // one-shot) OU capacité réutilisable d'un e-mail de commande
+    // (simple vérification côté serveur, jamais consommée).
+    const exchangeBody =
+      fragment.kind === "legacy"
+        ? { orderId, publicToken: fragment.publicToken }
+        : { orderId, capabilityId: fragment.capabilityId, secret: fragment.secret };
 
     (async () => {
       try {
         const res = await fetch("/api/track/exchange", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          // `publicToken` ne quitte cette fonction QUE dans le corps
-          // de CETTE requête -- jamais dans une URL, jamais dans un
-          // en-tête, jamais journalisé ci-dessous.
-          body: JSON.stringify({ orderId, publicToken }),
+          // Le matériel de possession ne quitte cette fonction QUE dans
+          // le corps de CETTE requête -- jamais dans une URL, jamais
+          // dans un en-tête, jamais journalisé ci-dessous.
+          body: JSON.stringify(exchangeBody),
           credentials: "same-origin",
         });
 

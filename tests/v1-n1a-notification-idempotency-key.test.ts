@@ -30,11 +30,21 @@ const { processPendingNotifications } = await import("../lib/server/notification
 const { FakeEmailProvider } = await import("../lib/server/notifications/fake-email-provider.ts");
 const { buildNotificationIdempotencyKey } = await import("../lib/server/notifications/email-provider.ts");
 
+// CUSTOMER TRACKING v3.1 : le worker émet une capacité de suivi e-mail
+// par tentative (issue_order_email_tracking_capability) avant le rendu.
 function routeRpc(
   t: { mock: { method: Function } },
   handler: (name: string, args: Record<string, unknown>) => unknown
 ) {
-  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => handler(name, args));
+  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
+    if (name === "issue_order_email_tracking_capability") {
+      return {
+        data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }],
+        error: null,
+      };
+    }
+    return handler(name, args);
+  });
 }
 
 function claimRow(overrides: Record<string, unknown> = {}) {

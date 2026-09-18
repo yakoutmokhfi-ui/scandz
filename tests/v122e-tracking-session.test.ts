@@ -18,49 +18,91 @@ process.env.TRACKING_SESSION_SECRET =
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 const {
+  assertTrackingSessionConfigured,
   createTrackingSessionToken,
   verifyTrackingSessionToken,
   TrackingSessionConfigError,
   TRACKING_SESSION_COOKIE_NAME,
+  TRACKING_SESSION_MAX_AGE_SECONDS,
 } = await import("../lib/server/tracking-session.ts");
 
 const ORDER_A = "11111111-1111-4111-8111-111111111111";
 const ORDER_B = "99999999-9999-4999-8999-999999999999";
 const RANDOM_ORDER = "55555555-5555-4555-8555-555555555555";
 const TOKEN_A = "22222222-2222-4222-8222-222222222222";
+// CUSTOMER TRACKING v3.1 : la session porte la capacité de suivi, plus
+// jamais le public_token legacy.
+const CAP_A = "66666666-6666-4666-8666-666666666666";
+const SECRET_A = "cd".repeat(32);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 test("mandat §11.A : session A + order A -> PASS (round-trip fidèle)", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   const result = verifyTrackingSessionToken(token, ORDER_A);
-  assert.deepEqual(result, { orderId: ORDER_A, publicToken: TOKEN_A });
+  assert.deepEqual(result, { orderId: ORDER_A, capabilityId: CAP_A, secret: SECRET_A });
 });
 
 test("mandat §11.B : session A + order B -> FAIL (jamais de lecture croisée)", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   assert.equal(verifyTrackingSessionToken(token, ORDER_B), null);
 });
 
 test("mandat §11 : session A + commande aléatoire non liée -> FAIL", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   assert.equal(verifyTrackingSessionToken(token, RANDOM_ORDER), null);
 });
 
 test("session expirée -> FAIL générique (mandat §10 'bounded expiry', §11 'expired session -> generic invalid behavior')", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   const realNow = Date.now;
   try {
-    // Simule une horloge 3 heures dans le futur (TTL réel = 2h) --
-    // seule façon déterministe de tester une expiration bornée sans
-    // attendre réellement.
-    Date.now = () => realNow() + 3 * 60 * 60 * 1000;
+    // Simule une horloge 31 jours dans le futur (TTL réel v3.1 = 30
+    // jours) -- seule façon déterministe de tester une expiration
+    // bornée sans attendre réellement.
+    Date.now = () => realNow() + 31 * DAY_MS;
     assert.equal(verifyTrackingSessionToken(token, ORDER_A), null);
   } finally {
     Date.now = realNow;
   }
 });
 
+test("v3.1 : session réutilisable au-delà d'une session de navigateur -- toujours valide après 29 jours, TTL exporté = 30 jours", () => {
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 29 * DAY_MS;
+    assert.deepEqual(verifyTrackingSessionToken(token, ORDER_A), { orderId: ORDER_A, capabilityId: CAP_A, secret: SECRET_A });
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(TRACKING_SESSION_MAX_AGE_SECONDS, 30 * 24 * 60 * 60);
+});
+
+test("v3.1 : payload de forme invalide (capability_id non UUID, secret non 64-hex) -- jamais accepté", () => {
+  for (const [cap, secret] of [
+    ["not-a-uuid", SECRET_A],
+    [CAP_A, "short"],
+    [CAP_A, SECRET_A.toUpperCase()],
+    [CAP_A, TOKEN_A],
+  ] as const) {
+    const token = createTrackingSessionToken(ORDER_A, cap, secret);
+    assert.equal(verifyTrackingSessionToken(token, ORDER_A), null);
+  }
+});
+
+test("v3.1 : assertTrackingSessionConfigured lève TrackingSessionConfigError si le secret d'environnement est absent, ne lève pas sinon", () => {
+  assert.doesNotThrow(() => assertTrackingSessionConfigured());
+  const saved = process.env.TRACKING_SESSION_SECRET;
+  try {
+    delete process.env.TRACKING_SESSION_SECRET;
+    assert.throws(() => assertTrackingSessionConfigured(), TrackingSessionConfigError);
+  } finally {
+    process.env.TRACKING_SESSION_SECRET = saved;
+  }
+});
+
 test("jeton altéré (un octet modifié) -- authentification AES-GCM échoue, FAIL générique, jamais une exception propagée", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   const bytes = Buffer.from(token, "base64url");
   bytes[bytes.length - 1] = bytes[bytes.length - 1]! ^ 0xff; // altère le dernier octet du texte chiffré
   const tampered = bytes.toString("base64url");
@@ -69,7 +111,7 @@ test("jeton altéré (un octet modifié) -- authentification AES-GCM échoue, FA
 });
 
 test("jeton tronqué -- FAIL générique, jamais une exception", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   const truncated = token.slice(0, 10);
   assert.doesNotThrow(() => verifyTrackingSessionToken(truncated, ORDER_A));
   assert.equal(verifyTrackingSessionToken(truncated, ORDER_A), null);
@@ -83,7 +125,7 @@ test("entrée totalement arbitraire (jamais un jeton émis par ce module) -- FAI
 });
 
 test("un jeton émis pour une commande ne se vérifie JAMAIS pour un order_id vide/malformé", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   assert.equal(verifyTrackingSessionToken(token, ""), null);
   assert.equal(verifyTrackingSessionToken(token, "not-a-uuid"), null);
 });
@@ -92,7 +134,7 @@ test("TRACKING_SESSION_SECRET absent -- createTrackingSessionToken lève Trackin
   const saved = process.env.TRACKING_SESSION_SECRET;
   try {
     delete process.env.TRACKING_SESSION_SECRET;
-    assert.throws(() => createTrackingSessionToken(ORDER_A, TOKEN_A), TrackingSessionConfigError);
+    assert.throws(() => createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A), TrackingSessionConfigError);
   } finally {
     process.env.TRACKING_SESSION_SECRET = saved;
   }
@@ -102,14 +144,14 @@ test("TRACKING_SESSION_SECRET mal formé (mauvaise longueur) -- même erreur de 
   const saved = process.env.TRACKING_SESSION_SECRET;
   try {
     process.env.TRACKING_SESSION_SECRET = "trop-court";
-    assert.throws(() => createTrackingSessionToken(ORDER_A, TOKEN_A), TrackingSessionConfigError);
+    assert.throws(() => createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A), TrackingSessionConfigError);
   } finally {
     process.env.TRACKING_SESSION_SECRET = saved;
   }
 });
 
 test("verifyTrackingSessionToken DÉGRADE (retourne null) si le secret devient indisponible entre-temps, ne lève JAMAIS -- une session invérifiable doit se comporter comme absente", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   const saved = process.env.TRACKING_SESSION_SECRET;
   try {
     delete process.env.TRACKING_SESSION_SECRET;
@@ -121,17 +163,18 @@ test("verifyTrackingSessionToken DÉGRADE (retourne null) si le secret devient i
 });
 
 test("deux jetons émis pour la MÊME commande sont DIFFÉRENTS (IV aléatoire) -- jamais un chiffrement déterministe rejouable", () => {
-  const tokenOne = createTrackingSessionToken(ORDER_A, TOKEN_A);
-  const tokenTwo = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const tokenOne = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
+  const tokenTwo = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   assert.notEqual(tokenOne, tokenTwo);
   // Les deux restent néanmoins valides et fidèles.
-  assert.deepEqual(verifyTrackingSessionToken(tokenOne, ORDER_A), { orderId: ORDER_A, publicToken: TOKEN_A });
-  assert.deepEqual(verifyTrackingSessionToken(tokenTwo, ORDER_A), { orderId: ORDER_A, publicToken: TOKEN_A });
+  assert.deepEqual(verifyTrackingSessionToken(tokenOne, ORDER_A), { orderId: ORDER_A, capabilityId: CAP_A, secret: SECRET_A });
+  assert.deepEqual(verifyTrackingSessionToken(tokenTwo, ORDER_A), { orderId: ORDER_A, capabilityId: CAP_A, secret: SECRET_A });
 });
 
 test("le jeton de session émis NE CONTIENT PAS le jeton de possession en clair (recherche de sous-chaîne dans le blob base64url)", () => {
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
-  assert.equal(token.includes(TOKEN_A), false, "le jeton de possession ne doit jamais apparaître en clair dans le jeton de session chiffré");
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
+  assert.equal(token.includes(SECRET_A), false, "le secret de capacité ne doit jamais apparaître en clair dans le jeton de session chiffré");
+  assert.equal(token.includes(CAP_A), false, "capability_id ne doit jamais apparaître en clair dans le jeton de session chiffré");
   assert.equal(token.includes(ORDER_A), false, "order_id ne doit jamais apparaître en clair dans le jeton de session chiffré");
 });
 
@@ -153,13 +196,13 @@ test("mandat §12 : aucune opération de ce module (succès ou échec) n'invoque
     logs.push(args);
   });
 
-  const token = createTrackingSessionToken(ORDER_A, TOKEN_A);
+  const token = createTrackingSessionToken(ORDER_A, CAP_A, SECRET_A);
   verifyTrackingSessionToken(token, ORDER_A);
   verifyTrackingSessionToken(token, ORDER_B); // isolation failure
   verifyTrackingSessionToken("garbage", ORDER_A); // malformed
   const realNow = Date.now;
   try {
-    Date.now = () => realNow() + 3 * 60 * 60 * 1000;
+    Date.now = () => realNow() + 31 * DAY_MS;
     verifyTrackingSessionToken(token, ORDER_A); // expired
   } finally {
     Date.now = realNow;

@@ -333,6 +333,11 @@ export async function getRestaurantSettings(_restaurantId) {
   return { staff_receipt_language: "fr" };
 }
 export async function updateOrderStatus() {}
+// ORDERS OPERATOR READ v1 -- importé par la page ; jamais atteint avec
+// un compte NON opérateur (isScanymOperator() = false ci-dessous).
+export async function getOperatorRestaurantOrders() {
+  throw new Error("getOperatorRestaurantOrders ne doit pas être appelé : compte NON opérateur");
+}
 `;
 
 // RESTAURANT CONTEXT HARDENING v1.2 -- ferme

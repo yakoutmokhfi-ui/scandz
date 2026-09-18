@@ -7,6 +7,7 @@ import { subscribeToOrders } from "@/lib/services/realtime";
 import {
   getDashboardOrders,
   getMerchantRestaurants,
+  getOperatorRestaurantOrders,
   getReceiptSettings,
   getRestaurantSettings,
   updateOrderStatus,
@@ -14,10 +15,12 @@ import {
 import type {
   DashboardOrder,
   MerchantRestaurant,
+  OperatorOrderSummary,
   OrderStatus,
   ReceiptSettings,
 } from "@/lib/dashboard-types";
 import OrderCard from "@/components/dashboard/OrderCard";
+import OperatorOrderList from "@/components/dashboard/OperatorOrderList";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
@@ -40,8 +43,26 @@ export default function DashboardPage() {
    * d'`isScanymOperator()`, jamais de l'URL (mandat §11).
    */
   const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
+  /**
+   * ORDERS OPERATOR READ v1 -- établissement ouvert en contexte
+   * OPÉRATEUR (résolution `source === "operator"` : hors des
+   * rattachements du compte, autorité venant d'isScanymOperator()).
+   * Pour CET établissement, les commandes sont lues UNIQUEMENT via la
+   * RPC opérateur minimale ; la lecture marchande (RLS is_member_of)
+   * n'y est jamais utilisée, pas même en repli.
+   */
+  const [operatorContextRestaurantId, setOperatorContextRestaurantId] = useState<string | null>(null);
   const [restaurantId, setRestaurantId] = useState("");
   const [orders, setOrders] = useState<DashboardOrder[]>([]);
+  const [operatorOrders, setOperatorOrders] = useState<OperatorOrderSummary[]>([]);
+  /**
+   * ORDERS OPERATOR READ v1 -- provenance de `operatorOrders` : posée
+   * uniquement par une lecture opérateur RÉUSSIE. Tant qu'elle ne
+   * désigne pas l'établissement affiché (chargement ou échec), la liste
+   * opérateur n'affiche PAS « Aucune commande à afficher ».
+   */
+  const [operatorOrdersLoadedForRestaurantId, setOperatorOrdersLoadedForRestaurantId] = useState<string | null>(null);
+  const isOperatorOrdersView = restaurantId !== "" && restaurantId === operatorContextRestaurantId;
   const [staffLanguage, setStaffLanguage] = useState<string>("fr");
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings | null>(null);
   /**
@@ -171,6 +192,18 @@ export default function DashboardPage() {
       requestedRestaurantId === selectedRestaurantIdRef.current;
 
     try {
+      // ORDERS OPERATOR READ v1 -- contexte opérateur : RPC opérateur
+      // seule, lecture seule, sans sonnerie ni suivi « nouvelles
+      // commandes ». Une erreur remonte telle quelle (catch ci-dessous),
+      // jamais de repli sur getDashboardOrders.
+      if (isOperatorOrdersView) {
+        const summaries = await getOperatorRestaurantOrders(requestedRestaurantId, showHistory);
+        if (!isStillCurrent()) return;
+        setOperatorOrders(summaries ?? []);
+        setOperatorOrdersLoadedForRestaurantId(requestedRestaurantId);
+        return;
+      }
+
       const next = await getDashboardOrders(requestedRestaurantId, showHistory);
       // Réponse PÉRIMÉE (requête plus récente, et/ou restaurant changé
       // depuis) -- ignorée INTÉGRALEMENT : ni `orders`, ni
@@ -196,7 +229,7 @@ export default function DashboardPage() {
       if (!isStillCurrent()) return;
       setError(loadError instanceof Error ? loadError.message : "Chargement impossible");
     }
-  }, [playSound, restaurantId, showHistory]);
+  }, [isOperatorOrdersView, playSound, restaurantId, showHistory]);
 
   const dt = (k: string, p?: Record<string, string | number>) =>
     translate(staffLanguage as Lang, k, p);
@@ -244,6 +277,12 @@ export default function DashboardPage() {
           // AVANT toute requête (voir l'effet de changement
           // d'établissement plus bas).
           selectedRestaurantIdRef.current = resolution.restaurantId;
+          // ORDERS OPERATOR READ v1 -- posé dans la MÊME passe que
+          // `restaurantId` : la première lecture part déjà sur le bon
+          // chemin (opérateur ou marchand), jamais l'un puis l'autre.
+          setOperatorContextRestaurantId(
+            resolution.source === "operator" ? resolution.restaurantId : null
+          );
           setRestaurantId(resolution.restaurantId);
           if (resolution.source === "operator") {
             try {
@@ -286,6 +325,8 @@ export default function DashboardPage() {
     selectedRestaurantIdRef.current = restaurantId;
     ordersRequestSeqRef.current += 1;
     setOrders([]);
+    setOperatorOrders([]);
+    setOperatorOrdersLoadedForRestaurantId(null);
     setOrdersLoadedForRestaurantId(null);
 
     void loadOrders(false);
@@ -338,12 +379,23 @@ export default function DashboardPage() {
       .then((s) => setStaffLanguage(s.staff_receipt_language ?? "fr"))
       .catch(() => setStaffLanguage("fr"));
 
+    // ORDERS OPERATOR READ v1 -- aucun abonnement temps réel en vue
+    // opérateur : il passe par la RLS marchande (aucun événement pour un
+    // opérateur non rattaché) et chaque rechargement serait une lecture
+    // opérateur de plus.
+    if (isOperatorOrdersView) return undefined;
     return subscribeToOrders(restaurantId, () => void loadOrders(true));
-  }, [loadOrders, restaurantId]);
+  }, [isOperatorOrdersView, loadOrders, restaurantId]);
 
   useEffect(() => {
+    // ORDERS OPERATOR READ v1 -- en vue opérateur, l'effet ci-dessus
+    // relit déjà à chaque changement de `loadOrders` (donc de
+    // `showHistory` et de `restaurantId`) : une seconde lecture ici
+    // doublerait la lecture opérateur à chaque chargement. Chemin
+    // marchand inchangé.
+    if (isOperatorOrdersView) return;
     if (restaurantId) void loadOrders(false);
-  }, [showHistory, restaurantId, loadOrders]);
+  }, [isOperatorOrdersView, showHistory, restaurantId, loadOrders]);
 
   async function changeStatus(orderId: string, status: OrderStatus) {
     setBusyOrderId(orderId);
@@ -437,7 +489,13 @@ export default function DashboardPage() {
 
         {error && <div className="mb-5 rounded-xl bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
 
-        {orders.length === 0 ? (
+        {isOperatorOrdersView ? (
+          <OperatorOrderList
+            orders={operatorOrders}
+            loaded={operatorOrdersLoadedForRestaurantId === restaurantId}
+            staffLanguage={staffLanguage}
+          />
+        ) : orders.length === 0 ? (
           <div className="rounded-2xl bg-white p-10 text-center text-stone-500 shadow-sm">Aucune commande à afficher.</div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

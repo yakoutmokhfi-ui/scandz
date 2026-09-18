@@ -33,6 +33,9 @@
  * relatif (le CTA de confirmation de commande est un lien interne).
  */
 
+import { isPlausibleUuid } from "@/lib/tracking/uuid";
+import { isPlausibleCapabilitySecret } from "@/lib/tracking/capability";
+
 /**
  * Lien d'ENTRÉE client (mandat §7) : porte le jeton de possession en
  * FRAGMENT, jamais en segment de chemin ni en chaîne de requête.
@@ -43,6 +46,52 @@
  */
 export function buildTrackingPath(orderId: string, publicToken: string): string {
   return `/track/${encodeURIComponent(orderId)}#${encodeURIComponent(publicToken)}`;
+}
+
+/**
+ * CUSTOMER TRACKING v3.1 — préfixe VERSIONNÉ du fragment porteur d'une
+ * capacité de suivi RÉUTILISABLE (e-mail de commande) :
+ * `#c1.<capability_id>.<secret>`. Jamais confondable avec un fragment
+ * legacy (UUID nu).
+ */
+const CAPABILITY_FRAGMENT_PREFIX = "c1.";
+
+/**
+ * CUSTOMER TRACKING v3.1 — lien d'entrée des NOUVEAUX e-mails de
+ * commande : capacité liée à la commande (émise par
+ * `issue_order_email_tracking_capability`), EXCLUSIVEMENT en fragment
+ * -- jamais dans le chemin ni la chaîne de requête, donc jamais dans
+ * une requête HTTP ni un journal serveur (même propriété que
+ * `buildTrackingPath`). Réutilisable : l'échange correspondant n'est
+ * qu'une LECTURE (app/api/track/exchange/route.ts).
+ */
+export function buildCapabilityTrackingPath(
+  orderId: string,
+  capabilityId: string,
+  secret: string
+): string {
+  return `/track/${encodeURIComponent(orderId)}#${CAPABILITY_FRAGMENT_PREFIX}${encodeURIComponent(capabilityId)}.${encodeURIComponent(secret)}`;
+}
+
+export type TrackingFragment =
+  | { kind: "legacy"; publicToken: string }
+  | { kind: "capability"; capabilityId: string; secret: string };
+
+/**
+ * Interprète le fragment (déjà décodé, sans '#') d'un lien d'entrée.
+ * Retourne `null` pour TOUTE forme non reconnue -- l'appelant la
+ * traite comme n'importe quel lien invalide, sans appel réseau.
+ */
+export function parseTrackingFragment(value: string): TrackingFragment | null {
+  if (value.startsWith(CAPABILITY_FRAGMENT_PREFIX)) {
+    const parts = value.slice(CAPABILITY_FRAGMENT_PREFIX.length).split(".");
+    if (parts.length !== 2) return null;
+    const [capabilityId, secret] = parts as [string, string];
+    if (!isPlausibleUuid(capabilityId) || !isPlausibleCapabilitySecret(secret)) return null;
+    return { kind: "capability", capabilityId, secret };
+  }
+  if (isPlausibleUuid(value)) return { kind: "legacy", publicToken: value };
+  return null;
 }
 
 /**
