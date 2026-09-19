@@ -421,31 +421,47 @@ log "=== Rôle sans privilège (proxy comportemental de PUBLIC, item 03) -- aucu
 psql -c "create role \"$NOBODY_ROLE\" nologin;" >/dev/null
 pass "rôle $NOBODY_ROLE créé (aucun GRANT explicite -- prouve qu'EXECUTE n'est accordé à PUBLIC pour aucune des fonctions du flux)"
 
+# FIABILITÉ DU HARNAIS (micro-remédiation v67c, infrastructure de test
+# uniquement) : première ligne de la sortie de psql SANS pipeline à
+# fermeture anticipée. `psql ... | head -1` sous `set -euo pipefail`
+# était non déterministe : head se termine après la 1re ligne pendant
+# que psql écrit encore son étiquette de commande ("INSERT 0 1") ->
+# SIGPIPE -> statut 141 propagé par pipefail -> arrêt du harnais par
+# `set -e` sans aucune assertion en échec. Ici la sortie complète est
+# d'abord capturée (le producteur termine toujours), puis la première
+# ligne est extraite en pur shell. Un échec de psql reste propagé tel
+# quel (`|| return`) -- jamais masqué.
+psql_first_line() {
+  local out
+  out=$(psql "$@") || return
+  printf '%s\n' "${out%%$'\n'*}"
+}
+
 # ------------------------------------------------------------------
 # Données de test.
 # ------------------------------------------------------------------
-RESTO_A=$(psql -d "$DB" -t -A -c "insert into public.restaurants (name, slug) values ('A', 'resto-a') returning id;" | head -1)
-RESTO_B=$(psql -d "$DB" -t -A -c "insert into public.restaurants (name, slug) values ('B', 'resto-b') returning id;" | head -1)
+RESTO_A=$(psql_first_line -d "$DB" -t -A -c "insert into public.restaurants (name, slug) values ('A', 'resto-a') returning id;")
+RESTO_B=$(psql_first_line -d "$DB" -t -A -c "insert into public.restaurants (name, slug) values ('B', 'resto-b') returning id;")
 psql -d "$DB" -c "insert into public.restaurant_configs (restaurant_id, whatsapp_number) values ('$RESTO_A', '+213000000'), ('$RESTO_B', '+213000001');" >/dev/null
 
-CAT_A=$(psql -d "$DB" -t -A -c "insert into public.menu_categories (restaurant_id, name) values ('$RESTO_A', 'Catégorie A') returning id;" | head -1)
-CAT_B=$(psql -d "$DB" -t -A -c "insert into public.menu_categories (restaurant_id, name) values ('$RESTO_B', 'Catégorie B') returning id;" | head -1)
+CAT_A=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_categories (restaurant_id, name) values ('$RESTO_A', 'Catégorie A') returning id;")
+CAT_B=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_categories (restaurant_id, name) values ('$RESTO_B', 'Catégorie B') returning id;")
 
-PROD_A1=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A1', 9.99) returning id;" | head -1)
-PROD_A_ARCHIVED=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price, archived_at) values ('$CAT_A', 'Produit A archivé', 9.99, now()) returning id;" | head -1)
-PROD_B1=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_B', 'Produit B1', 12.50) returning id;" | head -1)
-PROD_A_PROV=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène de provenance', 5.00) returning id;" | head -1)
-PROD_A_CONCURRENT=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène de concurrence', 7.00) returning id;" | head -1)
-PROD_A_NOPHOTO=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- sans photo', 3.50) returning id;" | head -1)
-PROD_A_POISON=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène empoisonnée v1.5', 4.20) returning id;" | head -1)
+PROD_A1=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A1', 9.99) returning id;")
+PROD_A_ARCHIVED=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price, archived_at) values ('$CAT_A', 'Produit A archivé', 9.99, now()) returning id;")
+PROD_B1=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_B', 'Produit B1', 12.50) returning id;")
+PROD_A_PROV=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène de provenance', 5.00) returning id;")
+PROD_A_CONCURRENT=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène de concurrence', 7.00) returning id;")
+PROD_A_NOPHOTO=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- sans photo', 3.50) returning id;")
+PROD_A_POISON=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène empoisonnée v1.5', 4.20) returning id;")
 
 FAKE_RESTO="00000000-0000-0000-0000-000000000000"
 FAKE_PROD="00000000-0000-0000-0000-000000000001"
 
-OWNER_A=$(psql -d "$DB" -t -A -c "insert into auth.users (email) values ('owner-a@test') returning id;" | head -1)
-MANAGER_B=$(psql -d "$DB" -t -A -c "insert into auth.users (email) values ('manager-b@test') returning id;" | head -1)
-OPERATOR=$(psql -d "$DB" -t -A -c "insert into auth.users (email) values ('operator@scanym.internal') returning id;" | head -1)
-IMPOSTOR=$(psql -d "$DB" -t -A -c "insert into auth.users (email) values ('nobody@test') returning id;" | head -1)
+OWNER_A=$(psql_first_line -d "$DB" -t -A -c "insert into auth.users (email) values ('owner-a@test') returning id;")
+MANAGER_B=$(psql_first_line -d "$DB" -t -A -c "insert into auth.users (email) values ('manager-b@test') returning id;")
+OPERATOR=$(psql_first_line -d "$DB" -t -A -c "insert into auth.users (email) values ('operator@scanym.internal') returning id;")
+IMPOSTOR=$(psql_first_line -d "$DB" -t -A -c "insert into auth.users (email) values ('nobody@test') returning id;")
 psql -d "$DB" -c "
   insert into public.restaurant_users (user_id, restaurant_id, role) values
     ('$OWNER_A', '$RESTO_A', 'owner'),
@@ -887,11 +903,11 @@ force_expire_lease() {
 # profondeur, items 14/15/16).
 seed_pending_cleanup() {
   local restaurant_id="$1" product_id="$2" old_path="$3" status="${4:-pending}"
-  psql -d "$DB" -t -A -c "
+  psql_first_line -d "$DB" -t -A -c "
     insert into public.product_photo_pending_cleanups (restaurant_id, product_id, old_path, status)
     values ('$restaurant_id'::uuid, '$product_id'::uuid, '$old_path', '$status')
     returning id;
-  " | head -1 | tr -d '[:space:]'
+  " | tr -d '[:space:]'
 }
 
 try_apply_anon() {
@@ -1408,7 +1424,7 @@ assert_eq "20f: B existe toujours physiquement (idem)" "1" "$EXISTS_B_UNTOUCHED"
 # et lever CONFLICT -- M jamais écrasée.
 # ==================================================================
 
-PROD_A_RETRY=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène retry v2.2.1', 6.00) returning id;" | head -1)
+PROD_A_RETRY=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène retry v2.2.1', 6.00) returning id;")
 
 log "=== v2.2.1-01 -- FIRST APPLY REGRESSION : p_is_retry omis (défaut false) reste un remplacement de masse INCONDITIONNEL, même si une photo DIFFÉRENTE existe déjà ==="
 RETRY01_OLD="$RESTO_A/$PROD_A_RETRY/$(newfile)"
@@ -1519,7 +1535,7 @@ assert_eq "après refus, l'image actuelle (B, posée par le test de provenance) 
 # parce que l'origine est vérifiée).
 # ==================================================================
 
-PROD_A_FOREIGN=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène origine étrangère v1.6', 6.60) returning id;" | head -1)
+PROD_A_FOREIGN=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène origine étrangère v1.6', 6.60) returning id;")
 
 log "=== v1.6-01 (contrôle positif) -- origine Scanym correcte + chemin valide -> VALID (old_path renvoyé, cleanup ALLOWED) ==="
 V16_VALID_OLD="$RESTO_A/$PROD_A_FOREIGN/$(newfile)"
@@ -1625,8 +1641,8 @@ fi
 # le claim_ correspondant. 20+ items mandatés ci-dessous.
 # ==================================================================
 
-PROD_A_CLEANUP=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène cleanup-retry v1.8', 8.80) returning id;" | head -1)
-PROD_A_CLEANUP_2=$(psql -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène cleanup-retry v1.8 (produit B)', 9.90) returning id;" | head -1)
+PROD_A_CLEANUP=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène cleanup-retry v1.8', 8.80) returning id;")
+PROD_A_CLEANUP_2=$(psql_first_line -d "$DB" -t -A -c "insert into public.menu_items (category_id, name, price) values ('$CAT_A', 'Produit A -- scène cleanup-retry v1.8 (produit B)', 9.90) returning id;")
 
 log "=== v1.8-01 -- création d'autorité de nettoyage GENUINE : remplacement RÉEL A->B (apply_), puis create_ sur le old_path RÉELLEMENT renvoyé -> pending ==="
 CLEAN_OLD_A="$RESTO_A/$PROD_A_CLEANUP/$(newfile)"
