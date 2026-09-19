@@ -220,6 +220,11 @@ export interface MenuItem {
   /** Colonne GÉNÉRÉE côté base (price / unit_weight_grams) —
    *  métadonnée de référence uniquement, jamais une autorité. */
   reference_price_per_kg?: number | null;
+  /** CUSTOMER TAGS DISPLAY (LOT 01) -- libellés des tags PUBLIÉS
+   *  (collections visibles) portés par ce produit, résolus côté service
+   *  (lib/services/restaurant.ts) depuis get_restaurant_collections.
+   *  Dédoublonnés, ordonnés. Absent = produit sans tag public. */
+  customer_tags?: string[];
 }
 
 // Objet complet renvoyé par getRestaurantBySlug

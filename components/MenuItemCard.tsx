@@ -8,6 +8,7 @@ import InlineOptions from "@/components/InlineOptions";
 import Ltr from "@/components/Bidi";
 import ProductInfoButton from "@/components/ProductInfoButton";
 import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
+import ProductTags from "@/components/ProductTags";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 
@@ -57,6 +58,9 @@ export default function MenuItemCard({
   const [photoFailed, setPhotoFailed] = useState(false);
   const hasPhoto = Boolean(item.image_url) && !photoFailed;
   const isInline = Boolean(inlineChoices && onChangeChoice);
+  // CUSTOMER TAGS DISPLAY (LOT 01) -- nom accessible de la liste des
+  // tags publiés du produit (rendu nul pour un produit sans tag).
+  const tagsLabel = t("productTagsAria", { name: tName(item, lang, sourceLanguage) });
   // Corrige UIFIX-V3-01 (contre-audit Work, 4e tour) : cette carte
   // englobe des descendants dont le texte (text-ink-on-bg-muted,
   // text-accent-dark-on-bg, text-ink-on-bg) est calculé contre
@@ -104,6 +108,7 @@ export default function MenuItemCard({
                 {tShortDescription(item, lang, sourceLanguage)}
               </p>
             )}
+            <ProductTags tags={item.customer_tags} label={tagsLabel} />
             <div className="mt-auto flex items-baseline justify-between gap-2 pt-2">
               <span className="font-bold text-accent-dark-on-bg">
                 <Ltr>{formatPrice(item.price, currency)}</Ltr>
@@ -159,6 +164,7 @@ export default function MenuItemCard({
             {tShortDescription(item, lang, sourceLanguage)}
           </p>
         )}
+        <ProductTags tags={item.customer_tags} label={tagsLabel} />
 
         <div className="mt-auto pt-2">
           <div className="flex items-end justify-between gap-2">

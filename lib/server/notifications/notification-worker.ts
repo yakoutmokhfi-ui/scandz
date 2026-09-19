@@ -110,6 +110,24 @@ export async function processPendingNotifications(
       continue;
     }
 
+    // LOT 04 — seul le gabarit ORDER_RECEIVED approuvé existe : un
+    // autre type de notification (placeholders SQL sans émission
+    // active) n'est JAMAIS rendu avec ce gabarit ni envoyé -- état
+    // terminal explicite, sans émission de capacité de suivi, jamais
+    // une boucle de reprise.
+    if (notification.notificationType !== "order_received") {
+      await completeNotificationAttempt({
+        outboxId: notification.outboxId,
+        claimToken: notification.claimToken,
+        attemptNumber,
+        provider: provider.name,
+        result: "terminal_failure",
+        errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
+      });
+      failedTerminal += 1;
+      continue;
+    }
+
     if (!isOrderReceivedPayload(notification.payloadSnapshot)) {
       await completeNotificationAttempt({
         outboxId: notification.outboxId,
@@ -234,4 +252,23 @@ export async function processPendingNotifications(
   }
 
   return { claimed: claimed.length, sent, retriedRetryable, failedTerminal };
+}
+
+export type RunTransactionalEmailWorkerResult =
+  | { status: "provider_disabled" }
+  | ({ status: "processed" } & ProcessPendingNotificationsResult);
+
+/**
+ * LOT 04 — point d'entrée FAIL-CLOSED du chemin transactionnel réel.
+ * Provider désactivé (`null`, cas unique aujourd'hui -- voir
+ * email-provider-resolution.ts) : AUCUNE réclamation (les lignes
+ * restent `pending`, aucune tentative consommée), AUCUNE capacité de
+ * suivi émise, AUCUN appel réseau.
+ */
+export async function runTransactionalEmailWorker(
+  provider: EmailProvider | null,
+  options: { batchSize?: number; leaseSeconds?: number } = {}
+): Promise<RunTransactionalEmailWorkerResult> {
+  if (!provider) return { status: "provider_disabled" };
+  return { status: "processed", ...(await processPendingNotifications(provider, options)) };
 }
