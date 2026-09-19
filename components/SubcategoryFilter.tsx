@@ -60,7 +60,30 @@
  * "Fromage à la truffe") reste lisible sur une seule ligne à
  * l'intérieur de sa propre pilule, comme n'importe quel composant
  * "pill/tag" standard.
+ *
+ * LOT 02 -- STICKY SUBCATEGORIES. `sticky` (calculé par l'appelant via
+ * shouldStickSubcategoryFilter) : la barre reste collée en haut du
+ * viewport pendant le défilement de la catégorie active, sur un fond
+ * opaque (bg-crema SANS modificateur d'opacité : crema est une couleur
+ * var(--sc-bg), pour laquelle Tailwind 3 ne génère aucune règle
+ * "bg-crema/NN"), sous tous les calques existants (z-20 < CategoryNav z-30 <
+ * barre panier z-40 < modales z-50 / top layer <dialog>). Son bloc
+ * contenant est la <section> de la catégorie active : elle cesse de
+ * coller dès que la section quitte l'écran. `sticky` absent/false :
+ * rendu STRICTEMENT identique au rendu historique.
+ *
+ * Choisir une pilule appelle UNIQUEMENT onSelect : aucun défilement
+ * forcé de la page (décision CIO, cycle 4).
+ *
+ * En mode sticky sur mobile (< sm), les pilules tiennent sur UNE SEULE
+ * ligne défilable horizontalement (flex-nowrap + overflow-x-auto) : la
+ * hauteur de la barre collée reste bornée à une pilule, quel que soit
+ * le nombre de sous-catégories. Défilement au doigt natif ; au clavier,
+ * chaque pilule reste un bouton natif dans l'ordre de tabulation et le
+ * navigateur fait défiler la ligne jusqu'à la pilule focalisée. À
+ * partir de sm, le retour à la ligne (WRAP v1) est conservé.
  */
+import type { Ref } from "react";
 import type { SubcategoryFilterOption } from "@/lib/catalogue-subcategory-grouping";
 
 export type { SubcategoryFilterOption };
@@ -70,6 +93,8 @@ export default function SubcategoryFilter({
   activeId,
   onSelect,
   allLabel,
+  sticky = false,
+  navRef,
 }: {
   /** Une entrée par groupe de sous-catégorie RÉELLE (subcategoryId non
    *  nul) présent dans la catégorie active, déjà dans l'ordre
@@ -82,6 +107,11 @@ export default function SubcategoryFilter({
   onSelect: (id: string | null) => void;
   /** Libellé localisé de "Tous" (lib/i18n.ts: subcategoryFilterAll). */
   allLabel: string;
+  /** LOT 02 -- barre collée pendant le défilement (catalogue long). */
+  sticky?: boolean;
+  /** Référence vers le <nav> (mesure de son bord inférieur par
+   *  l'appelant, voir MenuView). */
+  navRef?: Ref<HTMLElement>;
 }) {
   // Masqué UNIQUEMENT si zéro sous-catégorie réelle (scénario A --
   // rendu strictement identique au comportement historique). Dès
@@ -95,16 +125,29 @@ export default function SubcategoryFilter({
 
   return (
     <nav
+      ref={navRef}
       aria-label={allLabel}
-      className="mt-3 border-b border-espresso/10 pb-3"
+      data-subcategory-filter-sticky={sticky ? "true" : undefined}
+      className={
+        sticky
+          ? "sticky top-0 z-20 -mx-4 mt-3 border-b border-espresso/10 bg-crema px-4 pb-3 pt-3"
+          : "mt-3 border-b border-espresso/10 pb-3"
+      }
     >
       {/* SUBCATEGORY FILTER WRAP v1 -- flex-wrap remplace le défilement
           horizontal : chaque pilule qui ne tient plus sur la ligne
           courante passe à la ligne suivante, jamais hors du flux normal
           de la page. Aucune hauteur fixe n'est imposée à ce conteneur
           -- le nombre de lignes nécessaires reste entièrement determiné
-          par le nombre de pilules et la largeur disponible. */}
-      <ul className="flex flex-wrap gap-2">
+          par le nombre de pilules et la largeur disponible. LOT 02 : en
+          mode sticky, une seule ligne défilable sur mobile (< sm). */}
+      <ul
+        className={
+          sticky
+            ? "flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 sm:flex-wrap sm:overflow-x-visible"
+            : "flex flex-wrap gap-2"
+        }
+      >
         <li key="__all__">
           <button
             type="button"

@@ -102,6 +102,61 @@ export function filterMenuItemGroupsBySubcategory(
 }
 
 // ======================================================================
+// LOT 02 -- STICKY SUBCATEGORIES. Logique PURE décidant si la barre de
+// filtre de sous-catégories doit rester accessible (position sticky)
+// pendant le défilement du catalogue, et de combien corriger le
+// défilement pour qu'un élément focalisé ne soit jamais masqué par
+// elle. Aucune API navigateur ici : les mesures (hauteur de la liste,
+// hauteur du viewport) sont fournies par l'appelant -- testable sans
+// rendu DOM.
+// ======================================================================
+
+/**
+ * Vrai UNIQUEMENT si (a) la catégorie active possède PLUSIEURS
+ * sous-catégories réelles (>= 2 pilules hors "Tous" : avec une seule,
+ * la barre n'offre aucun vrai choix à garder sous la main) ET (b) la
+ * liste NON filtrée ("Tous") de la catégorie est plus haute que le
+ * viewport -- le client doit réellement défiler pour la parcourir, et
+ * la barre quitterait l'écran sans sticky.
+ *
+ * Aucun seuil en nombre de produits (décision CIO, cycle 4) : quelques
+ * grandes cartes peuvent justifier le sticky, beaucoup de petites
+ * cartes tenant sur un écran non. Hauteur mesurée sur la liste NON
+ * filtrée : choisir une sous-catégorie ne fait jamais basculer la
+ * barre entre sticky et non-sticky (aucun saut de mise en page au
+ * moment du clic).
+ */
+export function shouldStickSubcategoryFilter({
+  subcategoryCount,
+  catalogueHeight,
+  viewportHeight,
+}: {
+  subcategoryCount: number;
+  catalogueHeight: number;
+  viewportHeight: number;
+}): boolean {
+  if (subcategoryCount < 2) return false;
+  if (!(viewportHeight > 0)) return false;
+  return catalogueHeight > viewportHeight;
+}
+
+/** Marge (px) conservée entre le bas de la barre sticky et un élément
+ *  focalisé ramené sous elle. */
+export const STICKY_FOCUS_GAP_PX = 8;
+
+/**
+ * Décalage vertical (px, <= 0) à appliquer via window.scrollBy pour
+ * qu'un élément focalisé dont le bord supérieur est `targetTop` ne
+ * soit pas masqué par une barre sticky dont le bord inférieur est
+ * `stickyBottom` (coordonnées viewport). 0 si l'élément est déjà
+ * entièrement sous la barre.
+ */
+export function stickyFocusScrollDelta(targetTop: number, stickyBottom: number): number {
+  if (targetTop >= stickyBottom) return 0;
+  return targetTop - stickyBottom - STICKY_FOCUS_GAP_PX;
+}
+
+// ======================================================================
 // CATALOGUE / SUBCATEGORIES v1.1 -- remédiation CAT-SUB-V1-PUBLIC-GROUPING-01
 // (audit Work). groupMenuItemsBySubcategory() ci-dessus est une PURE
 // segmentation en groupes CONSÉCUTIFS : elle suppose déjà que le

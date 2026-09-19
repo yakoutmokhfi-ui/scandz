@@ -474,6 +474,9 @@ const fr: Dict = {
   mcShortDescriptionTooLong: "La description courte dépasse 100 caractères.",
   mcDescriptionTooLong: "La description dépasse 500 caractères.",
   moreInfoAbout: "Plus d'informations sur {name}",
+  // CUSTOMER TAGS DISPLAY (LOT 01) -- nom accessible de la liste des
+  // tags publiés d'un produit sur la carte client.
+  productTagsAria: "Tags de {name}",
   mcEmpty: "Aucun produit.",
   mcEmptyArchived: "Aucun produit archivé.",
   mcIsOption: "Ce produit sert d'option à une formule",
@@ -1140,6 +1143,7 @@ const en: Dict = {
   mcShortDescriptionTooLong: "The short description is over 100 characters.",
   mcDescriptionTooLong: "The description is over 500 characters.",
   moreInfoAbout: "More information about {name}",
+  productTagsAria: "Tags for {name}",
   mcEmpty: "No items.",
   mcEmptyArchived: "No archived items.",
   mcIsOption: "This item is used as an option in a set menu",
@@ -1792,6 +1796,7 @@ const ar: Dict = {
   mcShortDescriptionTooLong: "الوصف القصير يتجاوز 100 حرف.",
   mcDescriptionTooLong: "الوصف يتجاوز 500 حرف.",
   moreInfoAbout: "مزيد من المعلومات عن {name}",
+  productTagsAria: "وسوم {name}",
   mcEmpty: "لا يوجد منتج.",
   mcEmptyArchived: "لا يوجد منتج مؤرشف.",
   mcIsOption: "يُستعمل هذا المنتج كخيار ضمن عرض",

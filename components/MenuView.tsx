@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
 import {
   groupMenuItemsBySubcategory,
   deriveSubcategoryFilterOptions,
   filterMenuItemGroupsBySubcategory,
+  shouldStickSubcategoryFilter,
+  stickyFocusScrollDelta,
 } from "@/lib/catalogue-subcategory-grouping";
 import {
   buildWhatsAppUrl,
@@ -633,6 +635,67 @@ export default function MenuView({
     () => filterMenuItemGroupsBySubcategory(activeCategoryItemGroups, activeSubcategoryId),
     [activeCategoryItemGroups, activeSubcategoryId]
   );
+
+  // LOT 02 -- STICKY SUBCATEGORIES : barre de filtre collée uniquement
+  // si la catégorie active a PLUSIEURS sous-catégories réelles ET si sa
+  // liste est réellement plus haute que l'écran (voir
+  // shouldStickSubcategoryFilter). Sinon : rendu historique inchangé.
+  //
+  // Mesure synchrone avant peinture (useLayoutEffect) de la liste NON
+  // filtrée uniquement : tant qu'une sous-catégorie est choisie, la
+  // dernière mesure "Tous" est conservée -- filtrer ne fait jamais
+  // basculer la barre. Re-mesure au redimensionnement / rotation via un
+  // unique écouteur "resize", retiré au nettoyage de l'effet.
+  const subcategoryFilterNavRef = useRef<HTMLElement>(null);
+  const catalogueListRef = useRef<HTMLDivElement>(null);
+  const [stickySubcategoryFilter, setStickySubcategoryFilter] = useState(false);
+  const subcategoryCount = subcategoryFilterOptions.length;
+
+  useLayoutEffect(() => {
+    if (subcategoryCount < 2) {
+      setStickySubcategoryFilter(false);
+      return;
+    }
+    if (activeSubcategoryId !== null) return;
+    function measure() {
+      const list = catalogueListRef.current;
+      if (!list) return;
+      setStickySubcategoryFilter(
+        shouldStickSubcategoryFilter({
+          subcategoryCount,
+          catalogueHeight: list.getBoundingClientRect().height,
+          viewportHeight: window.innerHeight,
+        })
+      );
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [activeCategoryItemGroups, subcategoryCount, activeSubcategoryId]);
+
+  // Un élément focalisé au clavier dans la liste (carte, bouton +/−,
+  // bouton (i)) ne doit jamais rester masqué sous la barre collée :
+  // correction synchrone sur l'événement focus (bouillonnant en React),
+  // aucun observer ni écouteur global à nettoyer. Focus CLAVIER
+  // uniquement (:focus-visible, heuristique native du navigateur) : un
+  // clic/tap sur un élément partiellement masqué ne fait jamais sauter
+  // la page. Navigateur sans :focus-visible : correction conservée.
+  function handleCatalogueFocus(event: React.FocusEvent<HTMLElement>) {
+    if (!stickySubcategoryFilter) return;
+    const nav = subcategoryFilterNavRef.current;
+    if (!nav) return;
+    const target = event.target as HTMLElement;
+    try {
+      if (!target.matches(":focus-visible")) return;
+    } catch {
+      // Sélecteur non supporté : on garde la correction clavier.
+    }
+    const delta = stickyFocusScrollDelta(
+      target.getBoundingClientRect().top,
+      nav.getBoundingClientRect().bottom
+    );
+    if (delta !== 0) window.scrollBy(0, delta);
+  }
 
   const isInlineOptions = settings.optionsDisplay === "inline";
 
@@ -1284,8 +1347,14 @@ export default function MenuView({
               activeId={activeSubcategoryId}
               onSelect={setActiveSubcategoryId}
               allLabel={t("subcategoryFilterAll")}
+              sticky={stickySubcategoryFilter}
+              navRef={subcategoryFilterNavRef}
             />
-            <div className="mt-4 space-y-6">
+            <div
+              ref={catalogueListRef}
+              className="mt-4 space-y-6"
+              onFocus={stickySubcategoryFilter ? handleCatalogueFocus : undefined}
+            >
               {visibleCategoryItemGroups.map((itemGroup) => (
                 <div
                   key={itemGroup.subcategoryId ?? "__direct__"}

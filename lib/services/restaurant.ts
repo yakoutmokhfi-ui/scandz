@@ -1,6 +1,27 @@
 import { supabase } from "@/lib/supabase";
 import type { RestaurantFull, MenuCategory, MenuSubcategory, RestaurantActiveLanguage } from "@/lib/types";
 import { compareMenuItemsForPublicDisplay } from "@/lib/catalogue-subcategory-grouping";
+import { getRestaurantCollections } from "@/lib/services/catalogue-tags";
+import {
+  attachCustomerTags,
+  buildCustomerProductTags,
+  type CustomerTagSource,
+} from "@/lib/customer-product-tags";
+
+/**
+ * CUSTOMER TAGS DISPLAY (LOT 01) -- les tags sont un enrichissement
+ * non critique : une erreur de lecture (RPC indisponible, migration
+ * non encore jouée) n'empêche JAMAIS l'affichage du menu, qui retombe
+ * simplement sur le rendu sans tag.
+ */
+async function loadCustomerTagSources(restaurantId: string): Promise<CustomerTagSource[]> {
+  try {
+    return await getRestaurantCollections(restaurantId);
+  } catch (e) {
+    console.error("getRestaurantCollections:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
 
 /**
  * Service unique d'accès aux données du restaurant.
@@ -99,8 +120,25 @@ export async function getRestaurantBySlug(
 
   // Une catégorie inactive n'apparaît pas au menu, mais reste
   // disponible comme réservoir de choix (goûts, pâtisseries…).
-  const categories = prepared.filter((c) => c.is_active);
+  const displayedCategories = prepared.filter((c) => c.is_active);
   const hiddenCategories = prepared.filter((c) => !c.is_active);
+
+  // CUSTOMER TAGS DISPLAY (LOT 01) -- tags PUBLIÉS par le marchand,
+  // lus via le contrat client existant (get_restaurant_collections,
+  // filtrage tenant/publication intégralement serveur). Seuls les
+  // produits réellement affichés de CET établissement peuvent recevoir
+  // un tag (défense en profondeur, voir lib/customer-product-tags.ts).
+  const displayedItemIds = new Set(
+    displayedCategories.flatMap((c) => c.menu_items.map((i) => i.id))
+  );
+  const tagsByItem = buildCustomerProductTags(
+    await loadCustomerTagSources(data.id),
+    displayedItemIds
+  );
+  const categories = displayedCategories.map((c) => ({
+    ...c,
+    menu_items: attachCustomerTags(c.menu_items, tagsByItem),
+  }));
 
   // LOT 1A — langues actives, ordonnées. Chaque ligne jointe porte à
   // la fois la position (restaurant_active_languages.display_order)
