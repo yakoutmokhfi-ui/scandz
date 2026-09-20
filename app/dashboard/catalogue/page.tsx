@@ -61,6 +61,7 @@ import {
   removeProductTag,
   getRestaurantProductTags,
   getRestaurantTags,
+  updateTagCollectionSettings,
   type ProductTags,
   type RestaurantTag,
 } from "@/lib/services/catalogue-tags";
@@ -1527,6 +1528,20 @@ export default function CataloguePage() {
           </div>
         )}
 
+        {/* P1 CUSTOMER COLLECTIONS BY TAGS -- réglage restaurant des
+            collections client, sur les tags du restaurant COURANT.
+            Remonté à chaque changement de restaurant (key). */}
+        {canEdit && !showArchived && restaurantId && catalogueLoadedRestaurantId === restaurantId && (
+          <CustomerCollectionsSettings
+            key={restaurantId}
+            restaurantId={restaurantId}
+            tags={knownTags}
+            isCurrentRestaurant={(id) => id === currentRestaurantRef.current}
+            onSaved={(id) => reloadTags(id)}
+            t={t}
+          />
+        )}
+
         {categoriesInContext.length === 0 && (
           <p className="rounded-xl bg-stone-100 p-4 text-sm text-stone-500">
             {showArchived ? t("mcEmptyArchived") : t("mcEmpty")}
@@ -1936,6 +1951,182 @@ function ProductTagsEditor({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * P1 CUSTOMER COLLECTIONS BY TAGS -- réglage RESTAURANT des collections
+ * client, sur les tags déjà chargés (`knownTags`, get_restaurant_tags).
+ *
+ * Une ligne par tag actif : état public/interne, ordre d'affichage.
+ * L'unique écriture est `updateTagCollectionSettings` (RPC
+ * update_tag_collection_settings, autorisation owner/manager/opérateur
+ * et isolation tenant SERVEUR). Après succès, `onSaved` recharge les
+ * tags depuis le serveur ; en échec, l'erreur est annoncée (role=alert)
+ * et rien n'est présenté comme enregistré.
+ *
+ * Contexte restaurant : `restaurantId` est capturé au clic ; si
+ * `isCurrentRestaurant` ne le reconnaît plus à la réponse (bascule
+ * A -> B pendant l'appel), la réponse est ignorée -- aucun
+ * rechargement, aucun message sur l'écran de B. Le parent remonte ce
+ * composant à chaque changement de restaurant (key).
+ */
+function CustomerCollectionsSettings({
+  restaurantId,
+  tags,
+  isCurrentRestaurant,
+  onSaved,
+  t,
+}: {
+  restaurantId: string;
+  tags: RestaurantTag[];
+  isCurrentRestaurant: (id: string) => boolean;
+  onSaved: (id: string) => void | Promise<void>;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  return (
+    <section
+      aria-labelledby="customer-collections-title"
+      data-testid="customer-collections-settings"
+      className="mb-4 space-y-2 rounded-xl border border-stone-200 bg-white p-3"
+    >
+      <h2 id="customer-collections-title" className="text-sm font-bold text-stone-800">
+        {t("mcCollectionsTitle")}
+      </h2>
+      <p className="text-xs text-stone-500">{t("mcCollectionsHint")}</p>
+      {tags.length === 0 ? (
+        <p className="text-xs text-stone-400" data-testid="customer-collections-empty">
+          {t("mcCollectionsNone")}
+        </p>
+      ) : (
+        <ul className="divide-y divide-stone-100">
+          {tags.map((tag) => (
+            <CustomerCollectionRow
+              // Remonté à chaque nouvelle valeur SERVEUR : le brouillon
+              // repart toujours de l'état rechargé.
+              key={`${tag.id}:${tag.visibleOnCustomerMenu}:${tag.displayOrder}`}
+              restaurantId={restaurantId}
+              tag={tag}
+              isCurrentRestaurant={isCurrentRestaurant}
+              onSaved={onSaved}
+              t={t}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function CustomerCollectionRow({
+  restaurantId,
+  tag,
+  isCurrentRestaurant,
+  onSaved,
+  t,
+}: {
+  restaurantId: string;
+  tag: RestaurantTag;
+  isCurrentRestaurant: (id: string) => boolean;
+  onSaved: (id: string) => void | Promise<void>;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  const [visible, setVisible] = useState(tag.visibleOnCustomerMenu);
+  const [order, setOrder] = useState(String(tag.displayOrder));
+  const [busy, setBusy] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const orderValid = /^-?\d+$/.test(order.trim()) && Number.isSafeInteger(Number(order.trim()));
+  const dirty = visible !== tag.visibleOnCustomerMenu || order.trim() !== String(tag.displayOrder);
+
+  async function save() {
+    if (busy) return;
+    if (!orderValid) {
+      setRowError(t("mcCollectionOrderInvalid"));
+      return;
+    }
+    const contextId = restaurantId;
+    setBusy(true);
+    setRowError(null);
+    try {
+      await updateTagCollectionSettings(tag.id, visible, Number(order.trim()));
+      if (!isCurrentRestaurant(contextId)) return;
+      await onSaved(contextId);
+    } catch (e) {
+      if (!isCurrentRestaurant(contextId)) return;
+      setRowError(t("mcCollectionSaveFailed", { message: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const checkboxId = `collection-visible-${tag.id}`;
+  const orderId = `collection-order-${tag.id}`;
+  const errorId = `collection-error-${tag.id}`;
+
+  return (
+    <li className="flex flex-wrap items-center gap-2 py-2" data-testid="customer-collection-row">
+      <span className="min-w-0 flex-1 text-sm">
+        <span className="font-semibold text-stone-800" data-testid="customer-collection-name">
+          {tag.name}
+        </span>{" "}
+        <span className="text-xs text-stone-500">
+          · {t("mcCollectionProducts", { n: tag.productCount })} ·{" "}
+          <span data-testid="customer-collection-state">
+            {tag.visibleOnCustomerMenu ? t("mcCollectionPublic") : t("mcCollectionPrivate")}
+          </span>
+        </span>
+      </span>
+      <input
+        id={checkboxId}
+        type="checkbox"
+        checked={visible}
+        disabled={busy}
+        data-testid="customer-collection-visible"
+        onChange={(e) => setVisible(e.target.checked)}
+        aria-describedby={rowError ? errorId : undefined}
+        className="h-4 w-4"
+      />
+      <label htmlFor={checkboxId} className="text-xs text-stone-700">
+        {t("mcCollectionVisible", { name: tag.name })}
+      </label>
+      <label htmlFor={orderId} className="sr-only">
+        {t("mcCollectionOrder", { name: tag.name })}
+      </label>
+      <input
+        id={orderId}
+        type="number"
+        inputMode="numeric"
+        step={1}
+        value={order}
+        disabled={busy}
+        data-testid="customer-collection-order"
+        onChange={(e) => setOrder(e.target.value)}
+        aria-invalid={!orderValid}
+        aria-describedby={rowError ? errorId : undefined}
+        className="w-20 rounded-xl border border-stone-300 p-2 text-sm"
+      />
+      <button
+        type="button"
+        disabled={busy || !dirty}
+        data-testid="customer-collection-save"
+        aria-label={t("mcCollectionSaveFor", { name: tag.name })}
+        onClick={() => void save()}
+        className="rounded-xl border border-stone-300 px-3 py-2 text-sm font-medium text-stone-800 disabled:text-stone-400"
+      >
+        {t("mcCollectionSave")}
+      </button>
+      {rowError && (
+        <p
+          id={errorId}
+          role="alert"
+          className="w-full text-xs font-semibold text-red-700"
+          data-testid="customer-collection-error"
+        >
+          {rowError}
+        </p>
+      )}
+    </li>
   );
 }
 

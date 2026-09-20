@@ -57,6 +57,8 @@ import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
+import CollectionNav from "@/components/CollectionNav";
+import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import OptionModal from "@/components/OptionModal";
@@ -344,7 +346,16 @@ export default function MenuView({
   function changeActiveCategory(categoryId: string) {
     setActiveCategoryId(categoryId);
     setActiveSubcategoryId(null);
+    // P1 CUSTOMER COLLECTIONS BY TAGS -- choisir une catégorie quitte
+    // le mode collection.
+    setActiveCollectionId(null);
   }
+
+  // P1 CUSTOMER COLLECTIONS BY TAGS -- null = catalogue normal. Vue
+  // supplémentaire uniquement : activeCategoryId/activeSubcategoryId
+  // restent intacts pendant le mode collection, donc « Tout le
+  // catalogue » restaure exactement la navigation précédente.
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
 
   // Récupération de la commande
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -611,6 +622,30 @@ export default function MenuView({
     (c) => c.id === activeCategoryId
   );
 
+  // P1 CUSTOMER COLLECTIONS BY TAGS -- collections déjà restreintes au
+  // modèle public par le service, re-restreintes ici aux produits
+  // AFFICHÉS (défense en profondeur : un identifiant inconnu n'expose
+  // rien, une collection sans produit affiché disparaît). Une collection
+  // inconnue ne sélectionne rien (fail closed), et ses produits sont
+  // repris des catégories publiques affichées (mêmes objets que la
+  // navigation normale : panier, options et badges inchangés).
+  const collections = useMemo(
+    () =>
+      buildCustomerCollections(
+        restaurant.collections ?? [],
+        new Set(restaurant.categories.flatMap((c) => c.menu_items.map((i) => i.id)))
+      ),
+    [restaurant.collections, restaurant.categories]
+  );
+  const activeCollection =
+    activeCollectionId === null
+      ? null
+      : (collections.find((c) => c.id === activeCollectionId) ?? null);
+  const activeCollectionItems = useMemo(
+    () => selectCollectionItems(restaurant.categories, activeCollection),
+    [restaurant.categories, activeCollection]
+  );
+
   // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
   // catégorie active en groupes consécutifs (produits directs, puis
   // chaque sous-catégorie) pour insérer un sous-titre visuel SANS
@@ -780,6 +815,35 @@ export default function MenuView({
   /** Quantité affichée sur une carte (toutes variantes confondues). */
   function quantityFor(item: MenuItem): number {
     return quantityForItem(cart, item.id);
+  }
+
+  /** Carte produit -- rendu IDENTIQUE en navigation normale et en mode
+   *  collection (P1 CUSTOMER COLLECTIONS BY TAGS). */
+  function renderMenuItem(item: MenuItem) {
+    const group = getOptionGroup(restaurant.slug, item);
+    const inline = isInlineOptions && group !== null;
+    return (
+      <MenuItemCard
+        key={item.id}
+        item={item}
+        currency={restaurant.config.currency}
+        quantity={quantityFor(item)}
+        requiresChoice={group !== null}
+        inlineChoices={
+          inline ? getChoices(restaurant, group!) : undefined
+        }
+        inlineCounts={inline ? countsFor(item) : undefined}
+        onAdd={() => handleAdd(item)}
+        onRemove={() => handleRemove(item)}
+        variant={menuVariant}
+        onChangeChoice={
+          inline
+            ? (choice, delta) =>
+                handleInlineChange(item, choice, delta)
+            : undefined
+        }
+      />
+    );
   }
 
   /**
@@ -1310,14 +1374,22 @@ export default function MenuView({
       <div className="mt-6">
         <CategoryNav
           categories={restaurant.categories}
-          activeId={activeCategoryId}
+          activeId={activeCollection ? "" : activeCategoryId}
           onSelect={changeActiveCategory}
           variant={menuVariant}
         />
       </div>
 
+      <CollectionNav
+        collections={collections}
+        activeId={activeCollection?.id ?? null}
+        onSelect={setActiveCollectionId}
+        navLabel={t("collectionsNavLabel")}
+        allLabel={t("collectionsShowAll")}
+      />
+
       <main className="px-4">
-        {activeCategory && (
+        {!activeCollection && activeCategory && (
           <section className="mt-7">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
@@ -1368,34 +1440,23 @@ export default function MenuView({
                       {itemGroup.subcategoryName}
                     </h3>
                   )}
-                  {itemGroup.items.map((item) => {
-                    const group = getOptionGroup(restaurant.slug, item);
-                    const inline = isInlineOptions && group !== null;
-                    return (
-                      <MenuItemCard
-                        key={item.id}
-                        item={item}
-                        currency={restaurant.config.currency}
-                        quantity={quantityFor(item)}
-                        requiresChoice={group !== null}
-                        inlineChoices={
-                          inline ? getChoices(restaurant, group!) : undefined
-                        }
-                        inlineCounts={inline ? countsFor(item) : undefined}
-                        onAdd={() => handleAdd(item)}
-                        onRemove={() => handleRemove(item)}
-                        variant={menuVariant}
-                        onChangeChoice={
-                          inline
-                            ? (choice, delta) =>
-                                handleInlineChange(item, choice, delta)
-                            : undefined
-                        }
-                      />
-                    );
-                  })}
+                  {itemGroup.items.map(renderMenuItem)}
                 </div>
               ))}
+            </div>
+          </section>
+        )}
+        {activeCollection && (
+          <section className="mt-7" data-customer-collection-view="true">
+            <h2
+              dir="auto"
+              className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg"
+            >
+              {activeCollection.label}
+            </h2>
+            <div className="mt-1.5 h-px w-12 bg-gold" />
+            <div className="mt-4 space-y-4">
+              {activeCollectionItems.map(renderMenuItem)}
             </div>
           </section>
         )}
