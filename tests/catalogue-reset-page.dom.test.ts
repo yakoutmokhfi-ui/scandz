@@ -291,8 +291,13 @@ test("[C] bouton de confirmation reste DÉSACTIVÉ tant que la phrase saisie ne 
   )!;
   click(previewButton);
   await waitFor(
-    () => (globalThis as any).__mockPreviewCalls.length === 1,
-    "appel previewCatalogueReset non observé"
+    () =>
+      (globalThis as any).__mockPreviewCalls.length === 1 &&
+      !!container.querySelector("input[type='text']") &&
+      Array.from(container.querySelectorAll("button")).some((b) =>
+        b.textContent?.includes("Réinitialiser le catalogue")
+      ),
+    "aperçu et contrôles de confirmation non rendus"
   );
 
   const confirmButton = () =>
@@ -347,15 +352,22 @@ test("[E/G] confirmation avec la phrase exacte appelle resetMerchantCatalogue EX
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(() => !!container.textContent?.includes("Au Lait Cru"), "marchand Au Lait Cru non rendu");
 
-  click(Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
+  const previewButton = Array.from(container.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Aperçu de la réinitialisation")
+  );
+  assert.ok(previewButton, "bouton Aperçu introuvable");
+  click(previewButton!);
   await waitFor(
-    () => (globalThis as any).__mockPreviewCalls.length === 1,
-    "appel previewCatalogueReset non observé"
+    () =>
+      (globalThis as any).__mockPreviewCalls.length === 1 &&
+      !!container.querySelector("input[type='text']"),
+    "aperçu et champ de confirmation non rendus"
   );
 
-  const input = container.querySelector("input[type='text']") as HTMLInputElement;
+  const input = container.querySelector("input[type='text']") as HTMLInputElement | null;
+  assert.ok(input, "champ de confirmation introuvable");
   setNativeValue(input, "RESET Au Lait Cru");
   await waitFor(
     () => {
@@ -387,17 +399,32 @@ test("[v1.1] le serveur rejette la confirmation (CatalogueResetConfirmationMisma
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(() => !!container.textContent?.includes("Au Lait Cru"), "marchand Au Lait Cru non rendu");
 
-  click(Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
+  const previewButton = Array.from(container.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Aperçu de la réinitialisation")
+  );
+  assert.ok(previewButton, "bouton Aperçu introuvable");
+  click(previewButton!);
   await waitFor(
-    () => (globalThis as any).__mockPreviewCalls.length === 1,
-    "appel previewCatalogueReset non observé"
+    () =>
+      (globalThis as any).__mockPreviewCalls.length === 1 &&
+      !!container.querySelector("input[type='text']"),
+    "aperçu et champ de confirmation non rendus"
   );
 
-  const input = container.querySelector("input[type='text']") as HTMLInputElement;
+  const input = container.querySelector("input[type='text']") as HTMLInputElement | null;
+  assert.ok(input, "champ de confirmation introuvable");
   setNativeValue(input, "RESET Au Lait Cru");
-  await flush(20);
+  await waitFor(
+    () => {
+      const button = Array.from(container.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Réinitialiser le catalogue")
+      ) as HTMLButtonElement | undefined;
+      return !!button && button.disabled === false;
+    },
+    "bouton de confirmation non activé"
+  );
 
   const originalResponder = (globalThis as any).__mockResetResponder;
   (globalThis as any).__mockResetResponder = async () => {
@@ -431,8 +458,15 @@ test("[F] changer de marchand (remontage avec ?r= différent) n'affiche jamais u
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container: c1, root: r1 } = render();
   await waitFor(() => !!c1.textContent?.includes("Au Lait Cru"), "marchand r1 non rendu");
-  click(Array.from(c1.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
-  await flush(50);
+  const previewButton = Array.from(c1.querySelectorAll("button")).find((b) =>
+    b.textContent?.includes("Aperçu de la réinitialisation")
+  );
+  assert.ok(previewButton, "bouton Aperçu introuvable pour r1");
+  click(previewButton!);
+  await waitFor(
+    () => (globalThis as any).__mockPreviewCalls.length === 1 && !!c1.textContent?.includes("12 produit"),
+    "aperçu r1 non rendu"
+  );
   assert.ok(c1.textContent?.includes("Au Lait Cru"));
   r1.unmount();
   c1.remove();
