@@ -1,6 +1,8 @@
 // Types alignés sur le schéma canonique (docs/DATABASE.md).
 // Ne pas modifier sans validation Yakout + revue CTO.
 
+import type { CustomerCollection } from "@/lib/customer-collections";
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -239,4 +241,9 @@ export interface RestaurantFull extends Restaurant {
    *  source) ; un tableau vide est traité comme repli sur ['fr'] par
    *  le composant (voir LanguageSelector). */
   activeLanguages: RestaurantActiveLanguage[];
+  /** P1 CUSTOMER COLLECTIONS BY TAGS -- collections PUBLIÉES, dans
+   *  l'ordre du contrat get_restaurant_collections, restreintes aux
+   *  produits de `categories` (voir lib/customer-collections.ts).
+   *  Optionnel : absent ou vide = aucune navigation « Collections ». */
+  collections?: CustomerCollection[];
 }

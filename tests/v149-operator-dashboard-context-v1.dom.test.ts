@@ -227,6 +227,7 @@ export async function getRestaurantProductTags() { return []; }
 export async function getRestaurantTags() { return []; }
 export async function addProductTags() { return 0; }
 export async function removeProductTag() { return 0; }
+export async function updateTagCollectionSettings() {}
 export class TagDuplicateNameError extends Error {}
 `;
 

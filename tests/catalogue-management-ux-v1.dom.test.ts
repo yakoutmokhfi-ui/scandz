@@ -103,6 +103,9 @@ export async function removeProductTag(productId, tagId) {
   (globalThis).__tagCalls.push({ fn: "removeProductTag", args: [productId, tagId] });
   return 1;
 }
+export async function updateTagCollectionSettings(tagId, visible, order) {
+  (globalThis).__tagCalls.push({ fn: "updateTagCollectionSettings", args: [tagId, visible, order] });
+}
 export class TagDuplicateNameError extends Error {}
 `;
 const MOCK_ESTABLISHMENTS = `

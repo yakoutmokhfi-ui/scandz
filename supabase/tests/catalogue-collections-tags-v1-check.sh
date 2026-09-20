@@ -327,6 +327,33 @@ assert_eq "[READ] get_restaurant_tags (backoffice) liste les 6 tags actifs de A"
 assert_eq "[READ] get_restaurant_tags expose le nombre de produits par tag (Bio=3, archivés exclus)" "3" "$(as_authenticated "$OWNER_A" "select product_count from public.get_restaurant_tags('$RESTA') where name='Bio';"|tr -d '\n')"
 
 # ==================================================================
+# [P1 EMPTY] P1 CUSTOMER COLLECTIONS BY TAGS -- une collection PUBLIÉE
+# et ACTIVE sans aucun produit public/disponible n'est jamais retournée
+# par get_restaurant_collections (aucune pilule vide côté client).
+# Ajout TEST-ONLY : aucun SQL produit modifié. Placé après [READ] pour
+# ne changer aucun compteur des assertions précédentes ; les
+# assertions suivantes ([SCOPE]/[RLS]/[ROLLBACK]) ne dépendent pas de
+# ces 2 tags.
+#   - 'Vide P1'     : publié, actif, ZÉRO produit associé ;
+#   - 'Indispo P1'  : publié, actif, associé au SEUL produit indisponible P3.
+# ==================================================================
+log "=== [P1 EMPTY] collection publiée sans produit public/disponible ==="
+rc=$(as_authenticated_rc "$OWNER_A" "select public.create_tag('$RESTA','Vide P1');")
+assert_ok "[P1 EMPTY] le marchand crée le tag 'Vide P1' (aucun produit)" "$rc"
+n=$(as_authenticated "$OWNER_A" "select public.add_product_tags('$P3', array['Indispo P1']);"|tr -d '\n')
+assert_eq "[P1 EMPTY] 'Indispo P1' est associé au SEUL produit indisponible P3" "1" "$n"
+VIDE_A=$(sql "select id from public.menu_tags where restaurant_id='$RESTA' and normalized_key='vide p1';"|tr -d '\n')
+INDISPO_A=$(sql "select id from public.menu_tags where restaurant_id='$RESTA' and normalized_key='indispo p1';"|tr -d '\n')
+rc=$(as_authenticated_rc "$OWNER_A" "select public.update_tag_collection_settings('$VIDE_A', true, 0);")
+assert_ok "[P1 EMPTY] le marchand PUBLIE 'Vide P1' (ordre 0, avant Bio)" "$rc"
+rc=$(as_authenticated_rc "$OWNER_A" "select public.update_tag_collection_settings('$INDISPO_A', true, 0);")
+assert_ok "[P1 EMPTY] le marchand PUBLIE 'Indispo P1' (ordre 0, avant Bio)" "$rc"
+assert_eq "[P1 EMPTY] les 2 tags sont bien publiés ET actifs en base" "2" "$(sql "select count(*) from public.menu_tags where id in ('$VIDE_A','$INDISPO_A') and visible_on_customer_menu and is_active;"|tr -d '\n')"
+assert_eq "[P1 EMPTY] get_restaurant_collections n'expose NI 'Vide P1' NI 'Indispo P1'" "0" "$(sql "select count(*) from public.get_restaurant_collections('$RESTA') where id in ('$VIDE_A','$INDISPO_A') or label in ('Vide P1','Indispo P1');"|tr -d '\n')"
+assert_eq "[P1 EMPTY] toujours exactement 2 collections visibles, dans le même ordre (Bio|Truffe)" "Bio|Truffe" "$(sql "select string_agg(label,'|' order by display_order, label) from public.get_restaurant_collections('$RESTA');"|tr -d '\n')"
+assert_eq "[P1 EMPTY] même résultat pour anon (contrat client public)" "0" "$(PGOPTIONS="-c role=anon" psql -X -A -q -t -d "$DB" -c "select count(*) from public.get_restaurant_collections('$RESTA') where id in ('$VIDE_A','$INDISPO_A');" 2>/tmp/scanym-tags-err-$$.txt|tr -d '\n')"
+
+# ==================================================================
 # [SCOPE] §7/§10 -- get_merchant_catalogue INTACTE, hiérarchie intacte.
 # ==================================================================
 log "=== [SCOPE] §7/§10 aucun impact sur l'existant ==="

@@ -7,6 +7,7 @@ import {
   buildCustomerProductTags,
   type CustomerTagSource,
 } from "@/lib/customer-product-tags";
+import { buildCustomerCollections } from "@/lib/customer-collections";
 
 /**
  * CUSTOMER TAGS DISPLAY (LOT 01) -- les tags sont un enrichissement
@@ -131,10 +132,13 @@ export async function getRestaurantBySlug(
   const displayedItemIds = new Set(
     displayedCategories.flatMap((c) => c.menu_items.map((i) => i.id))
   );
-  const tagsByItem = buildCustomerProductTags(
-    await loadCustomerTagSources(data.id),
-    displayedItemIds
-  );
+  const tagSources = await loadCustomerTagSources(data.id);
+  const tagsByItem = buildCustomerProductTags(tagSources, displayedItemIds);
+  // P1 CUSTOMER COLLECTIONS BY TAGS -- la MÊME réponse, conservée dans
+  // son ordre serveur pour la navigation « Collections » (aucun second
+  // appel, aucune seconde source). Même restriction aux produits
+  // affichés ; un échec de lecture donne [] (aucune collection).
+  const collections = buildCustomerCollections(tagSources, displayedItemIds);
   const categories = displayedCategories.map((c) => ({
     ...c,
     menu_items: attachCustomerTags(c.menu_items, tagsByItem),
@@ -173,5 +177,6 @@ export async function getRestaurantBySlug(
     categories,
     hiddenCategories,
     activeLanguages: activeLanguages.length > 0 ? activeLanguages : [{ code: "fr", label: "Français", dir: "ltr", display_order: 1 }],
+    collections,
   };
 }
