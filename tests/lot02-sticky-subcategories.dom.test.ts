@@ -626,8 +626,10 @@ test("4b. mobile -- barre sticky compacte sur 2–3 lignes, repliée sans débor
     for (const li of ul.children) assert.equal(li.tagName, "LI");
     for (const b of ul.querySelectorAll("button")) {
       assert.ok(classes(b).includes("max-w-full"), "pilule bornée à la largeur disponible");
-      assert.ok(classes(b).includes("break-words"), "libellé long repliable dans la pilule");
+      assert.ok(classes(b).includes("[overflow-wrap:anywhere]"), "tout libellé long crée des points de repli intrinsèques");
       assert.ok(!classes(b).includes("whitespace-nowrap"), "aucun libellé ne force le débordement horizontal");
+      assert.ok(classes(b.parentElement!).includes("min-w-0"), "l'item flex peut rétrécir sous sa largeur intrinsèque");
+      assert.ok(classes(b.parentElement!).includes("max-w-full"), "l'item flex reste borné au conteneur");
     }
     // Trois lignes compactes au maximum avant repli vertical de secours.
     assert.ok(!ulClasses.some((c) => /scrollbar|^h-/.test(c)));
@@ -638,6 +640,10 @@ test("4b. mobile -- barre sticky compacte sur 2–3 lignes, repliée sans débor
     assert.equal(ruleFor(css, "overflow-x-visible"), "overflow-x: visible");
     assert.equal(ruleFor(css, "overflow-y-auto"), "overflow-y: auto");
     assert.equal(ruleFor(css, "max-h-32"), "max-height: 8rem");
+    const pillCss = await compileUtilities(["min-w-0", "max-w-full", "[overflow-wrap:anywhere]"]);
+    assert.equal(ruleFor(pillCss, "min-w-0"), "min-width: 0px");
+    assert.equal(ruleFor(pillCss, "max-w-full"), "max-width: 100%");
+    assert.equal(ruleFor(pillCss, "[overflow-wrap:anywhere]"), "overflow-wrap: anywhere");
     const smStart = css.indexOf("@media (min-width: 640px)");
     assert.ok(smStart !== -1, "variante sm générée");
     const smCss = css.slice(smStart);

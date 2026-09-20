@@ -354,7 +354,11 @@ test("[FAIL-CLOSED] identifiants étrangers ignorés ; tag absent de la catégor
 });
 
 test("[RESPONSIVE] catégories classic/editorial non sticky sur mobile et sticky desktop ; filtres repliés sans scroll horizontal", async () => {
-  const x = await render(restaurant(PUBLISHED));
+  const longUnbrokenLabel = "X".repeat(60);
+  const x = await render(restaurant([
+    ...PUBLISHED,
+    { id: "t-long", label: longUnbrokenLabel, displayOrder: 3, menuItemIds: ["Tomme directe"] },
+  ]));
   const categoryNav = x.container.querySelector("[data-category-navigation]")!;
   const categoryClasses = (categoryNav.getAttribute("class") ?? "").split(/\s+/);
   assert.equal(categoryClasses.includes("sticky"), false);
@@ -364,9 +368,12 @@ test("[RESPONSIVE] catégories classic/editorial non sticky sur mobile et sticky
   assert.equal(rowClasses.includes("overflow-x-auto"), false);
   for (const button of secondaryNav(x.container)!.querySelectorAll("button")) {
     const buttonClasses = (button.getAttribute("class") ?? "").split(/\s+/);
-    assert.ok(buttonClasses.includes("max-w-full") && buttonClasses.includes("break-words"));
+    const itemClasses = (button.parentElement!.getAttribute("class") ?? "").split(/\s+/);
+    assert.ok(buttonClasses.includes("max-w-full") && buttonClasses.includes("[overflow-wrap:anywhere]"));
+    assert.ok(itemClasses.includes("min-w-0") && itemClasses.includes("max-w-full"));
     assert.equal(buttonClasses.includes("whitespace-nowrap"), false);
   }
+  assert.ok(tagButton(x.container, longUnbrokenLabel), "tag public maximal sans espace rendu sans élargir son item flex");
   cleanup(x);
 
   const editorialRestaurant = restaurant(PUBLISHED);

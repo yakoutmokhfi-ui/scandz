@@ -157,14 +157,14 @@ export default function SubcategoryFilter({
             : "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto sm:max-h-none sm:gap-2 sm:overflow-y-visible"
         }
       >
-        <li key="__all__">
+        <li key="__all__" className="min-w-0 max-w-full">
           <button
             type="button"
             onClick={() => (onClear ? onClear() : onSelect(null))}
             aria-pressed={activeId === null && activeTagId === null}
             data-subcategory-filter-option="__all__"
             className={
-              "min-h-9 max-w-full break-words rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+              "min-h-9 max-w-full [overflow-wrap:anywhere] rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
               (activeId === null && activeTagId === null
                 ? "bg-caramel text-caramel-ink shadow-sm"
                 : "bg-crema text-ink-on-bg-muted shadow-sm")
@@ -176,14 +176,14 @@ export default function SubcategoryFilter({
         {options.map((option) => {
           const isActive = option.id === activeId;
           return (
-            <li key={option.id}>
+            <li key={option.id} className="min-w-0 max-w-full">
               <button
                 type="button"
                 onClick={() => onSelect(option.id)}
                 aria-pressed={isActive}
                 data-subcategory-filter-option={option.id}
                 className={
-                  "min-h-9 max-w-full break-words rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+                  "min-h-9 max-w-full [overflow-wrap:anywhere] rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
                   (isActive
                     ? "bg-caramel text-caramel-ink shadow-sm"
                     : "bg-crema text-ink-on-bg-muted shadow-sm")
@@ -197,7 +197,7 @@ export default function SubcategoryFilter({
         {tagOptions.map((tag) => {
           const isActive = tag.id === activeTagId;
           return (
-            <li key={`tag:${tag.id}`}>
+            <li key={`tag:${tag.id}`} className="min-w-0 max-w-full">
               <button
                 type="button"
                 onClick={() => onTagSelect(tag.id)}
@@ -205,7 +205,7 @@ export default function SubcategoryFilter({
                 data-category-tag-option="true"
                 dir="auto"
                 className={
-                  "min-h-9 max-w-full break-words rounded-full border px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+                  "min-h-9 max-w-full [overflow-wrap:anywhere] rounded-full border px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
                   (isActive
                     ? "border-espresso bg-espresso text-ink-text shadow-sm"
                     : "border-espresso/20 bg-crema text-ink-on-bg-muted")
