@@ -11,7 +11,12 @@ import assert from "node:assert/strict";
 // profondeur de §3), entrée vide/échec -> aucune collection (§14).
 // ====================================================================
 
-const { buildCustomerCollections, selectCollectionItems } = await import(
+const {
+  buildCustomerCollections,
+  selectCollectionItems,
+  deriveContextualCategoryTags,
+  filterMenuItemGroupsByTag,
+} = await import(
   "../lib/customer-collections.ts"
 );
 
@@ -111,4 +116,34 @@ test("[PURE] l'entrée n'est jamais mutée", () => {
   const snapshot = JSON.stringify(sources);
   buildCustomerCollections(sources, ALLOWED);
   assert.equal(JSON.stringify(sources), snapshot);
+});
+
+test("[CATEGORY TAGS] seuls les tags utilisés par la catégorie courante sont proposés, dans l'ordre P1", () => {
+  const collections = buildCustomerCollections(
+    [
+      { id: "t-apero", label: "Apéro", displayOrder: 1, menuItemIds: ["p-direct", "p-blanc"] },
+      { id: "t-bio", label: "Bio", displayOrder: 2, menuItemIds: ["p-chevre"] },
+      { id: "t-vins", label: "Vins nature", displayOrder: 3, menuItemIds: ["p-rouge"] },
+    ],
+    ALLOWED
+  );
+  const contextual = deriveContextualCategoryTags(collections, CATEGORIES[0].menu_items);
+  assert.deepEqual(contextual.map((tag) => tag.id), ["t-apero", "t-bio"]);
+  assert.deepEqual(contextual[0].menuItemIds, ["p-direct"]);
+  assert.equal(JSON.stringify(contextual).includes("p-blanc"), false, "aucun produit de Vins ne fuit");
+});
+
+test("[SUBCATEGORY ∩ TAG] intersection déterministe, groupes vides retirés, objets produit inchangés", () => {
+  const groups = [
+    { subcategoryId: null, subcategoryName: null, items: [CATEGORIES[0].menu_items[0]] },
+    { subcategoryId: "s-raclette", subcategoryName: "Raclette", items: [CATEGORIES[0].menu_items[1]] },
+    { subcategoryId: "s-chevre", subcategoryName: "Chèvre", items: [CATEGORIES[0].menu_items[2]] },
+  ];
+  const filtered = filterMenuItemGroupsByTag(groups as any, {
+    menuItemIds: ["p-raclette", "p-blanc", "foreign-tenant-b"],
+  });
+  assert.deepEqual(filtered.map((group) => group.subcategoryId), ["s-raclette"]);
+  assert.equal(filtered[0].items[0], CATEGORIES[0].menu_items[1]);
+  assert.deepEqual(filterMenuItemGroupsByTag(groups as any, null), groups);
+  assert.notEqual(filterMenuItemGroupsByTag(groups as any, null), groups, "tableau de sortie indépendant");
 });

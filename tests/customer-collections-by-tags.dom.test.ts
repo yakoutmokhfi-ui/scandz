@@ -190,25 +190,18 @@ function click(el: Element) {
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 }
 
-function collectionsNav(c: Element): HTMLElement | null {
-  return c.querySelector("nav[data-customer-collections-nav]");
+function secondaryNav(c: Element): HTMLElement | null {
+  return c.querySelector("nav[data-category-secondary-filters]");
 }
 
-function collectionButtons(c: Element): HTMLButtonElement[] {
-  const nav = collectionsNav(c);
-  return nav ? ([...nav.querySelectorAll("button")] as HTMLButtonElement[]) : [];
+function tagButtons(c: Element): HTMLButtonElement[] {
+  return [...c.querySelectorAll("[data-category-tag-option]")] as HTMLButtonElement[];
 }
 
-function collectionButton(c: Element, label: string): HTMLButtonElement {
-  const b = collectionButtons(c).find((x) => x.textContent === label);
-  assert.ok(b, `bouton de collection '${label}' attendu`);
+function tagButton(c: Element, label: string): HTMLButtonElement {
+  const b = tagButtons(c).find((x) => x.textContent === label);
+  assert.ok(b, `filtre de tag '${label}' attendu`);
   return b!;
-}
-
-function pressedCollections(c: Element): string[] {
-  return collectionButtons(c)
-    .filter((b) => b.getAttribute("aria-pressed") === "true")
-    .map((b) => b.textContent ?? "");
 }
 
 function categoryButton(c: Element, label: string): HTMLButtonElement {
@@ -262,10 +255,10 @@ function cleanup(x: { container: HTMLElement; root: any }) {
 
 // ====================================================================
 
-test("[NO COLLECTION] sans collection (champ absent OU vide), aucune navigation Collections : catalogue normal strictement inchangé", async () => {
+test("[NO TAG] sans tag public, le catalogue et ses sous-catégories restent inchangés", async () => {
   for (const r of [restaurant(), restaurant([])]) {
     const x = await render(r);
-    assert.equal(collectionsNav(x.container), null);
+    assert.equal(tagButtons(x.container).length, 0);
     assert.equal(sectionTitle(x.container), "Fromages");
     assert.deepEqual(pressedCategories(x.container), ["Fromages"]);
     assert.deepEqual(cardNames(x.container), ["Tomme directe", "Raclette fumée", "Raclette nature", "Crottin"]);
@@ -273,108 +266,86 @@ test("[NO COLLECTION] sans collection (champ absent OU vide), aucune navigation 
   }
 });
 
-test("[PUBLISHED][ORDER][A11Y] navigation nommée, vrais boutons, « Tout le catalogue » puis les collections publiées dans l'ordre serveur", async () => {
+test("[CONTEXT][ORDER][A11Y] seuls les tags utilisés dans la catégorie active sont des boutons secondaires ordonnés", async () => {
   const x = await render(restaurant(PUBLISHED));
-  const nav = collectionsNav(x.container);
-  assert.ok(nav, "la navigation Collections doit être rendue");
+  const nav = secondaryNav(x.container);
+  assert.ok(nav, "la navigation secondaire doit être rendue");
   assert.equal(nav!.tagName, "NAV");
-  assert.equal(nav!.getAttribute("aria-label"), "Collections");
-  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Tout le catalogue", "Apéro", "Bio"]);
-  for (const b of collectionButtons(x.container)) {
+  assert.deepEqual(tagButtons(x.container).map((b) => b.textContent), ["Apéro", "Bio"]);
+  for (const b of tagButtons(x.container)) {
     assert.equal(b.tagName, "BUTTON");
     assert.equal(b.getAttribute("type"), "button");
-    assert.ok(b.hasAttribute("aria-pressed"), "état actif exposé par aria-pressed");
+    assert.equal(b.getAttribute("aria-pressed"), "false");
     assert.notEqual(b.getAttribute("tabindex"), "-1", "atteignable au clavier");
-    assert.ok((b.getAttribute("class") ?? "").includes("focus-visible:outline"), "focus clavier visible");
   }
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"], "catalogue normal actif par défaut");
-  // Focus clavier réel.
-  const apero = collectionButton(x.container, "Apéro");
+  const apero = tagButton(x.container, "Apéro");
   apero.focus();
   assert.equal(window.document.activeElement, apero);
   cleanup(x);
 });
 
-test("[INTERNAL] aucun identifiant de tag ni tag interne n'est exposé dans la navigation", async () => {
+test("[INTERNAL] aucun identifiant interne de tag n'est exposé dans le DOM", async () => {
   const x = await render(restaurant(PUBLISHED));
-  const html = collectionsNav(x.container)!.outerHTML;
+  const html = secondaryNav(x.container)!.outerHTML;
   assert.equal(html.includes("t-apero") || html.includes("t-bio"), false, "aucun identifiant de tag dans le DOM");
-  assert.deepEqual(
-    collectionButtons(x.container).slice(1).map((b) => b.textContent),
-    PUBLISHED.map((p) => p.label),
-    "seuls les libellés publiés reçus du contrat public"
-  );
   cleanup(x);
 });
 
-test("[MULTI-CATEGORY][BADGES] choisir une collection affiche tous et seulement ses produits, à travers catégories et sous-catégories, badges inchangés", async () => {
+test("[CATEGORY SCOPE][BADGES] un tag ne montre que les produits de la catégorie active et conserve les badges", async () => {
   const x = await render(restaurant(PUBLISHED));
-  click(collectionButton(x.container, "Apéro"));
+  click(tagButton(x.container, "Apéro"));
   await flush();
-
-  assert.ok(x.container.querySelector("[data-customer-collection-view]"), "vue collection affichée");
-  assert.equal(sectionTitle(x.container), "Apéro");
-  assert.deepEqual(cardNames(x.container), ["Tomme directe", "Raclette fumée", "Chablis"]);
-  assert.deepEqual(pressedCollections(x.container), ["Apéro"]);
-  assert.deepEqual(pressedCategories(x.container), [], "aucune catégorie active en mode collection");
-  assert.equal(x.container.querySelector("[data-subcategory-filter-option]"), null, "pas de filtre de sous-catégorie en mode collection");
-
-  // Badges publiés existants : identiques.
-  assert.deepEqual(badgesOf(x.container, "Chablis"), ["Apéro"]);
+  assert.equal(sectionTitle(x.container), "Fromages");
+  assert.deepEqual(cardNames(x.container), ["Tomme directe", "Raclette fumée"]);
+  assert.equal(cardNames(x.container).includes("Chablis"), false, "aucune fuite depuis Vins");
+  assert.equal(tagButton(x.container, "Apéro").getAttribute("aria-pressed"), "true");
   assert.deepEqual(badgesOf(x.container, "Raclette fumée"), ["Apéro"]);
-
-  click(collectionButton(x.container, "Bio"));
-  await flush();
-  assert.deepEqual(cardNames(x.container), ["Crottin"]);
-  assert.deepEqual(badgesOf(x.container, "Crottin"), ["Bio"]);
   cleanup(x);
 });
 
-test("[RETURN] « Tout le catalogue » restaure EXACTEMENT la catégorie et la sous-catégorie précédentes", async () => {
+test("[COMBINED][TOUS] sous-catégorie ET tag sont déterministes ; Tous restaure la catégorie complète", async () => {
   const x = await render(restaurant(PUBLISHED));
   click(subcategoryPill(x.container, "Raclette"));
   await flush();
   assert.deepEqual(cardNames(x.container), ["Raclette fumée", "Raclette nature"]);
-
-  click(collectionButton(x.container, "Bio"));
+  click(tagButton(x.container, "Apéro"));
   await flush();
-  assert.deepEqual(cardNames(x.container), ["Crottin"]);
-
-  click(collectionButton(x.container, "Tout le catalogue"));
-  await flush();
-  assert.equal(x.container.querySelector("[data-customer-collection-view]"), null);
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"]);
-  assert.equal(sectionTitle(x.container), "Fromages");
-  assert.deepEqual(pressedCategories(x.container), ["Fromages"]);
+  assert.deepEqual(cardNames(x.container), ["Raclette fumée"]);
   assert.deepEqual(pressedSubcategories(x.container), ["Raclette"]);
-  assert.deepEqual(cardNames(x.container), ["Raclette fumée", "Raclette nature"]);
-  assert.deepEqual(badgesOf(x.container, "Raclette fumée"), ["Apéro"], "badges de la navigation normale inchangés");
+  assert.equal(tagButton(x.container, "Apéro").getAttribute("aria-pressed"), "true");
+  click(subcategoryPill(x.container, "Tous"));
+  await flush();
+  assert.deepEqual(pressedSubcategories(x.container), ["Tous"]);
+  assert.deepEqual(cardNames(x.container), ["Tomme directe", "Raclette fumée", "Raclette nature", "Crottin"]);
   cleanup(x);
 });
 
-test("[EXIT] choisir une catégorie normale quitte le mode collection", async () => {
+test("[CATEGORY CHANGE] le tag est réinitialisé et les tags sont recalculés pour la nouvelle catégorie", async () => {
   const x = await render(restaurant(PUBLISHED));
-  click(collectionButton(x.container, "Apéro"));
+  click(tagButton(x.container, "Bio"));
   await flush();
   click(categoryButton(x.container, "Vins"));
   await flush();
-  assert.equal(x.container.querySelector("[data-customer-collection-view]"), null);
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"]);
   assert.equal(sectionTitle(x.container), "Vins");
   assert.deepEqual(pressedCategories(x.container), ["Vins"]);
   assert.deepEqual(cardNames(x.container), ["Rouge maison", "Chablis"]);
+  assert.deepEqual(tagButtons(x.container).map((b) => b.textContent), ["Apéro"]);
+  assert.equal(tagButton(x.container, "Apéro").getAttribute("aria-pressed"), "false");
   cleanup(x);
 });
 
-test("[FAIL-CLOSED] identifiants inconnus / d'un autre établissement : jamais rendus ; une collection sans produit affiché n'apparaît pas", async () => {
+test("[FAIL-CLOSED] identifiants étrangers ignorés ; tag absent de la catégorie caché", async () => {
   const x = await render(
     restaurant([
       { id: "t-mix", label: "Mix", displayOrder: 1, menuItemIds: ["foreign-tenant-b-product", "Rouge maison"] },
       { id: "t-foreign", label: "Étrangère", displayOrder: 2, menuItemIds: ["foreign-tenant-b-product"] },
     ])
   );
-  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Tout le catalogue", "Mix"]);
-  click(collectionButton(x.container, "Mix"));
+  assert.deepEqual(tagButtons(x.container).map((b) => b.textContent), [], "Mix n'est pas utilisé dans Fromages");
+  click(categoryButton(x.container, "Vins"));
+  await flush();
+  assert.deepEqual(tagButtons(x.container).map((b) => b.textContent), ["Mix"]);
+  click(tagButton(x.container, "Mix"));
   await flush();
   assert.deepEqual(cardNames(x.container), ["Rouge maison"]);
   assert.equal((x.container.textContent ?? "").includes("foreign-tenant-b-product"), false);
@@ -382,27 +353,31 @@ test("[FAIL-CLOSED] identifiants inconnus / d'un autre établissement : jamais r
   cleanup(x);
 });
 
-test("[MOBILE] une seule ligne horizontale défilable, jamais repliée, non collée", async () => {
+test("[RESPONSIVE] catégories classic/editorial non sticky sur mobile et sticky desktop ; filtres repliés sans scroll horizontal", async () => {
   const x = await render(restaurant(PUBLISHED));
-  const nav = collectionsNav(x.container)!;
-  const rows = nav.querySelectorAll("ul");
-  assert.equal(rows.length, 1, "une seule rangée");
-  const cls = (rows[0].getAttribute("class") ?? "").split(/\s+/);
-  for (const c of ["flex", "flex-nowrap", "overflow-x-auto"]) assert.ok(cls.includes(c), `classe ${c} attendue`);
-  assert.equal(cls.some((c) => c === "flex-wrap" || c.endsWith(":flex-wrap")), false, "jamais de retour à la ligne");
-  assert.equal((nav.getAttribute("class") ?? "").split(/\s+/).includes("sticky"), false, "n'occupe pas l'écran en permanence");
-  for (const li of nav.querySelectorAll("li")) {
-    assert.ok((li.getAttribute("class") ?? "").split(/\s+/).includes("shrink-0"), "pilule jamais écrasée");
-  }
-  for (const b of collectionButtons(x.container)) {
-    assert.ok((b.getAttribute("class") ?? "").split(/\s+/).includes("whitespace-nowrap"));
-  }
+  const categoryNav = x.container.querySelector("[data-category-navigation]")!;
+  const categoryClasses = (categoryNav.getAttribute("class") ?? "").split(/\s+/);
+  assert.equal(categoryClasses.includes("sticky"), false);
+  assert.ok(categoryClasses.includes("sm:sticky") && categoryClasses.includes("sm:top-0"));
+  const rowClasses = (secondaryNav(x.container)!.querySelector("ul")!.getAttribute("class") ?? "").split(/\s+/);
+  assert.ok(rowClasses.includes("flex-wrap"));
+  assert.equal(rowClasses.includes("overflow-x-auto"), false);
   cleanup(x);
+
+  const editorialRestaurant = restaurant(PUBLISHED);
+  editorialRestaurant.slug = "le-sirocco";
+  const editorial = await render(editorialRestaurant);
+  const editorialClasses = (
+    editorial.container.querySelector("[data-category-navigation]")!.getAttribute("class") ?? ""
+  ).split(/\s+/);
+  assert.equal(editorialClasses.includes("sticky"), false);
+  assert.ok(editorialClasses.includes("sm:sticky") && editorialClasses.includes("sm:top-0"));
+  cleanup(editorial);
 });
 
-test("[CART] le mode collection ne touche pas au panier : un ajout depuis une collection est le même article, conservé au retour", async () => {
+test("[CART] filtrer par tag ne duplique ni ne remplace le produit du panier", async () => {
   const x = await render(restaurant(PUBLISHED));
-  click(collectionButton(x.container, "Bio"));
+  click(tagButton(x.container, "Bio"));
   await flush();
   const card = [...x.container.querySelectorAll("main article")].find((a) =>
     (a.textContent ?? "").includes("Crottin")
@@ -413,7 +388,7 @@ test("[CART] le mode collection ne touche pas au panier : un ajout depuis une co
   await flush();
   assert.ok((x.container.textContent ?? "").includes("1 article"), "barre panier : 1 article");
 
-  click(collectionButton(x.container, "Tout le catalogue"));
+  click(subcategoryPill(x.container, "Tous"));
   await flush();
   assert.ok((x.container.textContent ?? "").includes("1 article"), "le panier est conservé");
   click(subcategoryPill(x.container, "Chèvres"));

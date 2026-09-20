@@ -57,8 +57,11 @@ import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
-import CollectionNav from "@/components/CollectionNav";
-import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
+import {
+  buildCustomerCollections,
+  deriveContextualCategoryTags,
+  filterMenuItemGroupsByTag,
+} from "@/lib/customer-collections";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import OptionModal from "@/components/OptionModal";
@@ -329,6 +332,7 @@ export default function MenuView({
   // dans une catégorie ne "fuie" jamais vers une autre (mandat
   // scénario H : "switching category must not contaminate it").
   const [activeSubcategoryId, setActiveSubcategoryId] = useState<string | null>(null);
+  const [activeTagId, setActiveTagId] = useState<string | null>(null);
 
   // Corrige un piège classique useEffect(() => reset, [activeCategoryId]) :
   // un effect keyed sur activeCategoryId se déclenche de façon
@@ -346,16 +350,8 @@ export default function MenuView({
   function changeActiveCategory(categoryId: string) {
     setActiveCategoryId(categoryId);
     setActiveSubcategoryId(null);
-    // P1 CUSTOMER COLLECTIONS BY TAGS -- choisir une catégorie quitte
-    // le mode collection.
-    setActiveCollectionId(null);
+    setActiveTagId(null);
   }
-
-  // P1 CUSTOMER COLLECTIONS BY TAGS -- null = catalogue normal. Vue
-  // supplémentaire uniquement : activeCategoryId/activeSubcategoryId
-  // restent intacts pendant le mode collection, donc « Tout le
-  // catalogue » restaure exactement la navigation précédente.
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
 
   // Récupération de la commande
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -622,13 +618,13 @@ export default function MenuView({
     (c) => c.id === activeCategoryId
   );
 
-  // P1 CUSTOMER COLLECTIONS BY TAGS -- collections déjà restreintes au
+  // P1 CUSTOMER COLLECTIONS BY TAGS -- tags déjà restreints au
   // modèle public par le service, re-restreintes ici aux produits
   // AFFICHÉS (défense en profondeur : un identifiant inconnu n'expose
   // rien, une collection sans produit affiché disparaît). Une collection
-  // inconnue ne sélectionne rien (fail closed), et ses produits sont
-  // repris des catégories publiques affichées (mêmes objets que la
-  // navigation normale : panier, options et badges inchangés).
+  // inconnu ne sélectionne rien (fail closed). La navigation ci-dessous
+  // intersecte encore ces tags avec la catégorie active : aucune vue
+  // transversale et aucun objet produit dupliqué.
   const collections = useMemo(
     () =>
       buildCustomerCollections(
@@ -637,14 +633,14 @@ export default function MenuView({
       ),
     [restaurant.collections, restaurant.categories]
   );
-  const activeCollection =
-    activeCollectionId === null
-      ? null
-      : (collections.find((c) => c.id === activeCollectionId) ?? null);
-  const activeCollectionItems = useMemo(
-    () => selectCollectionItems(restaurant.categories, activeCollection),
-    [restaurant.categories, activeCollection]
+  const contextualCategoryTags = useMemo(
+    () => deriveContextualCategoryTags(collections, activeCategory?.menu_items ?? []),
+    [collections, activeCategory]
   );
+  const activeTag =
+    activeTagId === null
+      ? null
+      : (contextualCategoryTags.find((tag) => tag.id === activeTagId) ?? null);
 
   // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
   // catégorie active en groupes consécutifs (produits directs, puis
@@ -666,13 +662,18 @@ export default function MenuView({
     () => deriveSubcategoryFilterOptions(activeCategoryItemGroups),
     [activeCategoryItemGroups]
   );
-  const visibleCategoryItemGroups = useMemo(
+  const subcategoryFilteredItemGroups = useMemo(
     () => filterMenuItemGroupsBySubcategory(activeCategoryItemGroups, activeSubcategoryId),
     [activeCategoryItemGroups, activeSubcategoryId]
   );
+  const visibleCategoryItemGroups = useMemo(
+    () => filterMenuItemGroupsByTag(subcategoryFilteredItemGroups, activeTag),
+    [subcategoryFilteredItemGroups, activeTag]
+  );
 
-  // LOT 02 -- STICKY SUBCATEGORIES : barre de filtre collée uniquement
-  // si la catégorie active a PLUSIEURS sous-catégories réelles ET si sa
+  // LOT 02 + MOBILE CATEGORY FILTERS / TAG NAVIGATION v1 : barre de
+  // filtres collée uniquement si la catégorie active a au moins deux
+  // choix secondaires (sous-catégories + tags contextuels) ET si sa
   // liste est réellement plus haute que l'écran (voir
   // shouldStickSubcategoryFilter). Sinon : rendu historique inchangé.
   //
@@ -685,19 +686,21 @@ export default function MenuView({
   const catalogueListRef = useRef<HTMLDivElement>(null);
   const [stickySubcategoryFilter, setStickySubcategoryFilter] = useState(false);
   const subcategoryCount = subcategoryFilterOptions.length;
+  const tagCount = contextualCategoryTags.length;
 
   useLayoutEffect(() => {
-    if (subcategoryCount < 2) {
+    if (subcategoryCount + tagCount < 2) {
       setStickySubcategoryFilter(false);
       return;
     }
-    if (activeSubcategoryId !== null) return;
+    if (activeSubcategoryId !== null || activeTagId !== null) return;
     function measure() {
       const list = catalogueListRef.current;
       if (!list) return;
       setStickySubcategoryFilter(
         shouldStickSubcategoryFilter({
           subcategoryCount,
+          tagCount,
           catalogueHeight: list.getBoundingClientRect().height,
           viewportHeight: window.innerHeight,
         })
@@ -706,7 +709,7 @@ export default function MenuView({
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [activeCategoryItemGroups, subcategoryCount, activeSubcategoryId]);
+  }, [activeCategoryItemGroups, subcategoryCount, tagCount, activeSubcategoryId, activeTagId]);
 
   // Un élément focalisé au clavier dans la liste (carte, bouton +/−,
   // bouton (i)) ne doit jamais rester masqué sous la barre collée :
@@ -1374,22 +1377,14 @@ export default function MenuView({
       <div className="mt-6">
         <CategoryNav
           categories={restaurant.categories}
-          activeId={activeCollection ? "" : activeCategoryId}
+          activeId={activeCategoryId}
           onSelect={changeActiveCategory}
           variant={menuVariant}
         />
       </div>
 
-      <CollectionNav
-        collections={collections}
-        activeId={activeCollection?.id ?? null}
-        onSelect={setActiveCollectionId}
-        navLabel={t("collectionsNavLabel")}
-        allLabel={t("collectionsShowAll")}
-      />
-
       <main className="px-4">
-        {!activeCollection && activeCategory && (
+        {activeCategory && (
           <section className="mt-7">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
@@ -1417,7 +1412,14 @@ export default function MenuView({
             <SubcategoryFilter
               options={subcategoryFilterOptions}
               activeId={activeSubcategoryId}
+              tagOptions={contextualCategoryTags}
+              activeTagId={activeTagId}
               onSelect={setActiveSubcategoryId}
+              onTagSelect={setActiveTagId}
+              onClear={() => {
+                setActiveSubcategoryId(null);
+                setActiveTagId(null);
+              }}
               allLabel={t("subcategoryFilterAll")}
               sticky={stickySubcategoryFilter}
               navRef={subcategoryFilterNavRef}
@@ -1443,20 +1445,6 @@ export default function MenuView({
                   {itemGroup.items.map(renderMenuItem)}
                 </div>
               ))}
-            </div>
-          </section>
-        )}
-        {activeCollection && (
-          <section className="mt-7" data-customer-collection-view="true">
-            <h2
-              dir="auto"
-              className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg"
-            >
-              {activeCollection.label}
-            </h2>
-            <div className="mt-1.5 h-px w-12 bg-gold" />
-            <div className="mt-4 space-y-4">
-              {activeCollectionItems.map(renderMenuItem)}
             </div>
           </section>
         )}

@@ -43,6 +43,17 @@ test("une seule sous-catégorie réelle (ou aucune) -- jamais sticky, même sur 
   }
 });
 
+test("sous-catégories + tags contextuels partagent le seuil sticky", () => {
+  assert.equal(
+    shouldStickSubcategoryFilter({ subcategoryCount: 1, tagCount: 1, catalogueHeight: 1000, viewportHeight: VIEWPORT }),
+    true
+  );
+  assert.equal(
+    shouldStickSubcategoryFilter({ subcategoryCount: 0, tagCount: 1, catalogueHeight: 1000, viewportHeight: VIEWPORT }),
+    false
+  );
+});
+
 test("viewport non mesurable (0 / NaN, ex. rendu sans mise en page) -- jamais sticky", () => {
   for (const viewportHeight of [0, Number.NaN]) {
     assert.equal(

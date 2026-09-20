@@ -479,7 +479,7 @@ function subcategoryFilterNav(container: Element): Element | null {
   return container.querySelector('nav[aria-label="Tous"]');
 }
 
-test("Scénario D : la barre de filtre utilise un conteneur flex-wrap (empilement en lignes multiples), sans hauteur fixe imposée", async () => {
+test("Scénario D : la barre de filtre utilise flex-wrap et borne le mobile à environ trois rangées", async () => {
   const restaurant = baseRestaurant([fromagesCategory()]);
   const { container, root } = render(restaurant);
   try {
@@ -490,18 +490,11 @@ test("Scénario D : la barre de filtre utilise un conteneur flex-wrap (empilemen
     const wrappers = [...nav!.querySelectorAll(".flex-wrap")];
     assert.ok(wrappers.length >= 1, "un conteneur flex-wrap doit envelopper les pilules de filtre");
 
-    // Aucune hauteur fixe (h-10, max-h-64, etc. -- valeur numérique ou
-    // arbitraire) ne doit être imposée au conteneur -- le nombre de
-    // lignes doit rester entièrement libre, déterminé par le nombre de
-    // pilules et la largeur disponible.
-    const fixedHeightPattern = /(^|\s)(h|max-h)-(\d|\[)/;
-    for (const el of [nav!, ...nav!.querySelectorAll("*")]) {
-      const cls = el.getAttribute("class") ?? "";
-      assert.ok(
-        !fixedHeightPattern.test(cls),
-        `aucune classe de hauteur fixe attendue, trouvé dans "${cls}"`
-      );
-    }
+    const row = nav!.querySelector("ul")!;
+    const classes = (row.getAttribute("class") ?? "").split(/\s+/);
+    assert.ok(classes.includes("max-h-32"), "borne mobile de trois rangées compactes");
+    assert.ok(classes.includes("overflow-y-auto"), "secours vertical sans perte d'option");
+    assert.ok(classes.includes("sm:max-h-none"), "borne retirée sur desktop");
   } finally {
     root.unmount();
     container.remove();

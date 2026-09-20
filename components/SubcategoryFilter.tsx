@@ -75,23 +75,28 @@
  * Choisir une pilule appelle UNIQUEMENT onSelect : aucun défilement
  * forcé de la page (décision CIO, cycle 4).
  *
- * En mode sticky sur mobile (< sm), les pilules tiennent sur UNE SEULE
- * ligne défilable horizontalement (flex-nowrap + overflow-x-auto) : la
- * hauteur de la barre collée reste bornée à une pilule, quel que soit
- * le nombre de sous-catégories. Défilement au doigt natif ; au clavier,
- * chaque pilule reste un bouton natif dans l'ordre de tabulation et le
- * navigateur fait défiler la ligne jusqu'à la pilule focalisée. À
- * partir de sm, le retour à la ligne (WRAP v1) est conservé.
+ * MOBILE CATEGORY FILTERS / TAG NAVIGATION v1 : ce même bloc accueille
+ * les sous-catégories et les tags P1 contextuels. Sur mobile, il revient
+ * à la ligne sans défilement horizontal et reste borné à environ trois
+ * rangées compactes ; si une catégorie possède exceptionnellement plus
+ * d'options, le secours est vertical. À partir de sm, la borne disparaît.
  */
 import type { Ref } from "react";
 import type { SubcategoryFilterOption } from "@/lib/catalogue-subcategory-grouping";
+import type { CustomerCollection } from "@/lib/customer-collections";
 
 export type { SubcategoryFilterOption };
+
+const NOOP = () => {};
 
 export default function SubcategoryFilter({
   options,
   activeId,
+  tagOptions = [],
+  activeTagId = null,
   onSelect,
+  onTagSelect = NOOP,
+  onClear,
   allLabel,
   sticky = false,
   navRef,
@@ -104,7 +109,14 @@ export default function SubcategoryFilter({
   options: SubcategoryFilterOption[];
   /** null = "Tous" (aucun filtre de sous-catégorie appliqué). */
   activeId: string | null;
+  /** Tags P1 publiés ayant au moins un produit dans la catégorie active. */
+  tagOptions?: ReadonlyArray<CustomerCollection>;
+  /** null = aucun filtre de tag. */
+  activeTagId?: string | null;
   onSelect: (id: string | null) => void;
+  onTagSelect?: (id: string | null) => void;
+  /** "Tous" réinitialise ensemble sous-catégorie et tag. */
+  onClear?: () => void;
   /** Libellé localisé de "Tous" (lib/i18n.ts: subcategoryFilterAll). */
   allLabel: string;
   /** LOT 02 -- barre collée pendant le défilement (catalogue long). */
@@ -113,13 +125,9 @@ export default function SubcategoryFilter({
    *  l'appelant, voir MenuView). */
   navRef?: Ref<HTMLElement>;
 }) {
-  // Masqué UNIQUEMENT si zéro sous-catégorie réelle (scénario A --
-  // rendu strictement identique au comportement historique). Dès
-  // qu'une sous-catégorie réelle existe (options.length >= 1), la
-  // barre s'affiche avec "Tous" + cette/ces sous-catégorie(s) -- jamais
-  // de cas particulier pour "une seule sous-catégorie couvrant tout"
-  // (remédiation ONE-SUBCATEGORY CASE, mandat littéral ci-dessus).
-  if (options.length === 0) {
+  // Masqué uniquement si la catégorie n'a ni sous-catégorie réelle ni
+  // tag public contextuel. Une seule option réelle suffit toujours.
+  if (options.length === 0 && tagOptions.length === 0) {
     return null;
   }
 
@@ -127,6 +135,7 @@ export default function SubcategoryFilter({
     <nav
       ref={navRef}
       aria-label={allLabel}
+      data-category-secondary-filters="true"
       data-subcategory-filter-sticky={sticky ? "true" : undefined}
       className={
         sticky
@@ -144,19 +153,19 @@ export default function SubcategoryFilter({
       <ul
         className={
           sticky
-            ? "flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 sm:flex-wrap sm:overflow-x-visible"
-            : "flex flex-wrap gap-2"
+            ? "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto py-1 sm:max-h-none sm:gap-2 sm:overflow-y-visible"
+            : "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto sm:max-h-none sm:gap-2 sm:overflow-y-visible"
         }
       >
         <li key="__all__">
           <button
             type="button"
-            onClick={() => onSelect(null)}
-            aria-pressed={activeId === null}
+            onClick={() => (onClear ? onClear() : onSelect(null))}
+            aria-pressed={activeId === null && activeTagId === null}
             data-subcategory-filter-option="__all__"
             className={
-              "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
-              (activeId === null
+              "min-h-9 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+              (activeId === null && activeTagId === null
                 ? "bg-caramel text-caramel-ink shadow-sm"
                 : "bg-crema text-ink-on-bg-muted shadow-sm")
             }
@@ -174,13 +183,35 @@ export default function SubcategoryFilter({
                 aria-pressed={isActive}
                 data-subcategory-filter-option={option.id}
                 className={
-                  "whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-semibold transition-colors " +
+                  "min-h-9 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
                   (isActive
                     ? "bg-caramel text-caramel-ink shadow-sm"
                     : "bg-crema text-ink-on-bg-muted shadow-sm")
                 }
               >
                 {option.name}
+              </button>
+            </li>
+          );
+        })}
+        {tagOptions.map((tag) => {
+          const isActive = tag.id === activeTagId;
+          return (
+            <li key={`tag:${tag.id}`}>
+              <button
+                type="button"
+                onClick={() => onTagSelect(tag.id)}
+                aria-pressed={isActive}
+                data-category-tag-option="true"
+                dir="auto"
+                className={
+                  "min-h-9 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+                  (isActive
+                    ? "border-espresso bg-espresso text-ink-text shadow-sm"
+                    : "border-espresso/20 bg-crema text-ink-on-bg-muted")
+                }
+              >
+                {tag.label}
               </button>
             </li>
           );

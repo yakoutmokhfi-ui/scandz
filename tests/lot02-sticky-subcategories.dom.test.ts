@@ -402,7 +402,7 @@ test("1c. UNE seule sous-catégorie réelle, liste très longue -- jamais sticky
     assert.ok(nav);
     assert.equal(isSticky(container), false);
     assert.equal(nav.getAttribute("class"), "mt-3 border-b border-espresso/10 pb-3");
-    assert.equal(nav.querySelector("ul")!.getAttribute("class"), "flex flex-wrap gap-2");
+    assert.equal(nav.querySelector("ul")!.getAttribute("class"), "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto sm:max-h-none sm:gap-2 sm:overflow-y-visible");
   } finally {
     root.unmount();
     container.remove();
@@ -529,7 +529,7 @@ test("3a. catalogue COURT avec sous-catégorie -- barre dans le flux normal, mar
     const nav = filterNav(container);
     assert.ok(nav);
     assert.equal(nav!.getAttribute("class"), "mt-3 border-b border-espresso/10 pb-3");
-    assert.equal(nav!.querySelector("ul")!.getAttribute("class"), "flex flex-wrap gap-2");
+    assert.equal(nav!.querySelector("ul")!.getAttribute("class"), "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto sm:max-h-none sm:gap-2 sm:overflow-y-visible");
     assert.equal(nav!.hasAttribute("data-subcategory-filter-sticky"), false);
     assert.equal(container.querySelector("[data-subcategory-filter-anchor]"), null);
     assert.deepEqual(
@@ -547,10 +547,9 @@ test("3b. catalogue LONG sans sous-catégorie -- aucune barre, aucun élément s
   try {
     assert.equal(filterNav(container), null);
     assert.equal(container.querySelector("[data-subcategory-filter-sticky]"), null);
-    const stickies = [...container.querySelectorAll(".sticky")];
-    assert.equal(stickies.length, 1, "seul CategoryNav (préexistant) reste sticky");
-    assert.equal(stickies[0].tagName, "NAV");
-    assert.equal(stickies[0].getAttribute("aria-label"), null);
+    const categoryNav = container.querySelector("[data-category-navigation]")!;
+    assert.ok(!classes(categoryNav).includes("sticky"), "CategoryNav n'est jamais sticky par défaut sur mobile");
+    assert.ok(classes(categoryNav).includes("sm:sticky"), "CategoryNav reste sticky sur desktop");
     assert.ok(container.textContent?.includes("Boisson-9"));
   } finally {
     root.unmount();
@@ -614,34 +613,35 @@ test("4a. non-chevauchement -- bloc contenant = section de la catégorie active,
   }
 });
 
-test("4b. mobile -- barre sticky sur UNE seule ligne défilable horizontalement (hauteur bornée), retour à la ligne conservé à partir de sm ; CSS réellement généré", async () => {
+test("4b. mobile -- barre sticky compacte sur 2–3 lignes, repliée sans débordement horizontal ; borne verticale et CSS réellement générés", async () => {
   const { container, root } = await render(baseRestaurant([longCategory()]));
   try {
     const nav = filterNav(container)!;
     const ul = nav.querySelector("ul")!;
     const ulClasses = classes(ul);
-    for (const c of ["flex", "flex-nowrap", "overflow-x-auto", "sm:flex-wrap", "sm:overflow-x-visible"]) {
+    for (const c of ["flex", "flex-wrap", "max-h-32", "overflow-x-visible", "overflow-y-auto", "sm:max-h-none", "sm:overflow-y-visible"]) {
       assert.ok(ulClasses.includes(c), `classe '${c}' attendue sur la ligne de pilules`);
     }
-    assert.ok(!ulClasses.includes("flex-wrap"), "jamais de retour à la ligne sur mobile en mode sticky");
+    assert.ok(!ulClasses.includes("flex-nowrap"), "retour à la ligne autorisé sur mobile");
+    assert.ok(!ulClasses.includes("overflow-x-auto"), "aucun défilement horizontal mobile");
     for (const li of ul.children) assert.equal(li.tagName, "LI");
     for (const b of ul.querySelectorAll("button")) {
       assert.ok(classes(b).includes("whitespace-nowrap"), "libellé de pilule jamais coupé");
     }
-    // Aucun masquage de la barre de défilement ni hauteur figée : la
-    // hauteur est bornée par construction (une ligne de pilules).
-    assert.ok(!ulClasses.some((c) => /scrollbar|^(h|max-h)-/.test(c)));
+    // Trois lignes compactes au maximum avant repli vertical de secours.
+    assert.ok(!ulClasses.some((c) => /scrollbar|^h-/.test(c)));
     assert.ok(!classes(nav).some((c) => /^(h|max-h|overflow)-/.test(c)));
 
     const css = await compileUtilities(ulClasses);
-    assert.equal(ruleFor(css, "flex-nowrap"), "flex-wrap: nowrap");
-    assert.equal(ruleFor(css, "overflow-x-auto"), "overflow-x: auto");
-    assert.equal(ruleFor(css, "overscroll-x-contain"), "overscroll-behavior-x: contain");
+    assert.equal(ruleFor(css, "flex-wrap"), "flex-wrap: wrap");
+    assert.equal(ruleFor(css, "overflow-x-visible"), "overflow-x: visible");
+    assert.equal(ruleFor(css, "overflow-y-auto"), "overflow-y: auto");
+    assert.equal(ruleFor(css, "max-h-32"), "max-height: 8rem");
     const smStart = css.indexOf("@media (min-width: 640px)");
     assert.ok(smStart !== -1, "variante sm générée");
     const smCss = css.slice(smStart);
-    assert.ok(smCss.includes(".sm\\:flex-wrap {") && smCss.includes("flex-wrap: wrap"));
-    assert.ok(smCss.includes(".sm\\:overflow-x-visible {") && smCss.includes("overflow-x: visible"));
+    assert.ok(smCss.includes(".sm\\:max-h-none {") && smCss.includes("max-height: none"));
+    assert.ok(smCss.includes(".sm\\:overflow-y-visible {") && smCss.includes("overflow-y: visible"));
   } finally {
     root.unmount();
     container.remove();

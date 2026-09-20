@@ -15,6 +15,7 @@
  * est ignoré, et une collection qui ne garde aucun produit est retirée.
  */
 import type { CustomerTagSource } from "@/lib/customer-product-tags";
+import type { MenuItemGroup } from "@/lib/catalogue-subcategory-grouping";
 
 /** Collection publique prête à l'affichage : identifiants produits déjà
  *  restreints au modèle public, jamais vide. */
@@ -82,4 +83,38 @@ export function selectCollectionItems<T extends { id: string }>(
     }
   }
   return out;
+}
+
+/**
+ * Tags publics utiles dans UNE catégorie active. L'intersection garde
+ * l'ordre P1 existant et retire tout produit extérieur à la catégorie :
+ * une même étiquette peut donc rester publiée dans plusieurs catégories
+ * sans jamais transformer le filtre courant en collection transversale.
+ */
+export function deriveContextualCategoryTags<T extends { id: string }>(
+  collections: ReadonlyArray<CustomerCollection>,
+  categoryItems: ReadonlyArray<T>
+): CustomerCollection[] {
+  const categoryItemIds = new Set(categoryItems.map((item) => item.id));
+  return collections.flatMap((collection) => {
+    const menuItemIds = collection.menuItemIds.filter((id) => categoryItemIds.has(id));
+    return menuItemIds.length > 0 ? [{ ...collection, menuItemIds }] : [];
+  });
+}
+
+/**
+ * Filtre par tag appliqué aux groupes déjà limités à la catégorie et,
+ * éventuellement, à une sous-catégorie. Les groupes vides disparaissent,
+ * l'ordre et les objets produit d'origine restent strictement inchangés.
+ */
+export function filterMenuItemGroupsByTag(
+  groups: ReadonlyArray<MenuItemGroup>,
+  tag: Pick<CustomerCollection, "menuItemIds"> | null | undefined
+): MenuItemGroup[] {
+  if (!tag) return [...groups];
+  const wanted = new Set(tag.menuItemIds);
+  return groups.flatMap((group) => {
+    const items = group.items.filter((item) => wanted.has(item.id));
+    return items.length > 0 ? [{ ...group, items }] : [];
+  });
 }
