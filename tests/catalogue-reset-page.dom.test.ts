@@ -196,6 +196,15 @@ function flush(ms = 30): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitFor(condition: () => boolean, message: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await flush(10);
+  }
+  throw new Error(message);
+}
+
 function setNativeValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
@@ -218,7 +227,10 @@ test("[D] non-opérateur : redirigé vers /dashboard AVANT tout aperçu/état, a
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
 
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockReplaceCalls.includes("/dashboard"),
+    "redirection opérateur attendue vers /dashboard"
+  );
 
   assert.deepEqual((globalThis as any).__mockReplaceCalls, ["/dashboard"]);
   assert.deepEqual((globalThis as any).__mockPreviewCalls, []);
@@ -233,7 +245,7 @@ test("aperçu : affiche le marchand résolu depuis ?r=, aucun appel preview/rese
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(() => !!container.textContent?.includes("Au Lait Cru"), "marchand Au Lait Cru non rendu");
 
   assert.ok(container.textContent?.includes("Au Lait Cru"));
   assert.deepEqual((globalThis as any).__mockPreviewCalls, []);
@@ -247,14 +259,17 @@ test("[A/B] clic sur 'Aperçu' appelle previewCatalogueReset UNE fois avec le re
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(() => !!container.textContent?.includes("Au Lait Cru"), "marchand Au Lait Cru non rendu");
 
   const previewButton = Array.from(container.querySelectorAll("button")).find((b) =>
     b.textContent?.includes("Aperçu de la réinitialisation")
   );
   assert.ok(previewButton, "bouton Aperçu introuvable");
   click(previewButton!);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockPreviewCalls.length === 1 && !!container.textContent?.includes("12 produit"),
+    "aperçu catalogue non rendu"
+  );
 
   assert.deepEqual((globalThis as any).__mockPreviewCalls, ["r1"]);
   assert.deepEqual((globalThis as any).__mockResetCalls, []);
@@ -269,13 +284,16 @@ test("[C] bouton de confirmation reste DÉSACTIVÉ tant que la phrase saisie ne 
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(() => !!container.textContent?.includes("Au Lait Cru"), "marchand Au Lait Cru non rendu");
 
   const previewButton = Array.from(container.querySelectorAll("button")).find((b) =>
     b.textContent?.includes("Aperçu de la réinitialisation")
   )!;
   click(previewButton);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockPreviewCalls.length === 1,
+    "appel previewCatalogueReset non observé"
+  );
 
   const confirmButton = () =>
     Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Réinitialiser le catalogue"));
@@ -286,15 +304,24 @@ test("[C] bouton de confirmation reste DÉSACTIVÉ tant que la phrase saisie ne 
   assert.ok(input, "champ de confirmation introuvable");
 
   setNativeValue(input, "reset au lait cru");
-  await flush(20);
+  await waitFor(
+    () => !!confirmButton() && (confirmButton() as HTMLButtonElement).disabled === true,
+    "bouton non désactivé après casse différente"
+  );
   assert.equal((confirmButton() as HTMLButtonElement).disabled, true, "doit rester désactivé sur une casse différente");
 
   setNativeValue(input, "RESET Au Lait");
-  await flush(20);
+  await waitFor(
+    () => !!confirmButton() && (confirmButton() as HTMLButtonElement).disabled === true,
+    "bouton non désactivé après phrase partielle"
+  );
   assert.equal((confirmButton() as HTMLButtonElement).disabled, true, "doit rester désactivé sur une phrase partielle");
 
   setNativeValue(input, "RESET AU LAIT CRU");
-  await flush(20);
+  await waitFor(
+    () => !!confirmButton() && (confirmButton() as HTMLButtonElement).disabled === true,
+    "bouton non désactivé pour ancienne phrase uppercase"
+  );
   assert.equal(
     (confirmButton() as HTMLButtonElement).disabled,
     true,
@@ -302,7 +329,10 @@ test("[C] bouton de confirmation reste DÉSACTIVÉ tant que la phrase saisie ne 
   );
 
   setNativeValue(input, "RESET Au Lait Cru");
-  await flush(20);
+  await waitFor(
+    () => !!confirmButton() && (confirmButton() as HTMLButtonElement).disabled === false,
+    "bouton non activé pour phrase exacte"
+  );
   assert.equal((confirmButton() as HTMLButtonElement).disabled, false, "doit être activé sur la phrase exacte (v1.1 : casse du marchand préservée)");
 
   // Aucun appel reset n'a encore eu lieu -- seule la SAISIE de la
@@ -320,17 +350,29 @@ test("[E/G] confirmation avec la phrase exacte appelle resetMerchantCatalogue EX
   await flush(50);
 
   click(Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockPreviewCalls.length === 1,
+    "appel previewCatalogueReset non observé"
+  );
 
   const input = container.querySelector("input[type='text']") as HTMLInputElement;
   setNativeValue(input, "RESET Au Lait Cru");
-  await flush(20);
+  await waitFor(
+    () => {
+      const button = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Réinitialiser le catalogue")) as HTMLButtonElement | undefined;
+      return !!button && button.disabled === false;
+    },
+    "bouton de confirmation non activé"
+  );
 
   const confirmButton = Array.from(container.querySelectorAll("button")).find((b) =>
     b.textContent?.includes("Réinitialiser le catalogue")
   )!;
   click(confirmButton);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockResetCalls.length === 1 && !!container.textContent?.includes("Produits archivés"),
+    "résultat de réinitialisation non rendu"
+  );
 
   assert.deepEqual((globalThis as any).__mockResetCalls, [{ id: "r1", phrase: "RESET Au Lait Cru" }]);
   assert.ok(container.textContent?.includes("Produits archivés"));
@@ -348,7 +390,10 @@ test("[v1.1] le serveur rejette la confirmation (CatalogueResetConfirmationMisma
   await flush(50);
 
   click(Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockPreviewCalls.length === 1,
+    "appel previewCatalogueReset non observé"
+  );
 
   const input = container.querySelector("input[type='text']") as HTMLInputElement;
   setNativeValue(input, "RESET Au Lait Cru");
@@ -364,7 +409,10 @@ test("[v1.1] le serveur rejette la confirmation (CatalogueResetConfirmationMisma
     b.textContent?.includes("Réinitialiser le catalogue")
   )!;
   click(confirmButton);
-  await flush(50);
+  await waitFor(
+    () => (globalThis as any).__mockResetCalls.length === 1 && !!container.textContent?.includes("Le serveur a refusé la phrase de confirmation"),
+    "message de rejet serveur non rendu"
+  );
 
   assert.equal((globalThis as any).__mockResetCalls.length, 1, "un seul appel resetMerchantCatalogue, jamais de retry silencieux");
   assert.ok(!container.textContent?.includes("Réinitialisation terminée"), "aucun état de succès ne doit jamais s'afficher");
@@ -382,7 +430,7 @@ test("[F] changer de marchand (remontage avec ?r= différent) n'affiche jamais u
   resetGlobalCallLogs();
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r1");
   const { container: c1, root: r1 } = render();
-  await flush(50);
+  await waitFor(() => !!c1.textContent?.includes("Au Lait Cru"), "marchand r1 non rendu");
   click(Array.from(c1.querySelectorAll("button")).find((b) => b.textContent?.includes("Aperçu de la réinitialisation"))!);
   await flush(50);
   assert.ok(c1.textContent?.includes("Au Lait Cru"));
@@ -391,7 +439,7 @@ test("[F] changer de marchand (remontage avec ?r= différent) n'affiche jamais u
 
   window.history.pushState({}, "", "/admin/establishments/catalogue-reset?r=r2");
   const { container: c2, root: r2b } = render();
-  await flush(50);
+  await waitFor(() => !!c2.textContent?.includes("Hotel Royal"), "marchand r2 non rendu");
 
   assert.ok(c2.textContent?.includes("Hotel Royal"));
   assert.ok(!c2.textContent?.includes("Au Lait Cru"));
