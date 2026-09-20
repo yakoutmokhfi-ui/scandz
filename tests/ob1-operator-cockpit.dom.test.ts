@@ -234,8 +234,13 @@ function render() {
   return { container, root };
 }
 
-function flush(ms = 30): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function waitFor(condition: () => boolean, message: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(message);
 }
 
 test("OB-1 cockpit : les 9 sections mandatées sont rendues pour un établissement existant", async () => {
@@ -243,7 +248,10 @@ test("OB-1 cockpit : les 9 sections mandatées sont rendues pour un établisseme
   (globalThis as any).__mockReplaceCalls = [];
 
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   const sections = container.querySelectorAll('[data-testid="cockpit-section"]');
   assert.equal(sections.length, 9, "les 9 sections mandatées doivent être présentes");
@@ -263,7 +271,10 @@ function sectionByTitle(container: HTMLElement, needle: string) {
 test("OB-1 v1.1 cockpit : CATALOGUE reflète le catalogue réellement chargé -- 'ready' avec du contenu, résumé exact (2 produits actifs, 1 archivé exclu)", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   const section = sectionByTitle(container, "Catalogue");
   assert.ok(section);
@@ -280,7 +291,10 @@ test("OB-1 v1.1 cockpit : CATALOGUE reflète le catalogue réellement chargé --
 test("OB-1 v1.1 cockpit : CATALOGUE vide (établissement tout juste onboardé) -- 'incomplete', jamais 'ready' par défaut", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r2");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   const section = sectionByTitle(container, "Catalogue");
   const badge = section!.querySelector('[data-testid="section-status-badge"]') as HTMLElement;
@@ -293,7 +307,10 @@ test("OB-1 v1.1 cockpit : CATALOGUE vide (établissement tout juste onboardé) -
 test("OB-1 v1.1 cockpit : PHOTOS dérivé du même catalogue déjà chargé -- 1/2 produits actifs ont une photo, 'incomplete' (pas tous), jamais un second appel réseau distinct requis", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   const section = sectionByTitle(container, "Photos");
   assert.ok(section);
@@ -309,7 +326,10 @@ test("OB-1 v1.1 cockpit : PHOTOS dérivé du même catalogue déjà chargé -- 1
 test("OB-1 v1.1 cockpit : un échec RÉEL de lecture catalogue dégrade UNIQUEMENT catalogue/photos vers 'unavailable' -- jamais un statut inventé, jamais tout le cockpit qui casse", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r3");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   const catalogueSection = sectionByTitle(container, "Catalogue");
   const photosSection = sectionByTitle(container, "Photos");
@@ -332,7 +352,10 @@ test("OB-1 v1.1 cockpit : un échec RÉEL de lecture catalogue dégrade UNIQUEME
 test("OB-1 v1.1 cockpit : PAYMENT / DELIVERY restent 'unavailable' (re-vérifiés inchangés par OB-2 v1.1), jamais un statut inventé", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   for (const needle of ["Paiement", "Livraison"]) {
     const section = sectionByTitle(container, needle);
@@ -348,7 +371,10 @@ test("OB-1 v1.1 cockpit : PAYMENT / DELIVERY restent 'unavailable' (re-vérifié
 test("OB-1 v1.1 cockpit : chaque lien vers un écran marchand existant (settings/catalogue/payment/delivery-pricing) porte le rappel honnête sur le gap restaurant_users", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   for (const needle of ["Établissement", "Légal", "Catalogue", "Paiement", "Livraison"]) {
     const section = sectionByTitle(container, needle);
@@ -366,7 +392,10 @@ test("OB-1 v1.1 cockpit : chaque lien vers un écran marchand existant (settings
 test("OB-1 cockpit : aucun secret de paiement/credential n'apparaît jamais dans le DOM rendu", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   assert.ok(!container.textContent?.includes(FORBIDDEN_SECRET));
   assert.ok(!/credentials_ref/i.test(container.textContent ?? ""));
@@ -379,7 +408,10 @@ test("OB-1 cockpit : aucun secret de paiement/credential n'apparaît jamais dans
 test("OB-1 cockpit : aucun <button> n'est introduit -- uniquement des liens de navigation, aucune action de mutation", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   assert.equal(container.querySelectorAll("button").length, 0);
 
@@ -390,7 +422,10 @@ test("OB-1 cockpit : aucun <button> n'est introduit -- uniquement des liens de n
 test("OB-1 cockpit : READY TO PUBLISH reflète le statut réel sans jamais proposer d'action de publication", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r2");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
 
   assert.ok(container.textContent?.includes("Sanaa Cookies"));
   assert.ok(container.textContent?.includes("onboarding"));
@@ -403,13 +438,19 @@ test("OB-1 cockpit : READY TO PUBLISH reflète le statut réel sans jamais propo
 test("OB-1 cockpit : le contexte d'un établissement ne fuite JAMAIS vers un autre (deux montages frais, deux `?r=` distincts)", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const first = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
   assert.ok(first.container.textContent?.includes("Au Lait Cru"));
   assert.ok(!first.container.textContent?.includes("Sanaa Cookies"));
 
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r2");
   const second = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu"
+  );
   assert.ok(second.container.textContent?.includes("Sanaa Cookies"));
   assert.ok(!second.container.textContent?.includes("Au Lait Cru"));
 
@@ -427,7 +468,10 @@ test("OB-1 cockpit : le contexte d'un établissement ne fuite JAMAIS vers un aut
 test("OB-1 cockpit : absence de `?r=` affiche un message neutre, aucune donnée d'établissement chargée", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.textContent?.includes("Aucun établissement sélectionné.") ?? false,
+    "timeout: le message d'absence d'établissement doit être rendu"
+  );
 
   assert.ok(!container.textContent?.includes("Au Lait Cru"));
   assert.ok(!container.textContent?.includes("Sanaa Cookies"));
@@ -443,7 +487,10 @@ test("OB-1 cockpit : un utilisateur authentifié NON opérateur est redirigé ve
   (globalThis as any).__mockReplaceCalls = [];
 
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => ((globalThis as any).__mockReplaceCalls as string[]).includes("/dashboard"),
+    "timeout: la redirection non-opérateur doit être observée"
+  );
 
   assert.deepEqual((globalThis as any).__mockReplaceCalls, ["/dashboard"]);
   assert.ok(!container.textContent?.includes("Au Lait Cru"));
