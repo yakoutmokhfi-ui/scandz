@@ -182,8 +182,13 @@ function render() {
   return { container, root };
 }
 
-function flush(ms = 30): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function waitFor(condition: () => boolean, message: string, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(message);
 }
 
 function sectionByTitle(container: HTMLElement, needle: string) {
@@ -201,7 +206,10 @@ function findImportLink(section: HTMLElement | undefined) {
 test("ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est présent dans la section Catalogue du cockpit", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => !!findImportLink(sectionByTitle(container, "Catalogue")),
+    "timeout: la section Catalogue et son lien d'import doivent être rendus"
+  );
 
   const catalogueSection = sectionByTitle(container, "Catalogue");
   assert.ok(catalogueSection, "la section Catalogue doit être présente");
@@ -215,7 +223,10 @@ test("ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est p
 test("ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 existante, pour l'établissement COURANT du cockpit uniquement", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => !!findImportLink(sectionByTitle(container, "Catalogue")),
+    "timeout: le lien d'import doit être rendu"
+  );
 
   const link = findImportLink(sectionByTitle(container, "Catalogue"));
   assert.ok(link, "le lien doit être présent");
@@ -232,7 +243,10 @@ test("ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4
 test("ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent chacun leur PROPRE lien d'import -- aucune fuite de tenant", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r2");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => !!findImportLink(sectionByTitle(container, "Catalogue")),
+    "timeout: le lien d'import doit être rendu"
+  );
 
   const link = findImportLink(sectionByTitle(container, "Catalogue"));
   assert.ok(link, "le lien doit être présent aussi pour un établissement tout juste onboardé (catalogue vide)");
@@ -249,7 +263,10 @@ test("ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtien
 test("ADMIN CATALOGUE IMPORT ENTRY POINT : aucun <button> introduit (navigation pure, aucune action de mutation ajoutée par ce lot)", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le cockpit complet doit être rendu avant l'assertion d'absence de bouton"
+  );
 
   assert.equal(
     container.querySelectorAll("button").length,
@@ -264,7 +281,10 @@ test("ADMIN CATALOGUE IMPORT ENTRY POINT : aucun <button> introduit (navigation 
 test("Régression de contrôle : les 9 sections mandatées du cockpit restent toutes présentes", async () => {
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const { container, root } = render();
-  await flush(50);
+  await waitFor(
+    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: les 9 sections du cockpit doivent être rendues"
+  );
 
   assert.equal(
     container.querySelectorAll('[data-testid="cockpit-section"]').length,
