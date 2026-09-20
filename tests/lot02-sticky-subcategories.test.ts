@@ -34,13 +34,15 @@ test("liste qui tient dans l'écran (hauteur <= viewport) -- jamais sticky, mêm
   }
 });
 
-test("une seule sous-catégorie réelle (ou aucune) -- jamais sticky, même sur une liste très longue", () => {
-  for (const subcategoryCount of [0, 1]) {
-    assert.equal(
-      shouldStickSubcategoryFilter({ subcategoryCount, catalogueHeight: 10_000, viewportHeight: VIEWPORT }),
-      false
-    );
-  }
+test("une seule option réelle suffit sur une liste longue ; zéro option reste non sticky", () => {
+  assert.equal(
+    shouldStickSubcategoryFilter({ subcategoryCount: 1, catalogueHeight: 10_000, viewportHeight: VIEWPORT }),
+    true
+  );
+  assert.equal(
+    shouldStickSubcategoryFilter({ subcategoryCount: 0, catalogueHeight: 10_000, viewportHeight: VIEWPORT }),
+    false
+  );
 });
 
 test("sous-catégories + tags contextuels partagent le seuil sticky", () => {
@@ -50,7 +52,7 @@ test("sous-catégories + tags contextuels partagent le seuil sticky", () => {
   );
   assert.equal(
     shouldStickSubcategoryFilter({ subcategoryCount: 0, tagCount: 1, catalogueHeight: 1000, viewportHeight: VIEWPORT }),
-    false
+    true
   );
 });
 

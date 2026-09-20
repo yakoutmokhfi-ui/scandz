@@ -395,14 +395,13 @@ test("1b. activation NON couplée au nombre de produits -- 3 grandes cartes déf
   }
 });
 
-test("1c. UNE seule sous-catégorie réelle, liste très longue -- jamais sticky (barre historique)", async () => {
+test("1c. UNE seule sous-catégorie réelle, liste très longue -- filtre secondaire sticky", async () => {
   const { container, root } = await render(baseRestaurant([longSingleSubcategory()]));
   try {
     const nav = filterNav(container)!;
     assert.ok(nav);
-    assert.equal(isSticky(container), false);
-    assert.equal(nav.getAttribute("class"), "mt-3 border-b border-espresso/10 pb-3");
-    assert.equal(nav.querySelector("ul")!.getAttribute("class"), "flex max-h-32 flex-wrap gap-1.5 overflow-x-visible overflow-y-auto sm:max-h-none sm:gap-2 sm:overflow-y-visible");
+    assert.equal(isSticky(container), true);
+    assert.ok(classes(nav).includes("sticky"));
   } finally {
     root.unmount();
     container.remove();
@@ -626,7 +625,9 @@ test("4b. mobile -- barre sticky compacte sur 2–3 lignes, repliée sans débor
     assert.ok(!ulClasses.includes("overflow-x-auto"), "aucun défilement horizontal mobile");
     for (const li of ul.children) assert.equal(li.tagName, "LI");
     for (const b of ul.querySelectorAll("button")) {
-      assert.ok(classes(b).includes("whitespace-nowrap"), "libellé de pilule jamais coupé");
+      assert.ok(classes(b).includes("max-w-full"), "pilule bornée à la largeur disponible");
+      assert.ok(classes(b).includes("break-words"), "libellé long repliable dans la pilule");
+      assert.ok(!classes(b).includes("whitespace-nowrap"), "aucun libellé ne force le débordement horizontal");
     }
     // Trois lignes compactes au maximum avant repli vertical de secours.
     assert.ok(!ulClasses.some((c) => /scrollbar|^h-/.test(c)));

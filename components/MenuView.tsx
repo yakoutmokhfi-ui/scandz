@@ -672,8 +672,8 @@ export default function MenuView({
   );
 
   // LOT 02 + MOBILE CATEGORY FILTERS / TAG NAVIGATION v1 : barre de
-  // filtres collée uniquement si la catégorie active a au moins deux
-  // choix secondaires (sous-catégories + tags contextuels) ET si sa
+  // filtres collée uniquement si la catégorie active a au moins un
+  // choix secondaire (sous-catégorie ou tag contextuel) ET si sa
   // liste est réellement plus haute que l'écran (voir
   // shouldStickSubcategoryFilter). Sinon : rendu historique inchangé.
   //
@@ -689,7 +689,7 @@ export default function MenuView({
   const tagCount = contextualCategoryTags.length;
 
   useLayoutEffect(() => {
-    if (subcategoryCount + tagCount < 2) {
+    if (subcategoryCount + tagCount < 1) {
       setStickySubcategoryFilter(false);
       return;
     }

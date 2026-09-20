@@ -112,9 +112,8 @@ export function filterMenuItemGroupsBySubcategory(
 // ======================================================================
 
 /**
- * Vrai UNIQUEMENT si (a) la catégorie active possède au moins DEUX
- * choix secondaires réels (sous-catégories + tags contextuels, hors
- * "Tous") ET (b) la
+ * Vrai UNIQUEMENT si (a) la catégorie active possède au moins UN choix
+ * secondaire réel (sous-catégorie ou tag contextuel, hors "Tous") ET (b) la
  * liste NON filtrée ("Tous") de la catégorie est plus haute que le
  * viewport -- le client doit réellement défiler pour la parcourir, et
  * la barre quitterait l'écran sans sticky.
@@ -137,7 +136,7 @@ export function shouldStickSubcategoryFilter({
   catalogueHeight: number;
   viewportHeight: number;
 }): boolean {
-  if (subcategoryCount + tagCount < 2) return false;
+  if (subcategoryCount + tagCount < 1) return false;
   if (!(viewportHeight > 0)) return false;
   return catalogueHeight > viewportHeight;
 }

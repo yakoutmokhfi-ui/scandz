@@ -362,6 +362,11 @@ test("[RESPONSIVE] catégories classic/editorial non sticky sur mobile et sticky
   const rowClasses = (secondaryNav(x.container)!.querySelector("ul")!.getAttribute("class") ?? "").split(/\s+/);
   assert.ok(rowClasses.includes("flex-wrap"));
   assert.equal(rowClasses.includes("overflow-x-auto"), false);
+  for (const button of secondaryNav(x.container)!.querySelectorAll("button")) {
+    const buttonClasses = (button.getAttribute("class") ?? "").split(/\s+/);
+    assert.ok(buttonClasses.includes("max-w-full") && buttonClasses.includes("break-words"));
+    assert.equal(buttonClasses.includes("whitespace-nowrap"), false);
+  }
   cleanup(x);
 
   const editorialRestaurant = restaurant(PUBLISHED);

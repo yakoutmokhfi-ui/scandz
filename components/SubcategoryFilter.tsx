@@ -164,7 +164,7 @@ export default function SubcategoryFilter({
             aria-pressed={activeId === null && activeTagId === null}
             data-subcategory-filter-option="__all__"
             className={
-              "min-h-9 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+              "min-h-9 max-w-full break-words rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
               (activeId === null && activeTagId === null
                 ? "bg-caramel text-caramel-ink shadow-sm"
                 : "bg-crema text-ink-on-bg-muted shadow-sm")
@@ -183,7 +183,7 @@ export default function SubcategoryFilter({
                 aria-pressed={isActive}
                 data-subcategory-filter-option={option.id}
                 className={
-                  "min-h-9 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+                  "min-h-9 max-w-full break-words rounded-full px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
                   (isActive
                     ? "bg-caramel text-caramel-ink shadow-sm"
                     : "bg-crema text-ink-on-bg-muted shadow-sm")
@@ -205,7 +205,7 @@ export default function SubcategoryFilter({
                 data-category-tag-option="true"
                 dir="auto"
                 className={
-                  "min-h-9 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
+                  "min-h-9 max-w-full break-words rounded-full border px-3 py-1.5 text-center text-xs font-semibold leading-tight transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel sm:min-h-10 sm:px-3.5 sm:py-2 sm:text-sm " +
                   (isActive
                     ? "border-espresso bg-espresso text-ink-text shadow-sm"
                     : "border-espresso/20 bg-crema text-ink-on-bg-muted")
