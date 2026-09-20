@@ -439,8 +439,8 @@ test("OB-1 cockpit : le contexte d'un établissement ne fuite JAMAIS vers un aut
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r1");
   const first = render();
   await waitFor(
-    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
-    "timeout: le cockpit complet doit être rendu"
+    () => first.container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le premier cockpit doit être rendu"
   );
   assert.ok(first.container.textContent?.includes("Au Lait Cru"));
   assert.ok(!first.container.textContent?.includes("Sanaa Cookies"));
@@ -448,8 +448,8 @@ test("OB-1 cockpit : le contexte d'un établissement ne fuite JAMAIS vers un aut
   window.history.pushState({}, "", "/admin/establishments/cockpit?r=r2");
   const second = render();
   await waitFor(
-    () => container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
-    "timeout: le cockpit complet doit être rendu"
+    () => second.container.querySelectorAll('[data-testid="cockpit-section"]').length === 9,
+    "timeout: le second cockpit doit être rendu"
   );
   assert.ok(second.container.textContent?.includes("Sanaa Cookies"));
   assert.ok(!second.container.textContent?.includes("Au Lait Cru"));
