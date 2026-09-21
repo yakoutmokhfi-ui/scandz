@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolveDeliveryCustomerNotice } from "../lib/delivery-customer-notice.ts";
+import { deliveryStatusFromFulfillmentResult, resolveDeliveryFulfillment } from "../lib/delivery.ts";
 import type { SaleMode } from "../lib/sale-modes-types.ts";
 
 const pickup: SaleMode = {
@@ -32,11 +33,29 @@ test("Click & Collect affiche exactement le texte configuré sur le mode actif",
 });
 
 test("livraison utilise le texte de la règle effectivement résolue (Stuart/Chronofresh restent modulaires)", () => {
+  // v1.1 : le statut est produit par le VRAI moteur (résolveur +
+  // adaptateur), qui porte le texte client dans le champ explicite
+  // `customerNotice` -- plus jamais un statut forgé via `zone.label`.
+  const status = deliveryStatusFromFulfillmentResult(
+    resolveDeliveryFulfillment(
+      [{
+        fulfillmentCode: "chronofresh",
+        zonePrefixes: ["75"],
+        isFallback: false,
+        minItems: null,
+        customerText: "Expédition réfrigérée sous 48 h.",
+        displayOrder: 1,
+        pricingMode: "free",
+        fixedFee: null,
+        freeThreshold: null,
+      }],
+      "75011",
+      1,
+      20
+    )
+  );
   assert.deepEqual(
-    resolveDeliveryCustomerNotice("delivery", [delivery], {
-      eligible: true,
-      zone: { code: "75", label: "Expédition réfrigérée sous 48 h." },
-    }, true),
+    resolveDeliveryCustomerNotice("delivery", [delivery], status, true),
     {
       modeCode: "delivery",
       modeLabel: "Livraison",
@@ -121,7 +140,10 @@ test("le champ de notes existant reste présent et le popup l'explique sans gara
   const i18n = readFileSync("lib/i18n.ts", "utf8");
   assert.ok(cart.includes('id="order-note"'));
   assert.ok(cart.includes('t("noteLabel")'));
-  assert.ok(i18n.includes("Le commerçant vous confirmera ce qui est possible."));
+  // v1.1 : formulation neutre -- information du commerçant, demande
+  // via la note, jamais une promesse de confirmation ni un créneau.
+  assert.ok(i18n.includes("c'est une demande, pas un créneau garanti."));
+  assert.equal(i18n.includes("vous confirmera"), false);
 });
 
 test("configuration : réutilise customer_text, sans nouvelle table ni colonne", () => {
@@ -175,6 +197,7 @@ test("clés client et marchand présentes dans les trois dictionnaires", () => {
   const i18n = readFileSync("lib/i18n.ts", "utf8");
   for (const key of [
     "deliveryTimingNoticeTitle",
+    "pickupTimingNoticeTitle",
     "deliveryTimingNoticeNotesHint",
     "deliveryTimingNoticeBack",
     "deliveryTimingNoticeConfirm",

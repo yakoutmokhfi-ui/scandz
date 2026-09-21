@@ -16,9 +16,16 @@ function optionalText(value: string | null | undefined): string | null {
 /**
  * Resolves the notice from the already-public tenant configuration.
  * Pickup uses the sale-mode customer text. Delivery prefers the
- * matched fulfillment rule text carried by DeliveryStatus, then uses
- * the generic delivery-mode text as a safe fallback. Provider names
- * and routing codes are deliberately absent from this customer model.
+ * matched fulfillment rule's CUSTOMER NOTICE TEXT, then uses the
+ * generic delivery-mode text as a safe fallback. Provider names and
+ * routing codes are deliberately absent from this customer model.
+ *
+ * v1.1 — source clarity: the rule text is read ONLY from the dedicated
+ * `DeliveryStatus.customerNotice` field, which is populated exclusively
+ * by the fulfillment adapter from `customer_text`. The generic
+ * `DeliveryStatus.zone` (whose `label` is a GEOGRAPHIC area label on
+ * the legacy path, e.g. "Paris", "Zone 1") is intentionally never read
+ * here, so a geographic/zone label can never become a timing notice.
  */
 export function resolveDeliveryCustomerNotice(
   serviceMode: ServiceMode | null,
@@ -33,7 +40,7 @@ export function resolveDeliveryCustomerNotice(
 
   const message =
     serviceMode === "delivery"
-      ? (usesFulfillmentRules ? optionalText(deliveryStatus.zone?.label) : null) ??
+      ? (usesFulfillmentRules ? optionalText(deliveryStatus.customerNotice) : null) ??
         optionalText(selectedMode.customerText)
       : optionalText(selectedMode.customerText);
 

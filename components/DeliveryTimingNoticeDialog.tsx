@@ -61,7 +61,11 @@ export default function DeliveryTimingNoticeDialog({
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-espresso/10 bg-crema p-5 text-ink-on-bg shadow-lg backdrop:bg-espresso/30"
     >
       <h2 id={titleId} className="text-lg font-bold">
-        {t("deliveryTimingNoticeTitle")}
+        {/* v1.1 — un avis de retrait (Click & Collect) ne doit jamais
+            être intitulé « livraison ». */}
+        {notice?.modeCode === "pickup"
+          ? t("pickupTimingNoticeTitle")
+          : t("deliveryTimingNoticeTitle")}
       </h2>
       {notice && (
         <div id={descriptionId} className="mt-3 space-y-3">

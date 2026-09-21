@@ -147,6 +147,12 @@ test("retour ferme sans confirmer et conserve le contrôle au checkout appelant"
     onConfirm: () => { confirmed += 1; },
     onDismiss: () => { dismissed += 1; },
   });
+  // v1.1 (déterminisme) : attendre que le dialogue soit RÉELLEMENT ouvert
+  // avant de cliquer « retour ». Sans cette précondition, sous charge,
+  // le clic pouvait précéder l'effet showModal() -- le dialogue s'ouvrait
+  // alors APRÈS le clic et l'assertion « fermé » échouait (faux négatif).
+  const openedDialog = view.container.querySelector("dialog")!;
+  await waitFor(() => openedDialog.hasAttribute("open"), "pickup dialog open before dismiss");
   const back = view.container.querySelector("dialog button")!;
   click(back);
   await flush();
