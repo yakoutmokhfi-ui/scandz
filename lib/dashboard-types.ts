@@ -214,6 +214,15 @@ export interface MerchantDeliveryFulfillmentPricingRule {
   customerText: string | null;
 }
 
+/** Customer-facing notice stored on an enabled sale mode. This is a
+ * narrow merchant projection: no provider, routing config or tenant id
+ * is exposed to the dashboard. */
+export interface MerchantDeliveryMethodNotice {
+  modeCode: "pickup" | "delivery";
+  modeLabel: string;
+  customerText: string | null;
+}
+
 /**
  * Dashboard Payment Module v1 (PAYMENT P2B-B) — forme MARCHAND SÛRE,
  * retournée EXCLUSIVEMENT par la RPC publiée

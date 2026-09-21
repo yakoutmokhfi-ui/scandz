@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
@@ -16,7 +16,9 @@ import Ltr from "@/components/Bidi";
 import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
+import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog";
 import type { ServiceMode } from "@/lib/restaurants-config";
+import type { DeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
 import { normalizeOrderNote, ORDER_NOTE_MAX_LENGTH } from "@/lib/order-note";
 
 interface CartEntry extends CartLine {
@@ -32,6 +34,7 @@ export default function CartPanel({
   serviceMode,
   fulfillmentSelectionSeq,
   deliveryStatus,
+  deliveryCustomerNotice,
   displayItems,
   fieldRequirementsReady,
   availableServiceModes,
@@ -74,6 +77,9 @@ export default function CartPanel({
    *  générique. */
   fulfillmentSelectionSeq: number;
   deliveryStatus: DeliveryStatus;
+  /** Message public du mode/routage sélectionné, déjà limité au tenant
+   * courant par les RPC publiques. null conserve le parcours historique. */
+  deliveryCustomerNotice: DeliveryCustomerNotice | null;
   /** LOT 2B.4a.2 : exigences génériques dynamiques (plus un
    *  (keyof CustomerInfo)[] figé lu depuis settings.requiredCustomerFields). */
   displayItems: FieldRequirementDisplayItem[];
@@ -143,11 +149,35 @@ export default function CartPanel({
   /** Lien vers la page légale publique du marchand (app/legal/[slug]),
    *  non-null uniquement quand `cgvEnforced` l'est aussi. */
   cgvLegalHref: string | null;
-  onSendOrder: () => void;
+  onSendOrder: () => Promise<void>;
   onClose: () => void;
 }) {
   const { t, lang, sourceLanguage } = useI18n();
   const { currency, max_tables } = restaurant.config;
+  const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
+  const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
+  const timingNoticeGuardRef = useRef(false);
+
+  function requestOrderSubmission() {
+    if (deliveryCustomerNotice) {
+      setTimingNoticeOpen(true);
+      return;
+    }
+    void onSendOrder();
+  }
+
+  async function confirmTimingNotice() {
+    if (timingNoticeGuardRef.current || timingNoticeConfirming || isSubmitting) return;
+    timingNoticeGuardRef.current = true;
+    setTimingNoticeConfirming(true);
+    setTimingNoticeOpen(false);
+    try {
+      await onSendOrder();
+    } finally {
+      timingNoticeGuardRef.current = false;
+      setTimingNoticeConfirming(false);
+    }
+  }
 
   /**
    * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE v1.1 (POST-
@@ -403,6 +433,13 @@ export default function CartPanel({
                 modes={availableServiceModes}
                 onSelect={onSelectFulfillment}
               />
+              <DeliveryTimingNoticeDialog
+                open={timingNoticeOpen}
+                notice={deliveryCustomerNotice}
+                confirming={timingNoticeConfirming || isSubmitting}
+                onConfirm={() => void confirmTimingNotice()}
+                onDismiss={() => setTimingNoticeOpen(false)}
+              />
 
               {serviceMode === "table" && (
                 <TableSelector
@@ -646,7 +683,7 @@ export default function CartPanel({
                   {t("whatsappNotice")}
                 </p>
                 <button
-                  onClick={onSendOrder}
+                  onClick={requestOrderSubmission}
                   disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
                   aria-busy={isSubmitting}
                   className={

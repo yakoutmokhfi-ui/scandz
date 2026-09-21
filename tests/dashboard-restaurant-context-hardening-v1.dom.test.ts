@@ -113,6 +113,7 @@ const MOCK_DASHBOARD = buildServiceMock("lib/services/dashboard.ts", {
   getMerchantCatalogue: logged("getMerchantCatalogue", "[]"),
   getMerchantPaymentProviderConfig: logged("getMerchantPaymentProviderConfig", "[]"),
   getMerchantDeliveryFulfillmentPricing: logged("getMerchantDeliveryFulfillmentPricing", "[]"),
+  getMerchantDeliveryMethodNotices: logged("getMerchantDeliveryMethodNotices", "[]"),
   getRestaurantSettings: logged("getRestaurantSettings", `{ staff_receipt_language: "fr", source_language: "fr" }`),
   getRestaurantActiveLanguages: logged(
     "getRestaurantActiveLanguages",

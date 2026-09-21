@@ -122,7 +122,8 @@ test("après un succès, les valeurs sont relues depuis le serveur (pas de confi
   const saveFn = pageSrc.slice(saveFnStart, saveFnStart + 3000);
   const callIdx = saveFn.indexOf("updateMerchantDeliveryFulfillmentPricing");
   const afterCall = saveFn.slice(callIdx);
-  assert.ok(afterCall.includes("getMerchantDeliveryFulfillmentPricing(restaurantId)"));
+  assert.ok(afterCall.includes("getMerchantDeliveryFulfillmentPricing(targetRestaurantId)"));
+  assert.ok(afterCall.includes("guard.currentRestaurantId() !== targetRestaurantId"));
 });
 
 test("l'onglet de navigation 'Tarifs de livraison' est ajouté sans casser l'exclusion déjà corrigée (L1B-02) de l'onglet Commandes", () => {

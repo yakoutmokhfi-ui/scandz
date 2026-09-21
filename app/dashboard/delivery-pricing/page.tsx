@@ -6,10 +6,13 @@ import { getUser } from "@/lib/services/auth";
 import {
   getMerchantRestaurants,
   getMerchantDeliveryFulfillmentPricing,
+  getMerchantDeliveryMethodNotices,
   updateMerchantDeliveryFulfillmentPricing,
+  updateMerchantDeliveryMethodNotice,
 } from "@/lib/services/dashboard";
 import type {
   MerchantDeliveryFulfillmentPricingRule,
+  MerchantDeliveryMethodNotice,
   MerchantRestaurant,
 } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
@@ -60,6 +63,22 @@ function draftFromRule(rule: MerchantDeliveryFulfillmentPricingRule): RuleDraft 
   };
 }
 
+interface ModeNoticeDraft {
+  customerText: string;
+  saving: boolean;
+  error: string | null;
+  saved: boolean;
+}
+
+function draftFromMode(mode: MerchantDeliveryMethodNotice): ModeNoticeDraft {
+  return {
+    customerText: mode.customerText ?? "",
+    saving: false,
+    error: null,
+    saved: false,
+  };
+}
+
 export default function DeliveryPricingPage() {
   const router = useRouter();
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
@@ -91,16 +110,19 @@ export default function DeliveryPricingPage() {
   const [operatorRestaurantName, setOperatorRestaurantName] = useState<string | null>(null);
   const [uiLang, setUiLang] = useState<Lang>("fr");
   const [rows, setRows] = useState<MerchantDeliveryFulfillmentPricingRule[]>([]);
+  const [modeNotices, setModeNotices] = useState<MerchantDeliveryMethodNotice[]>([]);
   /**
    * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite des tarifs en
    * mémoire. `null` = rien de fiable pour le contexte courant.
    */
   const [pricingLoadedRestaurantId, setPricingLoadedRestaurantId] = useState<string | null>(null);
+  const [noticesLoadedRestaurantId, setNoticesLoadedRestaurantId] = useState<string | null>(null);
   /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
   const guard = useRestaurantContextGuard();
   /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
   const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
+  const [modeDrafts, setModeDrafts] = useState<Record<string, ModeNoticeDraft>>({});
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -134,14 +156,20 @@ export default function DeliveryPricingPage() {
     const token = guard.beginRequest(id);
     // §5 -- invalidation IMMÉDIATE de la provenance.
     setPricingLoadedRestaurantId(null);
+    setNoticesLoadedRestaurantId(null);
     setPageError(null);
     try {
-      const next = await getMerchantDeliveryFulfillmentPricing(id);
+      const [next, nextNotices] = await Promise.all([
+        getMerchantDeliveryFulfillmentPricing(id),
+        getMerchantDeliveryMethodNotices(id),
+      ]);
       // Réponse PÉRIMÉE -> ABANDONNÉE intégralement.
       if (!token.isCurrent()) return;
       // Commit ATOMIQUE : tarifs et provenance dans la même passe.
       setRows(next);
+      setModeNotices(nextNotices);
       setPricingLoadedRestaurantId(id);
+      setNoticesLoadedRestaurantId(id);
       setDrafts((prev) => {
         const merged: Record<string, RuleDraft> = {};
         for (const rule of next) {
@@ -150,6 +178,13 @@ export default function DeliveryPricingPage() {
           // seul un succès explicite (voir save()) réinitialise à
           // partir des valeurs serveur.
           merged[rule.ruleId] = prev[rule.ruleId] ?? draftFromRule(rule);
+        }
+        return merged;
+      });
+      setModeDrafts((prev) => {
+        const merged: Record<string, ModeNoticeDraft> = {};
+        for (const mode of nextNotices) {
+          merged[mode.modeCode] = prev[mode.modeCode] ?? draftFromMode(mode);
         }
         return merged;
       });
@@ -168,8 +203,11 @@ export default function DeliveryPricingPage() {
     (id: string) => {
       guard.enterContext(id);
       setRows([]);
+      setModeNotices([]);
       setDrafts({});
+      setModeDrafts({});
       setPricingLoadedRestaurantId(null);
+      setNoticesLoadedRestaurantId(null);
       setRestaurantId(id);
     },
     [guard]
@@ -181,6 +219,8 @@ export default function DeliveryPricingPage() {
    */
   const rowsInContext =
     pricingLoadedRestaurantId === restaurantId && restaurantId ? rows : [];
+  const modeNoticesInContext =
+    noticesLoadedRestaurantId === restaurantId && restaurantId ? modeNotices : [];
 
   useEffect(() => {
     (async () => {
@@ -255,9 +295,57 @@ export default function DeliveryPricingPage() {
     }));
   }
 
+  function updateModeDraft(modeCode: string, patch: Partial<ModeNoticeDraft>) {
+    setModeDrafts((prev) => ({
+      ...prev,
+      [modeCode]: { ...prev[modeCode], ...patch, error: null, saved: false },
+    }));
+  }
+
+  async function saveModeNotice(modeCode: "pickup" | "delivery") {
+    const draft = modeDrafts[modeCode];
+    if (!draft) return;
+    const targetRestaurantId = restaurantId;
+    const customerText = draft.customerText.trim() === "" ? null : draft.customerText.trim();
+    if (customerText !== null && customerText.length > 500) {
+      updateModeDraft(modeCode, { error: t("dpTextTooLong") });
+      return;
+    }
+
+    setModeDrafts((prev) => ({
+      ...prev,
+      [modeCode]: { ...prev[modeCode], saving: true, error: null, saved: false },
+    }));
+    try {
+      await updateMerchantDeliveryMethodNotice({
+        restaurantId: targetRestaurantId,
+        modeCode,
+        customerText,
+      });
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
+      const next = await getMerchantDeliveryMethodNotices(targetRestaurantId);
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
+      setModeNotices(next);
+      const updated = next.find((mode) => mode.modeCode === modeCode);
+      setModeDrafts((prev) => ({
+        ...prev,
+        [modeCode]: updated
+          ? { ...draftFromMode(updated), saved: true }
+          : { ...prev[modeCode], saving: false, saved: true },
+      }));
+    } catch {
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
+      setModeDrafts((prev) => ({
+        ...prev,
+        [modeCode]: { ...prev[modeCode], saving: false, error: t("dpSaveFailed") },
+      }));
+    }
+  }
+
   async function save(ruleId: string) {
     const draft = drafts[ruleId];
     if (!draft) return;
+    const targetRestaurantId = restaurantId;
 
     // Validation client -- MIROIR de la validation serveur autoritaire
     // (update_merchant_delivery_fulfillment_pricing), jamais un
@@ -296,9 +384,11 @@ export default function DeliveryPricingPage() {
         freeThreshold: threshold,
         customerText,
       });
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
       // Ne fait jamais confiance à l'état client comme preuve finale de
       // persistance : on relit systématiquement depuis le serveur.
-      const next = await getMerchantDeliveryFulfillmentPricing(restaurantId);
+      const next = await getMerchantDeliveryFulfillmentPricing(targetRestaurantId);
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
       setRows(next);
       setDrafts((prev) => {
         const merged = { ...prev };
@@ -309,6 +399,7 @@ export default function DeliveryPricingPage() {
         return merged;
       });
     } catch {
+      if (guard.currentRestaurantId() !== targetRestaurantId) return;
       // Erreur SÛRE pour le marchand uniquement -- jamais le message
       // brut du serveur (code SQL, détail interne) affiché ici
       // (mission : "no SQL/internal security details").
@@ -372,10 +463,62 @@ export default function DeliveryPricingPage() {
           </p>
         )}
 
-        {!pageError && rowsInContext.length === 0 && (
+        {!pageError && rowsInContext.length === 0 && modeNoticesInContext.length === 0 && (
           <p className="mt-4 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-500">
             {t("dpEmpty")}
           </p>
+        )}
+
+        {modeNoticesInContext.length > 0 && (
+          <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+            <h3 className="font-bold text-stone-900">{t("dpNoticeSectionTitle")}</h3>
+            <p className="mt-1 text-sm text-stone-500">{t("dpNoticeSectionHint")}</p>
+            <div className="mt-4 space-y-5">
+              {modeNoticesInContext.map((mode) => {
+                const draft = modeDrafts[mode.modeCode] ?? draftFromMode(mode);
+                return (
+                  <div key={mode.modeCode} data-delivery-method-notice={mode.modeCode}>
+                    <label
+                      htmlFor={`delivery-method-notice-${mode.modeCode}`}
+                      className="block text-sm font-bold text-stone-900"
+                    >
+                      {mode.modeLabel}
+                    </label>
+                    <textarea
+                      id={`delivery-method-notice-${mode.modeCode}`}
+                      value={draft.customerText}
+                      disabled={!canEdit}
+                      maxLength={500}
+                      rows={3}
+                      placeholder={t("dpNoticePlaceholder")}
+                      onChange={(event) =>
+                        updateModeDraft(mode.modeCode, { customerText: event.target.value })
+                      }
+                      className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+                    />
+                    {canEdit && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={draft.saving}
+                          onClick={() => void saveModeNotice(mode.modeCode)}
+                          className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                        >
+                          {draft.saving ? t("dpSaving") : t("dpSave")}
+                        </button>
+                        {draft.saved && (
+                          <span className="text-sm font-semibold text-green-700">{t("dpSaved")}</span>
+                        )}
+                        {draft.error && (
+                          <span className="text-sm font-semibold text-amber-700">{draft.error}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {rowsInContext.map((rule) => {
