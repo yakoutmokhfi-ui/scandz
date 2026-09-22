@@ -6,6 +6,7 @@ import { formatAddress } from "@/lib/customer";
 import { useI18n } from "@/lib/i18n-context";
 import type { Translator } from "@/lib/i18n";
 import Ltr from "@/components/Bidi";
+import { isWhatsappEnabled } from "@/lib/customer-contact";
 
 function contextSummary(ctx: OrderContext | null, t: Translator): string[] {
   if (!ctx) return [];
@@ -84,6 +85,9 @@ export default function OrderConfirmation({
 }) {
   const { t } = useI18n();
   const isTable = context?.mode === "table";
+  // CUSTOMER CONTACT + LIVE TRACKING v1 -- WhatsApp optionnel : aucune
+  // mention WhatsApp si le commerçant ne l'utilise pas.
+  const whatsappEnabled = isWhatsappEnabled(restaurant.config);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-crema px-6 py-10">
@@ -96,7 +100,9 @@ export default function OrderConfirmation({
           {t("confirmTitle")}
         </h1>
         <p className="mt-2 text-sm text-ink-on-bg-muted">
-          {t("confirmSubtitle", { name: restaurant.name })}
+          {whatsappEnabled
+            ? t("confirmSubtitle", { name: restaurant.name })
+            : t("confirmSubtitleNoWhatsapp", { name: restaurant.name })}
         </p>
 
         {orderNumber !== null && (
@@ -129,10 +135,15 @@ export default function OrderConfirmation({
             "use client" est bundlé isolément par les tests DOM esbuild
             de ce dépôt, qui n'externalisent QUE react/react-dom --
             jamais next/link ni ses dépendances internes. */}
+        {/* CUSTOMER CONTACT + LIVE TRACKING v1 : le suivi devient
+            l'ACTION PRINCIPALE post-commande (bouton plein, cible
+            tactile >= 44px, placé avant tout autre contenu actionnable),
+            visible sans défilement et indépendant de WhatsApp. */}
         {trackingPath !== null && (
           <a
             href={trackingPath}
-            className="mt-4 block w-full rounded-xl bg-crema py-3 text-center text-sm font-bold text-accent-dark-on-bg shadow-sm"
+            data-order-confirmation-tracking=""
+            className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-caramel py-3.5 text-center font-bold text-caramel-ink shadow-sm"
           >
             {t("trackYourOrder")}
           </a>
@@ -179,7 +190,11 @@ export default function OrderConfirmation({
         <div className="mt-8 space-y-3">
           <button
             onClick={onBackToMenu}
-            className="w-full rounded-xl bg-caramel py-3.5 font-bold text-caramel-ink"
+            className={
+              trackingPath !== null
+                ? "w-full rounded-xl border border-caramel py-3.5 font-bold text-accent-dark-on-bg"
+                : "w-full rounded-xl bg-caramel py-3.5 font-bold text-caramel-ink"
+            }
           >
             {t("backToMenu")}
           </button>

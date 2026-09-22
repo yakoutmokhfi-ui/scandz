@@ -837,6 +837,12 @@ export interface RestaurantSettingsRow {
   tiktok_url: string | null;
   facebook_url: string | null;
   source_language: string;
+  /** CUSTOMER CONTACT + LIVE TRACKING v1 — WhatsApp optionnel et
+   *  contact commercial public (DRAFT-lot-customer-contact-live-
+   *  tracking-v1.sql). */
+  whatsapp_enabled: boolean;
+  public_phone: string | null;
+  public_email: string | null;
 }
 
 export async function getRestaurantSettings(
@@ -845,7 +851,7 @@ export async function getRestaurantSettings(
   const { data, error } = await supabase
     .from("restaurant_configs")
     .select(
-      "staff_receipt_language, address, opening_hours, currency, whatsapp_number, logo_url, cover_url, primary_color, secondary_color, accent_color, maps_url, display_name, intro_text, announcement_text, announcement_active, bg_color, instagram_url, tiktok_url, facebook_url, source_language"
+      "staff_receipt_language, address, opening_hours, currency, whatsapp_number, logo_url, cover_url, primary_color, secondary_color, accent_color, maps_url, display_name, intro_text, announcement_text, announcement_active, bg_color, instagram_url, tiktok_url, facebook_url, source_language, whatsapp_enabled, public_phone, public_email"
     )
     .eq("restaurant_id", restaurantId)
     .maybeSingle();
@@ -873,6 +879,9 @@ export async function getRestaurantSettings(
       tiktok_url: null,
       facebook_url: null,
       source_language: "fr",
+      whatsapp_enabled: true,
+      public_phone: null,
+      public_email: null,
     }
   );
 }
@@ -1064,6 +1073,39 @@ export async function updateRestaurantWhatsapp(
   const { error } = await supabase.rpc("update_restaurant_whatsapp", {
     p_restaurant_id: restaurantId,
     p_whatsapp_number: whatsappNumber,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------------------------------
+// CUSTOMER CONTACT + LIVE TRACKING v1 —
+// réservé owner/manager, contrôlé côté SQL (SECURITY DEFINER, voir
+// supabase/DRAFT-lot-customer-contact-live-tracking-v1.sql).
+// ------------------------------------------------------------------
+
+/** Active/désactive WhatsApp pour ce commerçant. L'activation exige un
+ *  numéro valide déjà enregistré (SCANYM_WHATSAPP_NUMBER_REQUIRED). */
+export async function updateRestaurantWhatsappEnabled(
+  restaurantId: string,
+  enabled: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_whatsapp_enabled", {
+    p_restaurant_id: restaurantId,
+    p_enabled: enabled,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Contact commercial PUBLIC. Chaîne vide = effacement (NULL). */
+export async function updateRestaurantPublicContact(
+  restaurantId: string,
+  publicPhone: string,
+  publicEmail: string
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_public_contact", {
+    p_restaurant_id: restaurantId,
+    p_public_phone: publicPhone,
+    p_public_email: publicEmail,
   });
   if (error) throw new Error(error.message);
 }

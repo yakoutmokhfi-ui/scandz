@@ -18,7 +18,10 @@ import {
   getRestaurantActiveLanguages,
   getReceiptSettings,
   updateReceiptSettings,
+  updateRestaurantWhatsappEnabled,
+  updateRestaurantPublicContact,
 } from "@/lib/services/dashboard";
+import { isValidPublicEmail, isValidPublicPhone } from "@/lib/customer-contact";
 import { getLegalTaxFieldLabels } from "@/lib/merchant-legal-tax-labels";
 import {
   addOrReplaceEstablishmentAsset,
@@ -56,6 +59,11 @@ export default function SettingsPage() {
   const [address, setAddress] = useState("");
   const [hours, setHours] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
+  // CUSTOMER CONTACT + LIVE TRACKING v1 -- WhatsApp optionnel + contact
+  // commercial public (owner/manager uniquement, même section).
+  const [whatsappEnabled, setWhatsappEnabled] = useState(true);
+  const [publicPhone, setPublicPhone] = useState("");
+  const [publicEmail, setPublicEmail] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   // Couleurs personnalisées + lien de localisation/itinéraire (V69).
@@ -264,6 +272,9 @@ export default function SettingsPage() {
       setAddress(s.address ?? "");
       setHours(s.opening_hours ?? "");
       setWhatsapp(s.whatsapp_number ?? "");
+      setWhatsappEnabled(s.whatsapp_enabled !== false);
+      setPublicPhone(s.public_phone ?? "");
+      setPublicEmail(s.public_email ?? "");
       setLogoUrl(s.logo_url ?? null);
       setCoverUrl(s.cover_url ?? null);
       setPrimaryColor(s.primary_color ?? "");
@@ -596,9 +607,22 @@ export default function SettingsPage() {
     // aucun sens et bloquerait inutilement l'enregistrement de ses
     // propres champs autorisés.
     if (!isOperatorOnlyMode) {
-      const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
-      if (!isValidWhatsappNumber(cleanWhatsapp)) {
-        setError(t("stWhatsappInvalid"));
+      // CUSTOMER CONTACT v1 : le numéro n'est exigé QUE si WhatsApp
+      // reste activé -- un commerçant sans WhatsApp n'a jamais à
+      // saisir de numéro.
+      if (whatsappEnabled) {
+        const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
+        if (!isValidWhatsappNumber(cleanWhatsapp)) {
+          setError(t("stWhatsappInvalid"));
+          return;
+        }
+      }
+      if (!isValidPublicPhone(publicPhone)) {
+        setError(t("stPublicPhoneInvalid"));
+        return;
+      }
+      if (!isValidPublicEmail(publicEmail)) {
+        setError(t("stPublicEmailInvalid"));
         return;
       }
     }
@@ -617,8 +641,17 @@ export default function SettingsPage() {
     if (!isOperatorOnlyMode) {
       const cleanWhatsapp = normalizeWhatsappNumber(whatsapp);
       try {
-        await updateRestaurantWhatsapp(restaurantId, cleanWhatsapp);
-        setWhatsapp(cleanWhatsapp);
+        // CUSTOMER CONTACT v1 : activé -> numéro d'abord (l'activation
+        // exige un numéro valide côté SQL) ; désactivé -> le numéro
+        // stocké n'est ni exigé ni modifié.
+        // Contact public EN PREMIER : un refus serveur (format) survient
+        // avant toute modification WhatsApp.
+        await updateRestaurantPublicContact(restaurantId, publicPhone.trim(), publicEmail.trim());
+        if (whatsappEnabled) {
+          await updateRestaurantWhatsapp(restaurantId, cleanWhatsapp);
+          setWhatsapp(cleanWhatsapp);
+        }
+        await updateRestaurantWhatsappEnabled(restaurantId, whatsappEnabled);
 
         await updateRestaurantSettings(
           restaurantId,
@@ -958,6 +991,22 @@ export default function SettingsPage() {
           <h3 className="font-bold text-stone-900">{t("stWhatsappTitle")}</h3>
           <p className="mt-1 text-sm text-stone-500">{t("stWhatsappHint")}</p>
 
+          <label className="mt-3 flex items-start gap-2 text-sm text-stone-800">
+            <input
+              type="checkbox"
+              data-settings-whatsapp-enabled=""
+              checked={whatsappEnabled}
+              onChange={(e) => setWhatsappEnabled(e.target.checked)}
+              disabled={!canEdit}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span>
+              <span className="font-semibold">{t("stWhatsappEnabledLabel")}</span>
+              <span className="mt-0.5 block text-xs text-stone-500">{t("stWhatsappEnabledHint")}</span>
+            </span>
+          </label>
+
+          {whatsappEnabled && (
           <input
             value={whatsapp}
             onChange={(e) => setWhatsapp(e.target.value)}
@@ -970,6 +1019,40 @@ export default function SettingsPage() {
             dir="ltr"
             className="mt-3 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
           />
+          )}
+        </section>
+        )}
+
+        {!isOperatorOnlyMode && (
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4" data-settings-public-contact="">
+          <h3 className="font-bold text-stone-900">{t("stPublicContactTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stPublicContactHint")}</p>
+          <label className="mt-3 block text-xs font-semibold text-stone-600">{t("stPublicPhoneLabel")}</label>
+          <input
+            type="tel"
+            value={publicPhone}
+            onChange={(e) => setPublicPhone(e.target.value)}
+            disabled={!canEdit}
+            maxLength={31}
+            dir="ltr"
+            className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+          />
+          {!isValidPublicPhone(publicPhone) && (
+            <p className="mt-1 text-xs font-semibold text-amber-700">{t("stPublicPhoneInvalid")}</p>
+          )}
+          <label className="mt-3 block text-xs font-semibold text-stone-600">{t("stPublicEmailLabel")}</label>
+          <input
+            type="email"
+            value={publicEmail}
+            onChange={(e) => setPublicEmail(e.target.value)}
+            disabled={!canEdit}
+            maxLength={254}
+            dir="ltr"
+            className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+          />
+          {!isValidPublicEmail(publicEmail) && (
+            <p className="mt-1 text-xs font-semibold text-amber-700">{t("stPublicEmailInvalid")}</p>
+          )}
         </section>
         )}
 

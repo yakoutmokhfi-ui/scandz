@@ -12,6 +12,7 @@ import type { PublicSaleModesState } from "@/lib/use-public-sale-modes";
 import QuantityControl from "@/components/QuantityControl";
 import TableSelector from "@/components/TableSelector";
 import { useI18n } from "@/lib/i18n-context";
+import { isWhatsappEnabled } from "@/lib/customer-contact";
 import Ltr from "@/components/Bidi";
 import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
@@ -153,6 +154,8 @@ export default function CartPanel({
   onClose: () => void;
 }) {
   const { t, lang, sourceLanguage } = useI18n();
+  // CUSTOMER CONTACT + LIVE TRACKING v1 -- même autorité que MenuView.
+  const whatsappEnabled = isWhatsappEnabled(restaurant.config);
   const { currency, max_tables } = restaurant.config;
   const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
   const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
@@ -470,6 +473,7 @@ export default function CartPanel({
                     deliveryModeAvailable={availableServiceModes.includes("delivery")}
                     onChangeCustomer={onChangeCustomer}
                     onSelectFulfillment={onSelectFulfillment}
+                    whatsappEnabled={whatsappEnabled}
                   />
                 </div>
               )}
@@ -626,9 +630,13 @@ export default function CartPanel({
                   aria-busy={isRetryingInvoice}
                   className={
                     "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
-                    (isRetryingInvoice
-                      ? "cursor-wait bg-[#25D366]/60"
-                      : "bg-[#25D366]")
+                    (whatsappEnabled
+                      ? isRetryingInvoice
+                        ? "cursor-wait bg-[#25D366]/60"
+                        : "bg-[#25D366]"
+                      : isRetryingInvoice
+                        ? "cursor-wait bg-espresso/60"
+                        : "bg-espresso")
                   }
                 >
                   {isRetryingInvoice ? t("sending") : t("invoiceRetry")}
@@ -679,8 +687,10 @@ export default function CartPanel({
                     </span>
                   </label>
                 )}
+                {/* CUSTOMER CONTACT v1 -- WhatsApp optionnel : désactivé,
+                    AUCUNE mention WhatsApp (texte, couleur, libellé). */}
                 <p className="mb-2 text-center text-sm text-ink-on-bg-muted">
-                  {t("whatsappNotice")}
+                  {whatsappEnabled ? t("whatsappNotice") : t("orderNoticeNoWhatsapp")}
                 </p>
                 <button
                   onClick={requestOrderSubmission}
@@ -688,12 +698,20 @@ export default function CartPanel({
                   aria-busy={isSubmitting}
                   className={
                     "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
-                    (isSubmitting || (cgvEnforced && !cgvAccepted)
-                      ? "cursor-not-allowed bg-[#25D366]/60"
-                      : "bg-[#25D366]")
+                    (whatsappEnabled
+                      ? isSubmitting || (cgvEnforced && !cgvAccepted)
+                        ? "cursor-not-allowed bg-[#25D366]/60"
+                        : "bg-[#25D366]"
+                      : isSubmitting || (cgvEnforced && !cgvAccepted)
+                        ? "cursor-not-allowed bg-espresso/60"
+                        : "bg-espresso")
                   }
                 >
-                  {isSubmitting ? t("sending") : t("sendOrder")}
+                  {isSubmitting
+                    ? t("sending")
+                    : whatsappEnabled
+                      ? t("sendOrder")
+                      : t("sendOrderNoWhatsapp")}
                 </button>
               </>
             ) : (
