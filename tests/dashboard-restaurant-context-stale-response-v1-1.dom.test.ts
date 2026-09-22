@@ -149,6 +149,14 @@ const MOCK_DASHBOARD = buildServiceMock("lib/services/dashboard.ts", {
   getRestaurantCurrency: instantRead("getRestaurantCurrency", `"EUR"`),
   getMerchantPaymentProviderConfig: deferredRead("getMerchantPaymentProviderConfig"),
   getMerchantDeliveryFulfillmentPricing: deferredRead("getMerchantDeliveryFulfillmentPricing"),
+  getMerchantDeliveryMethodNotices: instantRead("getMerchantDeliveryMethodNotices", "[]"),
+  updateMerchantDeliveryFulfillmentPricing: `export async function updateMerchantDeliveryFulfillmentPricing(input) {
+  const id = input.ruleId;
+  (globalThis).__mutationLog.push("updateMerchantDeliveryFulfillmentPricing:" + id);
+  return new Promise((resolve, reject) => {
+    (globalThis).__deferred.push({ fn: "updateMerchantDeliveryFulfillmentPricing", id, resolve, reject });
+  });
+}`,
   getSupportedLanguages: `export async function getSupportedLanguages() { return [{ code: "fr", label: "Francais" }]; }`,
   updateOrderStatus: `export async function updateOrderStatus(orderId, status) {
   (globalThis).__mutationLog.push("updateOrderStatus:" + orderId + ":" + status);
@@ -913,6 +921,53 @@ test("§8 — Tarifs de livraison : une réponse RETARDATAIRE de A n'écrase jam
     assert.ok(!body.includes("TARIF-DE-A"), "BLOCKER : un tarif de A ne doit JAMAIS apparaître sous l'entête de B");
     assert.ok(body.includes("TARIF-DE-B"), "les tarifs de B doivent rester affichés");
     assert.equal(headerName(container), B_NAME, "l'entête doit nommer B");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("§8 — Tarifs de livraison : une sauvegarde de A terminée après la bascule vers B ne relit ni ne repeint A", async () => {
+  const ruleFor = (label: string) => [
+    { ruleId: "rule-" + label, fulfillmentLabel: label, pricingMode: "fixed", fixedFee: 3, freeThreshold: null, customerText: "Message " + label },
+  ];
+  resetScenario("/dashboard/delivery-pricing", `?r=${A_ID}`);
+  const { container, root } = mount(P.Delivery);
+  try {
+    await resolvePending("getMerchantDeliveryFulfillmentPricing", A_ID, ruleFor("TARIF-DE-A"), "Livraison/A initiale");
+    assert.ok(textOf(container).includes("TARIF-DE-A"), "les tarifs de A doivent être affichés avant la sauvegarde");
+
+    const saveA = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Enregistrer"
+    ) as HTMLButtonElement | undefined;
+    assert.ok(saveA, "le bouton de sauvegarde de la règle A doit être présent");
+    saveA!.click();
+    await waitForPending(
+      "updateMerchantDeliveryFulfillmentPricing",
+      "rule-TARIF-DE-A",
+      "sauvegarde différée A"
+    );
+
+    switchRestaurant(container, B_ID);
+    await settle();
+    await resolvePending("getMerchantDeliveryFulfillmentPricing", B_ID, ruleFor("TARIF-DE-B"), "Livraison/B");
+    assert.ok(textOf(container).includes("TARIF-DE-B"), "les tarifs de B doivent être affichés");
+
+    await resolvePending(
+      "updateMerchantDeliveryFulfillmentPricing",
+      "rule-TARIF-DE-A",
+      undefined,
+      "fin tardive de la sauvegarde A"
+    );
+
+    assert.equal(
+      pendingFor("getMerchantDeliveryFulfillmentPricing", A_ID).length,
+      0,
+      "une sauvegarde A devenue périmée ne doit jamais relire A sous le contexte B"
+    );
+    assert.ok(!textOf(container).includes("TARIF-DE-A"), "A ne doit jamais être repeint sous B");
+    assert.ok(textOf(container).includes("TARIF-DE-B"), "les tarifs de B doivent rester affichés");
+    assert.equal(headerName(container), B_NAME, "l'entête doit rester B");
   } finally {
     root.unmount();
     container.remove();

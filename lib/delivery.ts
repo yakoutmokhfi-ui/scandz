@@ -26,6 +26,20 @@ export interface DeliveryStatus {
    *  LEGACY (aucune notion de tarification par règle n'existe pour ce
    *  chemin, hors périmètre de ce lot — voir readiness audit). */
   deliveryFee?: number;
+  /** MOBILE STICKY + DELIVERY DELAY NOTICE v1.1 — texte d'INFORMATION
+   *  CLIENT (délai/modalités) configuré par le commerçant sur la règle
+   *  de fulfillment effectivement retenue (`customer_text`).
+   *
+   *  Source UNIQUE et EXPLICITE du message pré-commande de livraison
+   *  (lib/delivery-customer-notice.ts). Renseigné EXCLUSIVEMENT par
+   *  deliveryStatusFromFulfillmentResult ; les chemins legacy
+   *  (getDeliveryStatus, getDeliveryStatusFromPublicInfo) ne le
+   *  renseignent JAMAIS. Un libellé géographique (`zone.label` du
+   *  chemin legacy = areaLabel, ex. « Paris », « Zone 1 ») ne peut donc
+   *  jamais devenir un message de délai, même si un appelant se trompe
+   *  sur le moteur actif. `zone` reste inchangé pour ses consommateurs
+   *  existants. */
+  customerNotice?: string | null;
 }
 
 /**
@@ -429,6 +443,7 @@ export function deliveryStatusFromFulfillmentResult(
       eligible: true,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
+      customerNotice: result.customerText ?? null,
     };
   }
   if (result.block === "below-min") {
@@ -438,6 +453,7 @@ export function deliveryStatusFromFulfillmentResult(
       missing: result.missing,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
+      customerNotice: result.customerText ?? null,
     };
   }
   // "no-postal" | "out-of-zone" | undefined (jamais atteint en pratique

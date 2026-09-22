@@ -548,9 +548,9 @@ test("3b. catalogue LONG sans sous-catégorie -- aucune barre, aucun élément s
     assert.equal(filterNav(container), null);
     assert.equal(container.querySelector("[data-subcategory-filter-sticky]"), null);
     const stickies = [...container.querySelectorAll(".sticky")];
-    assert.equal(stickies.length, 1, "seul CategoryNav (préexistant) reste sticky");
-    assert.equal(stickies[0].tagName, "NAV");
-    assert.equal(stickies[0].getAttribute("aria-label"), null);
+    assert.equal(stickies.length, 0, "aucun sticky mobile sans filtre de sous-catégorie");
+    const categoryNav = container.querySelector("[data-category-navigation]")!;
+    assert.ok(classes(categoryNav).includes("sm:sticky"), "CategoryNav reste sticky sur desktop");
     assert.ok(container.textContent?.includes("Boisson-9"));
   } finally {
     root.unmount();
@@ -569,17 +569,18 @@ test("4a. non-chevauchement -- bloc contenant = section de la catégorie active,
     assert.equal(nav.parentElement?.tagName, "SECTION");
     assert.equal(nav.parentElement?.parentElement?.tagName, "MAIN");
 
-    // CategoryNav (préexistant, z-30) est sticky dans un parent qui ne
+    // CategoryNav (desktop sm:z-30) est sticky dans un parent qui ne
     // contient QUE lui : il ne suit donc jamais le défilement jusqu'à
     // top-0 au-dessus de la barre de filtre.
     const categoryNav = container.querySelector("nav:not([aria-label])")!;
-    assert.ok(classes(categoryNav).includes("z-30"));
+    assert.ok(classes(categoryNav).includes("sm:z-30"));
+    assert.equal(classes(categoryNav).includes("z-30"), false, "aucun z-index sticky mobile");
     assert.equal(categoryNav.parentElement!.children.length, 1);
     assert.ok(!nav.contains(categoryNav) && !categoryNav.contains(nav));
 
     const zOf = (el: Element) => Number(classes(el).find((c) => /^z-\d+$/.test(c))!.slice(2));
     assert.equal(zOf(nav), 20);
-    assert.ok(zOf(nav) < zOf(categoryNav));
+    assert.ok(zOf(nav) < 30, "sur desktop, la barre secondaire reste sous CategoryNav sm:z-30");
 
     const addBtn = [...container.querySelectorAll("main button")].find(
       (b) => !b.hasAttribute("data-subcategory-filter-option")

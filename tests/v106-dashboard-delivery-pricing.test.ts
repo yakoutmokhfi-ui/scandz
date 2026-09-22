@@ -119,10 +119,22 @@ test("en cas d'échec de sauvegarde, seul un message marchand-sûr (dpSaveFailed
 
 test("après un succès, les valeurs sont relues depuis le serveur (pas de confiance en l'état client seul comme preuve de persistance)", () => {
   const saveFnStart = pageSrc.indexOf("async function save(");
-  const saveFn = pageSrc.slice(saveFnStart, saveFnStart + 3000);
+  // v1.3: bounded to the whole save() body (was a fixed 3000-char window).
+  const saveFnEnd = pageSrc.indexOf("\n  }\n", saveFnStart);
+  const saveFn = pageSrc.slice(saveFnStart, saveFnEnd);
   const callIdx = saveFn.indexOf("updateMerchantDeliveryFulfillmentPricing");
   const afterCall = saveFn.slice(callIdx);
-  assert.ok(afterCall.includes("getMerchantDeliveryFulfillmentPricing(restaurantId)"));
+  assert.ok(afterCall.includes("getMerchantDeliveryFulfillmentPricing(targetRestaurantId)"));
+  // v1.3 (QA-MSDD-PRICING-ABA-03): the stale-operation guard now checks the
+  // target restaurant AND the context generation captured at launch
+  // (behaviour is proven by tests/delivery-pricing-rule-stale-tenant.dom.test.ts).
+  assert.ok(saveFn.includes("guard.currentRestaurantId() === targetRestaurantId"));
+  assert.ok(saveFn.includes("contextGenerationRef.current === operationGeneration"));
+  assert.equal(
+    afterCall.split("if (!isOperationCurrent()) return;").length - 1,
+    3,
+    "guards after the mutation, after the reread and in the failure path"
+  );
 });
 
 test("l'onglet de navigation 'Tarifs de livraison' est ajouté sans casser l'exclusion déjà corrigée (L1B-02) de l'onglet Commandes", () => {

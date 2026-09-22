@@ -33,7 +33,10 @@ export default function CategoryNav({
   // futurs établissements tant qu'un template n'a pas été choisi.
   if (variant === "classic") {
     return (
-      <nav className="sticky top-0 z-30 border-b border-espresso/10 bg-crema/95 backdrop-blur">
+      <nav
+        data-category-navigation="true"
+        className="border-b border-espresso/10 bg-crema/95 backdrop-blur sm:sticky sm:top-0 sm:z-30"
+      >
         <div className="flex flex-wrap gap-2 px-4 py-3">
           {categories.map((category) => {
             const isActive = category.id === activeId;
@@ -71,7 +74,10 @@ export default function CategoryNav({
   }
 
   return (
-    <nav className="sticky top-0 z-30 border-b border-espresso/10 bg-crema/95 backdrop-blur">
+    <nav
+      data-category-navigation="true"
+      className="border-b border-espresso/10 bg-crema/95 backdrop-blur sm:sticky sm:top-0 sm:z-30"
+    >
       <div className="scrollbar-none overflow-x-auto overscroll-x-contain">
         <ul className="flex min-w-full gap-1 px-2 py-2">
           {categories.map((category) => {

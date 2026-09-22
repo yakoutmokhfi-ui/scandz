@@ -94,7 +94,7 @@ test("whatsapp notice: le message explique que l'enregistrement précède l'ouve
 test("whatsapp notice: CartPanel affiche le message juste avant le bouton d'envoi, sans infobulle", () => {
   const src = readFileSync("components/CartPanel.tsx", "utf8");
   const noticeIndex = src.indexOf('t("whatsappNotice")');
-  const buttonIndex = src.indexOf("onClick={onSendOrder}");
+  const buttonIndex = src.indexOf("onClick={requestOrderSubmission}");
   assert.ok(noticeIndex >= 0, "le message whatsappNotice doit être affiché");
   assert.ok(buttonIndex >= 0, "le bouton d'envoi doit exister");
   assert.ok(

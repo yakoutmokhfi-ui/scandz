@@ -507,6 +507,15 @@ async function submitAndConfirm(container: Element) {
   const send = buttonWithText(container, SEND_LABEL);
   assert.ok(send, "le bouton d'envoi doit être atteignable");
   click(send!);
+  await flush();
+  const timingNotice = container.querySelector<HTMLDialogElement>(
+    '[data-delivery-timing-notice="true"][open]'
+  );
+  if (timingNotice) {
+    const acknowledge = buttonWithText(timingNotice, "J'ai compris, continuer");
+    assert.ok(acknowledge, "le message de délai configuré doit pouvoir être confirmé");
+    click(acknowledge!);
+  }
   await waitFor(() => container.textContent?.includes(CONFIRM_TITLE) ?? false, "écran de confirmation");
 }
 

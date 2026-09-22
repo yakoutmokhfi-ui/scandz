@@ -23,6 +23,7 @@ import {
   type ServiceMode,
 } from "@/lib/restaurants-config";
 import { resolveActiveDeliveryStatus } from "@/lib/delivery";
+import { resolveDeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
 import { usePublicDeliveryInfo } from "@/lib/use-public-delivery-info";
 import { usePublicDeliveryFulfillments } from "@/lib/use-public-delivery-fulfillments";
 import {
@@ -885,6 +886,18 @@ export default function MenuView({
     [fulfillmentRulesState, publicDeliveryInfo, customer.postalCode, totalCount, totalPrice]
   );
 
+  const deliveryCustomerNotice = useMemo(
+    () =>
+      resolveDeliveryCustomerNotice(
+        serviceMode,
+        saleModesData ?? [],
+        deliveryStatus,
+        fulfillmentRulesState.status === "loaded" &&
+          fulfillmentRulesState.rules.length > 0
+      ),
+    [serviceMode, saleModesData, deliveryStatus, fulfillmentRulesState]
+  );
+
   /*
    * Le mode livraison reste sélectionné pendant la saisie, même si
    * l'adresse est encore incomplète, hors zone ou sous le minimum.
@@ -1508,6 +1521,7 @@ export default function MenuView({
           displayItems={displayItems}
           fieldRequirementsReady={fieldRequirementsReady}
           deliveryStatus={deliveryStatus}
+          deliveryCustomerNotice={deliveryCustomerNotice}
           customer={customer}
           customerErrors={customerErrors}
           showErrors={showErrors}

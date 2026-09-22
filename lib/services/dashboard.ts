@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   DashboardOrder,
   MerchantDeliveryFulfillmentPricingRule,
+  MerchantDeliveryMethodNotice,
   MerchantPaymentProviderConfig,
   MerchantRestaurant,
   OperatorOrderSummary,
@@ -1175,6 +1176,40 @@ export async function updateMerchantDeliveryFulfillmentPricing(params: {
     p_pricing_mode: params.pricingMode,
     p_fixed_fee: params.fixedFee,
     p_free_threshold: params.freeThreshold,
+    p_customer_text: params.customerText,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Enabled pickup/delivery modes and their generic customer notice.
+ * Provider-specific delivery-rule text continues to use the existing
+ * fulfillment-pricing service above. */
+export async function getMerchantDeliveryMethodNotices(
+  restaurantId: string
+): Promise<MerchantDeliveryMethodNotice[]> {
+  const { data, error } = await supabase.rpc("get_merchant_delivery_method_notices", {
+    p_restaurant_id: restaurantId,
+  });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Array<{
+    mode_code: "pickup" | "delivery";
+    mode_label: string;
+    customer_text: string | null;
+  }>).map((row) => ({
+    modeCode: row.mode_code,
+    modeLabel: row.mode_label,
+    customerText: row.customer_text,
+  }));
+}
+
+export async function updateMerchantDeliveryMethodNotice(params: {
+  restaurantId: string;
+  modeCode: "pickup" | "delivery";
+  customerText: string | null;
+}): Promise<void> {
+  const { error } = await supabase.rpc("update_merchant_delivery_method_notice", {
+    p_restaurant_id: params.restaurantId,
+    p_mode_code: params.modeCode,
     p_customer_text: params.customerText,
   });
   if (error) throw new Error(error.message);
