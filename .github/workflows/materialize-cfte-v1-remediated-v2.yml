@@ -1,0 +1,57 @@
+name: Materialize exact audited CFTE v1 candidate
+
+on:
+  push:
+    branches:
+      - materialize/cfte-v1-remediated-v2
+    paths:
+      - .github/workflows/materialize-cfte-v1-remediated-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout materialization branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and publish exact audited candidate branch
+        shell: bash
+        env:
+          ARTIFACT_URL: "https://sdmntprsoutheastus3.oaiusercontent.com/files/00000000-b594-820c-9e1d-4c084edb9c94/raw?se=2026-09-22T23%3A07%3A58Z&sp=r&sv=2026-02-06&sr=b&scid=3b82d952-06e8-53f4-84f0-1710c5d774ae&skoid=f28c0102-4d9d-4950-baf0-4a8e5f6cf9d4&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-22T22%3A31%3A17Z&ske=2026-09-23T22%3A31%3A17Z&sks=b&skv=2026-02-06&sig=1e42UVdHOt8Qu1FArIGhvPuE5leGyO6TRxCzrE4zqP8%3D"
+          BASELINE_SHA: cb56f0c6099f7517c300bfa577ddd06f02d7b7a9
+          BASELINE_TREE: 7ba4a5731b0bbad2e6f3463db3a7615ce91cdc2c
+          CANDIDATE_TREE: c1ce2c5e165cfa70c7b3cd788a2992e5377fc997
+          PATCH_SHA256: a0a17e5bb4bc711d8c9e3330a2c65342b7d6f363335d5eca9856b9a55d9c44e3
+          ARTIFACT_SHA256: 7f15b6853218a7c06ba88257af1a5d0f23216efcea1649292cf8ddd6530d4432
+          RELEASE_BRANCH: release/cfte-v1-remediated-v2
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/cfte-v1-v2
+          mkdir -p /tmp/cfte-v1-v2
+          curl --fail --location --silent --show-error "$ARTIFACT_URL" -o /tmp/cfte-v1-v2/candidate.zip
+          test "$(sha256sum /tmp/cfte-v1-v2/candidate.zip | awk '{print $1}')" = "$ARTIFACT_SHA256"
+          unzip -q /tmp/cfte-v1-v2/candidate.zip -d /tmp/cfte-v1-v2/candidate
+          test "$(sha256sum /tmp/cfte-v1-v2/candidate/full.patch | awk '{print $1}')" = "$PATCH_SHA256"
+
+          git config core.autocrlf false
+          git config core.eol lf
+          git config user.name "scanym-release-integrator"
+          git config user.email "actions@users.noreply.github.com"
+
+          git reset --hard "$BASELINE_SHA"
+          git clean -fdx
+          test "$(git rev-parse HEAD)" = "$BASELINE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$BASELINE_TREE"
+
+          git apply --binary /tmp/cfte-v1-v2/candidate/full.patch
+          git add -A
+          test "$(git write-tree)" = "$CANDIDATE_TREE"
+          git commit -m "Customer Follow-up + Tracking Email v1 — audited candidate"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE"
+          git push origin "HEAD:refs/heads/$RELEASE_BRANCH"
