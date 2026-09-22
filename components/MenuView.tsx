@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { isWhatsappEnabled } from "@/lib/customer-contact";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
 import {
   groupMenuItemsBySubcategory,
@@ -227,6 +228,10 @@ export default function MenuView({
     [baseSettings, variant]
   );
   const menuVariant = restaurant.slug === DEMO_SLUG ? "editorial" : "classic";
+  // CUSTOMER CONTACT + LIVE TRACKING v1 -- seule autorité : WhatsApp
+  // n'intervient dans le parcours que si le commerçant ne l'a pas
+  // désactivé ET que son numéro est utilisable (lib/customer-contact.ts).
+  const whatsappEnabled = isWhatsappEnabled(restaurant.config);
 
   /**
    * LOT 2B.3 — NEW PUBLIC DELIVERY RESOLVER ACTIVE IN RUNTIME.
@@ -1101,6 +1106,13 @@ export default function MenuView({
     // donc `true` ici signifie toujours "confirmée avec succès".
     invoiceRequested: boolean
   ) {
+    // CUSTOMER CONTACT + LIVE TRACKING v1 -- WhatsApp OPTIONNEL par
+    // commerçant (lib/customer-contact.ts, seule autorité). Désactivé :
+    // AUCUN lien wa.me construit, AUCUNE ouverture, AUCUN
+    // mark_whatsapp_opened, AUCUN repli -- la commande est déjà
+    // enregistrée (create_order) et le parcours continue directement
+    // vers la confirmation, où le suivi est l'action principale.
+    if (whatsappEnabled) {
     const url = buildWhatsAppUrl(
       restaurant,
       frozenLines,
@@ -1129,6 +1141,7 @@ export default function MenuView({
       window.location.href = url;
     }
     void markWhatsappOpened(order.orderId, order.publicToken);
+    }
 
     setConfirmedContext(frozenOrderContext);
     setConfirmedNumber(order.orderNumber);

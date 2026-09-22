@@ -3,6 +3,11 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { getOrderTracking } from "@/lib/server/tracking-service";
 import {
+  getOrderTrackingCustomerContext,
+  type OrderTrackingCustomerContext,
+} from "@/lib/server/tracking-customer-context";
+import { telHref } from "@/lib/customer-contact";
+import {
   TrackingLinkInvalidError,
   TrackingServerUnavailableError,
 } from "@/lib/server/tracking-errors";
@@ -15,6 +20,7 @@ import {
   isTerminalStatus,
   statusLabelKey,
   statusLabelKeyForServiceMode,
+  timelineStepLabelKey,
 } from "@/lib/tracking/status";
 import { buildCleanTrackingPath } from "@/lib/tracking/link";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
@@ -181,6 +187,19 @@ export default async function TrackingPage({
   const cleanPath = buildCleanTrackingPath(orderId);
   const terminal = isTerminalStatus(tracking.orderStatus);
 
+  // CUSTOMER CONTACT + LIVE TRACKING v1 — contexte client
+  // complémentaire (contact PUBLIC du commerçant), lu avec la MÊME
+  // capacité que la lecture principale ci-dessus (déjà vérifiée). Échec
+  // fermé et silencieux : `null` = page de suivi complète, sans section
+  // contact. Jamais WhatsApp.
+  const customerContext: OrderTrackingCustomerContext | null =
+    await getOrderTrackingCustomerContext({
+      orderId: session.orderId,
+      capabilityId: session.capabilityId,
+      secret: session.secret,
+    });
+  const publicContact = customerContext?.publicContact ?? null;
+
   return (
     <TrackingShell>
       {/* Mandat §19 : rafraîchissement automatique léger tant que le
@@ -252,7 +271,10 @@ export default async function TrackingPage({
                     : "text-ink-on-bg-muted"
               }
             >
-              {t(statusLabelKey(step.status))}
+              {/* v1 : même autorité que le badge -- libellé adapté au
+                  mode (retrait/livraison/table/chambre), aucune étape
+                  ajoutée ni inventée. */}
+              {t(timelineStepLabelKey(step.status, tracking.serviceMode))}
             </span>
           </li>
         ))}
@@ -262,6 +284,45 @@ export default async function TrackingPage({
         <p className="mt-6 rounded-2xl bg-crema p-4 text-sm font-bold text-ink-on-bg" role="status">
           {t(statusLabelKey(tracking.orderStatus))}
         </p>
+      )}
+
+      {/* CUSTOMER CONTACT v1 -- contact commercial PUBLIC du commerçant
+          (jamais WhatsApp, jamais un contact opérationnel interne).
+          Absent : aucune section. */}
+      {publicContact && (
+        <section
+          data-tracking-merchant-contact=""
+          className="mt-6 w-full rounded-2xl bg-white/70 p-4 text-left text-sm"
+          aria-labelledby="tracking-contact-title"
+        >
+          <h2 id="tracking-contact-title" className="font-bold text-ink-on-bg">
+            {t("trackingContactTitle", { name: customerContext?.restaurantName ?? "" })}
+          </h2>
+          <ul className="mt-2 space-y-2">
+            {publicContact.phone && (
+              <li>
+                <a
+                  href={telHref(publicContact.phone)}
+                  className="inline-flex min-h-[44px] items-center font-semibold text-accent-dark-on-bg underline"
+                >
+                  <span className="sr-only">{t("trackingContactPhone")} </span>
+                  <Ltr>{publicContact.phone}</Ltr>
+                </a>
+              </li>
+            )}
+            {publicContact.email && (
+              <li>
+                <a
+                  href={`mailto:${publicContact.email}`}
+                  className="inline-flex min-h-[44px] items-center break-all font-semibold text-accent-dark-on-bg underline"
+                >
+                  <span className="sr-only">{t("trackingContactEmail")} </span>
+                  <Ltr>{publicContact.email}</Ltr>
+                </a>
+              </li>
+            )}
+          </ul>
+        </section>
       )}
 
       {/* Repli SANS JavaScript (mandat §19, option secours conservée) :

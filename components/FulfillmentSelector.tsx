@@ -97,7 +97,7 @@ const FIELD_CONFIG: Record<
     customerInfoKey: "name",
     labelKey: "fieldName",
     autoComplete: "given-name",
-    placeholder: "Yakout",
+    placeholder: "Myriam",
   },
   phone: {
     customerInfoKey: "phone",
@@ -155,6 +155,7 @@ export default function FulfillmentSelector({
   deliveryModeAvailable,
   onChangeCustomer,
   onSelectFulfillment,
+  whatsappEnabled = true,
 }: {
   status: DeliveryStatus;
   type: ServiceMode | null;
@@ -169,6 +170,10 @@ export default function FulfillmentSelector({
   deliveryModeAvailable: boolean;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
   onSelectFulfillment: (type: ServiceMode) => void;
+  /** CUSTOMER CONTACT v1 -- WhatsApp optionnel : `false` = mention de
+   *  confidentialité SANS WhatsApp. Défaut `true` (comportement
+   *  historique pour tout appelant existant). */
+  whatsappEnabled?: boolean;
 }) {
   const { t } = useI18n();
   const err = (k: keyof CustomerInfo) =>
@@ -572,7 +577,7 @@ export default function FulfillmentSelector({
       )}
 
       <p className="mt-2 text-xs text-ink-on-bg-muted">
-        {t("privacyNote")}
+        {whatsappEnabled ? t("privacyNote") : t("privacyNoteNoWhatsapp")}
       </p>
 
       {type === "pickup" && (

@@ -1,3 +1,4 @@
+import { withoutUnusedWhatsapp } from "@/lib/customer-contact";
 import { supabase } from "@/lib/supabase";
 import type { RestaurantFull, MenuCategory, MenuSubcategory, RestaurantActiveLanguage } from "@/lib/types";
 import { compareMenuItemsForPublicDisplay } from "@/lib/catalogue-subcategory-grouping";
@@ -171,9 +172,14 @@ export async function getRestaurantBySlug(
     slug: data.slug,
     is_active: data.is_active,
     created_at: data.created_at,
-    config: Array.isArray(data.restaurant_configs)
-      ? data.restaurant_configs[0]
-      : data.restaurant_configs,
+    // CUSTOMER CONTACT v1 -- WhatsApp optionnel : quand il n'est pas
+    // utilisé (désactivé ou numéro inutilisable), le numéro ne voyage
+    // pas jusqu'au navigateur (lib/customer-contact.ts).
+    config: withoutUnusedWhatsapp(
+      Array.isArray(data.restaurant_configs)
+        ? data.restaurant_configs[0]
+        : data.restaurant_configs
+    ),
     categories,
     hiddenCategories,
     activeLanguages: activeLanguages.length > 0 ? activeLanguages : [{ code: "fr", label: "Français", dir: "ltr", display_order: 1 }],

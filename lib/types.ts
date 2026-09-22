@@ -80,6 +80,16 @@ export interface RestaurantConfig {
   /** LOT 1B — hash canonique, colonnes GÉNÉRÉES par PostgreSQL. */
   intro_text_hash?: string;
   announcement_text_hash?: string;
+  /** CUSTOMER CONTACT + LIVE TRACKING v1 — WhatsApp optionnel par
+   *  commerçant (restaurant_configs.whatsapp_enabled, NOT NULL DEFAULT
+   *  true). `false` = aucun bouton/lien/texte/repli WhatsApp côté
+   *  client. Absent (lot SQL non appliqué) = comportement historique.
+   *  Seule autorité de lecture : lib/customer-contact.ts. */
+  whatsapp_enabled?: boolean;
+  /** CUSTOMER CONTACT v1 — contact commercial PUBLIC (distinct des
+   *  contacts opérationnels de notification). NULL = non renseigné. */
+  public_phone?: string | null;
+  public_email?: string | null;
 }
 
 /** LOT 1A — une langue du catalogue Scanym (supported_languages),

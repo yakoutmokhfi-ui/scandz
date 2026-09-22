@@ -88,7 +88,12 @@ test("archi: aucun composant \"use client\" n'importe lib/server/*", () => {
 // Tout AUTRE fichier sous app/ ou components/ reste soumis à
 // l'invariant strict d'origine.
 const TRACKING_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
-  "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session)$/,
+  // CUSTOMER CONTACT + LIVE TRACKING v1 : la page de suivi lit aussi
+  // son contexte client (contact public du commerçant) via
+  // lib/server/tracking-customer-context.ts -- même capacité, module
+  // server-only scopé, ajouté nommément ici (jamais un joker
+  // lib/server/*).
+  "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session|customer-context)$/,
   "app/api/track/exchange/route.ts": /^@\/lib\/server\/tracking-(service|errors|session)$/,
 };
 // CORRECTIF v2.6.1 (STUART-V26-P3A1-ALLOWLIST-01, MEDIUM) : le

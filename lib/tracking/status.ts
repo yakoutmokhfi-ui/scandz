@@ -146,6 +146,29 @@ export function statusLabelKeyForServiceMode(
   }
 }
 
+/**
+ * CUSTOMER CONTACT + LIVE TRACKING v1 — libellé d'une ÉTAPE de la frise,
+ * adapté au mode de retrait/livraison. Avant ce lot, seul le BADGE du
+ * statut courant était adapté ; la frise elle-même affichait le libellé
+ * générique « Prête » pour tous les modes. Désormais la frise et le
+ * badge utilisent la MÊME autorité (`statusLabelKeyForServiceMode`) :
+ * un retrait affiche « Prête pour le retrait », une livraison « Prête,
+ * en attente de prise en charge », etc.
+ *
+ * Aucune étape n'est ajoutée ni retirée : la frise reste EXACTEMENT
+ * NORMAL_PROGRESSION (statuts réels de `orders.status`). Aucun état de
+ * livreur/prestataire n'est inventé — Scanym ne dispose d'aucun état
+ * de livraison autoritatif sur la commande (les états prestataire ne
+ * sont jamais reportés dans `orders.status`). Un mode inconnu retombe
+ * sur le libellé générique.
+ */
+export function timelineStepLabelKey(
+  step: (typeof NORMAL_PROGRESSION)[number],
+  serviceMode: string
+): string {
+  return statusLabelKeyForServiceMode(step, serviceMode);
+}
+
 /** Statuts TERMINAUX (mandat §10, "stop/reduce polling in terminal
  *  statuses" ; mandat §26, le lien reste néanmoins lisible -- ce n'est
  *  PAS une révocation de token, seulement l'arrêt du rafraîchissement
