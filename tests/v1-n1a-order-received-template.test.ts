@@ -28,6 +28,13 @@ function baseInput(overrides: Partial<Parameters<typeof renderOrderReceivedEmail
     orderId: ORDER_ID,
     trackingCapabilityId: CAP_ID,
     trackingSecret: SECRET,
+    // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- trois entrées ajoutées
+    // au gabarit. Valeurs par défaut du parcours retrait : nom du
+    // commerçant, texte de statut DÉJÀ résolu par l'appelant, et aucune
+    // adresse de livraison (mode non concerné).
+    merchantName: "Au Lait Cru",
+    statusText: "Votre commande a bien été reçue.",
+    deliveryAddress: null,
     ...overrides,
   };
 }

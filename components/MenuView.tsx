@@ -141,6 +141,13 @@ export function fieldRequirementFormatErrors(
     switch (field) {
       case "customer_name":
         return "name";
+      // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- deux champs backend
+      // supplémentaires, traités par la MÊME mécanique générique que
+      // les autres (aucune branche par mode de vente ajoutée ici).
+      case "first_name":
+        return "firstName";
+      case "last_name":
+        return "lastName";
       case "phone":
         return "phone";
       case "email":
@@ -149,9 +156,13 @@ export function fieldRequirementFormatErrors(
         return null;
     }
   };
+  // `?? ""` : firstName/lastName sont optionnels dans CustomerInfo
+  // (lib/customer.ts). Une clé absente vaut exactement une chaîne vide
+  // ici -- le champ est alors traité comme NON saisi, donc signalé si
+  // le serveur l'a déclaré requis. Jamais l'inverse.
   const rawValue = (field: string): string => {
     const key = infoKey(field);
-    return key ? customer[key] : "";
+    return key ? (customer[key] ?? "") : "";
   };
 
   for (const item of displayItems) {
@@ -939,6 +950,17 @@ export default function MenuView({
   const customerData: CustomerData = useMemo(
     () => ({
       customer_name: customer.name,
+      // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- exposés au validateur
+      // générique exactement comme les autres champs backend. Si le
+      // résolveur ne les retourne pas pour ce mode (table,
+      // click_collect, room_service), ils sont simplement ignorés par
+      // validateCustomerData() -- aucun mode non suivi n'est affecté.
+      // `?? ""` : ces deux clés sont optionnelles dans CustomerInfo
+      // (lib/customer.ts) ; CustomerData est un Record<string, string>
+      // où "non saisi" s'écrit "". validateCustomerData() applique
+      // alors sa règle habituelle de présence, sans cas particulier.
+      first_name: customer.firstName ?? "",
+      last_name: customer.lastName ?? "",
       phone: customer.phone,
       email: customer.email,
       delivery_address:

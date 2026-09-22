@@ -286,6 +286,13 @@ const fr: Dict = {
   emailOrderReceivedFulfillmentPickup: "Votre commande sera à retirer sur place.",
   emailOrderReceivedFulfillmentDelivery: "Votre commande vous sera livrée.",
   emailOrderReceivedFooter: "Cet e-mail est envoyé automatiquement, merci de ne pas y répondre.",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- libellés ajoutés à
+  // l'e-mail de confirmation. Le TEXTE DE STATUT lui-même n'a AUCUNE
+  // clé propre ici : il provient de trackingStatusExplain_<statut>
+  // (SEULE autorité, partagée avec la page de suivi) ou de la surcharge
+  // marchande -- jamais d'un second texte spécifique à l'e-mail.
+  emailOrderReceivedMerchantLabel: "Commerçant :",
+  emailOrderReceivedDeliveryAddressLabel: "Adresse de livraison :",
   backToMenu: "Retour au menu",
   newOrder: "Passer une autre commande",
 
@@ -299,6 +306,13 @@ const fr: Dict = {
   modeTable: "Sur place, à table",
   fieldName: "Prénom",
   errName: "Indiquez votre prénom",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- prénom et nom SÉPARÉS.
+  // `fieldName`/`errName` sont réutilisés tels quels pour le prénom
+  // (ils désignent déjà « Prénom ») -- jamais un second libellé
+  // parallèle qui pourrait diverger.
+  fieldLastName: "Nom",
+  errFirstName: "Indiquez votre prénom",
+  errLastName: "Indiquez votre nom",
   waHeader: "🧾 Nouvelle commande — {name}",
   waTable: "🪑 Table {n}",
   waPickup: "🛍️ À emporter — retrait sur place",
@@ -688,6 +702,28 @@ const fr: Dict = {
   trackingStatus_completed: "Terminée",
   trackingStatus_rejected: "Commande refusée",
   trackingStatus_cancelled: "Commande annulée",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- TEXTE EXPLICATIF de base
+  // (mandat §2). Une entrée par statut CANONIQUE, et uniquement pour
+  // les 7 statuts canoniques : aucune clé n'existe ici pour une
+  // variante de `ready` par mode de service (celles-ci restent des
+  // LIBELLÉS courts, `trackingStatus_ready_*` ci-dessus). Ces textes
+  // fonctionnent SANS aucune configuration commerçant ; un commerçant
+  // peut les remplacer un par un (merchant_tracking_status_text), un
+  // remplacement vide retombant toujours ici.
+  trackingStatusExplain_new:
+    "Votre commande a bien été reçue. Le commerçant va la confirmer dans quelques instants.",
+  trackingStatusExplain_accepted:
+    "Le commerçant a accepté votre commande et va commencer à la préparer.",
+  trackingStatusExplain_preparing:
+    "Votre commande est en cours de préparation.",
+  trackingStatusExplain_ready:
+    "Votre commande est prête.",
+  trackingStatusExplain_completed:
+    "Votre commande est terminée. Merci de votre confiance !",
+  trackingStatusExplain_rejected:
+    "Le commerçant n'a pas pu accepter votre commande. Contactez-le directement pour en savoir plus.",
+  trackingStatusExplain_cancelled:
+    "Cette commande a été annulée. Contactez le commerçant si vous avez une question.",
   // CUSTOMER CONTACT + LIVE TRACKING v1.
   trackingContactTitle: "Contacter {name}",
   trackingContactPhone: "Téléphone :",
@@ -704,6 +740,13 @@ const fr: Dict = {
   stPublicEmailLabel: "E-mail public",
   stPublicPhoneInvalid: "Téléphone public invalide",
   stPublicEmailInvalid: "E-mail public invalide",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- surcharge de TEXTE par
+  // statut. Configuration d'affichage seule : ne change jamais le
+  // statut de la commande ni son avancement.
+  stTrackingStatusTitle: "Messages de suivi client",
+  stTrackingStatusHint: "Personnalisez le texte affiché au client pour chaque étape. Laissez vide pour utiliser le texte Scanym par défaut. Cela ne modifie jamais le statut de la commande ni son avancement. Réservé à owner et manager.",
+  stTrackingStatusSaveError: "Échec de l'enregistrement des messages de suivi",
+  stTrackingStatusTooLong: "Message trop long (400 caractères maximum)",
 
   // CUSTOMER CONFIRMATION + TRACKING FINAL v1 — pages de retour de
   // paiement (components/PaymentReturnStatus.tsx), auparavant 100%
@@ -995,6 +1038,9 @@ const en: Dict = {
   emailOrderReceivedFulfillmentPickup: "Your order will be ready for pickup in store.",
   emailOrderReceivedFulfillmentDelivery: "Your order will be delivered to you.",
   emailOrderReceivedFooter: "This is an automated email, please do not reply.",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
+  emailOrderReceivedMerchantLabel: "Merchant:",
+  emailOrderReceivedDeliveryAddressLabel: "Delivery address:",
   confirmThanks: "Thank you for choosing {name}!",
   confirmEnjoy: "We are preparing your order with care. Enjoy!",
   backToMenu: "Back to menu",
@@ -1010,6 +1056,10 @@ const en: Dict = {
   modeTable: "Dine in, at my table",
   fieldName: "First name",
   errName: "Enter your first name",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- separate first/last name.
+  fieldLastName: "Last name",
+  errFirstName: "Enter your first name",
+  errLastName: "Enter your last name",
   waHeader: "🧾 New order — {name}",
   waTable: "🪑 Table {n}",
   waPickup: "🛍️ Pickup — collect in store",
@@ -1391,6 +1441,18 @@ const en: Dict = {
   trackingStatus_completed: "Completed",
   trackingStatus_rejected: "Order rejected",
   trackingStatus_cancelled: "Order cancelled",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- base explanatory text.
+  trackingStatusExplain_new:
+    "We have received your order. The merchant will confirm it shortly.",
+  trackingStatusExplain_accepted:
+    "The merchant has accepted your order and will start preparing it.",
+  trackingStatusExplain_preparing: "Your order is being prepared.",
+  trackingStatusExplain_ready: "Your order is ready.",
+  trackingStatusExplain_completed: "Your order is complete. Thank you!",
+  trackingStatusExplain_rejected:
+    "The merchant could not accept your order. Please contact them directly to find out more.",
+  trackingStatusExplain_cancelled:
+    "This order has been cancelled. Please contact the merchant if you have any questions.",
   // CUSTOMER CONTACT + LIVE TRACKING v1.
   trackingContactTitle: "Contact {name}",
   trackingContactPhone: "Phone:",
@@ -1407,6 +1469,11 @@ const en: Dict = {
   stPublicEmailLabel: "Public email",
   stPublicPhoneInvalid: "Invalid public phone",
   stPublicEmailInvalid: "Invalid public email",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- display-only per-status text.
+  stTrackingStatusTitle: "Customer tracking messages",
+  stTrackingStatusHint: "Customise the text shown to the customer for each step. Leave blank to use the Scanym default. This never changes the order status or its progress. Owner and manager only.",
+  stTrackingStatusSaveError: "Could not save the tracking messages",
+  stTrackingStatusTooLong: "Message too long (400 characters maximum)",
 
   paymentReturnPaidTitle: "Payment confirmed",
   paymentReturnPaidBody:
@@ -1686,6 +1753,9 @@ const ar: Dict = {
   emailOrderReceivedFulfillmentPickup: "سيكون طلبكم جاهزًا للاستلام من المتجر.",
   emailOrderReceivedFulfillmentDelivery: "سيتم توصيل طلبكم إليكم.",
   emailOrderReceivedFooter: "هذه رسالة آلية، يُرجى عدم الرد عليها.",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
+  emailOrderReceivedMerchantLabel: "التاجر:",
+  emailOrderReceivedDeliveryAddressLabel: "عنوان التوصيل:",
   confirmThanks: "شكراً لاختيارك {name}!",
   confirmEnjoy: "نحضّر طلبك بعناية. بالهناء والشفاء!",
   backToMenu: "العودة إلى القائمة",
@@ -1699,8 +1769,12 @@ const ar: Dict = {
   phStreet: "١٢ شارع الليلك",
   phCity: "بولوني بيّانكور",
   modeTable: "في المحل، على الطاولة",
-  fieldName: "الاسم",
-  errName: "أدخل اسمك",
+  fieldName: "الاسم الأول",
+  errName: "أدخل اسمك الأول",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- الاسم الأول واسم العائلة منفصلان.
+  fieldLastName: "اسم العائلة",
+  errFirstName: "أدخل اسمك الأول",
+  errLastName: "أدخل اسم عائلتك",
   waHeader: "🧾 طلب جديد — {name}",
   waTable: "🪑 الطاولة {n}",
   waPickup: "🛍️ استلام من المحل",
@@ -2081,6 +2155,16 @@ const ar: Dict = {
   trackingStatus_completed: "منتهٍ",
   trackingStatus_rejected: "تم رفض الطلب",
   trackingStatus_cancelled: "تم إلغاء الطلب",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- النص التوضيحي الأساسي.
+  trackingStatusExplain_new: "لقد استلمنا طلبك. سيؤكده التاجر بعد قليل.",
+  trackingStatusExplain_accepted: "قبل التاجر طلبك وسيبدأ في تحضيره.",
+  trackingStatusExplain_preparing: "طلبك قيد التحضير.",
+  trackingStatusExplain_ready: "طلبك جاهز.",
+  trackingStatusExplain_completed: "اكتمل طلبك. شكرًا لثقتك!",
+  trackingStatusExplain_rejected:
+    "لم يتمكن التاجر من قبول طلبك. يرجى التواصل معه مباشرة لمعرفة المزيد.",
+  trackingStatusExplain_cancelled:
+    "تم إلغاء هذا الطلب. يرجى التواصل مع التاجر إذا كان لديك أي سؤال.",
   // CUSTOMER CONTACT + LIVE TRACKING v1.
   trackingContactTitle: "التواصل مع {name}",
   trackingContactPhone: "الهاتف:",
@@ -2097,6 +2181,11 @@ const ar: Dict = {
   stPublicEmailLabel: "البريد الإلكتروني العام",
   stPublicPhoneInvalid: "رقم الهاتف العام غير صالح",
   stPublicEmailInvalid: "البريد الإلكتروني العام غير صالح",
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
+  stTrackingStatusTitle: "رسائل تتبّع العميل",
+  stTrackingStatusHint: "خصّص النص المعروض للعميل في كل مرحلة. اتركه فارغًا لاستخدام نص Scanym الافتراضي. لا يغيّر هذا حالة الطلب ولا تقدّمه أبدًا. مخصّص للمالك والمدير فقط.",
+  stTrackingStatusSaveError: "تعذّر حفظ رسائل التتبّع",
+  stTrackingStatusTooLong: "الرسالة طويلة جدًا (400 حرف كحد أقصى)",
 
   paymentReturnPaidTitle: "تم تأكيد الدفع",
   paymentReturnPaidBody: "تم استلام دفعتك وتأكيدها. شكراً لطلبك.",
