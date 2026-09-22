@@ -109,9 +109,14 @@ export async function getMerchantDeliveryFulfillmentPricing(id) {
   if (id !== "${TARGET_ID}") throw new Error("Not authorized for this restaurant");
   return [(globalThis).__mockRule];
 }
+export async function getMerchantDeliveryMethodNotices(id) {
+  if (id !== "${TARGET_ID}") throw new Error("Not authorized for this restaurant");
+  return [];
+}
 export async function updateMerchantDeliveryFulfillmentPricing(args) {
   (globalThis).__mockUpdateCalls.push(args);
 }
+export async function updateMerchantDeliveryMethodNotice() {}
 `;
 
 const mocks: Record<string, string> = {

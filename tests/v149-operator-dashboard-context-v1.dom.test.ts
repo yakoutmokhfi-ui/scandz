@@ -198,7 +198,16 @@ export async function getMerchantDeliveryFulfillmentPricing(id) {
   return [{ ruleId: "rule-1", fulfillmentLabel: "Livraison standard", pricingMode: "fixed", fixedFee: 300, freeThreshold: null, customerText: null }];
 }
 
+export async function getMerchantDeliveryMethodNotices(id) {
+  (globalThis).__mockRpcCallLog.push({ fn: "get_merchant_delivery_method_notices", restaurantId: id });
+  return [];
+}
+
 export async function updateMerchantDeliveryFulfillmentPricing() {
+  throw new Error("Not authorized for this restaurant");
+}
+
+export async function updateMerchantDeliveryMethodNotice() {
   throw new Error("Not authorized for this restaurant");
 }
 `;
