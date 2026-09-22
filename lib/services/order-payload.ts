@@ -1,5 +1,5 @@
 import type { CartLine, OrderContext } from "@/lib/whatsapp";
-import { formatAddress } from "@/lib/customer";
+import { formatAddress, formatCustomerDisplayName } from "@/lib/customer";
 import type { Lang } from "@/lib/i18n";
 import { orderNotePayload } from "@/lib/order-note";
 
@@ -61,7 +61,22 @@ export function buildCreateOrderPayload(params: {
     context.mode === "table"
       ? {}
       : {
-          name: context.customer.name || null,
+          // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- `name` reste la
+          // SEULE clé consommée par les modes non suivis (room_service /
+          // click_collect, champ backend `customer_name`), inchangée
+          // pour eux. Pour un mode suivi, elle porte désormais le nom
+          // d'affichage COMPOSÉ, calculé par la même règle que le
+          // serveur : create_order RECOMPOSE de toute façon la valeur
+          // à partir de first_name/last_name et ignore celle-ci dès
+          // qu'au moins l'un des deux est fourni -- le client ne peut
+          // donc jamais faire diverger le nom persisté de sa saisie.
+          name: formatCustomerDisplayName(context.customer) || null,
+          // Transmis pour la VALIDATION serveur (exigences effectives)
+          // et la composition du nom -- jamais persistés séparément :
+          // aucune colonne first_name/last_name n'existe sur
+          // public.orders, et le mandat en interdit l'ajout.
+          first_name: context.customer.firstName?.trim() || null,
+          last_name: context.customer.lastName?.trim() || null,
           phone: context.customer.phone || null,
           email: context.customer.email || null,
           address:

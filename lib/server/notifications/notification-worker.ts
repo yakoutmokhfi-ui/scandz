@@ -1,5 +1,10 @@
 import "server-only";
-import type { Lang } from "@/lib/i18n";
+import { translate, type Lang } from "@/lib/i18n";
+import { isCanonicalOrderStatus } from "@/lib/tracking/status";
+import {
+  normalizeMerchantStatusText,
+  resolveStatusText,
+} from "@/lib/tracking/status-text";
 import { buildNotificationIdempotencyKey, type EmailProvider } from "@/lib/server/notifications/email-provider";
 import { renderOrderReceivedEmail } from "@/lib/server/notifications/order-received-template";
 import {
@@ -47,6 +52,18 @@ interface OrderReceivedPayloadSnapshot {
   service_mode: string;
   public_token: string;
   created_at: string;
+  /**
+   * CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — quatre clés ADDITIVES du
+   * snapshot (create_order_received_notification). Toutes OPTIONNELLES
+   * ici DÉLIBÉRÉMENT : une ligne outbox enfilée AVANT ce lot ne les
+   * porte pas, et doit continuer d'être rendue sans échec ni reprise
+   * inutile -- le repli est alors le texte de base et l'omission propre
+   * de la ligne d'adresse (jamais une valeur inventée).
+   */
+  order_status?: unknown;
+  status_text_override?: unknown;
+  delivery_address?: unknown;
+  merchant_name?: unknown;
 }
 
 function isOrderReceivedPayload(value: unknown): value is OrderReceivedPayloadSnapshot {
@@ -180,13 +197,46 @@ export async function processPendingNotifications(
     }
 
     const payload = notification.payloadSnapshot;
+    const locale = notification.locale as Lang;
+
+    // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — texte de statut résolu
+    // par l'UNIQUE autorité partagée avec la page de suivi
+    // (`resolveStatusText`) : surcharge marchande FIGÉE dans le snapshot
+    // au moment de l'enfilement, sinon texte de base i18n. Le worker ne
+    // fait ici AUCUNE lecture métier supplémentaire (mandat §"NO
+    // BUSINESS COUPLING") : tout vient du snapshot déterministe.
+    //
+    // Statut absent ou non canonique (ligne antérieure à ce lot, ou
+    // donnée corrompue) : repli sur `new`, le seul statut qu'un
+    // événement ORDER_RECEIVED puisse avoir eu à sa création -- jamais
+    // un statut inventé, jamais un e-mail sans explication.
+    const snapshotStatus = isCanonicalOrderStatus(payload.order_status)
+      ? payload.order_status
+      : "new";
+    const { text: statusText } = resolveStatusText(
+      snapshotStatus,
+      { [snapshotStatus]: normalizeMerchantStatusText(payload.status_text_override as string) },
+      (key) => translate(locale, key)
+    );
+
     const rendered = renderOrderReceivedEmail({
-      locale: notification.locale as Lang,
+      locale,
       merchantSenderName: notification.senderName,
+      // Nom du commerçant issu du snapshot ; repli sur l'identité
+      // d'expédition déjà résolue plutôt qu'une chaîne vide.
+      merchantName:
+        typeof payload.merchant_name === "string" && payload.merchant_name.trim() !== ""
+          ? payload.merchant_name
+          : notification.senderName,
       orderNumber: Number(payload.order_number),
       total: Number(payload.total),
       currency: payload.currency,
       serviceMode: payload.service_mode,
+      statusText,
+      deliveryAddress:
+        typeof payload.delivery_address === "string" && payload.delivery_address.trim() !== ""
+          ? payload.delivery_address
+          : null,
       orderId: notification.orderId,
       trackingCapabilityId: trackingCapability.capabilityId,
       trackingSecret: trackingCapability.secret,

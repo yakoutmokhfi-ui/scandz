@@ -690,6 +690,11 @@ test("GP-DOM-02 pickup : coordonnées requises -> create_order sans adresse -> c
       p_table_number: null,
       p_customer: {
         name: "Yakout",
+        // CFTE v1 : deux clés ADDITIVES, `null` lorsque le client a
+        // saisi son nom dans le champ unique historique (ce parcours
+        // doré utilise le jeu d'exigences legacy du backend simulé).
+        first_name: null,
+        last_name: null,
         phone: "0612345678",
         email: null,
         address: null,
@@ -745,6 +750,8 @@ test("GP-DOM-03 delivery : zone éligible, frais estimé affiché (28,20 + 2,50 
       p_table_number: null,
       p_customer: {
         name: "Yakout",
+        first_name: null,
+        last_name: null,
         phone: "0612345678",
         email: null,
         address: "12 rue des Lilas, 75001 Paris",

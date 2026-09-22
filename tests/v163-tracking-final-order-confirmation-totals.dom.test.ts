@@ -248,6 +248,11 @@ test("mandat « correct fulfillment wording » : contexte « table » -- libell�
 
 const FIXTURE_CUSTOMER = {
   name: "A. Test",
+  // CFTE v1 : champs de SAISIE ajoutés à CustomerInfo (aucune colonne
+  // persistante). Vides ici -- le nom d'affichage retombe alors sur
+  // `name`, comportement strictement inchangé pour ce test.
+  firstName: "",
+  lastName: "",
   street: "1 rue Test",
   postalCode: "75000",
   city: "Paris",

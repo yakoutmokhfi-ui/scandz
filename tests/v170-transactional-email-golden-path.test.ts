@@ -46,6 +46,11 @@ const { resolveTransactionalEmailProvider } = await import(
 const { renderOrderReceivedEmail } = await import("../lib/server/notifications/order-received-template.ts");
 const { buildNotificationIdempotencyKey } = await import("../lib/server/notifications/email-provider.ts");
 const { parseTrackingFragment } = await import("../lib/tracking/link.ts");
+// CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- le texte de statut attendu
+// est recalculé par l'UNIQUE autorité partagée (jamais recopié en dur
+// dans ce test), exactement comme le fait le worker.
+const { translate } = await import("../lib/i18n.ts");
+const { resolveStatusText } = await import("../lib/tracking/status-text.ts");
 
 const N1A_SQL = readFileSync(
   new URL("../supabase/DRAFT-lot-n1a-customer-email-notification-foundation-v1.sql", import.meta.url),
@@ -315,6 +320,14 @@ test("1. commande éligible -> EXACTEMENT le message provider-neutre du gabarit 
     orderId: order.id,
     trackingCapabilityId: cap.id,
     trackingSecret: cap.secret,
+    // CFTE v1 -- ce snapshot (antérieur au lot) ne porte ni statut, ni
+    // surcharge, ni adresse : le worker DOIT alors replier sur le nom
+    // d'expéditeur, le texte de base du statut `new`, et omettre
+    // proprement la ligne d'adresse. C'est exactement ce que cette
+    // attente reproduit.
+    merchantName: ALCRU.sender_name,
+    statusText: resolveStatusText("new", {}, (k) => translate("en", k)).text,
+    deliveryAddress: null,
   });
   assert.equal(msg.subject, expected.subject);
   assert.equal(msg.html, expected.html);

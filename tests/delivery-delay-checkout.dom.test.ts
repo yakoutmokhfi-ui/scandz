@@ -128,7 +128,10 @@ function props(notice: null | { modeCode: "pickup" | "delivery"; modeLabel: stri
     fieldRequirementsReady: true,
     availableServiceModes: [notice?.modeCode ?? "pickup"],
     saleModesState: { status: "loaded", data: [] },
-    customer: { name: "Client", phone: "", email: "", street: "", postalCode: "", city: "" },
+    // CFTE v1 : CustomerInfo porte désormais firstName/lastName (champs
+    // de SAISIE, aucune colonne persistante). Vides ici -- ce test ne
+    // concerne que l'avis de délai de livraison, inchangé.
+    customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "", postalCode: "", city: "" },
     customerErrors: {},
     showErrors: false,
     invoiceRequest: { wantsInvoice: false, invoiceType: "individual", addressLine1: "", addressLine2: "", city: "", postalCode: "", country: "", companyLegalName: "", vatNumber: "", contactName: "", contactEmail: "" },

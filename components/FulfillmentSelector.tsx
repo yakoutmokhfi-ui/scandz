@@ -99,6 +99,24 @@ const FIELD_CONFIG: Record<
     autoComplete: "given-name",
     placeholder: "Myriam",
   },
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — prénom et nom SÉPARÉS,
+  // rendus exactement comme n'importe quel autre champ backend générique
+  // (aucune branche par mode de vente ici : c'est le résolveur serveur
+  // qui décide, pour chaque mode, lesquels de ces champs apparaissent et
+  // avec quelle exigence). Les deux valeurs ne sont jamais persistées
+  // séparément -- le serveur en compose `orders.customer_name`.
+  first_name: {
+    customerInfoKey: "firstName",
+    labelKey: "fieldName",
+    autoComplete: "given-name",
+    placeholder: "Myriam",
+  },
+  last_name: {
+    customerInfoKey: "lastName",
+    labelKey: "fieldLastName",
+    autoComplete: "family-name",
+    placeholder: "Benali",
+  },
   phone: {
     customerInfoKey: "phone",
     labelKey: "fieldPhone",
@@ -270,7 +288,13 @@ export default function FulfillmentSelector({
   const toneClass = getFulfillmentToneClass(message?.tone);
 
   /** Rend un champ backend connu (customer_name/phone/email) via
-   *  FIELD_CONFIG -- jamais de branche par mode de vente. */
+   *  FIELD_CONFIG -- jamais de branche par mode de vente.
+   *
+   *  `customer[key] ?? ""` : firstName/lastName sont optionnels dans
+   *  CustomerInfo (lib/customer.ts). Le champ rendu reste ainsi
+   *  TOUJOURS contrôlé, même si l'état de formulaire ne porte pas
+   *  encore la clé -- il ne bascule jamais en champ non contrôlé à la
+   *  première frappe. */
   function renderMappedField(field: string, keySuffix: string) {
     const config = FIELD_CONFIG[field];
     if (!config) return null;
@@ -280,7 +304,7 @@ export default function FulfillmentSelector({
         key={keySuffix}
         id={field}
         label={t(config.labelKey)}
-        value={customer[key]}
+        value={customer[key] ?? ""}
         error={err(key)}
         placeholder={config.placeholder}
         type={config.type}
@@ -512,7 +536,9 @@ export default function FulfillmentSelector({
   function renderOneOfGroup(item: Extract<FieldRequirementDisplayItem, { kind: "one_of_group" }>) {
     const groupSatisfied = item.fields.some((f) => {
       const config = FIELD_CONFIG[f.field];
-      return config ? customer[config.customerInfoKey].trim() !== "" : false;
+      // Clé absente == valeur vide : un groupe one_of n'est JAMAIS
+      // considéré satisfait par un champ qui n'a pas été saisi.
+      return config ? (customer[config.customerInfoKey] ?? "").trim() !== "" : false;
     });
     const memberLabels = item.fields
       .map((f) => (FIELD_CONFIG[f.field] ? t(FIELD_CONFIG[f.field].labelKey) : f.field))

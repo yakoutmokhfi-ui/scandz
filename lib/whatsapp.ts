@@ -1,6 +1,6 @@
 import type { RestaurantFull, MenuItem } from "@/lib/types";
 import type { CustomerInfo } from "@/lib/customer";
-import { formatAddress } from "@/lib/customer";
+import { formatAddress, formatCustomerDisplayName } from "@/lib/customer";
 import { translate, type Lang } from "@/lib/i18n";
 import { tName } from "@/lib/menu-i18n";
 import { normalizeOrderNote } from "@/lib/order-note";
@@ -93,28 +93,39 @@ export function isValidWhatsappNumber(raw: string): boolean {
   return WHATSAPP_PATTERN.test(normalizeWhatsappNumber(raw));
 }
 
-/** Ligne d'en-tête du message décrivant le mode de récupération. */
+/** Ligne d'en-tête du message décrivant le mode de récupération.
+ *
+ *  CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 : le nom affiché passe par
+ *  `formatCustomerDisplayName` (lib/customer.ts), SEULE autorité de
+ *  composition -- le commerçant voit donc EXACTEMENT le nom qui sera
+ *  persisté dans `orders.customer_name`, que le client l'ait saisi en
+ *  un champ (modes non suivis) ou en deux (prénom + nom). Aucune autre
+ *  ligne de ce message n'est modifiée. */
 function contextLines(ctx: OrderContext, lang: Lang): string[] {
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
   switch (ctx.mode) {
     case "table":
       return [t("waTable", { n: ctx.tableNumber })];
-    case "pickup":
+    case "pickup": {
+      const displayName = formatCustomerDisplayName(ctx.customer);
       return [
         t("waPickup"),
-        ctx.customer.name ? `🙋 ${ctx.customer.name}` : "",
+        displayName ? `🙋 ${displayName}` : "",
         ctx.customer.phone ? `📞 ${ctx.customer.phone}` : "",
         ctx.customer.email ? `✉️ ${ctx.customer.email}` : "",
       ].filter(Boolean);
-    case "delivery":
+    }
+    case "delivery": {
+      const displayName = formatCustomerDisplayName(ctx.customer);
       return [
         t("waDelivery", { zone: ctx.zoneLabel }),
         `📍 ${formatAddress(ctx.customer)}`,
-        ctx.customer.name ? `🙋 ${ctx.customer.name}` : "",
+        displayName ? `🙋 ${displayName}` : "",
         ctx.customer.phone ? `📞 ${ctx.customer.phone}` : "",
         ctx.customer.email ? `✉️ ${ctx.customer.email}` : "",
       ].filter(Boolean);
+    }
   }
 }
 

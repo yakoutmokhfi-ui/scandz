@@ -75,13 +75,42 @@
  * Choisir une pilule appelle UNIQUEMENT onSelect : aucun défilement
  * forcé de la page (décision CIO, cycle 4).
  *
- * En mode sticky sur mobile (< sm), les pilules tiennent sur UNE SEULE
- * ligne défilable horizontalement (flex-nowrap + overflow-x-auto) : la
- * hauteur de la barre collée reste bornée à une pilule, quel que soit
- * le nombre de sous-catégories. Défilement au doigt natif ; au clavier,
- * chaque pilule reste un bouton natif dans l'ordre de tabulation et le
- * navigateur fait défiler la ligne jusqu'à la pilule focalisée. À
- * partir de sm, le retour à la ligne (WRAP v1) est conservé.
+ * CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- SUPPRESSION DE L'EXCEPTION
+ * MOBILE (mandat §1, littéral : "Remove the mobile-only single-line
+ * horizontal-scroll exception").
+ *
+ * LOT 02 avait réintroduit, UNIQUEMENT en mode sticky et UNIQUEMENT
+ * sous le point de rupture `sm`, le défilement horizontal que WRAP v1
+ * avait précisément supprimé : `flex-nowrap` + `overflow-x-auto` +
+ * `overscroll-x-contain`, neutralisés à partir de `sm` par
+ * `sm:flex-wrap`/`sm:overflow-x-visible`. L'objectif était de borner la
+ * hauteur de la barre collée à une seule pilule -- mais le coût était
+ * exactement le défaut que WRAP v1 avait corrigé, et seulement sur
+ * téléphone : les dernières sous-catégories restaient HORS ÉCRAN tant
+ * que l'utilisateur ne devinait pas qu'il fallait faire défiler la
+ * barre latéralement (aucune affordance visuelle, la scrollbar étant
+ * masquée par le système sur mobile). Une option invisible est une
+ * option qui n'existe pas.
+ *
+ * Les pilules enveloppent désormais sur TOUTES les largeurs, en mode
+ * sticky comme en mode normal : `flex flex-wrap` dans les DEUX
+ * branches. Plus aucune classe de défilement horizontal
+ * (`flex-nowrap`/`overflow-x-*`/`overscroll-x-*`) ni aucune variante
+ * `sm:` ne subsiste ici -- il n'existe plus de comportement propre au
+ * mobile à neutraliser à partir de `sm`.
+ *
+ * Le collage (`sticky top-0 z-20` + fond opaque) est INTÉGRALEMENT
+ * préservé, ainsi que toute la sémantique de filtrage (`onSelect`,
+ * `aria-pressed`, "Tous" = null) : seul le mode de disposition des
+ * pilules change. La hauteur de la barre collée n'est plus bornée à
+ * une pilule -- c'est le compromis ASSUMÉ par le mandat : une barre
+ * un peu plus haute sur un catalogue à nombreuses sous-catégories est
+ * préférable à des options inatteignables. Aucune hauteur fixe n'est
+ * imposée (voir le test de non-régression qui interdit toute classe
+ * `h-*`/`max-h-*`/`overflow-*` sur ce conteneur).
+ *
+ * `whitespace-nowrap` reste porté par CHAQUE pilule : c'est la pilule
+ * ENTIÈRE qui passe à la ligne, jamais son libellé qui se coupe.
  */
 import type { Ref } from "react";
 import type { SubcategoryFilterOption } from "@/lib/catalogue-subcategory-grouping";
@@ -139,14 +168,15 @@ export default function SubcategoryFilter({
           courante passe à la ligne suivante, jamais hors du flux normal
           de la page. Aucune hauteur fixe n'est imposée à ce conteneur
           -- le nombre de lignes nécessaires reste entièrement determiné
-          par le nombre de pilules et la largeur disponible. LOT 02 : en
-          mode sticky, une seule ligne défilable sur mobile (< sm). */}
+          par le nombre de pilules et la largeur disponible.
+
+          CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 : les DEUX branches
+          enveloppent désormais à l'identique (`flex flex-wrap gap-2`).
+          La branche sticky ne se distingue plus que par `py-1` (respiration
+          verticale sous la barre collée) -- plus aucune classe de
+          défilement horizontal ni aucune variante `sm:`. */}
       <ul
-        className={
-          sticky
-            ? "flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1 sm:flex-wrap sm:overflow-x-visible"
-            : "flex flex-wrap gap-2"
-        }
+        className={sticky ? "flex flex-wrap gap-2 py-1" : "flex flex-wrap gap-2"}
       >
         <li key="__all__">
           <button

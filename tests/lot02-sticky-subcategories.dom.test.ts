@@ -615,34 +615,192 @@ test("4a. non-chevauchement -- bloc contenant = section de la catégorie active,
   }
 });
 
-test("4b. mobile -- barre sticky sur UNE seule ligne défilable horizontalement (hauteur bornée), retour à la ligne conservé à partir de sm ; CSS réellement généré", async () => {
+// CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- RÉÉCRITURE ASSUMÉE du
+// scénario 4b (mandat §1, littéral : "Remove the mobile-only single-line
+// horizontal-scroll exception").
+//
+// La version LOT 02 de ce test verrouillait EXACTEMENT le comportement
+// que le mandat supprime : elle EXIGEAIT `flex-nowrap` + `overflow-x-auto`
+// et INTERDISAIT `flex-wrap` en mode sticky. Ce n'est pas une régression
+// détectée par le test, c'est le test qui encodait l'ancienne décision
+// produit ; il est donc réécrit pour verrouiller la NOUVELLE invariante,
+// strictement plus forte : plus AUCUN défilement horizontal, dans AUCUNE
+// branche, à AUCUNE largeur. Les assertions de structure et
+// d'accessibilité (LI, whitespace-nowrap sur la pilule, aucune hauteur
+// figée) sont conservées TELLES QUELLES -- seul le mode de disposition
+// change.
+test("4b. barre sticky -- les pilules ENVELOPPENT à toute largeur, plus aucun défilement horizontal ni variante sm ; CSS réellement généré", async () => {
   const { container, root } = await render(baseRestaurant([longCategory()]));
   try {
     const nav = filterNav(container)!;
     const ul = nav.querySelector("ul")!;
     const ulClasses = classes(ul);
-    for (const c of ["flex", "flex-nowrap", "overflow-x-auto", "sm:flex-wrap", "sm:overflow-x-visible"]) {
-      assert.ok(ulClasses.includes(c), `classe '${c}' attendue sur la ligne de pilules`);
+
+    // Le retour à la ligne est désormais INCONDITIONNEL.
+    assert.ok(ulClasses.includes("flex"), "conteneur flex attendu");
+    assert.ok(
+      ulClasses.includes("flex-wrap"),
+      "les pilules doivent envelopper, y compris en mode sticky sur mobile"
+    );
+
+    // Plus aucune classe de défilement horizontal, ni aucune variante
+    // responsive destinée à le neutraliser à partir de sm : l'exception
+    // mobile n'existe plus, il n'y a donc plus rien à neutraliser.
+    for (const forbidden of [
+      "flex-nowrap",
+      "overflow-x-auto",
+      "overscroll-x-contain",
+      "sm:flex-wrap",
+      "sm:overflow-x-visible",
+    ]) {
+      assert.ok(
+        !ulClasses.includes(forbidden),
+        `classe '${forbidden}' interdite : l'exception mobile est supprimée`
+      );
     }
-    assert.ok(!ulClasses.includes("flex-wrap"), "jamais de retour à la ligne sur mobile en mode sticky");
+    assert.ok(
+      !ulClasses.some((c) => c.startsWith("sm:")),
+      "aucune variante sm: ne doit subsister sur la ligne de pilules"
+    );
+
     for (const li of ul.children) assert.equal(li.tagName, "LI");
     for (const b of ul.querySelectorAll("button")) {
       assert.ok(classes(b).includes("whitespace-nowrap"), "libellé de pilule jamais coupé");
     }
-    // Aucun masquage de la barre de défilement ni hauteur figée : la
-    // hauteur est bornée par construction (une ligne de pilules).
+    // Aucune hauteur figée : la barre collée occupe autant de lignes que
+    // nécessaire -- c'est ce qui garantit qu'aucune option n'est masquée.
     assert.ok(!ulClasses.some((c) => /scrollbar|^(h|max-h)-/.test(c)));
     assert.ok(!classes(nav).some((c) => /^(h|max-h|overflow)-/.test(c)));
 
+    // Preuve par le CSS RÉELLEMENT compilé par Tailwind (jamais une
+    // simple inspection de chaîne de classes).
     const css = await compileUtilities(ulClasses);
-    assert.equal(ruleFor(css, "flex-nowrap"), "flex-wrap: nowrap");
-    assert.equal(ruleFor(css, "overflow-x-auto"), "overflow-x: auto");
-    assert.equal(ruleFor(css, "overscroll-x-contain"), "overscroll-behavior-x: contain");
-    const smStart = css.indexOf("@media (min-width: 640px)");
-    assert.ok(smStart !== -1, "variante sm générée");
-    const smCss = css.slice(smStart);
-    assert.ok(smCss.includes(".sm\\:flex-wrap {") && smCss.includes("flex-wrap: wrap"));
-    assert.ok(smCss.includes(".sm\\:overflow-x-visible {") && smCss.includes("overflow-x: visible"));
+    assert.equal(ruleFor(css, "flex-wrap"), "flex-wrap: wrap");
+    assert.ok(
+      !css.includes("flex-wrap: nowrap"),
+      "aucune règle flex-wrap: nowrap ne doit être générée pour cette barre"
+    );
+    assert.ok(
+      !css.includes("overflow-x: auto"),
+      "aucune règle overflow-x: auto ne doit être générée pour cette barre"
+    );
+    assert.ok(
+      !css.includes("@media (min-width: 640px)"),
+      "aucune variante responsive ne doit subsister sur la ligne de pilules"
+    );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+// CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 -- test de non-régression
+// PERMANENT du mandat §1 ("mobile DOM: sticky subcategory pills wrap on
+// narrow viewport, no horizontal-only hidden options").
+//
+// POURQUOI UNE PREUVE STRUCTURELLE PLUTÔT QU'UNE LARGEUR SIMULÉE :
+// jsdom n'effectue AUCUN calcul de mise en page (toute largeur mesurée
+// vaut 0). Simuler un `innerWidth` de 360 px ne prouverait donc RIEN sur
+// l'enveloppement réel. La preuve retenue est strictement plus forte :
+// on démontre qu'il n'existe, dans le sous-arbre de la barre, AUCUN
+// mécanisme capable de masquer une option à une largeur quelconque --
+// aucun port de défilement horizontal, aucune hauteur bornée, aucune
+// variante responsive -- ET que l'enveloppement est inconditionnel dans
+// le CSS réellement compilé. Une propriété vraie à TOUTE largeur est
+// vraie à 320 px.
+test("4c. mandat §1 -- sur une barre sticky à nombreuses sous-catégories, AUCUNE option n'est masquée derrière un défilement horizontal", async () => {
+  const many = (() => {
+    const c = "cat-many";
+    const subs = [
+      { id: "s1", name: "Raclette", order: 1 },
+      { id: "s2", name: "Fromage à la truffe", order: 2 },
+      { id: "s3", name: "Pâtes dures", order: 3 },
+      { id: "s4", name: "Pâtes molles", order: 4 },
+      { id: "s5", name: "Chèvres", order: 5 },
+      { id: "s6", name: "Bleus et persillés", order: 6 },
+      { id: "s7", name: "Brebis des Pyrénées", order: 7 },
+    ];
+    return {
+      id: c,
+      restaurant_id: "r1",
+      name: "Fromages",
+      display_order: 1,
+      is_active: true,
+      menu_items: [
+        product(c, "Direct-1", null, 1),
+        ...subs.map((s, i) => product(c, `P-${s.id}`, s, i + 1)),
+      ],
+    };
+  })();
+
+  // Catalogue plus haut que le viewport -> la barre COLLE réellement
+  // (c'est la branche qui portait l'exception mobile).
+  layout.cardPx = 300;
+  const { container, root } = await render(baseRestaurant([many]));
+  try {
+    assert.ok(isSticky(container), "la barre doit être en mode sticky pour ce scénario");
+
+    const nav = filterNav(container)!;
+    const ul = nav.querySelector("ul")!;
+
+    // 1. TOUTES les options sont réellement rendues -- "Tous" + les 7
+    //    sous-catégories, dans l'ordre d'affichage public.
+    const labels = [...nav.querySelectorAll("[data-subcategory-filter-option]")].map(
+      (b) => b.textContent ?? ""
+    );
+    assert.deepEqual(labels, [
+      "Tous",
+      "Raclette",
+      "Fromage à la truffe",
+      "Pâtes dures",
+      "Pâtes molles",
+      "Chèvres",
+      "Bleus et persillés",
+      "Brebis des Pyrénées",
+    ]);
+
+    // 2. AUCUN élément du sous-arbre de la barre n'établit un port de
+    //    défilement horizontal ni ne borne la hauteur -- c'est
+    //    exactement ce qui rendait les dernières pilules inatteignables.
+    for (const el of [nav, ul, ...nav.querySelectorAll("*")]) {
+      const cs = classes(el);
+      assert.ok(
+        !cs.some((c) => /^(overflow|overscroll)-/.test(c)),
+        `aucune classe de défilement attendue, trouvée sur <${el.tagName.toLowerCase()}>: ${cs.join(" ")}`
+      );
+      assert.ok(
+        !cs.some((c) => /^(h|max-h)-/.test(c)),
+        `aucune hauteur bornée attendue, trouvée sur <${el.tagName.toLowerCase()}>: ${cs.join(" ")}`
+      );
+      assert.ok(
+        !cs.includes("flex-nowrap"),
+        `flex-nowrap interdit, trouvé sur <${el.tagName.toLowerCase()}>`
+      );
+    }
+
+    // 3. Chaque option reste un bouton natif atteignable au clavier
+    //    (aucune n'est retirée de l'ordre de tabulation pour compenser
+    //    un défilement).
+    for (const b of nav.querySelectorAll<HTMLButtonElement>("[data-subcategory-filter-option]")) {
+      assert.equal(b.tagName, "BUTTON");
+      assert.equal(b.getAttribute("type"), "button");
+      assert.ok(!b.hasAttribute("tabindex"), "ordre de tabulation naturel préservé");
+      assert.ok(!b.disabled);
+    }
+
+    // 4. L'enveloppement est INCONDITIONNEL dans le CSS compilé : aucune
+    //    media query ne le restreint à une plage de largeurs.
+    const css = await compileUtilities(classes(ul));
+    assert.equal(ruleFor(css, "flex-wrap"), "flex-wrap: wrap");
+    assert.ok(!css.includes("@media"), "l'enveloppement ne doit dépendre d'aucune media query");
+
+    // 5. Le collage lui-même est PRÉSERVÉ (mandat §1 : "Preserve sticky
+    //    behavior") -- la suppression de l'exception ne doit pas avoir
+    //    décollé la barre.
+    const navClasses = classes(nav);
+    for (const c of ["sticky", "top-0", "z-20", "bg-crema"]) {
+      assert.ok(navClasses.includes(c), `classe de collage '${c}' préservée`);
+    }
   } finally {
     root.unmount();
     container.remove();

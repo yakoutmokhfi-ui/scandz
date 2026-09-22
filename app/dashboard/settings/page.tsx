@@ -22,6 +22,15 @@ import {
   updateRestaurantPublicContact,
 } from "@/lib/services/dashboard";
 import { isValidPublicEmail, isValidPublicPhone } from "@/lib/customer-contact";
+import {
+  getMerchantTrackingStatusText,
+  setAllMerchantTrackingStatusText,
+} from "@/lib/services/tracking-status-text";
+import { CANONICAL_ORDER_STATUSES, statusLabelKey } from "@/lib/tracking/status";
+import {
+  MERCHANT_STATUS_TEXT_MAX_LENGTH,
+  statusExplanationKey,
+} from "@/lib/tracking/status-text";
 import { getLegalTaxFieldLabels } from "@/lib/merchant-legal-tax-labels";
 import {
   addOrReplaceEstablishmentAsset,
@@ -64,6 +73,13 @@ export default function SettingsPage() {
   const [whatsappEnabled, setWhatsappEnabled] = useState(true);
   const [publicPhone, setPublicPhone] = useState("");
   const [publicEmail, setPublicEmail] = useState("");
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — surcharge de TEXTE par
+  // statut canonique. Chaîne vide = « pas de surcharge » (repli sur le
+  // texte Scanym de base), jamais « afficher un texte vide » : c'est
+  // exactement la sémantique appliquée par le SQL, qui supprime alors
+  // la ligne. Aucune notion d'état/transition ici -- purement de
+  // l'affichage.
+  const [statusTexts, setStatusTexts] = useState<Record<string, string>>({});
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   // Couleurs personnalisées + lien de localisation/itinéraire (V69).
@@ -370,6 +386,26 @@ export default function SettingsPage() {
         setLegalProfileReady(false);
         setLegalProfileError(t("stLegalLoadFailed"));
       }
+      // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — surcharges de texte de
+      // suivi. Même garde de provenance (`token.isCurrent()`) que tout
+      // le reste de cette page : une réponse périmée n'écrit jamais les
+      // messages d'un autre établissement. Best-effort : un échec de
+      // lecture laisse la grille vide (donc « textes de base »), ce qui
+      // est toujours un état affichable correct -- jamais les messages
+      // de l'établissement précédent.
+      try {
+        const overrides = await getMerchantTrackingStatusText(id);
+        if (!token.isCurrent()) return;
+        const next: Record<string, string> = {};
+        for (const status of CANONICAL_ORDER_STATUSES) {
+          next[status] = overrides[status] ?? "";
+        }
+        setStatusTexts(next);
+      } catch {
+        if (!token.isCurrent()) return;
+        setStatusTexts({});
+      }
+
       try {
         const activeLangs = await getRestaurantActiveLanguages(id);
         if (!token.isCurrent()) return;
@@ -625,6 +661,18 @@ export default function SettingsPage() {
         setError(t("stPublicEmailInvalid"));
         return;
       }
+      // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — borne de longueur,
+      // MIROIR de la contrainte SQL (le serveur reste l'autorité ;
+      // cette vérification évite seulement un aller-retour et affiche
+      // un message explicite plutôt que l'erreur brute de la RPC).
+      if (
+        Object.values(statusTexts).some(
+          (body) => body.trim().length > MERCHANT_STATUS_TEXT_MAX_LENGTH
+        )
+      ) {
+        setError(t("stTrackingStatusTooLong"));
+        return;
+      }
     }
 
     setSaving(true);
@@ -659,6 +707,13 @@ export default function SettingsPage() {
           address.trim() || null,
           hours.trim() || null
         );
+
+        // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — écriture RPC-only
+        // (owner/manager, contrôlé côté SQL). Dans le MÊME bloc
+        // owner/manager que le contact public : un opérateur seul n'y
+        // touche jamais. Un champ laissé vide EFFACE la surcharge et
+        // rétablit le texte de base -- jamais un texte vide affiché.
+        await setAllMerchantTrackingStatusText(restaurantId, statusTexts);
       } catch (e) {
         setError(e instanceof Error ? e.message : t("stSaveFailed"));
         setSaving(false);
@@ -1053,6 +1108,47 @@ export default function SettingsPage() {
           {!isValidPublicEmail(publicEmail) && (
             <p className="mt-1 text-xs font-semibold text-amber-700">{t("stPublicEmailInvalid")}</p>
           )}
+        </section>
+        )}
+
+        {/* CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — surcharge de TEXTE
+            par statut CANONIQUE. La grille est dérivée de
+            CANONICAL_ORDER_STATUSES (lib/tracking/status.ts, SEULE
+            autorité) : aucune liste de statuts n'est recopiée ici, et
+            aucun statut supplémentaire ne peut donc apparaître dans ce
+            formulaire. Le libellé de chaque ligne est le libellé COURT
+            déjà utilisé côté client ; le placeholder est le texte de
+            BASE réel, pour que le commerçant voie exactement ce qui
+            s'affichera s'il laisse le champ vide. */}
+        {!isOperatorOnlyMode && (
+        <section
+          className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
+          data-settings-tracking-status-text=""
+        >
+          <h3 className="font-bold text-stone-900">{t("stTrackingStatusTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stTrackingStatusHint")}</p>
+          {CANONICAL_ORDER_STATUSES.map((status) => (
+            <div key={status} className="mt-3">
+              <label
+                htmlFor={`tracking-status-text-${status}`}
+                className="block text-xs font-semibold text-stone-600"
+              >
+                {t(statusLabelKey(status))}
+              </label>
+              <textarea
+                id={`tracking-status-text-${status}`}
+                value={statusTexts[status] ?? ""}
+                onChange={(e) =>
+                  setStatusTexts((prev) => ({ ...prev, [status]: e.target.value }))
+                }
+                disabled={!canEdit}
+                rows={2}
+                maxLength={MERCHANT_STATUS_TEXT_MAX_LENGTH}
+                placeholder={t(statusExplanationKey(status))}
+                className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+              />
+            </div>
+          ))}
         </section>
         )}
 

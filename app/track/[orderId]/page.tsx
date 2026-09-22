@@ -22,6 +22,8 @@ import {
   statusLabelKeyForServiceMode,
   timelineStepLabelKey,
 } from "@/lib/tracking/status";
+import { resolveStatusText } from "@/lib/tracking/status-text";
+import { getOrderTrackingStatusTextOverrides } from "@/lib/server/tracking-status-text";
 import { buildCleanTrackingPath } from "@/lib/tracking/link";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
 import { translate, resolveLangFromParam } from "@/lib/i18n";
@@ -200,6 +202,26 @@ export default async function TrackingPage({
     });
   const publicContact = customerContext?.publicContact ?? null;
 
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — TEXTE EXPLICATIF du statut
+  // courant. Lu avec la MÊME capacité déjà vérifiée (jamais un second
+  // mécanisme d'accès) et résolu par l'UNIQUE autorité
+  // `resolveStatusText` : surcharge marchande non vide, sinon texte de
+  // base i18n. Échec fermé = aucune surcharge = texte de base, qui est
+  // toujours correct -- une configuration marchande absente ou
+  // indisponible ne dégrade jamais la page.
+  //
+  // `tracking.orderStatus` traverse cette résolution INTACT : aucune
+  // surcharge ne peut renommer, masquer ou inventer un statut (voir
+  // lib/tracking/status-text.ts).
+  const statusTextOverrides = await getOrderTrackingStatusTextOverrides({
+    orderId: session.orderId,
+    capabilityId: session.capabilityId,
+    secret: session.secret,
+  });
+  const statusText = resolveStatusText(tracking.orderStatus, statusTextOverrides, (key) =>
+    t(key)
+  );
+
   return (
     <TrackingShell>
       {/* Mandat §19 : rafraîchissement automatique léger tant que le
@@ -241,6 +263,21 @@ export default async function TrackingPage({
         aria-live="polite"
       >
         {t(currentLabelKey)}
+      </p>
+
+      {/* CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — texte EXPLICATIF du
+          statut courant, sous le badge. Toujours présent (le texte de
+          base fonctionne sans AUCUNE configuration commerçant) ; remplacé
+          mot pour mot par la surcharge du commerçant lorsqu'elle existe.
+          `data-tracking-status-source` expose l'ORIGINE réelle du texte
+          pour les tests de non-régression du repli -- jamais une donnée
+          marchande, jamais un identifiant. */}
+      <p
+        data-tracking-status-text=""
+        data-tracking-status-source={statusText.source}
+        className="mt-3 text-sm text-ink-on-bg-muted"
+      >
+        {statusText.text}
       </p>
 
       {/* Mandat §24 : jamais la couleur seule -- chaque étape porte un

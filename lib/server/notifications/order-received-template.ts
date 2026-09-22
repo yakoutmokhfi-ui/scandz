@@ -48,6 +48,29 @@ export interface OrderReceivedTemplateInput {
    *  legacy, jamais journalisée. */
   trackingCapabilityId: string;
   trackingSecret: string;
+  /**
+   * CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — nom du COMMERÇANT
+   * (`restaurants.name`, figé dans le payload_snapshot au moment de
+   * l'enfilement). Distinct de `merchantSenderName`, qui est l'identité
+   * d'EXPÉDITION résolue depuis `merchant_notification_profile` : les
+   * deux peuvent légitimement différer, ce lot ne les confond jamais.
+   */
+  merchantName: string;
+  /**
+   * CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — texte explicatif DÉJÀ
+   * RÉSOLU (surcharge marchande ou texte de base) par l'unique autorité
+   * `resolveStatusText` (lib/tracking/status-text.ts). Ce gabarit ne
+   * refait AUCUN arbitrage surcharge/base et ne connaît aucun statut :
+   * il reçoit une chaîne, l'échappe et l'affiche.
+   */
+  statusText: string;
+  /**
+   * CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — adresse de livraison, telle
+   * que persistée sur la commande. `null` dans TOUS les autres modes :
+   * la ligne est alors absente du message, jamais rendue vide et jamais
+   * reconstruite à partir d'autre chose.
+   */
+  deliveryAddress: string | null;
 }
 
 export interface RenderedEmail {
@@ -82,6 +105,17 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   const thanks = t("confirmThanks", { name: input.merchantSenderName });
   const footer = t("emailOrderReceivedFooter");
 
+  // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — nom du commerçant, texte de
+  // statut et adresse de livraison. Toutes trois sont des valeurs
+  // reçues (jamais résolues ici) et TOUTES passent par `escapeHtml`
+  // avant insertion, exactement comme `merchantSenderName` : une
+  // surcharge de texte est saisie librement par le commerçant, elle
+  // n'est donc jamais insérée telle quelle dans le HTML.
+  const merchantLabel = t("emailOrderReceivedMerchantLabel");
+  const statusText = input.statusText.trim();
+  const deliveryAddress = input.deliveryAddress?.trim() || null;
+  const deliveryAddressLabel = t("emailOrderReceivedDeliveryAddressLabel");
+
   const trackingPath = buildCapabilityTrackingPath(
     input.orderId,
     input.trackingCapabilityId,
@@ -95,9 +129,14 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
     `<body>`,
     `<h1>${escapeHtml(heading)}</h1>`,
     `<p>${escapeHtml(intro)}</p>`,
+    `<p>${escapeHtml(merchantLabel)} ${escapeHtml(input.merchantName)}</p>`,
     `<p>${escapeHtml(orderNumberLine)}</p>`,
     `<p>${escapeHtml(fulfillment)}</p>`,
+    ...(statusText ? [`<p>${escapeHtml(statusText)}</p>`] : []),
     `<p>${escapeHtml(totalLabel)} ${escapeHtml(totalFormatted)}</p>`,
+    ...(deliveryAddress
+      ? [`<p>${escapeHtml(deliveryAddressLabel)} ${escapeHtml(deliveryAddress)}</p>`]
+      : []),
     `<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(cta)}</a></p>`,
     `<p>${escapeHtml(thanks)}</p>`,
     `<p><small>${escapeHtml(footer)}</small></p>`,
@@ -108,9 +147,12 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   const text = [
     heading,
     intro,
+    `${merchantLabel} ${input.merchantName}`,
     orderNumberLine,
     fulfillment,
+    ...(statusText ? [statusText] : []),
     `${totalLabel} ${totalFormatted}`,
+    ...(deliveryAddress ? [`${deliveryAddressLabel} ${deliveryAddress}`] : []),
     `${cta}: ${trackingUrl}`,
     thanks,
     footer,

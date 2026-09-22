@@ -66,6 +66,11 @@ const TOKEN = "22222222-2222-4222-8222-222222222222";
 
 const CUSTOMER = {
   name: "Yakout",
+  // CFTE v1 : champs de SAISIE ajoutés à CustomerInfo. Laissés VIDES ici
+  // délibérément -- ce contrat doré vérifie le chemin HISTORIQUE (nom en
+  // un seul champ), qui doit rester rigoureusement inchangé.
+  firstName: "",
+  lastName: "",
   street: "12 rue des Lilas",
   postalCode: "75001",
   city: "Paris",
@@ -172,6 +177,10 @@ test("GP-03 charge create_order : contrat exact pour CHAQUE mode (table/pickup/d
       p_table_number: null,
       p_customer: {
         name: "Yakout",
+        // CFTE v1 : deux clés ADDITIVES, `null` lorsque le client a
+        // saisi son nom dans le champ unique historique.
+        first_name: null,
+        last_name: null,
         phone: "0612345678",
         email: null,
         address: null,
@@ -195,6 +204,8 @@ test("GP-03 charge create_order : contrat exact pour CHAQUE mode (table/pickup/d
       p_table_number: null,
       p_customer: {
         name: "Yakout",
+        first_name: null,
+        last_name: null,
         phone: "0612345678",
         email: null,
         address: "12 rue des Lilas, 75001 Paris",
