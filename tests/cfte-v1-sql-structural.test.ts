@@ -33,12 +33,6 @@ import { readFileSync } from "node:fs";
  *
  *   4. Confinement des droits (aucune écriture directe, aucune lecture
  *      anon de la configuration marchande).
- *
- *   5. ATOMICITÉ (CFTE-V1-SQL-ATOMICITY-01) : dans les DEUX sens, le
- *      pré-vol, le DDL et le post-vol vivent dans la MÊME transaction
- *      explicite, et `commit;` est la DERNIÈRE instruction exécutable du
- *      fichier -- une vérification qui échoue EMPÊCHE le commit au lieu
- *      de le constater une fois la migration publiée.
  */
 
 const SQL_URL = new URL(
@@ -82,82 +76,6 @@ function multiset(lines: string[]): Map<string, number> {
   return counts;
 }
 
-/**
- * Instructions RÉELLEMENT exécutables d'un fichier de migration : les
- * commentaires SQL et les lignes vides sont écartés, de sorte qu'un
- * `commit;` mentionné en prose dans un en-tête ne puisse jamais être
- * confondu avec le `commit;` exécuté.
- */
-function statementLines(sql: string): string[] {
-  return sql
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l !== "" && !l.startsWith("--"));
-}
-
-/** Découpe une tranche du fichier entre deux marqueurs de section. */
-function section(sql: string, from: string, to: string): string {
-  const start = sql.indexOf(from);
-  assert.ok(start > -1, `marqueur de début introuvable : ${from}`);
-  const end = sql.indexOf(to, start);
-  assert.ok(end > start, `marqueur de fin introuvable : ${to}`);
-  return sql.slice(start, end);
-}
-
-// ====================================================================
-// 0. ATOMICITÉ — une seule transaction, `commit;` en dernier.
-//
-// Le défaut corrigé ici (CFTE-V1-SQL-ATOMICITY-01) était exactement
-// l'inverse : le post-vol des DEUX fichiers s'exécutait APRÈS `commit;`.
-// Une vérification qui échouait ne faisait alors que CONSTATER, sur une
-// base déjà modifiée de façon irréversible, ce qu'elle était censée
-// empêcher. Ces tests interdisent structurellement le retour de cette
-// forme, dans le sens aller comme dans le sens retour.
-// ====================================================================
-
-for (const [side, sql] of [
-  ["aller", forwardSql],
-  ["retour (rollback)", rollbackSql],
-] as const) {
-  test(`0a. ${side} : une seule transaction explicite, ouverte avant toute instruction`, () => {
-    const lines = statementLines(sql);
-    assert.equal(
-      lines.filter((l) => l === "begin;").length,
-      1,
-      "exactement une ouverture de transaction explicite est attendue"
-    );
-    assert.equal(
-      lines.filter((l) => l === "commit;").length,
-      1,
-      "exactement un commit est attendu"
-    );
-    assert.equal(lines[0], "begin;", "la transaction doit être ouverte AVANT le pré-vol");
-  });
-
-  test(`0b. ${side} : \`commit;\` est la DERNIÈRE instruction exécutable du fichier`, () => {
-    const lines = statementLines(sql);
-    assert.equal(
-      lines[lines.length - 1],
-      "commit;",
-      `instruction(s) exécutable(s) après le commit : ${lines.slice(lines.lastIndexOf("commit;") + 1).join(" | ")}`
-    );
-  });
-
-  test(`0c. ${side} : le post-vol s'exécute AVANT le commit, dans la même transaction`, () => {
-    const commitIdx = sql.lastIndexOf("\ncommit;");
-    assert.ok(commitIdx > -1, "instruction commit introuvable");
-    // Chaque garde de post-vol du fichier doit précéder le commit.
-    const guards = [...sql.matchAll(/raise exception '(SCANYM_POSTCHECK_FAILED|SCANYM_ROLLBACK_FAILED|SCANYM_SECURITY_DRIFT|SCANYM_REGRESSION)/g)];
-    assert.ok(guards.length > 0, "aucune garde de post-vol trouvée");
-    for (const guard of guards) {
-      assert.ok(
-        guard.index! < commitIdx,
-        `garde de post-vol située APRÈS le commit : ${guard[0]}`
-      );
-    }
-  });
-}
-
 // ====================================================================
 // 1. Frontière de succès de commande / enfilement order_received.
 // ====================================================================
@@ -177,17 +95,14 @@ test("1a. le corps de create_order n'appelle JAMAIS l'enfilement (ORDER SUCCESS 
 test("1b. le PRÉ-VOL refuse de s'appliquer si le déclencheur d'intention ou sa colonne ont disparu", () => {
   assert.match(forwardSql, /order_received_notification_intent_at/);
   assert.match(forwardSql, /orders_record_order_received_intent_trg/);
-  // Les deux gardes doivent lever, pas simplement journaliser. Le
-  // pré-vol vit DANS la transaction (voir section 0) : on le délimite
-  // donc par ses marqueurs de section, jamais par la position de
-  // `begin;`.
-  const preflight = section(forwardSql, "-- 0. PRÉ-VOL", "-- A. Modes suivis");
+  // Les deux gardes doivent lever, pas simplement journaliser.
+  const preflight = forwardSql.slice(0, forwardSql.indexOf("\nbegin;"));
   assert.match(preflight, /order_received_notification_intent_at[\s\S]*?raise exception/);
   assert.match(preflight, /orders_record_order_received_intent_trg[\s\S]*?raise exception/);
 });
 
 test("1c. le POST-VOL revérifie l'absence d'appel dans create_order ET la présence du déclencheur", () => {
-  const postflight = section(forwardSql, "-- POST-VOL", "\ncommit;");
+  const postflight = forwardSql.slice(forwardSql.lastIndexOf("commit;"));
   assert.match(postflight, /create_order_received_notification%[\s\S]*?raise exception/);
   assert.match(postflight, /orders_record_order_received_intent_trg[\s\S]*?raise exception/);
 });

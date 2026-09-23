@@ -75,23 +75,12 @@
 -- régression déjà vécue le 16/09/2026 (voir
 -- DRAFT-lot-order-received-enqueue-recovery-v1.sql).
 --
--- ATOMICITÉ (CFTE-V1-SQL-ATOMICITY-01) : UNE seule transaction
--- explicite, et TOUT y est enfermé -- le pré-vol, la totalité du DDL, ET
--- le post-vol. `commit;` est la DERNIÈRE instruction exécutable du
--- fichier : aucune vérification ne s'exécute après lui. Un pré-vol ou un
--- post-vol qui lève interrompt donc la transaction AVANT le commit, et
--- la base retombe à son état antérieur -- jamais un lot à moitié
--- appliqué que seule une lecture attentive du journal aurait révélé.
--- Cette garantie ne dépend PAS de `-v ON_ERROR_STOP=1` : même sans lui,
--- psql exécuterait `commit;` sur une transaction déjà avortée, ce que
--- PostgreSQL traite comme un ROLLBACK.
+-- UNE seule transaction explicite ; échoue fermé sur prérequis absent ou
+-- si le lot est déjà appliqué.
 -- ============================================================
-
-begin;
 
 -- ------------------------------------------------------------
 -- 0. PRÉ-VOL — anti-dérive et anti-double-application.
---    DANS la transaction : un prérequis absent annule tout.
 -- ------------------------------------------------------------
 do $$
 begin
@@ -151,6 +140,8 @@ begin
     raise exception 'SCANYM_ALREADY_APPLIED: CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 déjà (partiellement) appliqué -- annulé.';
   end if;
 end $$;
+
+begin;
 
 -- ------------------------------------------------------------
 -- A. Modes suivis — SEULE autorité SQL.
@@ -925,17 +916,10 @@ revoke all on function public.create_order(text,text,jsonb,integer,jsonb,text,te
 grant execute on function public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean) to anon;
 grant execute on function public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean) to authenticated;
 
+commit;
+
 -- ------------------------------------------------------------
--- POST-VOL — vérifications réelles sur le schéma RÉELLEMENT modifié,
--- exécutées AVANT `commit;` et DANS LA MÊME TRANSACTION
--- (CFTE-V1-SQL-ATOMICITY-01).
---
--- Les objets créés/redéfinis ci-dessus sont pleinement visibles ici
--- (catalogues système, privilèges, RLS, et même les résultats de
--- effective_sale_mode_field_requirements sur les données réelles) :
--- ces vérifications portent donc sur l'état qui SERAIT publié, et
--- n'importe laquelle qui lève EMPÊCHE le commit au lieu de le
--- constater trop tard.
+-- POST-VOL — vérifications réelles après application.
 -- ------------------------------------------------------------
 do $$
 declare
@@ -1086,10 +1070,6 @@ begin
     raise exception 'SCANYM_POSTCHECK_FAILED: une fonction de texte de statut écrit dans public.orders -- interdit.';
   end if;
 end $$;
-
--- DERNIÈRE instruction exécutable du fichier : rien ne s'exécute après
--- elle, donc aucune vérification ne peut être "constatée après coup".
-commit;
 
 -- ============================================================
 -- RÉSUMÉ

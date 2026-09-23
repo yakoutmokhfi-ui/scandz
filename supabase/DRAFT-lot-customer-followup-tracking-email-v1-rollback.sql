@@ -16,14 +16,6 @@
 -- marchandes saisies pendant la vie du lot sont supprimées avec la table
 -- (c'est de la configuration d'affichage, jamais de l'état métier) : le
 -- suivi retombe alors sur les textes de base, sans perte de commande.
---
--- ATOMICITÉ (CFTE-V1-SQL-ATOMICITY-01) : comme le sens aller, TOUT est
--- enfermé dans l'unique transaction explicite -- garde d'entrée,
--- restaurations, suppressions ET post-vol. `commit;` est la DERNIÈRE
--- instruction exécutable du fichier. Un post-vol qui lève EMPÊCHE donc
--- le commit : on ne peut pas se retrouver avec un rollback publié mais
--- incomplet (par exemple create_order restaurée mais portant encore du
--- code CFTE v1, ou le déclencheur d'intention order_received disparu).
 -- ============================================================
 
 begin;
@@ -491,10 +483,10 @@ drop function if exists public.set_merchant_tracking_status_text(uuid, text, tex
 drop table if exists public.merchant_tracking_status_text;
 drop function if exists public.customer_tracked_service_modes();
 
+commit;
+
 -- ------------------------------------------------------------
--- POST-VOL du rollback — exécuté AVANT `commit;` et DANS LA MÊME
--- TRANSACTION (CFTE-V1-SQL-ATOMICITY-01) : un rollback incomplet ne
--- peut donc pas être publié, il est annulé.
+-- POST-VOL du rollback.
 -- ------------------------------------------------------------
 do $$
 declare
@@ -529,6 +521,3 @@ begin
     raise exception 'SCANYM_ROLLBACK_FAILED: le déclencheur d''intention order_received a disparu.';
   end if;
 end $$;
-
--- DERNIÈRE instruction exécutable du fichier.
-commit;
