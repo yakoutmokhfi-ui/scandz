@@ -275,6 +275,57 @@ export interface FiscalRateRow {
 }
 
 /**
+ * DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- COMPOSITION
+ * MONÉTAIRE de la commande, exposée par le contrat fiscal unique.
+ *
+ * Ces deux montants ne sont PAS un nouveau calcul : ils proviennent
+ * exclusivement des deux instantanés déjà persistés `orders.subtotal`
+ * (produits SEULS) et `orders.total` (autoritaire, frais de livraison
+ * INCLUS), dont l'égalité `total = subtotal + delivery_fee` est
+ * GARANTIE en base par la contrainte CHECK
+ * `orders_total_equals_subtotal_plus_delivery_fee`
+ * (supabase/DRAFT-lot-server-delivery-fulfillment-pricing.sql). Le
+ * frais de livraison est donc dérivé EXACTEMENT comme
+ * `hasCompleteDeliveryTaxSnapshot` le fait déjà depuis LOT C v1.4,
+ * avec la MÊME convention d'arrondi -- une seule dérivation partagée,
+ * jamais deux.
+ *
+ * Aucun consommateur (back-office, ticket, facture) ne doit
+ * re-soustraire `total - subtotal` de son côté : cette structure est
+ * là pour que la composition soit AFFICHABLE sans recalcul local.
+ */
+export interface OrderMonetaryComposition {
+  /** `orders.subtotal` persisté : produits SEULS, jamais recalculé. */
+  productsSubtotal: number;
+  /**
+   * Frais de livraison CLIENT réellement facturé sur cette commande,
+   * dérivé des instantanés persistés (`total - subtotal`). Vaut 0
+   * pour table/retrait et pour une livraison gratuite -- jamais
+   * fabriqué, jamais reconstruit depuis la tarification COURANTE.
+   */
+  deliveryFee: number;
+  /**
+   * `productsSubtotal + deliveryFee` égale-t-il EXACTEMENT le montant
+   * final exposé par ce résumé (`totalGross`) ?
+   *
+   * Vrai dans tous les cas où le prix client est TTC (instantané
+   * `prices_include_tax = true`, mode `mixed-rate`) et dans les modes
+   * qui exposent `orders.total` tel quel (`unavailable`) -- la
+   * contrainte CHECK en base le garantit alors par construction.
+   *
+   * FAUX dans le seul cas d'un marchand en prix HORS TAXES
+   * (`prices_include_tax = false`) : `orders.subtotal`/`orders.total`
+   * sont alors des montants HT tandis que `totalGross` ajoute la TVA
+   * par-dessus. Afficher une composition produits + livraison sous ce
+   * total TTC donnerait une addition visuellement FAUSSE : les
+   * consommateurs doivent donc s'abstenir d'afficher la décomposition
+   * plutôt que d'inventer une répartition TTC de la part livraison
+   * (aucune donnée persistée ne la porte).
+   */
+  compositionReconcilesWithTotal: boolean;
+}
+
+/**
  * Résultat fiscal d'une commande.
  *
  * - `mixed-rate` : instantané par ligne COMPLET -> détail par taux
@@ -283,17 +334,22 @@ export interface FiscalRateRow {
  * - `unavailable`: données fiscales insuffisantes -> AUCUNE TVA n'est
  *   fabriquée, seul le total autoritaire est exposé (mandat §3, et
  *   décision de sûreté STUART LOT C v1.4 déjà en vigueur).
+ *
+ * `productsSubtotal`/`deliveryFee` (DELIVERY FEE / ORDER TOTAL
+ * RECONCILIATION v1) sont présents dans les TROIS modes : la
+ * composition d'un total est une donnée persistée, indépendante de la
+ * disponibilité de la décomposition TVA.
  */
 export type OrderFiscalSummary =
-  | {
+  | ({
       mode: "mixed-rate";
       taxLabel: string;
       totalNet: number;
       totalTax: number;
       totalGross: number;
       rates: FiscalRateRow[];
-    }
-  | {
+    } & OrderMonetaryComposition)
+  | ({
       mode: "flat-rate";
       taxLabel: string;
       rate: number;
@@ -301,8 +357,8 @@ export type OrderFiscalSummary =
       totalTax: number;
       totalGross: number;
       rates: FiscalRateRow[];
-    }
-  | {
+    } & OrderMonetaryComposition)
+  | ({
       mode: "unavailable";
       taxLabel: string;
       totalGross: number;
@@ -311,7 +367,7 @@ export type OrderFiscalSummary =
         | "no-tax-snapshot"
         | "tax-summary-disabled"
         | "incomplete-delivery-tax-snapshot";
-    };
+    } & OrderMonetaryComposition);
 
 /**
  * Calcule le résumé fiscal AUTORITAIRE d'une commande.
@@ -456,6 +512,18 @@ export function computeOrderFiscalSummary(
     : 0;
   const taxLabelResolved = taxLabel;
 
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- composition
+  // monétaire commune aux trois modes. `deliveryFeeGross` est la
+  // dérivation DÉJÀ en place depuis LOT C v1.4 (ci-dessus), réutilisée
+  // telle quelle : aucune seconde source, aucune seconde convention
+  // d'arrondi.
+  const composition = (totalShown: number): OrderMonetaryComposition => ({
+    productsSubtotal: roundCents(Number(order.subtotal)),
+    deliveryFee: deliveryFeeGross,
+    compositionReconcilesWithTotal:
+      roundCents(roundCents(Number(order.subtotal)) + deliveryFeeGross) === roundCents(totalShown),
+  });
+
   if (useMixedRateRendering) {
     const rates: FiscalRateRow[] = mixedRateGroups.map((g) => ({
       rate: g.rate,
@@ -473,6 +541,7 @@ export function computeOrderFiscalSummary(
       totalTax: roundCents(mixedRateGroups.reduce((acc, g) => acc + g.tax, 0)),
       totalGross: total,
       rates,
+      ...composition(total),
     };
   }
 
@@ -485,6 +554,7 @@ export function computeOrderFiscalSummary(
       totalTax: taxAmount,
       totalGross: includingTax,
       rates: [{ rate, net: excludingTax, tax: taxAmount, gross: includingTax }],
+      ...composition(includingTax),
     };
   }
 
@@ -492,6 +562,7 @@ export function computeOrderFiscalSummary(
     mode: "unavailable",
     taxLabel: taxLabelResolved,
     totalGross: total,
+    ...composition(total),
     reason: !hasTaxSnapshot
       ? "no-tax-snapshot"
       : suppressVatBreakdownForIncompleteHistory

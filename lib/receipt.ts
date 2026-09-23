@@ -112,6 +112,19 @@ export function buildReceiptHtml(params: {
     )
     .join("");
 
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- composition du
+  // total sur le ticket, dans la MÊME convention que le back-office et
+  // que le checkout client : deux lignes UNIQUEMENT quand un frais de
+  // livraison réel s'applique (table/retrait/livraison gratuite :
+  // ticket strictement INCHANGÉ). Les montants viennent du contrat
+  // fiscal partagé -- `lib/receipt.ts` ne soustrait rien lui-même.
+  const compositionRows =
+    fiscal.deliveryFee > 0 && fiscal.compositionReconcilesWithTotal
+      ? `
+    <div class="total-row"><span>${esc(t("subtotalLabel"))}</span><span>${esc(formatPrice(fiscal.productsSubtotal, order.currency))}</span></div>
+    <div class="total-row"><span>${esc(t("deliveryFeeLabel"))}</span><span>${esc(formatPrice(fiscal.deliveryFee, order.currency))}</span></div>`
+      : "";
+
   const customer = [
     order.customer_name,
     order.customer_phone,
@@ -171,6 +184,7 @@ export function buildReceiptHtml(params: {
   <div class="rule"></div>
   ${itemRows}
   <div class="rule"></div>
+  ${compositionRows}
   ${fiscal.mode === "mixed-rate" ? `
     <div class="total-row"><span>Total HT</span><span>${esc(formatPrice(fiscal.totalNet, order.currency))}</span></div>
     ${fiscal.rates
