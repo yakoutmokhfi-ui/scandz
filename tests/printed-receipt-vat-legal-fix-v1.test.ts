@@ -99,6 +99,10 @@ test("A. VAT ON + snapshots complets (fixture orders 16/17 : TTC, 5,5% + 20%, li
     settings: fullSettings(),
   });
 
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 : cette fixture est
+  // une commande à LIVRAISON GRATUITE -- le ticket garde donc
+  // EXACTEMENT son rendu historique (la nouvelle présentation
+  // commerciale ne concerne que les commandes à livraison payante).
   assert.ok(html.includes("Total HT"), "le Total HT doit être rendu");
   assert.ok(html.includes("Total TTC"), "le Total TTC doit être rendu");
   assert.ok(/TVA 5\.5%|TVA 5,5%/.test(html), "la ligne TVA à 5,5% doit être rendue");
@@ -126,6 +130,7 @@ test("B. VAT OFF (show_tax_summary=false sur l'instantané de commande) -- déco
   const html = buildReceiptHtml({ order, restaurantName: "Au lait cru", settings: fullSettings() });
 
   assert.ok(!html.includes("Total HT"), "aucun Total HT quand show_tax_summary est désactivé sur l'instantané");
+  assert.ok(!html.includes("Sous-total produits HT"), "aucune base HT produits non plus");
   assert.ok(!/TVA \d/.test(html), "aucune ligne TVA par taux");
   assert.ok(html.includes(String(20)), "le total autoritaire (20) doit tout de même apparaître quelque part");
 });
@@ -148,6 +153,7 @@ test("C.1 Instantané fiscal historique ABSENT (commande antérieure au lot MLTP
   const html = buildReceiptHtml({ order, restaurantName: "Au lait cru", settings: fullSettings() });
 
   assert.ok(!html.includes("Total HT"), "aucune décomposition fabriquée pour une commande sans instantané fiscal");
+  assert.ok(!html.includes("Sous-total produits HT"), "aucune base HT produits fabriquée non plus");
   assert.ok(!/TVA \d/.test(html));
 });
 
@@ -160,6 +166,7 @@ test("C.2 Instantané fiscal complet MAIS ventilation TVA livraison incomplète 
   const html = buildReceiptHtml({ order, restaurantName: "Au lait cru", settings: fullSettings() });
 
   assert.ok(!html.includes("Total HT"), "aucune décomposition HT/TVA/TTC fabriquée quand la ventilation TVA livraison est incomplète");
+  assert.ok(!html.includes("Sous-total produits HT"), "aucune base HT produits fabriquée non plus");
   assert.ok(!/TVA \d/.test(html));
   assert.ok(html.includes("25"), "le total autoritaire (25) reste affiché, jamais un montant recalculé");
 });

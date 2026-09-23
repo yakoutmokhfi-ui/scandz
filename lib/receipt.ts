@@ -118,12 +118,61 @@ export function buildReceiptHtml(params: {
   // livraison réel s'applique (table/retrait/livraison gratuite :
   // ticket strictement INCHANGÉ). Les montants viennent du contrat
   // fiscal partagé -- `lib/receipt.ts` ne soustrait rien lui-même.
+  //
+  // v1.1 : ces deux lignes ne servent PLUS que de repli, quand la
+  // présentation commerciale ci-dessous n'est pas disponible (aucune
+  // décomposition fiable : instantané absent/incomplet, récapitulatif
+  // TVA désactivé, marchand en prix hors taxes).
   const compositionRows =
     fiscal.deliveryFee > 0 && fiscal.compositionReconcilesWithTotal
       ? `
     <div class="total-row"><span>${esc(t("subtotalLabel"))}</span><span>${esc(formatPrice(fiscal.productsSubtotal, order.currency))}</span></div>
     <div class="total-row"><span>${esc(t("deliveryFeeLabel"))}</span><span>${esc(formatPrice(fiscal.deliveryFee, order.currency))}</span></div>`
       : "";
+
+  // ============================================================
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- PRÉSENTATION
+  // COMMERCIALE DU TICKET (décision produit CIO).
+  // ============================================================
+  // Invariant AFFICHÉ, cent pour cent :
+  //
+  //     PRODUITS HT
+  //   + TVA PRODUITS (par taux réellement présent dans l'instantané)
+  //   + LIVRAISON TTC
+  //   = TOTAL TTC
+  //
+  // Le frais de livraison est montré comme UN SEUL montant TTC : sa
+  // TVA est donc déjà dedans, et les lignes de TVA au-dessus ne
+  // portent QUE la part produit -- jamais de double comptage visuel.
+  // La ventilation TVA livraison persistée
+  // (order_delivery_tax_allocations) n'est ni modifiée, ni recalculée,
+  // ni supprimée : elle reste l'autorité interne, exposée telle quelle
+  // par le résumé fiscal complet (`fiscal.rates`).
+  //
+  // Ce bloc ne CALCULE rien : tout vient de
+  // `computeOrderFiscalSummary(...).commercialPresentation`. Aucun
+  // taux n'est codé en dur, la convention d'arrondi existante est
+  // réutilisée telle quelle, et un taux à 0 % suit la convention
+  // d'affichage déjà établie (aucune ligne "TVA 0 %" explicite, sa
+  // base contribuant normalement au HT).
+  const presentation = fiscal.commercialPresentation;
+  const presentationRows = presentation
+    ? `
+    <div class="total-row"><span>Sous-total produits HT</span><span>${esc(formatPrice(presentation.productNet, order.currency))}</span></div>
+    ${presentation.productRates
+      .filter((r) => r.rate > 0)
+      .map(
+        (r) =>
+          `<div class="total-row"><span>${esc(taxLabel)} produits ${r.rate}%</span><span>${esc(formatPrice(r.tax, order.currency))}</span></div>`
+      )
+      .join("")}
+    ${
+      presentation.deliveryGrossTtc > 0
+        ? `<div class="total-row"><span>${esc(t("deliveryFeeLabel"))} TTC</span><span>${esc(formatPrice(presentation.deliveryGrossTtc, order.currency))}</span></div>`
+        : ""
+    }
+    <div class="total-row grand-total"><span>Total TTC</span><span>${esc(formatPrice(presentation.finalGrossTtc, order.currency))}</span></div>`
+    : "";
 
   const customer = [
     order.customer_name,
@@ -184,7 +233,7 @@ export function buildReceiptHtml(params: {
   <div class="rule"></div>
   ${itemRows}
   <div class="rule"></div>
-  ${compositionRows}
+  ${presentation ? presentationRows : `${compositionRows}
   ${fiscal.mode === "mixed-rate" ? `
     <div class="total-row"><span>Total HT</span><span>${esc(formatPrice(fiscal.totalNet, order.currency))}</span></div>
     ${fiscal.rates
@@ -201,7 +250,7 @@ export function buildReceiptHtml(params: {
     <div class="total-row grand-total"><span>Total TTC</span><span>${esc(formatPrice(fiscal.totalGross, order.currency))}</span></div>
   ` : `
     <div class="total-row grand-total"><span>${esc(t("rcTotal"))}</span><span>${esc(formatPrice(total, order.currency))}</span></div>
-  `}
+  `}`}
   ${settings?.footer_text ? `<div class="footer">${esc(settings.footer_text)}</div>` : ""}
   <script>window.addEventListener('load', () => { window.print(); });</script>
 </body>

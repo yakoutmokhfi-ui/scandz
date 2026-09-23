@@ -186,9 +186,12 @@ test("2 — fixture type SC-42 : 39,60 + 7,50 = 47,10 et le frais est itemisé",
   assert.equal(f.totalGross, 47.1);
   assert.equal(f.mode, "mixed-rate", "instantané complet : décomposition TVA disponible");
 
+  // v1.1 : le ticket présente désormais la base HT produits, la TVA
+  // produits par taux, puis la livraison TTC (voir le fichier de tests
+  // v1.1). Le frais et le total autoritaire y restent visibles.
   const html = buildReceiptHtml({ order: o, restaurantName: "Au lait cru", settings: settings() });
-  assert.ok(html.includes(money(39.6)), "le ticket montre le sous-total produits");
-  assert.ok(html.includes(money(7.5)), "le ticket montre le frais de livraison");
+  assert.ok(html.includes(money(36)), "le ticket montre la base HT produits (39,60 TTC à 10%)");
+  assert.ok(html.includes(money(7.5)), "le ticket montre le frais de livraison TTC");
   assert.ok(html.includes(money(47.1)), "le ticket montre le total autoritaire");
 });
 
@@ -212,7 +215,8 @@ test("3 — fixture type SC-40 : 44,80 + 12,00 = 56,80 et le frais est itemisé"
   assert.equal(f.totalGross, 56.8);
 
   const html = buildReceiptHtml({ order: o, restaurantName: "Au lait cru", settings: settings() });
-  assert.ok(html.includes(money(44.8)) && html.includes(money(12)) && html.includes(money(56.8)));
+  assert.ok(html.includes(money(40.73)), "base HT produits (44,80 TTC à 10%)");
+  assert.ok(html.includes(money(12)) && html.includes(money(56.8)));
 });
 
 // --------------------------------------------------------------
@@ -228,8 +232,7 @@ test("4 — retrait : aucun frais de livraison, aucune ligne de composition", ()
     restaurantName: "Au lait cru",
     settings: settings(),
   });
-  assert.ok(!html.includes("Frais de livraison"), "ticket retrait strictement inchangé");
-  assert.ok(!html.includes("Sous-total produits"));
+  assert.ok(!html.includes("Frais de livraison"), "aucune ligne de livraison sur un ticket de retrait");
 });
 
 test("5 — table : aucun frais de livraison, aucune ligne de composition", () => {
@@ -369,10 +372,14 @@ test("12 — ticket imprimé et back-office partagent EXACTEMENT les mêmes mont
   const f = computeOrderFiscalSummary(o);
   const html = buildReceiptHtml({ order: o, restaurantName: "Au lait cru", settings: settings() });
 
-  assert.ok(html.includes(money(f.productsSubtotal)));
-  assert.ok(html.includes(money(f.deliveryFee)));
-  assert.ok(html.includes(money(f.totalGross)));
-  assert.ok(html.includes("Total HT") && html.includes("Total TTC"), "décomposition fiscale conservée");
+  assert.ok(f.commercialPresentation, "présentation commerciale disponible");
+  assert.ok(html.includes(money(f.commercialPresentation!.productNet)), "base HT produits du contrat");
+  assert.ok(html.includes(money(f.deliveryFee)), "frais de livraison du contrat");
+  assert.ok(html.includes(money(f.totalGross)), "total autoritaire du contrat");
+  assert.ok(
+    html.includes("Sous-total produits HT") && html.includes("Total TTC"),
+    "présentation commerciale conservée"
+  );
 });
 
 test("13 — aucun double comptage : le frais n'apparaît qu'UNE fois et n'est jamais ajouté au total", () => {
@@ -391,9 +398,9 @@ test("13 — aucun double comptage : le frais n'apparaît qu'UNE fois et n'est j
     "une seule ligne 'Frais de livraison' sur le ticket"
   );
   assert.equal(
-    (html.match(/Sous-total produits/g) ?? []).length,
+    (html.match(/Sous-total produits HT/g) ?? []).length,
     1,
-    "une seule ligne 'Sous-total produits' sur le ticket"
+    "une seule ligne 'Sous-total produits HT' sur le ticket"
   );
 });
 

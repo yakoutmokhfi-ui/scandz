@@ -96,12 +96,24 @@ function roundCents(value: number): number {
  * jamais de rendu multi-taux fabriqué si c'était pourtant le cas) --
  * l'appelant se replie alors sur le calcul à taux unique existant.
  */
-function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
+/**
+ * Groupes PRODUIT SEULS, par taux réellement présent dans l'instantané
+ * par ligne. EXTRAIT TEL QUEL de buildMixedRateTaxGroups (v1.1) pour
+ * être partagé avec la présentation commerciale du ticket -- la
+ * frontière d'arrondi produit reste EXACTEMENT celle de LOT C v1.3
+ * (net dérivé du gross produit SEUL, tax = gross - net), et le
+ * comportement de buildMixedRateTaxGroups est inchangé ligne pour
+ * ligne. Retourne `null` dès qu'une ligne n'a pas de taux instantané
+ * (même condition de rejet qu'avant).
+ */
+function buildProductRateGroups(
+  order: DashboardOrder
+): Map<number, { gross: number; net: number; tax: number }> | null {
   const productByRate = new Map<number, { gross: number; net: number; tax: number }>();
 
   for (const item of order.order_items) {
     if (item.tax_rate_snapshot === null || item.tax_rate_snapshot === undefined) {
-      return [];
+      return null;
     }
     const rate = Number(item.tax_rate_snapshot);
     const prior = productByRate.get(rate);
@@ -116,6 +128,14 @@ function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
   for (const [rate, group] of productByRate) {
     const net = roundCents(group.gross / (1 + rate / 100));
     productByRate.set(rate, { gross: group.gross, net, tax: roundCents(group.gross - net) });
+  }
+  return productByRate;
+}
+
+function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
+  const productByRate = buildProductRateGroups(order);
+  if (productByRate === null) {
+    return [];
   }
 
   const deliveryByRate = new Map<number, { gross: number; net: number; tax: number }>();
@@ -323,6 +343,50 @@ export interface OrderMonetaryComposition {
    * (aucune donnée persistée ne la porte).
    */
   compositionReconcilesWithTotal: boolean;
+  /**
+   * Présentation commerciale (produits HT + TVA produits + livraison
+   * TTC = total TTC), ou `null` quand l'instantané ne permet aucune
+   * décomposition fiable. Voir OrderCommercialPresentation.
+   */
+  commercialPresentation: OrderCommercialPresentation | null;
+}
+
+/**
+ * DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- PRÉSENTATION
+ * COMMERCIALE (vue B), distincte du RÉSUMÉ FISCAL COMPLET (vue A).
+ *
+ * Décision produit CIO (v1.1, §2/§3) : sur le TICKET IMPRIMÉ, le frais
+ * de livraison est présenté comme UN SEUL montant TTC côté client. Sa
+ * TVA est donc DÉJÀ contenue dans ce montant affiché -- la remettre
+ * dans les lignes de TVA affichées juste au-dessus la compterait deux
+ * fois À L'ŒIL. Les lignes de TVA de cette vue portent donc la part
+ * PRODUIT SEULE :
+ *
+ *     PRODUITS HT + TVA PRODUITS + LIVRAISON TTC = TOTAL TTC
+ *
+ * Ce que cette vue n'est PAS : elle ne remplace ni ne modifie le
+ * résumé fiscal complet (`rates`, mode `mixed-rate`), qui continue de
+ * combiner part produit et ventilation TVA livraison persistée et
+ * reste l'autorité interne (réconciliation, facture à venir). Les deux
+ * vues décrivent le MÊME total, décomposé différemment -- jamais deux
+ * totaux concurrents.
+ *
+ * `null` quand l'instantané ne permet pas de décomposition fiable :
+ * aucune décomposition n'est alors fabriquée (règle inchangée).
+ */
+export interface OrderCommercialPresentation {
+  /** Base HT produits = somme des parts HT par taux (frontière d'arrondi LOT C v1.3). */
+  productNet: number;
+  /** TVA PRODUITS SEULE -- n'inclut JAMAIS la TVA du frais de livraison. */
+  productTax: number;
+  /** TTC produits = `orders.subtotal` persisté (produits seuls). */
+  productGross: number;
+  /** Une ligne par taux produit réellement présent dans l'instantané, part PRODUIT seule. */
+  productRates: FiscalRateRow[];
+  /** Frais de livraison CLIENT, montant TTC unique déjà persisté. */
+  deliveryGrossTtc: number;
+  /** Total TTC autoritaire = `orders.total`. */
+  finalGrossTtc: number;
 }
 
 /**
@@ -517,11 +581,96 @@ export function computeOrderFiscalSummary(
   // dérivation DÉJÀ en place depuis LOT C v1.4 (ci-dessus), réutilisée
   // telle quelle : aucune seconde source, aucune seconde convention
   // d'arrondi.
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- PRÉSENTATION
+  // COMMERCIALE (vue B). Construite à partir des MÊMES groupes produit
+  // que la vue fiscale complète, sans la part livraison : la TVA
+  // affichée est donc strictement la TVA PRODUIT, et le frais de
+  // livraison reste UN montant TTC unique (sa TVA, elle, reste
+  // persistée et intacte dans order_delivery_tax_allocations, lue
+  // telle quelle par la vue A -- ce lot n'y touche pas).
+  //
+  // Réconciliation EXACTE par construction, sans aucune nouvelle
+  // convention d'arrondi :
+  //   somme(gross produit par taux) = orders.subtotal
+  //   net + tax par taux            = gross de ce taux (LOT C v1.3)
+  //   + (orders.total - orders.subtotal)
+  //   = orders.total
+  //
+  // `null` dans tous les cas où aucune décomposition fiable n'existe
+  // (aucun instantané fiscal, récapitulatif TVA désactivé, instantané
+  // TVA livraison incomplet, marchand en prix HORS TAXES -- voir le
+  // rapport v1.1 pour ce dernier cas).
+  const buildCommercialPresentation = (): OrderCommercialPresentation | null => {
+    if (!hasTaxSnapshot || !showTaxSummarySetting || pricesIncludeTax !== true) return null;
+    if (suppressVatBreakdownForIncompleteHistory) return null;
+    // PÉRIMÈTRE STRICT (mandat v1.1 §11, "smallest contract" et §11
+    // du mandat v1 "ne pas élargir si le comportement est déjà clair
+    // et correct") : cette vue n'existe que lorsqu'un frais de
+    // livraison réel est facturé -- c'est le SEUL cas où la question
+    // du double comptage visuel se pose. Sans frais de livraison, la
+    // décomposition existante (Total HT / TVA par taux / Total TTC)
+    // est déjà exacte et reste STRICTEMENT inchangée : mêmes
+    // libellés, mêmes montants, aucun ticket historique perturbé.
+    if (deliveryFeeGross <= 0) return null;
+
+    const productSubtotal = roundCents(Number(order.subtotal));
+    const productGroups = itemsHaveRateSnapshots ? buildProductRateGroups(order) : null;
+
+    // Instantané par ligne COMPLET -> une ligne de TVA par taux
+    // réellement présent (jamais un taux codé en dur).
+    if (productGroups && productGroups.size > 0 && hasCompleteDeliverySnapshot) {
+      const productRates: FiscalRateRow[] = Array.from(productGroups.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([rateValue, group]) => ({
+          rate: rateValue,
+          net: group.net,
+          tax: group.tax,
+          gross: group.gross,
+        }));
+      const productNet = roundCents(productRates.reduce((acc, r) => acc + r.net, 0));
+      const productTax = roundCents(productRates.reduce((acc, r) => acc + r.tax, 0));
+      const productGross = roundCents(productRates.reduce((acc, r) => acc + r.gross, 0));
+      // Garde de sûreté : si la somme des groupes produit ne retombe
+      // pas exactement sur le sous-total persisté, on n'affiche RIEN
+      // plutôt qu'une décomposition qui ne réconcilie pas.
+      if (productGross !== productSubtotal) return null;
+      return {
+        productNet,
+        productTax,
+        productGross,
+        productRates,
+        deliveryGrossTtc: deliveryFeeGross,
+        finalGrossTtc: total,
+      };
+    }
+
+    // Pas d'instantané par ligne, mais un instantané marchand à taux
+    // unique TTC exploitable (mode `flat-rate` historique) : la part
+    // produit se dérive du SOUS-TOTAL produits seul, avec la MÊME
+    // formule et la MÊME convention d'arrondi que ci-dessus -- le
+    // frais de livraison n'entre jamais dans cette dérivation.
+    if (!itemsHaveRateSnapshots && rate > 0) {
+      const productNet = roundCents(productSubtotal / (1 + rate / 100));
+      const productTax = roundCents(productSubtotal - productNet);
+      return {
+        productNet,
+        productTax,
+        productGross: productSubtotal,
+        productRates: [{ rate, net: productNet, tax: productTax, gross: productSubtotal }],
+        deliveryGrossTtc: deliveryFeeGross,
+        finalGrossTtc: total,
+      };
+    }
+
+    return null;
+  };
+
   const composition = (totalShown: number): OrderMonetaryComposition => ({
     productsSubtotal: roundCents(Number(order.subtotal)),
     deliveryFee: deliveryFeeGross,
     compositionReconcilesWithTotal:
       roundCents(roundCents(Number(order.subtotal)) + deliveryFeeGross) === roundCents(totalShown),
+    commercialPresentation: buildCommercialPresentation(),
   });
 
   if (useMixedRateRendering) {
