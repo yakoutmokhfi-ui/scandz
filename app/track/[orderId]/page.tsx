@@ -27,6 +27,7 @@ import { getOrderTrackingStatusTextOverrides } from "@/lib/server/tracking-statu
 import { buildCleanTrackingPath } from "@/lib/tracking/link";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
 import { translate, resolveLangFromParam } from "@/lib/i18n";
+import { DEFAULT_THEME, TRACKING_SURFACE_COLORS, themeStyle } from "@/lib/themes";
 import { formatPrice } from "@/lib/whatsapp";
 import TrackingAutoRefresh from "@/components/TrackingAutoRefresh";
 import TrackingEntryGate from "@/components/TrackingEntryGate";
@@ -259,7 +260,10 @@ export default async function TrackingPage({
       )}
 
       <p
-        className="mt-6 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink"
+        /* Même pastille que la sélection active de la boutique
+           (CategoryNav/SubcategoryFilter/CollectionNav :
+           rounded-full + bg-caramel + text-caramel-ink + shadow-sm). */
+        className="mt-6 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink shadow-sm"
         aria-live="polite"
       >
         {t(currentLabelKey)}
@@ -291,9 +295,16 @@ export default async function TrackingPage({
           >
             <span
               aria-hidden="true"
+              /* Le vert littéral (text-green-600) était une couleur
+                 figée, étrangère au système de la boutique et devenue
+                 sombre sur un fond sombre. Remplacé par l'accent du
+                 système (text-caramel, le doré de la boutique) --
+                 changement de PRÉSENTATION seulement : le symbole
+                 "✓"/"○" et le libellé restent les porteurs de
+                 l'information (mandat §24, jamais la couleur seule). */
               className={
                 step.reached
-                  ? "mt-0.5 text-green-600"
+                  ? "mt-0.5 text-caramel"
                   : "mt-0.5 text-ink-on-bg-muted"
               }
             >
@@ -318,7 +329,10 @@ export default async function TrackingPage({
       </ol>
 
       {isException && (
-        <p className="mt-6 rounded-2xl bg-crema p-4 text-sm font-bold text-ink-on-bg" role="status">
+        <p
+          className="mt-6 w-full rounded-2xl border border-caramel/30 bg-crema p-4 text-sm font-bold text-ink-on-bg"
+          role="status"
+        >
           {t(statusLabelKey(tracking.orderStatus))}
         </p>
       )}
@@ -329,7 +343,13 @@ export default async function TrackingPage({
       {publicContact && (
         <section
           data-tracking-merchant-contact=""
-          className="mt-6 w-full rounded-2xl bg-white/70 p-4 text-left text-sm"
+          /* Carte sombre à filet discret, comme les sections de la
+             boutique. bg-white/70 était un fond littéral CLAIR associé
+             à des couleurs de texte calculées contre --sc-bg (motif
+             explicitement corrigé partout ailleurs par UIFIX,
+             tests/ui-contrast-fix.test.ts) : sur fond sombre il
+             produisait une carte blanche avec du texte blanc. */
+          className="mt-6 w-full rounded-2xl border border-caramel/30 bg-crema p-4 text-left text-sm"
           aria-labelledby="tracking-contact-title"
         >
           <h2 id="tracking-contact-title" className="font-bold text-ink-on-bg">
@@ -384,7 +404,28 @@ export default async function TrackingPage({
 
 function TrackingShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-sm flex-col items-center justify-center bg-crema px-6 py-10 text-center">
+    /* ALIGNEMENT VISUEL SUR LA BOUTIQUE (présentation uniquement) :
+       cette page était la seule surface publique à ne monter AUCUNE
+       variable de thème -- elle retombait donc sur les valeurs de
+       repli claires de `:root` (app/globals.css) pendant que la
+       boutique rend son fond sombre et son doré. Les variables
+       `--sc-*` sont désormais posées ici, par le MÊME `themeStyle()`
+       que la boutique (lib/themes.ts) : toutes les classes de cette
+       page (bg-crema, text-ink-on-bg, text-ink-on-bg-muted,
+       bg-caramel/text-caramel-ink, text-accent-dark-on-bg,
+       border-caramel) se résolvent alors sur la palette sombre, avec
+       les mêmes garanties de contraste calculées (V69->V73). Aucune
+       couleur littérale n'est écrite ici ; aucune logique, aucun
+       statut, aucun libellé n'est touché.
+
+       Le fond est porté par un <main> PLEINE LARGEUR (le contenu
+       reste centré et limité à max-w-sm dans le conteneur interne) --
+       sans cela, les marges latérales d'un grand écran laisseraient
+       apparaître le fond clair du body autour d'une colonne sombre. */
+    <main
+      style={themeStyle(DEFAULT_THEME, TRACKING_SURFACE_COLORS) as React.CSSProperties}
+      className="flex min-h-dvh w-full flex-col bg-crema px-6 py-10"
+    >
       {/* CUSTOMER TRACKING EXPERIENCE v2.1 -- ferme CTE-V2-HISTORY-01
           (blocage de publication, Work re-audit de v2). Monté ICI,
           INCONDITIONNELLEMENT, pour que CHAQUE branche renvoyée par
@@ -398,7 +439,9 @@ function TrackingShell({ children }: { children: React.ReactNode }) {
           que cela : aucun réseau, aucun second échange, aucun rendu
           visible. */}
       <TrackingFragmentScrubber />
-      {children}
+      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col items-center justify-center text-center">
+        {children}
+      </div>
     </main>
   );
 }
