@@ -228,3 +228,44 @@ export function themeStyle(
     "--sc-accent-dark-on-bg-muted": mutedOnBg(readableAccentOnBg(accentDark, bg), bg),
   };
 }
+
+
+/**
+ * TRACKING — ALIGNEMENT VISUEL SUR LA BOUTIQUE (ajustement de
+ * PRÉSENTATION UNIQUEMENT).
+ *
+ * La page de suivi client (`app/track/[orderId]/page.tsx`) est la
+ * seule surface publique qui ne montait PAS de variables de thème :
+ * elle héritait donc des valeurs de repli de `:root`
+ * (app/globals.css), c'est-à-dire le fond clair historique, alors que
+ * la boutique rend un fond sombre et un accent doré. D'où l'écart
+ * visuel constaté entre les deux écrans.
+ *
+ * Ces surcharges réutilisent EXACTEMENT le système de couleurs de la
+ * boutique (`themeStyle`, mêmes variables `--sc-*`, même machinerie de
+ * contraste déjà auditée V69->V73) -- aucune couleur littérale n'est
+ * écrite dans la page, aucune nouvelle logique de contraste n'est
+ * introduite, et `THEMES` n'est pas modifié (ceci n'est PAS un
+ * nouveau thème sélectionnable par un commerçant).
+ *
+ * Le doré est la couleur `highlight` DÉJÀ présente dans le système
+ * (thème par défaut, `--sc-highlight`/`bg-gold` de la boutique) --
+ * elle est référencée, jamais recopiée, pour qu'une évolution du
+ * système reste unique et partagée.
+ *
+ * Résultat calculé par `themeStyle` (vérifié par
+ * tests/tracking-storefront-visual-alignment.test.ts) : fond très
+ * sombre, texte principal blanc (19,16:1), texte secondaire gris
+ * clair (9,55:1), pastilles/boutons dorés à texte noir (8,65:1),
+ * liens dorés (5,79:1), filets dorés (7,89:1).
+ */
+export const TRACKING_SURFACE_COLORS: ThemeColorOverrides = {
+  /** -> --sc-accent : pastille de statut, filets, éléments actifs. */
+  primary: THEMES[DEFAULT_THEME].highlight,
+  /** -> --sc-highlight : détails décoratifs (même doré). */
+  accent: THEMES[DEFAULT_THEME].highlight,
+  /** -> --sc-ink : surfaces sombres. */
+  secondary: "#15151A",
+  /** -> --sc-bg : fond de page sombre. */
+  bg: "#0F0F10",
+};
