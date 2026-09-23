@@ -5,6 +5,7 @@ import type {
   DeliveryFulfillmentStatus,
 } from "@/lib/sale-modes-types";
 import { isValidPostalCode } from "@/lib/customer";
+import type { Translations } from "@/lib/types";
 
 // Ré-exportée : DeliveryZone devient le modèle COMMUN aux deux
 // résolveurs de ce fichier (corrige L2B2-01) -- consommateurs et
@@ -40,6 +41,15 @@ export interface DeliveryStatus {
    *  sur le moteur actif. `zone` reste inchangé pour ses consommateurs
    *  existants. */
   customerNotice?: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash source et traductions DU SEUL
+   *  `customerNotice` ci-dessus, recopiés de la règle retenue en même
+   *  temps que lui (jamais résolus ici : ce module ne connaît aucune
+   *  langue). Consommés exclusivement par
+   *  lib/delivery-customer-notice.ts, qui applique le contrat de repli
+   *  générique. Comme `customerNotice`, ils ne sont JAMAIS renseignés
+   *  par les chemins legacy. */
+  customerNoticeHash?: string | null;
+  customerNoticeTranslations?: Translations | null;
 }
 
 /**
@@ -335,6 +345,8 @@ export function resolveDeliveryFulfillment(
       matchedPrefix,
       fulfillmentCode: matchedRule.fulfillmentCode,
       customerText: matchedRule.customerText,
+      customerTextHash: matchedRule.customerTextHash ?? null,
+      customerTextTranslations: matchedRule.translations ?? null,
       deliveryFee: computeDeliveryFee(matchedRule, subtotal),
     };
   }
@@ -345,6 +357,8 @@ export function resolveDeliveryFulfillment(
     matchedPrefix,
     fulfillmentCode: matchedRule.fulfillmentCode,
     customerText: matchedRule.customerText,
+    customerTextHash: matchedRule.customerTextHash ?? null,
+    customerTextTranslations: matchedRule.translations ?? null,
     deliveryFee: computeDeliveryFee(matchedRule, subtotal),
   };
 }
@@ -444,6 +458,8 @@ export function deliveryStatusFromFulfillmentResult(
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
       customerNotice: result.customerText ?? null,
+      customerNoticeHash: result.customerTextHash ?? null,
+      customerNoticeTranslations: result.customerTextTranslations ?? null,
     };
   }
   if (result.block === "below-min") {
@@ -454,6 +470,8 @@ export function deliveryStatusFromFulfillmentResult(
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
       customerNotice: result.customerText ?? null,
+      customerNoticeHash: result.customerTextHash ?? null,
+      customerNoticeTranslations: result.customerTextTranslations ?? null,
     };
   }
   // "no-postal" | "out-of-zone" | undefined (jamais atteint en pratique

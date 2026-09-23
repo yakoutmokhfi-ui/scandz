@@ -5,6 +5,7 @@
  * en dur (les groupes sont des chaînes ouvertes, déclarées côté base,
  * jamais une énumération figée ici).
  */
+import type { Translations } from "@/lib/types";
 
 /**
  * Mode de vente public tel que retourné par
@@ -17,6 +18,13 @@ export interface SaleMode {
   label: string;
   category: string;
   customerText: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash source (colonne GÉNÉRÉE) et
+   *  traductions du SEUL `customerText`, pour que le storefront
+   *  résolve ce texte dans la langue du visiteur avec les mêmes règles
+   *  de repli que le reste du contenu marchand. Absents pour une base
+   *  non migrée : le texte source est alors affiché, comme avant. */
+  customerTextHash?: string | null;
+  translations?: Translations | null;
   pricingMode: "free" | "fixed" | "free_above_threshold" | "external_quote";
   fixedFee: number | null;
   freeThreshold: number | null;
@@ -131,6 +139,10 @@ export interface PublicDeliveryFulfillmentRule {
   isFallback: boolean;
   minItems: number | null;
   customerText: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- voir SaleMode ci-dessus : mêmes
+   *  champs, même contrat, pour le texte client de CETTE règle. */
+  customerTextHash?: string | null;
+  translations?: Translations | null;
   displayOrder: number;
   /** Champ transporteur interne toujours absent ici (inchangé par
    *  cette extension) : la RPC publique ne le retourne toujours pas,
@@ -174,6 +186,11 @@ export interface DeliveryFulfillmentStatus {
   fulfillmentCode?: string;
   matchedPrefix?: string;
   customerText?: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- recopiés de la règle retenue en
+   *  même temps que `customerText`, jamais résolus ici (ce module ne
+   *  connaît aucune langue). */
+  customerTextHash?: string | null;
+  customerTextTranslations?: Translations | null;
   block?: DeliveryFulfillmentBlock;
   /** Nombre d'articles restant à ajouter pour que la règle résolue devienne éligible */
   missing?: number;

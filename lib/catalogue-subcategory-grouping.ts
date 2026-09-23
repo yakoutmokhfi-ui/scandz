@@ -1,4 +1,4 @@
-import type { MenuItem } from "@/lib/types";
+import type { MenuItem, Translations } from "@/lib/types";
 
 /**
  * CATALOGUE / SUBCATEGORIES v1 -- logique PURE de regroupement visuel
@@ -17,6 +17,15 @@ import type { MenuItem } from "@/lib/types";
 export interface MenuItemGroup {
   subcategoryId: string | null;
   subcategoryName: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash source et traductions DU NOM
+   *  de la sous-catégorie, portés par le groupe pour que l'affichage
+   *  (sous-titre et pilule de filtre) puisse résoudre l'intitulé dans
+   *  la langue du client via `tSubcategoryName`. Ce module NE RÉSOUT
+   *  RIEN lui-même : il reste pur et indépendant de la langue, comme
+   *  avant ce lot. `null` pour le groupe "direct" et pour une base non
+   *  encore migrée. */
+  subcategoryNameHash?: string | null;
+  subcategoryTranslations?: Translations | null;
   items: MenuItem[];
 }
 
@@ -31,6 +40,8 @@ export function groupMenuItemsBySubcategory(items: readonly MenuItem[]): MenuIte
       groups.push({
         subcategoryId,
         subcategoryName: subcategoryId ? (item.subcategory_name ?? null) : null,
+        subcategoryNameHash: subcategoryId ? (item.subcategory_name_hash ?? null) : null,
+        subcategoryTranslations: subcategoryId ? (item.subcategory_translations ?? null) : null,
         items: [item],
       });
     }
@@ -57,6 +68,23 @@ export function groupMenuItemsBySubcategory(items: readonly MenuItem[]): MenuIte
 export interface SubcategoryFilterOption {
   id: string;
   name: string;
+}
+
+/** TRANSLATIONS MANAGEMENT v2 -- traduit l'intitulé des options de
+ *  filtre déjà dérivées, SANS changer leur nombre, leur ordre ni leur
+ *  identité : la sélection reste faite sur `id`, jamais sur le libellé
+ *  affiché. Une sous-catégorie sans traduction valide garde son nom
+ *  source (contrat de repli inchangé). */
+export function translateSubcategoryFilterOptions(
+  options: readonly SubcategoryFilterOption[],
+  groups: readonly MenuItemGroup[],
+  translate: (group: MenuItemGroup) => string
+): SubcategoryFilterOption[] {
+  const byId = new Map(groups.filter((g) => g.subcategoryId).map((g) => [g.subcategoryId as string, g]));
+  return options.map((option) => {
+    const group = byId.get(option.id);
+    return group ? { ...option, name: translate(group) || option.name } : option;
+  });
 }
 
 /**

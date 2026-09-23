@@ -315,6 +315,16 @@ export interface CatalogueSubcategory {
    *  toute sous-catégorie désactivée lors de la résolution d'un
    *  import ultérieur -- jamais affiché/filtré ailleurs par ce lot. */
   subcategory_is_active: boolean;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash canonique du nom source
+   *  (colonne GÉNÉRÉE en base, jamais recalculée côté client), même
+   *  contrat que `category_name_hash`/`name_hash`. `null` pour une
+   *  base non encore migrée (colonne absente de la réponse) : la
+   *  sous-catégorie reste alors affichée dans sa langue source,
+   *  jamais une erreur. */
+  subcategory_name_hash?: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- MÊME modèle JSONB que les
+   *  catégories/produits. `null` = aucune traduction enregistrée. */
+  subcategory_translations?: Translations | null;
   products: CatalogueProduct[];
 }
 
@@ -442,6 +452,8 @@ export async function getMerchantCatalogue(
     reference_price_per_kg: number | null;
     category_is_active: boolean | null;
     subcategory_is_active: boolean | null;
+    subcategory_name_hash: string | null;
+    subcategory_translations: Translations | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -495,6 +507,12 @@ export async function getMerchantCatalogue(
           // OPERATOR CATALOGUE RESET v1.1 -- même repli défensif que
           // category_is_active ci-dessus.
           subcategory_is_active: r.subcategory_is_active ?? true,
+          // TRANSLATIONS MANAGEMENT v2 -- repli défensif identique aux
+          // colonnes ci-dessus : une base non encore migrée ne renvoie
+          // pas ces champs, la sous-catégorie reste alors non traduite
+          // (affichée en langue source) plutôt que de casser l'écran.
+          subcategory_name_hash: r.subcategory_name_hash ?? null,
+          subcategory_translations: r.subcategory_translations ?? null,
           products: [],
         };
         cat.subcategories.push(sub);
@@ -1117,7 +1135,23 @@ export async function updateRestaurantPublicContact(
 // assert_restaurant_asset_role côté SQL (owner/manager/opérateur).
 // ------------------------------------------------------------------
 
-export type TranslationEntityType = "restaurant" | "category" | "item";
+/** TRANSLATIONS MANAGEMENT v2 -- 5 types d'entité traduisibles, EXACTEMENT
+ *  ceux acceptés par la RPC write_translation (SEULE autorité ; cette
+ *  union ne fait que la refléter, jamais l'élargir) :
+ *    restaurant      -> intro_text | announcement_text
+ *    category        -> name | description
+ *    subcategory     -> name
+ *    item            -> name | short_description | description
+ *    customer_notice -> customer_text (texte client CONFIGURABLE PAR LE
+ *                       COMMERÇANT : mode de vente retrait/livraison, ou
+ *                       règle de livraison -- jamais un libellé
+ *                       d'interface Scanym, qui reste dans lib/i18n.ts). */
+export type TranslationEntityType =
+  | "restaurant"
+  | "category"
+  | "subcategory"
+  | "item"
+  | "customer_notice";
 export type TranslationWriteStatus = "to_review" | "validated";
 
 export async function writeTranslation(
@@ -1189,6 +1223,9 @@ export async function getMerchantDeliveryFulfillmentPricing(
     fixed_fee: number | string | null;
     free_threshold: number | string | null;
     customer_text: string | null;
+    // TRANSLATIONS MANAGEMENT v2 -- colonnes ADDITIVES (voir ci-dessous).
+    customer_text_hash?: string | null;
+    translations?: Translations | null;
   }>).map((row) => ({
     ruleId: row.rule_id,
     fulfillmentLabel: row.fulfillment_label,
@@ -1196,6 +1233,8 @@ export async function getMerchantDeliveryFulfillmentPricing(
     fixedFee: row.fixed_fee === null ? null : Number(row.fixed_fee),
     freeThreshold: row.free_threshold === null ? null : Number(row.free_threshold),
     customerText: row.customer_text,
+    customerTextHash: row.customer_text_hash ?? null,
+    translations: row.translations ?? null,
   }));
 }
 
@@ -1237,10 +1276,19 @@ export async function getMerchantDeliveryMethodNotices(
     mode_code: "pickup" | "delivery";
     mode_label: string;
     customer_text: string | null;
+    // TRANSLATIONS MANAGEMENT v2 -- colonnes ADDITIVES. Une base non
+    // encore migrée ne les renvoie pas : `undefined` -> `null`, le
+    // texte reste alors simplement non traduisible, jamais une erreur.
+    sale_mode_id?: string | null;
+    customer_text_hash?: string | null;
+    translations?: Translations | null;
   }>).map((row) => ({
     modeCode: row.mode_code,
     modeLabel: row.mode_label,
     customerText: row.customer_text,
+    saleModeId: row.sale_mode_id ?? null,
+    customerTextHash: row.customer_text_hash ?? null,
+    translations: row.translations ?? null,
   }));
 }
 
