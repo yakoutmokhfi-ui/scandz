@@ -609,7 +609,15 @@ export default function LegalCgvPage() {
                   ))}
                 </ul>
               ) : preview ? (
-                <div className="prose prose-sm max-h-96 overflow-y-auto rounded-lg border p-3" dangerouslySetInnerHTML={{ __html: preview }} />
+                // CGV DOCUMENT PRESENTATION v1 -- l'aperçu marchand
+                // utilise EXACTEMENT la même mise en page que la page
+                // publique (classe `cgv-document`), pour que ce que le
+                // marchand relit avant publication soit ce que le
+                // client verra. Aucun contenu n'est modifié ici.
+                <div
+                  className="cgv-document max-h-96 overflow-y-auto rounded-lg border p-3 text-sm"
+                  dangerouslySetInnerHTML={{ __html: preview }}
+                />
               ) : (
                 <p className="text-sm text-stone-500">{t("legalCgvIncomplete")}</p>
               )}

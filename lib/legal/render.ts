@@ -286,13 +286,56 @@ function unitLabel(unit: PreparationTimeUnit): string {
   return unit === "MINUTES" ? "minutes" : "heures";
 }
 
+/**
+ * CGV DOCUMENT PRESENTATION v1 -- NUMÉROTATION DE CHAPITRE.
+ *
+ * Compteur de chapitres d'UN rendu. Il n'est PAS global : une instance
+ * neuve est créée à chaque appel de `renderCgv`, donc le déterminisme
+ * (mêmes entrées -> même sortie, caractère pour caractère) est intact,
+ * et deux rendus concurrents ne peuvent pas se marcher dessus.
+ *
+ * Le numéro est attribué au moment où la section est RÉELLEMENT
+ * poussée dans le document : une section conditionnelle absente ne
+ * consomme aucun numéro, donc la suite est toujours 1, 2, 3, … sans
+ * trou (mandat §3). Aucun numéro n'est écrit en dur dans un gabarit
+ * légal contrôlé.
+ *
+ * L'encadré réglementaire D.211-2 n'est volontairement PAS un chapitre
+ * (pas de numéro, pas de `data-chapter`) : c'est un bloc réglementaire
+ * distinct inséré dans le document, pas une clause de plus.
+ */
+function createChapterCounter(): {
+  section: (heading: string, bodyHtml: string, attrs?: string) => string;
+  count: () => number;
+} {
+  let chapter = 0;
+  return {
+    section(heading: string, bodyHtml: string, attrs = ""): string {
+      chapter += 1;
+      return (
+        `<section class="cgv-section" data-chapter="${chapter}"${attrs}>` +
+        `<h2 class="cgv-section-heading">` +
+        `<span class="cgv-chapter-number">${chapter}.</span> ` +
+        `<span class="cgv-chapter-title">${escapeHtml(heading)}</span>` +
+        `</h2>${bodyHtml}</section>`
+      );
+    },
+    count: () => chapter,
+  };
+}
+
 /** Pousse une section fixe simple (titre + un seul paragraphe) SI ET
  *  SEULEMENT SI le gabarit fournit la clé correspondante -- jamais un
  *  paragraphe vide, jamais une erreur pour une clé absente (v1 template
- *  compatibility). */
-function pushFixedSection(sections: string[], heading: string, text: string | undefined): void {
+ *  compatibility), et jamais un numéro de chapitre consommé pour rien. */
+function pushFixedSection(
+  sections: string[],
+  chapters: ReturnType<typeof createChapterCounter>,
+  heading: string,
+  text: string | undefined
+): void {
   if (text) {
-    sections.push(`<section><h2>${escapeHtml(heading)}</h2><p>${escapeHtml(text)}</p></section>`);
+    sections.push(chapters.section(heading, `<p>${escapeHtml(text)}</p>`));
   }
 }
 
@@ -327,9 +370,19 @@ export function renderCgv(input: RenderCgvInput): string {
     .filter((part): part is string => !!part && part.trim() !== "")
     .join(", ");
 
+  // CGV DOCUMENT PRESENTATION v1 (§4) -- en-tête de document. Le titre
+  // reste EXACTEMENT `template.header` (texte contrôlé, jamais
+  // réécrit) ; le nom du marchand affiché sous le titre vient des
+  // seules entrées de rendu déjà fiables (`sellerName`), jamais d'une
+  // métadonnée inventée. La date/référence de publication reste
+  // affichée par la page publique, inchangée.
+  const chapters = createChapterCounter();
   const sections: string[] = [
-    `<h1>${escapeHtml(template.header)}</h1>`,
-    `<p>${escapeHtml(introTone(template.identity_intro))}</p>`,
+    `<header class="cgv-document-header">` +
+      `<h1 class="cgv-document-title">${escapeHtml(template.header)}</h1>` +
+      `<p class="cgv-document-seller">${escapeHtml(sellerName)}</p>` +
+      `</header>`,
+    `<p class="cgv-preamble">${escapeHtml(introTone(template.identity_intro))}</p>`,
   ];
 
   // ------------------------------------------------------------------
@@ -346,27 +399,59 @@ export function renderCgv(input: RenderCgvInput): string {
     legalEntityName && legalEntityName !== sellerName
       ? ` (exerçant sous le nom commercial « ${escapeHtml(sellerName)} »)`
       : "";
-  const identifierParts: string[] = [];
-  if (legal.siren) identifierParts.push(`SIREN : ${escapeHtml(legal.siren)}`);
-  if (legal.siret) identifierParts.push(`SIRET : ${escapeHtml(legal.siret)}`);
-  if (legal.vatNumber) identifierParts.push(`N° TVA intracommunautaire : ${escapeHtml(legal.vatNumber)}`);
-  const identifiersSuffix = identifierParts.length > 0 ? ` ${identifierParts.join(" — ")}.` : "";
-  sections.push(
-    `<section><h2>Identité du vendeur</h2><p>${escapeHtml(displayName)}${tradeNameNote}, ${escapeHtml(
-      legal.legalForm
-    )}, ${escapeHtml(addressLine)}, ${escapeHtml(legal.governingCountry)}.${identifiersSuffix}</p></section>`
-  );
+  // CGV DOCUMENT PRESENTATION v1 (§5) -- la MÊME identité, présentée en
+  // lignes étiquetées (liste de définitions) plutôt qu'en un paragraphe
+  // dense. Aucune valeur n'est ajoutée, retirée ni reformulée : seules
+  // les étiquettes de présentation ("Dénomination", "Forme juridique",
+  // …) encadrent des valeurs déjà rendues auparavant, dans le même
+  // ordre. Une valeur optionnelle absente ne produit AUCUNE ligne --
+  // jamais un "SIREN : —" fabriqué.
+  const identityRows: Array<[string, string]> = [
+    ["Dénomination", `${escapeHtml(displayName)}${tradeNameNote}`],
+    ["Forme juridique", escapeHtml(legal.legalForm)],
+    ["Adresse", escapeHtml(addressLine)],
+    ["Pays", escapeHtml(legal.governingCountry)],
+  ];
+  if (legal.siren) identityRows.push(["SIREN", escapeHtml(legal.siren)]);
+  if (legal.siret) identityRows.push(["SIRET", escapeHtml(legal.siret)]);
+  if (legal.vatNumber) identityRows.push(["N° TVA intracommunautaire", escapeHtml(legal.vatNumber)]);
+  const identityList =
+    `<dl class="cgv-identity">` +
+    identityRows
+      .map(
+        ([label, value]) =>
+          `<div class="cgv-identity-row"><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`
+      )
+      .join("") +
+    `</dl>`;
+  sections.push(chapters.section("Identité du vendeur", identityList));
 
   // Section 3 (GENERIC_FIXED) -- objet et champ d'application.
-  pushFixedSection(sections, "Objet et champ d'application", template.purpose_scope_clause);
+  pushFixedSection(sections, chapters, "Objet et champ d'application", template.purpose_scope_clause);
 
+  // CGV DOCUMENT PRESENTATION v1 (§2) -- mêmes coordonnées, étiquetées
+  // ligne par ligne au lieu d'un "email / téléphone" collé. Chaque
+  // ligne n'apparaît que si la valeur existe (comportement de
+  // rendu conditionnel inchangé : la section entière reste omise quand
+  // aucune coordonnée n'est renseignée).
   if (legal.customerServiceEmail || legal.customerServicePhone) {
-    const contact = [legal.customerServiceEmail, legal.customerServicePhone].filter(Boolean).join(" / ");
-    sections.push(`<section><h2>Service client</h2><p>${escapeHtml(contact)}</p></section>`);
+    const contactRows: Array<[string, string]> = [];
+    if (legal.customerServiceEmail) contactRows.push(["E-mail", escapeHtml(legal.customerServiceEmail)]);
+    if (legal.customerServicePhone) contactRows.push(["Téléphone", escapeHtml(legal.customerServicePhone)]);
+    const contactList =
+      `<dl class="cgv-contact">` +
+      contactRows
+        .map(
+          ([label, value]) =>
+            `<div class="cgv-identity-row"><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`
+        )
+        .join("") +
+      `</dl>`;
+    sections.push(chapters.section("Service client", contactList));
   }
 
   // Section 5 (GENERIC_FIXED) -- caractéristiques des produits.
-  pushFixedSection(sections, "Caractéristiques des produits", template.products_characteristics_clause);
+  pushFixedSection(sections, chapters, "Caractéristiques des produits", template.products_characteristics_clause);
 
   // ------------------------------------------------------------------
   // Section 4 -- Poids et prix des portions (GENERIC_CONDITIONAL).
@@ -376,28 +461,31 @@ export function renderCgv(input: RenderCgvInput): string {
   // nothing for this section -- never a placeholder, never an error.
   // ------------------------------------------------------------------
   if (business.weightPricingMode === "FIXED_PORTION_PRICE" && template.portion_pricing_clauses?.FIXED_PORTION_PRICE) {
-    pushFixedSection(sections, "Poids et prix des portions", template.portion_pricing_clauses.FIXED_PORTION_PRICE);
+    pushFixedSection(sections, chapters, "Poids et prix des portions", template.portion_pricing_clauses.FIXED_PORTION_PRICE);
   }
 
   // Sections 6-10 (GENERIC_FIXED).
-  pushFixedSection(sections, "Prix et taxes", template.prices_taxes_clause);
-  pushFixedSection(sections, "Processus de commande", template.ordering_process_clause);
-  pushFixedSection(sections, "Formation du contrat", template.contract_formation_clause);
-  pushFixedSection(sections, "Paiement", template.payment_clause);
-  pushFixedSection(sections, "Disponibilité des produits", template.availability_clause);
+  pushFixedSection(sections, chapters, "Prix et taxes", template.prices_taxes_clause);
+  pushFixedSection(sections, chapters, "Processus de commande", template.ordering_process_clause);
+  pushFixedSection(sections, chapters, "Formation du contrat", template.contract_formation_clause);
+  pushFixedSection(sections, chapters, "Paiement", template.payment_clause);
+  pushFixedSection(sections, chapters, "Disponibilité des produits", template.availability_clause);
 
   // Section 11 (MERCHANT_VALUE) -- délai de préparation (existing v1
   // section, unchanged logic: merchant-specific min/max values
   // interpolated into Scanym's fixed generic text).
   sections.push(
-    `<section><h2>Délai de préparation</h2><p>${escapeHtml(template.preparation_clause)} Délai indicatif : ${
-      business.preparationTimeMin
-    }–${business.preparationTimeMax} ${unitLabel(business.preparationTimeUnit)}.</p></section>`
+    chapters.section(
+      "Délai de préparation",
+      `<p>${escapeHtml(template.preparation_clause)} Délai indicatif : ${business.preparationTimeMin}–${
+        business.preparationTimeMax
+      } ${unitLabel(business.preparationTimeUnit)}.</p>`
+    )
   );
 
   // Sections 12-13 (GENERIC_FIXED) -- retrait / livraison.
-  pushFixedSection(sections, "Retrait de la commande", template.pickup_clause);
-  pushFixedSection(sections, "Livraison", template.delivery_clause);
+  pushFixedSection(sections, chapters, "Retrait de la commande", template.pickup_clause);
+  pushFixedSection(sections, chapters, "Livraison", template.delivery_clause);
 
   // ------------------------------------------------------------------
   // Section 14 -- Chaîne du froid (GENERIC_CONDITIONAL). Rendered ONLY
@@ -406,9 +494,12 @@ export function renderCgv(input: RenderCgvInput): string {
   // ------------------------------------------------------------------
   if (business.coldChainApplicable && template.cold_chain_clauses) {
     sections.push(
-      `<section><h2>Chaîne du froid</h2><p>${escapeHtml(
-        template.cold_chain_clauses.transport
-      )}</p><p>${escapeHtml(template.cold_chain_clauses.post_handover)}</p></section>`
+      chapters.section(
+        "Chaîne du froid",
+        `<p>${escapeHtml(template.cold_chain_clauses.transport)}</p><p>${escapeHtml(
+          template.cold_chain_clauses.post_handover
+        )}</p>`
+      )
     );
   }
 
@@ -440,9 +531,7 @@ export function renderCgv(input: RenderCgvInput): string {
     }
   }
   sections.push(
-    `<section><h2>Droit de rétractation</h2><p>${escapeHtml(withdrawalClause)}</p>${withdrawalExtra.join(
-      ""
-    )}</section>`
+    chapters.section("Droit de rétractation", `<p>${escapeHtml(withdrawalClause)}</p>${withdrawalExtra.join("")}`)
   );
 
   // Section 16 (MERCHANT_VALUE, paired with the v2.2 GENERIC_FIXED
@@ -465,11 +554,12 @@ export function renderCgv(input: RenderCgvInput): string {
     ? `<p>${escapeHtml(template.complaint_before_mediation_clause)}</p>`
     : "";
   sections.push(
-    `<section><h2>Médiation de la consommation</h2>${complaintBeforeMediation}<p>${escapeHtml(
-      template.mediator_clause
-    )} ${escapeHtml(legal.mediatorName)}, ${escapeHtml(legal.mediatorAddress)}, ${escapeHtml(
-      legal.mediatorWebsite
-    )}${mediatorContactSuffix}.</p></section>`
+    chapters.section(
+      "Médiation de la consommation",
+      `${complaintBeforeMediation}<p>${escapeHtml(template.mediator_clause)} ${escapeHtml(
+        legal.mediatorName
+      )}, ${escapeHtml(legal.mediatorAddress)}, ${escapeHtml(legal.mediatorWebsite)}${mediatorContactSuffix}.</p>`
+    )
   );
 
   // ------------------------------------------------------------------
@@ -489,9 +579,10 @@ export function renderCgv(input: RenderCgvInput): string {
     ? (business.cancellationPolicyText as string)
     : template.cancellation_clause_fallback ?? business.cancellationPolicyText ?? "";
   sections.push(
-    `<section><h2>${escapeHtml(template.cancellation_clause_label)}</h2>${cancellationIntro}<p>${escapeHtml(
-      cancellationBody
-    )}</p></section>`
+    chapters.section(
+      template.cancellation_clause_label,
+      `${cancellationIntro}<p>${escapeHtml(cancellationBody)}</p>`
+    )
   );
 
   const substitutionIntro = template.substitution_clause_intro
@@ -502,15 +593,16 @@ export function renderCgv(input: RenderCgvInput): string {
     ? (business.substitutionPolicyText as string)
     : template.substitution_clause_fallback ?? business.substitutionPolicyText ?? "";
   sections.push(
-    `<section><h2>${escapeHtml(template.substitution_clause_label)}</h2>${substitutionIntro}<p>${escapeHtml(
-      substitutionBody
-    )}</p></section>`
+    chapters.section(
+      template.substitution_clause_label,
+      `${substitutionIntro}<p>${escapeHtml(substitutionBody)}</p>`
+    )
   );
 
   // Sections 19-24 (GENERIC_FIXED) -- réclamations, garanties légales,
   // responsabilité, force majeure, données personnelles.
-  pushFixedSection(sections, "Réclamations", template.complaints_clause);
-  pushFixedSection(sections, "Garanties légales", template.legal_guarantees_clause);
+  pushFixedSection(sections, chapters, "Réclamations", template.complaints_clause);
+  pushFixedSection(sections, chapters, "Garanties légales", template.legal_guarantees_clause);
 
   // CGV ENGINE v2.5 (Task 1) -- the mandatory D.211-2 encadré, rendered
   // as its OWN distinct, visually/structurally set-off block (bordered
@@ -522,24 +614,32 @@ export function renderCgv(input: RenderCgvInput): string {
   if (template.legal_guarantee_encadre) {
     const { heading, paragraphs } = template.legal_guarantee_encadre;
     const body = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("");
+    // CGV DOCUMENT PRESENTATION v1 (§7) -- le bloc reste EXACTEMENT le
+    // même texte, dans le même ordre, toujours visuellement détaché.
+    // Il n'est volontairement PAS numéroté : c'est un encadré
+    // réglementaire, pas un chapitre de plus (et le numéroter
+    // décalerait toute la suite des chapitres). Le style en ligne
+    // existant est conservé comme repli : il garantit la bordure même
+    // si la feuille de style de la page n'est pas chargée (impression,
+    // client mail, page légale servie sans CSS).
     sections.push(
-      `<section class="legal-guarantee-encadre" style="border:2px solid #444;padding:12px 16px;margin:12px 0;"><h2>${escapeHtml(
+      `<section class="legal-guarantee-encadre" style="border:2px solid #444;padding:12px 16px;margin:12px 0;"><h2 class="cgv-encadre-heading">${escapeHtml(
         heading
       )}</h2>${body}</section>`
     );
   }
 
-  pushFixedSection(sections, "Responsabilité", template.liability_clause);
-  pushFixedSection(sections, "Force majeure", template.force_majeure_clause);
+  pushFixedSection(sections, chapters, "Responsabilité", template.liability_clause);
+  pushFixedSection(sections, chapters, "Force majeure", template.force_majeure_clause);
   // Section 24 -- données personnelles. Deliberately a single fixed
   // template string, no interpolation of any dynamic retention-day
   // count -- this lot never invents a number of days (see mandate).
-  pushFixedSection(sections, "Données personnelles", template.personal_data_clause);
+  pushFixedSection(sections, chapters, "Données personnelles", template.personal_data_clause);
 
   // Section 25 (GENERIC_FIXED) -- loi applicable (the ONLY section
   // that states which law governs, as of template version 3 -- see
   // that template row's own header for the v2.2 dedup fix).
-  pushFixedSection(sections, "Loi applicable", template.applicable_law_clause);
+  pushFixedSection(sections, chapters, "Loi applicable", template.applicable_law_clause);
 
   // Section 26 (GENERIC_FIXED) -- juridiction compétente / dispositions
   // impératives. v2.2 -- heading renamed from "Droit applicable" (a
@@ -552,7 +652,7 @@ export function renderCgv(input: RenderCgvInput): string {
   // FR_FOOD_PERISHABLE_B2C template version 3's jurisdiction_clause
   // string only -- template versions 1/2 keep their own unchanged text
   // under this same, now-clearer heading.
-  sections.push(`<section><h2>Juridiction compétente</h2><p>${escapeHtml(template.jurisdiction_clause)}</p></section>`);
+  sections.push(chapters.section("Juridiction compétente", `<p>${escapeHtml(template.jurisdiction_clause)}</p>`));
 
   return sections.join("\n");
 }

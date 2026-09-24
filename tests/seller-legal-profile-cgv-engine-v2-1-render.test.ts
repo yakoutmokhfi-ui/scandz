@@ -178,6 +178,36 @@ function renderAuLaitCru(): string {
 // --------------------------------------------------------------------
 // Test A -- generic template renders all expected new sections.
 // --------------------------------------------------------------------
+// --------------------------------------------------------------------
+// CGV DOCUMENT PRESENTATION v1 -- le rendu porte désormais une
+// numérotation de chapitre et des classes de présentation :
+//   <section class="cgv-section" data-chapter="N">
+//     <h2 class="cgv-section-heading">
+//       <span class="cgv-chapter-number">N.</span>
+//       <span class="cgv-chapter-title">Titre</span></h2>
+// Les helpers ci-dessous visent le TITRE, indépendamment de son
+// numéro : l'intention des tests (telle section rendue, une seule
+// fois, dans cet ordre) est strictement conservée.
+// --------------------------------------------------------------------
+function headingOccurrences(out: string, title: string): number {
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (out.match(new RegExp(`<span class="cgv-chapter-title">${escaped}</span>`, "g")) ?? []).length;
+}
+
+function sectionWithHeading(out: string, title: string): string | null {
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = out.match(
+    new RegExp(`<section class="cgv-section"[^>]*>(?:(?!</section>)[\\s\\S])*?<span class="cgv-chapter-title">${escaped}</span>[\\s\\S]*?</section>`)
+  );
+  return match ? match[0] : null;
+}
+
+function identityRow(out: string, label: string): string | null {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = out.match(new RegExp(`<dt>${escaped}</dt><dd>([^<]*)</dd>`));
+  return match ? match[1] : null;
+}
+
 test("A. renderCgv (v2 template, generic fixed sections): every new GENERIC_FIXED clause is rendered when present", () => {
   const out = renderCgv({
     sellerName: "Resto A",
@@ -227,7 +257,11 @@ test("A2. renderCgv (v1 template, no v2 keys): output is byte-identical in shape
     "Chaîne du froid",
     "Poids et prix des portions",
   ]) {
-    assert.ok(!out.includes(`<h2>${heading}</h2>`), `v1 template must not render the v2-only section "${heading}"`);
+    assert.equal(
+      headingOccurrences(out, heading),
+      0,
+      `v1 template must not render the v2-only section "${heading}"`
+    );
   }
 });
 
@@ -246,9 +280,11 @@ test("B. renderCgv: legal_entity_name + trade name + SIREN/SIRET/VAT all rendere
   });
   assert.match(out, /MANUYUAN/);
   assert.match(out, /Au Lait Cru/);
-  assert.match(out, /SIREN\s*:\s*842925513/);
-  assert.match(out, /SIRET\s*:\s*84292551300025/);
-  assert.match(out, /FR34842925513/);
+  // v1 présentation : chaque identifiant est rendu sur sa propre ligne
+  // étiquetée, avec EXACTEMENT la même valeur qu'auparavant.
+  assert.equal(identityRow(out, "SIREN"), "842925513");
+  assert.equal(identityRow(out, "SIRET"), "84292551300025");
+  assert.equal(identityRow(out, "N° TVA intracommunautaire"), "FR34842925513");
 });
 
 test("B2. renderCgv: legal_entity_name absent -- falls back to the trade name alone, no error, no 'null'/'undefined' text", () => {
@@ -469,9 +505,9 @@ test("v2.2 I. renderCgv: 'Loi applicable' and 'Juridiction compétente' each ren
     locale: "fr",
     presentationVariant: "FORMAL",
   });
-  assert.equal((out.match(/<h2>Loi applicable<\/h2>/g) ?? []).length, 1);
-  assert.equal((out.match(/<h2>Juridiction compétente<\/h2>/g) ?? []).length, 1);
-  assert.ok(!out.includes("<h2>Droit applicable</h2>"), "the old, confusable heading must never render");
+  assert.equal(headingOccurrences(out, "Loi applicable"), 1);
+  assert.equal(headingOccurrences(out, "Juridiction compétente"), 1);
+  assert.equal(headingOccurrences(out, "Droit applicable"), 0, "the old, confusable heading must never render");
   assert.match(out, escapedTextAsPattern(TEMPLATE_V3.applicable_law_clause as string));
   assert.match(out, escapedTextAsPattern(TEMPLATE_V3.jurisdiction_clause));
 });
@@ -485,8 +521,8 @@ test("v2.2 I2. renderCgv (v1/v2 template, no v3 jurisdiction rewrite): heading i
     locale: "fr",
     presentationVariant: "FORMAL",
   });
-  assert.ok(out.includes("<h2>Juridiction compétente</h2>"), "heading rename applies universally, not just to template v3");
-  assert.ok(!out.includes("<h2>Droit applicable</h2>"));
+  assert.equal(headingOccurrences(out, "Juridiction compétente"), 1, "heading rename applies universally, not just to template v3");
+  assert.equal(headingOccurrences(out, "Droit applicable"), 0);
   assert.match(out, escapedTextAsPattern(TEMPLATE_V2.jurisdiction_clause));
 });
 
@@ -500,9 +536,9 @@ test("v2.2 J. renderCgv: complaint_before_mediation_clause renders as a LEADING 
     presentationVariant: "FORMAL",
   });
   assert.match(out, escapedTextAsPattern(TEMPLATE_V3.complaint_before_mediation_clause as string));
-  const mediationSectionMatch = out.match(/<section><h2>Médiation de la consommation<\/h2>[\s\S]*?<\/section>/);
+  const mediationSectionMatch = sectionWithHeading(out, "Médiation de la consommation");
   assert.ok(mediationSectionMatch, "expected exactly one 'Médiation de la consommation' section");
-  assert.equal((out.match(/<h2>Médiation de la consommation<\/h2>/g) ?? []).length, 1, "must render as a single section, never a duplicated one");
+  assert.equal(headingOccurrences(out, "Médiation de la consommation"), 1, "must render as a single section, never a duplicated one");
   const complaintIndex = out.indexOf(TEMPLATE_V3.complaint_before_mediation_clause as string);
   const mediatorNameIndex = out.indexOf(LEGAL_BASE.mediatorName as string);
   assert.ok(complaintIndex >= 0 && mediatorNameIndex >= 0);
@@ -518,7 +554,7 @@ test("v2.2 J2. renderCgv: complaint_before_mediation_clause ABSENT (v1/v2 templa
     locale: "fr",
     presentationVariant: "FORMAL",
   });
-  assert.equal((out.match(/<h2>Médiation de la consommation<\/h2>/g) ?? []).length, 1);
+  assert.equal(headingOccurrences(out, "Médiation de la consommation"), 1);
   assert.match(out, escapedTextAsPattern(LEGAL_BASE.mediatorName as string));
 });
 
@@ -535,8 +571,8 @@ test("v2.2 K. renderCgv (Au Lait Cru, template v3): amiable-resolution text prec
   const cm2cIndex = out.indexOf("CM2C");
   assert.ok(complaintIndex >= 0 && cm2cIndex >= 0);
   assert.ok(complaintIndex < cm2cIndex, "amicable-resolution text must precede CM2C's own identity block");
-  assert.equal((out.match(/<h2>Loi applicable<\/h2>/g) ?? []).length, 1);
-  assert.equal((out.match(/<h2>Juridiction compétente<\/h2>/g) ?? []).length, 1);
+  assert.equal(headingOccurrences(out, "Loi applicable"), 1);
+  assert.equal(headingOccurrences(out, "Juridiction compétente"), 1);
 });
 
 // --------------------------------------------------------------------
