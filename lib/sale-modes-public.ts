@@ -5,6 +5,7 @@ import type {
   PublicDeliveryInfo,
   PublicDeliveryFulfillmentRule,
 } from "@/lib/sale-modes-types";
+import type { Translations } from "@/lib/types";
 
 /**
  * LOT 2B.1 — Service public de lecture des modes de vente.
@@ -47,6 +48,11 @@ async function getCatalogMap(): Promise<Map<string, SaleModeCatalogEntry>> {
 interface PublicSaleModeRow {
   mode_code: string;
   customer_text: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- colonnes ADDITIVES de la projection
+   *  publique. Absentes d'une base non encore migrée : le texte source
+   *  reste alors affiché tel quel, jamais une erreur. */
+  customer_text_hash?: string | null;
+  translations?: Translations | null;
   pricing_mode: SaleMode["pricingMode"];
   fixed_fee: number | null;
   free_threshold: number | null;
@@ -74,6 +80,8 @@ export async function getPublicSaleModes(restaurantId: string): Promise<SaleMode
       label: entry?.label ?? row.mode_code,
       category: entry?.category ?? "",
       customerText: row.customer_text,
+      customerTextHash: row.customer_text_hash ?? null,
+      translations: row.translations ?? null,
       pricingMode: row.pricing_mode,
       fixedFee: row.fixed_fee,
       freeThreshold: row.free_threshold,
@@ -150,6 +158,9 @@ interface PublicDeliveryFulfillmentRuleRow {
   min_items: number | null;
   customer_text: string | null;
   display_order: number;
+  /** TRANSLATIONS MANAGEMENT v2 -- colonnes ADDITIVES (voir ci-dessus). */
+  customer_text_hash?: string | null;
+  translations?: Translations | null;
   /** SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
    *  ajoutés à la projection publique (jamais `provider`, jamais
    *  `config`) pour permettre un affichage estimé du frais de
@@ -189,6 +200,8 @@ export async function getPublicDeliveryFulfillments(
     isFallback: row.is_fallback,
     minItems: row.min_items,
     customerText: row.customer_text,
+    customerTextHash: row.customer_text_hash ?? null,
+    translations: row.translations ?? null,
     displayOrder: row.display_order,
     pricingMode: row.pricing_mode,
     fixedFee: row.fixed_fee,

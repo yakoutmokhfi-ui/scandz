@@ -145,7 +145,19 @@ test("[TAGGED/MULTI/UNTAGGED] getRestaurantBySlug pose les tags publiés, ordonn
   assert.deepEqual(items.get(P_TAGGED).customer_tags, ["Bio"]);
   assert.deepEqual(items.get(P_MULTI).customer_tags, ["Bio", "Truffe"]);
   assert.equal("customer_tags" in items.get(P_PLAIN), false, "un produit sans tag ne reçoit aucune propriété");
-  assert.deepEqual(items.get(P_PLAIN), { ...item(P_PLAIN, "Emmental", 3), subcategory_name: null, subcategory_display_order: null });
+  // TRANSLATIONS MANAGEMENT v2 : le chargeur public porte désormais
+  // aussi le hash et les traductions DE LA SOUS-CATÉGORIE du produit
+  // (null ici : produit sans sous-catégorie) -- même origine que
+  // subcategory_name/subcategory_display_order déjà présents. Le
+  // produit reste par ailleurs STRICTEMENT inchangé, ce que cette
+  // égalité exacte continue de prouver champ par champ.
+  assert.deepEqual(items.get(P_PLAIN), {
+    ...item(P_PLAIN, "Emmental", 3),
+    subcategory_name: null,
+    subcategory_display_order: null,
+    subcategory_name_hash: null,
+    subcategory_translations: null,
+  });
 
   assert.deepEqual(rpcCalls, [{ name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } }]);
 });

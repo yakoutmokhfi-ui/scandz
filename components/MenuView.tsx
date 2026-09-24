@@ -6,6 +6,7 @@ import type { RestaurantFull, MenuItem } from "@/lib/types";
 import {
   groupMenuItemsBySubcategory,
   deriveSubcategoryFilterOptions,
+  translateSubcategoryFilterOptions,
   filterMenuItemGroupsBySubcategory,
   shouldStickSubcategoryFilter,
   stickyFocusScrollDelta,
@@ -90,7 +91,7 @@ import {
   type CartEntry,
 } from "@/lib/cart";
 import { dirOf, translate, type Lang } from "@/lib/i18n";
-import { tName, tCategoryDescription } from "@/lib/menu-i18n";
+import { tName, tCategoryDescription, tSubcategoryName } from "@/lib/menu-i18n";
 import Ltr from "@/components/Bidi";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
@@ -679,9 +680,30 @@ export default function MenuView({
   // filtre + application du filtre sélectionné, via les fonctions
   // PURES de lib/catalogue-subcategory-grouping.ts (testables sans
   // rendu DOM ; voir tests/v169-*).
+  // TRANSLATIONS MANAGEMENT v2 -- l'intitulé d'une sous-catégorie suit
+  // désormais la langue du client, avec EXACTEMENT les mêmes règles de
+  // repli que les catégories/produits (tSubcategoryName ->
+  // resolveTranslatedField). Le filtre lui-même reste inchangé : mêmes
+  // options, même ordre, sélection toujours par `id` -- jamais par le
+  // libellé affiché, qui peut varier avec la langue.
+  const subcategorySourceLanguage = restaurant.config.source_language ?? "fr";
   const subcategoryFilterOptions = useMemo(
-    () => deriveSubcategoryFilterOptions(activeCategoryItemGroups),
-    [activeCategoryItemGroups]
+    () =>
+      translateSubcategoryFilterOptions(
+        deriveSubcategoryFilterOptions(activeCategoryItemGroups),
+        activeCategoryItemGroups,
+        (group) =>
+          tSubcategoryName(
+            {
+              name: group.subcategoryName ?? "",
+              name_hash: group.subcategoryNameHash,
+              translations: group.subcategoryTranslations,
+            },
+            lang,
+            subcategorySourceLanguage as Lang
+          )
+      ),
+    [activeCategoryItemGroups, lang, subcategorySourceLanguage]
   );
   const visibleCategoryItemGroups = useMemo(
     () => filterMenuItemGroupsBySubcategory(activeCategoryItemGroups, activeSubcategoryId),
@@ -909,9 +931,14 @@ export default function MenuView({
         saleModesData ?? [],
         deliveryStatus,
         fulfillmentRulesState.status === "loaded" &&
-          fulfillmentRulesState.rules.length > 0
+          fulfillmentRulesState.rules.length > 0,
+        // TRANSLATIONS MANAGEMENT v2 -- le texte client configuré par le
+        // commerçant suit la langue du visiteur (mêmes règles de repli
+        // que le reste du contenu marchand). Les libellés d'INTERFACE de
+        // la popup restent, eux, dans les dictionnaires Scanym.
+        { lang, sourceLanguage: (restaurant.config.source_language ?? "fr") as Lang }
       ),
-    [serviceMode, saleModesData, deliveryStatus, fulfillmentRulesState]
+    [serviceMode, saleModesData, deliveryStatus, fulfillmentRulesState, lang, restaurant.config.source_language]
   );
 
   /*
@@ -1485,7 +1512,15 @@ export default function MenuView({
                       data-subcategory-heading="true"
                       className="text-sm font-bold uppercase tracking-wide text-accent-dark-on-bg"
                     >
-                      {itemGroup.subcategoryName}
+                      {tSubcategoryName(
+                        {
+                          name: itemGroup.subcategoryName,
+                          name_hash: itemGroup.subcategoryNameHash,
+                          translations: itemGroup.subcategoryTranslations,
+                        },
+                        lang,
+                        subcategorySourceLanguage as Lang
+                      )}
                     </h3>
                   )}
                   {itemGroup.items.map(renderMenuItem)}

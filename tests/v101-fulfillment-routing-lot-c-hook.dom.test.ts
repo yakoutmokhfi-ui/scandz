@@ -168,6 +168,11 @@ test("LOT C: le hook appelle RÉELLEMENT get_restaurant_public_delivery_fulfillm
       isFallback: false,
       minItems: 2,
       customerText: "Livraison locale le jour même",
+      // TRANSLATIONS MANAGEMENT v2 -- champs ADDITIFS du texte client
+      // (hash source généré + traductions), `null` quand la RPC ne les
+      // renvoie pas. Le reste du mappage reste vérifié à l'identique.
+      customerTextHash: null,
+      translations: null,
       displayOrder: 0,
       pricingMode: "fixed",
       fixedFee: 5,

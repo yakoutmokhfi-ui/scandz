@@ -369,6 +369,12 @@ test("LOT B: getPublicDeliveryFulfillments appelle bien get_restaurant_public_de
       isFallback: false,
       minItems: 5,
       customerText: "texte",
+      // TRANSLATIONS MANAGEMENT v2 -- champs ADDITIFS du texte client
+      // (hash source généré + traductions), `null` quand la RPC ne les
+      // renvoie pas. Le contrat « jamais provider » reste vérifié
+      // ci-dessous, et aucun autre champ n'apparaît.
+      customerTextHash: null,
+      translations: null,
       displayOrder: 0,
       pricingMode: "free",
       fixedFee: null,

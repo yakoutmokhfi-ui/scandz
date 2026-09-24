@@ -136,7 +136,23 @@ export function moveLanguageInList(
 }
 
 export interface Translations {
-  [lang: string]: { name?: string; description?: string; short_description?: string } | undefined;
+  [lang: string]: {
+    name?: string;
+    description?: string;
+    short_description?: string;
+    /** LOT 1B -- textes d'établissement. */
+    intro_text?: string;
+    announcement_text?: string;
+    /** TRANSLATIONS MANAGEMENT v2 -- texte client CONFIGURABLE PAR LE
+     *  COMMERÇANT (mode de vente ou règle de livraison). Jamais un
+     *  libellé d'interface Scanym. */
+    customer_text?: string;
+    /** Les clés `<champ>_status` et `<champ>_source_hash` suivent la
+     *  MÊME convention depuis LOT 1B -- déclarées ici par une signature
+     *  d'index plutôt que champ par champ, pour que toute lecture de
+     *  statut/hash reste typée sans figer la liste des champs. */
+    [key: string]: string | undefined;
+  } | undefined;
 }
 
 /**
@@ -153,6 +169,14 @@ export interface MenuSubcategory {
   category_id: string;
   name: string;
   display_order: number;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash canonique du nom source
+   *  (colonne GÉNÉRÉE), nécessaire pour décider si une traduction
+   *  validée est encore à jour. Absent pour une base non migrée : la
+   *  sous-catégorie reste alors affichée en langue source. */
+  name_hash?: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- traductions du nom, MÊME modèle
+   *  JSONB que les catégories/produits. */
+  translations?: Translations | null;
 }
 
 export interface MenuCategory {
@@ -203,6 +227,14 @@ export interface MenuItem {
    *  produits quand 2 sous-catégories partageaient le même
    *  display_order. `null`/absent pour un produit direct. */
   subcategory_display_order?: number | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash et traductions DE LA
+   *  SOUS-CATÉGORIE de ce produit, résolus côté service (même origine
+   *  que `subcategory_name`/`subcategory_display_order` ci-dessus).
+   *  Permettent d'afficher un intitulé de sous-catégorie traduit avec
+   *  EXACTEMENT les mêmes règles de repli que le reste du contenu
+   *  marchand, sans second appel réseau. */
+  subcategory_name_hash?: string | null;
+  subcategory_translations?: Translations | null;
   name: string;
   description: string | null;
   /** Description courte (V66), affichée directement sur la fiche/carte. */

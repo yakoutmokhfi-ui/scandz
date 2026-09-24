@@ -1,3 +1,5 @@
+import type { Translations } from "@/lib/types";
+
 export type OrderStatus =
   | "new"
   | "accepted"
@@ -212,6 +214,12 @@ export interface MerchantDeliveryFulfillmentPricingRule {
   fixedFee: number | null;
   freeThreshold: number | null;
   customerText: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- hash canonique du texte client
+   *  source (colonne GÉNÉRÉE en base) et traductions enregistrées.
+   *  `null` pour une base non encore migrée : le texte reste alors
+   *  simplement non traduisible. */
+  customerTextHash: string | null;
+  translations: Translations | null;
 }
 
 /** Customer-facing notice stored on an enabled sale mode. This is a
@@ -221,6 +229,13 @@ export interface MerchantDeliveryMethodNotice {
   modeCode: "pickup" | "delivery";
   modeLabel: string;
   customerText: string | null;
+  /** TRANSLATIONS MANAGEMENT v2 -- identifiant STABLE du mode de vente
+   *  de CE commerçant (restaurant_sale_modes.id), utilisé comme
+   *  entity_id du texte client dans la gestion des traductions et dans
+   *  l'export/import Excel -- jamais le libellé affiché. */
+  saleModeId: string | null;
+  customerTextHash: string | null;
+  translations: Translations | null;
 }
 
 /**

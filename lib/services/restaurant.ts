@@ -46,7 +46,7 @@ export async function getRestaurantBySlug(
       restaurant_configs ( * ),
       menu_categories (
         *,
-        menu_subcategories ( id, category_id, name, display_order ),
+        menu_subcategories ( id, category_id, name, display_order, name_hash, translations ),
         menu_items!menu_items_category_id_fkey ( * )
       ),
       restaurant_active_languages (
@@ -113,6 +113,14 @@ export async function getRestaurantBySlug(
             ...i,
             subcategory_name: sub?.name ?? null,
             subcategory_display_order: sub?.display_order ?? null,
+            // TRANSLATIONS MANAGEMENT v2 -- hash et traductions de LA
+            // sous-catégorie, portés sur le produit exactement comme
+            // son nom et son ordre d'affichage ci-dessus. La RÉSOLUTION
+            // (quelle langue afficher) n'a PAS sa place ici : la langue
+            // client est choisie côté navigateur (useI18n), ce chargeur
+            // est appelé sans elle. Voir tSubcategoryName (lib/menu-i18n.ts).
+            subcategory_name_hash: sub?.name_hash ?? null,
+            subcategory_translations: sub?.translations ?? null,
           };
         })
         .sort(compareMenuItemsForPublicDisplay);
