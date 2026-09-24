@@ -20,11 +20,135 @@
 #       et publiques ;
 #   [E] rollback : retire tout et restaure les signatures antérieures.
 #
+#   [F] compare-and-write séquentiel sur le hash source attendu (v2.1) ;
+#   [G] concurrence RÉELLE à deux sessions et verrou de ligne (v2.2).
+#
+# SÛRETÉ (v2.3, remédiation d'audit) : ce harnais CRÉE et SUPPRIME une
+# base, et MODIFIE des rôles au niveau du CLUSTER. Il refuse donc de
+# s'exécuter tant qu'il n'a pas PROUVÉ que la cible est un cluster
+# local et jetable -- voir la section SÛRETÉ ci-dessous. Aucune
+# configuration de connexion ambiante n'est héritée.
+#
 # Usage, depuis la racine du dépôt :
-#   sudo -u postgres bash supabase/tests/translations-management-v2-check.sh
+#   SCANYM_DISPOSABLE_CLUSTER=1 sudo -u postgres -E \
+#     bash supabase/tests/translations-management-v2-check.sh
+#
+# `SCANYM_DISPOSABLE_CLUSTER=1` est un consentement EXPLICITE de
+# l'opérateur : il déclare que le cluster visé est jetable. Il ne
+# remplace aucune vérification -- toutes les autres restent appliquées.
 # ============================================================
 
 set -uo pipefail
+
+# ============================================================
+# SÛRETÉ -- FAIL CLOSED (v2.3)
+#
+# Rien de destructif (create/drop database, create/alter role, grant,
+# migration) ne s'exécute avant que TOUTES ces conditions soient
+# prouvées :
+#
+#   1. aucune configuration libpq externe n'est héritée : toutes les
+#      variables PG* / DATABASE_URL sont DÉTECTÉES puis NEUTRALISÉES,
+#      et leur présence est signalée. Une variable qui REDIRIGE la
+#      cible (hôte, port, service, base, utilisateur, mot de passe,
+#      chaîne de connexion) est un REFUS, pas une neutralisation
+#      silencieuse : l'opérateur doit savoir que son environnement
+#      visait ailleurs ;
+#   2. la connexion effective est établie avec des paramètres que le
+#      harnais fixe LUI-MÊME ;
+#   3. la cible réelle est interrogée en SQL (adresse, port, base,
+#      utilisateur, superutilisateur) et doit être locale ;
+#   4. l'opérateur a explicitement déclaré le cluster jetable ;
+#   5. aucune base au nom évoquant la production n'existe sur le
+#      cluster.
+#
+# Une heuristique ne doit JAMAIS pouvoir approuver la production en
+# silence : chaque contrôle échoue fermé, avec un message explicite et
+# un code de sortie dédié (2 = cible refusée).
+# ============================================================
+
+REFUSE_EXIT=2
+
+refuse() {
+  echo "REFUS DE SÛRETÉ : $*" >&2
+  echo "Aucune opération destructive n'a été tentée." >&2
+  exit "$REFUSE_EXIT"
+}
+
+# --- 1. Variables libpq externes ---------------------------------
+# Redirigent la CIBLE -> refus.
+REDIRECTING_VARS="PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE DATABASE_URL POSTGRES_URL SUPABASE_DB_URL"
+# Influencent la session sans changer la cible -> neutralisées.
+NEUTRALIZED_VARS="PGOPTIONS PGCONNECT_TIMEOUT PGSSLMODE PGSSLROOTCERT PGAPPNAME PGCLIENTENCODING PGTARGETSESSIONATTRS"
+
+for v in $REDIRECTING_VARS; do
+  if [ -n "${!v:-}" ]; then
+    refuse "la variable d'environnement $v est définie (« ${!v} ») et pourrait faire pointer ce harnais vers un serveur non jetable. Lancez-le dans un environnement sans configuration libpq externe."
+  fi
+done
+for v in $NEUTRALIZED_VARS; do
+  if [ -n "${!v:-}" ]; then
+    echo "[sûreté] $v était définie (« ${!v} ») -- NEUTRALISÉE pour ce harnais." >&2
+    unset "$v"
+  fi
+done
+# Neutralisation défensive : toute autre PG* héritée est retirée.
+while IFS='=' read -r name _; do
+  case "$name" in
+    PG*) unset "$name" 2>/dev/null || true ;;
+  esac
+done < <(env)
+
+# --- 2. Paramètres de connexion FIXÉS PAR LE HARNAIS --------------
+# Socket UNIX local uniquement. `SCANYM_HARNESS_PGHOST` permet à un
+# opérateur de désigner un AUTRE socket local (jamais un hôte TCP
+# distant : la valeur doit être un chemin absolu existant).
+HARNESS_PGHOST="${SCANYM_HARNESS_PGHOST:-/var/run/postgresql}"
+case "$HARNESS_PGHOST" in
+  /*) : ;;
+  *) refuse "SCANYM_HARNESS_PGHOST doit être un chemin de socket UNIX absolu (obtenu : « $HARNESS_PGHOST »)." ;;
+esac
+[ -d "$HARNESS_PGHOST" ] || refuse "le répertoire de socket « $HARNESS_PGHOST » n'existe pas."
+export PGHOST="$HARNESS_PGHOST"
+export PGDATABASE="postgres"
+export PGCONNECT_TIMEOUT=5
+export PGAPPNAME="scanym-tm2-harness"
+
+# --- 3. Consentement explicite de l'opérateur ---------------------
+if [ "${SCANYM_DISPOSABLE_CLUSTER:-}" != "1" ]; then
+  refuse "SCANYM_DISPOSABLE_CLUSTER=1 est requis. Ce harnais crée/supprime une base et modifie des rôles du cluster : il exige une déclaration EXPLICITE que la cible est jetable."
+fi
+
+# --- 4. Identité RÉELLE du serveur, prouvée en SQL ----------------
+probe() { psql -X -A -q -t -d postgres -c "$1" 2>/dev/null; }
+
+if ! probe "select 1" >/dev/null; then
+  refuse "impossible de se connecter au cluster local via « $PGHOST »."
+fi
+
+SRV_ADDR="$(probe "select coalesce(host(inet_server_addr()), 'unix-socket');")"
+SRV_PORT="$(probe "select coalesce(inet_server_port()::text, 'unix-socket');")"
+CUR_DB="$(probe "select current_database();")"
+CUR_USER="$(probe "select current_user;")"
+IS_SUPER="$(probe "select current_setting('is_superuser');")"
+
+case "$SRV_ADDR" in
+  unix-socket|127.0.0.1|::1|localhost) : ;;
+  *) refuse "le serveur effectif n'est pas local (adresse « $SRV_ADDR »)." ;;
+esac
+[ "$CUR_DB" = "postgres" ] || refuse "base de connexion initiale inattendue (« $CUR_DB »)."
+[ "$IS_SUPER" = "on" ] || refuse "le harnais exige un superutilisateur sur un cluster jetable (« $CUR_USER » ne l'est pas)."
+
+# --- 5. Aucune base au nom évoquant la production -----------------
+PROD_LIKE="$(probe "select count(*) from pg_database where datname ~* '(prod|production|live|staging|preprod)';")"
+[ "${PROD_LIKE:-1}" = "0" ] || refuse "le cluster contient $PROD_LIKE base(s) au nom évoquant un environnement non jetable."
+
+echo "[sûreté] cible validée : serveur=$SRV_ADDR port=$SRV_PORT base=$CUR_DB utilisateur=$CUR_USER superuser=$IS_SUPER"
+
+# Point d'instrumentation de test UNIQUEMENT (tests de sûreté) :
+# provoque un échec APRÈS les modifications de cluster, pour prouver
+# que le nettoyage restaure tout même en cas d'échec.
+FORCE_FAIL_AFTER_SETUP="${SCANYM_HARNESS_FORCE_FAIL:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 S="$ROOT/supabase"
@@ -42,11 +166,90 @@ log()  { echo "[$(date '+%H:%M:%S')] $*"; }
 pass() { PASS=$((PASS+1)); log "PASS: $*"; }
 fail() { FAIL=$((FAIL+1)); printf '%s\n' "$*" >> "$FAIL_LOG"; log "FAIL: $*"; }
 
-cleanup() {
-  psql -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true
-  rm -rf "$TMP" 2>/dev/null || true
+# ============================================================
+# ÉTAT DES RÔLES DU CLUSTER -- INSTANTANÉ ET RESTAURATION (v2.3)
+#
+# Ce harnais modifie des rôles PARTAGÉS par tout le cluster
+# (anon / authenticated / service_role). Supprimer la base jetable ne
+# suffit donc pas : un `service_role` préexistant qui n'avait PAS
+# BYPASSRLS ne doit pas rester avec BYPASSRLS après le passage du
+# harnais.
+#
+# L'instantané est pris AVANT toute modification et relu au nettoyage.
+# Rien n'est supposé de l'état de départ.
+# ============================================================
+MANAGED_ROLES="anon authenticated service_role"
+ROLE_SNAPSHOT="$TMP/roles.snapshot"
+
+snapshot_roles() {
+  : > "$ROLE_SNAPSHOT"
+  local r
+  for r in $MANAGED_ROLES; do
+    local row
+    row="$(psql -X -A -q -t -d postgres -c \
+      "select rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolreplication::text || '|' || rolbypassrls::text || '|' || rolconnlimit::text from pg_roles where rolname = '$r';" 2>/dev/null)"
+    if [ -z "$row" ]; then
+      printf '%s|ABSENT\n' "$r" >> "$ROLE_SNAPSHOT"
+    else
+      printf '%s|PRESENT|%s\n' "$r" "$row" >> "$ROLE_SNAPSHOT"
+    fi
+  done
+  log "instantané des rôles : $(tr '\n' ' ' < "$ROLE_SNAPSHOT")"
 }
+
+restore_roles() {
+  [ -f "$ROLE_SNAPSHOT" ] || return 0
+  local line role state attrs
+  while IFS= read -r line; do
+    role="${line%%|*}"
+    state="$(printf '%s' "$line" | cut -d'|' -f2)"
+    if [ "$state" = "ABSENT" ]; then
+      # Rôle CRÉÉ par le harnais : retiré, avec ses objets éventuels.
+      # `< /dev/null` : psql lirait sinon l'entrée standard de la
+      # boucle et consommerait les lignes de l'instantané restantes.
+      psql -X -q -d postgres -c "reassign owned by \"$role\" to current_user;" </dev/null >/dev/null 2>&1 || true
+      psql -X -q -d postgres -c "drop owned by \"$role\";" </dev/null >/dev/null 2>&1 || true
+      psql -X -q -d postgres -c "drop role if exists \"$role\";" </dev/null >/dev/null 2>&1 || true
+      continue
+    fi
+    # Rôle PRÉEXISTANT : ses attributs sont remis à l'identique.
+    attrs="$(printf '%s' "$line" | cut -d'|' -f3-)"
+    local login super createdb createrole inherit repl bypass connlimit
+    login="$(printf '%s' "$attrs" | cut -d'|' -f1)"
+    super="$(printf '%s' "$attrs" | cut -d'|' -f2)"
+    createdb="$(printf '%s' "$attrs" | cut -d'|' -f3)"
+    createrole="$(printf '%s' "$attrs" | cut -d'|' -f4)"
+    inherit="$(printf '%s' "$attrs" | cut -d'|' -f5)"
+    repl="$(printf '%s' "$attrs" | cut -d'|' -f6)"
+    bypass="$(printf '%s' "$attrs" | cut -d'|' -f7)"
+    connlimit="$(printf '%s' "$attrs" | cut -d'|' -f8)"
+    local sql_attrs=""
+    [ "$login" = "true" ]      && sql_attrs="$sql_attrs login"      || sql_attrs="$sql_attrs nologin"
+    [ "$super" = "true" ]      && sql_attrs="$sql_attrs superuser"  || sql_attrs="$sql_attrs nosuperuser"
+    [ "$createdb" = "true" ]   && sql_attrs="$sql_attrs createdb"   || sql_attrs="$sql_attrs nocreatedb"
+    [ "$createrole" = "true" ] && sql_attrs="$sql_attrs createrole" || sql_attrs="$sql_attrs nocreaterole"
+    [ "$inherit" = "true" ]    && sql_attrs="$sql_attrs inherit"    || sql_attrs="$sql_attrs noinherit"
+    [ "$repl" = "true" ]       && sql_attrs="$sql_attrs replication" || sql_attrs="$sql_attrs noreplication"
+    [ "$bypass" = "true" ]     && sql_attrs="$sql_attrs bypassrls"  || sql_attrs="$sql_attrs nobypassrls"
+    psql -X -q -d postgres -c "alter role \"$role\" $sql_attrs connection limit $connlimit;" </dev/null >/dev/null 2>&1 || true
+  done < "$ROLE_SNAPSHOT"
+}
+
+cleanup() {
+  local rc=$?
+  # Ordre : base jetable d'abord (elle référence les rôles), puis
+  # restauration/suppression des rôles, puis fichiers temporaires.
+  psql -X -q -d postgres -c "drop database if exists \"$DB\" with (force);" >/dev/null 2>&1 \
+    || psql -X -q -d postgres -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true
+  restore_roles
+  rm -rf "$TMP" 2>/dev/null || true
+  return $rc
+}
+# Nettoyage sur succès, échec d'assertion, erreur SQL, erreur shell ET
+# interruption -- jamais un cluster laissé modifié.
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 sql()    { psql -X -A -q -t -d "$DB" -c "$1" 2>"$TMP/err.txt"; }
 sql_rc() { psql -X -A -q -t -d "$DB" -c "$1" >"$TMP/out.txt" 2>"$TMP/err.txt"; echo $?; }
@@ -73,7 +276,8 @@ MINIMAL_CHAIN="schema.sql migration-orders.sql migration-orders-lang.sql migrati
 REST_CHAIN="migration-v67-product-photos.sql migration-v67b-category-description-product-order.sql migration-lotd-establishment-creation.sql migration-lotd-rls-reference-tables-fix.sql migration-v68-establishment-assets.sql migration-v69-identity-colors-maps-hardening.sql migration-v70-identity-corrections.sql migration-v76-storage-origin-config.sql migration-v71-hardening.sql migration-v72-hardening.sql migration-v73-hardening.sql migration-v80-lot1a-identity-social-languages.sql migration-v81-lot1b-translations.sql migration-v82-lot2a-sale-modes.sql migration-v83-lot2a4-privilege-hardening.sql migration-v84-lot2b1-delivery-info-rpc.sql DRAFT-lot-fulfillment-routing-model.sql DRAFT-lot-fulfillment-routing-lot-b-rpc.sql DRAFT-lot-server-delivery-fulfillment-pricing.sql DRAFT-lot-payment-p3b6-checkout-billing-context.sql DRAFT-lot-customer-order-tracking-foundation.sql DRAFT-lot-catalogue-fiscal-product-measurements-v1.sql DRAFT-lot-receipt-invoice-tax-detail-v1.sql DRAFT-lot-catalogue-subcategories-backoffice-v1.sql DRAFT-lot-catalogue-subcategories-backoffice-v1-1-remediation.sql DRAFT-lot-payment-p1-foundation.sql DRAFT-lot-merchant-delivery-pricing.sql DRAFT-lot-orders-service-role-select-hardening.sql DRAFT-lot-catalogue-operator-authorization-v1.sql DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql DRAFT-lot-catalogue-vat-completeness-guard-v1.sql DRAFT-lot-operator-catalogue-reset-v1.sql DRAFT-lot-catalogue-collections-tags-foundation-v1.sql DRAFT-lot-delivery-delay-customer-notice-v1.sql DRAFT-lot-translations-operator-authorization-v1.sql"
 
 log "=== [SETUP] base $DB + chaîne complète ==="
-psql -c "create database \"$DB\";" >/dev/null 2>&1
+snapshot_roles
+psql -X -q -d postgres -c "create database \"$DB\";" >/dev/null 2>&1
 psql -d "$DB" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 create schema if not exists auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);
@@ -116,6 +320,14 @@ BEFORE_ASSERT_ROLE="$(sql "select md5(pg_get_functiondef(p.oid)) from pg_proc p 
 BEFORE_UPD_STATUS="$(sql "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='update_order_status' limit 1;")"
 BEFORE_TABLES="$(sql "select count(*) from information_schema.tables where table_schema='public';")"
 BEFORE_TRIGGERS="$(sql "select count(*) from information_schema.triggers where trigger_schema='public';")"
+
+# Instrumentation de TEST DE SÛRETÉ uniquement : échoue ICI, après la
+# création de la base et la modification des rôles du cluster, pour
+# prouver que le nettoyage restaure tout même sur échec.
+if [ "$FORCE_FAIL_AFTER_SETUP" = "1" ]; then
+  log "ÉCHEC FORCÉ (test de sûreté) après création de la base et modification des rôles"
+  exit 1
+fi
 
 log "=== [SETUP] fixture deux établissements ==="
 psql -d "$DB" -v ON_ERROR_STOP=1 >/dev/null 2>"$TMP/fixture.txt" <<'SQL'
