@@ -397,6 +397,150 @@ assert_eq "[F] aucun droit anon/public sur la NOUVELLE signature" "false|false" 
   "$(sql "select has_function_privilege('public','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute')::text || '|' || has_function_privilege('anon','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute')::text;")"
 
 # ------------------------------------------------------------
+# [G] v2.2 -- VERROU DE LIGNE : preuve de concurrence RÉELLE, à deux
+#     sessions PostgreSQL simultanées.
+#
+# Deux propriétés distinctes sont prouvées :
+#
+#   [G1] (forme littérale du mandat) tant que la transaction de la RPC
+#        est OUVERTE, une autre session ne peut PAS modifier le texte
+#        source : elle est bloquée jusqu'au lock_timeout. Après le
+#        commit, elle peut modifier la source, et un classeur portant
+#        l'ANCIEN hash attendu est alors refusé.
+#
+#   [G2] (preuve DISCRIMINANTE) une autre session détient une
+#        modification NON VALIDÉE du texte source ; la RPC est appelée
+#        avec le hash attendu ANCIEN. Avec verrou : la RPC attend,
+#        relit le hash APRÈS le commit concurrent, et REFUSE. Sans
+#        verrou : la RPC lit l'ancien hash (READ COMMITTED), passe la
+#        garde, puis écrit -- et laisse une traduction estampillée d'un
+#        hash qui ne correspond plus au texte source. C'est cette
+#        incohérence que [G2] interdit.
+#
+# Toutes les attentes sont BORNÉES (lock_timeout / statement_timeout) :
+# aucun test ne peut suspendre le harnais.
+# ------------------------------------------------------------
+log "=== [G] verrou de ligne : concurrence réelle à deux sessions ==="
+
+OWNER_A='aaaaaaaa-0000-0000-0000-000000000001'
+ITEM_ID='cc111111-1111-1111-1111-111111111111'
+
+run_rpc_holding_tx() {
+  # Session A : ouvre une transaction, appelle la RPC, GARDE le verrou
+  # pendant $1 secondes, puis valide. Exécutée en arrière-plan.
+  local hold="$1" entity_type="$2" entity_id="$3" field="$4" value="$5" expected="$6" out="$7"
+  PGOPTIONS="-c role=authenticated" psql -X -q -d "$DB" -v ON_ERROR_STOP=1 >"$out" 2>&1 <<SQL &
+begin;
+select set_config('test.uid', '$OWNER_A', false);
+select public.write_translation('11111111-1111-1111-1111-111111111111','$entity_type','$entity_id','$field','en','$value','to_review','$expected');
+select pg_sleep($hold);
+commit;
+SQL
+  echo $!
+}
+
+# ---------- [G1] item : la source est INTOUCHABLE pendant la RPC ----
+ITEM_HASH_NOW="$(sql "select name_hash from public.menu_items where id='$ITEM_ID';")"
+A_PID="$(run_rpc_holding_tx 4 item "$ITEM_ID" name 'Locked write' "$ITEM_HASH_NOW" "$TMP/g1a.txt")"
+sleep 1.5
+B_RC="$(psql -X -q -d "$DB" -c "set lock_timeout='1200ms'; update public.menu_items set name='Renommage concurrent' where id='$ITEM_ID';" >/dev/null 2>"$TMP/g1b.txt"; echo $?)"
+if [ "$B_RC" -ne 0 ] && grep -qi "lock timeout" "$TMP/g1b.txt"; then
+  pass "[G1] item : la session B NE PEUT PAS modifier le texte source pendant la RPC (lock timeout)"
+else
+  fail "[G1] item : la session B a pu toucher la source pendant la RPC (rc=$B_RC) : $(cat "$TMP/g1b.txt")"
+fi
+wait "$A_PID" 2>/dev/null
+if grep -qi "error" "$TMP/g1a.txt"; then
+  fail "[G1] item : la RPC verrouillante a échoué : $(cat "$TMP/g1a.txt")"
+else
+  pass "[G1] item : la RPC a été acceptée et a validé sa transaction"
+fi
+assert_eq "[G1] item : la traduction écrite porte le hash serveur courant" "t" \
+  "$(sql "select (translations->'en'->>'name_source_hash') = name_hash from public.menu_items where id='$ITEM_ID';")"
+
+# Verrou relâché : la session B peut maintenant modifier la source.
+B_RC2="$(psql -X -q -d "$DB" -c "set lock_timeout='2s'; update public.menu_items set name='Renommage concurrent' where id='$ITEM_ID';" >/dev/null 2>"$TMP/g1b2.txt"; echo $?)"
+assert_ok "[G1] item : après le commit de A, la session B modifie la source" "$B_RC2"
+assert_denied "[G1] item : un classeur portant l'ANCIEN hash attendu est alors REFUSÉ" \
+  "$(as_user_rc "$OWNER_A" "select public.write_translation('11111111-1111-1111-1111-111111111111','item','$ITEM_ID','name','en','Stale workbook','validated','$ITEM_HASH_NOW');")"
+assert_err_has "[G1] item : refus explicite" "SCANYM_TRANSLATION_SOURCE_CHANGED"
+
+# ---------- [G2] item : aucune mutation ne traverse la section -----
+ITEM_HASH_BEFORE="$(sql "select name_hash from public.menu_items where id='$ITEM_ID';")"
+ITEM_TRANS_BEFORE="$(sql "select translations::text from public.menu_items where id='$ITEM_ID';")"
+# Session B détient une modification NON VALIDÉE de la source.
+psql -X -q -d "$DB" >"$TMP/g2b.txt" 2>&1 <<SQL &
+begin;
+update public.menu_items set name='Texte source modifie pendant la RPC' where id='$ITEM_ID';
+select pg_sleep(2.5);
+commit;
+SQL
+B2_PID=$!
+sleep 0.8
+G2_RC="$(PGOPTIONS="-c role=authenticated" psql -X -q -d "$DB" -c "set statement_timeout='10s';" \
+  -c "do \$do\$ begin perform set_config('test.uid','$OWNER_A', false); end \$do\$;" \
+  -c "select public.write_translation('11111111-1111-1111-1111-111111111111','item','$ITEM_ID','name','en','Course interne','validated','$ITEM_HASH_BEFORE');" \
+  >/dev/null 2>"$TMP/g2a.txt"; echo $?)"
+wait "$B2_PID" 2>/dev/null
+
+if [ "$G2_RC" -ne 0 ] && grep -qF "SCANYM_TRANSLATION_SOURCE_CHANGED" "$TMP/g2a.txt"; then
+  pass "[G2] item : une modification concurrente NON VALIDÉE fait REFUSER l'écriture (relecture après verrou)"
+else
+  fail "[G2] item : l'écriture a traversé la section critique (rc=$G2_RC) : $(cat "$TMP/g2a.txt")"
+fi
+assert_eq "[G2] item : la colonne translations est restée INCHANGÉE" "$ITEM_TRANS_BEFORE" \
+  "$(sql "select translations::text from public.menu_items where id='$ITEM_ID';")"
+# La traduction déjà présente devient « périmée » (hash stocké != hash
+# courant) : c'est l'état DÉRIVÉ normal après un changement de source,
+# pas une corruption. Ce qui doit être impossible, c'est que la valeur
+# REFUSÉE ait été écrite, ou qu'elle ait été estampillée comme à jour.
+assert_eq "[G2] item : la valeur refusée n'a PAS été écrite" "f" \
+  "$(sql "select coalesce((translations->'en'->>'name') = 'Course interne', false) from public.menu_items where id='$ITEM_ID';")"
+assert_eq "[G2] item : aucune traduction n'est présentée comme à jour pour le NOUVEAU texte" "f" \
+  "$(sql "select coalesce((translations->'en'->>'name') = 'Course interne' and (translations->'en'->>'name_source_hash') = name_hash, false) from public.menu_items where id='$ITEM_ID';")"
+
+# ---------- [G2] message client : seconde forme d'entité -----------
+# (stockage et chemin d'appartenance différents de menu_items :
+#  restaurant_sale_modes porte restaurant_id directement.)
+sql "update public.restaurant_sale_modes set customer_text='Retrait sous 6 h.' where id='$SM_A';" >/dev/null
+NOTICE_HASH_BEFORE="$(sql "select customer_text_hash from public.restaurant_sale_modes where id='$SM_A';")"
+NOTICE_TRANS_BEFORE="$(sql "select translations::text from public.restaurant_sale_modes where id='$SM_A';")"
+psql -X -q -d "$DB" >"$TMP/g2nb.txt" 2>&1 <<SQL &
+begin;
+update public.restaurant_sale_modes set customer_text='Retrait sous 8 h.' where id='$SM_A';
+select pg_sleep(2.5);
+commit;
+SQL
+B3_PID=$!
+sleep 0.8
+G2N_RC="$(PGOPTIONS="-c role=authenticated" psql -X -q -d "$DB" -c "set statement_timeout='10s';" \
+  -c "do \$do\$ begin perform set_config('test.uid','$OWNER_A', false); end \$do\$;" \
+  -c "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_A','customer_text','en','Race notice','validated','$NOTICE_HASH_BEFORE');" \
+  >/dev/null 2>"$TMP/g2na.txt"; echo $?)"
+wait "$B3_PID" 2>/dev/null
+
+if [ "$G2N_RC" -ne 0 ] && grep -qF "SCANYM_TRANSLATION_SOURCE_CHANGED" "$TMP/g2na.txt"; then
+  pass "[G2] message client : modification concurrente non validée -> écriture REFUSÉE"
+else
+  fail "[G2] message client : l'écriture a traversé la section critique (rc=$G2N_RC) : $(cat "$TMP/g2na.txt")"
+fi
+assert_eq "[G2] message client : translations INCHANGÉE" "$NOTICE_TRANS_BEFORE" \
+  "$(sql "select translations::text from public.restaurant_sale_modes where id='$SM_A';")"
+assert_eq "[G2] message client : la valeur refusée n'a PAS été écrite" "f" \
+  "$(sql "select coalesce((translations->'en'->>'customer_text') = 'Race notice', false) from public.restaurant_sale_modes where id='$SM_A';")"
+assert_eq "[G2] message client : aucune traduction présentée comme à jour pour le NOUVEAU texte" "f" \
+  "$(sql "select coalesce((translations->'en'->>'customer_text') = 'Race notice' and (translations->'en'->>'customer_text_source_hash') = customer_text_hash, false) from public.restaurant_sale_modes where id='$SM_A';")"
+
+# ---------- Le verrou ne relâche AUCUNE garde existante ------------
+NOTICE_HASH_NOW="$(sql "select customer_text_hash from public.restaurant_sale_modes where id='$SM_A';")"
+assert_denied "[G] le verrou ne contourne pas l'isolation locataire (mode de vente d'un AUTRE tenant)" \
+  "$(as_user_rc "$OWNER_A" "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_B','customer_text','en','X','to_review');")"
+assert_denied "[G] ... ni l'autorisation (staff refusé, hash pourtant correct)" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000003' "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_A','customer_text','en','X','to_review','$NOTICE_HASH_NOW');")"
+assert_ok "[G] écriture interactive (sans précondition) toujours acceptée sous verrou" \
+  "$(as_user_rc "$OWNER_A" "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_A','customer_text','en','Sans precondition','to_review');")"
+
+# ------------------------------------------------------------
 # [E] ROLLBACK
 # ------------------------------------------------------------
 log "=== [E] rollback ==="

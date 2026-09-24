@@ -65,7 +65,13 @@ test("SQL — garanties de sécurité PRÉSERVÉES mot pour mot (autorisation, l
   );
   // Le hash est TOUJOURS relu côté serveur -- jamais un paramètre.
   assert.equal(/p_source_hash|p_hash/.test(SQL), false);
-  assert.equal(SQL.includes("select name_hash into v_current_hash from public.menu_subcategories"), true);
+  // v2.2 : la lecture du hash de sous-catégorie est désormais JOINTE
+  // (preuve d'appartenance) et VERROUILLÉE, dans la même requête.
+  assert.equal(
+    SQL.includes("select ms.name_hash into v_current_hash") &&
+      SQL.includes("from public.menu_subcategories ms"),
+    true
+  );
 });
 
 test("SQL — isolation locataire des DEUX nouveaux types (jointure, jamais une confiance dans l'id)", () => {
@@ -75,8 +81,24 @@ test("SQL — isolation locataire des DEUX nouveaux types (jointure, jamais une 
     "une sous-catégorie est rattachée à son tenant par sa catégorie"
   );
   assert.equal(SQL.includes("where ms.id = p_entity_id and mc.restaurant_id = p_restaurant_id"), true);
-  assert.equal(SQL.includes("where rsm.id = p_entity_id and rsm.restaurant_id = p_restaurant_id"), true);
-  assert.equal(SQL.includes("where f.id = p_entity_id and f.restaurant_id = p_restaurant_id"), true);
+  // v2.2 : les 2 origines d'un message client sont résolues, scopées au
+  // locataire ET verrouillées par la MÊME requête -- l'alias de table a
+  // disparu avec la fusion, la portée locataire non.
+  const notices = SQL.slice(
+    SQL.indexOf("elsif p_entity_type = 'customer_notice' then"),
+    SQL.indexOf("else -- 'item'")
+  );
+  for (const table of ["public.restaurant_sale_modes", "public.restaurant_sale_mode_fulfillments"]) {
+    const at = notices.indexOf(`from ${table}`);
+    assert.equal(at > 0, true, `origine non résolue : ${table}`);
+    const statement = notices.slice(at, notices.indexOf(";", at));
+    assert.equal(
+      statement.includes("where id = p_entity_id and restaurant_id = p_restaurant_id"),
+      true,
+      `${table} : portée locataire absente de la requête verrouillante`
+    );
+    assert.equal(statement.includes("for update"), true, `${table} : lecture non verrouillée`);
+  }
   assert.equal(SQL.includes("Subcategory not found for this restaurant"), true);
   assert.equal(SQL.includes("Customer notice not found for this restaurant"), true);
 });
@@ -290,6 +312,70 @@ test("v2.1 — la précondition de hash source est appliquée CÔTÉ SERVEUR, un
     true,
     "post-vérification anti-surcharge attendue"
   );
+});
+
+test("v2.2 — la lecture du hash autoritatif VERROUILLE la ligne source, dans la requête qui prouve le locataire", () => {
+  const fn = SQL.slice(
+    SQL.indexOf("create function public.write_translation"),
+    SQL.indexOf("comment on function public.write_translation")
+  );
+  const code = fn
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  // Les 5 chemins d'entité lisent le hash SOUS VERROU.
+  const locks = code.match(/for update/g) ?? [];
+  assert.equal(locks.length >= 5, true, `verrou attendu sur chaque chemin, trouvé ${locks.length}`);
+
+  // Aucune lecture de hash NON verrouillée ne subsiste : chaque
+  // `select <...>_hash into v_current_hash` doit être suivi d'un
+  // `for update` avant son point-virgule final.
+  const reads = code.split("into v_current_hash").slice(1);
+  assert.equal(reads.length >= 5, true);
+  for (const [i, chunk] of reads.entries()) {
+    const statement = chunk.slice(0, chunk.indexOf(";"));
+    assert.equal(
+      /for update/.test(statement),
+      true,
+      `lecture de hash #${i + 1} non verrouillée : ${statement.replace(/\s+/g, " ").trim()}`
+    );
+  }
+
+  // Appartenance au locataire prouvée DANS la requête verrouillante
+  // (jamais un contrôle séparé qui rouvrirait une fenêtre).
+  assert.equal(
+    /where id = p_entity_id and restaurant_id = p_restaurant_id\s*\n\s*for update/.test(code),
+    true,
+    "category / customer_notice : tenant + verrou dans la même requête"
+  );
+  assert.equal(code.includes("for update of ms, mc"), true, "sous-catégorie : ligne source ET parent verrouillés");
+  assert.equal(code.includes("for update of mi, mc"), true, "produit : ligne source ET parent verrouillés");
+
+  // Aucun verrou applicatif ni consultatif, aucun changement
+  // d'isolation (mandat §3).
+  for (const forbidden of ["pg_advisory", "set transaction isolation", "serializable", "pg_sleep"]) {
+    assert.equal(code.toLowerCase().includes(forbidden), false, `mécanisme interdit : ${forbidden}`);
+  }
+
+  // Le verrou est pris AVANT la garde, elle-même avant toute écriture.
+  const firstLock = code.indexOf("for update");
+  const guard = code.indexOf("if p_expected_source_hash is not null");
+  const firstUpdate = code.indexOf("update public.");
+  assert.equal(
+    firstLock < guard && guard < firstUpdate,
+    true,
+    "ordre attendu : verrou -> garde -> écriture"
+  );
+
+  // Le rollback restaure une version SANS verrou (état antérieur exact).
+  const rb = readFileSync(ROLLBACK, "utf8");
+  const rbFn = rb.slice(
+    rb.indexOf("create function public.write_translation"),
+    rb.indexOf("revoke all on function public.write_translation")
+  );
+  assert.equal(rbFn.includes("for update"), false);
+  assert.equal(rbFn.includes("p_expected_source_hash"), false);
 });
 
 test("v2.1 — l'import transmet le hash DU FICHIER ; l'édition interactive reste sans précondition", () => {

@@ -216,7 +216,7 @@ comment on column public.restaurant_sale_mode_fulfillments.customer_text_hash is
 -- traduction préparée pour l'ANCIEN texte comme à jour (voire
 -- « validée ») pour le nouveau. Fenêtre TOCTOU réelle.
 --
--- CORRECTIF : `p_expected_source_hash` (OPTIONNEL, défaut NULL).
+-- CORRECTIF v2.1 : `p_expected_source_hash` (OPTIONNEL, défaut NULL).
 --   - NULL           -> comportement STRICTEMENT identique à v2
 --                       (écriture interactive du back-office) ;
 --   - valeur fournie -> la RPC relit le hash source AUTORITATIF puis
@@ -224,6 +224,15 @@ comment on column public.restaurant_sale_mode_fulfillments.customer_text_hash is
 -- Le hash fourni par le client n'est JAMAIS stocké : il sert
 -- uniquement de PRÉCONDITION. La valeur écrite reste le hash relu
 -- côté serveur, exactement comme avant.
+--
+-- DURCISSEMENT v2.2 : la lecture du hash autoritatif prend un VERROU
+-- DE LIGNE (`for update`) sur la ligne source, dans la même requête
+-- que la vérification d'appartenance au locataire. Sans lui, une
+-- seconde fenêtre TOCTOU subsistait À L'INTÉRIEUR de la RPC : entre
+-- la lecture du hash et l'écriture, une autre transaction pouvait
+-- changer le texte source, et la traduction était enregistrée avec le
+-- hash lu AVANT ce changement. Le verrou est détenu jusqu'à la fin de
+-- la transaction de la RPC, donc à travers la garde ET l'écriture.
 --
 -- STRUCTURE EN DEUX TEMPS, délibérée : une PREMIÈRE passe valide le
 -- champ, vérifie l'appartenance au locataire et RÉSOUT le hash
@@ -289,32 +298,64 @@ begin
 
   -- ----------------------------------------------------------
   -- PASSE 1 -- allowlist de champ, appartenance au locataire, et
-  -- lecture du hash source AUTORITATIF. Aucune écriture ici.
+  -- lecture VERROUILLÉE du hash source AUTORITATIF. Aucune écriture.
   -- L'ORDRE des contrôles est celui de v2, inchangé.
+  --
+  -- v2.2 -- VERROU DE LIGNE (`for update`) : sans lui, la lecture du
+  -- hash et l'écriture de la traduction encadraient une fenêtre
+  -- TOCTOU *interne* à la RPC -- une autre transaction pouvait
+  -- modifier le texte source entre les deux, et la traduction était
+  -- alors enregistrée avec le hash LU AVANT ce changement (donc
+  -- présentée comme à jour pour un texte qu'elle ne traduit plus).
+  -- Le verrou est pris sur LA LIGNE SOURCE qui fait autorité, dans la
+  -- MÊME requête que la vérification d'appartenance au locataire
+  -- (jamais un contrôle de tenant séparé du verrou : cela rouvrirait
+  -- une fenêtre entre les deux). Il est détenu jusqu'à la fin de la
+  -- transaction de la RPC, donc à travers la garde ET la PASSE 2.
+  --
+  -- Chaque type verrouille EXACTEMENT la ligne qu'il met ensuite à
+  -- jour (le texte source et la colonne `translations` vivent sur la
+  -- même ligne), plus, pour les entités dont l'appartenance dépend
+  -- d'un parent, la ligne de ce parent (`for update of ...`) -- la
+  -- relation d'appartenance ne peut donc pas changer non plus pendant
+  -- l'écriture. Aucun verrou applicatif, aucun verrou consultatif,
+  -- aucun changement de niveau d'isolation.
   -- ----------------------------------------------------------
   if p_entity_type = 'restaurant' then
     if p_field not in ('intro_text', 'announcement_text') then
       raise exception using errcode = '22023', message = 'Invalid field for entity type restaurant';
     end if;
+    -- restaurant_configs : la ligne porte À LA FOIS les textes source
+    -- et la colonne translations. Verrouillée telle quelle.
     if p_field = 'intro_text' then
-      select intro_text_hash into v_current_hash from public.restaurant_configs where restaurant_id = p_restaurant_id;
+      select intro_text_hash into v_current_hash
+      from public.restaurant_configs where restaurant_id = p_restaurant_id
+      for update;
     else
-      select announcement_text_hash into v_current_hash from public.restaurant_configs where restaurant_id = p_restaurant_id;
+      select announcement_text_hash into v_current_hash
+      from public.restaurant_configs where restaurant_id = p_restaurant_id
+      for update;
     end if;
 
   elsif p_entity_type = 'category' then
     if p_field not in ('name', 'description') then
       raise exception using errcode = '22023', message = 'Invalid field for entity type category';
     end if;
-    if not exists (
-      select 1 from public.menu_categories where id = p_entity_id and restaurant_id = p_restaurant_id
-    ) then
-      raise exception using errcode = 'P0002', message = 'Category not found for this restaurant';
-    end if;
+    -- Appartenance au locataire ET verrou dans la MÊME requête :
+    -- `restaurant_id` est porté par la ligne verrouillée elle-même.
     if p_field = 'name' then
-      select name_hash into v_current_hash from public.menu_categories where id = p_entity_id;
+      select name_hash into v_current_hash
+      from public.menu_categories
+      where id = p_entity_id and restaurant_id = p_restaurant_id
+      for update;
     else
-      select description_hash into v_current_hash from public.menu_categories where id = p_entity_id;
+      select description_hash into v_current_hash
+      from public.menu_categories
+      where id = p_entity_id and restaurant_id = p_restaurant_id
+      for update;
+    end if;
+    if not found then
+      raise exception using errcode = 'P0002', message = 'Category not found for this restaurant';
     end if;
 
   elsif p_entity_type = 'subcategory' then
@@ -327,14 +368,18 @@ begin
     -- le patron de menu_items ci-dessous (menu_subcategories ne porte
     -- pas de restaurant_id, par conception : voir
     -- DRAFT-lot-catalogue-subcategories-backoffice-v1.sql).
-    if not exists (
-      select 1 from public.menu_subcategories ms
-      join public.menu_categories mc on mc.id = ms.category_id
-      where ms.id = p_entity_id and mc.restaurant_id = p_restaurant_id
-    ) then
+    -- v2.2 : `for update of ms, mc` verrouille la sous-catégorie
+    -- (source + translations) ET sa catégorie, qui porte la preuve
+    -- d'appartenance -- ni le texte source ni le rattachement ne
+    -- peuvent changer pendant cette écriture.
+    select ms.name_hash into v_current_hash
+    from public.menu_subcategories ms
+    join public.menu_categories mc on mc.id = ms.category_id
+    where ms.id = p_entity_id and mc.restaurant_id = p_restaurant_id
+    for update of ms, mc;
+    if not found then
       raise exception using errcode = 'P0002', message = 'Subcategory not found for this restaurant';
     end if;
-    select name_hash into v_current_hash from public.menu_subcategories where id = p_entity_id;
 
   elsif p_entity_type = 'customer_notice' then
     -- TRANSLATIONS MANAGEMENT v2 -- texte client CONFIGURABLE PAR LE
@@ -345,41 +390,54 @@ begin
       raise exception using errcode = '22023', message = 'Invalid field for entity type customer_notice';
     end if;
 
-    if exists (
-      select 1 from public.restaurant_sale_modes rsm
-      where rsm.id = p_entity_id and rsm.restaurant_id = p_restaurant_id
-    ) then
+    -- v2.2 : la résolution de la source, la vérification du locataire
+    -- et le verrou sont la MÊME requête, pour chacune des 2 origines.
+    select customer_text_hash into v_current_hash
+    from public.restaurant_sale_modes
+    where id = p_entity_id and restaurant_id = p_restaurant_id
+    for update;
+    if found then
       v_notice_kind := 'sale_mode';
-      select customer_text_hash into v_current_hash
-      from public.restaurant_sale_modes where id = p_entity_id;
-    elsif exists (
-      select 1 from public.restaurant_sale_mode_fulfillments f
-      where f.id = p_entity_id and f.restaurant_id = p_restaurant_id
-    ) then
-      v_notice_kind := 'fulfillment';
-      select customer_text_hash into v_current_hash
-      from public.restaurant_sale_mode_fulfillments where id = p_entity_id;
     else
-      raise exception using errcode = 'P0002', message = 'Customer notice not found for this restaurant';
+      select customer_text_hash into v_current_hash
+      from public.restaurant_sale_mode_fulfillments
+      where id = p_entity_id and restaurant_id = p_restaurant_id
+      for update;
+      if found then
+        v_notice_kind := 'fulfillment';
+      else
+        raise exception using errcode = 'P0002', message = 'Customer notice not found for this restaurant';
+      end if;
     end if;
 
   else -- 'item'
     if p_field not in ('name', 'short_description', 'description') then
       raise exception using errcode = '22023', message = 'Invalid field for entity type item';
     end if;
-    if not exists (
-      select 1 from public.menu_items mi
+    -- v2.2 : `for update of mi, mc` -- le produit (source +
+    -- translations) ET sa catégorie, dont dépend l'appartenance au
+    -- locataire, sont verrouillés ensemble.
+    if p_field = 'name' then
+      select mi.name_hash into v_current_hash
+      from public.menu_items mi
       join public.menu_categories mc on mc.id = mi.category_id
       where mi.id = p_entity_id and mc.restaurant_id = p_restaurant_id
-    ) then
-      raise exception using errcode = 'P0002', message = 'Item not found for this restaurant';
-    end if;
-    if p_field = 'name' then
-      select name_hash into v_current_hash from public.menu_items where id = p_entity_id;
+      for update of mi, mc;
     elsif p_field = 'short_description' then
-      select short_description_hash into v_current_hash from public.menu_items where id = p_entity_id;
+      select mi.short_description_hash into v_current_hash
+      from public.menu_items mi
+      join public.menu_categories mc on mc.id = mi.category_id
+      where mi.id = p_entity_id and mc.restaurant_id = p_restaurant_id
+      for update of mi, mc;
     else
-      select description_hash into v_current_hash from public.menu_items where id = p_entity_id;
+      select mi.description_hash into v_current_hash
+      from public.menu_items mi
+      join public.menu_categories mc on mc.id = mi.category_id
+      where mi.id = p_entity_id and mc.restaurant_id = p_restaurant_id
+      for update of mi, mc;
+    end if;
+    if not found then
+      raise exception using errcode = 'P0002', message = 'Item not found for this restaurant';
     end if;
   end if;
 
@@ -858,6 +916,13 @@ begin
   if v_def not ilike '%p_expected_source_hash%'
      or v_def not ilike '%SCANYM_TRANSLATION_SOURCE_CHANGED%' then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation n''applique pas la garde de hash source attendue (v2.1).';
+  end if;
+  -- v2.2 : la lecture du hash autoritatif DOIT verrouiller la ligne
+  -- source (une lecture non verrouillée par type d'entité, soit 5
+  -- chemins, rouvrirait la fenêtre TOCTOU interne).
+  if v_def not ilike '%for update%'
+     or (length(v_def) - length(replace(lower(v_def), 'for update', ''))) / length('for update') < 5 then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation ne verrouille pas la ligne source sur tous les chemins (v2.2).';
   end if;
   if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = 'write_translation') <> 1 then
