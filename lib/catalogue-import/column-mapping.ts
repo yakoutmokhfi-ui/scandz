@@ -7,7 +7,13 @@
  * documenté du format cible :
  *   Type, Nom, Catégorie parent, Sous-catégorie parent,
  *   Tags / Collections, Description courte, Description longue,
- *   Prix TTC (€), TVA (%), Poids (g), Photo fichier.
+ *   Prix TTC (€), TVA (%), Poids (g), Photo fichier, Rétractable.
+ *
+ * ONLINE WITHDRAWAL v1 -- « Rétractable » est une VRAIE colonne
+ * d'aller-retour (jamais une colonne d'export purement informative,
+ * comme « Disponible »/« Prix de référence (€/kg) ») : elle est
+ * exportée ET relue à l'import. Optionnelle, valeurs « Oui »/« Non »
+ * uniquement (voir coerceWithdrawalEligible, normalization.ts).
  *
  * DÉCISION DOCUMENTÉE (IMPORT-CONTRACT.md) -- colonnes REQUISES vs
  * OPTIONNELLES : le mandat ne le précise pas explicitement ; la
@@ -18,7 +24,7 @@
  *   REQUISES : Nom, Catégorie parent, Prix TTC (€)
  *   OPTIONNELLES : Type, Sous-catégorie parent, Tags / Collections,
  *   Description courte, Description longue, TVA (%), Poids (g),
- *   Photo fichier.
+ *   Photo fichier, Rétractable.
  * Une colonne optionnelle absente du fichier ne bloque PAS l'import
  * (mandat "Do not invent semantics for ambiguous fields" -- une
  * colonne manquante n'est pas ambiguë, elle est simplement absente ;
@@ -37,6 +43,10 @@ export const IMPORT_COLUMNS = [
   "TVA (%)",
   "Poids (g)",
   "Photo fichier",
+  // ONLINE WITHDRAWAL v1 -- ajoutée EN DERNIÈRE POSITION : tout
+  // fichier antérieur à ce lot (qui ne la contient pas) reste importé
+  // exactement comme avant, colonne simplement absente.
+  "Rétractable",
 ] as const;
 
 export type ImportColumn = (typeof IMPORT_COLUMNS)[number];
@@ -78,6 +88,10 @@ const HEADER_ALIASES: ReadonlyMap<string, ImportColumn> = new Map([
   ["sous-categorie parent", "Sous-catégorie parent"],
   ["photo", "Photo fichier"],
   ["photo fichier", "Photo fichier"],
+  // ONLINE WITHDRAWAL v1 -- seule variante tolérée : l'en-tête
+  // canonique DÉSACCENTUÉ (« Retractable »), fréquent dans un tableur
+  // configuré sans accents. Jamais une correspondance floue.
+  ["retractable", "Rétractable"],
 ]);
 
 /** Retire les accents pour la résolution des alias ci-dessus

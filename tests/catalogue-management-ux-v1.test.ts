@@ -68,6 +68,11 @@ function product(over: Record<string, unknown> = {}) {
     unit_weight_grams: 200,
     weight_is_approximate: false,
     reference_price_per_kg: 49.5,
+    // ONLINE WITHDRAWAL v1 -- `false` par défaut, comme la colonne en
+    // base : ces tests portent sur la recherche/filtre/tri/export,
+    // pas sur la rétractabilité (couverte par
+    // tests/online-withdrawal-catalogue-v1.test.ts).
+    withdrawal_eligible: false,
     ...over,
   } as any;
 }
@@ -346,7 +351,7 @@ test("[E] le tri ne MUTE JAMAIS la liste reçue", () => {
 // F. Export
 // ==================================================================
 
-test("[F] les 11 premières colonnes d'export sont EXACTEMENT celles de l'import, dans le même ordre (réutilisées, jamais recopiées)", () => {
+test("[F] les 12 premières colonnes d'export sont EXACTEMENT celles de l'import, dans le même ordre (réutilisées, jamais recopiées)", () => {
   assert.deepEqual(EXPORT_COLUMNS.slice(0, IMPORT_COLUMNS.length), [...IMPORT_COLUMNS]);
   assert.deepEqual(EXPORT_COLUMNS.slice(IMPORT_COLUMNS.length), [...EXPORT_EXTRA_COLUMNS]);
 });
@@ -359,13 +364,20 @@ test("[F] une ligne d'export reprend les champs marchands attendus, tags inclus"
   const [row] = buildExportRows(flat);
   assert.deepEqual(row, [
     "Produit", "Comté", "Fromages", "Pâtes dures", "Bio ; AOP",
-    "Affiné 12 mois", "", 12.5, 5.5, 250, "", "Oui", 50,
+    // ONLINE WITHDRAWAL v1 -- une colonne « Rétractable » (« Non »
+    // ici) s'intercale entre « Photo fichier » et « Disponible » :
+    // c'est une colonne d'IMPORT, elle est donc rendue AVANT les deux
+    // colonnes supplémentaires d'export.
+    "Affiné 12 mois", "", 12.5, 5.5, 250, "", "Non", "Oui", 50,
   ]);
 });
 
 test("[F] un produit INDISPONIBLE est exporté « Non » -- le statut est une donnée, jamais une omission", () => {
   const flat = flattenCatalogue([category({ products: [product({ is_available: false })] })]);
-  assert.equal(buildExportRows(flat)[0][11], "Non");
+  // Index 12 depuis ONLINE WITHDRAWAL v1 (« Rétractable » insérée en
+  // position 11, dernière colonne d'import) -- même assertion, même
+  // exigence, seule la position de la colonne « Disponible » change.
+  assert.equal(buildExportRows(flat)[0][EXPORT_COLUMNS.indexOf("Disponible")], "Non");
 });
 
 test("[F/SÉCURITÉ] l'export ne contient AUCUN identifiant interne", () => {
@@ -414,11 +426,11 @@ test("[§12] le classeur exporté est relu SANS ERREUR par readXlsxWorkbook, le 
   assert.equal(sheet.rows[1][7], "12.5", "le prix survit à l'aller-retour");
 });
 
-test("[§12] les 11 colonnes d'import sont reconnues à la réimportation ; les 2 colonnes supplémentaires sont IGNORÉES en INFO, jamais bloquantes -- différence documentée, pas silencieuse", async () => {
+test("[§12] les 12 colonnes d'import sont reconnues à la réimportation ; les 2 colonnes supplémentaires sont IGNORÉES en INFO, jamais bloquantes -- différence documentée, pas silencieuse", async () => {
   const { resolveColumnMap } = await import("../lib/catalogue-import/column-mapping.ts");
   const map = resolveColumnMap([...EXPORT_COLUMNS]);
 
-  // Les 11 colonnes d'import sont toutes localisées.
+  // Les 12 colonnes d'import sont toutes localisées.
   for (const c of IMPORT_COLUMNS) {
     assert.ok(map.indexOf[c] !== undefined && map.indexOf[c] >= 0, `colonne d'import « ${c} » non reconnue`);
   }

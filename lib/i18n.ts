@@ -506,6 +506,22 @@ const fr: Dict = {
   mcFilterAll: "Tous",
   mcFilterAvailableYes: "Disponibles",
   mcFilterAvailableNo: "Indisponibles",
+  // ONLINE WITHDRAWAL v1 -- attribut MARCHAND interne (voir
+  // CatalogueProduct.withdrawal_eligible) : ces libellés n'apparaissent
+  // que sur l'écran catalogue marchand et dans l'export/import XLSX
+  // marchand, JAMAIS sur une vue client.
+  // `commonYes`/`commonNo` sont délibérément GÉNÉRIQUES (aucune clé
+  // « Oui »/« Non » nue n'existait jusqu'ici -- mcFilterAvailableYes/No
+  // disent « Disponibles »/« Indisponibles », pas « Oui »/« Non »).
+  catalogueWithdrawalEligibleLabel: "Rétractable",
+  commonYes: "Oui",
+  commonNo: "Non",
+  catalogueWithdrawalFilterAll: "Tous",
+  // Doit rester STRICTEMENT identique à
+  // WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE
+  // (lib/catalogue-import/validation.ts) -- égalité prouvée par
+  // tests/online-withdrawal-catalogue-v1.test.ts.
+  catalogueImportWithdrawalInvalid: "Valeur « Rétractable » invalide (attendu : Oui ou Non).",
   mcSortLabel: "Trier",
   mcSortNameAsc: "Nom A → Z",
   mcSortNameDesc: "Nom Z → A",
@@ -693,6 +709,37 @@ const fr: Dict = {
   // English-ready, preserve existing i18n architecture") -- clé
   // parité EXACTE fr/en/ar exigée par tests/v64-auth-whatsapp.test.ts.
   trackYourOrder: "Suivre ma commande",
+  // ONLINE WITHDRAWAL v1 -- parcours client de rétractation en ligne
+  // (art. L221-21 et D.221-5 du code de la consommation). Libellés
+  // NON AMBIGUS : le point d'entrée nomme le droit exercé, et l'action
+  // finale nomme l'acte juridique -- jamais « Valider » ni « Envoyer ».
+  withdrawalEntryAction: "Exercer mon droit de rétractation",
+  withdrawalEntryHelp: "Certains produits de cette commande peuvent faire l'objet d'une rétractation.",
+  withdrawalOrderRef: "Commande #{n}",
+  withdrawalSelectionHelp: "Sélectionnez les produits concernés et la quantité à rétracter.",
+  withdrawalQuantityLabel: "Quantité à rétracter :",
+  withdrawalBack: "Retour",
+  withdrawalContinue: "Continuer",
+  withdrawalReviewTitle: "Vérifier ma demande de rétractation",
+  withdrawalFirstNameLabel: "Prénom",
+  withdrawalLastNameLabel: "Nom",
+  withdrawalAckAddressLabel: "Adresse e-mail pour l'accusé de réception",
+  withdrawalAckAddressHelp: "Vous recevrez l'accusé de réception de votre déclaration à cette adresse.",
+  withdrawalConfirmAction: "Confirmer la rétractation",
+  withdrawalSubmitting: "Enregistrement…",
+  withdrawalDoneTitle: "Demande de rétractation enregistrée",
+  withdrawalRequestRef: "Demande #{ref}",
+  withdrawalDeclaredAt: "Déclarée le {date} à {time}",
+  withdrawalAckSent: "L'accusé de réception vous a été envoyé.",
+  withdrawalAckPending: "L'accusé de réception va vous être envoyé.",
+  withdrawalAckUnavailable: "Votre déclaration est enregistrée et horodatée. L'envoi automatique de l'accusé de réception n'est pas encore disponible : le commerçant vous le transmettra.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "Ce lien de suivi n'est plus valable. Rouvrez le suivi de votre commande, puis réessayez.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "Indiquez votre nom et votre prénom.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "Indiquez une adresse e-mail valide pour recevoir l'accusé de réception.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "Sélectionnez au moins un produit.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "Ce produit n'ouvre pas droit à rétractation pour cette commande.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "La quantité demandée dépasse la quantité commandée.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "La demande n'a pas pu être enregistrée. Réessayez dans un instant.",
   trackingPageTitle: "Suivi de commande",
   trackingOrderNumber: "Commande #{n}",
   trackingInvalidTitle: "Lien de suivi introuvable",
@@ -1257,6 +1304,12 @@ const en: Dict = {
   mcFilterAll: "All",
   mcFilterAvailableYes: "Available",
   mcFilterAvailableNo: "Unavailable",
+  // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr.
+  catalogueWithdrawalEligibleLabel: "Eligible for withdrawal",
+  commonYes: "Yes",
+  commonNo: "No",
+  catalogueWithdrawalFilterAll: "All",
+  catalogueImportWithdrawalInvalid: "Invalid « Rétractable » value (expected: Oui or Non).",
   mcSortLabel: "Sort",
   mcSortNameAsc: "Name A → Z",
   mcSortNameDesc: "Name Z → A",
@@ -1440,6 +1493,33 @@ const en: Dict = {
 
   // CUSTOMER TRACKING EXPERIENCE v2.
   trackYourOrder: "Track your order",
+  withdrawalEntryAction: "Exercise my right of withdrawal",
+  withdrawalEntryHelp: "Some products in this order may be withdrawn.",
+  withdrawalOrderRef: "Order #{n}",
+  withdrawalSelectionHelp: "Select the products concerned and the quantity to withdraw.",
+  withdrawalQuantityLabel: "Quantity to withdraw:",
+  withdrawalBack: "Back",
+  withdrawalContinue: "Continue",
+  withdrawalReviewTitle: "Review my withdrawal request",
+  withdrawalFirstNameLabel: "First name",
+  withdrawalLastNameLabel: "Surname",
+  withdrawalAckAddressLabel: "E-mail address for the acknowledgement",
+  withdrawalAckAddressHelp: "The acknowledgement of your declaration will be sent to this address.",
+  withdrawalConfirmAction: "Confirm the withdrawal",
+  withdrawalSubmitting: "Recording…",
+  withdrawalDoneTitle: "Withdrawal request recorded",
+  withdrawalRequestRef: "Request #{ref}",
+  withdrawalDeclaredAt: "Declared on {date} at {time}",
+  withdrawalAckSent: "The acknowledgement has been sent to you.",
+  withdrawalAckPending: "The acknowledgement will be sent to you.",
+  withdrawalAckUnavailable: "Your declaration is recorded and time-stamped. Automatic sending of the acknowledgement is not available yet: the merchant will send it to you.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "This tracking link is no longer valid. Reopen your order tracking, then try again.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "Please enter your surname and first name.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "Please enter a valid e-mail address to receive the acknowledgement.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "Select at least one product.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "This product carries no right of withdrawal for this order.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "The requested quantity exceeds the quantity ordered.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "The request could not be recorded. Please try again shortly.",
   trackingPageTitle: "Order tracking",
   trackingOrderNumber: "Order #{n}",
   trackingInvalidTitle: "Tracking link not found",
@@ -1980,6 +2060,15 @@ const ar: Dict = {
   mcFilterAll: "الكل",
   mcFilterAvailableYes: "متوفر",
   mcFilterAvailableNo: "غير متوفر",
+  // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr. Les valeurs
+  // « Oui »/« Non » du FICHIER XLSX restent en français (c'est le
+  // format de fichier lui-même, pas une chaîne d'interface) : le
+  // message d'erreur les cite donc telles quelles.
+  catalogueWithdrawalEligibleLabel: "قابل للتراجع",
+  commonYes: "نعم",
+  commonNo: "لا",
+  catalogueWithdrawalFilterAll: "الكل",
+  catalogueImportWithdrawalInvalid: "قيمة « Rétractable » غير صالحة (المتوقع: Oui أو Non).",
   mcSortLabel: "ترتيب",
   mcSortNameAsc: "الاسم أ → ي",
   mcSortNameDesc: "الاسم ي → أ",
@@ -2163,6 +2252,33 @@ const ar: Dict = {
 
   // CUSTOMER TRACKING EXPERIENCE v2.
   trackYourOrder: "تتبع طلبك",
+  withdrawalEntryAction: "ممارسة حقي في التراجع",
+  withdrawalEntryHelp: "بعض منتجات هذا الطلب يمكن التراجع عنها.",
+  withdrawalOrderRef: "الطلب رقم {n}",
+  withdrawalSelectionHelp: "اختر المنتجات المعنية والكمية المراد التراجع عنها.",
+  withdrawalQuantityLabel: "الكمية المراد التراجع عنها:",
+  withdrawalBack: "رجوع",
+  withdrawalContinue: "متابعة",
+  withdrawalReviewTitle: "مراجعة طلب التراجع",
+  withdrawalFirstNameLabel: "الاسم الشخصي",
+  withdrawalLastNameLabel: "الاسم العائلي",
+  withdrawalAckAddressLabel: "البريد الإلكتروني لاستلام الإشعار",
+  withdrawalAckAddressHelp: "سيُرسَل إليك إشعار باستلام تصريحك على هذا العنوان.",
+  withdrawalConfirmAction: "تأكيد التراجع",
+  withdrawalSubmitting: "جارٍ التسجيل…",
+  withdrawalDoneTitle: "تم تسجيل طلب التراجع",
+  withdrawalRequestRef: "الطلب رقم {ref}",
+  withdrawalDeclaredAt: "صُرِّح به في {date} على الساعة {time}",
+  withdrawalAckSent: "تم إرسال الإشعار إليك.",
+  withdrawalAckPending: "سيتم إرسال الإشعار إليك.",
+  withdrawalAckUnavailable: "تم تسجيل تصريحك مع تاريخه وساعته. الإرسال التلقائي للإشعار غير متاح بعد: سيوافيك التاجر به.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "لم يعد رابط التتبّع صالحًا. أعد فتح تتبّع طلبك ثم حاول مجددًا.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "يرجى إدخال اسمك الشخصي والعائلي.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "يرجى إدخال بريد إلكتروني صالح لاستلام الإشعار.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "اختر منتجًا واحدًا على الأقل.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "هذا المنتج لا يخوّل حق التراجع في هذا الطلب.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "الكمية المطلوبة تتجاوز الكمية المطلوبة في الطلب.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "تعذّر تسجيل الطلب. يرجى المحاولة بعد قليل.",
   trackingPageTitle: "تتبّع الطلب",
   trackingOrderNumber: "الطلب رقم {n}",
   trackingInvalidTitle: "رابط التتبّع غير موجود",

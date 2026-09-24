@@ -384,6 +384,13 @@ export async function commitCatalogueImport(
       taxRate: values.taxRate ?? null,
       unitWeightGrams: values.unitWeightGrams ?? null,
       weightIsApproximate: values.weightIsApproximate,
+      // ONLINE WITHDRAWAL v1 -- valeur EFFECTIVE déjà résolue par la
+      // preview FRAÎCHE recalculée en tête de cette fonction (jamais
+      // une valeur postée par le navigateur, jamais recalculée ici) :
+      // cellule Oui/Non -> cette valeur, cellule vide -> valeur
+      // actuelle du produit existant / `false` pour un produit
+      // nouveau. Voir PreviewRow.withdrawalEligibleToWrite.
+      withdrawalEligible: row.withdrawalEligibleToWrite,
     };
 
     try {

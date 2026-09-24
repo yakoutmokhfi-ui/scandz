@@ -117,6 +117,13 @@ type ProductDraft = {
    *  rattaché à sa catégorie (comportement historique, valeur par
    *  défaut ci-dessous). */
   subcategoryId: string | null;
+  /** ONLINE WITHDRAWAL v1 -- classification marchande de
+   *  rétractabilité (voir CatalogueProduct.withdrawal_eligible).
+   *  Booléen STRICT à deux valeurs (Oui/Non), jamais un troisième état
+   *  « non renseigné » : la migration impose `not null default false`,
+   *  un nouveau produit vaut donc Non tant que le marchand ne choisit
+   *  pas Oui. Attribut INTERNE : jamais exposé au client. */
+  withdrawalEligible: boolean;
 };
 
 type CategoryDraft = {
@@ -145,6 +152,10 @@ const EMPTY_PRODUCT_DRAFT: ProductDraft = {
   unitWeightGrams: "",
   weightIsApproximate: false,
   subcategoryId: null,
+  // ONLINE WITHDRAWAL v1 -- un NOUVEAU produit vaut « Non » par
+  // défaut, exactement comme la colonne en base (`default false`) :
+  // l'éligibilité est une décision explicite du marchand.
+  withdrawalEligible: false,
 };
 
 const EMPTY_SUBCATEGORY_DRAFT: SubcategoryDraft = {
@@ -952,6 +963,11 @@ export default function CataloguePage() {
       unitWeightGrams: p.unit_weight_grams != null ? String(p.unit_weight_grams) : "",
       weightIsApproximate: p.weight_is_approximate ?? false,
       subcategoryId: p.subcategory_id,
+      // ONLINE WITHDRAWAL v1 -- repli `false` pour une base non encore
+      // migrée (même patron que weight_is_approximate ci-dessus) :
+      // ouvrir un produit en édition ne doit jamais le faire basculer
+      // à « Oui » à l'insu du marchand.
+      withdrawalEligible: p.withdrawal_eligible ?? false,
     });
   }
 
@@ -1106,6 +1122,12 @@ export default function CataloguePage() {
                       taxRate: fiscalFields.taxRate,
                       unitWeightGrams: fiscalFields.unitWeightGrams,
                       weightIsApproximate: fiscalFields.weightIsApproximate,
+                      // ONLINE WITHDRAWAL v1 -- update_product réécrit
+                      // TOUJOURS la colonne : la valeur courante du
+                      // brouillon (initialisée depuis le produit par
+                      // startEdit) est donc toujours transmise, jamais
+                      // omise.
+                      withdrawalEligible: draft.withdrawalEligible,
                     },
                     draft.subcategoryId
                   );
@@ -1467,6 +1489,34 @@ export default function CataloguePage() {
                 </select>
               </div>
 
+              {/* ONLINE WITHDRAWAL v1 -- filtre à TROIS états sur
+                  l'attribut marchand interne « Rétractable » (Tous /
+                  Oui / Non), filtrage purement CLIENT sur les données
+                  déjà chargées (applyCatalogueFilters) : aucun appel
+                  serveur supplémentaire, aucune donnée exposée hors de
+                  cet écran marchand. */}
+              <div>
+                <label htmlFor="filter-withdrawal-eligible" className="mb-1 block text-xs font-semibold text-stone-600">
+                  {t("catalogueWithdrawalEligibleLabel")}
+                </label>
+                <select
+                  id="filter-withdrawal-eligible"
+                  data-testid="filter-withdrawal-eligible"
+                  value={filters.withdrawalEligible === null ? "" : filters.withdrawalEligible ? "yes" : "no"}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      withdrawalEligible: e.target.value === "" ? null : e.target.value === "yes",
+                    })
+                  }
+                  className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+                >
+                  <option value="">{t("catalogueWithdrawalFilterAll")}</option>
+                  <option value="yes">{t("commonYes")}</option>
+                  <option value="no">{t("commonNo")}</option>
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="catalogue-sort" className="mb-1 block text-xs font-semibold text-stone-600">
                   {t("mcSortLabel")}
@@ -1695,6 +1745,10 @@ export default function CataloguePage() {
                           taxRate: fiscalFields.taxRate,
                           unitWeightGrams: fiscalFields.unitWeightGrams,
                           weightIsApproximate: fiscalFields.weightIsApproximate,
+                          // ONLINE WITHDRAWAL v1 -- choix explicite du
+                          // marchand dans le formulaire ; `false` par
+                          // défaut (EMPTY_PRODUCT_DRAFT).
+                          withdrawalEligible: draft.withdrawalEligible,
                         },
                         draft.subcategoryId
                       );
@@ -2611,6 +2665,26 @@ function ProductForm({
         </select>
         </LabeledField>
       )}
+
+      {/* ONLINE WITHDRAWAL v1 -- classification OPÉRATIONNELLE du
+          produit par le MARCHAND, attribut strictement INTERNE (jamais
+          exposé à la carte publique ni à aucune réponse client). Deux
+          valeurs EXACTEMENT (Oui / Non), jamais un troisième état
+          « non renseigné » : la colonne est `not null default false`,
+          et l'éligibilité n'est jamais déduite d'une catégorie, d'un
+          nom ou du régime marchand -- seul le marchand classe. */}
+      <LabeledField id="product-withdrawal-eligible" label={t("catalogueWithdrawalEligibleLabel")}>
+        <select
+          id="product-withdrawal-eligible"
+          data-testid="product-withdrawal-eligible"
+          value={draft.withdrawalEligible ? "yes" : "no"}
+          onChange={(e) => setDraft({ ...draft, withdrawalEligible: e.target.value === "yes" })}
+          className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
+        >
+          <option value="yes">{t("commonYes")}</option>
+          <option value="no">{t("commonNo")}</option>
+        </select>
+      </LabeledField>
 
       {/* CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §8) --
           modèle SIMPLIFIÉ portion-à-prix-fixe : champs indépendants

@@ -65,6 +65,14 @@ export interface NormalizedRowValues {
   taxRate: number | null | undefined;
   unitWeightGrams: number | null | undefined;
   weightIsApproximate: boolean;
+  /** ONLINE WITHDRAWAL v1 -- valeur BRUTE lue dans la colonne
+   *  « Rétractable » : `undefined` = colonne absente ou cellule vide,
+   *  `true`/`false` = « Oui »/« Non » explicite, `null` = valeur non
+   *  vide INVALIDE (diagnostic bloquant, jamais un `false`
+   *  silencieux). Voir coerceWithdrawalEligible (normalization.ts).
+   *  La valeur réellement écrite est `PreviewRow.withdrawalEligibleToWrite`
+   *  ci-dessous, jamais ce champ brut. */
+  withdrawalEligible: boolean | null | undefined;
   tags: string[];
   type: RowTypeClassification;
   /** Nom de catégorie à RÉSOUDRE pour cette ligne (jamais interrogé
@@ -121,6 +129,28 @@ export interface PreviewRow {
   resolvedTags: TagResolution[];
   rowType: RowType;
   plannedAction: PlannedAction;
+  /**
+   * ONLINE WITHDRAWAL v1 -- valeur EFFECTIVE de `withdrawal_eligible`
+   * que le commit transmettra à create_product/update_product pour
+   * CETTE ligne. Résolue UNE SEULE FOIS par preview.ts (seul endroit
+   * qui voit à la fois la cellule et le produit existant), jamais
+   * recalculée par le commit :
+   *
+   *   - cellule « Oui »/« Non »  -> cette valeur, telle quelle ;
+   *   - cellule VIDE / colonne absente :
+   *       -> produit EXISTANT : sa valeur ACTUELLE (inchangée -- une
+   *          cellule vide ne remet JAMAIS un « Oui » à « Non », alors
+   *          même que update_product réécrit toujours la colonne) ;
+   *       -> produit NOUVEAU : `false` (défaut de la migration) ;
+   *   - cellule INVALIDE -> la ligne est BLOQUÉE (rien n'est écrit) ;
+   *     cette valeur retombe sur le même repli que la cellule vide,
+   *     jamais sur `true`.
+   *
+   * Toujours calculée, y compris pour une ligne CATEGORY/SUBCATEGORY
+   * (où elle n'a aucun sens et n'est jamais lue -- ces lignes
+   * n'écrivent aucun produit).
+   */
+  withdrawalEligibleToWrite: boolean;
 }
 
 export type PreviewFileEligibility = "ELIGIBLE" | "ELIGIBLE_WITH_WARNINGS" | "NOT_ELIGIBLE";

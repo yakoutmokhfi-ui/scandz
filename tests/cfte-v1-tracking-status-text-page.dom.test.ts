@@ -429,6 +429,14 @@ test("4d. la lecture des surcharges utilise la MÊME capacité, jamais un second
           "get_order_tracking_by_capability",
           "get_order_tracking_customer_context_by_capability",
           "get_order_tracking_status_text_by_capability",
+          // ONLINE WITHDRAWAL v1 -- lignes ENCORE rétractables de la
+          // commande. Cette énumération n'est PAS assouplie : la RPC
+          // ajoutée est elle aussi « _by_capability », liée à la MÊME
+          // capacité de suivi déjà vérifiée (order_id + capability_id +
+          // secret ensemble) -- ce que ce test interdit, une lecture
+          // directe de table ou un second mécanisme d'accès, reste
+          // interdit.
+          "get_withdrawal_options_by_capability",
         ].includes(c),
         `RPC inattendue appelée par la page : ${c}`
       );

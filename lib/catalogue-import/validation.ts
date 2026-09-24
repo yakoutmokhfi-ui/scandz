@@ -26,6 +26,12 @@
  *   | TVA                     | non       | non             | règle produit |
  *   | Photo                   | non       | non             | règle produit |
  *   | Disponibilité           | s/o       | s/o             | règle produit |
+ *   | Rétractable             | non       | non             | optionnel, Oui/Non STRICT |
+ *
+ * ONLINE WITHDRAWAL v1 -- « Rétractable » n'est évaluée que pour une
+ * ligne PRODUIT (une ligne structurelle n'écrit aucun produit, donc
+ * aucune valeur de rétractabilité ne peut en sortir ; la colonne y est
+ * simplement ignorée, comme « Prix TTC » l'est déjà).
  *
  * "Type" lui-même reste validé une seule fois, EN AMONT des trois
  * fonctions (une valeur UNKNOWN bloque la ligne AVANT toute tentative
@@ -49,6 +55,20 @@ import { validateFiscalMeasurementFields } from "@/lib/catalogue-fiscal";
 import { isValidProductPrice } from "@/lib/catalogue-import/price-validation";
 import type { TagResolution } from "@/lib/catalogue-import/tag-resolution";
 import type { CategoryResolution, ImportIssue, NormalizedRowValues, ProductMatch, SubcategoryResolution } from "@/lib/catalogue-import/types";
+
+/**
+ * ONLINE WITHDRAWAL v1 -- message du diagnostic « Rétractable »
+ * invalide. Exporté pour rester la SEULE formulation de ce message :
+ * il est répliqué à l'identique dans le dictionnaire français sous la
+ * clé i18n `catalogueImportWithdrawalInvalid` (lib/i18n.ts), et
+ * l'égalité des deux est prouvée par
+ * tests/online-withdrawal-catalogue-v1.test.ts -- jamais deux textes
+ * qui pourraient diverger sans que rien ne le signale. Ce module reste
+ * ainsi PUR et sans dépendance vers la couche i18n, comme tous ses
+ * autres messages.
+ */
+export const WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE =
+  "Valeur « Rétractable » invalide (attendu : Oui ou Non).";
 
 export interface RowValidationInput {
   values: NormalizedRowValues;
@@ -390,6 +410,25 @@ function validateProductRow(
       field: "TVA (%)",
     });
   }
+  // --- Rétractable (ONLINE WITHDRAWAL v1) ---
+  // FAIL CLOSED, strictement le même patron que « TVA non numérique »
+  // ci-dessus : une valeur NON VIDE et NON RECONNUE bloque la ligne.
+  // Elle ne devient JAMAIS `false` silencieusement -- accepter en
+  // silence une valeur incomprise reviendrait à décider à la place du
+  // marchand d'un attribut à portée juridique.
+  // Une cellule VIDE, elle, n'est PAS une erreur : elle signifie
+  // « inchangé pour un produit existant / Non pour un produit
+  // nouveau » (voir resolveWithdrawalEligibleToWrite, preview.ts) --
+  // même philosophie que « TVA absente », non bloquante.
+  if (values.withdrawalEligible === null) {
+    issues.push({
+      code: "SCANYM_IMPORT_INVALID_WITHDRAWAL_ELIGIBLE",
+      severity: "BLOCKING_ERROR",
+      message: WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE,
+      field: "Rétractable",
+    });
+  }
+
   if (values.unitWeightGrams === null) {
     issues.push({
       code: "SCANYM_IMPORT_INVALID_WEIGHT_FORMAT",

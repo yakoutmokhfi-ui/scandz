@@ -32,6 +32,8 @@ import { formatPrice } from "@/lib/whatsapp";
 import TrackingAutoRefresh from "@/components/TrackingAutoRefresh";
 import TrackingEntryGate from "@/components/TrackingEntryGate";
 import TrackingFragmentScrubber from "@/components/TrackingFragmentScrubber";
+import WithdrawalPanel from "@/components/WithdrawalPanel";
+import { getWithdrawalOptions } from "@/lib/server/withdrawal-service";
 import Ltr from "@/components/Bidi";
 
 /**
@@ -223,6 +225,37 @@ export default async function TrackingPage({
     t(key)
   );
 
+  // ONLINE WITHDRAWAL v1 -- lignes ENCORE rétractables de cette
+  // commande, lues avec la MÊME capacité déjà vérifiée. L'éligibilité
+  // vient EXCLUSIVEMENT de l'instantané immuable pris à la commande :
+  // ni le catalogue courant, ni le mode de service, ni un statut de
+  // commande n'entrent dans cette décision.
+  //
+  // Zéro ligne éligible -> AUCUN point d'entrée n'est rendu (pas même
+  // masqué en CSS) : le bloc n'existe pas dans le DOM. Au moins une
+  // ligne -> l'action statutaire « Exercer mon droit de rétractation »
+  // est affichée, explicitement nommée (jamais « Aide » ou « Retour »).
+  //
+  // Échec fermé et silencieux : une indisponibilité de lecture ne
+  // dégrade jamais la page de suivi -- elle retire seulement l'entrée.
+  let withdrawal: { orderNumber: number; options: Awaited<ReturnType<typeof getWithdrawalOptions>>["options"] } = {
+    orderNumber: tracking.orderNumber,
+    options: [],
+  };
+  try {
+    const resolved = await getWithdrawalOptions({
+      orderId: session.orderId,
+      capabilityId: session.capabilityId,
+      secret: session.secret,
+    });
+    withdrawal = {
+      orderNumber: resolved.orderNumber || tracking.orderNumber,
+      options: resolved.options,
+    };
+  } catch {
+    withdrawal = { orderNumber: tracking.orderNumber, options: [] };
+  }
+
   return (
     <TrackingShell>
       {/* Mandat §19 : rafraîchissement automatique léger tant que le
@@ -380,6 +413,25 @@ export default async function TrackingPage({
             )}
           </ul>
         </section>
+      )}
+
+      {/* ONLINE WITHDRAWAL v1 -- fonctionnalité statutaire de
+          rétractation en ligne (art. L221-21). Rendue UNIQUEMENT si la
+          commande porte au moins une ligne dont l'instantané immuable
+          dit qu'elle est rétractable : sinon, rien dans le DOM. */}
+      {withdrawal.options.length > 0 && (
+        <WithdrawalPanel
+          orderId={orderId}
+          orderNumber={withdrawal.orderNumber}
+          options={withdrawal.options.map((option) => ({
+            orderItemId: option.orderItemId,
+            itemName: option.itemName,
+            optionName: option.optionName,
+            orderedQuantity: option.orderedQuantity,
+            remainingQuantity: option.remainingQuantity,
+          }))}
+          lang={lang}
+        />
       )}
 
       {/* Repli SANS JavaScript (mandat §19, option secours conservée) :

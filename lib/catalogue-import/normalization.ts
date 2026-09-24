@@ -68,6 +68,47 @@ export function coerceInteger(raw: string): number | null | undefined {
 }
 
 /**
+ * ONLINE WITHDRAWAL v1 — colonne « Rétractable » (classification
+ * marchande de rétractabilité, voir CatalogueProduct.withdrawal_eligible).
+ *
+ * TROIS résultats DISTINCTS, exactement la même convention que
+ * `coerceNumeric` ci-dessus (jamais un quatrième état implicite) :
+ *
+ *   `undefined` — colonne ABSENTE du fichier, ou cellule VIDE.
+ *                 Sémantique métier : « inchangé » pour un produit
+ *                 existant, « Non » (false) pour un produit créé.
+ *                 Cette décision est prise par preview.ts, jamais ici
+ *                 (ce module ne connaît pas le catalogue existant).
+ *   `true`/`false` — valeur explicite « Oui » / « Non ».
+ *   `null`      — valeur NON VIDE et NON RECONNUE : INVALIDE. Elle
+ *                 remonte un diagnostic BLOQUANT par ligne
+ *                 (validation.ts, SCANYM_IMPORT_INVALID_WITHDRAWAL_
+ *                 ELIGIBLE) et ne devient JAMAIS silencieusement
+ *                 `false` -- FAIL CLOSED : une valeur qu'on ne
+ *                 comprend pas n'est pas une valeur qu'on applique.
+ *
+ * Correspondance ROBUSTE mais FINIE (même discipline que
+ * ROW_TYPE_ALIASES ci-dessous / HEADER_ALIASES, column-mapping.ts) :
+ * espaces de bordure retirés, espaces internes réduits, casse ignorée,
+ * accents français normaux retirés. La valeur EXACTE produite par
+ * l'export marchand (« Oui » / « Non », voir
+ * lib/catalogue-management/export.ts) est donc relue telle quelle --
+ * l'aller-retour export -> réimport est direct.
+ */
+export function coerceWithdrawalEligible(raw: string | undefined): boolean | null | undefined {
+  if (raw === undefined) return undefined;
+  const { value, isEmpty } = normalizeText(raw, Number.POSITIVE_INFINITY);
+  if (isEmpty) return undefined;
+  const mapped = WITHDRAWAL_ELIGIBLE_ALIASES.get(foldRowTypeValue(value));
+  return mapped === undefined ? null : mapped;
+}
+
+const WITHDRAWAL_ELIGIBLE_ALIASES: ReadonlyMap<string, boolean> = new Map([
+  ["oui", true],
+  ["non", false],
+]);
+
+/**
  * TYPE — CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remplace la sémantique
  * OB-3 d'origine, ci-dessous documentée pour mémoire historique).
  *

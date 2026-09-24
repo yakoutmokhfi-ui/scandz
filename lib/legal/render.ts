@@ -168,6 +168,27 @@ export interface CgvTemplateControlledSections {
    *  rendered for EXEMPT_PERISHABLE. */
   withdrawal_model_form_text?: string;
 
+  /** ONLINE WITHDRAWAL v1 -- OPTIONAL, GENERIC_CONDITIONAL. Règle des
+   *  commandes MIXTES (produits éligibles et produits légalement exclus
+   *  au titre de l'article L221-28) : seule la part éligible peut être
+   *  rétractée. Rendue dans la section « Droit de rétractation », comme
+   *  les autres clauses conditionnelles de rétractation, et soumise à
+   *  la MÊME porte `STANDARD_14_DAYS` : un marchand dont tous les
+   *  produits sont exclus n'a pas de commande mixte à décrire. Absente
+   *  (gabarits v1..v5) -> omise, jamais une erreur. */
+  mixed_order_withdrawal_clause?: string;
+
+  /** ONLINE WITHDRAWAL v1 -- OPTIONAL, GENERIC_CONDITIONAL. Renvoi des
+   *  biens (L221-23) et remboursement (L221-24), par renvoi au régime
+   *  légal. Même porte STANDARD_14_DAYS. */
+  withdrawal_return_and_refund_clause?: string;
+
+  /** ONLINE WITHDRAWAL v1 -- OPTIONAL, GENERIC_CONDITIONAL. Accusé de
+   *  réception sur support durable mentionnant le contenu de la
+   *  déclaration, sa date et son heure (D.221-5). Même porte
+   *  STANDARD_14_DAYS. */
+  withdrawal_acknowledgement_clause?: string;
+
   /** CGV ENGINE v2.5 (Task 1) -- OPTIONAL, GENERIC_FIXED. The mandatory
    *  official encadré required by article D.211-2 du Code de la
    *  consommation (Annexe, Section A -- "biens, hors animaux
@@ -525,6 +546,21 @@ export function renderCgv(input: RenderCgvInput): string {
   if (business.withdrawalRegime === "STANDARD_14_DAYS") {
     if (template.withdrawal_exercise_method_clause) {
       withdrawalExtra.push(`<p>${escapeHtml(template.withdrawal_exercise_method_clause)}</p>`);
+    }
+    // ONLINE WITHDRAWAL v1 -- ordre de lecture délibéré : d'abord
+    // COMMENT exercer (méthode, ci-dessus), puis le cas des commandes
+    // MIXTES, puis ce qu'il advient des biens et du paiement, puis
+    // l'accusé de réception. Chaque clause n'est rendue que si le
+    // gabarit la fournit -- un gabarit v1..v5 produit exactement la
+    // même section qu'avant ce lot.
+    if (template.mixed_order_withdrawal_clause) {
+      withdrawalExtra.push(`<p>${escapeHtml(template.mixed_order_withdrawal_clause)}</p>`);
+    }
+    if (template.withdrawal_return_and_refund_clause) {
+      withdrawalExtra.push(`<p>${escapeHtml(template.withdrawal_return_and_refund_clause)}</p>`);
+    }
+    if (template.withdrawal_acknowledgement_clause) {
+      withdrawalExtra.push(`<p>${escapeHtml(template.withdrawal_acknowledgement_clause)}</p>`);
     }
     if (template.withdrawal_model_form_text) {
       withdrawalExtra.push(`<p>${escapeHtml(template.withdrawal_model_form_text)}</p>`);
