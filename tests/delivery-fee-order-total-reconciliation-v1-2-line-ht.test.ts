@@ -206,14 +206,23 @@ test("4/8 — taux mixtes : la répartition est isolée par groupe, chaque group
 // --------------------------------------------------------------
 // 5/6. Déterminisme : départage stable, résultat reproductible
 // --------------------------------------------------------------
-test("5 — départage DÉTERMINISTE : à reste égal, la ligne la plus ancienne de la commande reçoit le centime", () => {
-  const first = presentationOf(order({ order_items: [item("X", 2, 20), item("Y", 2, 20)] as never }));
-  assert.deepEqual(first.productLines.map((l) => [l.itemId, l.net]), [["X", 1.67], ["Y", 1.66]]);
+test("5 — départage DÉTERMINISTE : à reste EXACTEMENT égal, c'est l'identité persistée qui tranche, jamais la position", () => {
+  // v1.3 : deux lignes de 2,00 € à 20 % ont le MÊME reste exact. Le
+  // centime va à l'`order_items.id` le plus petit -- quel que soit
+  // l'ordre dans lequel la relation a été renvoyée par la base.
+  const inOrder = presentationOf(order({ order_items: [item("A", 2, 20), item("B", 2, 20)] as never }));
+  const reversed = presentationOf(order({ order_items: [item("B", 2, 20), item("A", 2, 20)] as never }));
 
-  // Ordre des lignes INVERSÉ dans la commande : c'est l'ordre immuable
-  // de order_items qui décide, jamais l'identifiant ni un tri courant.
-  const reversed = presentationOf(order({ order_items: [item("Y", 2, 20), item("X", 2, 20)] as never }));
-  assert.deepEqual(reversed.productLines.map((l) => [l.itemId, l.net]), [["Y", 1.67], ["X", 1.66]]);
+  const cent = (p: ReturnType<typeof presentationOf>) =>
+    p.productLines.find((l) => l.net === 1.67)!.itemId;
+
+  assert.equal(cent(inOrder), "A", "id le plus petit");
+  assert.equal(cent(reversed), "A", "MÊME ligne, même si elle arrive en second");
+  assert.equal(
+    round2(reversed.productLines.reduce((acc, l) => acc + l.net, 0)),
+    reversed.productNet,
+    "la réconciliation tient dans les deux lectures"
+  );
 });
 
 test("6 — STABILITÉ : 50 exécutions successives donnent un résultat stricitement identique", () => {

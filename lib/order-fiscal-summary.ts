@@ -143,20 +143,49 @@ function buildProductRateGroups(
  * = 3,34 alors que le HT canonique du groupe est 3,33. Un ticket
  * affichant les deux serait faux à l'œil.
  *
- * Algorithme, en ENTIERS DE CENTIMES (aucune comparaison flottante) :
- *   1. valeur HT exacte de chaque ligne = lineGross / (1 + taux/100) ;
+ * ARITHMÉTIQUE EXACTE (v1.3 -- durcissement déterminisme, constat A) :
+ * le classement des restes n'utilise AUCUNE comparaison flottante.
+ * `order_items.tax_rate_snapshot` est persisté en `numeric(5,2)`
+ * (échelle 2, borné 0..100 par contrainte CHECK -- voir
+ * supabase/DRAFT-lot-receipt-invoice-tax-detail-v1.sql), donc un taux
+ * `t` vaut EXACTEMENT `R/100` avec `R = t × 100` entier. Le HT exact
+ * d'une ligne s'écrit alors comme un RATIONNEL d'entiers :
+ *
+ *     HT_exact(centimes) = grossCents / (1 + R/10000)
+ *                        = grossCents × 10000 / (10000 + R)
+ *                        = N / D        (N, D entiers, BigInt)
+ *
+ * Le plancher est `N / D` (division entière) et le reste fractionnaire
+ * est le NUMÉRATEUR `N - plancher × D`, entier exact. À l'intérieur
+ * d'un groupe de taux, `D` est COMMUN : comparer les numérateurs suffit
+ * donc à ordonner les restes, exactement, sans jamais matérialiser une
+ * fraction en `Number`. Un taux qui ne serait pas un multiple exact du
+ * centième (impossible par le schéma) fait abandonner la répartition
+ * plutôt que d'être arrondi en silence.
+ *
+ * Algorithme :
+ *   1. reste exact de chaque ligne, en numérateur entier (ci-dessus) ;
  *   2. cible canonique du groupe = HT déjà calculé par
  *      buildProductRateGroups (jamais recalculé ici) ;
  *   3. chaque ligne reçoit d'abord son PLANCHER en centimes ;
- *   4. les centimes restants vont aux plus grands restes fractionnaires
+ *   4. les centimes restants vont aux plus grands restes exacts
  *      (largest remainder), un par ligne.
  *
- * DÉPARTAGE DÉTERMINISTE, sans aucun aléa et sans aucune dépendance au
- * catalogue courant : à reste égal, la ligne qui apparaît la PREMIÈRE
- * dans `order.order_items` (ordre immuable de la commande) l'emporte ;
- * à position égale -- impossible en pratique -- l'`order_items.id` le
- * plus petit tranche. La fonction est donc PURE et STABLE : mêmes
- * entrées, mêmes sorties, à chaque exécution.
+ * DÉPARTAGE DÉTERMINISTE (v1.3 -- constat B) : à reste EXACTEMENT égal,
+ * c'est l'`order_items.id` le plus petit qui reçoit le centime.
+ * L'identité persistée est le SEUL critère : la POSITION dans le
+ * tableau `order.order_items` n'est jamais utilisée, car la lecture
+ * `getDashboardOrders()` ne commande pas la relation imbriquée
+ * (seule la requête parente est triée) -- deux lectures successives
+ * peuvent donc légitimement renvoyer les lignes dans un autre ordre,
+ * et le centime doit malgré tout toujours tomber sur la MÊME ligne.
+ * `order_items` ne porte aucune colonne de séquence persistée
+ * (`id`, `order_id`, …, `created_at` -- voir migration-orders.sql), et
+ * ce lot n'en ajoute aucune : `id` est donc l'unique identité stable
+ * disponible, et elle est déjà sélectionnée par le contrat de lecture.
+ *
+ * La fonction est PURE et STABLE : mêmes lignes, même résultat, quel
+ * que soit leur ordre d'arrivée et quel que soit le nombre d'appels.
  *
  * PRÉSENTATION UNIQUEMENT : ni les totaux canoniques, ni la TVA par
  * taux, ni le gross produit, ni la livraison, ni `orders.subtotal`/
@@ -167,34 +196,53 @@ function allocateProductLineNet(
   productByRate: Map<number, { gross: number; net: number; tax: number }>
 ): OrderCommercialProductLine[] | null {
   const toCents = (value: number) => Math.round((value + Number.EPSILON) * 100);
+  /** Échelle persistée de `tax_rate_snapshot` : numeric(5,2) -> 1/100. */
+  const RATE_SCALE = 100;
+  const RATE_UNIT = BigInt(100 * RATE_SCALE); // 1 en unités de R : 10000
 
   interface Entry {
-    index: number;
     itemId: string;
     rate: number;
     grossCents: number;
     floorCents: number;
-    remainder: number;
+    /** Reste fractionnaire EXACT, en numérateur entier (dénominateur commun au groupe). */
+    remainderNumerator: bigint;
     netCents: number;
   }
 
   const entries: Entry[] = [];
-  for (const [index, lineItem] of order.order_items.entries()) {
+  for (const lineItem of order.order_items) {
     if (lineItem.tax_rate_snapshot === null || lineItem.tax_rate_snapshot === undefined) {
       return null;
     }
     const rate = Number(lineItem.tax_rate_snapshot);
+    // Contrat persisté : numeric(5,2), 0 <= taux <= 100. Toute valeur
+    // qui n'est pas un multiple exact du centième n'est PAS couverte
+    // par ce contrat : on renonce plutôt que d'arrondir en silence.
+    const scaledRate = rate * RATE_SCALE;
+    if (
+      !Number.isFinite(rate) ||
+      rate < 0 ||
+      rate > 100 ||
+      Math.abs(scaledRate - Math.round(scaledRate)) > 1e-9
+    ) {
+      return null;
+    }
+    const rateNumerator = BigInt(Math.round(scaledRate));
     const grossCents = toCents(Number(lineItem.line_total));
-    const exactNetCents = grossCents / (1 + rate / 100);
-    const floorCents = Math.floor(exactNetCents);
+    if (!Number.isSafeInteger(grossCents) || grossCents < 0) return null;
+
+    // HT exact = grossCents × 10000 / (10000 + R), en entiers exacts.
+    const numerator = BigInt(grossCents) * RATE_UNIT;
+    const denominator = RATE_UNIT + rateNumerator;
+    const floorCents = numerator / denominator; // division entière BigInt
     entries.push({
-      index,
       itemId: String(lineItem.id),
       rate,
       grossCents,
-      floorCents,
-      remainder: exactNetCents - floorCents,
-      netCents: floorCents,
+      floorCents: Number(floorCents),
+      remainderNumerator: numerator - floorCents * denominator,
+      netCents: Number(floorCents),
     });
   }
 
@@ -212,9 +260,12 @@ function allocateProductLineNet(
     // fabriquer un affichage (aucune réparation à la lecture).
     if (residue < 0 || residue > groupEntries.length) return null;
 
+    // Classement EXACT : numérateurs entiers (dénominateur commun au
+    // groupe), puis identité persistée. Aucune position de tableau.
     const ranked = [...groupEntries].sort((a, b) => {
-      if (b.remainder !== a.remainder) return b.remainder - a.remainder;
-      if (a.index !== b.index) return a.index - b.index;
+      if (a.remainderNumerator !== b.remainderNumerator) {
+        return a.remainderNumerator > b.remainderNumerator ? -1 : 1;
+      }
       return a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
     });
     for (const entry of ranked) {
