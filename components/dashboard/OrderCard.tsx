@@ -327,6 +327,51 @@ export default function OrderCard({
         data-fiscal-mode={fiscal.mode}
         className="mt-4 rounded-xl bg-stone-50 p-3 text-sm text-stone-700"
       >
+        {/*
+         * DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- COMPOSITION du
+         * total, affichée AVANT la décomposition fiscale.
+         *
+         * Le frais de livraison est DÉJÀ inclus dans `order.total`
+         * (contrainte CHECK `orders_total_equals_subtotal_plus_delivery_fee`,
+         * et `create_order` qui écrit `total = subtotal + delivery_fee`) --
+         * il n'était simplement JAMAIS itemisé ici, d'où l'écart
+         * inexpliqué entre la somme des lignes produit et le montant
+         * final constaté par le marchand. Aucun montant n'est recalculé :
+         * les deux valeurs viennent du contrat fiscal partagé
+         * (computeOrderFiscalSummary), lui-même alimenté exclusivement par
+         * les instantanés persistés `orders.subtotal`/`orders.total`.
+         *
+         * Convention d'affichage IDENTIQUE au checkout client
+         * (components/CartPanel.tsx) -- jamais une nouvelle convention :
+         * les deux lignes n'apparaissent QUE si un frais de livraison
+         * réel s'applique. Table, retrait et livraison gratuite gardent
+         * donc exactement l'affichage d'avant ce lot (aucun frais
+         * fabriqué à 0,00 €).
+         *
+         * `compositionReconcilesWithTotal === false` (marchand en prix
+         * HORS TAXES) : rien n'est affiché non plus -- voir la
+         * documentation du contrat, aucune répartition TTC de la part
+         * livraison n'est persistée et aucune n'est inventée ici.
+         */}
+        {fiscal.deliveryFee > 0 && fiscal.compositionReconcilesWithTotal && (
+          <div
+            data-order-composition="delivery"
+            className="mb-2 border-b border-stone-200 pb-2"
+          >
+            <div className="flex justify-between gap-3">
+              <span>{t("subtotalLabel")}</span>
+              <span data-composition="products-subtotal" className="whitespace-nowrap font-semibold">
+                {formatPrice(fiscal.productsSubtotal, order.currency)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>{t("deliveryFeeLabel")}</span>
+              <span data-composition="delivery-fee" className="whitespace-nowrap font-semibold">
+                {formatPrice(fiscal.deliveryFee, order.currency)}
+              </span>
+            </div>
+          </div>
+        )}
         {fiscal.mode === "unavailable" ? (
           <div className="flex items-center justify-between gap-3">
             <span className="text-stone-500">{t("dsVatUnavailable")}</span>

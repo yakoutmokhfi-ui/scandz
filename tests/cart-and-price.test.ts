@@ -316,6 +316,13 @@ test("v39: le numéro de commande figure dans le ticket", () => {
 // ====================================================================
 
 import { buildReceiptHtml } from "../lib/receipt.ts";
+// DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- pour une commande à
+// livraison PAYANTE, le TICKET présente désormais : produits HT + TVA
+// PRODUITS par taux + livraison TTC = Total TTC (décision produit CIO).
+// Les valeurs COMBINÉES produit+livraison prouvées par les tests LOT C
+// restent l'autorité fiscale INTERNE et sont donc vérifiées ici sur le
+// contrat partagé lui-même, avec exactement les mêmes nombres qu'avant.
+import { computeOrderFiscalSummary } from "../lib/order-fiscal-summary.ts";
 
 /** Commande minimale, telle que la renvoie le dashboard. */
 function fakeOrder(lang: string) {
@@ -626,11 +633,26 @@ test("LOT-C-12-03 (item 9/10/11): commande multi-taux -- pas de taux marchand un
   //   rate 20  : gross = 10.00 (produit) + 1.50 (livraison) = 11.50 ; net = round(11.50/1.20,2) = 9.58 ; tax = 1.92
   //   rate 5.5 : gross = 10.00 (produit) + 1.50 (livraison) = 11.50 ; net = round(11.50/1.055,2) = 10.90 ; tax = 0.60
   //   total HT = 9.58 + 10.90 = 20.48 ; total TTC = order.total = 23.00 (autoritaire, inchangé)
-  assert.ok(html.includes(formatPrice(20.48, "EUR")), "Total HT doit être la somme des HT par groupe, jamais un calcul à taux unique");
-  assert.ok(html.includes("TVA 20%"), "une ligne TVA par taux présent sur la commande");
-  assert.ok(html.includes(formatPrice(1.92, "EUR")), "montant TVA du groupe 20% (produit + part livraison à ce taux)");
-  assert.ok(html.includes("TVA 5.5%"));
-  assert.ok(html.includes(formatPrice(0.6, "EUR")), "montant TVA du groupe 5.5% (produit + part livraison à ce taux)");
+  // Autorité fiscale INTERNE (vue combinée) -- inchangée par v1.1.
+  const fiscalCombined = computeOrderFiscalSummary(fakeMixedRateOrder());
+  assert.equal(fiscalCombined.mode, "mixed-rate", "une ligne par taux présent sur la commande");
+  if (fiscalCombined.mode === "mixed-rate") {
+    assert.equal(fiscalCombined.totalNet, 20.48, "Total HT combiné = somme des HT par groupe, jamais un calcul à taux unique");
+    assert.equal(fiscalCombined.rates.find((r) => r.rate === 20)!.tax, 1.92, "TVA du groupe 20% (produit + part livraison à ce taux)");
+    assert.equal(fiscalCombined.rates.find((r) => r.rate === 5.5)!.tax, 0.6, "TVA du groupe 5.5% (produit + part livraison à ce taux)");
+  }
+  assert.equal(fiscalCombined.totalGross, 23, "Total TTC reste order.total, l'unique autorité financière");
+
+  // Présentation du TICKET (vue commerciale v1.1), référence
+  // indépendante : produit 20% net=round(10/1.20,2)=8.33 (TVA 1.67) ;
+  // produit 5.5% net=round(10/1.055,2)=9.48 (TVA 0.52) ; livraison
+  // 3,00 € TTC. 17,81 + 2,19 + 3,00 = 23,00.
+  assert.ok(html.includes(formatPrice(17.81, "EUR")), "base HT produits du ticket");
+  assert.ok(html.includes("TVA produits 20%"), "une ligne TVA produits par taux présent sur la commande");
+  assert.ok(html.includes(formatPrice(1.67, "EUR")), "TVA PRODUIT du groupe 20% (jamais la TVA livraison, déjà comprise dans la ligne livraison TTC)");
+  assert.ok(html.includes("TVA produits 5.5%"));
+  assert.ok(html.includes(formatPrice(0.52, "EUR")), "TVA PRODUIT du groupe 5.5%");
+  assert.ok(html.includes(formatPrice(3, "EUR")), "frais de livraison affiché en TTC");
   assert.ok(html.includes(formatPrice(23, "EUR")), "Total TTC reste order.total, l'unique autorité financière");
   // Preuve négative : le calcul PLAT à taux unique (ancien comportement
   // v1.1) aurait donné TVA = 23 - 23/1.20 = 3.83(...) sur le total
@@ -699,8 +721,9 @@ test("LOT-C-12-03 (item 13/14): commande historique SANS tax_rate_snapshot par l
   // Repli sur le calcul plat existant (taux marchand par défaut de
   // l'INSTANTANÉ de commande, 20% ici -- jamais un taux menu_items
   // courant, qui n'est de toute façon jamais lu par ce fichier).
-  assert.ok(html.includes("TVA 20%"));
-  assert.ok(!html.includes("TVA 5.5%"), "aucun rendu multi-taux fabriqué pour une commande sans tax_rate_snapshot par ligne");
+  assert.ok(html.includes("TVA produits 20%"));
+  assert.ok(!html.includes("TVA produits 5.5%"), "aucun rendu multi-taux fabriqué pour une commande sans tax_rate_snapshot par ligne");
+  assert.ok(!html.includes("TVA 99%") && !html.includes("TVA produits 99%"), "aucun taux étranger à l'instantané");
 });
 
 test("LOT-C-12-03: livraison gratuite (delivery_fee=0, aucune ligne de ventilation) -- rendu multi-taux basé uniquement sur les lignes produit, jamais d'erreur", () => {
@@ -767,9 +790,21 @@ test("LOT-C-13 (item 4, cas CTO obligatoire): gross=0.01/taux 20% -- ventilation
   //   produit : net = round(0.01/1.20,2) = 0.01 ; tax = 0.01-0.01 = 0.00
   //   livraison (lue telle quelle) : net = 0.03 ; tax = 0.00
   //   combiné : gross = 0.01+0.03 = 0.04 ; net = 0.01+0.03 = 0.04 ; tax = 0.00+0.00 = 0.00
-  assert.ok(html.includes("TVA 20%"));
-  assert.ok(html.includes(formatPrice(0.04, "EUR")), "Total HT et Total TTC doivent tous deux afficher 0,04 €");
-  assert.ok(html.includes(formatPrice(0, "EUR")), "montant TVA du groupe 20% doit être 0,00 €");
+  // Vue fiscale INTERNE (combinée) -- exactement la garantie v1.3.
+  const fiscalMicro = computeOrderFiscalSummary(ctoEdgeCaseOrder);
+  assert.equal(fiscalMicro.mode, "mixed-rate");
+  if (fiscalMicro.mode === "mixed-rate") {
+    const g20 = fiscalMicro.rates.find((r) => r.rate === 20)!;
+    assert.equal(g20.gross, 0.04, "combiné gross = 0,04 €");
+    assert.equal(g20.net, 0.04, "combiné net = 0,04 € (jamais 0,03 € recalculé depuis le gross combiné)");
+    assert.equal(g20.tax, 0, "combiné TVA = 0,00 € (jamais 0,01 €)");
+  }
+  // Ticket (vue commerciale) : produit 0,01 € HT, TVA produits 0,00 €,
+  // livraison 0,03 € TTC, total 0,04 €.
+  assert.ok(html.includes("TVA produits 20%"));
+  assert.ok(html.includes(formatPrice(0.04, "EUR")), "Total TTC affiche 0,04 €");
+  assert.ok(html.includes(formatPrice(0.03, "EUR")), "livraison affichée telle quelle en TTC (0,03 €)");
+  assert.ok(html.includes(formatPrice(0, "EUR")), "montant TVA produits du groupe 20% doit être 0,00 €");
   // Preuve négative -- l'ancien résultat v1.2 (BUG désormais interdit
   // par le mandat CIO/CTO) recalculait net=round((0.01+0.03)/1.20,2)=0.03
   // et tax=0.04-0.03=0.01 : cette ligne TVA précise ne doit JAMAIS
@@ -778,7 +813,7 @@ test("LOT-C-13 (item 4, cas CTO obligatoire): gross=0.01/taux 20% -- ventilation
   // spécifiquement la ligne totalisatrice TVA, pas une simple
   // sous-chaîne globale).
   assert.ok(
-    !html.includes(`<span>TVA 20%</span><span>${formatPrice(0.01, "EUR")}</span>`),
+    !html.includes(`<span>TVA produits 20%</span><span>${formatPrice(0.01, "EUR")}</span>`),
     "l'ancien résultat combiné-puis-arrondi (ligne TVA 20% = 0,01 €) est désormais interdit par le mandat CIO/CTO v1.3"
   );
 });
@@ -830,9 +865,12 @@ test("LOT-C-13 (items 8/9): un taux par défaut marchand modifié ULTÉRIEUREMEN
     { order: laterDefaultRateChangedOrder, restaurantName: "Au Lait Cru", settings: null },
     "fr"
   );
-  assert.ok(html.includes("TVA 20%"), "le taux d'origine par ligne (20%) doit rester utilisé malgré le changement ultérieur du taux par défaut marchand");
-  assert.ok(html.includes("TVA 5.5%"), "le taux d'origine par ligne (5.5%) doit rester utilisé malgré le changement ultérieur du taux par défaut marchand");
-  assert.ok(!html.includes("TVA 99%"), "le taux par défaut marchand modifié APRÈS la commande ne doit jamais apparaître sur un reçu historique à taux multiples");
+  assert.ok(html.includes("TVA produits 20%"), "le taux d'origine par ligne (20%) doit rester utilisé malgré le changement ultérieur du taux par défaut marchand");
+  assert.ok(html.includes("TVA produits 5.5%"), "le taux d'origine par ligne (5.5%) doit rester utilisé malgré le changement ultérieur du taux par défaut marchand");
+  assert.ok(
+    !html.includes("TVA 99%") && !html.includes("TVA produits 99%"),
+    "le taux par défaut marchand modifié APRÈS la commande ne doit jamais apparaître sur un reçu historique à taux multiples"
+  );
 });
 
 // ====================================================================
@@ -969,9 +1007,10 @@ test("LOT-C-14 (item 11): ventilation COMPLÈTE et réconciliée -- décompositi
     { order: fakeMixedRateOrder(), restaurantName: "Au Lait Cru", settings: null },
     "fr"
   );
-  assert.ok(html.includes("Total HT"));
-  assert.ok(html.includes("TVA 20%"));
-  assert.ok(html.includes("TVA 5.5%"));
+  assert.ok(html.includes("Sous-total produits HT"));
+  assert.ok(html.includes("TVA produits 20%"));
+  assert.ok(html.includes("TVA produits 5.5%"));
+  assert.ok(html.includes(formatPrice(3, "EUR")), "la livraison payante reste affichée, en TTC");
   assert.ok(html.includes(formatPrice(23, "EUR")));
 });
 
@@ -1052,10 +1091,14 @@ test("LOT-C-15 (items 2/3/4, reproduction EXACTE Stevens): produit 0% + livraiso
   // Référence indépendante v1.5 : produit net=round(10/1,2)=10.00,
   // tax=0.00 ; livraison lue telle quelle (gross=2.00, net=2.00,
   // tax=0.00) ; combiné : gross=12.00, net=12.00, tax=0.00.
-  assert.ok(html.includes("Total HT"), "item 2 -- l'instantané complet à 0% (produit + livraison) doit activer le rendu par instantané");
-  assert.ok(html.includes(formatPrice(12, "EUR")), "item 2 -- Total HT = Total TTC = 12,00 €, jamais 10,00 €/2,00 € fabriqués par le calcul plat");
-  assert.ok(!html.includes("TVA 20%"), "item 3 -- aucune ligne 'TVA 20%' (taux marchand par défaut) ne doit apparaître malgré un instantané réel à 0%");
-  assert.ok(!html.includes("TVA 0%"), "item 4 -- convention de présentation préservée : aucune ligne 'TVA 0% : 0,00 €' explicite n'est requise ni ajoutée par ce correctif");
+  assert.ok(html.includes("Sous-total produits HT"), "item 2 -- l'instantané complet à 0% (produit + livraison) doit activer le rendu par instantané");
+  assert.ok(html.includes(formatPrice(12, "EUR")), "item 2 -- Total TTC = 12,00 €, jamais une TVA fabriquée par le calcul plat");
+  assert.ok(
+    html.includes(formatPrice(10, "EUR")) && html.includes(formatPrice(2, "EUR")),
+    "v1.1 -- 10,00 € de produits HT (0%) + 2,00 € de livraison TTC : la décomposition affichée retombe exactement sur 12,00 €"
+  );
+  assert.ok(!html.includes("TVA 20%") && !html.includes("TVA produits 20%"), "item 3 -- aucune ligne 'TVA 20%' (taux marchand par défaut) ne doit apparaître malgré un instantané réel à 0%");
+  assert.ok(!html.includes("TVA 0%") && !html.includes("TVA produits 0%"), "item 4 -- convention de présentation préservée : aucune ligne 'TVA 0% : 0,00 €' explicite n'est requise ni ajoutée par ce correctif");
   assert.ok(!/TVA\s+[1-9]/.test(html), "aucune TVA positive fabriquée");
 });
 

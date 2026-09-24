@@ -280,6 +280,10 @@ test("9 — le TICKET affiche exactement les montants du contrat fiscal (aucun c
       ["Total HT", f.totalNet],
       ["Total TTC", f.totalGross],
     ] as const) {
+      // v1.1 : ces fixtures n'ont aucun frais de livraison -- le ticket
+      // garde donc son rendu historique (la présentation commerciale
+      // produits HT / livraison TTC ne concerne que la livraison
+      // payante, cf. tests v1.1).
       assert.ok(html.includes("Total HT"), "le ticket doit afficher Total HT");
       assert.ok(html.includes("Total TTC"), "le ticket doit afficher Total TTC");
       void label;

@@ -96,12 +96,24 @@ function roundCents(value: number): number {
  * jamais de rendu multi-taux fabriqué si c'était pourtant le cas) --
  * l'appelant se replie alors sur le calcul à taux unique existant.
  */
-function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
+/**
+ * Groupes PRODUIT SEULS, par taux réellement présent dans l'instantané
+ * par ligne. EXTRAIT TEL QUEL de buildMixedRateTaxGroups (v1.1) pour
+ * être partagé avec la présentation commerciale du ticket -- la
+ * frontière d'arrondi produit reste EXACTEMENT celle de LOT C v1.3
+ * (net dérivé du gross produit SEUL, tax = gross - net), et le
+ * comportement de buildMixedRateTaxGroups est inchangé ligne pour
+ * ligne. Retourne `null` dès qu'une ligne n'a pas de taux instantané
+ * (même condition de rejet qu'avant).
+ */
+function buildProductRateGroups(
+  order: DashboardOrder
+): Map<number, { gross: number; net: number; tax: number }> | null {
   const productByRate = new Map<number, { gross: number; net: number; tax: number }>();
 
   for (const item of order.order_items) {
     if (item.tax_rate_snapshot === null || item.tax_rate_snapshot === undefined) {
-      return [];
+      return null;
     }
     const rate = Number(item.tax_rate_snapshot);
     const prior = productByRate.get(rate);
@@ -116,6 +128,165 @@ function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
   for (const [rate, group] of productByRate) {
     const net = roundCents(group.gross / (1 + rate / 100));
     productByRate.set(rate, { gross: group.gross, net, tax: roundCents(group.gross - net) });
+  }
+  return productByRate;
+}
+
+/**
+ * v1.2 (décision CIO -- OPTION D) -- RÉPARTITION DE PRÉSENTATION du HT
+ * produit entre les lignes d'un MÊME groupe de taux.
+ *
+ * Problème résolu : le HT canonique est dérivé du GROSS DU GROUPE
+ * (frontière d'arrondi LOT C v1.3, inchangée). Arrondir chaque ligne
+ * indépendamment (`round(lineGross/(1+taux))`) peut donner une somme
+ * différente d'un centime -- ex. 2,00 € + 2,00 € à 20 % : 1,67 + 1,67
+ * = 3,34 alors que le HT canonique du groupe est 3,33. Un ticket
+ * affichant les deux serait faux à l'œil.
+ *
+ * ARITHMÉTIQUE EXACTE (v1.3 -- durcissement déterminisme, constat A) :
+ * le classement des restes n'utilise AUCUNE comparaison flottante.
+ * `order_items.tax_rate_snapshot` est persisté en `numeric(5,2)`
+ * (échelle 2, borné 0..100 par contrainte CHECK -- voir
+ * supabase/DRAFT-lot-receipt-invoice-tax-detail-v1.sql), donc un taux
+ * `t` vaut EXACTEMENT `R/100` avec `R = t × 100` entier. Le HT exact
+ * d'une ligne s'écrit alors comme un RATIONNEL d'entiers :
+ *
+ *     HT_exact(centimes) = grossCents / (1 + R/10000)
+ *                        = grossCents × 10000 / (10000 + R)
+ *                        = N / D        (N, D entiers, BigInt)
+ *
+ * Le plancher est `N / D` (division entière) et le reste fractionnaire
+ * est le NUMÉRATEUR `N - plancher × D`, entier exact. À l'intérieur
+ * d'un groupe de taux, `D` est COMMUN : comparer les numérateurs suffit
+ * donc à ordonner les restes, exactement, sans jamais matérialiser une
+ * fraction en `Number`. Un taux qui ne serait pas un multiple exact du
+ * centième (impossible par le schéma) fait abandonner la répartition
+ * plutôt que d'être arrondi en silence.
+ *
+ * Algorithme :
+ *   1. reste exact de chaque ligne, en numérateur entier (ci-dessus) ;
+ *   2. cible canonique du groupe = HT déjà calculé par
+ *      buildProductRateGroups (jamais recalculé ici) ;
+ *   3. chaque ligne reçoit d'abord son PLANCHER en centimes ;
+ *   4. les centimes restants vont aux plus grands restes exacts
+ *      (largest remainder), un par ligne.
+ *
+ * DÉPARTAGE DÉTERMINISTE (v1.3 -- constat B) : à reste EXACTEMENT égal,
+ * c'est l'`order_items.id` le plus petit qui reçoit le centime.
+ * L'identité persistée est le SEUL critère : la POSITION dans le
+ * tableau `order.order_items` n'est jamais utilisée, car la lecture
+ * `getDashboardOrders()` ne commande pas la relation imbriquée
+ * (seule la requête parente est triée) -- deux lectures successives
+ * peuvent donc légitimement renvoyer les lignes dans un autre ordre,
+ * et le centime doit malgré tout toujours tomber sur la MÊME ligne.
+ * `order_items` ne porte aucune colonne de séquence persistée
+ * (`id`, `order_id`, …, `created_at` -- voir migration-orders.sql), et
+ * ce lot n'en ajoute aucune : `id` est donc l'unique identité stable
+ * disponible, et elle est déjà sélectionnée par le contrat de lecture.
+ *
+ * La fonction est PURE et STABLE : mêmes lignes, même résultat, quel
+ * que soit leur ordre d'arrivée et quel que soit le nombre d'appels.
+ *
+ * PRÉSENTATION UNIQUEMENT : ni les totaux canoniques, ni la TVA par
+ * taux, ni le gross produit, ni la livraison, ni `orders.subtotal`/
+ * `orders.total` ne sont touchés.
+ */
+function allocateProductLineNet(
+  order: DashboardOrder,
+  productByRate: Map<number, { gross: number; net: number; tax: number }>
+): OrderCommercialProductLine[] | null {
+  const toCents = (value: number) => Math.round((value + Number.EPSILON) * 100);
+  /** Échelle persistée de `tax_rate_snapshot` : numeric(5,2) -> 1/100. */
+  const RATE_SCALE = 100;
+  const RATE_UNIT = BigInt(100 * RATE_SCALE); // 1 en unités de R : 10000
+
+  interface Entry {
+    itemId: string;
+    rate: number;
+    grossCents: number;
+    floorCents: number;
+    /** Reste fractionnaire EXACT, en numérateur entier (dénominateur commun au groupe). */
+    remainderNumerator: bigint;
+    netCents: number;
+  }
+
+  const entries: Entry[] = [];
+  for (const lineItem of order.order_items) {
+    if (lineItem.tax_rate_snapshot === null || lineItem.tax_rate_snapshot === undefined) {
+      return null;
+    }
+    const rate = Number(lineItem.tax_rate_snapshot);
+    // Contrat persisté : numeric(5,2), 0 <= taux <= 100. Toute valeur
+    // qui n'est pas un multiple exact du centième n'est PAS couverte
+    // par ce contrat : on renonce plutôt que d'arrondir en silence.
+    const scaledRate = rate * RATE_SCALE;
+    if (
+      !Number.isFinite(rate) ||
+      rate < 0 ||
+      rate > 100 ||
+      Math.abs(scaledRate - Math.round(scaledRate)) > 1e-9
+    ) {
+      return null;
+    }
+    const rateNumerator = BigInt(Math.round(scaledRate));
+    const grossCents = toCents(Number(lineItem.line_total));
+    if (!Number.isSafeInteger(grossCents) || grossCents < 0) return null;
+
+    // HT exact = grossCents × 10000 / (10000 + R), en entiers exacts.
+    const numerator = BigInt(grossCents) * RATE_UNIT;
+    const denominator = RATE_UNIT + rateNumerator;
+    const floorCents = numerator / denominator; // division entière BigInt
+    entries.push({
+      itemId: String(lineItem.id),
+      rate,
+      grossCents,
+      floorCents: Number(floorCents),
+      remainderNumerator: numerator - floorCents * denominator,
+      netCents: Number(floorCents),
+    });
+  }
+
+  for (const [rate, group] of productByRate) {
+    const groupEntries = entries.filter((entry) => entry.rate === rate);
+    if (groupEntries.length === 0) return null;
+
+    const targetCents = toCents(group.net);
+    const allocatedCents = groupEntries.reduce((acc, entry) => acc + entry.floorCents, 0);
+    let residue = targetCents - allocatedCents;
+    // Le résidu est structurellement dans [0, nombre de lignes] : chaque
+    // plancher perd moins d'un centime, et la cible est l'arrondi de la
+    // somme exacte. Un état hors de cette plage signalerait une donnée
+    // incohérente -- on renonce alors à la répartition plutôt que de
+    // fabriquer un affichage (aucune réparation à la lecture).
+    if (residue < 0 || residue > groupEntries.length) return null;
+
+    // Classement EXACT : numérateurs entiers (dénominateur commun au
+    // groupe), puis identité persistée. Aucune position de tableau.
+    const ranked = [...groupEntries].sort((a, b) => {
+      if (a.remainderNumerator !== b.remainderNumerator) {
+        return a.remainderNumerator > b.remainderNumerator ? -1 : 1;
+      }
+      return a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
+    });
+    for (const entry of ranked) {
+      if (residue <= 0) break;
+      entry.netCents += 1;
+      residue -= 1;
+    }
+  }
+
+  return entries.map((entry) => ({
+    itemId: entry.itemId,
+    rate: entry.rate,
+    gross: roundCents(entry.grossCents / 100),
+    net: roundCents(entry.netCents / 100),
+  }));
+}
+
+function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
+  const productByRate = buildProductRateGroups(order);
+  if (productByRate === null) {
+    return [];
   }
 
   const deliveryByRate = new Map<number, { gross: number; net: number; tax: number }>();
@@ -275,6 +446,127 @@ export interface FiscalRateRow {
 }
 
 /**
+ * DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- COMPOSITION
+ * MONÉTAIRE de la commande, exposée par le contrat fiscal unique.
+ *
+ * Ces deux montants ne sont PAS un nouveau calcul : ils proviennent
+ * exclusivement des deux instantanés déjà persistés `orders.subtotal`
+ * (produits SEULS) et `orders.total` (autoritaire, frais de livraison
+ * INCLUS), dont l'égalité `total = subtotal + delivery_fee` est
+ * GARANTIE en base par la contrainte CHECK
+ * `orders_total_equals_subtotal_plus_delivery_fee`
+ * (supabase/DRAFT-lot-server-delivery-fulfillment-pricing.sql). Le
+ * frais de livraison est donc dérivé EXACTEMENT comme
+ * `hasCompleteDeliveryTaxSnapshot` le fait déjà depuis LOT C v1.4,
+ * avec la MÊME convention d'arrondi -- une seule dérivation partagée,
+ * jamais deux.
+ *
+ * Aucun consommateur (back-office, ticket, facture) ne doit
+ * re-soustraire `total - subtotal` de son côté : cette structure est
+ * là pour que la composition soit AFFICHABLE sans recalcul local.
+ */
+export interface OrderMonetaryComposition {
+  /** `orders.subtotal` persisté : produits SEULS, jamais recalculé. */
+  productsSubtotal: number;
+  /**
+   * Frais de livraison CLIENT réellement facturé sur cette commande,
+   * dérivé des instantanés persistés (`total - subtotal`). Vaut 0
+   * pour table/retrait et pour une livraison gratuite -- jamais
+   * fabriqué, jamais reconstruit depuis la tarification COURANTE.
+   */
+  deliveryFee: number;
+  /**
+   * `productsSubtotal + deliveryFee` égale-t-il EXACTEMENT le montant
+   * final exposé par ce résumé (`totalGross`) ?
+   *
+   * Vrai dans tous les cas où le prix client est TTC (instantané
+   * `prices_include_tax = true`, mode `mixed-rate`) et dans les modes
+   * qui exposent `orders.total` tel quel (`unavailable`) -- la
+   * contrainte CHECK en base le garantit alors par construction.
+   *
+   * FAUX dans le seul cas d'un marchand en prix HORS TAXES
+   * (`prices_include_tax = false`) : `orders.subtotal`/`orders.total`
+   * sont alors des montants HT tandis que `totalGross` ajoute la TVA
+   * par-dessus. Afficher une composition produits + livraison sous ce
+   * total TTC donnerait une addition visuellement FAUSSE : les
+   * consommateurs doivent donc s'abstenir d'afficher la décomposition
+   * plutôt que d'inventer une répartition TTC de la part livraison
+   * (aucune donnée persistée ne la porte).
+   */
+  compositionReconcilesWithTotal: boolean;
+  /**
+   * Présentation commerciale (produits HT + TVA produits + livraison
+   * TTC = total TTC), ou `null` quand l'instantané ne permet aucune
+   * décomposition fiable. Voir OrderCommercialPresentation.
+   */
+  commercialPresentation: OrderCommercialPresentation | null;
+}
+
+/**
+ * DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- PRÉSENTATION
+ * COMMERCIALE (vue B), distincte du RÉSUMÉ FISCAL COMPLET (vue A).
+ *
+ * Décision produit CIO (v1.1, §2/§3) : sur le TICKET IMPRIMÉ, le frais
+ * de livraison est présenté comme UN SEUL montant TTC côté client. Sa
+ * TVA est donc DÉJÀ contenue dans ce montant affiché -- la remettre
+ * dans les lignes de TVA affichées juste au-dessus la compterait deux
+ * fois À L'ŒIL. Les lignes de TVA de cette vue portent donc la part
+ * PRODUIT SEULE :
+ *
+ *     PRODUITS HT + TVA PRODUITS + LIVRAISON TTC = TOTAL TTC
+ *
+ * Ce que cette vue n'est PAS : elle ne remplace ni ne modifie le
+ * résumé fiscal complet (`rates`, mode `mixed-rate`), qui continue de
+ * combiner part produit et ventilation TVA livraison persistée et
+ * reste l'autorité interne (réconciliation, facture à venir). Les deux
+ * vues décrivent le MÊME total, décomposé différemment -- jamais deux
+ * totaux concurrents.
+ *
+ * `null` quand l'instantané ne permet pas de décomposition fiable :
+ * aucune décomposition n'est alors fabriquée (règle inchangée).
+ */
+/**
+ * v1.2 -- montant HT affichable d'UNE ligne produit (présentation).
+ */
+export interface OrderCommercialProductLine {
+  /** `order_items.id` -- identité stable de la ligne, jamais un index de rendu. */
+  itemId: string;
+  /** Taux instantané de la ligne (jamais un taux courant). */
+  rate: number;
+  /** TTC persisté de la ligne (`order_items.line_total`), inchangé. */
+  gross: number;
+  /** HT AFFICHÉ, après répartition déterministe du résidu dans son groupe de taux. */
+  net: number;
+}
+
+export interface OrderCommercialPresentation {
+  /** Base HT produits = somme des parts HT par taux (frontière d'arrondi LOT C v1.3). */
+  productNet: number;
+  /** TVA PRODUITS SEULE -- n'inclut JAMAIS la TVA du frais de livraison. */
+  productTax: number;
+  /** TTC produits = `orders.subtotal` persisté (produits seuls). */
+  productGross: number;
+  /** Une ligne par taux produit réellement présent dans l'instantané, part PRODUIT seule. */
+  productRates: FiscalRateRow[];
+  /**
+   * v1.2 (décision CIO -- OPTION D) : montant HT AFFICHABLE de CHAQUE
+   * ligne produit, dans l'ordre immuable de `order.order_items`.
+   *
+   * Répartition de PRÉSENTATION UNIQUEMENT : la somme des `net` d'un
+   * même taux égale EXACTEMENT le HT canonique de ce taux (donc la
+   * somme totale égale `productNet`). Aucun total fiscal, aucune TVA,
+   * aucune valeur persistée n'est modifiée -- seule la façon dont le
+   * HT déjà autoritaire d'un groupe de taux se répartit visiblement
+   * entre ses lignes est décidée ici.
+   */
+  productLines: OrderCommercialProductLine[];
+  /** Frais de livraison CLIENT, montant TTC unique déjà persisté. */
+  deliveryGrossTtc: number;
+  /** Total TTC autoritaire = `orders.total`. */
+  finalGrossTtc: number;
+}
+
+/**
  * Résultat fiscal d'une commande.
  *
  * - `mixed-rate` : instantané par ligne COMPLET -> détail par taux
@@ -283,17 +575,22 @@ export interface FiscalRateRow {
  * - `unavailable`: données fiscales insuffisantes -> AUCUNE TVA n'est
  *   fabriquée, seul le total autoritaire est exposé (mandat §3, et
  *   décision de sûreté STUART LOT C v1.4 déjà en vigueur).
+ *
+ * `productsSubtotal`/`deliveryFee` (DELIVERY FEE / ORDER TOTAL
+ * RECONCILIATION v1) sont présents dans les TROIS modes : la
+ * composition d'un total est une donnée persistée, indépendante de la
+ * disponibilité de la décomposition TVA.
  */
 export type OrderFiscalSummary =
-  | {
+  | ({
       mode: "mixed-rate";
       taxLabel: string;
       totalNet: number;
       totalTax: number;
       totalGross: number;
       rates: FiscalRateRow[];
-    }
-  | {
+    } & OrderMonetaryComposition)
+  | ({
       mode: "flat-rate";
       taxLabel: string;
       rate: number;
@@ -301,8 +598,8 @@ export type OrderFiscalSummary =
       totalTax: number;
       totalGross: number;
       rates: FiscalRateRow[];
-    }
-  | {
+    } & OrderMonetaryComposition)
+  | ({
       mode: "unavailable";
       taxLabel: string;
       totalGross: number;
@@ -311,7 +608,7 @@ export type OrderFiscalSummary =
         | "no-tax-snapshot"
         | "tax-summary-disabled"
         | "incomplete-delivery-tax-snapshot";
-    };
+    } & OrderMonetaryComposition);
 
 /**
  * Calcule le résumé fiscal AUTORITAIRE d'une commande.
@@ -456,6 +753,119 @@ export function computeOrderFiscalSummary(
     : 0;
   const taxLabelResolved = taxLabel;
 
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- composition
+  // monétaire commune aux trois modes. `deliveryFeeGross` est la
+  // dérivation DÉJÀ en place depuis LOT C v1.4 (ci-dessus), réutilisée
+  // telle quelle : aucune seconde source, aucune seconde convention
+  // d'arrondi.
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.1 -- PRÉSENTATION
+  // COMMERCIALE (vue B). Construite à partir des MÊMES groupes produit
+  // que la vue fiscale complète, sans la part livraison : la TVA
+  // affichée est donc strictement la TVA PRODUIT, et le frais de
+  // livraison reste UN montant TTC unique (sa TVA, elle, reste
+  // persistée et intacte dans order_delivery_tax_allocations, lue
+  // telle quelle par la vue A -- ce lot n'y touche pas).
+  //
+  // Réconciliation EXACTE par construction, sans aucune nouvelle
+  // convention d'arrondi :
+  //   somme(gross produit par taux) = orders.subtotal
+  //   net + tax par taux            = gross de ce taux (LOT C v1.3)
+  //   + (orders.total - orders.subtotal)
+  //   = orders.total
+  //
+  // `null` dans tous les cas où aucune décomposition fiable n'existe
+  // (aucun instantané fiscal, récapitulatif TVA désactivé, instantané
+  // TVA livraison incomplet, marchand en prix HORS TAXES -- voir le
+  // rapport v1.1 pour ce dernier cas).
+  const buildCommercialPresentation = (): OrderCommercialPresentation | null => {
+    if (!hasTaxSnapshot || !showTaxSummarySetting || pricesIncludeTax !== true) return null;
+    if (suppressVatBreakdownForIncompleteHistory) return null;
+    // PÉRIMÈTRE STRICT (mandat v1.1 §11, "smallest contract" et §11
+    // du mandat v1 "ne pas élargir si le comportement est déjà clair
+    // et correct") : cette vue n'existe que lorsqu'un frais de
+    // livraison réel est facturé -- c'est le SEUL cas où la question
+    // du double comptage visuel se pose. Sans frais de livraison, la
+    // décomposition existante (Total HT / TVA par taux / Total TTC)
+    // est déjà exacte et reste STRICTEMENT inchangée : mêmes
+    // libellés, mêmes montants, aucun ticket historique perturbé.
+    if (deliveryFeeGross <= 0) return null;
+
+    const productSubtotal = roundCents(Number(order.subtotal));
+    const productGroups = itemsHaveRateSnapshots ? buildProductRateGroups(order) : null;
+
+    // Instantané par ligne COMPLET -> une ligne de TVA par taux
+    // réellement présent (jamais un taux codé en dur).
+    if (productGroups && productGroups.size > 0 && hasCompleteDeliverySnapshot) {
+      const productRates: FiscalRateRow[] = Array.from(productGroups.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([rateValue, group]) => ({
+          rate: rateValue,
+          net: group.net,
+          tax: group.tax,
+          gross: group.gross,
+        }));
+      const productNet = roundCents(productRates.reduce((acc, r) => acc + r.net, 0));
+      const productTax = roundCents(productRates.reduce((acc, r) => acc + r.tax, 0));
+      const productGross = roundCents(productRates.reduce((acc, r) => acc + r.gross, 0));
+      // Garde de sûreté : si la somme des groupes produit ne retombe
+      // pas exactement sur le sous-total persisté, on n'affiche RIEN
+      // plutôt qu'une décomposition qui ne réconcilie pas.
+      if (productGross !== productSubtotal) return null;
+      // v1.2 (OPTION D) -- répartition de présentation du HT entre les
+      // lignes. Si elle ne peut pas être établie de façon exacte, la
+      // présentation entière est abandonnée : jamais un ticket dont les
+      // lignes ne totalisent pas le sous-total affiché.
+      const productLines = allocateProductLineNet(order, productGroups);
+      if (!productLines) return null;
+      const allocatedNet = roundCents(productLines.reduce((acc, line) => acc + line.net, 0));
+      if (allocatedNet !== productNet) return null;
+      return {
+        productNet,
+        productTax,
+        productGross,
+        productRates,
+        productLines,
+        deliveryGrossTtc: deliveryFeeGross,
+        finalGrossTtc: total,
+      };
+    }
+
+    // Pas d'instantané par ligne, mais un instantané marchand à taux
+    // unique TTC exploitable (mode `flat-rate` historique) : la part
+    // produit se dérive du SOUS-TOTAL produits seul, avec la MÊME
+    // formule et la MÊME convention d'arrondi que ci-dessus -- le
+    // frais de livraison n'entre jamais dans cette dérivation.
+    if (!itemsHaveRateSnapshots && rate > 0) {
+      const productNet = roundCents(productSubtotal / (1 + rate / 100));
+      const productTax = roundCents(productSubtotal - productNet);
+      return {
+        productNet,
+        productTax,
+        productGross: productSubtotal,
+        productRates: [{ rate, net: productNet, tax: productTax, gross: productSubtotal }],
+        // AUCUNE répartition par ligne ici : ces commandes historiques
+        // n'ont PAS de `tax_rate_snapshot` par ligne (mandat v1.2 §2.1
+        // : la valeur HT se dérive du gross de la ligne ET de son taux
+        // instantané). Répartir depuis le seul taux marchand serait une
+        // valeur FABRIQUÉE ligne par ligne -- les lignes gardent donc
+        // le montant réellement facturé, comme avant ce lot.
+        productLines: [],
+        deliveryGrossTtc: deliveryFeeGross,
+        finalGrossTtc: total,
+      };
+    }
+
+    return null;
+  };
+
+  const composition = (totalShown: number): OrderMonetaryComposition => ({
+    productsSubtotal: roundCents(Number(order.subtotal)),
+    deliveryFee: deliveryFeeGross,
+    compositionReconcilesWithTotal:
+      roundCents(roundCents(Number(order.subtotal)) + deliveryFeeGross) === roundCents(totalShown),
+    commercialPresentation: buildCommercialPresentation(),
+  });
+
   if (useMixedRateRendering) {
     const rates: FiscalRateRow[] = mixedRateGroups.map((g) => ({
       rate: g.rate,
@@ -473,6 +883,7 @@ export function computeOrderFiscalSummary(
       totalTax: roundCents(mixedRateGroups.reduce((acc, g) => acc + g.tax, 0)),
       totalGross: total,
       rates,
+      ...composition(total),
     };
   }
 
@@ -485,6 +896,7 @@ export function computeOrderFiscalSummary(
       totalTax: taxAmount,
       totalGross: includingTax,
       rates: [{ rate, net: excludingTax, tax: taxAmount, gross: includingTax }],
+      ...composition(includingTax),
     };
   }
 
@@ -492,6 +904,7 @@ export function computeOrderFiscalSummary(
     mode: "unavailable",
     taxLabel: taxLabelResolved,
     totalGross: total,
+    ...composition(total),
     reason: !hasTaxSnapshot
       ? "no-tax-snapshot"
       : suppressVatBreakdownForIncompleteHistory
