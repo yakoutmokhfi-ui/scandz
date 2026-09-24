@@ -393,7 +393,12 @@ test("E — l'import affiche un APERÇU sans rien écrire, puis n'écrit qu'apr�
   assert.equal(writes.length, 1, "PHASE 2 : une seule écriture, celle de la ligne applicable");
   assert.deepEqual(
     writes[0],
-    [R_ID, "item", "p-tomme", "name", "en", "Sheep tomme", "to_review", HASH.tomme],
+    // BULK VALIDATION v1 §1.A (décision CIO) : la confirmation d'import
+    // EST l'acte de validation du commerçant -- la ligne est donc
+    // écrite « validated », et non plus avec le statut lu dans le
+    // fichier. Le hash source reste, lui, la précondition de
+    // concurrence (v2.1), inchangée.
+    [R_ID, "item", "p-tomme", "name", "en", "Sheep tomme", "validated", HASH.tomme],
     "v2.1 : le hash source LU DANS LE FICHIER est transmis comme précondition de concurrence"
   );
 });

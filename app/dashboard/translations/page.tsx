@@ -51,6 +51,14 @@ import {
   IMPORT_VERDICT_LABELS,
   type TranslationImportPreview,
 } from "@/lib/translations-management/import";
+import {
+  bulkValidationConfirmationQuestion,
+  bulkValidationResultMessage,
+  isSourceChangedError,
+  runBulkValidation,
+  selectBulkValidationCandidates,
+  BULK_VALIDATION_EXPLANATION,
+} from "@/lib/translations-management/bulk-validation";
 import type { SortKey } from "@/lib/catalogue-management/filtering";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
@@ -125,6 +133,14 @@ export default function TranslationsPage() {
     rowNumbers: number[];
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /** BULK VALIDATION v1 (§3) -- la confirmation est un ÉTAT, pas un
+   *  `window.confirm` : le compte exact doit être rendu dans le DOM,
+   *  donc vérifiable. Aucune écriture tant qu'il vaut `null`. */
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
 
   /**
    * CONTEXT HARDENING v1.1 (§5) -- PROVENANCE explicite du contenu en
@@ -219,6 +235,11 @@ export default function TranslationsPage() {
       setLastParsedFile(null);
       setImportFileName(null);
       setImportResult(null);
+      // Un compte calculé pour l'établissement PRÉCÉDENT ne doit jamais
+      // survivre au changement de contexte.
+      setBulkConfirmOpen(false);
+      setBulkProgress(null);
+      setBulkResult(null);
       setRestaurantId(id);
     },
     [guard]
@@ -370,6 +391,71 @@ export default function TranslationsPage() {
     setVisibleCount(PAGE_SIZE);
   }, [filters, targetLang, restaurantId]);
 
+  /**
+   * BULK VALIDATION v1 (§2) -- SÉLECTION, jamais une mutation.
+   *
+   * Calculée sur `allRows` (toutes les traductions de la langue
+   * courante) et NON sur `filteredRows` : l'action annoncée au
+   * commerçant est « toutes les traductions de cette langue ». Elle est
+   * recalculée à chaque changement de langue ou de contenu, donc le
+   * compte affiché est toujours celui de l'état courant.
+   */
+  const bulkSelection = useMemo(
+    () =>
+      selectBulkValidationCandidates(
+        allRows,
+        targetLang,
+        settingsInContext?.source_language ?? null
+      ),
+    [allRows, targetLang, settingsInContext]
+  );
+
+  /** Une confirmation comptée pour une langue ne doit JAMAIS être
+   *  exécutée pour une autre : changer de langue la referme. */
+  useEffect(() => {
+    setBulkConfirmOpen(false);
+    setBulkProgress(null);
+    setBulkResult(null);
+  }, [targetLang]);
+
+  /**
+   * BULK VALIDATION v1 (§4) -- exécution APRÈS confirmation explicite.
+   *
+   * Chaque ligne passe par la RPC existante `write_translation`, avec
+   * son hash source ACTUEL en précondition : aucune validation serveur
+   * n'est contournée, aucun chemin d'écriture parallèle n'est créé, et
+   * une source modifiée entre l'écran et l'écriture fait refuser la
+   * ligne par la base. Les échecs sont comptés, jamais masqués.
+   */
+  async function handleBulkValidate() {
+    if (!canEdit || bulkBusy || !targetLang) return;
+    const { candidates, skippedStale } = bulkSelection;
+    if (candidates.length === 0) return;
+    setBulkConfirmOpen(false);
+    setBulkBusy(true);
+    setBulkResult(null);
+    setBulkProgress({ done: 0, total: candidates.length });
+    const outcome = await runBulkValidation(
+      candidates,
+      (candidate) =>
+        writeTranslation(
+          restaurantId,
+          candidate.entityType,
+          candidate.entityId,
+          candidate.field,
+          targetLang,
+          candidate.value,
+          "validated",
+          candidate.sourceHash
+        ),
+      { onProgress: (done, total) => setBulkProgress({ done, total }) }
+    );
+    setBulkBusy(false);
+    setBulkProgress(null);
+    setBulkResult(bulkValidationResultMessage(outcome, skippedStale));
+    await load(restaurantId);
+  }
+
   async function handleSave(
     entityType: TranslationEntityType,
     entityId: string,
@@ -480,7 +566,20 @@ export default function TranslationsPage() {
    *  l'aperçu et cette confirmation, le SERVEUR refuse CETTE ligne
    *  (SQLSTATE 40001) -- l'aperçu est un confort d'usage, jamais une
    *  frontière de concurrence. Les autres lignes continuent d'être
-   *  importées (politique ligne par ligne, décision CIO). */
+   *  importées (politique ligne par ligne, décision CIO).
+   *
+   *  BULK VALIDATION v1 §1.A / §5 -- DÉCISION CIO : la confirmation
+   *  d'import EST l'acte de validation du commerçant. Toute ligne
+   *  `applicable` est donc écrite `validated`, et non plus avec le
+   *  statut lu dans le fichier : celui-ci reste une métadonnée
+   *  d'aller-retour (il continue d'être VALIDÉ à la lecture -- un
+   *  statut inconnu fait toujours refuser la ligne, `invalid_status`).
+   *  Ce que cette règle ne change PAS : une ligne qui écraserait une
+   *  traduction DÉJÀ validée reste classée `overwrites_validated`,
+   *  donc NON applicable, tant que le commerçant n'a pas donné le
+   *  second consentement explicite (case « Remplacer aussi les
+   *  traductions déjà validées »). La validation implicite ne devient
+   *  jamais une autorisation d'écrasement. */
   async function handleConfirmImport() {
     if (!importPreview || importBusy || !canEdit) return;
     const rows = applicableImportRows(importPreview);
@@ -498,13 +597,14 @@ export default function TranslationsPage() {
           row.field,
           row.targetLanguage,
           row.translation,
-          row.status,
+          // §1.A -- confirmation explicite = validation du commerçant.
+          "validated",
           row.sourceHash
         );
         done += 1;
       } catch (e) {
         failed += 1;
-        if (e instanceof Error && e.message.includes("SCANYM_TRANSLATION_SOURCE_CHANGED")) {
+        if (isSourceChangedError(e)) {
           refusedStaleSource += 1;
         }
       }
@@ -778,12 +878,93 @@ export default function TranslationsPage() {
                     }}
                   />
                 </label>
+                {/* BULK VALIDATION v1 (§1.B) -- OUVRE la confirmation,
+                    n'écrit rien. Le compte exact est celui de la
+                    sélection, affiché dès le libellé. */}
+                <button
+                  type="button"
+                  data-translations-bulk-validate=""
+                  disabled={!canEdit || bulkBusy || bulkSelection.candidates.length === 0}
+                  onClick={() => {
+                    setBulkResult(null);
+                    setBulkConfirmOpen(true);
+                  }}
+                  className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700 disabled:opacity-40"
+                >
+                  Valider toutes les traductions de cette langue
+                  {bulkSelection.candidates.length > 0 ? ` (${bulkSelection.candidates.length})` : ""}
+                </button>
               </div>
               <p className="mt-2 text-xs text-stone-400">
                 L'import se fait en deux temps : le fichier est d'abord analysé et affiché, rien
                 n'est enregistré avant votre confirmation.
               </p>
             </section>
+
+            {/* ------------------------------------------------------
+                VALIDATION EN MASSE -- confirmation AVANT toute
+                mutation (mandat §3) : compte exact, périmètre expliqué,
+                et rien n'est écrit tant que « Valider » n'est pas
+                cliqué dans ce panneau.
+               ------------------------------------------------------ */}
+            {bulkConfirmOpen && (
+              <section
+                data-translations-bulk-confirm=""
+                className="mt-4 rounded-2xl border border-stone-300 bg-white p-4"
+              >
+                <h3 data-translations-bulk-question="" className="font-bold text-stone-900">
+                  {bulkValidationConfirmationQuestion(
+                    bulkSelection.candidates.length,
+                    activeLanguagesInContext.find((l) => l.code === targetLang)?.label ?? targetLang
+                  )}
+                </h3>
+                <p className="mt-1 text-sm text-stone-700">{BULK_VALIDATION_EXPLANATION}</p>
+                {bulkSelection.skippedStale > 0 && (
+                  <p data-translations-bulk-skipped="" className="mt-1 text-xs text-amber-800">
+                    {bulkSelection.skippedStale} traduction(s) à relire seront ignorées : leur texte
+                    source a changé depuis leur enregistrement. Reprenez-les une par une, ou
+                    ré-exportez puis réimportez-les.
+                  </p>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    data-translations-bulk-confirm-action=""
+                    disabled={!canEdit || bulkBusy}
+                    onClick={() => void handleBulkValidate()}
+                    className="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    Valider ces traductions
+                  </button>
+                  <button
+                    type="button"
+                    data-translations-bulk-cancel=""
+                    onClick={() => setBulkConfirmOpen(false)}
+                    className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-semibold text-stone-700"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {bulkProgress && (
+              <p
+                data-translations-bulk-progress={`${bulkProgress.done}/${bulkProgress.total}`}
+                className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700"
+              >
+                Validation en cours… {bulkProgress.done} / {bulkProgress.total}
+              </p>
+            )}
+
+            {bulkResult && (
+              <p
+                data-translations-bulk-result=""
+                className="mt-3 rounded-xl bg-green-50 p-3 text-sm text-green-800"
+              >
+                {bulkResult}
+              </p>
+            )}
 
             {/* APERÇU D'IMPORT -- phase 1, aucune écriture */}
             {importResult && (

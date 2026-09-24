@@ -50,3 +50,185 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* ==================================================================
+   CGV DOCUMENT PRESENTATION v1 — mise en page du document légal public.
+   ==================================================================
+   PRÉSENTATION UNIQUEMENT : aucune règle ci-dessous n'ajoute, ne
+   retire ni ne reformule le moindre texte juridique. Le contenu est
+   produit par lib/legal/render.ts puis figé en base ; cette feuille se
+   contente de le mettre en page.
+
+   Deux générations de documents coexistent volontairement :
+     - les versions publiées APRÈS ce lot portent leur propre numéro de
+       chapitre dans le DOM (`section[data-chapter]`) ;
+     - les versions publiées AVANT restent immuables et n'en portent
+       pas : un compteur CSS leur rend la même numérotation, sans
+       jamais toucher au contenu stocké (une version publiée ne doit
+       pas être réécrite pour être lisible).
+   Les deux cas s'excluent : un document donné relève de l'un ou de
+   l'autre, jamais des deux, donc aucun double numéro n'est possible.
+   ------------------------------------------------------------------ */
+.cgv-document {
+  counter-reset: cgv-chapter;
+  color: #292524;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  /* Identifiants (SIRET, TVA), URL et adresses e-mail longues ne
+     doivent jamais déborder sur mobile. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.cgv-document .cgv-document-header {
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 2px solid #1c1917;
+}
+
+.cgv-document h1,
+.cgv-document .cgv-document-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cgv-document .cgv-document-seller {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #57534e;
+}
+
+.cgv-document .cgv-preamble {
+  margin: 0 0 2rem;
+  color: #44403c;
+}
+
+/* Chapitres ------------------------------------------------------- */
+.cgv-document section {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e7e5e4;
+}
+
+.cgv-document section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.cgv-document h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #1c1917;
+  /* Le numéro reste aligné avec le titre, même sur deux lignes. */
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  text-decoration: none;
+}
+
+.cgv-document .cgv-chapter-number {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: #78716c;
+}
+
+.cgv-document .cgv-chapter-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Numérotation de repli pour les versions publiées avant ce lot. */
+.cgv-document section:not([data-chapter]):not(.legal-guarantee-encadre) {
+  counter-increment: cgv-chapter;
+}
+
+.cgv-document section:not([data-chapter]):not(.legal-guarantee-encadre) > h2::before {
+  content: counter(cgv-chapter) ".";
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: #78716c;
+}
+
+.cgv-document p {
+  margin: 0 0 0.85rem;
+}
+
+.cgv-document p:last-child {
+  margin-bottom: 0;
+}
+
+/* Identité du vendeur et coordonnées ------------------------------ */
+.cgv-document .cgv-identity,
+.cgv-document .cgv-contact {
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.cgv-document .cgv-identity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1rem;
+}
+
+.cgv-document .cgv-identity-row dt {
+  font-weight: 700;
+  color: #57534e;
+}
+
+.cgv-document .cgv-identity-row dd {
+  margin: 0;
+}
+
+/* À partir du petit écran, étiquette et valeur sur la même ligne. */
+@media (min-width: 640px) {
+  .cgv-document .cgv-identity-row {
+    grid-template-columns: 14rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: baseline;
+  }
+}
+
+/* Encadré réglementaire D.211-2 ----------------------------------- */
+.cgv-document .legal-guarantee-encadre {
+  margin: 2rem 0;
+  padding: 1rem 1.15rem;
+  border: 2px solid #44403c;
+  border-radius: 0.5rem;
+  background: #fafaf9;
+  /* Neutralise le séparateur de chapitre : ce bloc porte déjà sa
+     propre bordure. */
+  border-top-width: 2px;
+  padding-top: 1rem;
+  max-width: 100%;
+}
+
+.cgv-document .legal-guarantee-encadre h2 {
+  font-size: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.cgv-document .legal-guarantee-encadre p {
+  margin-bottom: 0.7rem;
+}
+
+.cgv-document a {
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .cgv-document {
+    font-size: 11pt;
+  }
+  .cgv-document section {
+    break-inside: avoid-page;
+  }
+}
