@@ -19,11 +19,18 @@
  * ------------------------------------------------------------------
  * CONCURRENCE / SOURCE PÉRIMÉE (mandat §13) -- politique RETENUE
  * ------------------------------------------------------------------
- * - `source_hash` du fichier différent du hash source ACTUEL :
- *   la ligne est classée `stale_source` et N'EST JAMAIS ÉCRITE. Le
- *   texte source a changé depuis l'export : écrire la traduction
- *   telle quelle (a fortiori en « validée ») affirmerait une
- *   correspondance qui n'existe plus. Le commerçant doit ré-exporter.
+ * - `source_hash` du fichier absent ou différent du hash source
+ *   ACTUEL : la ligne est classée `stale_source` et N'EST JAMAIS
+ *   ÉCRITE. Le texte source a changé depuis l'export : écrire la
+ *   traduction telle quelle (a fortiori en « validée ») affirmerait
+ *   une correspondance qui n'existe plus. Le commerçant doit
+ *   ré-exporter.
+ * - v2.1 -- CE CONTRÔLE D'APERÇU N'EST PAS UNE FRONTIÈRE DE
+ *   CONCURRENCE : entre l'aperçu et la confirmation, le texte source
+ *   peut encore changer. Chaque ligne transmet donc son `sourceHash`
+ *   AU SERVEUR (`p_expected_source_hash`), qui relit le hash
+ *   autoritatif et refuse l'écriture en cas d'écart -- c'est LÀ que
+ *   l'invariant est réellement tenu.
  * - Ligne qui écraserait une traduction DÉJÀ VALIDÉE :
  *   REFUSÉE PAR DÉFAUT, classée `overwrites_validated` et affichée
  *   explicitement dans l'aperçu. Elle ne devient applicable QUE si le
@@ -42,12 +49,20 @@ import {
 } from "@/lib/translations-management/rows";
 import { TRANSLATION_EXPORT_COLUMNS } from "@/lib/translations-management/export";
 
-/** Colonnes REQUISES dans le fichier importé -- exactement celles que
- *  l'export produit (aller-retour direct, jamais un second format). */
+/** Colonnes REQUISES dans le fichier importé -- toutes produites par
+ *  l'export (aller-retour direct, jamais un second format).
+ *
+ *  v2.1 : `source_hash` est OBLIGATOIRE. Sans lui, aucune ligne ne
+ *  pourrait porter de précondition de concurrence jusqu'au serveur, et
+ *  un fichier préparé avant une modification du texte source
+ *  écraserait silencieusement la traduction du NOUVEAU texte. Un
+ *  fichier qui ne le contient pas est refusé en bloc, de façon
+ *  explicite -- jamais importé « au mieux ». */
 export const REQUIRED_IMPORT_COLUMNS = [
   "entity_type",
   "entity_id",
   "field",
+  "source_hash",
   "target_language",
   "translation",
 ] as const;
@@ -256,9 +271,11 @@ export function buildTranslationImportPreview(
       verdict === "applicable" &&
       entity &&
       (entity.sourceHash ?? "") !== "" &&
-      sourceHash !== "" &&
       sourceHash !== entity.sourceHash
     ) {
+      // Hash absent de la ligne OU différent du hash source actuel :
+      // dans les deux cas la précondition de concurrence ne peut pas
+      // être établie, donc la ligne n'est jamais écrite (v2.1).
       verdict = "stale_source";
     } else if (verdict === "applicable" && entity) {
       const current = getTranslationStatus(
@@ -313,7 +330,7 @@ export const IMPORT_VERDICT_LABELS: Record<ImportRowVerdict, string> = {
   invalid_field: "Champ non traduisible pour ce type d'élément",
   wrong_language: "Langue différente de la langue à importer, ou langue inactive",
   source_language: "Écriture dans la langue source (interdite)",
-  stale_source: "Texte source modifié depuis l'export (ré-exporter)",
+  stale_source: "Hash source absent ou différent du texte source actuel (ré-exporter)",
   duplicate: "Ligne en double dans le fichier",
   invalid_status: "Statut invalide (attendu : to_review, validated, missing ou stale)",
   empty_translation: "Traduction vide",

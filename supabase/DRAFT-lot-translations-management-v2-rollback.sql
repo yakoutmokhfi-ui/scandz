@@ -42,6 +42,10 @@ begin
 end $$;
 
 -- 1. Fonctions étendues -- retirées AVANT les colonnes qu'elles lisent.
+-- v2.1 : la version du lot porte 8 arguments (p_expected_source_hash
+-- optionnel). Les DEUX signatures sont retirées, pour qu'aucune
+-- surcharge ne survive au rollback.
+drop function if exists public.write_translation(uuid, text, uuid, text, text, text, text, text);
 drop function if exists public.write_translation(uuid, text, uuid, text, text, text, text);
 drop function if exists public.get_merchant_catalogue(uuid, boolean);
 drop function if exists public.get_merchant_delivery_method_notices(uuid);
@@ -67,7 +71,8 @@ alter table public.restaurant_sale_mode_fulfillments
 
 -- 3. Fonctions REMISES dans leur version antérieure exacte.
 
--- 3a. write_translation (LOT 1B).
+-- 3a. write_translation (LOT 1B) -- EXACTEMENT 7 arguments, sans
+--     précondition de hash : la version antérieure au lot.
 create function public.write_translation(
   p_restaurant_id uuid,
   p_entity_type   text,
@@ -481,6 +486,8 @@ grant execute on function public.get_restaurant_public_delivery_fulfillments(uui
 
 -- 4. Post-vérification du rollback.
 do $$
+declare
+  v_def text;
 begin
   if exists (
     select 1 from information_schema.columns
@@ -492,6 +499,23 @@ begin
       )
   ) then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: colonnes TRANSLATIONS MANAGEMENT v2 encore présentes après rollback.';
+  end if;
+
+  -- v2.1 : exactement UNE version de write_translation, à 7 arguments,
+  -- sans précondition de hash -- aucune surcharge résiduelle.
+  if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'write_translation') <> 1 then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: plusieurs versions de write_translation après rollback.';
+  end if;
+  select pg_get_functiondef(p.oid) into v_def
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'write_translation';
+  if v_def ilike '%p_expected_source_hash%' then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation porte encore la précondition v2.1 après rollback.';
+  end if;
+  if not has_function_privilege('authenticated', 'public.write_translation(uuid, text, uuid, text, text, text, text)', 'execute')
+     or has_function_privilege('anon', 'public.write_translation(uuid, text, uuid, text, text, text, text)', 'execute') then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: privilèges de write_translation incorrects après rollback.';
   end if;
 end $$;
 

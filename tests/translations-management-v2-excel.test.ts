@@ -275,9 +275,11 @@ test("E — PHASE 1 : l'aperçu est PUR -- il ne peut structurellement rien écr
   for (const forbidden of ["supabase", "rpc(", "fetch(", "writeTranslation"]) {
     assert.equal(src.includes(forbidden), false, `l'aperçu ne doit pas référencer ${forbidden}`);
   }
+  // v2.1 : `source_hash` est OBLIGATOIRE -- sans lui, aucune ligne ne
+  // pourrait porter la précondition de concurrence jusqu'au serveur.
   assert.deepEqual(
     [...REQUIRED_IMPORT_COLUMNS],
-    ["entity_type", "entity_id", "field", "target_language", "translation"]
+    ["entity_type", "entity_id", "field", "source_hash", "target_language", "translation"]
   );
 });
 

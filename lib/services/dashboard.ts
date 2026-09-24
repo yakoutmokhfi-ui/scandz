@@ -1154,6 +1154,21 @@ export type TranslationEntityType =
   | "customer_notice";
 export type TranslationWriteStatus = "to_review" | "validated";
 
+/**
+ * TRANSLATIONS MANAGEMENT v2.1 -- `expectedSourceHash` est une
+ * PRÉCONDITION DE CONCURRENCE, pas une donnée : fournie, la RPC relit
+ * le hash source autoritatif et REFUSE l'écriture s'il a changé
+ * (SQLSTATE 40001). Elle n'est JAMAIS stockée -- le hash écrit reste
+ * celui relu côté serveur.
+ *
+ * Omise (édition interactive du back-office, comportement v2
+ * inchangé) : aucune précondition. L'écran interactif affiche le texte
+ * source qu'il vient de lire et l'utilisateur le voit au moment où il
+ * écrit ; l'import Excel, lui, applique une décision prise AVANT la
+ * confirmation, parfois plusieurs minutes plus tôt -- c'est ce
+ * décalage qui exige la précondition (voir lib/translations-management/
+ * import.ts et app/dashboard/translations/page.tsx).
+ */
 export async function writeTranslation(
   restaurantId: string,
   entityType: TranslationEntityType,
@@ -1161,7 +1176,8 @@ export async function writeTranslation(
   field: string,
   lang: string,
   value: string,
-  status: TranslationWriteStatus
+  status: TranslationWriteStatus,
+  expectedSourceHash: string | null = null
 ): Promise<void> {
   const { error } = await supabase.rpc("write_translation", {
     p_restaurant_id: restaurantId,
@@ -1171,6 +1187,7 @@ export async function writeTranslation(
     p_lang: lang,
     p_value: value,
     p_status: status,
+    p_expected_source_hash: expectedSourceHash,
   });
   if (error) throw new Error(error.message);
 }

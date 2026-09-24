@@ -162,7 +162,11 @@ const MOCK_DASHBOARD = buildServiceMock("lib/services/dashboard.ts", {
     return [{ modeCode: "pickup", modeLabel: "À emporter", customerText: "Retrait sous 2 h.", saleModeId: "sm-pickup", customerTextHash: "h-pickup", translations: null }];
   }`,
   getMerchantDeliveryFulfillmentPricing: `export async function getMerchantDeliveryFulfillmentPricing() { return []; }`,
-  writeTranslation: `export async function writeTranslation(...args) { (globalThis).__writes.push(args); }`,
+  writeTranslation: `export async function writeTranslation(...args) {
+    const reject = (globalThis).__rejectWrites;
+    if (reject) { (globalThis).__refused.push(args); throw new Error(reject); }
+    (globalThis).__writes.push(args);
+  }`,
 });
 
 const mocks: Record<string, string> = {
@@ -230,6 +234,8 @@ function flush(ms = 120): Promise<void> {
 async function mount(t: any) {
   (globalThis as any).__catalogue = CATALOGUE;
   (globalThis as any).__writes = [];
+  (globalThis as any).__refused = [];
+  (globalThis as any).__rejectWrites = null;
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
@@ -385,5 +391,78 @@ test("E — l'import affiche un APERÇU sans rien écrire, puis n'écrit qu'apr�
 
   const writes = (globalThis as any).__writes as unknown[][];
   assert.equal(writes.length, 1, "PHASE 2 : une seule écriture, celle de la ligne applicable");
-  assert.deepEqual(writes[0], [R_ID, "item", "p-tomme", "name", "en", "Sheep tomme", "to_review"]);
+  assert.deepEqual(
+    writes[0],
+    [R_ID, "item", "p-tomme", "name", "en", "Sheep tomme", "to_review", HASH.tomme],
+    "v2.1 : le hash source LU DANS LE FICHIER est transmis comme précondition de concurrence"
+  );
+});
+
+test("E/v2.1 — COURSE aperçu -> confirmation : le serveur refuse la ligne, l'écran la compte comme refusée", async (t) => {
+  // Cas B du mandat (distinct du cas A « périmé DÈS l'aperçu », couvert
+  // par tests/translations-management-v2-excel.test.ts) : au moment de
+  // l'aperçu la ligne est applicable sous le hash A ; le texte source
+  // change ENSUITE ; à la confirmation, le SERVEUR refuse cette ligne.
+  const container = await mount(t);
+  const { buildTranslationExport } = await import("../lib/translations-management/export.ts");
+  const { buildTranslationRows } = await import("../lib/translations-management/rows.ts");
+  const { parseTranslationWorkbook } = await import("../lib/translations-management/import.ts");
+  const { buildTranslationXlsxForTest } = await import("./helpers/translations-import-fixture.ts");
+
+  const bytes = buildTranslationExport(
+    buildTranslationRows({ restaurant: null, categories: CATALOGUE as never }),
+    "en"
+  );
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const parsed = parseTranslationWorkbook(ab);
+  const tIdx = parsed.header.indexOf("translation");
+  const filled = parsed.rows.map((r) => {
+    const copy = [...r];
+    copy[tIdx] = copy[1] === "p-tomme" ? "Sheep tomme" : "";
+    return copy;
+  });
+  const file = buildTranslationXlsxForTest(parsed.header, filled);
+
+  const input = container.querySelector("[data-translations-import-input]") as HTMLInputElement;
+  Object.defineProperty(input, "files", {
+    value: [{ name: "traductions.xlsx", arrayBuffer: async () => file }],
+    configurable: true,
+  });
+  await (React as any).act(async () => {
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  await flush(120);
+  assert.equal(
+    container.querySelector("[data-translations-import-applicable]")?.textContent,
+    "1",
+    "la ligne est bien APPLICABLE au moment de l'aperçu (hash A)"
+  );
+
+  // ENTRE l'aperçu et la confirmation, le texte source change : le
+  // serveur (ici son contrat, reproduit par le mock) rejette la ligne.
+  (globalThis as any).__rejectWrites =
+    "SCANYM_TRANSLATION_SOURCE_CHANGED: le texte source a changé depuis l'export -- traduction non enregistrée.";
+
+  await (React as any).act(async () => {
+    (container.querySelector("[data-translations-import-confirm]") as HTMLButtonElement).click();
+  });
+  await flush(150);
+
+  assert.equal(
+    ((globalThis as any).__writes as unknown[][]).length,
+    0,
+    "AUCUNE écriture réussie ne doit être comptée pour cette ligne"
+  );
+  const refused = (globalThis as any).__refused as unknown[][];
+  assert.equal(refused.length, 1, "la ligne a bien été tentée, avec sa précondition");
+  assert.equal(refused[0][7], HASH.tomme, "le hash du fichier est la précondition transmise");
+
+  const result = container.querySelector("[data-translations-import-result]")?.textContent ?? "";
+  assert.equal(result.includes("0 traduction(s) importée(s)"), true, `résultat inattendu : ${result}`);
+  assert.equal(result.includes("1 refusée(s) par le serveur"), true, `résultat inattendu : ${result}`);
+  assert.equal(
+    result.includes("le texte source a changé depuis l'export"),
+    true,
+    "l'écran doit dire POURQUOI la ligne a été refusée"
+  );
 });

@@ -93,9 +93,10 @@ test("SQL — aucun privilège nouveau : search_path explicite, aucun droit anon
     definers.length,
     "chaque fonction SECURITY DEFINER fixe explicitement son search_path"
   );
+  // v2.1 : la signature porte 8 arguments (précondition optionnelle).
   assert.equal(
     SQL.includes(
-      "revoke all on function public.write_translation(uuid, text, uuid, text, text, text, text) from public, anon;"
+      "revoke all on function public.write_translation(uuid, text, uuid, text, text, text, text, text) from public, anon;"
     ),
     true
   );
@@ -244,6 +245,84 @@ test("import — aucune RPC d'import en masse : la RPC sécurisée existante est
   );
   const importSrc = readFileSync("lib/translations-management/import.ts", "utf8");
   assert.equal(importSrc.includes("supabase"), false, "le module d'import reste pur");
+});
+
+test("v2.1 — la précondition de hash source est appliquée CÔTÉ SERVEUR, une seule fois, avant toute écriture", () => {
+  // Signature : un SEUL paramètre ajouté, optionnel (compatibilité de
+  // l'écriture interactive).
+  assert.equal(
+    SQL.includes("p_expected_source_hash text default null"),
+    true,
+    "le paramètre doit être optionnel -- sinon l'édition interactive régresse"
+  );
+  // La garde existe, refuse explicitement, et n'est pas recopiée dans
+  // chaque branche (une seule occurrence => impossible d'en oublier une).
+  const guards = SQL.match(/if p_expected_source_hash is not null/g) ?? [];
+  assert.equal(guards.length, 1, "garde UNIQUE attendue");
+  assert.equal(SQL.includes("p_expected_source_hash is distinct from v_current_hash"), true);
+  assert.equal(SQL.includes("SCANYM_TRANSLATION_SOURCE_CHANGED"), true);
+
+  // La garde précède TOUTE écriture : aucun `update public.` avant elle.
+  const body = SQL.slice(SQL.indexOf("create function public.write_translation"));
+  const guardAt = body.indexOf("if p_expected_source_hash is not null");
+  const firstUpdate = body.indexOf("update public.");
+  assert.equal(
+    guardAt > 0 && firstUpdate > guardAt,
+    true,
+    "la garde doit être évaluée AVANT le premier UPDATE de la fonction"
+  );
+
+  // Le hash du client n'est JAMAIS stocké : seule v_current_hash l'est.
+  assert.equal(
+    body.includes("p_field || '_source_hash', p_expected_source_hash"),
+    false,
+    "le hash fourni par le client ne doit jamais devenir le hash stocké"
+  );
+  assert.equal((body.match(/p_field \|\| '_source_hash', v_current_hash/g) ?? []).length, 6);
+
+  // Aucune surcharge non sûre ne doit survivre.
+  assert.equal(
+    SQL.includes("drop function if exists public.write_translation(uuid, text, uuid, text, text, text, text);"),
+    true
+  );
+  assert.equal(
+    SQL.includes("plusieurs versions de write_translation coexistent"),
+    true,
+    "post-vérification anti-surcharge attendue"
+  );
+});
+
+test("v2.1 — l'import transmet le hash DU FICHIER ; l'édition interactive reste sans précondition", () => {
+  const confirm = PAGE_SRC.slice(PAGE_SRC.indexOf("async function handleConfirmImport"));
+  assert.equal(
+    /writeTranslation\([\s\S]*?row\.sourceHash[\s\S]*?\)/.test(confirm),
+    true,
+    "la confirmation doit transmettre le hash lu dans le classeur"
+  );
+  // handleSave (édition interactive) : 7 arguments, aucune précondition
+  // -- plus petit changement possible, documenté dans le rapport.
+  const manual = PAGE_SRC.slice(
+    PAGE_SRC.indexOf("async function handleSave"),
+    PAGE_SRC.indexOf("/** Télécharge un classeur")
+  );
+  assert.equal(
+    manual.includes("await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);"),
+    true,
+    "l'écriture interactive reste exactement celle de v2"
+  );
+
+  const service = readFileSync("lib/services/dashboard.ts", "utf8");
+  assert.equal(service.includes("expectedSourceHash: string | null = null"), true);
+  assert.equal(service.includes("p_expected_source_hash: expectedSourceHash"), true);
+
+  // `source_hash` est OBLIGATOIRE dans le fichier : sans lui aucune
+  // ligne ne pourrait porter la précondition jusqu'au serveur.
+  const importSrc = readFileSync("lib/translations-management/import.ts", "utf8");
+  const required = importSrc.slice(
+    importSrc.indexOf("export const REQUIRED_IMPORT_COLUMNS"),
+    importSrc.indexOf("] as const;", importSrc.indexOf("export const REQUIRED_IMPORT_COLUMNS"))
+  );
+  assert.equal(required.includes('"source_hash"'), true);
 });
 
 test("aucun service_role dans le code navigateur (mandat §14)", () => {

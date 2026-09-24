@@ -472,7 +472,15 @@ export default function TranslationsPage() {
    *  UNIQUEMENT des lignes classées applicables. Chaque ligne passe par
    *  la RPC existante `write_translation` : toutes ses validations
    *  serveur (locataire, langue active, langue source, rôle) restent
-   *  appliquées. Les échecs sont comptés et rapportés, jamais masqués. */
+   *  appliquées. Les échecs sont comptés et rapportés, jamais masqués.
+   *
+   *  v2.1 -- CHAQUE ligne transmet le hash source LU DANS LE FICHIER
+   *  (`row.sourceHash`), jamais celui vu par l'aperçu : c'est la
+   *  précondition de concurrence. Si le texte source a changé entre
+   *  l'aperçu et cette confirmation, le SERVEUR refuse CETTE ligne
+   *  (SQLSTATE 40001) -- l'aperçu est un confort d'usage, jamais une
+   *  frontière de concurrence. Les autres lignes continuent d'être
+   *  importées (politique ligne par ligne, décision CIO). */
   async function handleConfirmImport() {
     if (!importPreview || importBusy || !canEdit) return;
     const rows = applicableImportRows(importPreview);
@@ -480,6 +488,7 @@ export default function TranslationsPage() {
     setImportBusy(true);
     let done = 0;
     let failed = 0;
+    let refusedStaleSource = 0;
     for (const row of rows) {
       try {
         await writeTranslation(
@@ -489,11 +498,15 @@ export default function TranslationsPage() {
           row.field,
           row.targetLanguage,
           row.translation,
-          row.status
+          row.status,
+          row.sourceHash
         );
         done += 1;
-      } catch {
+      } catch (e) {
         failed += 1;
+        if (e instanceof Error && e.message.includes("SCANYM_TRANSLATION_SOURCE_CHANGED")) {
+          refusedStaleSource += 1;
+        }
       }
     }
     setImportBusy(false);
@@ -502,7 +515,10 @@ export default function TranslationsPage() {
     setImportResult(
       failed === 0
         ? `${done} traduction(s) importée(s).`
-        : `${done} traduction(s) importée(s), ${failed} refusée(s) par le serveur.`
+        : `${done} traduction(s) importée(s), ${failed} refusée(s) par le serveur` +
+          (refusedStaleSource > 0
+            ? ` — dont ${refusedStaleSource} parce que le texte source a changé depuis l'export (ré-exportez puis réimportez ces lignes).`
+            : ".")
     );
     if (fileInputRef.current) fileInputRef.current.value = "";
     await load(restaurantId);

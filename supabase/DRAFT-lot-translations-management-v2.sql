@@ -38,7 +38,8 @@
 --    machine-lisible (exigence export/import : « never identify
 --    entities only by display name »).
 --
--- C. write_translation ÉTENDUE (même signature, mêmes garanties)
+-- C. write_translation ÉTENDUE (mêmes garanties ; signature
+--    élargie en v2.1 d'un SEUL paramètre optionnel)
 --    + entity_type 'subcategory'     -> field 'name' uniquement
 --    + entity_type 'customer_notice' -> field 'customer_text' uniquement
 --    Le corps des 3 types existants ('restaurant'/'category'/'item')
@@ -204,9 +205,40 @@ comment on column public.restaurant_sale_mode_fulfillments.customer_text_hash is
 
 -- ------------------------------------------------------------
 -- 4. write_translation -- 5 types d'entité (3 existants INCHANGÉS
---    + 2 nouveaux). MÊME signature, MÊMES garanties, MÊMES GRANTS.
+--    + 2 nouveaux) ET, depuis v2.1, ÉCRITURE CONDITIONNELLE au hash
+--    source attendu (compare-and-write).
+--
+-- POURQUOI (remédiation ciblée v2.1) : l'aperçu d'import Excel
+-- comparait le hash du fichier au hash courant, puis la confirmation
+-- écrivait SANS transmettre ce hash. Entre l'aperçu et la
+-- confirmation, un autre utilisateur pouvait modifier le texte
+-- source : la RPC relisait alors le NOUVEAU hash et stockait la
+-- traduction préparée pour l'ANCIEN texte comme à jour (voire
+-- « validée ») pour le nouveau. Fenêtre TOCTOU réelle.
+--
+-- CORRECTIF : `p_expected_source_hash` (OPTIONNEL, défaut NULL).
+--   - NULL           -> comportement STRICTEMENT identique à v2
+--                       (écriture interactive du back-office) ;
+--   - valeur fournie -> la RPC relit le hash source AUTORITATIF puis
+--                       REFUSE l'écriture si les deux diffèrent.
+-- Le hash fourni par le client n'est JAMAIS stocké : il sert
+-- uniquement de PRÉCONDITION. La valeur écrite reste le hash relu
+-- côté serveur, exactement comme avant.
+--
+-- STRUCTURE EN DEUX TEMPS, délibérée : une PREMIÈRE passe valide le
+-- champ, vérifie l'appartenance au locataire et RÉSOUT le hash
+-- courant ; la garde est ensuite appliquée UNE SEULE FOIS ; la
+-- SECONDE passe écrit. Aucune branche d'écriture ne peut donc
+-- « oublier » la garde -- ce qu'une garde recopiée dans chacune des
+-- six branches d'UPDATE ne pourrait pas garantir.
+--
+-- MÊMES GRANTS, MÊMES GARANTIES par ailleurs : assert_restaurant_
+-- asset_role, isolation locataire, interdiction de la langue source,
+-- langue supportée ET active, allowlist de champs par type, allowlist
+-- de statuts, search_path explicite, aucun droit anon/public.
 -- ------------------------------------------------------------
 drop function if exists public.write_translation(uuid, text, uuid, text, text, text, text);
+drop function if exists public.write_translation(uuid, text, uuid, text, text, text, text, text);
 
 create function public.write_translation(
   p_restaurant_id uuid,
@@ -215,7 +247,8 @@ create function public.write_translation(
   p_field         text,
   p_lang          text,
   p_value         text,
-  p_status        text    -- 'to_review' | 'validated' -- jamais 'stale' (dérivé en lecture, jamais écrit)
+  p_status        text,   -- 'to_review' | 'validated' -- jamais 'stale' (dérivé en lecture, jamais écrit)
+  p_expected_source_hash text default null  -- v2.1 : précondition de concurrence, JAMAIS stockée
 )
 returns void
 language plpgsql
@@ -254,6 +287,11 @@ begin
 
   v_value := nullif(p_value, '');
 
+  -- ----------------------------------------------------------
+  -- PASSE 1 -- allowlist de champ, appartenance au locataire, et
+  -- lecture du hash source AUTORITATIF. Aucune écriture ici.
+  -- L'ORDRE des contrôles est celui de v2, inchangé.
+  -- ----------------------------------------------------------
   if p_entity_type = 'restaurant' then
     if p_field not in ('intro_text', 'announcement_text') then
       raise exception using errcode = '22023', message = 'Invalid field for entity type restaurant';
@@ -263,19 +301,6 @@ begin
     else
       select announcement_text_hash into v_current_hash from public.restaurant_configs where restaurant_id = p_restaurant_id;
     end if;
-
-    update public.restaurant_configs
-    set translations = coalesce(translations, '{}'::jsonb)
-      || jsonb_build_object(
-        p_lang,
-        coalesce(translations -> p_lang, '{}'::jsonb)
-          || jsonb_build_object(
-            p_field, v_value,
-            p_field || '_status', p_status,
-            p_field || '_source_hash', v_current_hash
-          )
-      )
-    where restaurant_id = p_restaurant_id;
 
   elsif p_entity_type = 'category' then
     if p_field not in ('name', 'description') then
@@ -291,19 +316,6 @@ begin
     else
       select description_hash into v_current_hash from public.menu_categories where id = p_entity_id;
     end if;
-
-    update public.menu_categories
-    set translations = coalesce(translations, '{}'::jsonb)
-      || jsonb_build_object(
-        p_lang,
-        coalesce(translations -> p_lang, '{}'::jsonb)
-          || jsonb_build_object(
-            p_field, v_value,
-            p_field || '_status', p_status,
-            p_field || '_source_hash', v_current_hash
-          )
-      )
-    where id = p_entity_id;
 
   elsif p_entity_type = 'subcategory' then
     -- TRANSLATIONS MANAGEMENT v2 -- SEUL `name` est traduisible pour
@@ -324,19 +336,6 @@ begin
     end if;
     select name_hash into v_current_hash from public.menu_subcategories where id = p_entity_id;
 
-    update public.menu_subcategories
-    set translations = coalesce(translations, '{}'::jsonb)
-      || jsonb_build_object(
-        p_lang,
-        coalesce(translations -> p_lang, '{}'::jsonb)
-          || jsonb_build_object(
-            p_field, v_value,
-            p_field || '_status', p_status,
-            p_field || '_source_hash', v_current_hash
-          )
-      )
-    where id = p_entity_id;
-
   elsif p_entity_type = 'customer_notice' then
     -- TRANSLATIONS MANAGEMENT v2 -- texte client CONFIGURABLE PAR LE
     -- COMMERÇANT, provenant de l'une des 2 sources réelles du produit.
@@ -351,47 +350,17 @@ begin
       where rsm.id = p_entity_id and rsm.restaurant_id = p_restaurant_id
     ) then
       v_notice_kind := 'sale_mode';
+      select customer_text_hash into v_current_hash
+      from public.restaurant_sale_modes where id = p_entity_id;
     elsif exists (
       select 1 from public.restaurant_sale_mode_fulfillments f
       where f.id = p_entity_id and f.restaurant_id = p_restaurant_id
     ) then
       v_notice_kind := 'fulfillment';
-    else
-      raise exception using errcode = 'P0002', message = 'Customer notice not found for this restaurant';
-    end if;
-
-    if v_notice_kind = 'sale_mode' then
-      select customer_text_hash into v_current_hash
-      from public.restaurant_sale_modes where id = p_entity_id;
-
-      update public.restaurant_sale_modes
-      set translations = coalesce(translations, '{}'::jsonb)
-        || jsonb_build_object(
-          p_lang,
-          coalesce(translations -> p_lang, '{}'::jsonb)
-            || jsonb_build_object(
-              p_field, v_value,
-              p_field || '_status', p_status,
-              p_field || '_source_hash', v_current_hash
-            )
-        )
-      where id = p_entity_id;
-    else
       select customer_text_hash into v_current_hash
       from public.restaurant_sale_mode_fulfillments where id = p_entity_id;
-
-      update public.restaurant_sale_mode_fulfillments
-      set translations = coalesce(translations, '{}'::jsonb)
-        || jsonb_build_object(
-          p_lang,
-          coalesce(translations -> p_lang, '{}'::jsonb)
-            || jsonb_build_object(
-              p_field, v_value,
-              p_field || '_status', p_status,
-              p_field || '_source_hash', v_current_hash
-            )
-        )
-      where id = p_entity_id;
+    else
+      raise exception using errcode = 'P0002', message = 'Customer notice not found for this restaurant';
     end if;
 
   else -- 'item'
@@ -412,7 +381,98 @@ begin
     else
       select description_hash into v_current_hash from public.menu_items where id = p_entity_id;
     end if;
+  end if;
 
+  -- ----------------------------------------------------------
+  -- GARDE DE CONCURRENCE (v2.1) -- UNIQUE, entre la lecture du hash
+  -- autoritatif et TOUTE écriture. `is distinct from` traite
+  -- correctement un hash courant NULL (entité sans valeur source) :
+  -- une précondition qui ne correspond pas, même à NULL, refuse.
+  -- Aucune écriture n'a encore eu lieu à ce stade : un refus ici
+  -- laisse la colonne `translations` STRICTEMENT inchangée.
+  -- ----------------------------------------------------------
+  if p_expected_source_hash is not null
+     and p_expected_source_hash is distinct from v_current_hash then
+    raise exception using errcode = '40001',
+      message = 'SCANYM_TRANSLATION_SOURCE_CHANGED: le texte source a changé depuis l''export -- traduction non enregistrée.';
+  end if;
+
+  -- ----------------------------------------------------------
+  -- PASSE 2 -- écriture. Le hash STOCKÉ est TOUJOURS celui relu
+  -- côté serveur (v_current_hash), jamais p_expected_source_hash.
+  -- ----------------------------------------------------------
+  if p_entity_type = 'restaurant' then
+    update public.restaurant_configs
+    set translations = coalesce(translations, '{}'::jsonb)
+      || jsonb_build_object(
+        p_lang,
+        coalesce(translations -> p_lang, '{}'::jsonb)
+          || jsonb_build_object(
+            p_field, v_value,
+            p_field || '_status', p_status,
+            p_field || '_source_hash', v_current_hash
+          )
+      )
+    where restaurant_id = p_restaurant_id;
+
+  elsif p_entity_type = 'category' then
+    update public.menu_categories
+    set translations = coalesce(translations, '{}'::jsonb)
+      || jsonb_build_object(
+        p_lang,
+        coalesce(translations -> p_lang, '{}'::jsonb)
+          || jsonb_build_object(
+            p_field, v_value,
+            p_field || '_status', p_status,
+            p_field || '_source_hash', v_current_hash
+          )
+      )
+    where id = p_entity_id;
+
+  elsif p_entity_type = 'subcategory' then
+    update public.menu_subcategories
+    set translations = coalesce(translations, '{}'::jsonb)
+      || jsonb_build_object(
+        p_lang,
+        coalesce(translations -> p_lang, '{}'::jsonb)
+          || jsonb_build_object(
+            p_field, v_value,
+            p_field || '_status', p_status,
+            p_field || '_source_hash', v_current_hash
+          )
+      )
+    where id = p_entity_id;
+
+  elsif p_entity_type = 'customer_notice' then
+    if v_notice_kind = 'sale_mode' then
+      update public.restaurant_sale_modes
+      set translations = coalesce(translations, '{}'::jsonb)
+        || jsonb_build_object(
+          p_lang,
+          coalesce(translations -> p_lang, '{}'::jsonb)
+            || jsonb_build_object(
+              p_field, v_value,
+              p_field || '_status', p_status,
+              p_field || '_source_hash', v_current_hash
+            )
+        )
+      where id = p_entity_id;
+    else
+      update public.restaurant_sale_mode_fulfillments
+      set translations = coalesce(translations, '{}'::jsonb)
+        || jsonb_build_object(
+          p_lang,
+          coalesce(translations -> p_lang, '{}'::jsonb)
+            || jsonb_build_object(
+              p_field, v_value,
+              p_field || '_status', p_status,
+              p_field || '_source_hash', v_current_hash
+            )
+        )
+      where id = p_entity_id;
+    end if;
+
+  else -- 'item'
     update public.menu_items
     set translations = coalesce(translations, '{}'::jsonb)
       || jsonb_build_object(
@@ -428,11 +488,11 @@ begin
   end if;
 end $$;
 
-comment on function public.write_translation(uuid, text, uuid, text, text, text, text) is
-  'LOT 1B + TRANSLATIONS MANAGEMENT v2 -- RPC UNIQUE de traduction, 5 types d''entité : restaurant (intro_text/announcement_text), category (name/description), subcategory (name), item (name/short_description/description), customer_notice (customer_text, mode de vente OU règle de livraison du MÊME tenant). Autorisation déléguée à assert_restaurant_asset_role. Hash source TOUJOURS relu côté serveur. Écriture dans la langue source INTERDITE. Statut limité à to_review|validated ("stale" est dérivé en lecture, jamais stocké).';
+comment on function public.write_translation(uuid, text, uuid, text, text, text, text, text) is
+  'LOT 1B + TRANSLATIONS MANAGEMENT v2/v2.1 -- RPC UNIQUE de traduction, 5 types d''entité : restaurant (intro_text/announcement_text), category (name/description), subcategory (name), item (name/short_description/description), customer_notice (customer_text, mode de vente OU règle de livraison du MÊME tenant). Autorisation déléguée à assert_restaurant_asset_role. Hash source TOUJOURS relu côté serveur et TOUJOURS la valeur stockée. p_expected_source_hash (v2.1, optionnel) est une PRÉCONDITION de concurrence : fournie et différente du hash courant, l''écriture est REFUSÉE (SQLSTATE 40001) et aucune donnée n''est modifiée ; NULL = comportement v2 inchangé. Écriture dans la langue source INTERDITE. Statut limité à to_review|validated ("stale" est dérivé en lecture, jamais stocké).';
 
-revoke all on function public.write_translation(uuid, text, uuid, text, text, text, text) from public, anon;
-grant execute on function public.write_translation(uuid, text, uuid, text, text, text, text) to authenticated;
+revoke all on function public.write_translation(uuid, text, uuid, text, text, text, text, text) from public, anon;
+grant execute on function public.write_translation(uuid, text, uuid, text, text, text, text, text) to authenticated;
 
 -- ------------------------------------------------------------
 -- 5. get_merchant_catalogue -- extension STRICTEMENT ADDITIVE
@@ -791,9 +851,22 @@ begin
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation ne combine pas autorisation, interdiction de langue source et les 2 nouveaux types.';
   end if;
 
+  -- v2.1 : la garde de concurrence DOIT être présente, et la fonction
+  -- ne doit exister QU'EN UNE SEULE version (8 arguments). Une
+  -- surcharge à 7 arguments resterait appelable et contournerait
+  -- silencieusement la précondition.
+  if v_def not ilike '%p_expected_source_hash%'
+     or v_def not ilike '%SCANYM_TRANSLATION_SOURCE_CHANGED%' then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation n''applique pas la garde de hash source attendue (v2.1).';
+  end if;
+  if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'write_translation') <> 1 then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: plusieurs versions de write_translation coexistent (surcharge non sûre).';
+  end if;
+
   -- Aucun droit d'exécution PUBLIC/anon sur l'écriture.
-  if has_function_privilege('public', 'public.write_translation(uuid, text, uuid, text, text, text, text)', 'execute')
-     or has_function_privilege('anon', 'public.write_translation(uuid, text, uuid, text, text, text, text)', 'execute') then
+  if has_function_privilege('public', 'public.write_translation(uuid, text, uuid, text, text, text, text, text)', 'execute')
+     or has_function_privilege('anon', 'public.write_translation(uuid, text, uuid, text, text, text, text, text)', 'execute') then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: write_translation exécutable par public/anon.';
   end if;
 

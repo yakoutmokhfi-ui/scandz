@@ -214,11 +214,11 @@ assert_eq "[A] update_order_status NON MODIFIÉE" "$BEFORE_UPD_STATUS" \
 # [C] PRIVILÈGES
 # ------------------------------------------------------------
 assert_eq "[C] write_translation NON exécutable par public" "f" \
-  "$(sql "select has_function_privilege('public','public.write_translation(uuid, text, uuid, text, text, text, text)','execute');")"
+  "$(sql "select has_function_privilege('public','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute');")"
 assert_eq "[C] write_translation NON exécutable par anon" "f" \
-  "$(sql "select has_function_privilege('anon','public.write_translation(uuid, text, uuid, text, text, text, text)','execute');")"
+  "$(sql "select has_function_privilege('anon','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute');")"
 assert_eq "[C] write_translation exécutable par authenticated" "t" \
-  "$(sql "select has_function_privilege('authenticated','public.write_translation(uuid, text, uuid, text, text, text, text)','execute');")"
+  "$(sql "select has_function_privilege('authenticated','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute');")"
 assert_eq "[C] aucune écriture directe anon/authenticated sur les 3 tables du lot" "0" \
   "$(sql "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name in ('menu_subcategories','restaurant_sale_modes','restaurant_sale_mode_fulfillments') and grantee in ('anon','authenticated') and privilege_type in ('INSERT','UPDATE','DELETE');")"
 assert_eq "[C] les 6 fonctions du lot fixent search_path" "6" \
@@ -305,6 +305,98 @@ assert_eq "[D] un commerçant ne lit JAMAIS le catalogue d'un autre (inchangé)"
   "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select * from public.get_merchant_catalogue('22222222-2222-2222-2222-222222222222', false);")"
 
 # ------------------------------------------------------------
+# [F] v2.1 -- COMPARE-AND-WRITE SUR LE HASH SOURCE ATTENDU
+#
+# Scénario imposé (mandat §8), joué sur une base RÉELLE, pour un type
+# PRÉEXISTANT (item) ET pour les DEUX nouveaux (subcategory,
+# customer_notice) :
+#   1. entité de source connue -> hash A ;
+#   2. on note A ;
+#   3. le texte source change -> hash courant B ;
+#   4. write_translation avec hash attendu A ;
+#   5. l'appel ÉCHOUE ;
+#   6. la colonne translations est INCHANGÉE ;
+#   7. aucune traduction validée portant B n'a été créée ;
+#   8. rappel avec hash attendu B -> succès ;
+#   9. le hash STOCKÉ est celui relu par le serveur (B).
+# ------------------------------------------------------------
+log "=== [F] précondition de hash source (v2.1) ==="
+
+assert_eq "[F] write_translation n'existe qu'en UNE version (aucune surcharge 7 arguments)" "1" \
+  "$(sql "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='write_translation';")"
+assert_eq "[F] ... et elle porte 8 arguments dont le dernier a une valeur par défaut" "8|1" \
+  "$(sql "select p.pronargs || '|' || p.pronargdefaults from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='write_translation';")"
+
+# --- Produit (type PRÉEXISTANT) -----------------------------------
+# `menu_items_availability_requires_tax_rate_chk` (lot VAT) : un
+# produit DISPONIBLE doit porter un taux de TVA -- la fixture le
+# respecte plutôt que de contourner la contrainte.
+psql -d "$DB" -v ON_ERROR_STOP=1 -c "insert into public.menu_items (id, category_id, name, price, is_available, display_order, tax_rate) values ('cc111111-1111-1111-1111-111111111111','aa111111-1111-1111-1111-111111111111','Tomme de brebis', 12, true, 1, 5.5);" >/dev/null 2>"$TMP/item.txt" || { log "FATAL fixture item : $(cat "$TMP/item.txt")"; exit 1; }
+ITEM_HASH_A="$(sql "select name_hash from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+assert_ok "[F] item : écriture SANS précondition (compatibilité v2, édition interactive)" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','item','cc111111-1111-1111-1111-111111111111','name','en','Sheep tomme','validated');")"
+ITEM_BEFORE="$(sql "select translations::text from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+
+# Le texte source change : le hash GÉNÉRÉ devient B.
+sql "update public.menu_items set name='Tomme de brebis affinée' where id='cc111111-1111-1111-1111-111111111111';" >/dev/null
+ITEM_HASH_B="$(sql "select name_hash from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+if [ "$ITEM_HASH_A" != "$ITEM_HASH_B" ]; then pass "[F] item : le hash source a bien changé (A != B)"; else fail "[F] item : le hash source n'a pas changé"; fi
+
+assert_denied "[F] item : écriture avec le hash ATTENDU PÉRIMÉ (A) REFUSÉE" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','item','cc111111-1111-1111-1111-111111111111','name','en','Aged sheep tomme','validated','$ITEM_HASH_A');")"
+assert_err_has "[F] item : refus EXPLICITE et déterministe" "SCANYM_TRANSLATION_SOURCE_CHANGED"
+assert_eq "[F] item : la colonne translations est restée INCHANGÉE" "$ITEM_BEFORE" \
+  "$(sql "select translations::text from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+assert_eq "[F] item : AUCUNE traduction validée ne porte le nouveau hash B" "f" \
+  "$(sql "select coalesce((translations->'en'->>'name_source_hash') = name_hash, false) from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+
+assert_ok "[F] item : écriture avec le hash ATTENDU COURANT (B) acceptée" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','item','cc111111-1111-1111-1111-111111111111','name','en','Aged sheep tomme','validated','$ITEM_HASH_B');")"
+assert_eq "[F] item : le hash STOCKÉ est celui relu par le serveur" "t" \
+  "$(sql "select (translations->'en'->>'name_source_hash') = name_hash from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+assert_eq "[F] item : la traduction attendue est bien enregistrée" "Aged sheep tomme" \
+  "$(sql "select translations->'en'->>'name' from public.menu_items where id='cc111111-1111-1111-1111-111111111111';")"
+
+# --- Sous-catégorie (NOUVEAU type) --------------------------------
+SUB_BEFORE="$(sql "select translations::text from public.menu_subcategories where id='aa333333-3333-3333-3333-333333333333';")"
+SUB_HASH_STALE="$(sql "select translations->'en'->>'name_source_hash' from public.menu_subcategories where id='aa333333-3333-3333-3333-333333333333';")"
+SUB_HASH_NOW="$(sql "select name_hash from public.menu_subcategories where id='aa333333-3333-3333-3333-333333333333';")"
+if [ "$SUB_HASH_STALE" != "$SUB_HASH_NOW" ]; then pass "[F] sous-catégorie : source déjà renommée plus haut (hash attendu périmé disponible)"; else fail "[F] sous-catégorie : hash attendu non périmé, scénario invalide"; fi
+assert_denied "[F] sous-catégorie : écriture avec hash attendu PÉRIMÉ REFUSÉE" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','subcategory','aa333333-3333-3333-3333-333333333333','name','en','Fresh goat cheeses','validated','$SUB_HASH_STALE');")"
+assert_err_has "[F] sous-catégorie : refus explicite" "SCANYM_TRANSLATION_SOURCE_CHANGED"
+assert_eq "[F] sous-catégorie : translations INCHANGÉE" "$SUB_BEFORE" \
+  "$(sql "select translations::text from public.menu_subcategories where id='aa333333-3333-3333-3333-333333333333';")"
+assert_ok "[F] sous-catégorie : écriture avec hash attendu COURANT acceptée" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','subcategory','aa333333-3333-3333-3333-333333333333','name','en','Fresh goat cheeses','validated','$SUB_HASH_NOW');")"
+assert_eq "[F] sous-catégorie : hash stocké = hash serveur courant" "t" \
+  "$(sql "select (translations->'en'->>'name_source_hash') = name_hash from public.menu_subcategories where id='aa333333-3333-3333-3333-333333333333';")"
+
+# --- Message client (NOUVEAU type) --------------------------------
+NOTICE_BEFORE="$(sql "select translations::text from public.restaurant_sale_modes where id='$SM_A';")"
+NOTICE_HASH_A="$(sql "select customer_text_hash from public.restaurant_sale_modes where id='$SM_A';")"
+sql "update public.restaurant_sale_modes set customer_text='Retrait sous 4 h.' where id='$SM_A';" >/dev/null
+assert_denied "[F] message client : écriture avec hash attendu PÉRIMÉ REFUSÉE" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_A','customer_text','en','Pickup within 4 hours.','validated','$NOTICE_HASH_A');")"
+assert_eq "[F] message client : translations INCHANGÉE" "$NOTICE_BEFORE" \
+  "$(sql "select translations::text from public.restaurant_sale_modes where id='$SM_A';")"
+NOTICE_HASH_B="$(sql "select customer_text_hash from public.restaurant_sale_modes where id='$SM_A';")"
+assert_ok "[F] message client : écriture avec hash attendu COURANT acceptée" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','customer_notice','$SM_A','customer_text','en','Pickup within 4 hours.','validated','$NOTICE_HASH_B');")"
+assert_eq "[F] message client : hash stocké = hash serveur courant" "t" \
+  "$(sql "select (translations->'en'->>'customer_text_source_hash') = customer_text_hash from public.restaurant_sale_modes where id='$SM_A';")"
+
+# --- La précondition n'affaiblit AUCUNE garde existante ------------
+assert_denied "[F] la précondition ne contourne pas l'autorisation (staff refusé même avec bon hash)" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000003' "select public.write_translation('11111111-1111-1111-1111-111111111111','item','cc111111-1111-1111-1111-111111111111','name','en','X','validated','$ITEM_HASH_B');")"
+assert_denied "[F] ... ni l'isolation locataire" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','subcategory','bb444444-4444-4444-4444-444444444444','name','en','X','validated','$SUB_HASH_NOW');")"
+assert_denied "[F] ... ni l'interdiction d'écrire en langue source" \
+  "$(as_user_rc 'aaaaaaaa-0000-0000-0000-000000000001' "select public.write_translation('11111111-1111-1111-1111-111111111111','item','cc111111-1111-1111-1111-111111111111','name','fr','X','validated','$ITEM_HASH_B');")"
+assert_eq "[F] aucun droit anon/public sur la NOUVELLE signature" "false|false" \
+  "$(sql "select has_function_privilege('public','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute')::text || '|' || has_function_privilege('anon','public.write_translation(uuid, text, uuid, text, text, text, text, text)','execute')::text;")"
+
+# ------------------------------------------------------------
 # [E] ROLLBACK
 # ------------------------------------------------------------
 log "=== [E] rollback ==="
@@ -315,6 +407,10 @@ else
 fi
 assert_eq "[E] colonnes du lot retirées" "0" \
   "$(sql "select count(*) from information_schema.columns where table_schema='public' and ((table_name='menu_subcategories' and column_name in ('translations','name_hash')) or (table_name='restaurant_sale_modes' and column_name in ('translations','customer_text_hash','id')) or (table_name='restaurant_sale_mode_fulfillments' and column_name in ('translations','customer_text_hash')));")"
+assert_eq "[E] write_translation ne porte plus la précondition v2.1" "f" \
+  "$(sql "select (pg_get_functiondef(p.oid) ilike '%p_expected_source_hash%') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='write_translation';")"
+assert_eq "[E] une seule version de write_translation subsiste (7 arguments)" "1|7" \
+  "$(sql "select count(*)::text || '|' || max(p.pronargs)::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='write_translation';")"
 assert_eq "[E] write_translation revient à ses 3 types d'origine" "f" \
   "$(sql "select (pg_get_functiondef(p.oid) ilike '%subcategory%') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='write_translation';")"
 assert_eq "[E] get_merchant_catalogue revient à 31 colonnes" "31" \
