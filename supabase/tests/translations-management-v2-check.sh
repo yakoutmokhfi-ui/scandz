@@ -49,7 +49,10 @@ set -uo pipefail
 #
 #   1. aucune configuration libpq externe n'est héritée : toutes les
 #      variables PG* / DATABASE_URL sont DÉTECTÉES puis NEUTRALISÉES,
-#      et leur présence est signalée. Une variable qui REDIRIGE la
+#      et leur présence est signalée PAR SON NOM UNIQUEMENT -- jamais
+#      par sa valeur (v2.4, TMV23-SECRET-LOGGING-02 : un mot de passe,
+#      une URL de connexion ou un chemin de secrets ne doit jamais
+#      apparaître dans une sortie ni un journal). Une variable qui REDIRIGE la
 #      cible (hôte, port, service, base, utilisateur, mot de passe,
 #      chaîne de connexion) est un REFUS, pas une neutralisation
 #      silencieuse : l'opérateur doit savoir que son environnement
@@ -83,12 +86,18 @@ NEUTRALIZED_VARS="PGOPTIONS PGCONNECT_TIMEOUT PGSSLMODE PGSSLROOTCERT PGAPPNAME 
 
 for v in $REDIRECTING_VARS; do
   if [ -n "${!v:-}" ]; then
-    refuse "la variable d'environnement $v est définie (« ${!v} ») et pourrait faire pointer ce harnais vers un serveur non jetable. Lancez-le dans un environnement sans configuration libpq externe."
+    # SÉCURITÉ (v2.4) : SEUL LE NOM de la variable est journalisé.
+    # Sa VALEUR peut être un mot de passe, une URL de connexion avec
+    # identifiants ou un chemin de fichier de secrets -- elle ne doit
+    # jamais atteindre stdout, stderr ni un journal, même partiellement
+    # rédigée (une structure partielle reste une fuite).
+    refuse "$v est définie. Cette variable pourrait faire pointer ce harnais vers un serveur non jetable. Relancez-le dans un environnement sans configuration libpq externe."
   fi
 done
 for v in $NEUTRALIZED_VARS; do
   if [ -n "${!v:-}" ]; then
-    echo "[sûreté] $v était définie (« ${!v} ») -- NEUTRALISÉE pour ce harnais." >&2
+    # Même règle : nom seul, jamais la valeur.
+    echo "[sûreté] $v était définie -- NEUTRALISÉE pour ce harnais." >&2
     unset "$v"
   fi
 done
@@ -150,6 +159,33 @@ echo "[sûreté] cible validée : serveur=$SRV_ADDR port=$SRV_PORT base=$CUR_DB 
 # que le nettoyage restaure tout même en cas d'échec.
 FORCE_FAIL_AFTER_SETUP="${SCANYM_HARNESS_FORCE_FAIL:-0}"
 
+# INJECTION DE PANNE DE NETTOYAGE -- INFRASTRUCTURE DE TEST UNIQUEMENT
+# (v2.4). Sert exclusivement aux tests de sûreté du harnais, qui doivent
+# prouver COMPORTEMENTALEMENT qu'un nettoyage raté est détecté et
+# propagé. Elle n'a AUCUN effet sur le SQL de production : elle ne fait
+# que SAUTER une étape de nettoyage du harnais.
+#
+# Double verrou délibéré : il faut À LA FOIS `SCANYM_HARNESS_SELFTEST=1`
+# ET `SCANYM_HARNESS_FAULT=<étape>`. Une variable seule est ignorée et
+# signalée -- un déclenchement accidentel lors d'une exécution normale
+# est donc structurellement impossible.
+CLEANUP_FAULT="none"
+if [ -n "${SCANYM_HARNESS_FAULT:-}" ]; then
+  if [ "${SCANYM_HARNESS_SELFTEST:-0}" = "1" ]; then
+    case "${SCANYM_HARNESS_FAULT}" in
+      drop_database|drop_role|alter_role)
+        CLEANUP_FAULT="${SCANYM_HARNESS_FAULT}"
+        echo "[auto-test] INJECTION DE PANNE DE NETTOYAGE ACTIVE : $CLEANUP_FAULT" >&2
+        ;;
+      *)
+        echo "[auto-test] SCANYM_HARNESS_FAULT inconnue -- ignorée." >&2
+        ;;
+    esac
+  else
+    echo "[auto-test] SCANYM_HARNESS_FAULT ignorée : SCANYM_HARNESS_SELFTEST=1 est requis." >&2
+  fi
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 S="$ROOT/supabase"
 LOT="$S/DRAFT-lot-translations-management-v2.sql"
@@ -205,11 +241,17 @@ restore_roles() {
     state="$(printf '%s' "$line" | cut -d'|' -f2)"
     if [ "$state" = "ABSENT" ]; then
       # Rôle CRÉÉ par le harnais : retiré, avec ses objets éventuels.
-      # `< /dev/null` : psql lirait sinon l'entrée standard de la
-      # boucle et consommerait les lignes de l'instantané restantes.
+      if [ "$CLEANUP_FAULT" = "drop_role" ]; then
+        echo "[auto-test] panne injectée : suppression du rôle « $role » SAUTÉE" >&2
+        continue
+      fi
+      # `reassign owned` / `drop owned` peuvent légitimement échouer si
+      # le rôle ne possède rien : leur résultat n'est pas comptabilisé,
+      # seul celui du DROP ROLE l'est -- c'est lui qui porte l'invariant
+      # (et la vérification finale le confirme indépendamment).
       psql -X -q -d postgres -c "reassign owned by \"$role\" to current_user;" </dev/null >/dev/null 2>&1 || true
       psql -X -q -d postgres -c "drop owned by \"$role\";" </dev/null >/dev/null 2>&1 || true
-      psql -X -q -d postgres -c "drop role if exists \"$role\";" </dev/null >/dev/null 2>&1 || true
+      cleanup_sql "DROP ROLE" "role" "$role" "drop role if exists \"$role\";"
       continue
     fi
     # Rôle PRÉEXISTANT : ses attributs sont remis à l'identique.
@@ -231,19 +273,128 @@ restore_roles() {
     [ "$inherit" = "true" ]    && sql_attrs="$sql_attrs inherit"    || sql_attrs="$sql_attrs noinherit"
     [ "$repl" = "true" ]       && sql_attrs="$sql_attrs replication" || sql_attrs="$sql_attrs noreplication"
     [ "$bypass" = "true" ]     && sql_attrs="$sql_attrs bypassrls"  || sql_attrs="$sql_attrs nobypassrls"
-    psql -X -q -d postgres -c "alter role \"$role\" $sql_attrs connection limit $connlimit;" </dev/null >/dev/null 2>&1 || true
+    if [ "$CLEANUP_FAULT" = "alter_role" ]; then
+      echo "[auto-test] panne injectée : restauration des attributs de « $role » SAUTÉE" >&2
+      continue
+    fi
+    cleanup_sql "ALTER ROLE" "role" "$role" "alter role \"$role\" $sql_attrs connection limit $connlimit;"
   done < "$ROLE_SNAPSHOT"
 }
 
+# ============================================================
+# NETTOYAGE FAIL-CLOSED (v2.4, TMV23-CLEANUP-FAIL-CLOSED-01)
+#
+# Avant : chaque opération de nettoyage se terminait par `|| true` et
+# aucun état final n'était vérifié -- le harnais pouvait annoncer
+# « PASS » en laissant une base jetable ou, pire, un `service_role`
+# avec BYPASSRLS.
+#
+# Désormais :
+#   - CHAQUE opération de nettoyage a un résultat OBSERVÉ ;
+#   - un échec est ACCUMULÉ (jamais avalé) mais n'interrompt PAS la
+#     suite : les étapes de restauration suivantes sont tout de même
+#     tentées, pour restaurer le maximum d'état ;
+#   - l'état final est VÉRIFIÉ INDÉPENDAMMENT en relisant PostgreSQL
+#     (pg_database, pg_roles) -- l'exécution réussie d'un ALTER ROLE
+#     n'est jamais prise pour une preuve ;
+#   - l'échec de nettoyage et l'échec du corps de test restent
+#     DISTINGUÉS dans le code de sortie et dans le rapport.
+#
+# Codes de sortie :
+#   0 corps OK et nettoyage OK
+#   1 corps en échec, nettoyage OK
+#   3 corps OK, NETTOYAGE EN ÉCHEC
+#   4 les deux en échec
+#
+# Les diagnostics nomment l'opération, le type et le nom de l'objet ;
+# ils ne contiennent JAMAIS de valeur d'environnement, d'identifiant ni
+# de chaîne de connexion.
+# ============================================================
+CLEANUP_FAILED=0
+
+cleanup_error() {
+  CLEANUP_FAILED=1
+  echo "[nettoyage] ÉCHEC — opération=$1 type=$2 objet=$3${4:+ détail=$4}" >&2
+}
+
+# Exécute une opération de nettoyage et OBSERVE son résultat.
+cleanup_sql() {
+  local op="$1" otype="$2" oname="$3" stmt="$4"
+  if ! psql -X -q -d postgres -v ON_ERROR_STOP=1 -c "$stmt" </dev/null >/dev/null 2>"$TMP/cleanup.err"; then
+    cleanup_error "$op" "$otype" "$oname" "$(tr '\n' ' ' < "$TMP/cleanup.err" | cut -c1-160)"
+    return 1
+  fi
+  return 0
+}
+
+drop_disposable_database() {
+  if [ "$CLEANUP_FAULT" = "drop_database" ]; then
+    echo "[auto-test] panne injectée : suppression de la base jetable SAUTÉE" >&2
+    return 0
+  fi
+  cleanup_sql "DROP DATABASE" "database" "$DB" "drop database if exists \"$DB\" with (force);" \
+    || cleanup_sql "DROP DATABASE (repli)" "database" "$DB" "drop database if exists \"$DB\";"
+}
+
+# Vérification INDÉPENDANTE de l'état final, relue depuis PostgreSQL.
+verify_final_state() {
+  local remaining
+  remaining="$(psql -X -A -q -t -d postgres -c "select count(*) from pg_database where datname = '$DB';" </dev/null 2>/dev/null)"
+  if [ "${remaining:-1}" != "0" ]; then
+    cleanup_error "VÉRIFICATION FINALE" "database" "$DB" "la base jetable existe encore"
+  fi
+
+  [ -f "$ROLE_SNAPSHOT" ] || return 0
+  local lines=() line
+  mapfile -t lines < "$ROLE_SNAPSHOT"
+  for line in "${lines[@]}"; do
+    local role state now
+    role="${line%%|*}"
+    state="$(printf '%s' "$line" | cut -d'|' -f2)"
+    now="$(psql -X -A -q -t -d postgres -c \
+      "select rolcanlogin::text || '|' || rolsuper::text || '|' || rolcreatedb::text || '|' || rolcreaterole::text || '|' || rolinherit::text || '|' || rolreplication::text || '|' || rolbypassrls::text || '|' || rolconnlimit::text from pg_roles where rolname = '$role';" \
+      </dev/null 2>/dev/null)"
+    if [ "$state" = "ABSENT" ]; then
+      # Rôle créé par le harnais : il DOIT avoir disparu.
+      [ -z "$now" ] || cleanup_error "VÉRIFICATION FINALE" "role" "$role" "rôle créé par le harnais encore présent"
+    else
+      local expected
+      expected="$(printf '%s' "$line" | cut -d'|' -f3-)"
+      if [ -z "$now" ]; then
+        cleanup_error "VÉRIFICATION FINALE" "role" "$role" "rôle préexistant disparu"
+      elif [ "$now" != "$expected" ]; then
+        cleanup_error "VÉRIFICATION FINALE" "role" "$role" "attributs différents de l'instantané (login|super|createdb|createrole|inherit|replication|bypassrls|connlimit)"
+      fi
+    fi
+  done
+}
+
 cleanup() {
-  local rc=$?
+  local body_rc=$?
   # Ordre : base jetable d'abord (elle référence les rôles), puis
-  # restauration/suppression des rôles, puis fichiers temporaires.
-  psql -X -q -d postgres -c "drop database if exists \"$DB\" with (force);" >/dev/null 2>&1 \
-    || psql -X -q -d postgres -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true
+  # restauration/suppression des rôles, puis vérification finale.
+  # Une étape en échec n'empêche JAMAIS les suivantes.
+  drop_disposable_database
   restore_roles
+  verify_final_state
+
+  if [ "$CLEANUP_FAILED" = "1" ]; then
+    echo "[nettoyage] ÉTAT FINAL NON CONFORME — le nettoyage a échoué." >&2
+  else
+    echo "[nettoyage] état final vérifié : base jetable absente, rôles conformes à l'instantané." >&2
+  fi
   rm -rf "$TMP" 2>/dev/null || true
-  return $rc
+
+  # Le nettoyage ne peut ni masquer un échec du corps, ni être masqué
+  # par un succès du corps.
+  if [ "$body_rc" -ne 0 ] && [ "$CLEANUP_FAILED" = "1" ]; then
+    echo "[nettoyage] échec du CORPS DE TEST ET du NETTOYAGE." >&2
+    exit 4
+  fi
+  if [ "$CLEANUP_FAILED" = "1" ]; then
+    exit 3
+  fi
+  exit "$body_rc"
 }
 # Nettoyage sur succès, échec d'assertion, erreur SQL, erreur shell ET
 # interruption -- jamais un cluster laissé modifié.
@@ -790,6 +941,8 @@ log "PASS: $PASS   FAIL: $FAIL"
 if [ "$FAIL" -gt 0 ]; then
   log "--- échecs ---"
   cat "$FAIL_LOG"
+  # Le code de sortie final est arbitré par le nettoyage (trap EXIT) :
+  # 1 = corps seul, 3 = nettoyage seul, 4 = les deux.
   exit 1
 fi
 exit 0

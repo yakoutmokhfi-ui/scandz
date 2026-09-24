@@ -208,6 +208,208 @@ else
   fail "[G] le rôle anon subsiste après un échec"
 fi
 
+# ------------------------------------------------------------------
+# [J] v2.4 -- NON-DIVULGATION DES SECRETS (TMV23-SECRET-LOGGING-02)
+#
+# Le chemin de REFUS journalisait la VALEUR de la variable interdite.
+# Ces tests injectent une sentinelle dans des variables réellement
+# porteuses de secrets et vérifient qu'elle n'apparaît NULLE PART :
+# ni stdout, ni stderr, ni aucun fichier de journal produit.
+# ------------------------------------------------------------------
+log "=== [J] non-divulgation des secrets ==="
+SENTINEL="SCANYM_SECRET_SHOULD_NEVER_APPEAR"
+LOGDIR="$TMP/logs"
+
+check_no_secret() {
+  local label="$1" varname="$2"; shift 2
+  rm -rf "$LOGDIR"; mkdir -p "$LOGDIR"
+  local rc
+  rc="$(run_harness "$@")"
+  local out err
+  out="$(cat "$TMP/out.txt" 2>/dev/null)"
+  err="$(cat "$TMP/err.txt" 2>/dev/null)"
+
+  if [ "$rc" = "2" ]; then
+    pass "$label : refus de sûreté (code 2)"
+  else
+    fail "$label : attendu un refus (code 2), obtenu rc=$rc"
+  fi
+  if printf '%s' "$err" | grep -q "$varname"; then
+    pass "$label : le NOM de la variable est bien signalé"
+  else
+    fail "$label : le nom « $varname » devrait apparaître dans le diagnostic"
+  fi
+  if printf '%s%s' "$out" "$err" | grep -q "$SENTINEL"; then
+    fail "$label : FUITE — la valeur secrète apparaît dans la sortie"
+  else
+    pass "$label : la valeur secrète n'apparaît ni sur stdout ni sur stderr"
+  fi
+  if grep -rq "$SENTINEL" "$LOGDIR" 2>/dev/null; then
+    fail "$label : FUITE — la valeur secrète apparaît dans un journal généré"
+  else
+    pass "$label : aucune trace de la valeur secrète dans les journaux générés"
+  fi
+}
+
+check_no_secret "[J] PGPASSWORD" "PGPASSWORD" \
+  SCANYM_DISPOSABLE_CLUSTER=1 PGPASSWORD="$SENTINEL"
+check_no_secret "[J] DATABASE_URL" "DATABASE_URL" \
+  SCANYM_DISPOSABLE_CLUSTER=1 DATABASE_URL="postgres://user:$SENTINEL@db.prod.example.com:5432/app"
+check_no_secret "[J] POSTGRES_URL" "POSTGRES_URL" \
+  SCANYM_DISPOSABLE_CLUSTER=1 POSTGRES_URL="postgres://user:$SENTINEL@db.prod.example.com:5432/app"
+check_no_secret "[J] SUPABASE_DB_URL" "SUPABASE_DB_URL" \
+  SCANYM_DISPOSABLE_CLUSTER=1 SUPABASE_DB_URL="postgres://user:$SENTINEL@db.prod.example.com:5432/app"
+# Variable de type FICHIER : ni le chemin (qui peut nommer un coffre),
+# ni a fortiori son contenu, ne doivent être divulgués.
+# La sentinelle est placée À LA FOIS dans le CHEMIN et dans le CONTENU :
+# le premier prouve que la VALEUR de la variable n'est pas journalisée
+# (un chemin peut nommer un coffre ou un projet), le second qu'aucun
+# contenu de fichier de secrets n'est lu ni affiché.
+PGPASS_SENTINEL_FILE="$TMP/pgpass-$SENTINEL"
+printf 'db.prod.example.com:5432:app:user:%s\n' "$SENTINEL" > "$PGPASS_SENTINEL_FILE"
+chmod 600 "$PGPASS_SENTINEL_FILE"
+check_no_secret "[J] PGPASSFILE" "PGPASSFILE" \
+  SCANYM_DISPOSABLE_CLUSTER=1 PGPASSFILE="$PGPASS_SENTINEL_FILE"
+
+# ------------------------------------------------------------------
+# [K] v2.4 -- NETTOYAGE FAIL-CLOSED (TMV23-CLEANUP-FAIL-CLOSED-01)
+#
+# Pannes de nettoyage INJECTÉES de façon déterministe (double verrou
+# SCANYM_HARNESS_SELFTEST=1 + SCANYM_HARNESS_FAULT, infra de test
+# uniquement). Chaque scénario doit : faire échouer le harnais, nommer
+# l'objet en cause, et être détecté par la VÉRIFICATION FINALE relue
+# dans PostgreSQL -- jamais par le seul code retour d'un DROP.
+# ------------------------------------------------------------------
+log "=== [K] pannes de nettoyage injectées ==="
+
+reset_role_fixture() {
+  psql -X -q -d postgres >/dev/null 2>&1 <<'SQL'
+do $$ begin
+  if not exists (select from pg_roles where rolname='service_role') then create role service_role nologin; end if;
+  if not exists (select from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
+end $$;
+alter role service_role nobypassrls nologin connection limit 5;
+alter role authenticated nobypassrls nologin connection limit -1;
+SQL
+  psql -X -q -d postgres -c "drop owned by anon;" >/dev/null 2>&1 || true
+  psql -X -q -d postgres -c "drop role if exists anon;" >/dev/null 2>&1 || true
+}
+
+# La panne est IGNORÉE sans le second verrou : impossible à déclencher
+# par accident lors d'une exécution normale.
+reset_role_fixture
+RC_GUARD="$(run_harness SCANYM_DISPOSABLE_CLUSTER=1 SCANYM_HARNESS_FAULT=drop_database)"
+if [ "$RC_GUARD" = "0" ] && [ "$(db_count)" = "0" ]; then
+  pass "[K] l'injection de panne est IGNORÉE sans SCANYM_HARNESS_SELFTEST=1 (nettoyage normal)"
+else
+  fail "[K] l'injection de panne s'est déclenchée sans le second verrou (rc=$RC_GUARD, bases=$(db_count))"
+fi
+
+# --- A. Échec de DROP DATABASE -----------------------------------
+reset_role_fixture
+RC_A="$(run_harness SCANYM_DISPOSABLE_CLUSTER=1 SCANYM_HARNESS_SELFTEST=1 SCANYM_HARNESS_FAULT=drop_database)"
+ERR_A="$(cat "$TMP/err.txt" 2>/dev/null)"
+if [ "$RC_A" != "0" ]; then
+  pass "[K.A] DROP DATABASE en échec -> le harnais sort en erreur (rc=$RC_A)"
+else
+  fail "[K.A] le harnais a annoncé un succès global malgré un nettoyage raté"
+fi
+if printf '%s' "$ERR_A" | grep -q "VÉRIFICATION FINALE.*database"; then
+  pass "[K.A] la vérification finale relit pg_database et signale la base résiduelle"
+else
+  fail "[K.A] aucune vérification finale de la base : $(printf '%s' "$ERR_A" | tail -2)"
+fi
+if printf '%s' "$ERR_A" | grep -q "ÉTAT FINAL NON CONFORME"; then
+  pass "[K.A] l'échec de nettoyage est explicitement rapporté"
+else
+  fail "[K.A] l'échec de nettoyage n'est pas rapporté"
+fi
+# Réparation par le test lui-même (le harnais, lui, a bien échoué).
+for d in $(q "select datname from pg_database where datname ~ '^scanym_tm2_[0-9]+$';"); do
+  psql -X -q -d postgres -c "drop database if exists \"$d\" with (force);" >/dev/null 2>&1
+done
+if [ "$(db_count)" = "0" ]; then
+  pass "[K.A] état remis en ordre par le test après la panne injectée"
+else
+  fail "[K.A] base résiduelle non nettoyable"
+fi
+
+# --- B. Échec de DROP ROLE ---------------------------------------
+reset_role_fixture
+RC_B="$(run_harness SCANYM_DISPOSABLE_CLUSTER=1 SCANYM_HARNESS_SELFTEST=1 SCANYM_HARNESS_FAULT=drop_role)"
+ERR_B="$(cat "$TMP/err.txt" 2>/dev/null)"
+if [ "$RC_B" != "0" ]; then
+  pass "[K.B] DROP ROLE en échec -> le harnais sort en erreur (rc=$RC_B)"
+else
+  fail "[K.B] le harnais a annoncé un succès malgré un rôle résiduel"
+fi
+if printf '%s' "$ERR_B" | grep -q "VÉRIFICATION FINALE.*role.*anon"; then
+  pass "[K.B] la vérification post-nettoyage relit pg_roles et détecte le rôle résiduel"
+else
+  fail "[K.B] rôle résiduel non détecté : $(printf '%s' "$ERR_B" | tail -2)"
+fi
+if [ "$(role_exists anon)" = "1" ]; then
+  pass "[K.B] le rôle créé par le harnais est bien resté (panne fidèlement simulée)"
+else
+  fail "[K.B] la panne n'a pas laissé le rôle en place"
+fi
+psql -X -q -d postgres -c "drop owned by anon;" >/dev/null 2>&1 || true
+psql -X -q -d postgres -c "drop role if exists anon;" >/dev/null 2>&1 || true
+[ "$(role_exists anon)" = "0" ] && pass "[K.B] état remis en ordre par le test" \
+  || fail "[K.B] rôle résiduel non nettoyable"
+
+# --- C. Échec de restauration ALTER ROLE -------------------------
+reset_role_fixture
+RC_C="$(run_harness SCANYM_DISPOSABLE_CLUSTER=1 SCANYM_HARNESS_SELFTEST=1 SCANYM_HARNESS_FAULT=alter_role)"
+ERR_C="$(cat "$TMP/err.txt" 2>/dev/null)"
+if [ "$RC_C" != "0" ]; then
+  pass "[K.C] ALTER ROLE non restauré -> le harnais sort en erreur (rc=$RC_C)"
+else
+  fail "[K.C] le harnais a annoncé un succès malgré des attributs de rôle non restaurés"
+fi
+if printf '%s' "$ERR_C" | grep -q "attributs différents de l'instantané"; then
+  pass "[K.C] l'écart avec l'instantané de rôles est détecté par relecture"
+else
+  fail "[K.C] écart d'attributs non détecté : $(printf '%s' "$ERR_C" | tail -2)"
+fi
+# La panne laisse service_role tel que le harnais l'avait mis
+# (BYPASSRLS) : c'est EXACTEMENT le risque signalé par l'audit v2.3.
+if [ "$(role_bypassrls service_role)" = "true" ]; then
+  pass "[K.C] la panne reproduit le risque réel (service_role reste avec BYPASSRLS)"
+else
+  pass "[K.C] la panne a laissé un état non conforme, détecté par la vérification finale"
+fi
+reset_role_fixture
+if [ "$(role_bypassrls service_role)" = "false" ]; then
+  pass "[K.C] état remis en ordre par le test"
+else
+  fail "[K.C] service_role toujours avec BYPASSRLS après remise en ordre"
+fi
+
+# --- Vérifications post-nettoyage en exécution NOMINALE ------------
+reset_role_fixture
+RC_OK2="$(run_harness SCANYM_DISPOSABLE_CLUSTER=1)"
+ERR_OK2="$(cat "$TMP/err.txt" 2>/dev/null)"
+if [ "$RC_OK2" = "0" ]; then
+  pass "[K] exécution nominale : code de sortie 0"
+else
+  fail "[K] exécution nominale en échec (rc=$RC_OK2)"
+fi
+if printf '%s' "$ERR_OK2" | grep -q "état final vérifié"; then
+  pass "[K] l'état final est vérifié et annoncé même en cas de succès"
+else
+  fail "[K] aucune vérification d'état final en exécution nominale"
+fi
+[ "$(db_count)" = "0" ] && pass "[K] vérification post-nettoyage : aucune base jetable" \
+  || fail "[K] base jetable résiduelle après exécution nominale"
+[ "$(role_exists anon)" = "0" ] && pass "[K] vérification post-nettoyage : aucun rôle créé résiduel" \
+  || fail "[K] rôle anon résiduel après exécution nominale"
+if [ "$(role_bypassrls service_role)" = "false" ] && [ "$(role_connlimit service_role)" = "5" ]; then
+  pass "[K] vérification post-nettoyage : rôle préexistant identique à l'instantané"
+else
+  fail "[K] service_role non restauré (bypassrls=$(role_bypassrls service_role), connlimit=$(role_connlimit service_role))"
+fi
+
 # Remise de l'état de départ le plus neutre possible pour ce cluster.
 psql -X -q -d postgres -c "alter role service_role connection limit -1;" >/dev/null 2>&1 || true
 psql -X -q -d postgres -c "alter role authenticated connection limit -1;" >/dev/null 2>&1 || true
