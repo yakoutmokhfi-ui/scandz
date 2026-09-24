@@ -132,6 +132,106 @@ function buildProductRateGroups(
   return productByRate;
 }
 
+/**
+ * v1.2 (décision CIO -- OPTION D) -- RÉPARTITION DE PRÉSENTATION du HT
+ * produit entre les lignes d'un MÊME groupe de taux.
+ *
+ * Problème résolu : le HT canonique est dérivé du GROSS DU GROUPE
+ * (frontière d'arrondi LOT C v1.3, inchangée). Arrondir chaque ligne
+ * indépendamment (`round(lineGross/(1+taux))`) peut donner une somme
+ * différente d'un centime -- ex. 2,00 € + 2,00 € à 20 % : 1,67 + 1,67
+ * = 3,34 alors que le HT canonique du groupe est 3,33. Un ticket
+ * affichant les deux serait faux à l'œil.
+ *
+ * Algorithme, en ENTIERS DE CENTIMES (aucune comparaison flottante) :
+ *   1. valeur HT exacte de chaque ligne = lineGross / (1 + taux/100) ;
+ *   2. cible canonique du groupe = HT déjà calculé par
+ *      buildProductRateGroups (jamais recalculé ici) ;
+ *   3. chaque ligne reçoit d'abord son PLANCHER en centimes ;
+ *   4. les centimes restants vont aux plus grands restes fractionnaires
+ *      (largest remainder), un par ligne.
+ *
+ * DÉPARTAGE DÉTERMINISTE, sans aucun aléa et sans aucune dépendance au
+ * catalogue courant : à reste égal, la ligne qui apparaît la PREMIÈRE
+ * dans `order.order_items` (ordre immuable de la commande) l'emporte ;
+ * à position égale -- impossible en pratique -- l'`order_items.id` le
+ * plus petit tranche. La fonction est donc PURE et STABLE : mêmes
+ * entrées, mêmes sorties, à chaque exécution.
+ *
+ * PRÉSENTATION UNIQUEMENT : ni les totaux canoniques, ni la TVA par
+ * taux, ni le gross produit, ni la livraison, ni `orders.subtotal`/
+ * `orders.total` ne sont touchés.
+ */
+function allocateProductLineNet(
+  order: DashboardOrder,
+  productByRate: Map<number, { gross: number; net: number; tax: number }>
+): OrderCommercialProductLine[] | null {
+  const toCents = (value: number) => Math.round((value + Number.EPSILON) * 100);
+
+  interface Entry {
+    index: number;
+    itemId: string;
+    rate: number;
+    grossCents: number;
+    floorCents: number;
+    remainder: number;
+    netCents: number;
+  }
+
+  const entries: Entry[] = [];
+  for (const [index, lineItem] of order.order_items.entries()) {
+    if (lineItem.tax_rate_snapshot === null || lineItem.tax_rate_snapshot === undefined) {
+      return null;
+    }
+    const rate = Number(lineItem.tax_rate_snapshot);
+    const grossCents = toCents(Number(lineItem.line_total));
+    const exactNetCents = grossCents / (1 + rate / 100);
+    const floorCents = Math.floor(exactNetCents);
+    entries.push({
+      index,
+      itemId: String(lineItem.id),
+      rate,
+      grossCents,
+      floorCents,
+      remainder: exactNetCents - floorCents,
+      netCents: floorCents,
+    });
+  }
+
+  for (const [rate, group] of productByRate) {
+    const groupEntries = entries.filter((entry) => entry.rate === rate);
+    if (groupEntries.length === 0) return null;
+
+    const targetCents = toCents(group.net);
+    const allocatedCents = groupEntries.reduce((acc, entry) => acc + entry.floorCents, 0);
+    let residue = targetCents - allocatedCents;
+    // Le résidu est structurellement dans [0, nombre de lignes] : chaque
+    // plancher perd moins d'un centime, et la cible est l'arrondi de la
+    // somme exacte. Un état hors de cette plage signalerait une donnée
+    // incohérente -- on renonce alors à la répartition plutôt que de
+    // fabriquer un affichage (aucune réparation à la lecture).
+    if (residue < 0 || residue > groupEntries.length) return null;
+
+    const ranked = [...groupEntries].sort((a, b) => {
+      if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+      if (a.index !== b.index) return a.index - b.index;
+      return a.itemId < b.itemId ? -1 : a.itemId > b.itemId ? 1 : 0;
+    });
+    for (const entry of ranked) {
+      if (residue <= 0) break;
+      entry.netCents += 1;
+      residue -= 1;
+    }
+  }
+
+  return entries.map((entry) => ({
+    itemId: entry.itemId,
+    rate: entry.rate,
+    gross: roundCents(entry.grossCents / 100),
+    net: roundCents(entry.netCents / 100),
+  }));
+}
+
 function buildMixedRateTaxGroups(order: DashboardOrder): MixedRateTaxGroup[] {
   const productByRate = buildProductRateGroups(order);
   if (productByRate === null) {
@@ -374,6 +474,20 @@ export interface OrderMonetaryComposition {
  * `null` quand l'instantané ne permet pas de décomposition fiable :
  * aucune décomposition n'est alors fabriquée (règle inchangée).
  */
+/**
+ * v1.2 -- montant HT affichable d'UNE ligne produit (présentation).
+ */
+export interface OrderCommercialProductLine {
+  /** `order_items.id` -- identité stable de la ligne, jamais un index de rendu. */
+  itemId: string;
+  /** Taux instantané de la ligne (jamais un taux courant). */
+  rate: number;
+  /** TTC persisté de la ligne (`order_items.line_total`), inchangé. */
+  gross: number;
+  /** HT AFFICHÉ, après répartition déterministe du résidu dans son groupe de taux. */
+  net: number;
+}
+
 export interface OrderCommercialPresentation {
   /** Base HT produits = somme des parts HT par taux (frontière d'arrondi LOT C v1.3). */
   productNet: number;
@@ -383,6 +497,18 @@ export interface OrderCommercialPresentation {
   productGross: number;
   /** Une ligne par taux produit réellement présent dans l'instantané, part PRODUIT seule. */
   productRates: FiscalRateRow[];
+  /**
+   * v1.2 (décision CIO -- OPTION D) : montant HT AFFICHABLE de CHAQUE
+   * ligne produit, dans l'ordre immuable de `order.order_items`.
+   *
+   * Répartition de PRÉSENTATION UNIQUEMENT : la somme des `net` d'un
+   * même taux égale EXACTEMENT le HT canonique de ce taux (donc la
+   * somme totale égale `productNet`). Aucun total fiscal, aucune TVA,
+   * aucune valeur persistée n'est modifiée -- seule la façon dont le
+   * HT déjà autoritaire d'un groupe de taux se répartit visiblement
+   * entre ses lignes est décidée ici.
+   */
+  productLines: OrderCommercialProductLine[];
   /** Frais de livraison CLIENT, montant TTC unique déjà persisté. */
   deliveryGrossTtc: number;
   /** Total TTC autoritaire = `orders.total`. */
@@ -634,11 +760,20 @@ export function computeOrderFiscalSummary(
       // pas exactement sur le sous-total persisté, on n'affiche RIEN
       // plutôt qu'une décomposition qui ne réconcilie pas.
       if (productGross !== productSubtotal) return null;
+      // v1.2 (OPTION D) -- répartition de présentation du HT entre les
+      // lignes. Si elle ne peut pas être établie de façon exacte, la
+      // présentation entière est abandonnée : jamais un ticket dont les
+      // lignes ne totalisent pas le sous-total affiché.
+      const productLines = allocateProductLineNet(order, productGroups);
+      if (!productLines) return null;
+      const allocatedNet = roundCents(productLines.reduce((acc, line) => acc + line.net, 0));
+      if (allocatedNet !== productNet) return null;
       return {
         productNet,
         productTax,
         productGross,
         productRates,
+        productLines,
         deliveryGrossTtc: deliveryFeeGross,
         finalGrossTtc: total,
       };
@@ -657,6 +792,13 @@ export function computeOrderFiscalSummary(
         productTax,
         productGross: productSubtotal,
         productRates: [{ rate, net: productNet, tax: productTax, gross: productSubtotal }],
+        // AUCUNE répartition par ligne ici : ces commandes historiques
+        // n'ont PAS de `tax_rate_snapshot` par ligne (mandat v1.2 §2.1
+        // : la valeur HT se dérive du gross de la ligne ET de son taux
+        // instantané). Répartir depuis le seul taux marchand serait une
+        // valeur FABRIQUÉE ligne par ligne -- les lignes gardent donc
+        // le montant réellement facturé, comme avant ce lot.
+        productLines: [],
         deliveryGrossTtc: deliveryFeeGross,
         finalGrossTtc: total,
       };

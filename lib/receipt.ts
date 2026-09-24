@@ -100,16 +100,33 @@ export function buildReceiptHtml(params: {
   const taxLabel = fiscal.taxLabel;
   const total = Number(order.total);
 
+  // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1.2 (décision CIO --
+  // OPTION D) : quand la présentation commerciale est active, les
+  // lignes produit sont affichées en HT, avec la répartition
+  // déterministe calculée par le contrat fiscal partagé (jamais ici).
+  // La somme des HT affichés égale EXACTEMENT « Sous-total produits
+  // HT » -- toute l'arithmétique visible du ticket se vérifie donc à
+  // la main. Sans présentation (retrait/table, livraison gratuite,
+  // instantané incomplet) ou sans instantané de taux par ligne, la
+  // ligne garde le montant réellement facturé, exactement comme avant.
+  const lineNetById = new Map<string, number>(
+    (fiscal.commercialPresentation?.productLines ?? []).map((line) => [line.itemId, line.net])
+  );
   const itemRows = order.order_items
-    .map(
-      (item) => `
+    .map((item) => {
+      const displayedNet = lineNetById.get(String(item.id));
+      const amount =
+        displayedNet === undefined
+          ? esc(formatPrice(Number(item.line_total), order.currency))
+          : `${esc(formatPrice(displayedNet, order.currency))} HT`;
+      return `
         <div class="item-row">
           <div><strong>${item.quantity} x ${esc(item.item_name)}</strong>${
             item.option_name ? `<div class="option">+ ${esc(item.option_name)}</div>` : ""
           }</div>
-          <div>${esc(formatPrice(Number(item.line_total), order.currency))}</div>
-        </div>`
-    )
+          <div>${amount}</div>
+        </div>`;
+    })
     .join("");
 
   // DELIVERY FEE / ORDER TOTAL RECONCILIATION v1 -- composition du

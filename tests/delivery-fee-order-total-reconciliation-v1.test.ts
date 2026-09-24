@@ -421,7 +421,19 @@ test("14 — aucune régression des lignes produit du ticket", () => {
     "une ligne par produit, inchangé (les occurrences CSS ne sont pas comptées)"
   );
   assert.ok(html.includes("1 x Produit A") && html.includes("1 x Produit B"));
-  assert.ok(html.includes(money(9.8)) && html.includes(money(13.6)), "montants produit inchangés");
+  // v1.2 (OPTION D) : les montants de ligne sont désormais affichés en
+  // HT et totalisent exactement le sous-total produits HT -- la ligne
+  // elle-même (quantité, libellé, présence) est inchangée.
+  const p = computeOrderFiscalSummary(o).commercialPresentation!;
+  assert.equal(p.productLines.length, 2);
+  for (const line of p.productLines) {
+    assert.ok(html.includes(`${money(line.net)} HT`), `ligne ${line.itemId} imprimée en HT`);
+  }
+  assert.equal(
+    Number(p.productLines.reduce((acc, l) => acc + l.net, 0).toFixed(2)),
+    p.productNet,
+    "les lignes HT totalisent le sous-total produits HT"
+  );
 });
 
 // --------------------------------------------------------------

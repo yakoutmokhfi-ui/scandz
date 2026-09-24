@@ -419,16 +419,16 @@ test("17 — back-office : la vue fiscale complète et la composition v1 restent
 });
 
 // --------------------------------------------------------------
-// LIGNES PRODUIT EN HT — DÉCISION D'ARRONDI EN ATTENTE (mandat v1.1 §7)
+// LIGNES PRODUIT EN HT — DÉCISION CIO RENDUE (OPTION D, v1.2)
 //
-// Ce test DOCUMENTE, de façon permanente et reproductible, pourquoi
-// les lignes produit du ticket affichent encore le montant réellement
-// facturé (TTC) et non un HT par ligne : passer chaque ligne en HT
-// crée un écart d'un centime avec la frontière d'arrondi canonique
-// par TAUX (LOT C v1.3), sur des prix parfaitement ordinaires. Aucune
-// répartition de résidu n'est inventée ici -- décision CIO requise.
+// La divergence d'arrondi documentée ici en v1.1 (un HT par LIGNE ne
+// retombe pas sur le HT canonique par TAUX) est désormais RÉSOLUE par
+// une répartition déterministe de présentation -- voir le fichier
+// tests/delivery-fee-order-total-reconciliation-v1-2-line-ht.test.ts.
+// Ce test conserve la fixture d'origine comme preuve permanente que le
+// problème existe bel et bien et qu'il est traité.
 // --------------------------------------------------------------
-test("§7 — fixture d'arrondi : un HT par LIGNE diverge d'un centime du HT canonique par TAUX", () => {
+test("§7 — fixture d'arrondi : le HT naïf par LIGNE diverge, la répartition OPTION D rétablit le HT canonique", () => {
   const o = order({
     subtotal: 4,
     total: 5,
@@ -436,20 +436,21 @@ test("§7 — fixture d'arrondi : un HT par LIGNE diverge d'un centime du HT can
     order_delivery_tax_allocations: [allocation(20, 1, 0.83, 0.17)] as never,
   });
 
-  const perLineHt = round2(round2(2 / 1.2) + round2(2 / 1.2)); // 1,67 + 1,67
-  const canonicalGroupHt = computeOrderFiscalSummary(o).commercialPresentation!.productNet;
+  const naivePerLine = round2(round2(2 / 1.2) + round2(2 / 1.2)); // 1,67 + 1,67
+  const p = computeOrderFiscalSummary(o).commercialPresentation!;
 
-  assert.equal(perLineHt, 3.34, "HT dérivé ligne par ligne");
-  assert.equal(canonicalGroupHt, 3.33, "HT canonique dérivé du groupe de taux (LOT C v1.3)");
-  assert.equal(round2(perLineHt - canonicalGroupHt), 0.01, "écart d'exactement un centime");
+  assert.equal(naivePerLine, 3.34, "HT naïf, ligne par ligne");
+  assert.equal(p.productNet, 3.33, "HT canonique du groupe de taux (LOT C v1.3), inchangé");
+  assert.equal(round2(naivePerLine - p.productNet), 0.01, "écart d'exactement un centime");
 
-  // Tant que la décision n'est pas prise : les lignes produit
-  // continuent d'afficher le montant réellement facturé, et le bloc
-  // de totaux reste cent-parfait.
+  // OPTION D : la répartition absorbe le centime, ligne par ligne.
+  assert.deepEqual(p.productLines.map((l) => l.net), [1.67, 1.66]);
+  assert.equal(round2(p.productLines.reduce((acc, l) => acc + l.net, 0)), p.productNet);
+
   const html = receipt(o);
-  assert.ok(html.includes(money(2)), "ligne produit au montant facturé");
+  assert.ok(html.includes(`${money(1.67)} HT`) && html.includes(`${money(1.66)} HT`), "lignes imprimées en HT");
   assert.ok(html.includes(money(3.33)), "base HT produits canonique");
-  assert.ok(!html.includes(money(3.34)), "aucune base HT fabriquée par sommation de lignes");
+  assert.ok(!html.includes(money(3.34)), "aucune base HT fabriquée par sommation naïve");
 });
 
 // --------------------------------------------------------------
