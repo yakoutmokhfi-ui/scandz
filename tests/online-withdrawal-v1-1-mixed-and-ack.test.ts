@@ -7,6 +7,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
 const { renderCgv, MixedRegimeClauseMissingError } = await import("../lib/legal/render.ts");
+const { translate, DICTS } = await import("../lib/i18n.ts");
 import type { CgvTemplateControlledSections } from "../lib/legal/render.ts";
 
 // ====================================================================
@@ -337,8 +338,70 @@ test("garde : les deux questions restent SÉPARÉES (primitives livrées ≠ obl
   // Les primitives testent des objets réels, jamais un booléen écrit en dur.
   assert.match(f, /to_regclass\('public\.withdrawal_requests'\) is not null/);
   assert.match(f, /to_regprocedure\('public\.submit_withdrawal_request_by_capability/);
-  // Le canal d'accusé reste, lui, faux par CONSTRUCTION.
-  assert.match(f, /select to_regclass\('public\.withdrawal_acknowledgement_deliveries'\) is not null;/);
+});
+
+// ------------------------------------------------------------------
+// OW-V11-ACK-GUARD-01 (CRITIQUE) — le canal d'accusé ne peut pas être
+// déclaré opérationnel par la seule existence d'un objet de schéma.
+// ------------------------------------------------------------------
+
+test("OW-V11-ACK-GUARD-01 : le canal d'accusé est EXPLICITEMENT fermé, sans sentinelle de schéma", () => {
+  const channelFn = FOUNDATION.slice(
+    FOUNDATION.indexOf("create function public._scanym_has_operational_durable_ack_channel()")
+  );
+  const body = channelFn.slice(channelFn.indexOf("as $$"), channelFn.indexOf("$$;") + 3);
+
+  // Le corps ne fait plus qu'une chose : dire non.
+  assert.match(body, /select false;/, "fail-closed explicite");
+
+  // …et il ne consulte AUCUN indice d'existence : ni table, ni colonne,
+  // ni fonction, ni ligne de configuration. C'est tout le défaut
+  // corrigé : une table VIDE ne prouve aucun envoi.
+  for (const sentinel of [
+    "to_regclass",
+    "to_regprocedure",
+    "information_schema",
+    "pg_class",
+    "pg_proc",
+    "withdrawal_acknowledgement_deliveries",
+    "select 1 from",
+    "exists",
+  ]) {
+    assert.ok(
+      !body.toLowerCase().includes(sentinel.toLowerCase()),
+      `le canal ne doit pas être déduit de « ${sentinel} »`
+    );
+  }
+});
+
+test("OW-V11-ACK-GUARD-01 : plus AUCUNE fonction du lot ne dérive le canal d'une table d'envois", () => {
+  for (const [name, source] of [
+    ["fondation", FOUNDATION],
+    ["moteur", ENGINE],
+    ["moteur (rollback)", ENGINE_ROLLBACK],
+  ] as const) {
+    const executableOnly = source
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    assert.ok(
+      !/to_regclass\(\s*'public\.withdrawal_acknowledgement_deliveries'/.test(executableOnly),
+      `${name} : la sentinelle de présence de table ne doit plus exister`
+    );
+  }
+});
+
+test("OW-V11-ACK-GUARD-01 : la correction est tracée dans le code, pas seulement dans un rapport", () => {
+  assert.match(FOUNDATION, /OW-V11-ACK-GUARD-01/);
+  // Le texte de l'interdiction vit DANS le corps de la fonction, là où
+  // quelqu'un serait tenté de « rétablir » la sentinelle. (Les
+  // commentaires SQL sont préfixés `--` : on cherche la phrase, pas sa
+  // mise en page.)
+  assert.match(
+    FOUNDATION,
+    /test de présence d'objet/,
+    "l'interdiction est écrite là où la tentation se présentera"
+  );
 });
 
 test("garde : la migration REFUSE de s'appliquer si elle se déclare complète sans canal d'envoi", () => {
@@ -383,35 +446,83 @@ test("accusé : aucun chemin n'écrit « sent » sans envoi réel (régression v
 // 5. Instantané légal PAR LIGNE en régime MIXTE
 // ==================================================================
 
-test("instantané : en régime MIXTE, la base légale est prise PAR LIGNE, depuis le gabarit RÉELLEMENT accepté", () => {
+// ------------------------------------------------------------------
+// OW-V11-MIXED-BASIS-02 (ÉLEVÉ) — la base légale d'une ligne exclue
+// n'est JAMAIS déduite d'une prose contractuelle générique.
+// ------------------------------------------------------------------
+
+test("OW-V11-MIXED-BASIS-02 : une ligne MIXTE exclue reçoit TOUJOURS le repli contrôlé, jamais une citation devinée", () => {
   const f = flat(FOUNDATION);
   assert.match(f, /if new\.merchant_withdrawal_regime_at_order_time = 'MIXED'/);
-  // Ligne éligible -> droit ouvert ; ligne exclue -> citation du gabarit accepté.
-  assert.match(f, /new\.withdrawal_legal_basis_at_order_time := 'STANDARD_14_DAYS_ELIGIBLE';/);
+  // Éligible -> droit ouvert ; non éligible -> repli contrôlé, sans
+  // condition, sans lecture de texte.
   assert.match(
     f,
-    /from public\.order_cgv_acceptance oca join public\.merchant_cgv_version mcv on mcv\.id = oca\.cgv_version_id join public\.cgv_template ct on ct\.id = mcv\.template_id where oca\.order_id = new\.order_id;/,
-    "la citation vient du gabarit accepté par CE client, jamais du gabarit courant"
+    /if new\.withdrawal_eligible_at_order_time then new\.withdrawal_exempt_at_order_time := false; new\.withdrawal_legal_basis_at_order_time := 'STANDARD_14_DAYS_ELIGIBLE'; else new\.withdrawal_exempt_at_order_time := true; new\.withdrawal_legal_basis_at_order_time := 'MIXED_UNSPECIFIED_CITATION'; end if;/
   );
-  // Deux formulations RECONNUES, et deux seulement (compacte et
-  // développée) : au-delà, on ne devine pas. Comparaison littérale --
-  // le SQL double ses apostrophes, une expression régulière ici ne
-  // ferait qu'ajouter un niveau d'échappement de plus.
-  assert.ok(
-    f.includes(
-      "if v_mixed_clause ilike '%L221-28 4°%' or v_mixed_clause ilike '%4° de l''article L221-28%' then new.withdrawal_legal_basis_at_order_time := 'L221-28-4';"
-    ),
-    "la citation 4° est reconnue sous ses deux formulations contrôlées"
-  );
-  assert.ok(
-    f.includes(
-      "elsif v_mixed_clause ilike '%L221-28 3°%' or v_mixed_clause ilike '%3° de l''article L221-28%' then"
-    ),
-    "…de même pour la citation 3°"
-  );
-  assert.match(f, /else new\.withdrawal_legal_basis_at_order_time := 'MIXED_UNSPECIFIED_CITATION';/);
   // Éligibilité inconnue -> AUCUNE affirmation.
   assert.match(f, /and new\.withdrawal_eligible_at_order_time is not null/);
+});
+
+test("OW-V11-MIXED-BASIS-02 : le déclencheur ne lit plus AUCUNE source de texte juridique", () => {
+  const trigger = FOUNDATION.slice(
+    FOUNDATION.indexOf("create function public.snapshot_order_item_withdrawal_eligibility()"),
+    FOUNDATION.indexOf("comment on function public.snapshot_order_item_withdrawal_eligibility()")
+  );
+  const executable = trigger
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  for (const source of [
+    "cgv_template",
+    "order_cgv_acceptance",
+    "merchant_cgv_version",
+    "controlled_sections",
+    "withdrawal_clauses",
+    "ilike",
+    "L221-28",
+  ]) {
+    assert.ok(
+      !executable.includes(source),
+      `le déclencheur ne doit plus consulter « ${source} » pour qualifier une ligne`
+    );
+  }
+  // Il ne lit QUE la source autoritaire de l'éligibilité : le catalogue.
+  assert.ok(executable.includes("from public.menu_items mi"));
+});
+
+test("OW-V11-MIXED-BASIS-02 : aucune citation précise ne peut être écrite par ce lot", () => {
+  const executable = FOUNDATION.split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  // Aucune AFFECTATION d'une citation précise, et aucune dérivation
+  // depuis un texte. (Ces mêmes valeurs restent présentes plus bas,
+  // dans le VOCABULAIRE fermé de la colonne -- une liste de valeurs
+  // permises n'écrit rien.)
+  for (const citation of ["'L221-28-4'", "'L221-28-3'"]) {
+    assert.ok(
+      !executable.includes(`:= ${citation}`),
+      `aucune instruction ne doit affecter ${citation} : seule une source produit autoritaire pourrait le faire`
+    );
+  }
+  assert.ok(!/ilike\s*'%L221-28/.test(executable), "aucune citation n'est cherchée dans un texte");
+  // …ces valeurs restent néanmoins DANS le vocabulaire fermé, car des
+  // lignes antérieures (régime EXEMPT_PERISHABLE, lot CGV v2.5) les
+  // portent légitimement.
+  assert.match(flat(FOUNDATION), /'L221-28-4', 'L221-28-3', 'EXEMPT_PERISHABLE_UNSPECIFIED_CITATION', 'STANDARD_14_DAYS_ELIGIBLE'/);
+});
+
+test("OW-V11-MIXED-BASIS-02 : le principe produit est écrit là où la tentation reviendra", () => {
+  assert.match(FOUNDATION, /OW-V11-MIXED-BASIS-02/);
+  for (const forbidden of [
+    "ni du nom du produit",
+    "catégorie",
+    "ni d'une DLC/DDM",
+    "ni d'une IA",
+    "ni du texte des CGV",
+  ]) {
+    assert.ok(FOUNDATION.includes(forbidden), `le principe doit nommer l'interdit : ${forbidden}`);
+  }
 });
 
 test("instantané : l'exclusion de ligne suit l'éligibilité, jamais le seul régime du marchand", () => {
@@ -483,4 +594,60 @@ test("périmètre : ni remboursement, ni payment_status, ni cycle de vie de comm
     assert.ok(!/\brefund\w*/i.test(out), `${name} : remboursement`);
     assert.ok(!/update\s+public\.orders\b/i.test(out), `${name} : orders`);
   }
+});
+
+// ==================================================================
+// 7. OW-V11-ACK-UX-03 — libellés strictement factuels, fr / en / ar
+// ==================================================================
+
+/** Formulations qui promettent une remise que rien ne garantit. */
+const PROMESSES_INTERDITES: Record<string, string[]> = {
+  fr: ["vous recevrez", "va vous être envoyé", "sera envoyé", "vous le transmettra", "vous sera transmis", "le commerçant vous"],
+  en: ["you will receive", "will be sent", "the merchant will send", "will send it to you"],
+  ar: ["سيتم إرسال", "سيُرسَل", "سيوافيك"],
+};
+
+test("OW-V11-ACK-UX-03 : aucun état d'accusé non confirmé ne promet une remise (fr, en, ar)", () => {
+  for (const lang of ["fr", "en", "ar"]) {
+    for (const key of ["withdrawalAckUnavailable", "withdrawalAckPending", "withdrawalAckAddressHelp"]) {
+      const value = (DICTS as Record<string, Record<string, string>>)[lang]?.[key] ?? "";
+      assert.ok(value.trim() !== "", `${key} absent en ${lang}`);
+      for (const promise of PROMESSES_INTERDITES[lang]!) {
+        assert.ok(
+          !value.toLowerCase().includes(promise.toLowerCase()),
+          `${lang}/${key} promet une remise non garantie : « ${promise} »`
+        );
+      }
+    }
+  }
+});
+
+test("OW-V11-ACK-UX-03 : les états non confirmés annoncent ce qui est VRAI -- enregistrement, date et heure", () => {
+  assert.equal(
+    translate("fr", "withdrawalAckUnavailable"),
+    "Votre demande a été enregistrée, avec sa date et son heure. L'accusé de réception électronique n'est pas disponible actuellement."
+  );
+  assert.equal(
+    translate("fr", "withdrawalAckPending"),
+    "Votre demande a été enregistrée, avec sa date et son heure. L'accusé de réception électronique n'a pas encore été envoyé."
+  );
+  // L'anglais et l'arabe disent la MÊME chose : enregistré + indisponible.
+  assert.match(translate("en", "withdrawalAckUnavailable"), /recorded, with its date and time/);
+  assert.match(translate("en", "withdrawalAckUnavailable"), /not available at present/);
+  assert.match(translate("ar", "withdrawalAckUnavailable"), /تم تسجيل طلبك/);
+});
+
+test("OW-V11-ACK-UX-03 : « envoyé » reste réservé à l'état RÉELLEMENT confirmé", () => {
+  // Un seul libellé parle d'un envoi accompli…
+  assert.match(translate("fr", "withdrawalAckSent"), /vous a été envoyé/);
+  // …et le composant ne l'affiche que pour le statut 'sent'.
+  const panel = readFileSync(path.join(repoRoot, "components", "WithdrawalPanel.tsx"), "utf8");
+  assert.match(
+    panel.replace(/\s+/g, " "),
+    /receipt\.acknowledgementStatus === "sent" \? t\("withdrawalAckSent"\)/,
+    "le libellé d'envoi est conditionné au statut confirmé par le serveur"
+  );
+  // La règle de rédaction est inscrite dans le dictionnaire lui-même.
+  const i18n = readFileSync(path.join(repoRoot, "lib", "i18n.ts"), "utf8");
+  assert.match(i18n, /OW-V11-ACK-UX-03/);
 });

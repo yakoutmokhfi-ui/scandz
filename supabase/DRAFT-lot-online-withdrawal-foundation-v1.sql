@@ -152,8 +152,10 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  v_mixed_clause text;
+-- v1.2 — plus AUCUNE variable de lecture du gabarit : ce déclencheur
+-- ne consulte plus ni order_cgv_acceptance, ni merchant_cgv_version,
+-- ni cgv_template. Il ne lit que ce qui fait foi : le catalogue du
+-- marchand pour l'éligibilité, et la ligne elle-même.
 begin
   if new.withdrawal_eligible_at_order_time is null and new.menu_item_id is not null then
     select mi.withdrawal_eligible into new.withdrawal_eligible_at_order_time
@@ -173,12 +175,30 @@ begin
   -- rétractables. En régime MIXTE, la vérité est PAR LIGNE, et elle
   -- est déjà là : l'instantané d'éligibilité pris juste au-dessus.
   --
-  -- La base légale d'une ligne EXCLUE n'est pas devinée : elle est
-  -- lue dans la clause MIXED du gabarit RÉELLEMENT accepté par ce
-  -- client (order_cgv_acceptance -> merchant_cgv_version ->
-  -- cgv_template), exactement comme create_order le fait pour
-  -- EXEMPT_PERISHABLE. Un gabarit qui ne cite ni 4° ni 3° donne
-  -- 'MIXED_UNSPECIFIED_CITATION' -- jamais une citation inventée.
+  -- La base légale d'une ligne EXCLUE n'est PAS déduite.
+  --
+  -- v1.2 — CORRECTION D'AUDIT (OW-V11-MIXED-BASIS-02, Cat Greco). La
+  -- v1.1 lisait la clause MIXED du gabarit accepté et y cherchait une
+  -- citation (« L221-28 4° »…). Comme la clause générique du gabarit
+  -- v6 mentionne le 4°, TOUT produit non rétractable d'un marchand
+  -- MIXTE se serait vu étiqueter « biens périssables » -- y compris un
+  -- bien personnalisé, un contenu numérique, ou un produit que le
+  -- marchand a simplement classé Non pour une autre raison. Une prose
+  -- contractuelle générique n'est PAS une source de qualification
+  -- juridique produit par produit.
+  --
+  -- Principe produit du CIO, respecté ici à la lettre : Scanym offre au
+  -- marchand la décision « Rétractable Oui/Non », et RIEN d'autre. La
+  -- plateforme ne déduit le motif légal ni du nom du produit, ni de sa
+  -- catégorie, ni d'une DLC/DDM, ni d'une IA, ni du texte des CGV.
+  --
+  -- Tant qu'aucune source AUTORITAIRE au niveau du produit ne fournit
+  -- de motif, la seule valeur honnête est le repli contrôlé
+  -- 'MIXED_UNSPECIFIED_CITATION' : « ce marchand est en régime mixte,
+  -- cette ligne n'était pas rétractable, et la raison légale précise
+  -- n'est pas enregistrée ». Une citation précise ne pourra être
+  -- stockée que le jour où une source produit explicite la fournira --
+  -- ce lot n'en crée aucune et n'anticipe rien.
   --
   -- Une ligne dont l'éligibilité est inconnue (NULL : produit absent
   -- du catalogue) ne reçoit AUCUNE de ces valeurs : ne rien affirmer
@@ -191,30 +211,8 @@ begin
       new.withdrawal_exempt_at_order_time := false;
       new.withdrawal_legal_basis_at_order_time := 'STANDARD_14_DAYS_ELIGIBLE';
     else
-      select ct.controlled_sections->'withdrawal_clauses'->>'MIXED'
-        into v_mixed_clause
-      from public.order_cgv_acceptance oca
-      join public.merchant_cgv_version mcv on mcv.id = oca.cgv_version_id
-      join public.cgv_template ct on ct.id = mcv.template_id
-      where oca.order_id = new.order_id;
-
       new.withdrawal_exempt_at_order_time := true;
-      -- Deux formulations sont reconnues, et deux seulement : la forme
-      -- COMPACTE employée par les clauses EXEMPT_PERISHABLE du dépôt
-      -- (« L221-28 4° »), et la forme DÉVELOPPÉE employée par la clause
-      -- MIXTE (« 4° de l'article L221-28 »). Toute autre rédaction
-      -- donne 'MIXED_UNSPECIFIED_CITATION' : on préfère dire « je ne
-      -- sais pas » plutôt que de déduire une citation d'un texte qui ne
-      -- la porte pas explicitement.
-      if v_mixed_clause ilike '%L221-28 4°%'
-         or v_mixed_clause ilike '%4° de l''article L221-28%' then
-        new.withdrawal_legal_basis_at_order_time := 'L221-28-4';
-      elsif v_mixed_clause ilike '%L221-28 3°%'
-            or v_mixed_clause ilike '%3° de l''article L221-28%' then
-        new.withdrawal_legal_basis_at_order_time := 'L221-28-3';
-      else
-        new.withdrawal_legal_basis_at_order_time := 'MIXED_UNSPECIFIED_CITATION';
-      end if;
+      new.withdrawal_legal_basis_at_order_time := 'MIXED_UNSPECIFIED_CITATION';
     end if;
   end if;
 
@@ -222,7 +220,7 @@ begin
 end $$;
 
 comment on function public.snapshot_order_item_withdrawal_eligibility() is
-  'ONLINE WITHDRAWAL v1 — BEFORE INSERT sur order_items : copie menu_items.withdrawal_eligible dans l''instantané de ligne, une seule fois, à l''insertion. Ne s''exécute jamais sur UPDATE : un instantané pris est définitif. Une ligne sans menu_item_id (produit supprimé du catalogue) garde NULL, jamais une valeur devinée. v1.1 — en régime MIXTE, renseigne aussi la base légale et l''exclusion PAR LIGNE : éligible -> STANDARD_14_DAYS_ELIGIBLE, exclue -> la citation portée par la clause MIXED du gabarit RÉELLEMENT accepté (L221-28-4 / L221-28-3, à défaut MIXED_UNSPECIFIED_CITATION). Une éligibilité inconnue (NULL) ne produit aucune affirmation.';
+  'ONLINE WITHDRAWAL v1 — BEFORE INSERT sur order_items : copie menu_items.withdrawal_eligible dans l''instantané de ligne, une seule fois, à l''insertion. Ne s''exécute jamais sur UPDATE : un instantané pris est définitif. Une ligne sans menu_item_id (produit supprimé du catalogue) garde NULL, jamais une valeur devinée. v1.1 — en régime MIXTE, renseigne aussi l''exclusion et la base légale PAR LIGNE. v1.2 (correction d''audit OW-V11-MIXED-BASIS-02) — cette base légale n''est plus DÉDUITE du texte des CGV : ligne éligible -> STANDARD_14_DAYS_ELIGIBLE ; ligne non éligible -> le repli contrôlé MIXED_UNSPECIFIED_CITATION, toujours, car le marchand ne fournit qu''un booléen Rétractable Oui/Non et aucune source autoritaire de MOTIF légal n''existe au niveau du produit. Aucune citation précise (L221-28-4, L221-28-3 ou autre) n''est jamais devinée depuis une prose générique. Une éligibilité inconnue (NULL) ne produit aucune affirmation.';
 
 create trigger trg_order_items_snapshot_withdrawal_eligibility
   before insert on public.order_items
@@ -576,25 +574,50 @@ grant execute on function public.submit_withdrawal_request_by_capability(uuid, u
 -- -----------------------------------------------------------------------------
 -- G. CANAL D'ACCUSÉ DE RÉCEPTION — état RÉEL, jamais supposé
 -- -----------------------------------------------------------------------------
--- D.221-5 exige un accusé de réception sur support durable. Le dépôt
--- possède la machinerie d'outbox et un worker, mais AUCUN prestataire
--- d'envoi réel : lib/server/notifications/email-provider-resolution.ts
--- retourne `null` même quand la porte d'activation est ouverte. Cette
--- fonction dit donc `false` -- et le dira jusqu'à ce qu'un canal réel
--- existe. Elle n'est PAS un littéral : elle teste la primitive de
--- transport (une table d'envois confirmés), de sorte qu'un futur lot
--- qui livre réellement le canal la fasse basculer par construction.
+-- D.221-5 exige un accusé de réception sur support durable, ENVOYÉ au
+-- consommateur. Le dépôt possède la machinerie d'outbox et un worker,
+-- mais AUCUN prestataire d'envoi réel :
+-- lib/server/notifications/email-provider-resolution.ts retourne `null`
+-- même quand la porte d'activation est ouverte. Le canal n'existe donc
+-- pas, et cette fonction dit `false`.
+--
+-- v1.2 — CORRECTION D'AUDIT (OW-V11-ACK-GUARD-01, CRITIQUE, Cat Greco).
+-- La v1/v1.1 testait la PRÉSENCE d'une table d'envois confirmés, en se
+-- disant qu'un futur lot de transport la créerait et ferait basculer la
+-- garde « par construction ». L'audit a montré le contournement en cinq
+-- gestes : créer une table VIDE -> le canal se déclare opérationnel ->
+-- la publication CGV passe -> supprimer la table -> tout redevient
+-- faux. Une table vide n'a jamais envoyé le moindre accusé : la
+-- présence d'un objet de schéma ne prouve RIEN sur un transport.
+--
+-- La garde est donc désormais EXPLICITEMENT fermée. Ce `false` n'est
+-- pas un aveu d'ignorance : c'est l'état RÉEL et VÉRIFIABLE de la
+-- plateforme au moment de ce lot -- aucun transport autorisé, donc
+-- aucun envoi possible. C'est la seule affirmation honnête disponible
+-- ici, et elle est volontairement INDÉPENDANTE de l'existence d'une
+-- table, d'une colonne, d'une fonction ou d'une ligne de configuration :
+-- aucun de ces objets ne démontre qu'un accusé a pu être remis à un
+-- consommateur.
+--
+-- CE LOT N'ANTICIPE PAS l'implémentation future. Le lot autorisé qui
+-- livrera le transport transactionnel remplacera ce corps par un
+-- contrat opérationnel RÉEL (par exemple : un prestataire configuré,
+-- joignable, et des envois effectivement confirmés) -- décision qui lui
+-- appartient, pas à celui-ci.
 create function public._scanym_has_operational_durable_ack_channel()
 returns boolean
 language sql
-stable
+immutable
 set search_path = ''
 as $$
-  select to_regclass('public.withdrawal_acknowledgement_deliveries') is not null;
+  -- FAIL-CLOSED EXPLICITE (v1.2, OW-V11-ACK-GUARD-01). Ne pas
+  -- remplacer par un test de présence d'objet : c'est précisément le
+  -- contournement corrigé ici.
+  select false;
 $$;
 
 comment on function public._scanym_has_operational_durable_ack_channel() is
-  'ONLINE WITHDRAWAL v1 — le canal d''accusé de réception sur support durable est-il RÉELLEMENT opérationnel ? Aujourd''hui false : aucun prestataire d''envoi transactionnel n''est câblé dans ce dépôt (email-provider-resolution.ts retourne null par conception). La demande de rétractation est malgré tout enregistrée de façon durable -- c''est l''ENVOI qui manque, pas la trace. Un lot futur qui livre le transport créera la table d''envois confirmés et cette fonction basculera d''elle-même.';
+  'ONLINE WITHDRAWAL v1.2 — le canal d''accusé de réception sur support durable est-il RÉELLEMENT opérationnel ? NON, et cette fonction le dit explicitement : aucun prestataire d''envoi transactionnel n''est câblé ni autorisé dans ce dépôt (email-provider-resolution.ts retourne null par conception). CORRECTION D''AUDIT OW-V11-ACK-GUARD-01 : la version antérieure testait la PRÉSENCE de la table public.withdrawal_acknowledgement_deliveries -- créer cette table VIDE suffisait alors à débloquer la publication CGV, alors qu''aucun accusé n''avait jamais été envoyé. Aucune existence d''objet (table, colonne, fonction, ligne de configuration) ne prouve un transport : seul le lot autorisé qui livrera l''envoi réel remplacera ce corps par un contrat opérationnel. La déclaration de rétractation reste, elle, enregistrée durablement -- c''est l''ENVOI qui manque, pas la trace.';
 
 revoke all on function public._scanym_has_operational_durable_ack_channel() from public;
 
@@ -633,9 +656,16 @@ revoke all on function public._scanym_has_operational_durable_ack_channel() from
 -- n'est opérationnel, cette garde vaut FALSE et la publication d'une
 -- CGV annonçant la fonctionnalité complète reste BLOQUÉE. Ce n'est pas
 -- une régression : c'est le refus de faire dire au texte contractuel
--- plus que ce que la plateforme sait faire. Le jour où un lot autorisé
--- livre le transport, `_scanym_has_operational_durable_ack_channel()`
--- bascule et cette garde bascule avec elle, sans retouche.
+-- plus que ce que la plateforme sait faire.
+--
+-- v1.2 (OW-V11-ACK-GUARD-01) : la levée de ce blocage n'est PAS
+-- automatique et ne doit surtout pas l'être. Aucune création d'objet
+-- de schéma ne la déclenche -- c'est précisément le contournement
+-- corrigé en section G. Le lot AUTORISÉ qui livrera le transport
+-- transactionnel remplacera le corps de
+-- `_scanym_has_operational_durable_ack_channel()` par un contrat
+-- opérationnel réel ; cette garde suivra alors, sans qu'il faille la
+-- retoucher elle-même.
 create function public._scanym_has_online_withdrawal_primitives()
 returns boolean
 language sql

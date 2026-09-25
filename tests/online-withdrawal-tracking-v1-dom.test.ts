@@ -383,6 +383,26 @@ test("N — un double clic sur la confirmation ne produit qu'une seule demande",
   assert.equal(ack.getAttribute("data-withdrawal-ack"), "unavailable_no_channel");
   assert.ok(!/envoyé/i.test(ack.textContent!), "aucun « envoyé » mensonger");
 
+  // OW-V11-ACK-UX-03 (v1.2) -- strictement FACTUEL : ce qui est
+  // enregistré est annoncé, ce qui n'existe pas n'est pas promis.
+  assert.equal(
+    ack.textContent!.trim(),
+    "Votre demande a été enregistrée, avec sa date et son heure. L'accusé de réception électronique n'est pas disponible actuellement."
+  );
+  for (const promise of [
+    "vous le transmettra",
+    "vous sera transmis",
+    "vous recevrez",
+    "va vous être envoyé",
+    "sera envoyé",
+    "le commerçant",
+  ]) {
+    assert.ok(
+      !ack.textContent!.toLowerCase().includes(promise.toLowerCase()),
+      `promesse de remise non garantie : « ${promise} »`
+    );
+  }
+
   fetchImpl = async () => ({
     ok: true,
     json: async () => ({ ok: true, withdrawalRequestId: "x", requestedAt: "2026-06-25T10:32:00.000Z" }),
