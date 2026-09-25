@@ -37,11 +37,51 @@ drop trigger if exists trg_order_items_snapshot_withdrawal_eligibility on public
 drop function if exists public.snapshot_order_item_withdrawal_eligibility();
 alter table public.order_items drop column if exists withdrawal_eligible_at_order_time;
 
+-- 4 bis (v1.1). Vocabulaire des bases légales de ligne -- retour EXACT
+-- à la liste FERMÉE de CGV ENGINE v2.5 (sans la valeur propre au
+-- régime MIXTE). Les lignes déjà horodatées avec
+-- 'MIXED_UNSPECIFIED_CITATION' feraient échouer cette contrainte : le
+-- rollback le signale explicitement plutôt que de les réécrire -- un
+-- instantané légal de commande ne se réécrit pas.
+do $$
+declare
+  v_conname text;
+  v_orphans bigint;
+begin
+  select count(*) into v_orphans
+  from public.order_items
+  where withdrawal_legal_basis_at_order_time = 'MIXED_UNSPECIFIED_CITATION';
+
+  if v_orphans > 0 then
+    raise exception 'SCANYM_ROLLBACK_BLOCKED: % ligne(s) de commande portent la base légale MIXED_UNSPECIFIED_CITATION ; restaurer l''ancien vocabulaire les invaliderait. Exporter ces instantanés et décider explicitement avant de rejouer ce rollback.', v_orphans;
+  end if;
+
+  select con.conname into v_conname
+  from pg_catalog.pg_constraint con
+  join pg_catalog.pg_class cls on cls.oid = con.conrelid
+  join pg_catalog.pg_namespace nsp on nsp.oid = cls.relnamespace
+  where nsp.nspname = 'public' and cls.relname = 'order_items' and con.contype = 'c'
+    and pg_catalog.pg_get_constraintdef(con.oid) like '%withdrawal_legal_basis_at_order_time%';
+
+  if v_conname is not null then
+    execute pg_catalog.format('alter table public.order_items drop constraint %I', v_conname);
+  end if;
+end $$;
+
+alter table public.order_items
+  add constraint order_items_withdrawal_legal_basis_at_order_time_check
+  check (withdrawal_legal_basis_at_order_time is null or withdrawal_legal_basis_at_order_time in (
+    'L221-28-4', 'L221-28-3', 'EXEMPT_PERISHABLE_UNSPECIFIED_CITATION', 'STANDARD_14_DAYS_ELIGIBLE'
+  ));
+
 -- 5. Attribut produit.
 alter table public.menu_items drop column if exists withdrawal_eligible;
 
 -- 6. Helpers.
 drop function if exists public._scanym_has_operational_durable_ack_channel();
+-- v1.1 -- la garde ci-dessous redevient un littéral : la fonction de
+-- primitives n'a plus d'appelant et disparaît avec le lot.
+drop function if exists public._scanym_has_online_withdrawal_primitives();
 
 -- 7. Garde CGV -- retour EXACT à l'état v2.5.
 create or replace function public._scanym_has_online_withdrawal_runtime()

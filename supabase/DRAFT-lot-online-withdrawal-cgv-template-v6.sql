@@ -26,6 +26,25 @@
 --   4. `withdrawal_acknowledgement_clause` — NOUVELLE clé : accusé de
 --      réception sur support durable mentionnant contenu, date et
 --      heure de la déclaration.
+--   5. v1.1 — `withdrawal_clauses.MIXED` — RENSEIGNÉE. La version 5, et
+--      la première rédaction de cette version 6, laissaient cette
+--      clause à `null` : un marchand vendant À LA FOIS des produits
+--      rétractables et des produits légalement exclus n'avait donc
+--      AUCUN texte contrôlé, et le moteur échouait fermé. Le runtime
+--      livré par ce lot rend l'éligibilité PRODUIT PAR PRODUIT ; le
+--      régime MIXTE devient donc un régime de plein exercice, avec sa
+--      propre clause contrôlée -- qui n'est PAS une copie de
+--      STANDARD_14_DAYS : elle dit que le droit ne porte que sur la
+--      part éligible, que l'exclusion légale n'est pas levée par la
+--      présence de produits éligibles dans la même commande, que la
+--      fonctionnalité en ligne n'expose que les lignes éligibles, et
+--      que renvoi/remboursement/accusé de réception ne concernent que
+--      cette part.
+--
+-- AMENDEMENT v1.1 — ce fichier est un BROUILLON de ce même lot, jamais
+-- appliqué à un quelconque environnement : sa correction n'est donc PAS
+-- une modification de version publiée. Les versions 1 à 5, elles, ne
+-- sont touchées par rien.
 --
 -- AVERTISSEMENT DE SOURCE (à lever avant toute publication réelle) :
 -- legifrance.gouv.fr n'est pas joignable depuis l'environnement de
@@ -59,10 +78,23 @@ begin
   ) then
     raise exception 'SCANYM_ALREADY_APPLIED: FR_FOOD_PERISHABLE_B2C version 6 existe déjà -- annulé.';
   end if;
-  -- La fonctionnalité en ligne décrite par la version 6 doit RÉELLEMENT
-  -- exister : sans elle, publier ce texte serait une affirmation fausse.
-  if not public._scanym_has_online_withdrawal_runtime() then
-    raise exception 'SCANYM_WITHDRAWAL_RUNTIME_MISSING: la version 6 décrit une fonctionnalité de rétractation en ligne que le runtime ne fournit pas -- appliquer DRAFT-lot-online-withdrawal-foundation-v1.sql d''abord, annulé.';
+  -- Le mécanisme décrit par la version 6 doit RÉELLEMENT exister :
+  -- sans lui, ce texte décrirait une fonctionnalité imaginaire.
+  --
+  -- v1.1 — la condition porte sur les PRIMITIVES de déclaration, PAS
+  -- sur la garde de publication `_scanym_has_online_withdrawal_runtime()`.
+  -- Les deux questions sont distinctes : inscrire au CATALOGUE un
+  -- gabarit dont le texte correspond au mécanisme réel est légitime ;
+  -- autoriser un MARCHAND à PUBLIER des CGV qui annoncent une
+  -- fonctionnalité statutaire COMPLÈTE ne l'est que si l'accusé de
+  -- réception peut réellement être envoyé -- c'est la garde de
+  -- publication qui tranche cela, et elle reste fail-closed tant
+  -- qu'aucun canal durable n'existe (voir section H de
+  -- DRAFT-lot-online-withdrawal-foundation-v1.sql). Ce fichier ne
+  -- publie donc rien au nom d'un marchand : il ajoute une version de
+  -- gabarit au catalogue.
+  if not public._scanym_has_online_withdrawal_primitives() then
+    raise exception 'SCANYM_WITHDRAWAL_PRIMITIVES_MISSING: la version 6 décrit une fonctionnalité de rétractation en ligne dont les primitives n''existent pas -- appliquer DRAFT-lot-online-withdrawal-foundation-v1.sql d''abord, annulé.';
   end if;
 end $$;
 
@@ -82,7 +114,7 @@ select
     "withdrawal_clauses": {
         "EXEMPT_PERISHABLE": "Conformément à l'article L221-28 4° du Code de la consommation, le droit de rétractation ne s'applique pas aux denrées périssables ou susceptibles de se détériorer ou de se périmer rapidement. Cette exclusion ne s'applique qu'aux produits susceptibles de se détériorer ou de se périmer rapidement ; elle ne saurait être interprétée comme excluant du droit de rétractation l'ensemble des produits proposés par le Vendeur. Les autres produits éventuellement proposés par le Vendeur, non concernés par cette exclusion légale, demeurent soumis au régime de rétractation qui leur est applicable.",
         "STANDARD_14_DAYS": "Conformément aux articles L221-18 et suivants du Code de la consommation, le client dispose d'un délai de 14 jours pour exercer son droit de rétractation.",
-        "MIXED": null
+        "MIXED": "Le Vendeur propose à la fois des produits ouvrant droit à rétractation et des produits qui en sont légalement exclus. Pour les produits éligibles, le Client dispose du droit de rétractation dans les conditions prévues aux articles L221-18 et suivants du Code de la consommation. Pour les produits exclus, notamment les biens susceptibles de se détériorer ou de se périmer rapidement visés au 4° de l'article L221-28 du même code, le droit de rétractation ne s'applique pas ; cette exclusion n'est pas levée par la présence, dans la même commande, de produits éligibles. Le Vendeur indique, pour chaque produit, s'il relève ou non d'une telle exclusion ; cette qualification est enregistrée au moment de la commande et n'est pas modifiée par la suite pour les commandes déjà passées. Lorsqu'une commande comporte les deux catégories de produits, la rétractation ne peut porter que sur la part éligible : la fonctionnalité de rétractation en ligne ne présente au Client que les lignes de commande éligibles, produit par produit, et lui permet de n'en rétracter qu'une partie des quantités. Les stipulations ci-après relatives au renvoi des biens, au remboursement et à l'accusé de réception de la déclaration s'appliquent alors à cette seule part éligible ; les produits légalement exclus demeurent dus et ne donnent lieu à aucun remboursement à ce titre."
     },
     "withdrawal_exercise_method_clause": "Le droit de rétractation prévu ci-dessus peut être exercé au moyen de la fonctionnalité de rétractation en ligne mise à disposition par le Vendeur, accessible sans frais depuis la page de suivi de la commande sous l'intitulé « Exercer mon droit de rétractation », pendant toute la durée du délai de rétractation applicable. Le Client y indique ou confirme ses nom et prénom, les informations permettant d'identifier la commande concernée, ainsi que le moyen électronique par lequel il souhaite recevoir l'accusé de réception de sa déclaration, puis confirme explicitement sa rétractation. Le droit de rétractation peut également être exercé par tout autre moyen non équivoque adressé au Vendeur, notamment au moyen du formulaire type de rétractation ci-après ou par courrier électronique aux coordonnées de contact du Vendeur indiquées dans les présentes CGV.",
     "withdrawal_model_form_text": "Formulaire type de rétractation (à compléter et renvoyer uniquement si le Client souhaite se rétracter du contrat, à l'attention du Vendeur, aux coordonnées de contact indiquées dans les présentes CGV) -- Je/nous (*) vous notifie/notifions (*) par la présente ma/notre (*) rétractation du contrat portant sur la vente du bien ci-dessous / la prestation de service ci-dessous (*) : Commandé le (*) / reçu le (*) : Nom du (des) consommateur(s) : Adresse du (des) consommateur(s) : Signature du (des) consommateur(s) (uniquement en cas de notification du présent formulaire sur papier) : Date. (*) Rayer la mention inutile.",
@@ -177,6 +209,22 @@ begin
 
   if (v_sections->>'mixed_order_withdrawal_clause') not like '%L221-28%' then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la clause des commandes mixtes ne cite pas L221-28.';
+  end if;
+
+  -- v1.1 — le régime MIXTE est un régime de plein exercice : sa clause
+  -- contrôlée existe, cite l'exclusion légale, et n'est PAS une copie
+  -- de la clause STANDARD_14_DAYS (un alias masquerait la différence
+  -- de régime au lieu de la dire).
+  if (v_sections->'withdrawal_clauses'->>'MIXED') is null
+     or btrim(v_sections->'withdrawal_clauses'->>'MIXED') = '' then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la version 6 laisse le régime MIXTE sans clause contrôlée.';
+  end if;
+  if (v_sections->'withdrawal_clauses'->>'MIXED') = (v_sections->'withdrawal_clauses'->>'STANDARD_14_DAYS') then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la clause MIXTE est un alias de STANDARD_14_DAYS.';
+  end if;
+  if (v_sections->'withdrawal_clauses'->>'MIXED') not like '%L221-28%'
+     or (v_sections->'withdrawal_clauses'->>'MIXED') not like '%L221-18%' then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la clause MIXTE ne cite pas à la fois le droit (L221-18 et suivants) et l''exclusion (L221-28).';
   end if;
 
   if (v_sections->>'withdrawal_exercise_method_clause') like '%n''est pas encore propos%' then

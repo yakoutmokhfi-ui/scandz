@@ -13,8 +13,11 @@
 --      durable de la DÉCLARATION de rétractation.
 --   4. Deux RPC client, liées à la CAPACITÉ DE SUIVI existante
 --      (order_id + capability_id + secret, jamais order_id seul).
---   5. `_scanym_has_online_withdrawal_runtime()` -- redéfinie pour
---      TESTER LES PRIMITIVES RÉELLES, jamais un `true` littéral.
+--   5. `_scanym_has_online_withdrawal_primitives()` -- les primitives
+--      de déclaration existent-elles RÉELLEMENT (jamais un littéral) ?
+--   6. `_scanym_has_online_withdrawal_runtime()` -- la fonctionnalité
+--      statutaire est-elle COMPLÈTE ? v1.1 : primitives ET canal
+--      d'accusé de réception opérationnel (voir section H).
 --
 -- CE QUE CE LOT NE FAIT PAS, DÉLIBÉRÉMENT :
 --   - il ne touche pas `orders.status` (la rétractation n'est PAS un
@@ -80,6 +83,9 @@ begin
      or to_regclass('public.withdrawal_request_items') is not null then
     raise exception 'SCANYM_ALREADY_APPLIED: withdrawal_requests/withdrawal_request_items existent déjà -- ONLINE WITHDRAWAL v1 annulé.';
   end if;
+  if to_regprocedure('public._scanym_has_online_withdrawal_primitives()') is not null then
+    raise exception 'SCANYM_ALREADY_APPLIED: _scanym_has_online_withdrawal_primitives() existe déjà -- ONLINE WITHDRAWAL v1 annulé.';
+  end if;
 end $$;
 
 begin;
@@ -102,6 +108,38 @@ alter table public.order_items
 comment on column public.order_items.withdrawal_eligible_at_order_time is
   'ONLINE WITHDRAWAL v1 — instantané IMMUABLE de menu_items.withdrawal_eligible au moment EXACT de la création de la ligne. NULL = ligne historique créée avant ce lot : l''absence de valeur n''est JAMAIS interprétée comme éligible (fail-closed), et aucun remplissage rétroactif deviné n''est fait. Après insertion, cette valeur n''est jamais recalculée depuis menu_items : changer le produit de Oui à Non (ou l''inverse) ne modifie donc aucune commande déjà passée.';
 
+-- v1.1 — le vocabulaire des bases légales de ligne (CGV ENGINE v2.5)
+-- accueille la valeur propre au régime MIXTE dont le gabarit accepté
+-- ne porte aucune citation identifiable. La contrainte est retrouvée
+-- par son DÉFINITION (jamais par un nom auto-généré supposé), puis
+-- remplacée par une contrainte NOMMÉE -- la liste reste FERMÉE : une
+-- valeur hors vocabulaire est toujours refusée par la base.
+do $$
+declare
+  v_conname text;
+begin
+  select con.conname into v_conname
+  from pg_catalog.pg_constraint con
+  join pg_catalog.pg_class cls on cls.oid = con.conrelid
+  join pg_catalog.pg_namespace nsp on nsp.oid = cls.relnamespace
+  where nsp.nspname = 'public' and cls.relname = 'order_items' and con.contype = 'c'
+    and pg_catalog.pg_get_constraintdef(con.oid) like '%withdrawal_legal_basis_at_order_time%';
+
+  if v_conname is null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: contrainte de vocabulaire de order_items.withdrawal_legal_basis_at_order_time introuvable -- CGV ENGINE v2.5 attendu, annulé.';
+  end if;
+
+  execute pg_catalog.format('alter table public.order_items drop constraint %I', v_conname);
+end $$;
+
+alter table public.order_items
+  add constraint order_items_withdrawal_legal_basis_at_order_time_check
+  check (withdrawal_legal_basis_at_order_time is null or withdrawal_legal_basis_at_order_time in (
+    'L221-28-4', 'L221-28-3', 'EXEMPT_PERISHABLE_UNSPECIFIED_CITATION', 'STANDARD_14_DAYS_ELIGIBLE',
+    -- v1.1 — régime MIXTE : gabarit accepté sans citation identifiable.
+    'MIXED_UNSPECIFIED_CITATION'
+  ));
+
 -- Le snapshot est pris par un déclencheur BEFORE INSERT plutôt qu''en
 -- redéclarant create_order (400 lignes) : il s'applique à TOUT chemin
 -- d'insertion d'une ligne de commande, il s'exécute dans la MÊME
@@ -114,17 +152,77 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_mixed_clause text;
 begin
   if new.withdrawal_eligible_at_order_time is null and new.menu_item_id is not null then
     select mi.withdrawal_eligible into new.withdrawal_eligible_at_order_time
     from public.menu_items mi
     where mi.id = new.menu_item_id;
   end if;
+
+  -- ---------------------------------------------------------------
+  -- v1.1 — RÉGIME MIXTE : instantané légal PAR LIGNE
+  -- ---------------------------------------------------------------
+  -- `create_order` (CGV ENGINE v2.5) calcule la base légale à partir
+  -- du régime du MARCHAND seul : EXEMPT_PERISHABLE -> la citation du
+  -- gabarit accepté, STANDARD_14_DAYS -> éligible, tout autre régime
+  -- (donc MIXED) -> NULL, et `withdrawal_exempt_at_order_time` y vaut
+  -- `regime = 'EXEMPT_PERISHABLE'`, soit `false` pour un marchand
+  -- MIXTE -- ce qui reviendrait à affirmer que TOUTES ses lignes sont
+  -- rétractables. En régime MIXTE, la vérité est PAR LIGNE, et elle
+  -- est déjà là : l'instantané d'éligibilité pris juste au-dessus.
+  --
+  -- La base légale d'une ligne EXCLUE n'est pas devinée : elle est
+  -- lue dans la clause MIXED du gabarit RÉELLEMENT accepté par ce
+  -- client (order_cgv_acceptance -> merchant_cgv_version ->
+  -- cgv_template), exactement comme create_order le fait pour
+  -- EXEMPT_PERISHABLE. Un gabarit qui ne cite ni 4° ni 3° donne
+  -- 'MIXED_UNSPECIFIED_CITATION' -- jamais une citation inventée.
+  --
+  -- Une ligne dont l'éligibilité est inconnue (NULL : produit absent
+  -- du catalogue) ne reçoit AUCUNE de ces valeurs : ne rien affirmer
+  -- vaut mieux qu'affirmer faux.
+  if new.merchant_withdrawal_regime_at_order_time = 'MIXED'
+     and new.withdrawal_legal_basis_at_order_time is null
+     and new.withdrawal_eligible_at_order_time is not null
+  then
+    if new.withdrawal_eligible_at_order_time then
+      new.withdrawal_exempt_at_order_time := false;
+      new.withdrawal_legal_basis_at_order_time := 'STANDARD_14_DAYS_ELIGIBLE';
+    else
+      select ct.controlled_sections->'withdrawal_clauses'->>'MIXED'
+        into v_mixed_clause
+      from public.order_cgv_acceptance oca
+      join public.merchant_cgv_version mcv on mcv.id = oca.cgv_version_id
+      join public.cgv_template ct on ct.id = mcv.template_id
+      where oca.order_id = new.order_id;
+
+      new.withdrawal_exempt_at_order_time := true;
+      -- Deux formulations sont reconnues, et deux seulement : la forme
+      -- COMPACTE employée par les clauses EXEMPT_PERISHABLE du dépôt
+      -- (« L221-28 4° »), et la forme DÉVELOPPÉE employée par la clause
+      -- MIXTE (« 4° de l'article L221-28 »). Toute autre rédaction
+      -- donne 'MIXED_UNSPECIFIED_CITATION' : on préfère dire « je ne
+      -- sais pas » plutôt que de déduire une citation d'un texte qui ne
+      -- la porte pas explicitement.
+      if v_mixed_clause ilike '%L221-28 4°%'
+         or v_mixed_clause ilike '%4° de l''article L221-28%' then
+        new.withdrawal_legal_basis_at_order_time := 'L221-28-4';
+      elsif v_mixed_clause ilike '%L221-28 3°%'
+            or v_mixed_clause ilike '%3° de l''article L221-28%' then
+        new.withdrawal_legal_basis_at_order_time := 'L221-28-3';
+      else
+        new.withdrawal_legal_basis_at_order_time := 'MIXED_UNSPECIFIED_CITATION';
+      end if;
+    end if;
+  end if;
+
   return new;
 end $$;
 
 comment on function public.snapshot_order_item_withdrawal_eligibility() is
-  'ONLINE WITHDRAWAL v1 — BEFORE INSERT sur order_items : copie menu_items.withdrawal_eligible dans l''instantané de ligne, une seule fois, à l''insertion. Ne s''exécute jamais sur UPDATE : un instantané pris est définitif. Une ligne sans menu_item_id (produit supprimé du catalogue) garde NULL, jamais une valeur devinée.';
+  'ONLINE WITHDRAWAL v1 — BEFORE INSERT sur order_items : copie menu_items.withdrawal_eligible dans l''instantané de ligne, une seule fois, à l''insertion. Ne s''exécute jamais sur UPDATE : un instantané pris est définitif. Une ligne sans menu_item_id (produit supprimé du catalogue) garde NULL, jamais une valeur devinée. v1.1 — en régime MIXTE, renseigne aussi la base légale et l''exclusion PAR LIGNE : éligible -> STANDARD_14_DAYS_ELIGIBLE, exclue -> la citation portée par la clause MIXED du gabarit RÉELLEMENT accepté (L221-28-4 / L221-28-3, à défaut MIXED_UNSPECIFIED_CITATION). Une éligibilité inconnue (NULL) ne produit aucune affirmation.';
 
 create trigger trg_order_items_snapshot_withdrawal_eligibility
   before insert on public.order_items
@@ -504,18 +602,41 @@ revoke all on function public._scanym_has_operational_durable_ack_channel() from
 -- H. GARDE CGV — runtime de rétractation en ligne, VÉRIFIÉ
 -- -----------------------------------------------------------------------------
 -- CGV ENGINE v2.5 renvoyait `false` en dur, faute de runtime. Ce lot
--- livre le runtime : la garde teste désormais les PRIMITIVES RÉELLES
--- (tables de déclaration, instantané d'éligibilité de ligne, RPC
--- d'écriture liée à la capacité). Ce n'est pas un `true` : si une
--- primitive disparaît, la publication CGV redevient fail-closed
--- automatiquement.
+-- livre les PRIMITIVES de déclaration ; la garde les teste réellement
+-- (jamais un `true` littéral) : si une primitive disparaît, la
+-- publication CGV redevient fail-closed automatiquement.
 --
--- NOTE DE PÉRIMÈTRE : la garde porte sur l'existence du RUNTIME DE
--- DÉCLARATION exigé par L221-21/D.221-5 (fonctionnalité en ligne +
--- enregistrement durable). L'ENVOI de l'accusé de réception reste un
--- manque déclaré (section G) : il est suivi séparément et ne doit pas
--- être présenté comme livré.
-create or replace function public._scanym_has_online_withdrawal_runtime()
+-- v1.1 — DEUX fonctions, DEUX questions distinctes :
+--
+--   * `_scanym_has_online_withdrawal_primitives()` — le mécanisme de
+--     DÉCLARATION existe-t-il ? (tables, RPC liées à la capacité,
+--     instantané d'éligibilité de ligne). Vrai depuis ce lot. C'est
+--     cette question, et elle seule, qui conditionne l'INSERTION d'un
+--     gabarit CGV décrivant la fonctionnalité : le texte doit
+--     correspondre au mécanisme réel.
+--
+--   * `_scanym_has_online_withdrawal_runtime()` — la fonctionnalité
+--     STATUTAIRE est-elle COMPLÈTE ? C'est la question que posent
+--     `resolve_cgv_publication_context` et
+--     `persist_merchant_cgv_version` avant d'autoriser un marchand à
+--     PUBLIER des CGV qui annoncent cette fonctionnalité. Or l'article
+--     D.221-5 du code de la consommation, transposant l'article 11 bis
+--     de la directive 2011/83/UE (inséré par la directive (UE)
+--     2023/2673, applicable depuis le 19 juin 2026), n'exige pas
+--     seulement de recueillir la déclaration : le professionnel ENVOIE
+--     au consommateur, sans retard excessif, un accusé de réception sur
+--     support durable mentionnant le contenu de la déclaration, sa date
+--     et son heure. Enregistrer sans pouvoir envoyer ne remplit donc
+--     PAS l'obligation.
+--
+-- Conséquence assumée (v1.1) : tant qu'aucun canal d'envoi durable
+-- n'est opérationnel, cette garde vaut FALSE et la publication d'une
+-- CGV annonçant la fonctionnalité complète reste BLOQUÉE. Ce n'est pas
+-- une régression : c'est le refus de faire dire au texte contractuel
+-- plus que ce que la plateforme sait faire. Le jour où un lot autorisé
+-- livre le transport, `_scanym_has_operational_durable_ack_channel()`
+-- bascule et cette garde bascule avec elle, sans retouche.
+create function public._scanym_has_online_withdrawal_primitives()
 returns boolean
 language sql
 stable
@@ -533,8 +654,24 @@ as $$
     );
 $$;
 
+comment on function public._scanym_has_online_withdrawal_primitives() is
+  'ONLINE WITHDRAWAL v1.1 — les PRIMITIVES de déclaration existent-elles réellement (tables, RPC liées à la capacité de suivi, instantané d''éligibilité par ligne) ? Vérification, jamais un littéral. Ne dit RIEN de l''accusé de réception : voir _scanym_has_online_withdrawal_runtime().';
+
+revoke all on function public._scanym_has_online_withdrawal_primitives() from public;
+
+create or replace function public._scanym_has_online_withdrawal_runtime()
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select
+    public._scanym_has_online_withdrawal_primitives()
+    and public._scanym_has_operational_durable_ack_channel();
+$$;
+
 comment on function public._scanym_has_online_withdrawal_runtime() is
-  'ONLINE WITHDRAWAL v1 — remplace le littéral false de CGV ENGINE v2.5 par une VÉRIFICATION des primitives réellement nécessaires à la fonctionnalité de rétractation en ligne : tables de déclaration, instantané d''éligibilité par ligne, RPC de lecture et d''écriture liées à la capacité de suivi. Aucune de ces primitives ne peut être supposée : si l''une disparaît, la publication CGV redevient fail-closed d''elle-même.';
+  'ONLINE WITHDRAWAL v1.1 — la fonctionnalité statutaire de rétractation en ligne est-elle COMPLÈTE ? Deux conditions CUMULATIVES, toutes deux vérifiées et jamais supposées : (1) les primitives de déclaration existent ; (2) un canal d''accusé de réception sur support durable est réellement opérationnel. La seconde manque aujourd''hui : D.221-5 (art. 11 bis de la directive 2011/83/UE) impose d''ENVOYER au consommateur, sans retard excessif, un accusé mentionnant le contenu, la date et l''heure de sa déclaration -- un enregistrement visible de la seule plateforme n''y suffit pas. Cette garde vaut donc false, et la publication d''une CGV annonçant la fonctionnalité complète reste bloquée : fail-closed délibéré, jamais un true de confort.';
 
 revoke all on function public._scanym_has_online_withdrawal_runtime() from public;
 
@@ -946,18 +1083,29 @@ begin
 
   -- Les helpers privés restent privés.
   if has_function_privilege('authenticated', 'public._scanym_has_online_withdrawal_runtime()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public._scanym_has_online_withdrawal_primitives()', 'EXECUTE')
      or has_function_privilege('authenticated', 'public._scanym_has_operational_durable_ack_channel()', 'EXECUTE') then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: helper privé exposé à un rôle client.';
   end if;
 
-  -- La garde CGV doit maintenant voir le runtime.
-  if not public._scanym_has_online_withdrawal_runtime() then
-    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: le runtime de rétractation est livré mais la garde le nie.';
+  -- Les PRIMITIVES de déclaration sont livrées : la garde doit les voir.
+  if not public._scanym_has_online_withdrawal_primitives() then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: les primitives de rétractation sont livrées mais la garde les nie.';
   end if;
 
   -- Le canal d'accusé de réception reste, lui, honnêtement absent.
   if public._scanym_has_operational_durable_ack_channel() then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: canal d''accusé déclaré opérationnel alors qu''aucun transport n''est livré par ce lot.';
+  end if;
+
+  -- v1.1 — et donc, la fonctionnalité STATUTAIRE reste incomplète :
+  -- la garde de publication CGV DOIT valoir false. Cette assertion
+  -- est l'inverse exact de celle que portait v1 ; elle est là pour
+  -- qu''une bascule silencieuse à true (par exemple un futur `select
+  -- true` de confort) fasse échouer la migration plutôt que de
+  -- laisser publier une affirmation fausse.
+  if public._scanym_has_online_withdrawal_runtime() then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la fonctionnalité statutaire est déclarée complète alors qu''aucun canal d''accusé de réception durable n''est livré (D.221-5 exige un ENVOI au consommateur).';
   end if;
 
   -- Catalogue marchand étendu, sans exposition anon.

@@ -254,11 +254,15 @@ test("privilèges — les tables ne sont accessibles par aucun rôle client", ()
 // S. Garde runtime du moteur CGV
 // --------------------------------------------------------------
 test("S — la garde CGV teste les PRIMITIVES réelles, jamais un `true` littéral", () => {
-  const guard = MIGRATION.slice(
-    MIGRATION.indexOf("create or replace function public._scanym_has_online_withdrawal_runtime()")
+  // v1.1 -- la garde est scindée en DEUX questions : les primitives
+  // existent-elles (fonction dédiée), et la fonctionnalité statutaire
+  // est-elle complète (primitives ET canal d'accusé). Les primitives
+  // restent VÉRIFIÉES objet par objet, jamais supposées.
+  const primitivesFn = MIGRATION.slice(
+    MIGRATION.indexOf("create function public._scanym_has_online_withdrawal_primitives()")
   );
-  const body = guard.slice(0, guard.indexOf("$$;") + 3);
-  assert.ok(!/select\s+true\s*;/.test(body), "jamais un true nu");
+  const primitivesBody = primitivesFn.slice(0, primitivesFn.indexOf("$$;") + 3);
+  assert.ok(!/select\s+true\s*;/.test(primitivesBody), "jamais un true nu");
   for (const primitive of [
     "public.withdrawal_requests",
     "public.withdrawal_request_items",
@@ -266,8 +270,18 @@ test("S — la garde CGV teste les PRIMITIVES réelles, jamais un `true` littér
     "get_withdrawal_options_by_capability",
     "withdrawal_eligible_at_order_time",
   ]) {
-    assert.ok(body.includes(primitive), `la garde doit vérifier ${primitive}`);
+    assert.ok(primitivesBody.includes(primitive), `la garde doit vérifier ${primitive}`);
   }
+  const guard = MIGRATION.slice(
+    MIGRATION.indexOf("create or replace function public._scanym_has_online_withdrawal_runtime()")
+  );
+  const body = guard.slice(0, guard.indexOf("$$;") + 3);
+  assert.ok(!/select\s+true\s*;/.test(body), "jamais un true nu");
+  assert.ok(
+    body.includes("_scanym_has_online_withdrawal_primitives()") &&
+      body.includes("_scanym_has_operational_durable_ack_channel()"),
+    "la fonctionnalité n'est complète que si l'accusé de réception peut être envoyé"
+  );
   // Et le rollback la remet à false : sans runtime, publication fermée.
   assert.match(flat(ROLLBACK), /create or replace function public\._scanym_has_online_withdrawal_runtime\(\) returns boolean language sql immutable as \$\$ select false; \$\$;/);
 });
@@ -380,11 +394,14 @@ test("R — aucune version de CGV déjà publiée n'est modifiée", () => {
     /where template_code = 'FR_FOOD_PERISHABLE_B2C' and version = 5 and status = 'PUBLISHED'/,
     "la version 5 est vérifiée intacte après insertion"
   );
-  // Le gabarit v6 n'est insérable que si le runtime existe réellement.
+  // v1.1 -- le gabarit v6 n'est insérable au CATALOGUE que si le
+  // MÉCANISME décrit existe réellement (primitives). L'autorisation de
+  // PUBLIER ce texte au nom d'un marchand est une autre question, que
+  // tranche la garde de publication (voir la suite v1.1).
   assert.match(
     flat(CGV_V6),
-    /if not public\._scanym_has_online_withdrawal_runtime\(\) then raise exception 'SCANYM_WITHDRAWAL_RUNTIME_MISSING/,
-    "on ne publie pas un texte décrivant une fonctionnalité absente"
+    /if not public\._scanym_has_online_withdrawal_primitives\(\) then raise exception 'SCANYM_WITHDRAWAL_PRIMITIVES_MISSING/,
+    "on n'inscrit pas au catalogue un texte décrivant un mécanisme absent"
   );
 });
 

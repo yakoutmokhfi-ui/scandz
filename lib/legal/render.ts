@@ -91,6 +91,22 @@
  * READY enforced publication guards (Tasks 4/5).
  */
 
+/**
+ * ONLINE WITHDRAWAL v1.1 -- MIXED devient un régime de PLEIN EXERCICE.
+ * Jusqu'ici il n'était rendu par aucun gabarit (clause `null`) et
+ * échouait fermé partout ; le runtime livré par ONLINE WITHDRAWAL v1
+ * classe l'éligibilité PRODUIT PAR PRODUIT, ce qui est exactement ce
+ * que ce régime décrit. Trois conséquences dans ce fichier :
+ *   1. les clauses conditionnelles de rétractation (méthode, commandes
+ *      mixtes, renvoi/remboursement, accusé de réception, formulaire
+ *      type) sont rendues pour STANDARD_14_DAYS *et* MIXED ;
+ *   2. pour MIXED, `mixed_order_withdrawal_clause` est REQUISE -- son
+ *      absence lève MixedRegimeClauseMissingError ;
+ *   3. EXEMPT_PERISHABLE est inchangé : aucune de ces clauses.
+ * MIXED n'est JAMAIS un alias de STANDARD_14_DAYS : sa propre clause
+ * de régime (`withdrawal_clauses.MIXED`) reste obligatoire, et le
+ * moteur échoue fermé si le gabarit ne la porte pas.
+ */
 export type WithdrawalRegime = "EXEMPT_PERISHABLE" | "STANDARD_14_DAYS" | "MIXED";
 export type PreparationTimeUnit = "MINUTES" | "HOURS";
 export type PresentationVariant = "FORMAL" | "WARM" | "PREMIUM" | "SIMPLE";
@@ -168,14 +184,18 @@ export interface CgvTemplateControlledSections {
    *  rendered for EXEMPT_PERISHABLE. */
   withdrawal_model_form_text?: string;
 
-  /** ONLINE WITHDRAWAL v1 -- OPTIONAL, GENERIC_CONDITIONAL. Règle des
-   *  commandes MIXTES (produits éligibles et produits légalement exclus
-   *  au titre de l'article L221-28) : seule la part éligible peut être
-   *  rétractée. Rendue dans la section « Droit de rétractation », comme
-   *  les autres clauses conditionnelles de rétractation, et soumise à
-   *  la MÊME porte `STANDARD_14_DAYS` : un marchand dont tous les
-   *  produits sont exclus n'a pas de commande mixte à décrire. Absente
-   *  (gabarits v1..v5) -> omise, jamais une erreur. */
+  /** ONLINE WITHDRAWAL v1 -- GENERIC_CONDITIONAL. Règle des commandes
+   *  MIXTES (produits éligibles et produits légalement exclus au titre
+   *  de l'article L221-28) : seule la part éligible peut être
+   *  rétractée. Rendue dans la section « Droit de rétractation »,
+   *  pour tout régime comportant un droit de rétractation réel
+   *  (STANDARD_14_DAYS ou MIXED) -- jamais pour EXEMPT_PERISHABLE, où
+   *  aucun droit n'existe.
+   *
+   *  v1.1 -- OPTIONNELLE pour un marchand STANDARD_14_DAYS (absente des
+   *  gabarits v1..v5 -> omise, jamais une erreur), mais REQUISE pour un
+   *  marchand MIXTE : elle EST la règle qui définit son régime. Son
+   *  absence y lève MixedRegimeClauseMissingError (échec fermé). */
   mixed_order_withdrawal_clause?: string;
 
   /** ONLINE WITHDRAWAL v1 -- OPTIONAL, GENERIC_CONDITIONAL. Renvoi des
@@ -284,6 +304,34 @@ export class ActualWeightPriceUnsupportedError extends Error {
         "weight_pricing_mode null."
     );
     this.name = "ActualWeightPriceUnsupportedError";
+  }
+}
+
+/**
+ * ONLINE WITHDRAWAL v1.1 -- levée quand `withdrawalRegime === "MIXED"`
+ * et que le gabarit ne fournit PAS `mixed_order_withdrawal_clause`.
+ *
+ * La clause de régime (`withdrawal_clauses.MIXED`) dit QUE le droit ne
+ * porte que sur la part éligible ; la clause de commande mixte dit
+ * COMMENT cela se traduit concrètement dans une commande donnée. Pour
+ * un marchand MIXTE, la seconde n'est pas un enrichissement optionnel
+ * comme elle l'est pour un marchand STANDARD_14_DAYS : c'est la
+ * description même de sa situation. Un gabarit qui l'omet produit un
+ * document incomplet -- donc un échec FERMÉ, jamais un document rendu
+ * amputé d'une explication essentielle.
+ *
+ * Erreur TYPÉE, comme ActualWeightPriceUnsupportedError ci-dessus, et
+ * pour la même raison : l'aperçu marchand appelle `renderCgv`
+ * directement, sans jamais passer par les gardes SQL.
+ */
+export class MixedRegimeClauseMissingError extends Error {
+  constructor() {
+    super(
+      "SCANYM_CGV_RENDER: MIXED_ORDER_CLAUSE_MISSING -- a MIXED withdrawal regime requires the template's " +
+        "mixed_order_withdrawal_clause; rendering a mixed-regime document without it would omit the very " +
+        "rule that defines the regime."
+    );
+    this.name = "MixedRegimeClauseMissingError";
   }
 }
 
@@ -542,8 +590,27 @@ export function renderCgv(input: RenderCgvInput): string {
   // still prevent them from rendering for a merchant with no
   // withdrawal right. Absent template keys (v1/v2/v3 templates, or a
   // v4+ template that omits them) -> omitted, never an error.
+  //
+  // ONLINE WITHDRAWAL v1.1 -- la porte n'est plus « STANDARD_14_DAYS »
+  // mais « ce régime comporte-t-il un droit de rétractation réel ? ».
+  // MIXED en comporte un, pour la part éligible de la commande : lui
+  // refuser la méthode d'exercice, la règle des commandes mixtes, le
+  // renvoi/remboursement et l'accusé de réception reviendrait à publier
+  // des CGV muettes sur le droit que le marchand doit précisément
+  // décrire. EXEMPT_PERISHABLE, lui, reste exclu de cette section
+  // additionnelle : aucun droit, donc aucune modalité d'exercice.
+  const regimeHasWithdrawalRight =
+    business.withdrawalRegime === "STANDARD_14_DAYS" || business.withdrawalRegime === "MIXED";
+
+  // Pour un marchand MIXTE, la règle des commandes mixtes est
+  // CONSTITUTIVE du régime : son absence est un échec fermé, jamais un
+  // silence (voir MixedRegimeClauseMissingError).
+  if (business.withdrawalRegime === "MIXED" && !template.mixed_order_withdrawal_clause) {
+    throw new MixedRegimeClauseMissingError();
+  }
+
   const withdrawalExtra: string[] = [];
-  if (business.withdrawalRegime === "STANDARD_14_DAYS") {
+  if (regimeHasWithdrawalRight) {
     if (template.withdrawal_exercise_method_clause) {
       withdrawalExtra.push(`<p>${escapeHtml(template.withdrawal_exercise_method_clause)}</p>`);
     }
