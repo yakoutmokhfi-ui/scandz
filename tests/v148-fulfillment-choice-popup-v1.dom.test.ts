@@ -257,6 +257,17 @@ function mockRpc(
       }
       return { data, error: null };
     }
+    if (name === "get_restaurant_public_delivery_countries") {
+      // DELIVERY COUNTRY SCOPE v1 -- configuration L2 du locataire.
+      return { data: [{
+            country_code: "FR",
+            country_name: "France",
+            postal_code_pattern: "^[0-9]{5}$",
+            phone_pattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+            address_provider: "ban_ign",
+            address_line_order: "number_first",
+          }], error: null };
+    }
     if (name === "get_restaurant_public_delivery_info") {
       return { data: [], error: null };
     }
@@ -631,6 +642,9 @@ test("Scénario 10/11/12 -- trace exhaustive des RPC : jamais create_order, jama
       "get_restaurant_public_field_requirements",
       "get_restaurant_public_delivery_info",
       "get_restaurant_public_delivery_fulfillments",
+      // DELIVERY COUNTRY SCOPE v1 : lecture publique, tenant-safe,
+      // une fois par montage de MenuView.
+      "get_restaurant_public_delivery_countries",
       // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1) : nouvel appel
       // de lecture publique, tenant-safe, fait une fois par montage de
       // MenuView (jamais lié à create_order/Stuart/paiement).

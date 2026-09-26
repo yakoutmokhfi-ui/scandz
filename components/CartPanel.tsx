@@ -16,6 +16,7 @@ import { isWhatsappEnabled } from "@/lib/customer-contact";
 import Ltr from "@/components/Bidi";
 import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
+import type { DeliveryCountryOption } from "@/lib/delivery-country";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
 import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog";
 import type { ServiceMode } from "@/lib/restaurants-config";
@@ -57,6 +58,9 @@ export default function CartPanel({
   onSelectTable,
   onSelectFulfillment,
   onChangeCustomer,
+  deliveryCountry = null,
+  deliveryCountryOptions = [],
+  onSelectDeliveryCountry,
   onChangeNote,
   cgvEnforced,
   cgvAccepted,
@@ -133,6 +137,12 @@ export default function CartPanel({
   onSelectTable: (table: number) => void;
   onSelectFulfillment: (t: ServiceMode) => void;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
+  /** DELIVERY COUNTRY SCOPE v1 -- passe-plat vers FulfillmentSelector.
+   *  AUCUNE décision n'est prise ici : ce composant ne connaît ni pays
+   *  ni établissement. */
+  deliveryCountry?: DeliveryCountryOption | null;
+  deliveryCountryOptions?: DeliveryCountryOption[];
+  onSelectDeliveryCountry?: (countryCode: string) => void;
   onChangeNote: (value: string) => void;
   /**
    * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1 (referme le
@@ -474,6 +484,9 @@ export default function CartPanel({
                     onChangeCustomer={onChangeCustomer}
                     onSelectFulfillment={onSelectFulfillment}
                     whatsappEnabled={whatsappEnabled}
+                    deliveryCountry={deliveryCountry}
+                    deliveryCountryOptions={deliveryCountryOptions}
+                    onSelectDeliveryCountry={onSelectDeliveryCountry}
                   />
                 </div>
               )}

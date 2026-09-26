@@ -64,6 +64,16 @@ import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
+// DELIVERY COUNTRY SCOPE v1 -- pays de livraison autorisés pour CET
+// établissement (L2), projetés avec leurs capacités (L1). Rien ici ne
+// connaît « FR » : tout vient du serveur.
+import { getPublicDeliveryCountries } from "@/lib/services/delivery-countries";
+import {
+  type DeliveryCountryOption,
+  countryValidationInput,
+  effectiveCountry,
+  resolveDeliveryCountry,
+} from "@/lib/delivery-country";
 import OptionModal from "@/components/OptionModal";
 import OrderConfirmation from "@/components/OrderConfirmation";
 import ProductInfoButton from "@/components/ProductInfoButton";
@@ -518,6 +528,45 @@ export default function MenuView({
    *  tentée tant que les exigences ne sont pas RÉELLEMENT résolues. */
   const fieldRequirementsReady = canAttemptSubmit(fieldRequirementsState);
   const fieldRequirements = fieldRequirementsData ?? [];
+
+  /* ================================================================
+   * DELIVERY COUNTRY SCOPE v1 -- L2 : pays de livraison autorisés.
+   *
+   * `null` = pas encore chargé (on ne conclut rien) ; `[]` = chargé et
+   * VIDE, donc livraison indisponible. Les deux ne se confondent
+   * jamais -- même discipline que fieldRequirementsReady.
+   * ================================================================ */
+  const [deliveryCountryOptions, setDeliveryCountryOptions] =
+    useState<DeliveryCountryOption[] | null>(null);
+  const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDeliveryCountryOptions(null);
+    setSelectedCountryCode(null);
+    getPublicDeliveryCountries(restaurant.id)
+      .then((rows) => {
+        if (!cancelled) setDeliveryCountryOptions(rows);
+      })
+      .catch(() => {
+        // Échec de lecture : on NE suppose PAS que la livraison est
+        // possible. Liste vide = fail-closed, le serveur refusera de
+        // toute façon.
+        if (!cancelled) setDeliveryCountryOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurant.id]);
+
+  const deliveryCountryResolution = resolveDeliveryCountry(
+    deliveryCountryOptions ?? [],
+    selectedCountryCode
+  );
+  const deliveryCountry = effectiveCountry(deliveryCountryResolution);
+  /** Le sélecteur n'est proposé QUE s'il y a réellement un choix. */
+  const deliveryCountryChoices =
+    (deliveryCountryOptions?.length ?? 0) > 1 ? (deliveryCountryOptions ?? []) : [];
 
   const [showErrors, setShowErrors] = useState(false);
   // Note générale de commande (V65) : une seule note, aucune par ligne.
@@ -1029,13 +1078,36 @@ export default function MenuView({
       ? []
       : ["street", "postalCode", "city"];
 
+  // DELIVERY COUNTRY SCOPE v1.1 (DCS-COUNTRY-UI-02) -- entrée de
+  // validation dérivée du pays résolu. Ses trois valeurs sont des
+  // DÉPENDANCES du mémo ci-dessous : changer de pays (FR -> BE, BE ->
+  // FR) revalide immédiatement le code postal déjà saisi. En v1, le
+  // mémo ne dépendait pas du pays : la validation restait celle du pays
+  // précédent tant que le client ne retouchait pas le formulaire.
+  const countryValidation = countryValidationInput(serviceMode === "delivery", deliveryCountry);
   const customerErrors = useMemo(
     () => ({
       ...fieldRequirementFormatErrors(displayItems, customer),
-      ...getCustomerErrors(customer, addressFieldsToCheck),
+      // DELIVERY COUNTRY SCOPE v1 -- les motifs viennent du pays
+      // résolu (L1), jamais d'une hypothèse française.
+      ...getCustomerErrors(customer, addressFieldsToCheck, {
+        postalCodePattern: countryValidation.postalCodePattern,
+        phonePattern: countryValidation.phonePattern,
+        deliveryCountryMissing: countryValidation.countryMissing,
+        postalCodeErrorKey: countryValidation.postalCodeErrorKey,
+      }),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [displayItems, customer, addressRequirement, addressAnySubfieldFilled]
+    [
+      displayItems,
+      customer,
+      addressRequirement,
+      addressAnySubfieldFilled,
+      countryValidation.postalCodePattern,
+      countryValidation.phonePattern,
+      countryValidation.countryMissing,
+      countryValidation.postalCodeErrorKey,
+    ]
   );
   const customerFormatValid = Object.keys(customerErrors).length === 0;
 
@@ -1061,7 +1133,10 @@ export default function MenuView({
     fieldRequirementsReady &&
     missingRequired.length === 0 &&
     unsatisfiedGroups.length === 0 &&
-    customerFormatValid;
+    customerFormatValid &&
+    // DELIVERY COUNTRY SCOPE v1.1 -- livraison sans pays résolu :
+    // jamais de soumission, même si aucun champ d'adresse n'est vérifié.
+    !countryValidation.countryMissing;
 
   /** Contexte de commande complet, ou null si le client n'a pas fini. */
   const orderContext: OrderContext | null = useMemo(() => {
@@ -1267,6 +1342,9 @@ export default function MenuView({
         // Sans effet pour un marchand non CGV_ACTIVE (comportement
         // historique inchangé).
         cgvAccepted,
+        // DELIVERY COUNTRY SCOPE v1 -- pays RÉSOLU depuis la
+        // configuration du marchand, jamais une constante.
+        deliveryCountryCode: deliveryCountry?.countryCode ?? null,
       });
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -1580,6 +1658,9 @@ export default function MenuView({
       {isCartOpen && (
         <CartPanel
           restaurant={restaurant}
+          deliveryCountry={deliveryCountry}
+          deliveryCountryOptions={deliveryCountryChoices}
+          onSelectDeliveryCountry={setSelectedCountryCode}
           lines={lines}
           totalCount={totalCount}
           totalPrice={totalPrice}

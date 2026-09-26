@@ -117,6 +117,19 @@ function renderSelector(container: HTMLElement, customer: typeof EMPTY_CUSTOMER,
   const root = createRoot(container);
   root.render(
     React.createElement(FulfillmentSelector, {
+      // DELIVERY COUNTRY SCOPE v1 -- ce harnais monte FulfillmentSelector
+      // directement ; il doit donc fournir la configuration pays que
+      // MenuView fournit en production. Aucune assertion n'est modifiée :
+      // seule la configuration, auparavant supposée française par le
+      // code, est désormais explicite.
+      deliveryCountry: {
+        countryCode: "FR",
+        countryName: "France",
+        postalCodePattern: "^[0-9]{5}$",
+        phonePattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+        addressProvider: "ban_ign",
+        addressLineOrder: "number_first",
+      },
       deliveryModeAvailable: true,
       status: NO_POSTAL_STATUS,
       type: "delivery",
@@ -271,7 +284,20 @@ test("LOT ADDRESS v1 §10/§25: modifier le code postal (étape A) APRÈS une s�
   function rerender() {
     root.render(
       React.createElement(FulfillmentSelector, {
-        deliveryModeAvailable: true,
+        // DELIVERY COUNTRY SCOPE v1 -- ce harnais monte FulfillmentSelector
+      // directement ; il doit donc fournir la configuration pays que
+      // MenuView fournit en production. Aucune assertion n'est modifiée :
+      // seule la configuration, auparavant supposée française par le
+      // code, est désormais explicite.
+      deliveryCountry: {
+        countryCode: "FR",
+        countryName: "France",
+        postalCodePattern: "^[0-9]{5}$",
+        phonePattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+        addressProvider: "ban_ign",
+        addressLineOrder: "number_first",
+      },
+      deliveryModeAvailable: true,
         status: NO_POSTAL_STATUS,
         type: "delivery",
         customer,
@@ -331,7 +357,20 @@ test("LOT ADDRESS v1 §10: éditer le code postal AVANT toute sélection IGN (sa
   function rerender() {
     root.render(
       React.createElement(FulfillmentSelector, {
-        deliveryModeAvailable: true,
+        // DELIVERY COUNTRY SCOPE v1 -- ce harnais monte FulfillmentSelector
+      // directement ; il doit donc fournir la configuration pays que
+      // MenuView fournit en production. Aucune assertion n'est modifiée :
+      // seule la configuration, auparavant supposée française par le
+      // code, est désormais explicite.
+      deliveryCountry: {
+        countryCode: "FR",
+        countryName: "France",
+        postalCodePattern: "^[0-9]{5}$",
+        phonePattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+        addressProvider: "ban_ign",
+        addressLineOrder: "number_first",
+      },
+      deliveryModeAvailable: true,
         status: NO_POSTAL_STATUS,
         type: "delivery",
         customer,

@@ -187,6 +187,8 @@ test("GP-03 charge create_order : contrat exact pour CHAQUE mode (table/pickup/d
         postalCode: null,
         street: null,
         city: null,
+        // DELIVERY COUNTRY SCOPE v1 : le pays voyage explicitement.
+        country: null,
       },
       p_note: null,
       p_language: "fr",
@@ -212,6 +214,10 @@ test("GP-03 charge create_order : contrat exact pour CHAQUE mode (table/pickup/d
         postalCode: "75001",
         street: "12 rue des Lilas",
         city: "Paris",
+        // DELIVERY COUNTRY SCOPE v1 : `null` quand l'appelant ne
+        // transmet aucun pays (cas historique) -- le serveur le résout
+        // alors depuis la configuration du marchand.
+        country: null,
       },
       p_note: null,
       p_language: "fr",

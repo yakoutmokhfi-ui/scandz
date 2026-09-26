@@ -284,6 +284,20 @@ function mockRpcDelivery(t: { mock: { method: Function } }, createOrderCalls: { 
       return { data: [], error: null };
     }
     if (name === "get_restaurant_public_delivery_info") return { data: [DELIVERY_INFO_PARIS], error: null };
+    // DELIVERY COUNTRY SCOPE v1.1 -- configuration L2 du locataire (FR),
+    // désormais EXIGÉE : sans pays de livraison résolu, le checkout
+    // livraison échoue fermé (DCS-COUNTRY-UI-02). Configuration seule,
+    // aucune assertion modifiée.
+    if (name === "get_restaurant_public_delivery_countries") {
+      return { data: [{
+            country_code: "FR",
+            country_name: "France",
+            postal_code_pattern: "^[0-9]{5}$",
+            phone_pattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+            address_provider: "ban_ign",
+            address_line_order: "number_first",
+          }], error: null };
+    }
     if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
     if (name === "create_order") {
       createOrderCalls.count += 1;

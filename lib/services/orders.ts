@@ -56,6 +56,8 @@ export async function createOrder(params: {
   note?: string | null;
   /** SELLER LEGAL PROFILE + CGV ENGINE v1 -- voir buildCreateOrderPayload. */
   cgvAccepted?: boolean;
+  /** DELIVERY COUNTRY SCOPE v1 -- voir buildCreateOrderPayload. */
+  deliveryCountryCode?: string | null;
 }): Promise<CreatedOrder> {
   const payload = buildCreateOrderPayload(params);
 
