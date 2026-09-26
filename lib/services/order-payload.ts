@@ -48,8 +48,15 @@ export function buildCreateOrderPayload(params: {
    *  qu'avant pour un marchand non CGV_ACTIVE, et est bloqué serveur
    *  (jamais silencieusement autorisé) pour un marchand CGV_ACTIVE. */
   cgvAccepted?: boolean;
+  /** DELIVERY COUNTRY SCOPE v1 -- pays de livraison RÉSOLU côté écran,
+   *  depuis la configuration du marchand (L2). Jamais choisi par le
+   *  client quand un seul pays est autorisé, jamais deviné depuis le
+   *  code postal. Omis (undefined) par un appelant historique : le
+   *  serveur résout alors le pays lui-même s'il n'y en a qu'un, et
+   *  refuse s'il y en a plusieurs. */
+  deliveryCountryCode?: string | null;
 }): CreateOrderPayload {
-  const { slug, context, lines, lang, note, cgvAccepted } = params;
+  const { slug, context, lines, lang, note, cgvAccepted, deliveryCountryCode } = params;
 
   const items = lines.map((l) => ({
     menu_item_id: l.item.id,
@@ -106,6 +113,14 @@ export function buildCreateOrderPayload(params: {
           city:
             context.mode === "delivery"
               ? context.customer.city?.trim() || null
+              : null,
+          // DELIVERY COUNTRY SCOPE v1 -- le pays voyage EXPLICITEMENT.
+          // Le serveur le revérifie contre les pays autorisés de CET
+          // établissement : ce champ est une déclaration, jamais une
+          // autorisation.
+          country:
+            context.mode === "delivery"
+              ? deliveryCountryCode?.trim().toUpperCase() || null
               : null,
         };
 

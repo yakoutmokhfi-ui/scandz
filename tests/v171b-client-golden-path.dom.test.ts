@@ -360,6 +360,18 @@ function installBackend(
       }
       case "get_restaurant_public_field_requirements":
         return { data: FIELD_REQUIREMENTS[args.p_mode_code] ?? [], error: null };
+      // DELIVERY COUNTRY SCOPE v1 -- ces locataires sont français ;
+      // leur configuration L2 le dit désormais explicitement, au lieu
+      // d'être supposée par le code.
+      case "get_restaurant_public_delivery_countries":
+        return { data: [{
+            country_code: "FR",
+            country_name: "France",
+            postal_code_pattern: "^[0-9]{5}$",
+            phone_pattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$",
+            address_provider: "ban_ign",
+            address_line_order: "number_first",
+          }], error: null };
       case "get_restaurant_public_delivery_info":
         return { data: [], error: null };
       case "get_restaurant_public_delivery_fulfillments": {
@@ -701,6 +713,8 @@ test("GP-DOM-02 pickup : coordonnées requises -> create_order sans adresse -> c
         postalCode: null,
         street: null,
         city: null,
+        // DELIVERY COUNTRY SCOPE v1 : `null` hors livraison.
+        country: null,
       },
       p_note: null,
       p_language: "fr",
@@ -758,6 +772,10 @@ test("GP-DOM-03 delivery : zone éligible, frais estimé affiché (28,20 + 2,50 
         postalCode: "75001",
         street: "12 rue des Lilas",
         city: "Paris",
+        // DELIVERY COUNTRY SCOPE v1 : pays RÉSOLU depuis la
+        // configuration du marchand (L2 = {FR}), jamais saisi par le
+        // client ni codé en dur dans l'écran.
+        country: "FR",
       },
       p_note: null,
       p_language: "fr",

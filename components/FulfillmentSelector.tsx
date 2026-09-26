@@ -3,7 +3,15 @@
 import { useState } from "react";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryStatus } from "@/lib/delivery";
-import { type CustomerInfo, isValidPostalCode } from "@/lib/customer";
+import { type CustomerInfo } from "@/lib/customer";
+// DELIVERY COUNTRY SCOPE v1 -- la validation du code postal et le choix
+// du fournisseur d'adresse viennent désormais du PAYS RÉSOLU, jamais
+// d'une hypothèse française codée en dur.
+import {
+  type DeliveryCountryOption,
+  isValidPostalCodeFor,
+  supportsAutocomplete,
+} from "@/lib/delivery-country";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
 import type { StructuredCustomerAddress } from "@/lib/address-types";
 import { useI18n } from "@/lib/i18n-context";
@@ -174,6 +182,9 @@ export default function FulfillmentSelector({
   onChangeCustomer,
   onSelectFulfillment,
   whatsappEnabled = true,
+  deliveryCountry = null,
+  deliveryCountryOptions = [],
+  onSelectDeliveryCountry,
 }: {
   status: DeliveryStatus;
   type: ServiceMode | null;
@@ -192,6 +203,15 @@ export default function FulfillmentSelector({
    *  confidentialité SANS WhatsApp. Défaut `true` (comportement
    *  historique pour tout appelant existant). */
   whatsappEnabled?: boolean;
+  /** DELIVERY COUNTRY SCOPE v1 -- pays de livraison RÉSOLU pour cet
+   *  établissement, ou `null` tant qu'aucun ne l'est. Vient du serveur
+   *  (L2 jointe à L1) ; ce composant ne le devine jamais. */
+  deliveryCountry?: DeliveryCountryOption | null;
+  /** Pays proposés au choix. Rendu SEULEMENT s'il y en a plus d'un
+   *  (décision CIO Q15) : un sélecteur à une seule valeur donnerait
+   *  l'illusion d'un choix qui n'existe pas. */
+  deliveryCountryOptions?: DeliveryCountryOption[];
+  onSelectDeliveryCountry?: (countryCode: string) => void;
 }) {
   const { t } = useI18n();
   const err = (k: keyof CustomerInfo) =>
@@ -387,7 +407,12 @@ export default function FulfillmentSelector({
    */
   function renderDeliveryAddress() {
     const postalCode = customer.postalCode;
-    const postalReady = isValidPostalCode(postalCode);
+    // DELIVERY COUNTRY SCOPE v1 -- « prêt » signifie désormais « au
+    // format DE CE PAYS », et l'autocomplétion n'est offerte que si ce
+    // pays dispose réellement d'un fournisseur. Sans pays résolu, rien
+    // n'est proposé : fail-closed.
+    const postalReady =
+      isValidPostalCodeFor(deliveryCountry, postalCode) && supportsAutocomplete(deliveryCountry);
 
     /** Étape A (postalCode/city) éditée par le client. */
     function handleStageAFieldChange(patch: Partial<CustomerInfo>) {
@@ -422,6 +447,20 @@ export default function FulfillmentSelector({
       setSelectionConfirmed(true);
     }
 
+    /** DELIVERY COUNTRY SCOPE v1.1 (DCS-COUNTRY-UI-02) -- changement de
+     *  pays : une rue SÉLECTIONNÉE chez le fournisseur du pays précédent
+     *  n'appartient pas au nouveau pays -- elle est effacée, comme pour
+     *  un changement de code postal/ville (même règle §10/§25). Une
+     *  saisie manuelle pure n'est jamais touchée. La revalidation du
+     *  code postal pour le nouveau pays est faite par le parent. */
+    function handleCountryChange(countryCode: string) {
+      if (selectionConfirmed) {
+        onChangeCustomer({ street: "" });
+        setSelectionConfirmed(false);
+      }
+      onSelectDeliveryCountry?.(countryCode);
+    }
+
     /** Frappe brute (mission §11/§12) : jamais une sélection formelle
      *  -- la rue tapée reste directement utilisable comme valeur
      *  manuelle, `selectionConfirmed` redevient false (une frappe
@@ -445,7 +484,7 @@ export default function FulfillmentSelector({
           addressLine: customer.street,
           postalCode: customer.postalCode,
           city: customer.city,
-          countryCode: "FR",
+          countryCode: deliveryCountry?.countryCode ?? "",
         }
       : null;
 
@@ -458,6 +497,43 @@ export default function FulfillmentSelector({
       // aussi porter les champs nom/téléphone/email AU-DESSUS de ce
       // bloc selon l'ordre backend de displayItems).
       <div key="delivery_address" id="delivery-address-section" className="space-y-3">
+        {/* DELIVERY COUNTRY SCOPE v1 (décision CIO Q15) -- le sélecteur
+            n'existe QUE si plusieurs pays sont réellement autorisés pour
+            CET établissement. Avec un seul pays, il est résolu et
+            simplement rappelé, non modifiable. */}
+        {deliveryCountryOptions.length > 1 ? (
+          <div>
+            <label
+              htmlFor="delivery-country"
+              className="mb-1 block text-xs font-semibold text-stone-600"
+            >
+              {t("fieldCountry")}
+            </label>
+            <select
+              id="delivery-country"
+              data-testid="delivery-country-select"
+              value={deliveryCountry?.countryCode ?? ""}
+              onChange={(e) => handleCountryChange(e.target.value)}
+              className="w-full rounded-xl border border-stone-300 bg-white p-2.5 text-base text-stone-900 sm:text-sm"
+            >
+              <option value="">{t("countryChoosePrompt")}</option>
+              {deliveryCountryOptions.map((c) => (
+                <option key={c.countryCode} value={c.countryCode}>
+                  {c.countryName}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : deliveryCountry ? (
+          <p
+            data-testid="delivery-country-context"
+            data-country-code={deliveryCountry.countryCode}
+            className="text-xs text-stone-500"
+          >
+            {t("countryDeliveryContext", { country: deliveryCountry.countryName })}
+          </p>
+        ) : null}
+
         <div className="grid grid-cols-[7rem_1fr] gap-3">
           <Field
             id="postalCode"
@@ -487,7 +563,10 @@ export default function FulfillmentSelector({
           // remonte uniquement sur une véritable édition de l'étape A,
           // jamais sur une sélection qui réécrit postalCode/city.
           <AddressAutocomplete
-            key={addressContext}
+            // v1.1 : le pays fait partie du contexte -- un changement de
+            // pays remonte l'aide de recherche (aucune suggestion d'un
+            // autre pays ne survit).
+            key={`${deliveryCountry?.countryCode ?? ""}|${addressContext}`}
             value={currentAddressValue}
             onChange={handleAddressSelected}
             onQueryChange={handleQueryChange}

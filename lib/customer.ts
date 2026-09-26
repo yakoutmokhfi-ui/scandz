@@ -81,9 +81,48 @@ export function isValidPostalCode(value: string): boolean {
 }
 
 /** Clés de traduction des erreurs, par champ. */
+/**
+ * DELIVERY COUNTRY SCOPE v1 -- motifs de validation FOURNIS PAR LE
+ * SERVEUR, pour le pays réellement résolu.
+ *
+ * Omis (appelant historique) : les règles FRANÇAISES d'origine
+ * s'appliquent, à l'identique. Fournis : elles sont remplacées. Aucun
+ * appelant existant ne change de comportement, et aucun pays n'est
+ * plus supposé.
+ */
+export interface CustomerValidationPatterns {
+  postalCodePattern?: string | null;
+  phonePattern?: string | null;
+  /** v1.1 (DCS-COUNTRY-UI-02) -- `true` : livraison SANS pays résolu.
+   *  Le code postal est alors REFUSÉ (`errDeliveryCountryRequired`),
+   *  jamais validé avec les règles historiques françaises à la place du
+   *  pays manquant. Omis : comportement v1 inchangé. */
+  deliveryCountryMissing?: boolean;
+  /** v1.1 -- clé i18n du message de FORMAT postal pour le pays résolu
+   *  (voir postalCodeErrorKeyFor, lib/delivery-country.ts). Omise :
+   *  `errPostalCode`, comportement historique inchangé. */
+  postalCodeErrorKey?: string | null;
+}
+
+function matchesOrDefault(
+  pattern: string | null | undefined,
+  value: string,
+  fallback: (v: string) => boolean
+): boolean {
+  if (pattern === undefined || pattern === null || pattern === "") return fallback(value);
+  try {
+    return new RegExp(pattern).test(value.trim());
+  } catch {
+    // Motif corrompu : on ne punit pas le client d'un défaut de NOTRE
+    // configuration. Le serveur, seule autorité, tranchera.
+    return true;
+  }
+}
+
 export function getCustomerErrors(
   c: CustomerInfo,
-  required: (keyof CustomerInfo)[]
+  required: (keyof CustomerInfo)[],
+  patterns: CustomerValidationPatterns = {}
 ): Partial<Record<keyof CustomerInfo, string>> {
   const errors: Partial<Record<keyof CustomerInfo, string>> = {};
 
@@ -107,13 +146,25 @@ export function getCustomerErrors(
         if (c.street.trim().length < 5) errors.street = "errStreet";
         break;
       case "postalCode":
-        if (!isValidPostalCode(c.postalCode)) errors.postalCode = "errPostalCode";
+        if (patterns.deliveryCountryMissing === true) {
+          errors.postalCode = "errDeliveryCountryRequired";
+        } else if (!matchesOrDefault(patterns.postalCodePattern, c.postalCode, isValidPostalCode)) {
+          errors.postalCode = patterns.postalCodeErrorKey || "errPostalCode";
+        }
         break;
       case "city":
         if (c.city.trim().length < 2) errors.city = "errCity";
         break;
       case "phone":
-        if (!isValidPhone(c.phone)) errors.phone = "errPhone";
+        if (
+          !matchesOrDefault(
+            patterns.phonePattern,
+            c.phone.replace(/[\s.\-]/g, ""),
+            isValidPhone
+          )
+        ) {
+          errors.phone = "errPhone";
+        }
         break;
       case "email":
         if (!isValidEmail(c.email)) errors.email = "errEmail";

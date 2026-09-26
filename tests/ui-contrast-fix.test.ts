@@ -634,7 +634,11 @@ test("UIFIX-V5-01: le mécanisme causal est couvert -- body hérite text-ink-on-
 test("UIFIX-V5-01: inventaire exhaustif -- les 9 surfaces blanches publiques ont une couleur sûre sur la surface ou sur chacun de leurs contenus directs", () => {
   const expectedCounts: Record<string, number> = {
     CartPanel: 1,
-    FulfillmentSelector: 2,
+    // DELIVERY COUNTRY SCOPE v1 : +1 surface -- le <select> de pays,
+    // rendu uniquement quand plusieurs pays de livraison sont autorisés.
+    // Il porte `text-stone-900`, donc l'exigence de couleur sûre de ce
+    // test reste pleinement appliquée à cette nouvelle surface.
+    FulfillmentSelector: 3,
     InlineOptions: 1,
     MenuItemCard: 1,
     OptionModal: 2,
@@ -684,7 +688,10 @@ test("UIFIX-V5-01: inventaire exhaustif -- les 9 surfaces blanches publiques ont
       }
     }
   }
-  assert.equal(total, 9, "l'inventaire public v5 doit couvrir exactement 9 surfaces blanches");
+  // DELIVERY COUNTRY SCOPE v1 : 9 -> 10 (sélecteur de pays de
+  // livraison). Le total reste EXACT et exhaustif : toute surface
+  // blanche supplémentaire non auditée fera encore échouer ce test.
+  assert.equal(total, 10, "l'inventaire public v5 doit couvrir exactement 10 surfaces blanches");
 });
 
 test("UIFIX-V6-01: OptionModal sépare réellement la couleur du libellé sur blanc et celle du compteur sur bg-crema", () => {
