@@ -216,6 +216,14 @@ const fr: Dict = {
   deliveryTimingNoticeConfirm: "J'ai compris, continuer",
   pickup: "À emporter",
   delivery: "Livraison",
+  // PRODUCT SERVICE MODES v1 -- réutilise pickup/delivery/modeTable
+  // ci-dessus pour {mode}/{modes} (jamais un second jeu de libellés de
+  // mode) : la carte publique (badge produit, MenuItemCard.tsx) et le
+  // panier (blocage panier mixte, CartPanel.tsx) composent ces clés
+  // avec ces mêmes libellés, voir lib/service-mode-restrictions.ts.
+  modeOnlyLabel: "{mode} uniquement",
+  modeSubsetLabel: "Disponible pour : {modes}",
+  serviceModeBlockedByCart: "{mode} indisponible avec ce panier : {items}.",
   pickupNote: "Nous vous confirmons l'heure et le lieu de retrait par message.",
   deliveryNote: "Nous vous confirmons le créneau de livraison par message.",
   deliveryFree: "Livraison offerte — {zone}.",
@@ -1063,6 +1071,11 @@ const en: Dict = {
   deliveryTimingNoticeConfirm: "I understand, continue",
   pickup: "Pickup",
   delivery: "Delivery",
+  // PRODUCT SERVICE MODES v1 -- see the French block for the full
+  // rationale (reuses pickup/delivery/modeTable for {mode}/{modes}).
+  modeOnlyLabel: "{mode} only",
+  modeSubsetLabel: "Available for: {modes}",
+  serviceModeBlockedByCart: "{mode} unavailable with this basket: {items}.",
   pickupNote: "We will confirm the pickup time and place by message.",
   deliveryNote: "We will confirm the delivery slot by message.",
   deliveryFree: "Free delivery — {zone}.",
@@ -1827,6 +1840,11 @@ const ar: Dict = {
   deliveryTimingNoticeConfirm: "فهمت، متابعة",
   pickup: "استلام من المحل",
   delivery: "توصيل",
+  // PRODUCT SERVICE MODES v1 -- انظر الكتلة الفرنسية للتفاصيل الكاملة
+  // (يعاد استخدام pickup/delivery/modeTable لـ {mode}/{modes}).
+  modeOnlyLabel: "{mode} فقط",
+  modeSubsetLabel: "متوفر لـ: {modes}",
+  serviceModeBlockedByCart: "{mode} غير متاح مع هذه السلة: {items}.",
   pickupNote: "سنؤكد لك وقت ومكان الاستلام برسالة.",
   deliveryNote: "سنؤكد لك موعد التوصيل برسالة.",
   deliveryFree: "التوصيل مجاني — {zone}.",

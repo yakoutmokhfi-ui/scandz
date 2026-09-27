@@ -19,6 +19,8 @@ import {
   isSubcategoryCategoryMismatchError,
   isProductDuplicateNameError,
   isTaxRateRequiredForAvailabilityError,
+  isServiceModesEmptyRestrictionError,
+  isInvalidSaleModeForEstablishmentError,
   ShortDescriptionTooLongError,
   DescriptionTooLongError,
   CategoryDuplicateNameError,
@@ -28,6 +30,8 @@ import {
   SubcategoryCategoryMismatchError,
   ProductDuplicateNameError,
   TaxRateRequiredForAvailabilityError,
+  ServiceModesEmptyRestrictionError,
+  InvalidSaleModeForEstablishmentError,
 } from "@/lib/services/catalogue-error";
 
 export {
@@ -39,6 +43,8 @@ export {
   SubcategoryCategoryMismatchError,
   ProductDuplicateNameError,
   TaxRateRequiredForAvailabilityError,
+  ServiceModesEmptyRestrictionError,
+  InvalidSaleModeForEstablishmentError,
 } from "@/lib/services/catalogue-error";
 
 export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
@@ -409,6 +415,14 @@ export interface CatalogueProduct {
    *  l'éligibilité est une décision explicite du marchand, jamais
    *  déduite d'une catégorie, d'un nom ou d'un régime. */
   withdrawal_eligible: boolean;
+  /** PRODUCT SERVICE MODES v1 -- sous-ensemble des modes de service de
+   *  l'établissement auquel ce produit est restreint (menu_item_sale_modes,
+   *  résolu par get_merchant_catalogue). `null` = ALL (aucune restriction,
+   *  sémantique ALL-par-absence) -- jamais un tableau vide en pratique
+   *  (rejeté à la source par create_product/update_product). Strictement
+   *  indépendant de `withdrawal_eligible` ci-dessus -- aucun couplage,
+   *  aucune inférence croisée entre les deux attributs (exigence CIO). */
+  allowed_sale_modes: string[] | null;
 }
 
 /**
@@ -470,6 +484,11 @@ export async function getMerchantCatalogue(
      *  (colonne absente de la réponse) : repli défensif `false`
      *  ci-dessous, jamais `true` (fail-closed). */
     withdrawal_eligible: boolean | null;
+    /** PRODUCT SERVICE MODES v1 -- dernière colonne de
+     *  get_merchant_catalogue. `null`/absente = ALL (aucune
+     *  restriction) -- repli défensif identique ci-dessous, jamais un
+     *  tableau vide inventé. */
+    allowed_sale_modes: string[] | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -574,6 +593,12 @@ export async function getMerchantCatalogue(
       // valeur (base non migrée) n'est JAMAIS interprétée comme
       // « éligible », jamais l'inverse du défaut de la migration.
       withdrawal_eligible: r.withdrawal_eligible ?? false,
+      // PRODUCT SERVICE MODES v1 -- même repli défensif que les autres
+      // colonnes optionnelles ci-dessus : une base non encore migrée
+      // (colonne absente de get_merchant_catalogue) renverrait
+      // `undefined`, ramené à `null` (ALL) -- jamais un tableau vide
+      // inventé, qui se lirait à tort comme "restreint à rien".
+      allowed_sale_modes: r.allowed_sale_modes ?? null,
     });
   }
   return categories;
@@ -620,6 +645,22 @@ export interface ProductFiscalInput {
    *  lors d'une mise à jour : `update_product` réécrit toujours la
    *  colonne, il n'existe aucun « ne pas toucher » côté serveur. */
   withdrawalEligible?: boolean;
+  /** PRODUCT SERVICE MODES v1 -- sous-ensemble des modes de service de
+   *  l'établissement auquel ce produit est restreint. `undefined`/`null`
+   *  => `null` transmis à la RPC, EXACTEMENT le défaut serveur
+   *  (p_allowed_sale_modes text[] default null = ALL, sémantique
+   *  ALL-par-absence). Un tableau VIDE est refusé par la RPC elle-même
+   *  (SCANYM_SERVICE_MODES_EMPTY_RESTRICTION, jamais un repli silencieux
+   *  sur ALL) -- ce service ne le filtre jamais avant l'appel, il
+   *  relaie l'erreur serveur telle quelle (voir throwFiscalOrCatalogueError).
+   *  Comme `withdrawalEligible` ci-dessus, `update_product` réécrit
+   *  TOUJOURS l'ensemble des restrictions (suppression + réinsertion
+   *  complète côté base) : chaque appelant doit donc transmettre la
+   *  valeur COURANTE du produit lors d'une mise à jour, il n'existe
+   *  aucun « ne pas toucher ». Strictement indépendant de
+   *  `withdrawalEligible` -- aucun couplage, aucune inférence croisée
+   *  entre les deux attributs (exigence CIO). */
+  allowedSaleModes?: string[] | null;
 }
 
 function throwFiscalOrCatalogueError(error: { code?: string | null; message?: string | null }): never {
@@ -631,6 +672,10 @@ function throwFiscalOrCatalogueError(error: { code?: string | null; message?: st
   // (jamais ne désactive silencieusement) l'effacement de la TVA d'un
   // produit actuellement disponible ; voir isTaxRateRequiredForAvailabilityError.
   if (isTaxRateRequiredForAvailabilityError(error)) throw new TaxRateRequiredForAvailabilityError();
+  // PRODUCT SERVICE MODES v1 -- vérifiés AVANT le repli générique,
+  // même patron exact que les autres codes ci-dessus.
+  if (isServiceModesEmptyRestrictionError(error)) throw new ServiceModesEmptyRestrictionError();
+  if (isInvalidSaleModeForEstablishmentError(error)) throw new InvalidSaleModeForEstablishmentError();
   throw new Error(error.message ?? "Unknown error");
 }
 
@@ -661,9 +706,13 @@ export async function updateProduct(
     p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
     p_subcategory_id: subcategoryId,
-    // ONLINE WITHDRAWAL v1 -- DERNIER paramètre de la RPC (voir la
-    // migration). `?? false` reproduit à l'identique le défaut serveur.
+    // ONLINE WITHDRAWAL v1 -- `?? false` reproduit à l'identique le
+    // défaut serveur.
     p_withdrawal_eligible: fiscal.withdrawalEligible ?? false,
+    // PRODUCT SERVICE MODES v1 -- DERNIER paramètre de la RPC (voir la
+    // migration, patron drop+create déjà établi). `?? null` reproduit
+    // à l'identique le défaut serveur (ALL-par-absence).
+    p_allowed_sale_modes: fiscal.allowedSaleModes ?? null,
   });
   if (error) throwFiscalOrCatalogueError(error);
 }
@@ -689,6 +738,8 @@ export async function createProduct(
     p_subcategory_id: subcategoryId,
     // ONLINE WITHDRAWAL v1 -- voir updateProduct ci-dessus.
     p_withdrawal_eligible: fiscal.withdrawalEligible ?? false,
+    // PRODUCT SERVICE MODES v1 -- voir updateProduct ci-dessus.
+    p_allowed_sale_modes: fiscal.allowedSaleModes ?? null,
   });
   if (error) {
     // OB-4 v1.1 -- vérifié EN PREMIER, avant le repli générique fiscal/

@@ -157,6 +157,10 @@ test("[TAGGED/MULTI/UNTAGGED] getRestaurantBySlug pose les tags publiés, ordonn
     subcategory_display_order: null,
     subcategory_name_hash: null,
     subcategory_translations: null,
+    // PRODUCT SERVICE MODES v1 -- même origine que les champs
+    // subcategory_* ci-dessus (résolu côté service) : `null` = ALL,
+    // aucune ligne menu_item_sale_modes pour ce produit dans ce mock.
+    allowed_sale_modes: null,
   });
 
   assert.deepEqual(rpcCalls, [{ name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } }]);

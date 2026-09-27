@@ -11,6 +11,7 @@ import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import ProductTags from "@/components/ProductTags";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
+import { frontendRestrictedModes, serviceModeNameKey } from "@/lib/service-mode-restrictions";
 
 // CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §9/§10) --
 // AUCUN champ technique séparé de poids/prix-au-kg n'est ajouté à la
@@ -74,6 +75,32 @@ export default function MenuItemCard({
       : "rounded-2xl bg-crema p-3 shadow-md shadow-espresso/5";
   const imageRadius = variant === "editorial" ? "rounded-md" : "rounded-xl";
 
+  // PRODUCT SERVICE MODES v1 -- badge "Retrait uniquement"-style
+  // (issue #11, décision CIO). Réutilise pickup/delivery/modeTable
+  // (lib/i18n.ts) pour {mode}/{modes} -- jamais un second jeu de
+  // libellés de mode ("Retrait" vs "À emporter" ailleurs sur la même
+  // carte). bg-amber-50/text-amber-900 : même paire à contraste élevé
+  // déjà utilisée pour toute information de restriction/avertissement
+  // dans ce dépôt (FulfillmentSelector "warn", submitError,
+  // invoiceRequestError) -- jamais une pastille de couleur seule
+  // (règle SCANYM globale : l'information importante ne dépend jamais
+  // d'un contraste faible ni de la seule couleur). `null` = produit
+  // disponible pour TOUS les modes de l'établissement -- aucun badge.
+  const restrictedModes = frontendRestrictedModes(item);
+  const restrictionBadge =
+    restrictedModes && restrictedModes.length > 0 ? (
+      <span
+        data-testid="service-mode-restriction-badge"
+        className="mt-1 inline-block w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900"
+      >
+        {restrictedModes.length === 1
+          ? t("modeOnlyLabel", { mode: t(serviceModeNameKey(restrictedModes[0])) })
+          : t("modeSubsetLabel", {
+              modes: restrictedModes.map((m) => t(serviceModeNameKey(m))).join(", "),
+            })}
+      </span>
+    ) : null;
+
   if (isInline) {
     return (
       <article className={cardClasses}>
@@ -109,6 +136,7 @@ export default function MenuItemCard({
               </p>
             )}
             <ProductTags tags={item.customer_tags} label={tagsLabel} />
+            {restrictionBadge}
             <div className="mt-auto flex items-baseline justify-between gap-2 pt-2">
               <span className="font-bold text-accent-dark-on-bg">
                 <Ltr>{formatPrice(item.price, currency)}</Ltr>
@@ -165,6 +193,7 @@ export default function MenuItemCard({
           </p>
         )}
         <ProductTags tags={item.customer_tags} label={tagsLabel} />
+        {restrictionBadge}
 
         <div className="mt-auto pt-2">
           <div className="flex items-end justify-between gap-2">

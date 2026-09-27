@@ -47,7 +47,7 @@ export async function getRestaurantBySlug(
       menu_categories (
         *,
         menu_subcategories ( id, category_id, name, display_order, name_hash, translations ),
-        menu_items!menu_items_category_id_fkey ( * )
+        menu_items!menu_items_category_id_fkey ( *, menu_item_sale_modes ( mode_code ) )
       ),
       restaurant_active_languages (
         language_code, display_order,
@@ -118,10 +118,22 @@ export async function getRestaurantBySlug(
           // construction, même sans être affichée -- le retrait est
           // fait ICI, à la frontière, plutôt que de compter sur le fait
           // qu'aucun composant ne l'affiche.
-          const { withdrawal_eligible: _internalWithdrawalEligible, ...publicItem } =
-            i as typeof i & { withdrawal_eligible?: boolean };
+          const {
+            withdrawal_eligible: _internalWithdrawalEligible,
+            menu_item_sale_modes: _rawSaleModes,
+            ...publicItem
+          } = i as typeof i & {
+            withdrawal_eligible?: boolean;
+            menu_item_sale_modes?: { mode_code: string }[] | null;
+          };
+          // PRODUCT SERVICE MODES v1 -- même sémantique ALL-par-absence
+          // qu'en base : aucune ligne => null (ALL), jamais un tableau
+          // vide. L'embed PostgREST renvoie [] (pas null) quand aucune
+          // ligne n'existe, d'où la conversion explicite ici.
+          const allowedSaleModes = (_rawSaleModes ?? []).map((m) => m.mode_code);
           return {
             ...publicItem,
+            allowed_sale_modes: allowedSaleModes.length > 0 ? allowedSaleModes : null,
             subcategory_name: sub?.name ?? null,
             subcategory_display_order: sub?.display_order ?? null,
             // TRANSLATIONS MANAGEMENT v2 -- hash et traductions de LA

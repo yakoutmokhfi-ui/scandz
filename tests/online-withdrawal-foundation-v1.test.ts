@@ -326,13 +326,26 @@ test("U — l'attribut marchand ne fuit sur aucun chemin client", () => {
   const publicService = readFileSync(path.join(repoRoot, "lib", "services", "restaurant.ts"), "utf8");
   // La requête publique fait `menu_items(*)` : le retrait est donc fait
   // explicitement à la frontière, avant sérialisation vers le client.
+  //
+  // PRODUCT SERVICE MODES v1 -- la même destructuration retire
+  // désormais AUSSI `menu_item_sale_modes` (l'embed PostgREST brut,
+  // converti en `allowed_sale_modes` juste après -- voir plus bas dans
+  // ce même fichier), ce qui l'a fait passer sur plusieurs lignes.
+  // Regex non-gourmande (jamais un simple contains) : capture
+  // précisément DU `const {` d'ouverture JUSQU'AU `}` de fermeture de
+  // CETTE déstructuration (celui qui suit `...publicItem`), pas
+  // au-delà -- continue donc à prouver EXACTEMENT la même propriété
+  // qu'avant ce lot (retrait explicite avant l'étalement), tolérante
+  // au formatage multi-lignes et à l'ordre des champs retirés.
   assert.match(
     publicService,
-    /const \{ withdrawal_eligible: _internalWithdrawalEligible, \.\.\.publicItem \}/,
+    /const \{[\s\S]*?withdrawal_eligible: _internalWithdrawalEligible,[\s\S]*?\.\.\.publicItem[\s\S]*?\}/,
     "retrait explicite avant l'étalement public"
   );
   assert.ok(
-    !/\.\.\.i,/.test(publicService.slice(publicService.indexOf("const { withdrawal_eligible"))),
+    !/\.\.\.i,/.test(
+      publicService.slice(publicService.indexOf("withdrawal_eligible: _internalWithdrawalEligible"))
+    ),
     "l'objet brut n'est plus étalé après le retrait"
   );
 
