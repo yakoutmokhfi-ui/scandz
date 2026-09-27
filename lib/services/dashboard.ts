@@ -8,6 +8,7 @@ import type {
   OperatorOrderSummary,
   OrderStatus,
   ReceiptSettings,
+  WithdrawalRequestRow,
 } from "@/lib/dashboard-types";
 import {
   isShortDescriptionTooLongError,
@@ -103,6 +104,34 @@ export async function getDashboardOrders(
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as DashboardOrder[];
+}
+
+/**
+ * GAP-01 -- lecture backoffice des demandes de rétractation reçues par
+ * un établissement (public.withdrawal_requests). RLS ("restaurant
+ * members read own withdrawal requests", DRAFT-lot-gap-01-ack-
+ * transport-v1.sql, section E) restreint déjà ce que chaque compte
+ * peut voir aux demandes de SON établissement (ou, pour un opérateur
+ * Scanym, toutes) -- cette fonction ne fait qu'encapsuler la requête
+ * derrière la même frontière lib/services que le reste du dashboard
+ * (règle d'architecture "archi: l'interface n'appelle jamais Supabase
+ * directement", tests/cart-and-price.test.ts). Requête, colonnes,
+ * filtre, tri et limite STRICTEMENT identiques à l'implémentation
+ * d'origine -- aucun changement de comportement.
+ *
+ * L'appelant propage l'erreur (jamais de repli silencieux), même
+ * convention que getDashboardOrders ci-dessus.
+ */
+export async function getWithdrawalRequests(restaurantId: string): Promise<WithdrawalRequestRow[]> {
+  const { data, error } = await supabase
+    .from("withdrawal_requests")
+    .select("id, status, requested_at, acknowledgement_status, acknowledgement_cc, declaration_snapshot")
+    .eq("restaurant_id", restaurantId)
+    .order("requested_at", { ascending: false })
+    .limit(200);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as WithdrawalRequestRow[];
 }
 
 /**

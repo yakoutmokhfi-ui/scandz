@@ -427,8 +427,18 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // consommateur, art. L221-21 / D.221-5 ; aucun paiement, aucun
   // remboursement, aucun statut de commande touché ; autorité = la
   // session de suivi HttpOnly déjà auditée. Entrée EXACTE unique
-  // ajoutée à cette liste FERMÉE, jamais une correspondance large).
+  // ajoutée à cette liste FERMÉE, jamais une correspondance large)
+  // + 1 route GAP-01 — ACKNOWLEDGEMENT TRANSPORT v1 (également
+  // ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 -- test de
+  // connectivité SMTP RÉEL, opérateur uniquement (is_scanym_
+  // operator()), n'envoie JAMAIS de message (AUTH LOGIN seulement,
+  // jamais MAIL FROM/DATA) ; écrit uniquement le résultat réel dans
+  // scanym_ack_transport_health, seule source lue par
+  // _scanym_has_operational_durable_ack_channel() ; aucun paiement,
+  // aucun Stuart, aucun suivi déclenché. Entrée EXACTE unique ajoutée
+  // à cette liste FERMÉE, jamais une correspondance large).
   assert.deepEqual(routeFiles, [
+    "app/api/admin/gap-01-ack-health-check/route.ts",
     "app/api/checkout/invoice-request/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",

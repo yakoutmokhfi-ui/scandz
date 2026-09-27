@@ -13,9 +13,17 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // GAP-01 — rendu RÉEL de app/dashboard/withdrawal-requests/page.tsx
 // (esbuild + jsdom, même patron que tests/online-withdrawal-catalogue-
 // v1-dom.test.ts). Seuls les services (auth/dashboard/establishments)
-// et le client @/lib/supabase sont mockés -- l'écran, son état et son
-// rendu conditionnel sont les VRAIS (DashboardNav, resolveRestaurantContext,
-// useRestaurantContextGuard réels, non mockés).
+// sont mockés -- l'écran, son état et son rendu conditionnel sont les
+// VRAIS (DashboardNav, resolveRestaurantContext, useRestaurantContext
+// Guard réels, non mockés).
+//
+// GAP-01 round 3 (remédiation d'audit) : la page n'importe plus
+// @/lib/supabase directement (elle appelle désormais
+// lib/services/dashboard.ts::getWithdrawalRequests, règle d'archi
+// "l'interface n'appelle jamais Supabase directement",
+// tests/cart-and-price.test.ts) -- ce test mocke donc
+// @/lib/services/dashboard dans son ensemble (getMerchantRestaurants +
+// getWithdrawalRequests) et ne mocke plus @/lib/supabase du tout.
 //
 // Ce test prouve le canal backoffice EXIGÉ par la CIO DECISION —
 // GAP-01 ACKNOWLEDGEMENT RECIPIENTS ("Do not make email the only
@@ -62,37 +70,22 @@ const MOCK_AUTH = `
 export async function getUser() { return { id: "u1" }; }
 export async function signOut() {}
 `;
+// getWithdrawalRequests renvoie directement globalThis.__withdrawalRequestRows
+// (même contrat que lib/services/dashboard.ts::getWithdrawalRequests :
+// tableau de lignes, jamais un accès réseau réel) -- même périmètre
+// que le mock d'origine, qui ne testait pas non plus le chemin
+// d'erreur.
 const MOCK_DASHBOARD = `
 export async function getMerchantRestaurants() {
   return [{ restaurant_id: "${RESTO_ID}", name: "Le Gap Un", role: "owner" }];
+}
+export async function getWithdrawalRequests() {
+  return (globalThis).__withdrawalRequestRows;
 }
 `;
 const MOCK_ESTABLISHMENTS = `
 export async function getEstablishmentSummary() { return { name: "Le Gap Un" }; }
 export async function isScanymOperator() { return false; }
-`;
-// Simule uniquement la forme PostgREST utilisée par la page :
-// .from("withdrawal_requests").select(...).eq(...).order(...).limit(...)
-// -- renvoie {data, error} depuis globalThis.__withdrawalRequestRows,
-// jamais un accès réseau réel.
-const MOCK_SUPABASE = `
-function builder() {
-  const b = {
-    select() { return b; },
-    eq() { return b; },
-    order() { return b; },
-    limit() {
-      return Promise.resolve({ data: (globalThis).__withdrawalRequestRows, error: null });
-    },
-  };
-  return b;
-}
-export const supabase = {
-  from(table) {
-    if (table === "withdrawal_requests") return builder();
-    return builder();
-  },
-};
 `;
 
 const mocks: Record<string, string> = {
@@ -100,7 +93,6 @@ const mocks: Record<string, string> = {
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
-  "@/lib/supabase": MOCK_SUPABASE,
 };
 
 const mockPlugin: esbuild.Plugin = {

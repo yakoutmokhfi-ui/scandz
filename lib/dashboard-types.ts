@@ -368,3 +368,29 @@ export interface MerchantCgvVersion {
   published_at: string;
   status: "ACTIVE" | "SUPERSEDED";
 }
+
+/**
+ * GAP-01 -- ligne d'affichage backoffice pour une demande de
+ * rétractation (public.withdrawal_requests, lecture RLS-scopée par
+ * établissement). `declaration_snapshot` est l'instantané JSONB déjà
+ * écrit par submit_withdrawal_request_by_capability -- aucun champ
+ * catalogue courant n'est rechargé ici, même patron que
+ * DashboardOrderItem.item_name (voir commentaire ligne ~26 plus haut).
+ */
+export interface WithdrawalRequestDeclarationSnapshot {
+  order_number?: number;
+  customer_first_name?: string;
+  customer_last_name?: string;
+  acknowledgement_address?: string;
+  declared_at?: string;
+  lines?: Array<{ item_name: string; option_name: string | null; quantity: number }>;
+}
+
+export interface WithdrawalRequestRow {
+  id: string;
+  status: string;
+  requested_at: string;
+  acknowledgement_status: string;
+  acknowledgement_cc: string | null;
+  declaration_snapshot: WithdrawalRequestDeclarationSnapshot;
+}

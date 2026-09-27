@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
-import { getMerchantRestaurants } from "@/lib/services/dashboard";
+import { getMerchantRestaurants, getWithdrawalRequests } from "@/lib/services/dashboard";
 import { getEstablishmentSummary } from "@/lib/services/establishments";
-import type { MerchantRestaurant } from "@/lib/dashboard-types";
-import { supabase } from "@/lib/supabase";
+import type { MerchantRestaurant, WithdrawalRequestRow } from "@/lib/dashboard-types";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
@@ -21,11 +20,16 @@ import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
  * backoffice, sur les demandes de rétractation reçues par
  * l'établissement courant.
  *
- * DONNÉES : lecture DIRECTE de public.withdrawal_requests via le
- * client navigateur authentifié -- RLS ("restaurant members read own
- * withdrawal requests", DRAFT-lot-gap-01-ack-transport-v1.sql, section
- * E) restreint déjà ce que chaque compte peut voir aux demandes de SON
- * établissement (ou, pour un opérateur Scanym, toutes). Aucune
+ * DONNÉES : lecture de public.withdrawal_requests via
+ * lib/services/dashboard.ts::getWithdrawalRequests (GAP-01 round 3 --
+ * remédiation d'audit : la lecture passait auparavant par un appel
+ * Supabase direct dans cette page, en violation de la règle
+ * d'architecture "archi: l'interface n'appelle jamais Supabase
+ * directement", tests/cart-and-price.test.ts). RLS ("restaurant
+ * members read own withdrawal requests", DRAFT-lot-gap-01-ack-
+ * transport-v1.sql, section E) restreint déjà ce que chaque compte
+ * peut voir aux demandes de SON établissement (ou, pour un opérateur
+ * Scanym, toutes) -- inchangé, seul le point d'appel a bougé. Aucune
  * nouvelle RPC introduite : `declaration_snapshot` (déjà écrit par
  * submit_withdrawal_request_by_capability) porte tout le contenu
  * nécessaire (référence de commande, identité/contact client,
@@ -38,24 +42,6 @@ import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
  * SELECT à authenticated ; seules submit_withdrawal_request_by_
  * capability et les RPC service_role de GAP-01 écrivent cette table).
  */
-
-interface DeclarationSnapshot {
-  order_number?: number;
-  customer_first_name?: string;
-  customer_last_name?: string;
-  acknowledgement_address?: string;
-  declared_at?: string;
-  lines?: Array<{ item_name: string; option_name: string | null; quantity: number }>;
-}
-
-interface WithdrawalRequestRow {
-  id: string;
-  status: string;
-  requested_at: string;
-  acknowledgement_status: string;
-  acknowledgement_cc: string | null;
-  declaration_snapshot: DeclarationSnapshot;
-}
 
 const ACK_STATUS_LABEL: Record<string, string> = {
   pending: "Accusé en attente d'envoi",
@@ -115,19 +101,14 @@ export default function WithdrawalRequestsPage() {
         if (!token.isCurrent()) return;
         setRestaurantName(summary?.name ?? "");
 
-        const { data, error } = await supabase
-          .from("withdrawal_requests")
-          .select("id, status, requested_at, acknowledgement_status, acknowledgement_cc, declaration_snapshot")
-          .eq("restaurant_id", id)
-          .order("requested_at", { ascending: false })
-          .limit(200);
-
-        if (!token.isCurrent()) return;
-        if (error) {
-          setLoadError(error.message);
+        try {
+          const data = await getWithdrawalRequests(id);
+          if (!token.isCurrent()) return;
+          setRows(data);
+        } catch (queryErr) {
+          if (!token.isCurrent()) return;
+          setLoadError(queryErr instanceof Error ? queryErr.message : "Erreur inconnue");
           setRows([]);
-        } else {
-          setRows((data ?? []) as unknown as WithdrawalRequestRow[]);
         }
       } catch (err) {
         if (token.isCurrent()) {
