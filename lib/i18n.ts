@@ -174,7 +174,7 @@ const fr: Dict = {
   // DELIVERY COUNTRY SCOPE v1
   fieldCountry: "Pays de livraison",
   countryChoosePrompt: "Choisissez un pays",
-  countryDeliveryContext: "Livraison en {country}",
+  countryDeliveryContext: "Livraison en {country} uniquement",
   deliveryCountryUnavailable: "La livraison n'est pas disponible pour cet établissement.",
   // DELIVERY COUNTRY SCOPE v1.1 (DCS-COUNTRY-UI-02)
   errDeliveryCountryRequired: "Pays de livraison requis",
@@ -1028,7 +1028,7 @@ const en: Dict = {
   fieldPostalCode: "Postcode",
   fieldCountry: "Delivery country",
   countryChoosePrompt: "Choose a country",
-  countryDeliveryContext: "Delivery in {country}",
+  countryDeliveryContext: "Delivery to {country} only",
   deliveryCountryUnavailable: "Delivery is not available for this establishment.",
   errDeliveryCountryRequired: "Delivery country required",
   errPostalCode_FR: "5 digits",
@@ -1788,7 +1788,7 @@ const ar: Dict = {
   fieldPostalCode: "الرمز البريدي",
   fieldCountry: "بلد التوصيل",
   countryChoosePrompt: "اختر بلدًا",
-  countryDeliveryContext: "التوصيل في {country}",
+  countryDeliveryContext: "التوصيل إلى {country} فقط",
   deliveryCountryUnavailable: "التوصيل غير متاح لهذه المنشأة.",
   errDeliveryCountryRequired: "بلد التوصيل مطلوب",
   errPostalCode_FR: "خمسة أرقام",

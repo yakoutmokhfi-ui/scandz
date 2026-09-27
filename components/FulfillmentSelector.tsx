@@ -525,13 +525,18 @@ export default function FulfillmentSelector({
             </select>
           </div>
         ) : deliveryCountry ? (
-          <p
-            data-testid="delivery-country-context"
-            data-country-code={deliveryCountry.countryCode}
-            className="text-xs text-stone-500"
-          >
-            {t("countryDeliveryContext", { country: deliveryCountry.countryName })}
-          </p>
+          <div>
+            <span className="mb-1 block text-xs font-semibold text-stone-600">
+              {t("fieldCountry")}
+            </span>
+            <p
+              data-testid="delivery-country-context"
+              data-country-code={deliveryCountry.countryCode}
+              className="w-full rounded-xl border border-stone-300 bg-stone-50 p-2.5 text-base font-semibold text-stone-900 sm:text-sm"
+            >
+              {t("countryDeliveryContext", { country: deliveryCountry.countryName })}
+            </p>
+          </div>
         ) : null}
 
         <div className="grid grid-cols-[7rem_1fr] gap-3">
