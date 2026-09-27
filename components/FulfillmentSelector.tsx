@@ -563,12 +563,24 @@ export default function FulfillmentSelector({
             PROÉMINENT et affiché AVANT toute validation de code postal
             (jamais gardé derrière `postalReady`) -- distinct du rappel
             discret ci-dessous (`countryDeliveryContext`, conservé tel
-            quel pour ne pas régresser les tests existants dessus). */}
+            quel pour ne pas régresser les tests existants dessus).
+
+            MICRO-FIX dark-theme contrast (tree 71cae479a1870b583402e9ac303bfbb4655c7815) :
+            text-espresso -> text-ink-on-bg (calculée), même correction
+            que V73-02 sur InlineOptions.tsx. text-espresso est
+            --sc-ink BRUT (non calculée) : sur un thème d'établissement
+            sombre (secondary_color foncée), ce texte devenait quasi
+            invisible sur ce panneau bg-caramel/10 (10% accent composé
+            sur --sc-bg, donc dominé par --sc-bg). text-ink-on-bg est
+            TOUJOURS calculée contre --sc-bg (lib/color-contrast.ts,
+            readableAccentOnBg) et garantit un ratio WCAG AA (4.5:1),
+            quel que soit le thème. Aucun changement de logique ni de
+            texte -- uniquement la classe de couleur. */}
         {countryScopeMessage && (
           <p
             data-testid="delivery-country-scope-prominent"
             data-country-codes={deliveryCountryScope.map((c) => c.countryCode).join(",")}
-            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-sm font-semibold text-espresso"
+            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-sm font-semibold text-ink-on-bg"
           >
             {countryScopeMessage}
           </p>
@@ -577,7 +589,22 @@ export default function FulfillmentSelector({
         {/* DELIVERY COUNTRY SCOPE v1 (décision CIO Q15) -- le sélecteur
             n'existe QUE si plusieurs pays sont réellement autorisés pour
             CET établissement. Avec un seul pays, il est résolu et
-            simplement rappelé, non modifiable. */}
+            simplement rappelé, non modifiable.
+
+            MICRO-FIX doublon (tree 71cae479a1870b583402e9ac303bfbb4655c7815) :
+            ce rappel texte (`countryDeliveryContext`, "Livraison en
+            {country} uniquement") redisait EXACTEMENT la même information
+            que le message proéminent ci-dessus (`countryScopeMessage`,
+            "Livraison disponible uniquement en {pays}") pour un
+            établissement à un seul pays -- les deux étaient rendus
+            simultanément (constat CIO en Production, Au Lait Cru).
+            Condition `!countryScopeMessage` ajoutée : ce rappel ne
+            s'affiche plus QUE si le message proéminent ne couvre pas déjà
+            cette information (ex. deliveryCountryScope non fourni par un
+            appelant). `data-testid`/`data-country-code` inchangés --
+            conservés pour les tests existants qui exercent ce chemin sans
+            le message proéminent. Aucun changement de texte ni de
+            logique de résolution du pays. */}
         {deliveryCountryOptions.length > 1 ? (
           <div>
             <label
@@ -601,7 +628,7 @@ export default function FulfillmentSelector({
               ))}
             </select>
           </div>
-        ) : deliveryCountry ? (
+        ) : deliveryCountry && !countryScopeMessage ? (
           <p
             data-testid="delivery-country-context"
             data-country-code={deliveryCountry.countryCode}
