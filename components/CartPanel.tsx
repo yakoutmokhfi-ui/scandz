@@ -60,6 +60,8 @@ export default function CartPanel({
   onChangeCustomer,
   deliveryCountry = null,
   deliveryCountryOptions = [],
+  deliveryCountryScope = [],
+  cityOptions = null,
   onSelectDeliveryCountry,
   onChangeNote,
   cgvEnforced,
@@ -142,6 +144,17 @@ export default function CartPanel({
    *  ni établissement. */
   deliveryCountry?: DeliveryCountryOption | null;
   deliveryCountryOptions?: DeliveryCountryOption[];
+  /** ADDRESS UX v1 -- CIO ADDENDUM : liste COMPLETE (non filtrée par
+   *  cardinalité) des pays de livraison configurés, passe-plat vers
+   *  FulfillmentSelector pour le message proéminent de périmètre pays
+   *  -- jamais utilisée pour le sélecteur (deliveryCountryOptions
+   *  reste la seule source pour ça). */
+  deliveryCountryScope?: DeliveryCountryOption[];
+  /** ADDRESS UX v1 -- communes valides pour le code postal courant,
+   *  UNIQUEMENT quand il y en a PLUSIEURS (choix restreint) -- `null`
+   *  sinon (aucune résolution, une seule ville -- auto-remplie -- ou
+   *  zéro ville connue). Passe-plat, aucune décision prise ici. */
+  cityOptions?: { code: string; name: string }[] | null;
   onSelectDeliveryCountry?: (countryCode: string) => void;
   onChangeNote: (value: string) => void;
   /**
@@ -486,6 +499,8 @@ export default function CartPanel({
                     whatsappEnabled={whatsappEnabled}
                     deliveryCountry={deliveryCountry}
                     deliveryCountryOptions={deliveryCountryOptions}
+                    deliveryCountryScope={deliveryCountryScope}
+                    cityOptions={cityOptions}
                     onSelectDeliveryCountry={onSelectDeliveryCountry}
                   />
                 </div>

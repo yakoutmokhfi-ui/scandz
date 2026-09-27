@@ -37,6 +37,8 @@
  *  Les deux branches concernées de `getCustomerErrors` traitent une
  *  valeur ABSENTE exactement comme une valeur vide : elles échouent
  *  donc FERMÉ (`undefined` -> erreur), jamais ouvert. */
+import { cityMatchesCandidates } from "@/lib/services/postcode-lookup";
+
 export interface CustomerInfo {
   name: string;
   /** Saisi uniquement quand le serveur expose `first_name` pour le
@@ -102,6 +104,17 @@ export interface CustomerValidationPatterns {
    *  (voir postalCodeErrorKeyFor, lib/delivery-country.ts). Omise :
    *  `errPostalCode`, comportement historique inchangé. */
   postalCodeErrorKey?: string | null;
+  /**
+   * ADDRESS UX v1 -- villes valides pour le code postal COURANT,
+   * résolues par `lookupCitiesForPostalCode` (France uniquement, voir
+   * lib/services/postcode-lookup.ts), ou `null`/omis tant qu'aucune
+   * résolution ne s'applique (pays sans source CP->ville, CP pas
+   * encore résolu, résolution en cours ou en échec). Un tableau VIDE
+   * ("résolu, zéro commune connue pour ce CP") est traité comme
+   * `null` par `cityMatchesCandidates` -- fail-open, jamais un blocage
+   * sur une absence de donnée (mission §4).
+   */
+  cityCandidates?: { code: string; name: string }[] | null;
 }
 
 function matchesOrDefault(
@@ -153,7 +166,17 @@ export function getCustomerErrors(
         }
         break;
       case "city":
-        if (c.city.trim().length < 2) errors.city = "errCity";
+        if (c.city.trim().length < 2) {
+          errors.city = "errCity";
+        } else if (!cityMatchesCandidates(c.city, patterns.cityCandidates)) {
+          // ADDRESS UX v1, §4 -- combinaison CP/ville positivement
+          // incohérente (la source CP->ville a résolu ce CP et connaît
+          // au moins une commune, mais aucune ne correspond à la ville
+          // saisie). Erreur bloquante à la soumission, jamais un
+          // effacement silencieux du champ que le client vient de
+          // taper.
+          errors.city = "errCityPostalMismatch";
+        }
         break;
       case "phone":
         if (

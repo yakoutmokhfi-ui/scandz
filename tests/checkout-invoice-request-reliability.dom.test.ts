@@ -999,11 +999,24 @@ test("EMAIL-VALIDATION-RETRY. facture société avec email de contact, échec r�
 // désormais universels) est testé ci-dessous.
 // ====================================================================
 
-test("Delivery-1. Livraison + AUCUNE facture demandée -- checkout inchangé, aucun toggle de réutilisation visible, aucun appel fetch", async (t) => {
+test("Delivery-1. Livraison + AUCUNE facture demandée -- checkout inchangé, aucun toggle de réutilisation visible, aucun appel fetch VERS LA FACTURE", async (t) => {
   mockRpcDelivery(t);
-  let fetchCalled = false;
+  // ADDRESS UX v1 -- résolution code postal -> ville (France,
+  // geo.api.gouv.fr) : un fournisseur légitime de CE parcours (adresse
+  // de livraison FR), au même titre que l'autocomplétion IGN -- servi
+  // vide (fail-soft), jamais un blocage. Seul un appel vers la charge
+  // de FACTURE (/api/checkout/invoice-request, absente ici puisque
+  // aucune facture n'est demandée) doit rester impossible.
+  let invoiceFetchCalled = false;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => { fetchCalled = true; throw new Error("ne doit jamais être appelé"); };
+  (globalThis as any).fetch = async (input: unknown) => {
+    const url = String(input instanceof URL ? input.href : (input as any)?.url ?? input);
+    if (url.startsWith("https://geo.api.gouv.fr/communes")) {
+      return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    invoiceFetchCalled = true;
+    throw new Error(`ne doit jamais être appelé : ${url}`);
+  };
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -1016,7 +1029,7 @@ test("Delivery-1. Livraison + AUCUNE facture demandée -- checkout inchangé, au
     );
     click(submitBtn);
     await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation directe attendue");
-    assert.equal(fetchCalled, false, "aucun appel fetch ne doit avoir lieu sans demande de facture");
+    assert.equal(invoiceFetchCalled, false, "aucun appel fetch vers la facture ne doit avoir lieu sans demande de facture");
     root.unmount();
     container.remove();
   } finally {
