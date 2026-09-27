@@ -74,6 +74,10 @@ import {
   effectiveCountry,
   resolveDeliveryCountry,
 } from "@/lib/delivery-country";
+// ADDRESS UX v1 -- résolution code postal -> ville (France uniquement,
+// voir lib/services/postcode-lookup.ts) : même patron fail-soft/
+// testable que l'autocomplétion IGN déjà en place pour la rue.
+import { lookupCitiesForPostalCode, type PostcodeCity } from "@/lib/services/postcode-lookup";
 import OptionModal from "@/components/OptionModal";
 import OrderConfirmation from "@/components/OrderConfirmation";
 import ProductInfoButton from "@/components/ProductInfoButton";
@@ -567,6 +571,84 @@ export default function MenuView({
   /** Le sélecteur n'est proposé QUE s'il y a réellement un choix. */
   const deliveryCountryChoices =
     (deliveryCountryOptions?.length ?? 0) > 1 ? (deliveryCountryOptions ?? []) : [];
+
+  /* ================================================================
+   * ADDRESS UX v1 -- résolution code postal -> ville (France).
+   *
+   * `postcodeCityState` : dernière résolution EFFECTIVEMENT obtenue,
+   * étiquetée par le (pays, code postal) qui l'a produite -- jamais
+   * appliquée à un contexte différent de celui pour lequel elle a été
+   * demandée (garde `postalCode`/`countryCode` ci-dessous, mission §6 :
+   * "pas de fournisseur inter-pays", et pas davantage de résultat
+   * d'un CP différent appliqué après une frappe ultérieure).
+   *
+   * Scopé FRANCE uniquement (`countryCode === "FR"`) : geo.api.gouv.fr
+   * est une source strictement française, jamais un repli implicite
+   * pour un autre pays. Un CP structurellement invalide (< 5 chiffres
+   * en cours de frappe) ne déclenche aucun appel réseau.
+   * ================================================================ */
+  const [postcodeCityState, setPostcodeCityState] = useState<{
+    countryCode: string;
+    postalCode: string;
+    cities: PostcodeCity[];
+  } | null>(null);
+  /** Dernière valeur AUTO-remplie par cette résolution -- distingue
+   *  "le client n'a rien tapé" de "le client a tapé exactement la même
+   *  chose que la résolution automatique" : dans les deux cas l'auto-
+   *  remplissage reste autorisé à réécrire la valeur pour un nouveau
+   *  CP ; dès que la valeur diverge (saisie manuelle réelle), elle
+   *  n'est plus jamais écrasée silencieusement (mission §3). */
+  const lastAutoFilledCityRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const countryCode = deliveryCountry?.countryCode ?? null;
+    const postalCode = customer.postalCode.trim();
+    if (serviceMode !== "delivery" || countryCode !== "FR" || !/^\d{5}$/.test(postalCode)) {
+      setPostcodeCityState(null);
+      return;
+    }
+    let cancelled = false;
+    lookupCitiesForPostalCode(postalCode)
+      .then((cities) => {
+        if (!cancelled) setPostcodeCityState({ countryCode, postalCode, cities });
+      })
+      .catch(() => {
+        // Panne du service (réseau/HTTP/parsing) : fail-soft, exactement
+        // comme AddressSearchError pour l'autocomplétion IGN -- jamais
+        // un blocage de la saisie pour un défaut d'un service tiers,
+        // simple repli sur la saisie libre (aucun candidat connu).
+        if (!cancelled) setPostcodeCityState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serviceMode, deliveryCountry?.countryCode, customer.postalCode]);
+
+  /** Résolution actuellement APPLICABLE au CP saisi -- `null` si la
+   *  dernière résolution obtenue ne correspond plus au CP courant
+   *  (frappe ultérieure), jamais une résolution obsolète réutilisée. */
+  const currentPostcodeCities =
+    postcodeCityState &&
+    postcodeCityState.countryCode === (deliveryCountry?.countryCode ?? null) &&
+    postcodeCityState.postalCode === customer.postalCode.trim()
+      ? postcodeCityState.cities
+      : null;
+
+  useEffect(() => {
+    // CP -> UNE SEULE ville valide : auto-remplissage, jamais un champ
+    // verrouillé (mission §1) -- n'écrase JAMAIS une ville que le
+    // client a réellement tapée lui-même (voir lastAutoFilledCityRef
+    // ci-dessus).
+    if (!currentPostcodeCities || currentPostcodeCities.length !== 1) return;
+    const resolvedName = currentPostcodeCities[0].name;
+    const cityIsUntouched =
+      customer.city.trim() === "" || customer.city === lastAutoFilledCityRef.current;
+    if (cityIsUntouched && customer.city !== resolvedName) {
+      lastAutoFilledCityRef.current = resolvedName;
+      setCustomer((prev) => ({ ...prev, city: resolvedName }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPostcodeCities, customer.city]);
 
   const [showErrors, setShowErrors] = useState(false);
   // Note générale de commande (V65) : une seule note, aucune par ligne.
@@ -1095,6 +1177,10 @@ export default function MenuView({
         phonePattern: countryValidation.phonePattern,
         deliveryCountryMissing: countryValidation.countryMissing,
         postalCodeErrorKey: countryValidation.postalCodeErrorKey,
+        // ADDRESS UX v1 -- incohérence CP/ville positivement détectée
+        // (fail-open si aucune résolution n'est disponible pour ce CP,
+        // voir cityMatchesCandidates).
+        cityCandidates: currentPostcodeCities,
       }),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1107,6 +1193,7 @@ export default function MenuView({
       countryValidation.phonePattern,
       countryValidation.countryMissing,
       countryValidation.postalCodeErrorKey,
+      currentPostcodeCities,
     ]
   );
   const customerFormatValid = Object.keys(customerErrors).length === 0;
@@ -1661,6 +1748,17 @@ export default function MenuView({
           deliveryCountry={deliveryCountry}
           deliveryCountryOptions={deliveryCountryChoices}
           onSelectDeliveryCountry={setSelectedCountryCode}
+          // ADDRESS UX v1 -- CIO ADDENDUM : liste COMPLETE et NON
+          // filtrée des pays de livraison configurés (jamais seulement
+          // deliveryCountryChoices, qui reste vide tant qu'il n'y a
+          // qu'un seul pays) -- sert exclusivement au message
+          // proéminent de périmètre pays, jamais au sélecteur.
+          deliveryCountryScope={deliveryCountryOptions ?? []}
+          cityOptions={
+            currentPostcodeCities && currentPostcodeCities.length > 1
+              ? currentPostcodeCities
+              : null
+          }
           lines={lines}
           totalCount={totalCount}
           totalPrice={totalPrice}

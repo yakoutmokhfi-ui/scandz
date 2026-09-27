@@ -638,7 +638,12 @@ test("UIFIX-V5-01: inventaire exhaustif -- les 9 surfaces blanches publiques ont
     // rendu uniquement quand plusieurs pays de livraison sont autorisés.
     // Il porte `text-stone-900`, donc l'exigence de couleur sûre de ce
     // test reste pleinement appliquée à cette nouvelle surface.
-    FulfillmentSelector: 3,
+    // ADDRESS UX v1 : +1 surface -- le <select> de choix restreint de
+    // ville (§2 de l'analyse), rendu uniquement quand le code postal
+    // saisi correspond à PLUSIEURS communes valides. Porte lui aussi
+    // `text-stone-900` (voir components/FulfillmentSelector.tsx,
+    // `data-testid="city-options-select"`).
+    FulfillmentSelector: 4,
     InlineOptions: 1,
     MenuItemCard: 1,
     OptionModal: 2,
@@ -689,9 +694,10 @@ test("UIFIX-V5-01: inventaire exhaustif -- les 9 surfaces blanches publiques ont
     }
   }
   // DELIVERY COUNTRY SCOPE v1 : 9 -> 10 (sélecteur de pays de
-  // livraison). Le total reste EXACT et exhaustif : toute surface
-  // blanche supplémentaire non auditée fera encore échouer ce test.
-  assert.equal(total, 10, "l'inventaire public v5 doit couvrir exactement 10 surfaces blanches");
+  // livraison). ADDRESS UX v1 : 10 -> 11 (sélecteur de ville restreint).
+  // Le total reste EXACT et exhaustif : toute surface blanche
+  // supplémentaire non auditée fera encore échouer ce test.
+  assert.equal(total, 11, "l'inventaire public v5 doit couvrir exactement 11 surfaces blanches");
 });
 
 test("UIFIX-V6-01: OptionModal sépare réellement la couleur du libellé sur blanc et celle du compteur sur bg-crema", () => {

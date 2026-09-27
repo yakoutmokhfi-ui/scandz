@@ -17,6 +17,9 @@ import type { StructuredCustomerAddress } from "@/lib/address-types";
 import { useI18n } from "@/lib/i18n-context";
 import { getFulfillmentToneClass } from "@/lib/fulfillment-tone";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
+// ADDRESS UX v1 -- message proéminent de périmètre pays (CIO addendum),
+// fonction PURE, testée séparément.
+import { formatDeliveryCountryScopeMessage } from "@/lib/delivery-country-scope-message";
 
 type Errors = Partial<Record<keyof CustomerInfo, string>>;
 
@@ -184,6 +187,8 @@ export default function FulfillmentSelector({
   whatsappEnabled = true,
   deliveryCountry = null,
   deliveryCountryOptions = [],
+  deliveryCountryScope = [],
+  cityOptions = null,
   onSelectDeliveryCountry,
 }: {
   status: DeliveryStatus;
@@ -211,9 +216,23 @@ export default function FulfillmentSelector({
    *  (décision CIO Q15) : un sélecteur à une seule valeur donnerait
    *  l'illusion d'un choix qui n'existe pas. */
   deliveryCountryOptions?: DeliveryCountryOption[];
+  /** ADDRESS UX v1 -- CIO ADDENDUM : liste COMPLETE (1..N, non filtrée
+   *  par cardinalité) des pays de livraison configurés pour CET
+   *  établissement -- sert exclusivement au message proéminent affiché
+   *  au début du bloc adresse, AVANT toute validation de code postal.
+   *  Jamais utilisée pour le sélecteur (deliveryCountryOptions reste
+   *  seule responsable de ça). */
+  deliveryCountryScope?: DeliveryCountryOption[];
+  /** ADDRESS UX v1 -- communes valides pour le code postal saisi,
+   *  UNIQUEMENT quand il y en a PLUSIEURS (choix restreint, jamais un
+   *  champ libre dans ce cas précis) -- `null` sinon (aucune
+   *  résolution en cours/possible, une seule ville -- alors auto-
+   *  remplie par le parent -- ou zéro ville connue pour ce CP, repli
+   *  fail-soft sur la saisie libre). */
+  cityOptions?: { code: string; name: string }[] | null;
   onSelectDeliveryCountry?: (countryCode: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const err = (k: keyof CustomerInfo) =>
     showErrors && errors[k] ? t(errors[k]!) : undefined;
 
@@ -306,6 +325,13 @@ export default function FulfillmentSelector({
   })();
 
   const toneClass = getFulfillmentToneClass(message?.tone);
+
+  // ADDRESS UX v1 -- CIO ADDENDUM : message proéminent de périmètre
+  // pays, DONNÉE (liste réelle des pays L2 configurés), affiché au
+  // début du bloc adresse -- AVANT toute validation de code postal,
+  // jamais un texte codé en dur pour un marchand précis (`null` si
+  // aucun pays n'est encore résolu, ex. lecture L2 en cours/vide).
+  const countryScopeMessage = formatDeliveryCountryScopeMessage(t, lang, deliveryCountryScope);
 
   /** Rend un champ backend connu (customer_name/phone/email) via
    *  FIELD_CONFIG -- jamais de branche par mode de vente.
@@ -451,13 +477,49 @@ export default function FulfillmentSelector({
      *  pays : une rue SÉLECTIONNÉE chez le fournisseur du pays précédent
      *  n'appartient pas au nouveau pays -- elle est effacée, comme pour
      *  un changement de code postal/ville (même règle §10/§25). Une
-     *  saisie manuelle pure n'est jamais touchée. La revalidation du
-     *  code postal pour le nouveau pays est faite par le parent. */
+     *  saisie manuelle pure n'est jamais touchée -- CORRIGÉ (ADDRESS UX
+     *  v1, bug identifié dans l'analyse fonctionnelle livrée sur
+     *  l'issue #11, cas 5.8) : une rue tapée À LA MAIN (jamais de
+     *  sélection IGN, `selectionConfirmed` resterait `false`) n'était
+     *  JUSQU'ICI jamais effacée sur un changement de PAYS -- une rue
+     *  française tapée à la main restait affichée telle quelle sous un
+     *  nouveau contexte belge, silencieusement. Un changement de pays
+     *  est structurellement différent d'un changement de code postal/
+     *  ville (§3 de l'analyse) : la rue d'un AUTRE pays n'a par
+     *  construction aucun sens dans le nouveau pays, quelle que soit
+     *  son origine (sélection IGN ou saisie manuelle) -- elle est donc
+     *  désormais effacée ici sans condition sur `selectionConfirmed`
+     *  (qui ne gate plus que le cas CP/ville, ci-dessus dans
+     *  handleStageAFieldChange, où une saisie manuelle reste
+     *  légitimement préservée).
+     *
+     *  Portée précise du correctif -- UN VRAI SWITCH entre deux pays
+     *  DÉJÀ RÉSOLUS (`deliveryCountry` non nul AVANT ce changement, et
+     *  différent du nouveau code choisi) : c'est exactement et
+     *  uniquement le cas 5.8 rapporté (une rue tapée pour un contexte
+     *  FR encore affichée sous un contexte BE après coup). La première
+     *  RÉSOLUTION d'un pays (aucun pays encore résolu -- `deliveryCountry`
+     *  nul -- ex. plusieurs pays configurés, aucun choisi, le client
+     *  choisit son premier pays après avoir déjà tapé une rue) n'est
+     *  PAS un changement de contexte géographique déjà établi : la rue
+     *  tapée n'a jamais été affichée sous un AUTRE pays, il n'y a donc
+     *  rien à corriger -- comportement historique préservé (couvert par
+     *  tests/delivery-country-scope-v1-1.dom.test.ts, scénario "sans
+     *  retoucher l'adresse"). Reproduire le même code deux fois
+     *  (sélectionner à nouveau le pays déjà résolu) n'est pas non plus
+     *  un switch (`countryCode === previousCountryCode`) -- sans effet
+     *  ici, idempotent. La revalidation du code postal pour le nouveau
+     *  pays est faite par le parent. */
     function handleCountryChange(countryCode: string) {
-      if (selectionConfirmed) {
+      const previousCountryCode = deliveryCountry?.countryCode ?? null;
+      if (
+        previousCountryCode &&
+        previousCountryCode !== countryCode &&
+        customer.street.trim() !== ""
+      ) {
         onChangeCustomer({ street: "" });
-        setSelectionConfirmed(false);
       }
+      setSelectionConfirmed(false);
       onSelectDeliveryCountry?.(countryCode);
     }
 
@@ -497,6 +559,21 @@ export default function FulfillmentSelector({
       // aussi porter les champs nom/téléphone/email AU-DESSUS de ce
       // bloc selon l'ordre backend de displayItems).
       <div key="delivery_address" id="delivery-address-section" className="space-y-3">
+        {/* ADDRESS UX v1 -- CIO ADDENDUM : périmètre pays de livraison,
+            PROÉMINENT et affiché AVANT toute validation de code postal
+            (jamais gardé derrière `postalReady`) -- distinct du rappel
+            discret ci-dessous (`countryDeliveryContext`, conservé tel
+            quel pour ne pas régresser les tests existants dessus). */}
+        {countryScopeMessage && (
+          <p
+            data-testid="delivery-country-scope-prominent"
+            data-country-codes={deliveryCountryScope.map((c) => c.countryCode).join(",")}
+            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-sm font-semibold text-espresso"
+          >
+            {countryScopeMessage}
+          </p>
+        )}
+
         {/* DELIVERY COUNTRY SCOPE v1 (décision CIO Q15) -- le sélecteur
             n'existe QUE si plusieurs pays sont réellement autorisés pour
             CET établissement. Avec un seul pays, il est résolu et
@@ -548,15 +625,51 @@ export default function FulfillmentSelector({
               handleStageAFieldChange({ postalCode: v.replace(/\D/g, "").slice(0, 5) })
             }
           />
-          <Field
-            id="city"
-            label={t("fieldCity")}
-            value={customer.city}
-            error={err("city")}
-            placeholder={t("phCity")}
-            autoComplete="address-level2"
-            onChange={(v) => handleStageAFieldChange({ city: v })}
-          />
+          {cityOptions && cityOptions.length > 1 ? (
+            // ADDRESS UX v1, §2 -- CP partagé par plusieurs communes :
+            // choix RESTREINT, jamais un champ libre dans ce cas précis
+            // (aucune sélection par défaut arbitraire -- option vide en
+            // tête, comme le sélecteur de pays ci-dessus).
+            <div className="scroll-mt-4">
+              <label
+                htmlFor="city"
+                className="block text-xs font-semibold text-ink-on-bg-muted"
+              >
+                {t("fieldCity")}
+              </label>
+              <select
+                id="city"
+                data-testid="city-options-select"
+                value={
+                  cityOptions.some((c) => c.name === customer.city) ? customer.city : ""
+                }
+                onChange={(e) => handleStageAFieldChange({ city: e.target.value })}
+                aria-invalid={err("city") ? true : undefined}
+                className={
+                  "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm " +
+                  (err("city") ? "border-amber-400" : "border-espresso/15")
+                }
+              >
+                <option value="">{t("cityChoosePrompt")}</option>
+                {cityOptions.map((c) => (
+                  <option key={c.code} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {err("city") && <p className="mt-1 text-xs text-amber-700">{err("city")}</p>}
+            </div>
+          ) : (
+            <Field
+              id="city"
+              label={t("fieldCity")}
+              value={customer.city}
+              error={err("city")}
+              placeholder={t("phCity")}
+              autoComplete="address-level2"
+              onChange={(v) => handleStageAFieldChange({ city: v })}
+            />
+          )}
         </div>
         {postalReady ? (
           // `key={addressContext}` : voir doc ci-dessus -- démonte/

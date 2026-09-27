@@ -176,6 +176,17 @@ const fr: Dict = {
   countryChoosePrompt: "Choisissez un pays",
   countryDeliveryContext: "Livraison en {country}",
   deliveryCountryUnavailable: "La livraison n'est pas disponible pour cet établissement.",
+  // ADDRESS UX v1 -- CIO ADDENDUM : visibilité du périmètre pays de
+  // livraison, DONNÉE (liste réelle des pays configurés), jamais un
+  // nom de marchand codé en dur. Affiché AU DÉBUT du bloc adresse,
+  // avant toute validation de code postal.
+  deliveryCountryScopeSingle: "Livraison disponible uniquement en {country}",
+  deliveryCountryScopeMultiple: "Livraison disponible en {countries}",
+  // ADDRESS UX v1 -- résolution code postal -> ville (France, via
+  // geo.api.gouv.fr, même discipline fail-soft que l'autocomplétion
+  // IGN déjà en place pour la rue).
+  cityChoosePrompt: "Choisissez une ville",
+  errCityPostalMismatch: "Cette ville ne correspond pas au code postal saisi",
   // DELIVERY COUNTRY SCOPE v1.1 (DCS-COUNTRY-UI-02)
   errDeliveryCountryRequired: "Pays de livraison requis",
   // v1.1 -- message de format postal SELON LE PAYS (clé dérivée du code
@@ -1030,6 +1041,10 @@ const en: Dict = {
   countryChoosePrompt: "Choose a country",
   countryDeliveryContext: "Delivery in {country}",
   deliveryCountryUnavailable: "Delivery is not available for this establishment.",
+  deliveryCountryScopeSingle: "Delivery available only in {country}",
+  deliveryCountryScopeMultiple: "Delivery available in {countries}",
+  cityChoosePrompt: "Choose a city",
+  errCityPostalMismatch: "This city does not match the postcode entered",
   errDeliveryCountryRequired: "Delivery country required",
   errPostalCode_FR: "5 digits",
   errPostalCode_BE: "4 digits",
@@ -1790,6 +1805,10 @@ const ar: Dict = {
   countryChoosePrompt: "اختر بلدًا",
   countryDeliveryContext: "التوصيل في {country}",
   deliveryCountryUnavailable: "التوصيل غير متاح لهذه المنشأة.",
+  deliveryCountryScopeSingle: "التوصيل متاح فقط في {country}",
+  deliveryCountryScopeMultiple: "التوصيل متاح في {countries}",
+  cityChoosePrompt: "اختر مدينة",
+  errCityPostalMismatch: "هذه المدينة لا تتوافق مع الرمز البريدي المدخل",
   errDeliveryCountryRequired: "بلد التوصيل مطلوب",
   errPostalCode_FR: "خمسة أرقام",
   errPostalCode_BE: "أربعة أرقام",

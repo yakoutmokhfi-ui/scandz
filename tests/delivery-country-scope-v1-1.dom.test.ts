@@ -372,14 +372,28 @@ test("[UI-02/DOM] FR -> BE : changer de pays REVALIDE le code postal déjà sais
     await fillAddress(container, "75001", "12 rue des Lilas", "Paris");
     await waitFor(() => canSend(container), "envoi possible en FR avec 75001");
 
-    // Changement de pays SANS toucher au formulaire.
+    // Changement de pays.
+    // ADDRESS UX v1 (analyse issue #11, cas 5.8) : une rue tapée à la
+    // main pour un contexte FR n'a plus aucun sens sous un contexte BE
+    // -- elle est désormais effacée par ce changement de pays (correctif
+    // du bug identifié dans cette même analyse, tests/address-ux-v1-*),
+    // ce qui n'était PAS le cas quand ce test a été écrit (v1.1). Le
+    // reste de ce test (revalidation du CODE POSTAL par pays, objet
+    // réel de ce fichier) est inchangé.
     selectCountry(container, "BE");
     await flush();
     assert.equal(canSend(container), false, "75001 n'est pas un code postal belge : l'envoi doit disparaître");
     assert.ok(text(container).includes(POSTAL_ERR_BE), "l'erreur de format BELGE (4 chiffres) est affichée");
     assert.equal(text(container).includes(POSTAL_ERR_FR), false, "jamais le message français pour un code belge");
+    assert.equal(
+      (inputById(container, "street") as HTMLInputElement | null)?.value,
+      "",
+      "ADDRESS UX v1 cas 5.8 : la rue française tapée à la main est effacée par le changement de pays"
+    );
 
-    // Correction au format belge.
+    // Correction au format belge -- la rue doit être retapée : elle a
+    // été effacée ci-dessus (comportement voulu, cas 5.8).
+    setNativeValue(inputById(container, "street")!, "Rue de la Loi 16");
     setNativeValue(inputById(container, "postalCode")!, "1000");
     setNativeValue(inputById(container, "city")!, "Bruxelles");
     await flush(50);
@@ -411,7 +425,15 @@ test("[UI-02/DOM] BE -> FR : changer de pays REVALIDE le code postal déjà sais
     assert.equal(canSend(container), false, "1000 n'est pas un code postal français : l'envoi doit disparaître");
     assert.ok(text(container).includes(POSTAL_ERR_FR), "message français inchangé : 5 chiffres");
     assert.equal(text(container).includes(POSTAL_ERR_BE), false);
+    assert.equal(
+      (inputById(container, "street") as HTMLInputElement | null)?.value,
+      "",
+      "ADDRESS UX v1 cas 5.8 : la rue belge tapée à la main est effacée par le changement de pays"
+    );
 
+    // Correction au format français -- la rue doit être retapée (voir
+    // FR -> BE ci-dessus, même correctif ADDRESS UX v1 cas 5.8).
+    setNativeValue(inputById(container, "street")!, "12 rue des Lilas");
     setNativeValue(inputById(container, "postalCode")!, "75001");
     setNativeValue(inputById(container, "city")!, "Paris");
     await flush(50);

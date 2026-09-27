@@ -417,11 +417,24 @@ function installBackend(
   // sur le réseau. Toute autre requête sortante est enregistrée et
   // refusée -- aucun fournisseur (paiement, livraison, e-mail) ne doit
   // être contacté par ce parcours.
+  //
+  // ADDRESS UX v1 -- résolution code postal -> ville (France,
+  // geo.api.gouv.fr, voir lib/services/postcode-lookup.ts) : même
+  // traitement que l'autocomplétion IGN ci-dessus, servie vide (aucune
+  // commune connue -- fail-soft, jamais bloquant) plutôt que sur le
+  // réseau. Ce parcours saisit toujours la ville lui-même
+  // (fillDelivery) -- servir zéro commune n'écrase donc jamais rien.
   t.mock.method(globalThis, "fetch", async (input: unknown) => {
     const url = String(input instanceof URL ? input.href : (input as any)?.url ?? input);
     backend.fetchUrls.push(url);
     if (url.startsWith("https://data.geopf.fr/geocodage/search")) {
       return new Response(JSON.stringify({ type: "FeatureCollection", features: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.startsWith("https://geo.api.gouv.fr/communes")) {
+      return new Response(JSON.stringify([]), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -599,7 +612,14 @@ function assertTenantScopedCalls(backend: Backend, tenant: TenantFixture) {
 
 function assertNoExternalEffects(backend: Backend) {
   assert.deepEqual(backend.unexpected, [], "aucun appel backend hors contrat du parcours");
-  const outbound = backend.fetchUrls.filter((u) => !u.startsWith("https://data.geopf.fr/geocodage/search"));
+  const outbound = backend.fetchUrls.filter(
+    (u) =>
+      !u.startsWith("https://data.geopf.fr/geocodage/search") &&
+      // ADDRESS UX v1 -- geo.api.gouv.fr (résolution code postal ->
+      // ville, France) est un fournisseur légitime de ce parcours au
+      // même titre que l'autocomplétion IGN ci-dessus.
+      !u.startsWith("https://geo.api.gouv.fr/communes")
+  );
   assert.deepEqual(outbound, [], "aucune requête vers un fournisseur externe (paiement, livraison, e-mail)");
   for (const url of backend.openedUrls) {
     assert.ok(url.startsWith("https://wa.me/"), "seule la redirection WhatsApp (enregistrée, non suivie) est ouverte");
