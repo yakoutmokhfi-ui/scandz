@@ -139,13 +139,38 @@ export class SmtpConfigMissingError extends Error {
 }
 
 /**
+ * GAP-01 remédiation round 1 (finding #3, issue #11 -- "CGV v7
+ * overstates runtime guarantees") : CGV v7 (DRAFT-lot-gap-01-cgv-
+ * template-v7.sql) affirme SANS CONDITION que l'accusé de réception
+ * "est envoyé depuis l'adresse retractation@scanym.com". Avant cette
+ * remédiation, `readSmtpConfig` faisait confiance à la valeur BRUTE
+ * de la variable d'environnement SMTP_FROM -- une valeur Vercel
+ * mal configurée (faute de frappe, adresse de test oubliée, etc.)
+ * aurait fait mentir la CGV silencieusement, sans qu'aucun code ni
+ * aucun test ne le détecte. La CGV ne doit promettre QUE ce que le
+ * runtime garantit réellement -- donc c'est le runtime qui est
+ * contraint pour rejoindre la CGV (option retenue par la CIO,
+ * issue #11, "prefer constraining runtime to match legal promise"),
+ * jamais l'inverse : la config est traitée comme ABSENTE (même
+ * contrat "no-op gracieux" que les autres variables SMTP_*, jamais un
+ * envoi silencieux avec un expéditeur différent) si SMTP_FROM ne vaut
+ * pas EXACTEMENT cette adresse.
+ */
+export const REQUIRED_ACK_FROM_ADDRESS = "retractation@scanym.com";
+
+/**
  * Lit SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD/SMTP_FROM -- noms
  * EXACTS confirmés sur l'issue #11, jamais une variante
  * `SCANYM_ACK_SMTP_*`. Renvoie `null` (jamais une exception) si une
- * seule variable manque : c'est le contrat "no-op gracieux" -- voir
- * `sendWithdrawalAcknowledgement` ci-dessous, qui traite `null` comme
- * "aucun envoi tenté, canal non configuré", jamais comme une erreur
- * bloquante pour la déclaration de rétractation elle-même.
+ * seule variable manque, OU si SMTP_FROM ne vaut pas exactement
+ * `REQUIRED_ACK_FROM_ADDRESS` (voir commentaire ci-dessus) : c'est le
+ * contrat "no-op gracieux" -- voir `sendWithdrawalAcknowledgement`
+ * ci-dessous, qui traite `null` comme "aucun envoi tenté, canal non
+ * configuré", jamais comme une erreur bloquante pour la déclaration
+ * de rétractation elle-même. Un SMTP_FROM erroné n'est PAS traité
+ * différemment d'un SMTP_FROM absent -- dans les deux cas, aucun
+ * message n'est envoyé plutôt que d'être envoyé sous une identité que
+ * la CGV ne garantit pas.
  */
 export function readSmtpConfig(): SmtpConfig | null {
   const host = process.env.SMTP_HOST;
@@ -160,6 +185,7 @@ export function readSmtpConfig(): SmtpConfig | null {
   if (!user) missing.push("SMTP_USER");
   if (!password) missing.push("SMTP_PASSWORD");
   if (!from) missing.push("SMTP_FROM");
+  else if (from !== REQUIRED_ACK_FROM_ADDRESS) missing.push("SMTP_FROM (invalid value)");
   if (missing.length > 0) return null;
 
   const port = Number(portRaw);
@@ -386,6 +412,19 @@ export interface AckDependencies {
     merchantName: string;
     merchantContactEmail: string | null;
     merchantContactPhone: string | null;
+    /**
+     * GAP-01 remédiation (issue #11, e-mail marchand obligatoire pour
+     * STANDARD_14_DAYS/MIXED) -- `merchant_cgv_profile.withdrawal_regime`,
+     * lu dans le MÊME appel SECURITY DEFINER que le reste (voir
+     * `claim_withdrawal_acknowledgement_send`, DRAFT-lot-gap-01-
+     * mandatory-merchant-email-v1.sql). `null` si le profil CGV est
+     * absent ou le régime non renseigné -- traité comme "hors
+     * périmètre applicable" par la garde défensive ci-dessous, jamais
+     * comme une erreur bloquante en soi (cohérent avec
+     * `cgv_completeness_errors`, qui a de toute façon déjà refusé la
+     * publication d'une CGV pour un profil incomplet).
+     */
+    merchantWithdrawalRegime: string | null;
   } | null>;
   /** Exécute record_withdrawal_acknowledgement_result (service_role). */
   recordResult(input: {
@@ -403,6 +442,21 @@ export type SendAckOutcome =
   | { attempted: false; reason: "no_channel" | "already_claimed_elsewhere" }
   | { attempted: true; ok: true; messageId: string }
   | { attempted: true; ok: false; error: string };
+
+/**
+ * GAP-01 remédiation (issue #11) -- même périmètre régime que le gate
+ * SQL `cgv_completeness_errors` (DRAFT-lot-gap-01-mandatory-merchant-
+ * email-v1.sql) et que l'UI (`app/dashboard/legal-cgv/page.tsx`) :
+ * l'e-mail marchand n'est obligatoire QUE sous ces deux régimes, car
+ * l'accusé de réception D.221-5 n'est transporté QUE par e-mail.
+ */
+const APPLICABLE_WITHDRAWAL_REGIMES = new Set(["STANDARD_14_DAYS", "MIXED"]);
+
+/** Code d'erreur stable de la garde défensive ci-dessous -- distinct de
+ * tout code de transport SMTP réel (jamais confondu avec ECONNREFUSED
+ * et consorts dans les journaux/évidences d'audit). */
+const MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR =
+  "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME";
 
 /**
  * BEST-EFFORT / NON-BLOQUANT : l'appelant (route de soumission de
@@ -457,6 +511,33 @@ export async function sendWithdrawalAcknowledgement(
     merchantContactEmail: merchant.contactEmail,
     merchantContactPhone: merchant.contactPhone,
   });
+
+  // GAP-01 remédiation (issue #11) -- garde défensive, DÉFENSE EN
+  // PROFONDEUR : le gate SQL (`cgv_completeness_errors`) refuse déjà
+  // toute NOUVELLE publication de CGV STANDARD_14_DAYS/MIXED sans
+  // e-mail marchand, mais ne réécrit (et ne DOIT PAS réécrire --
+  // décision CIO, aucun backfill) aucune donnée déjà publiée avant ce
+  // gate. Un marchand résiduel, publié avant le gate, téléphone-seul,
+  // sous un régime applicable, ne doit JAMAIS déclencher un envoi
+  // silencieux avec `cc: null` comme si `ok:true` -- le résultat est
+  // consigné en échec EXPLICITE via le même chemin d'évidence que tout
+  // échec de transport réel, et AUCUNE tentative d'envoi n'est faite.
+  if (
+    merchant.contactEmail === null &&
+    claimed.merchantWithdrawalRegime !== null &&
+    APPLICABLE_WITHDRAWAL_REGIMES.has(claimed.merchantWithdrawalRegime)
+  ) {
+    await deps.recordResult({
+      withdrawalRequestId,
+      ok: false,
+      to: claimed.acknowledgementAddress,
+      cc: null,
+      messageId: null,
+      contentVersion: ACK_EMAIL_CONTENT_VERSION,
+      error: MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR,
+    });
+    return { attempted: true, ok: false, error: MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR };
+  }
 
   const result = await deps.transport.send({
     config,

@@ -48,6 +48,9 @@ const realAckDependencies: AckDependencies = {
       merchant_name: string | null;
       merchant_contact_email: string | null;
       merchant_contact_phone: string | null;
+      // GAP-01 remédiation (issue #11) -- merchant_cgv_profile.withdrawal_regime,
+      // ajouté par DRAFT-lot-gap-01-mandatory-merchant-email-v1.sql.
+      merchant_withdrawal_regime: string | null;
     };
     // Un claim refusé (déjà en cours ailleurs / déjà terminé) renvoie
     // une ligne entièrement NULL depuis le LEFT JOIN sur une CTE vide
@@ -65,6 +68,7 @@ const realAckDependencies: AckDependencies = {
       merchantName: row.merchant_name ?? "",
       merchantContactEmail: row.merchant_contact_email,
       merchantContactPhone: row.merchant_contact_phone,
+      merchantWithdrawalRegime: row.merchant_withdrawal_regime,
     };
   },
 

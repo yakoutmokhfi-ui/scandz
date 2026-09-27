@@ -87,7 +87,28 @@ test("readSmtpConfig : renvoie la config quand les CINQ variables SMTP_HOST/PORT
 
 test("readSmtpConfig : SMTP_PORT non numérique -> null (jamais NaN silencieux)", () => {
   withEnv(
-    { SMTP_HOST: "ssl0.ovh.net", SMTP_PORT: "abc", SMTP_USER: "u", SMTP_PASSWORD: "p", SMTP_FROM: "f@x.com" },
+    { SMTP_HOST: "ssl0.ovh.net", SMTP_PORT: "abc", SMTP_USER: "u", SMTP_PASSWORD: "p", SMTP_FROM: "retractation@scanym.com" },
+    () => {
+      assert.equal(readSmtpConfig(), null);
+    }
+  );
+});
+
+// --------------------------------------------------------------------
+// GAP-01 remédiation round 1 (finding #3, issue #11) : SMTP_FROM ne
+// doit JAMAIS être une valeur arbitraire -- la CGV v7 affirme sans
+// condition un envoi depuis retractation@scanym.com, donc le runtime
+// est contraint pour rejoindre exactement cette promesse.
+// --------------------------------------------------------------------
+test("readSmtpConfig : SMTP_FROM différent de retractation@scanym.com -> null (jamais un envoi sous une autre identité que la CGV)", () => {
+  withEnv(
+    {
+      SMTP_HOST: "ssl0.ovh.net",
+      SMTP_PORT: "465",
+      SMTP_USER: "retractation@scanym.com",
+      SMTP_PASSWORD: "secret",
+      SMTP_FROM: "autre-adresse@scanym.com",
+    },
     () => {
       assert.equal(readSmtpConfig(), null);
     }
@@ -174,6 +195,7 @@ function fakeDeps(overrides: Partial<Record<string, unknown>> = {}) {
           merchantName: "Le Gap Un",
           merchantContactEmail: "contact@le-gap-un.example",
           merchantContactPhone: null,
+          merchantWithdrawalRegime: "STANDARD_14_DAYS",
         };
       },
       async recordResult(input: unknown) {
@@ -274,6 +296,127 @@ test("sendWithdrawalAcknowledgement : n'expose jamais d'exception -- une dépend
     // tryDispatchWithdrawalAcknowledgement (withdrawal-ack-service.ts)
     // qui porte la garantie "jamais d'exception exposée à la route
     // HTTP", testée séparément.
+  });
+});
+
+// --------------------------------------------------------------------
+// D. GAP-01 remédiation (issue #11) -- garde défensive runtime : un
+// marchand STANDARD_14_DAYS/MIXED résiduel (publié avant le gate SQL,
+// DRAFT-lot-gap-01-mandatory-merchant-email-v1.sql) sans e-mail ne
+// doit JAMAIS recevoir un envoi silencieux avec cc:null -- échec
+// explicite consigné, aucune tentative de transport.
+// --------------------------------------------------------------------
+test("sendWithdrawalAcknowledgement : régime applicable (STANDARD_14_DAYS) + e-mail marchand absent -> aucun envoi tenté, échec explicite consigné", async () => {
+  await withEnvAsync(SMTP_ENV, async () => {
+    const { deps, sent, recorded } = fakeDeps({
+      claim: async (id: string) => ({
+        id,
+        restaurantId: "11111111-1111-4111-8111-111111111111",
+        orderId: "22222222-2222-4222-8222-222222222222",
+        acknowledgementAddress: "client@example.com",
+        customerFirstName: "Jean",
+        customerLastName: "Dupont",
+        declarationSnapshot: {
+          order_number: 42,
+          declared_at: "2026-09-27T10:15:00Z",
+          lines: [{ item_name: "Plateau réutilisable", option_name: null, quantity: 2 }],
+        },
+        merchantName: "Le Gap Un",
+        merchantContactEmail: null,
+        merchantContactPhone: "+33600000000",
+        merchantWithdrawalRegime: "STANDARD_14_DAYS",
+      }),
+    });
+    const outcome = await sendWithdrawalAcknowledgement("wr-1", deps as never, "fr");
+
+    assert.equal(sent.length, 0, "aucune tentative de transport, jamais un envoi silencieux avec cc:null");
+    assert.equal(outcome.attempted, true);
+    assert.equal((outcome as { ok: boolean }).ok, false);
+    assert.equal(
+      (outcome as { error: string }).error,
+      "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME"
+    );
+
+    assert.equal(recorded.length, 1);
+    const rec = recorded[0] as { ok: boolean; cc: string | null; error: string | null };
+    assert.equal(rec.ok, false);
+    assert.equal(rec.cc, null);
+    assert.equal(rec.error, "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME");
+  });
+});
+
+test("sendWithdrawalAcknowledgement : régime applicable (MIXED) + e-mail marchand absent -> même garde", async () => {
+  await withEnvAsync(SMTP_ENV, async () => {
+    const { deps, sent, recorded } = fakeDeps({
+      claim: async (id: string) => ({
+        id,
+        restaurantId: "11111111-1111-4111-8111-111111111111",
+        orderId: "22222222-2222-4222-8222-222222222222",
+        acknowledgementAddress: "client@example.com",
+        customerFirstName: "Jean",
+        customerLastName: "Dupont",
+        declarationSnapshot: { order_number: 42, declared_at: "2026-09-27T10:15:00Z", lines: [] },
+        merchantName: "Le Gap Un",
+        merchantContactEmail: null,
+        merchantContactPhone: "+33600000000",
+        merchantWithdrawalRegime: "MIXED",
+      }),
+    });
+    const outcome = await sendWithdrawalAcknowledgement("wr-1", deps as never, "fr");
+    assert.equal(sent.length, 0);
+    assert.equal((outcome as { ok: boolean }).ok, false);
+    assert.equal(recorded.length, 1);
+  });
+});
+
+test("sendWithdrawalAcknowledgement : régime EXEMPT_PERISHABLE + e-mail marchand absent -> garde INACTIVE, envoi tenté normalement (cc:null, comportement inchangé)", async () => {
+  await withEnvAsync(SMTP_ENV, async () => {
+    const { deps, sent, recorded } = fakeDeps({
+      claim: async (id: string) => ({
+        id,
+        restaurantId: "11111111-1111-4111-8111-111111111111",
+        orderId: "22222222-2222-4222-8222-222222222222",
+        acknowledgementAddress: "client@example.com",
+        customerFirstName: "Jean",
+        customerLastName: "Dupont",
+        declarationSnapshot: { order_number: 42, declared_at: "2026-09-27T10:15:00Z", lines: [] },
+        merchantName: "Le Gap Un",
+        merchantContactEmail: null,
+        merchantContactPhone: "+33600000000",
+        merchantWithdrawalRegime: "EXEMPT_PERISHABLE",
+      }),
+    });
+    const outcome = await sendWithdrawalAcknowledgement("wr-1", deps as never, "fr");
+    assert.equal(sent.length, 1, "hors périmètre régime, la garde ne doit jamais bloquer l'envoi");
+    assert.equal((sent[0] as { cc: string | null }).cc, null);
+    assert.equal(outcome.attempted, true);
+    assert.equal((outcome as { ok: boolean }).ok, true);
+    assert.equal(recorded.length, 1);
+    assert.equal((recorded[0] as { cc: string | null }).cc, null);
+  });
+});
+
+test("sendWithdrawalAcknowledgement : régime applicable mais e-mail marchand PRÉSENT -> garde INACTIVE, envoi normal avec CC", async () => {
+  await withEnvAsync(SMTP_ENV, async () => {
+    const { deps, sent } = fakeDeps({
+      claim: async (id: string) => ({
+        id,
+        restaurantId: "11111111-1111-4111-8111-111111111111",
+        orderId: "22222222-2222-4222-8222-222222222222",
+        acknowledgementAddress: "client@example.com",
+        customerFirstName: "Jean",
+        customerLastName: "Dupont",
+        declarationSnapshot: { order_number: 42, declared_at: "2026-09-27T10:15:00Z", lines: [] },
+        merchantName: "Le Gap Un",
+        merchantContactEmail: "contact@le-gap-un.example",
+        merchantContactPhone: null,
+        merchantWithdrawalRegime: "STANDARD_14_DAYS",
+      }),
+    });
+    const outcome = await sendWithdrawalAcknowledgement("wr-1", deps as never, "fr");
+    assert.equal(sent.length, 1);
+    assert.equal((sent[0] as { cc: string | null }).cc, "contact@le-gap-un.example");
+    assert.equal((outcome as { ok: boolean }).ok, true);
   });
 });
 

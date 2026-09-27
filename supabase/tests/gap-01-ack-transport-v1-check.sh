@@ -16,6 +16,10 @@ set -uo pipefail
 SUPABASE_DIR="${SUPABASE_DIR:-supabase}"
 DRAFT_SQL="$SUPABASE_DIR/DRAFT-lot-gap-01-ack-transport-v1.sql"
 ROLLBACK_SQL="$SUPABASE_DIR/DRAFT-lot-gap-01-ack-transport-v1-ROLLBACK.sql"
+# GAP-01 remédiation round 1 (issue #11, exécution CIO/RAVEL) — e-mail
+# marchand obligatoire pour STANDARD_14_DAYS/MIXED.
+MANDATORY_EMAIL_SQL="$SUPABASE_DIR/DRAFT-lot-gap-01-mandatory-merchant-email-v1.sql"
+MANDATORY_EMAIL_ROLLBACK_SQL="$SUPABASE_DIR/DRAFT-lot-gap-01-mandatory-merchant-email-v1-ROLLBACK.sql"
 DB="scanym_gap01_$$"
 
 PASS_COUNT=0
@@ -96,6 +100,8 @@ for f in $MINIMAL_CHAIN $REST_CHAIN DRAFT-lot-seller-legal-profile-cgv-engine-v1
 done
 [ -f "$DRAFT_SQL" ] || { echo "FATAL: $DRAFT_SQL absent"; exit 1; }
 [ -f "$ROLLBACK_SQL" ] || { echo "FATAL: $ROLLBACK_SQL absent"; exit 1; }
+[ -f "$MANDATORY_EMAIL_SQL" ] || { echo "FATAL: $MANDATORY_EMAIL_SQL absent"; exit 1; }
+[ -f "$MANDATORY_EMAIL_ROLLBACK_SQL" ] || { echo "FATAL: $MANDATORY_EMAIL_ROLLBACK_SQL absent"; exit 1; }
 
 ERR="/tmp/scanym-gap01-chain-$$.err"
 apply_file() { psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$1" >/dev/null 2>"$ERR"; }
@@ -259,6 +265,73 @@ assert_eq "withdrawal_clauses inchangées entre v6 et v7" "t" "$(sql "select (se
 apply_file "DRAFT-lot-gap-01-cgv-template-v7.sql"
 RCV7B=$?
 assert_nonzero_rc "ré-application de v7 refusée (SCANYM_ALREADY_APPLIED, pas d'écrasement silencieux)" "$RCV7B"
+
+log "=== [9c] GAP-01 — e-mail marchand obligatoire (STANDARD_14_DAYS/MIXED) ==="
+apply_file "DRAFT-lot-gap-01-mandatory-merchant-email-v1.sql"
+RCV8=$?
+assert_zero_rc "migration e-mail obligatoire appliquée sans erreur" "$RCV8" "$(cat "$ERR")"
+
+# Marchand DÉDIÉ, téléphone seul, aucun e-mail -- indépendant de
+# $RESTAURANT_ID (sections précédentes/suivantes) pour ne rien
+# perturber de leur état déjà vérifié.
+R2=$(sql "insert into public.restaurants (name, slug, country) values ('Le Gap Deux', 'le-gap-deux', 'FR') returning id;")
+[ -n "$R2" ] || fail "création restaurant R2 impossible"
+sql "insert into public.merchant_legal_profile (restaurant_id, legal_form, governing_country, address_line1, postal_code, city, customer_service_phone) values ('$R2', 'EI', 'FR', '1 rue Test', '75000', 'Paris', '+33600000000');" >/dev/null 2>"$ERR" || log "note: merchant_legal_profile seed R2 ($(head -1 "$ERR"))"
+
+sql "insert into public.merchant_cgv_profile (restaurant_id, withdrawal_regime) values ('$R2', 'STANDARD_14_DAYS');" >/dev/null 2>"$ERR" || log "note: merchant_cgv_profile seed R2 ($(head -1 "$ERR"))"
+assert_eq "STANDARD_14_DAYS + téléphone seul -> nouveau code présent" "t" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL'];")"
+assert_eq "STANDARD_14_DAYS + téléphone seul -> ancien code ABSENT (jamais les deux à la fois)" "f" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_CONTACT_MISSING'];")"
+
+sql "update public.merchant_cgv_profile set withdrawal_regime = 'MIXED' where restaurant_id = '$R2';" >/dev/null
+assert_eq "MIXED + téléphone seul -> même nouveau code présent" "t" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL'];")"
+
+sql "update public.merchant_cgv_profile set withdrawal_regime = 'EXEMPT_PERISHABLE' where restaurant_id = '$R2';" >/dev/null
+assert_eq "EXEMPT_PERISHABLE + téléphone seul -> nouveau code ABSENT (non-fuite hors périmètre)" "f" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL'];")"
+assert_eq "EXEMPT_PERISHABLE + téléphone seul -> ancien code ABSENT aussi (téléphone toujours suffisant hors périmètre)" "f" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_CONTACT_MISSING'];")"
+
+# Preuve positive que l'ancien chemin (e-mail OU téléphone) reste
+# atteignable et INCHANGÉ hors périmètre : marchand sans AUCUN contact.
+sql "update public.merchant_legal_profile set customer_service_phone = null where restaurant_id = '$R2';" >/dev/null
+assert_eq "EXEMPT_PERISHABLE + aucun contact -> ancien code CUSTOMER_CONTACT_MISSING toujours déclenché" "t" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_CONTACT_MISSING'];")"
+assert_eq "EXEMPT_PERISHABLE + aucun contact -> nouveau code toujours ABSENT" "f" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL'];")"
+
+# Preuve que la publication elle-même est bloquée par le nouveau code
+# (pas seulement cgv_completeness_errors en lecture isolée).
+sql "update public.merchant_cgv_profile set withdrawal_regime = 'STANDARD_14_DAYS' where restaurant_id = '$R2';" >/dev/null
+sql "update public.merchant_legal_profile set customer_service_phone = '+33600000000' where restaurant_id = '$R2';" >/dev/null
+U2=$(sql "insert into auth.users (email) values ('owner2@le-gap-deux.example') returning id;")
+sql "insert into public.restaurant_users (restaurant_id, user_id, role) values ('$R2', '$U2', 'owner');" >/dev/null 2>"$ERR" || log "note: restaurant_users seed R2 ($(head -1 "$ERR"))"
+PUB_ERR=$(psql -X -A -q -t -d "$DB" -c "set role authenticated; set local test.uid = '$U2'; select public.resolve_cgv_publication_context('$R2');" 2>&1 1>/dev/null)
+case "$PUB_ERR" in
+  *CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL*) pass "publication bloquée par le nouveau code (STANDARD_14_DAYS, téléphone seul) : $PUB_ERR" ;;
+  *) fail "publication NON bloquée par le nouveau code (attendu CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL) : $PUB_ERR" ;;
+esac
+
+log "=== [9d] GAP-01 — e-mail obligatoire : idempotence + rollback ==="
+apply_file "DRAFT-lot-gap-01-mandatory-merchant-email-v1.sql"
+RCV8B=$?
+assert_nonzero_rc "ré-application refusée (SCANYM_ALREADY_APPLIED, pas d'écrasement silencieux)" "$RCV8B"
+
+assert_eq "claim_withdrawal_acknowledgement_send expose bien merchant_withdrawal_regime" "t" "$(sql "select exists (select 1 from pg_attribute a join pg_type t on t.typrelid = a.attrelid where t.typname = 'withdrawal_ack_claim_result' and a.attname = 'merchant_withdrawal_regime' and not a.attisdropped);")"
+
+apply_file "DRAFT-lot-gap-01-mandatory-merchant-email-v1-ROLLBACK.sql"
+RCV8R=$?
+assert_zero_rc "rollback e-mail obligatoire appliqué sans erreur" "$RCV8R" "$(cat "$ERR")"
+assert_eq "après rollback : ancien comportement restauré (STANDARD_14_DAYS + téléphone seul -> plus de nouveau code)" "f" "$(sql "select public.cgv_completeness_errors('$R2') @> array['CUSTOMER_EMAIL_REQUIRED_FOR_WITHDRAWAL'];")"
+assert_eq "après rollback : merchant_withdrawal_regime a disparu du type composite" "f" "$(sql "select exists (select 1 from pg_attribute a join pg_type t on t.typrelid = a.attrelid where t.typname = 'withdrawal_ack_claim_result' and a.attname = 'merchant_withdrawal_regime' and not a.attisdropped);")"
+
+# NOTE : ce lot est délibérément laissé RÉTABLI (rollback) à ce point,
+# exactement l'état où le trouvent les sections [10]/[11] ci-dessous
+# dans la chaîne prédécesseur historique -- claim_withdrawal_
+# acknowledgement_send et cgv_completeness_errors sont donc, pour ces
+# deux sections, dans leur forme GAP-01 ack-transport-v1 / ONLINE
+# WITHDRAWAL v1.1 d'origine, jamais la forme e-mail-obligatoire : sans
+# quoi la ré-application de DRAFT-lot-gap-01-ack-transport-v1.sql en
+# [10] (CREATE OR REPLACE inconditionnel de la même fonction)
+# écraserait silencieusement merchant_withdrawal_regime avant même que
+# ce harnais n'ait fini de le vérifier. Ce lot est validé plus haut,
+# intégralement, dans son propre cycle apply/assert/idempotence/
+# rollback -- rien ici ne le re-teste indirectement.
 
 log "=== [10] Idempotence de la migration (seconde application) ==="
 apply_file "DRAFT-lot-gap-01-ack-transport-v1.sql"
