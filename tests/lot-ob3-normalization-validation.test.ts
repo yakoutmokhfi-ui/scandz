@@ -285,6 +285,10 @@ function baseValues(overrides: Partial<Record<string, unknown>>) {
     taxRate: 10,
     unitWeightGrams: 350,
     weightIsApproximate: false,
+    // ONLINE WITHDRAWAL v1 -- colonne « Rétractable » absente/vide par
+    // défaut dans ces fixtures : comportement historique EXACT (aucun
+    // diagnostic, valeur résolue ailleurs par la preview).
+    withdrawalEligible: undefined as boolean | null | undefined,
     tags: [] as string[],
     type: { kind: "PRODUCT" as const },
     categoryNameRaw: "Pizzas",

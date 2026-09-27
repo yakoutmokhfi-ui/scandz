@@ -31,6 +31,10 @@ export function makeProduct(overrides: Partial<CatalogueProduct> & { product_id:
     unit_weight_grams: null,
     weight_is_approximate: false,
     reference_price_per_kg: null,
+    // ONLINE WITHDRAWAL v1 -- `false` par défaut, exactement comme la
+    // colonne en base ; un test qui vise la rétractabilité passe
+    // `withdrawal_eligible: true` via `overrides`.
+    withdrawal_eligible: false,
     ...overrides,
   };
 }

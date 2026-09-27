@@ -37,6 +37,7 @@ import {
   classifyRowType,
   coerceInteger,
   coerceNumeric,
+  coerceWithdrawalEligible,
   normalizedKey,
   splitTagsColumn,
 } from "@/lib/catalogue-import/normalization";
@@ -119,6 +120,11 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
     // heuristique par ligne (même décision que le gap-analysis OB-2
     // préparatoire, §2).
     weightIsApproximate: false,
+    // ONLINE WITHDRAWAL v1 -- valeur BRUTE (Oui/Non/vide/invalide).
+    // La valeur effectivement écrite est résolue plus bas
+    // (resolveWithdrawalEligibleToWrite), car elle dépend du produit
+    // EXISTANT, que cette fonction ne voit pas.
+    withdrawalEligible: coerceWithdrawalEligible(cells["Rétractable"]),
     tags: splitTagsColumn(cells["Tags / Collections"]),
     type,
     categoryNameRaw,
@@ -132,9 +138,34 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
  *  seraient identiques après import (aucune écriture utile), UPDATE
  *  sinon -- décision déterministe documentée (IMPORT-CONTRACT.md),
  *  jamais un no-op silencieusement classé UPDATE. */
+/**
+ * ONLINE WITHDRAWAL v1 -- résout la valeur EFFECTIVE de
+ * `withdrawal_eligible` pour une ligne (contrat complet documenté sur
+ * `PreviewRow.withdrawalEligibleToWrite`, types.ts).
+ *
+ * CELLULE VIDE = « inchangé pour un produit existant, `false` pour un
+ * produit nouveau » -- implémenté EXPLICITEMENT ici, et nulle part
+ * ailleurs : `update_product` réécrit TOUJOURS la colonne (aucun
+ * « ne pas toucher » côté serveur), donc omettre cette résolution
+ * effacerait silencieusement le « Oui » d'un produit à chaque
+ * réimport d'un fichier sans cette colonne.
+ *
+ * CELLULE INVALIDE (`null`) : même repli que la cellule vide, JAMAIS
+ * `true`. La ligne est de toute façon bloquée par validateRow, donc
+ * cette valeur n'est jamais écrite -- le repli n'est qu'un filet.
+ */
+function resolveWithdrawalEligibleToWrite(
+  raw: boolean | null | undefined,
+  existing: { withdrawal_eligible: boolean } | undefined
+): boolean {
+  if (raw === true || raw === false) return raw;
+  return existing?.withdrawal_eligible ?? false;
+}
+
 function valuesEqualExisting(
   values: NormalizedRowValues,
-  existing: { price: number; short_description: string | null; description: string | null; tax_rate: number | null; unit_weight_grams: number | null; weight_is_approximate: boolean }
+  existing: { price: number; short_description: string | null; description: string | null; tax_rate: number | null; unit_weight_grams: number | null; weight_is_approximate: boolean; withdrawal_eligible: boolean },
+  withdrawalEligibleToWrite: boolean
 ): boolean {
   const priceEqual =
     values.price !== undefined && values.price !== null && Math.round(values.price * 100) === Math.round(existing.price * 100);
@@ -142,7 +173,13 @@ function valuesEqualExisting(
   const descEqual = (values.description ?? null) === (existing.description ?? null);
   const taxEqual = (values.taxRate === undefined ? null : values.taxRate) === existing.tax_rate;
   const weightEqual = (values.unitWeightGrams === undefined ? null : values.unitWeightGrams) === existing.unit_weight_grams;
-  return priceEqual && shortDescEqual && descEqual && taxEqual && weightEqual;
+  // ONLINE WITHDRAWAL v1 -- comparer la valeur EFFECTIVE (et non la
+  // cellule brute) : une cellule vide résout vers la valeur actuelle,
+  // donc n'introduit JAMAIS un faux UPDATE ; une cellule qui bascule
+  // Oui <-> Non produit bien un UPDATE, jamais un SKIP qui perdrait
+  // silencieusement la modification voulue par le marchand.
+  const withdrawalEqual = withdrawalEligibleToWrite === existing.withdrawal_eligible;
+  return priceEqual && shortDescEqual && descEqual && taxEqual && weightEqual && withdrawalEqual;
 }
 
 /**
@@ -246,6 +283,18 @@ export function buildPreviewReport(
 
     const resolvedTags = tagResolutions.get(row) ?? [];
 
+    // ONLINE WITHDRAWAL v1 -- produit EXISTANT correspondant (s'il y en
+    // a un) : seule source possible de la valeur « inchangée » quand la
+    // cellule « Rétractable » est vide.
+    const matchedExistingProduct =
+      productMatch.state === "EXISTING_MATCH" && productMatch.existingId
+        ? findExistingProductById(existingCategories, productMatch.existingId)
+        : undefined;
+    const withdrawalEligibleToWrite = resolveWithdrawalEligibleToWrite(
+      values.withdrawalEligible,
+      matchedExistingProduct
+    );
+
     const issues = validateRow({
       values,
       categoryResolution,
@@ -276,8 +325,9 @@ export function buildPreviewReport(
       // PRODUCT (explicite ou implicite) -- comportement INCHANGÉ.
       plannedAction = "CREATE";
     } else if (productMatch.state === "EXISTING_MATCH" && productMatch.existingId) {
-      const existing = findExistingProductById(existingCategories, productMatch.existingId);
-      plannedAction = existing && valuesEqualExisting(values, existing) ? "SKIP" : "UPDATE";
+      const existing = matchedExistingProduct;
+      plannedAction =
+        existing && valuesEqualExisting(values, existing, withdrawalEligibleToWrite) ? "SKIP" : "UPDATE";
     } else {
       // AMBIGUOUS_DUPLICATE sans erreur bloquante ne devrait jamais
       // se produire (validateRow émet toujours SCANYM_IMPORT_
@@ -302,6 +352,7 @@ export function buildPreviewReport(
       resolvedTags,
       rowType,
       plannedAction,
+      withdrawalEligibleToWrite,
     };
   });
 

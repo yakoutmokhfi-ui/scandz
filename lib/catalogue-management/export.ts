@@ -7,7 +7,7 @@
  * ------------------------------------------------------------------
  * COMPATIBILITÉ IMPORT / EXPORT (mandat §12)
  * ------------------------------------------------------------------
- * Les 11 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
+ * Les 12 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
  * l'ordre exact du format d'import -- réutilisées depuis
  * lib/catalogue-import/column-mapping.ts, jamais recopiées à la main,
  * de sorte qu'elles ne peuvent pas diverger silencieusement si le
@@ -17,6 +17,11 @@
  * direct, et prouvé par un test d'aller-retour RÉEL : le classeur
  * produit ici est relu par `readXlsxWorkbook`, le lecteur d'import de
  * production, jamais par un parseur de test.
+ *
+ * ONLINE WITHDRAWAL v1 -- « Rétractable » fait partie de ces colonnes
+ * d'import : c'est une VRAIE colonne d'ALLER-RETOUR (exportée « Oui »/
+ * « Non », relue et RÉELLEMENT appliquée à la réimportation), à ne pas
+ * confondre avec les deux colonnes purement informatives ci-dessous.
  *
  * DEUX colonnes supplémentaires suivent, exigées par le mandat §11 et
  * absentes du format d'import :
@@ -77,6 +82,12 @@ export function buildExportRows(products: ReadonlyArray<FlatProduct>): ExportCel
       p.tax_rate ?? "",
       p.unit_weight_grams ?? "",
       "", // Photo fichier -- voir en-tête de ce fichier.
+      // ONLINE WITHDRAWAL v1 -- « Rétractable » : EXACTEMENT « Oui » ou
+      // « Non », jamais une cellule vide (une cellule vide signifierait
+      // « inchangé » à la réimportation, ce qui rendrait l'export
+      // inexploitable pour BASCULER une valeur) et jamais un booléen
+      // brut (`true`/`false` ne serait pas relu par l'import).
+      p.withdrawal_eligible ? "Oui" : "Non",
       p.is_available ? "Oui" : "Non",
       p.reference_price_per_kg ?? "",
     ];

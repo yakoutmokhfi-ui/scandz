@@ -398,6 +398,17 @@ export interface CatalogueProduct {
   weight_is_approximate: boolean;
   /** Colonne GÉNÉRÉE côté base -- métadonnée de référence uniquement. */
   reference_price_per_kg: number | null;
+  /** ONLINE WITHDRAWAL v1 -- classification OPÉRATIONNELLE du produit
+   *  par le MARCHAND : ce produit est-il éligible au droit de
+   *  rétractation ? Attribut strictement INTERNE (voir le commentaire
+   *  de colonne dans supabase/DRAFT-lot-online-withdrawal-foundation-v1.sql) :
+   *  il n'est exposé NI par la carte publique, NI par les traductions
+   *  publiques, NI par aucune réponse client -- seules les RPC
+   *  MARCHANDES (get_merchant_catalogue) et l'export/import XLSX
+   *  marchand le voient. `false` par défaut pour tout produit :
+   *  l'éligibilité est une décision explicite du marchand, jamais
+   *  déduite d'une catégorie, d'un nom ou d'un régime. */
+  withdrawal_eligible: boolean;
 }
 
 /**
@@ -454,6 +465,11 @@ export async function getMerchantCatalogue(
     subcategory_is_active: boolean | null;
     subcategory_name_hash: string | null;
     subcategory_translations: Translations | null;
+    /** ONLINE WITHDRAWAL v1 -- dernière colonne de
+     *  get_merchant_catalogue. `null` pour une base non encore migrée
+     *  (colonne absente de la réponse) : repli défensif `false`
+     *  ci-dessous, jamais `true` (fail-closed). */
+    withdrawal_eligible: boolean | null;
   };
 
   const rows = (data ?? []) as Row[];
@@ -553,6 +569,11 @@ export async function getMerchantCatalogue(
       // elle-même, mandat §26).
       weight_is_approximate: r.weight_is_approximate ?? false,
       reference_price_per_kg: r.reference_price_per_kg,
+      // ONLINE WITHDRAWAL v1 -- même repli défensif que
+      // weight_is_approximate ci-dessus, et FAIL-CLOSED : l'absence de
+      // valeur (base non migrée) n'est JAMAIS interprétée comme
+      // « éligible », jamais l'inverse du défaut de la migration.
+      withdrawal_eligible: r.withdrawal_eligible ?? false,
     });
   }
   return categories;
@@ -589,6 +610,16 @@ export interface ProductFiscalInput {
   taxRate?: number | null;
   unitWeightGrams?: number | null;
   weightIsApproximate?: boolean;
+  /** ONLINE WITHDRAWAL v1 -- classification marchande de
+   *  rétractabilité (voir CatalogueProduct.withdrawal_eligible).
+   *  Optionnel : omis / `undefined` => `false` transmis à la RPC,
+   *  EXACTEMENT le défaut de create_product/update_product
+   *  (p_withdrawal_eligible boolean default false) -- jamais une
+   *  valeur devinée, jamais `true` par omission. Chaque appelant est
+   *  donc responsable de transmettre la valeur COURANTE du produit
+   *  lors d'une mise à jour : `update_product` réécrit toujours la
+   *  colonne, il n'existe aucun « ne pas toucher » côté serveur. */
+  withdrawalEligible?: boolean;
 }
 
 function throwFiscalOrCatalogueError(error: { code?: string | null; message?: string | null }): never {
@@ -630,6 +661,9 @@ export async function updateProduct(
     p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
     p_subcategory_id: subcategoryId,
+    // ONLINE WITHDRAWAL v1 -- DERNIER paramètre de la RPC (voir la
+    // migration). `?? false` reproduit à l'identique le défaut serveur.
+    p_withdrawal_eligible: fiscal.withdrawalEligible ?? false,
   });
   if (error) throwFiscalOrCatalogueError(error);
 }
@@ -653,6 +687,8 @@ export async function createProduct(
     p_unit_weight_grams: fiscal.unitWeightGrams ?? null,
     p_weight_is_approximate: fiscal.weightIsApproximate ?? false,
     p_subcategory_id: subcategoryId,
+    // ONLINE WITHDRAWAL v1 -- voir updateProduct ci-dessus.
+    p_withdrawal_eligible: fiscal.withdrawalEligible ?? false,
   });
   if (error) {
     // OB-4 v1.1 -- vérifié EN PREMIER, avant le repli générique fiscal/

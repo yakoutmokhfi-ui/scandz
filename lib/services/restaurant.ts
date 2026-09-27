@@ -109,8 +109,19 @@ export async function getRestaurantBySlug(
         .filter((i) => i.is_available && !i.archived_at)
         .map((i) => {
           const sub = i.subcategory_id ? subcategoriesById.get(i.subcategory_id) : undefined;
+          // ONLINE WITHDRAWAL v1 -- `withdrawal_eligible` est une
+          // classification OPÉRATIONNELLE INTERNE du marchand : elle ne
+          // doit atteindre NI la carte publique, NI la charge utile
+          // sérialisée vers le navigateur. Cette requête publique
+          // sélectionne `menu_items(*)` et l'objet obtenu est étalé
+          // ci-dessous, donc toute nouvelle colonne serait exposée par
+          // construction, même sans être affichée -- le retrait est
+          // fait ICI, à la frontière, plutôt que de compter sur le fait
+          // qu'aucun composant ne l'affiche.
+          const { withdrawal_eligible: _internalWithdrawalEligible, ...publicItem } =
+            i as typeof i & { withdrawal_eligible?: boolean };
           return {
-            ...i,
+            ...publicItem,
             subcategory_name: sub?.name ?? null,
             subcategory_display_order: sub?.display_order ?? null,
             // TRANSLATIONS MANAGEMENT v2 -- hash et traductions de LA

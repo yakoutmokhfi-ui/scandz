@@ -133,7 +133,7 @@ const fr: Dict = {
   legalCgvExemptPerishable: "Exempté (denrées périssables)",
   legalCgvStandard14Days: "Standard (14 jours)",
   legalCgvMixed: "Mixte (non pris en charge en v1)",
-  legalCgvOnlineWithdrawalFunctionGap: "Ce régime nécessite une fonctionnalité de rétractation en ligne dont Scanym ne dispose pas encore — voir la documentation d'audit.",
+  legalCgvOnlineWithdrawalFunctionGap: "Ce régime exige une fonctionnalité de rétractation en ligne complète : la déclaration en ligne existe, mais l'accusé de réception sur support durable ne peut pas encore être envoyé au client — la publication des CGV reste bloquée tant que ce canal n'existe pas.",
   legalCgvIncomplete: "Le profil doit être complet pour afficher un aperçu ou publier.",
   legalCgvStatus: "Statut",
   legalCgvPublish: "Publier une nouvelle version",
@@ -149,7 +149,7 @@ const fr: Dict = {
   legalCgvError_CUSTOMER_CONTACT_MISSING: "Aucun contact client (e-mail ou téléphone) n'est renseigné.",
   legalCgvError_MEDIATOR_INFO_MISSING: "Les informations du médiateur de la consommation sont incomplètes.",
   legalCgvError_WITHDRAWAL_REGIME_MISSING: "Le régime de rétractation n'est pas renseigné.",
-  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "Le régime « mixte » n'est pas encore pris en charge — choisissez un régime unique.",
+  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "Le régime « mixte » exige un modèle de CGV comportant la clause des commandes mixtes — rattachez l'établissement à une version du modèle qui la contient.",
   legalCgvError_PREPARATION_POLICY_MISSING: "Le délai de préparation n'est pas renseigné.",
   legalCgvError_TEMPLATE_UNRESOLVED: "Aucun modèle de CGV disponible pour ce pays.",
 
@@ -506,6 +506,22 @@ const fr: Dict = {
   mcFilterAll: "Tous",
   mcFilterAvailableYes: "Disponibles",
   mcFilterAvailableNo: "Indisponibles",
+  // ONLINE WITHDRAWAL v1 -- attribut MARCHAND interne (voir
+  // CatalogueProduct.withdrawal_eligible) : ces libellés n'apparaissent
+  // que sur l'écran catalogue marchand et dans l'export/import XLSX
+  // marchand, JAMAIS sur une vue client.
+  // `commonYes`/`commonNo` sont délibérément GÉNÉRIQUES (aucune clé
+  // « Oui »/« Non » nue n'existait jusqu'ici -- mcFilterAvailableYes/No
+  // disent « Disponibles »/« Indisponibles », pas « Oui »/« Non »).
+  catalogueWithdrawalEligibleLabel: "Rétractable",
+  commonYes: "Oui",
+  commonNo: "Non",
+  catalogueWithdrawalFilterAll: "Tous",
+  // Doit rester STRICTEMENT identique à
+  // WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE
+  // (lib/catalogue-import/validation.ts) -- égalité prouvée par
+  // tests/online-withdrawal-catalogue-v1.test.ts.
+  catalogueImportWithdrawalInvalid: "Valeur « Rétractable » invalide (attendu : Oui ou Non).",
   mcSortLabel: "Trier",
   mcSortNameAsc: "Nom A → Z",
   mcSortNameDesc: "Nom Z → A",
@@ -693,6 +709,45 @@ const fr: Dict = {
   // English-ready, preserve existing i18n architecture") -- clé
   // parité EXACTE fr/en/ar exigée par tests/v64-auth-whatsapp.test.ts.
   trackYourOrder: "Suivre ma commande",
+  // ONLINE WITHDRAWAL v1 -- parcours client de rétractation en ligne
+  // (art. L221-21 et D.221-5 du code de la consommation). Libellés
+  // NON AMBIGUS : le point d'entrée nomme le droit exercé, et l'action
+  // finale nomme l'acte juridique -- jamais « Valider » ni « Envoyer ».
+  withdrawalEntryAction: "Exercer mon droit de rétractation",
+  withdrawalEntryHelp: "Certains produits de cette commande peuvent faire l'objet d'une rétractation.",
+  withdrawalOrderRef: "Commande #{n}",
+  withdrawalSelectionHelp: "Sélectionnez les produits concernés et la quantité à rétracter.",
+  withdrawalQuantityLabel: "Quantité à rétracter :",
+  withdrawalBack: "Retour",
+  withdrawalContinue: "Continuer",
+  withdrawalReviewTitle: "Vérifier ma demande de rétractation",
+  withdrawalFirstNameLabel: "Prénom",
+  withdrawalLastNameLabel: "Nom",
+  withdrawalAckAddressLabel: "Adresse e-mail pour l'accusé de réception",
+  withdrawalAckAddressHelp: "Indiquez l'adresse électronique à laquelle vous souhaitez recevoir l'accusé de réception de votre déclaration.",
+  withdrawalConfirmAction: "Confirmer la rétractation",
+  withdrawalSubmitting: "Enregistrement…",
+  withdrawalDoneTitle: "Demande de rétractation enregistrée",
+  withdrawalRequestRef: "Demande #{ref}",
+  withdrawalDeclaredAt: "Déclarée le {date} à {time}",
+  // OW-V11-ACK-UX-03 (v1.2, correction d'audit) -- RÈGLE DE RÉDACTION
+  // pour les trois états ci-dessous : n'annoncer QUE des faits établis.
+  // `withdrawalAckSent` est le SEUL libellé qui parle d'un envoi, et il
+  // n'est affiché que lorsque le prestataire a confirmé cet envoi. Les
+  // deux autres décrivent ce qui est vrai -- la demande est enregistrée,
+  // datée, horodatée -- et l'indisponibilité, sans jamais promettre une
+  // remise que rien ne garantit : ni « vous recevrez », ni « va vous
+  // être envoyé », ni « le commerçant vous le transmettra ».
+  withdrawalAckSent: "L'accusé de réception vous a été envoyé.",
+  withdrawalAckPending: "Votre demande a été enregistrée, avec sa date et son heure. L'accusé de réception électronique n'a pas encore été envoyé.",
+  withdrawalAckUnavailable: "Votre demande a été enregistrée, avec sa date et son heure. L'accusé de réception électronique n'est pas disponible actuellement.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "Ce lien de suivi n'est plus valable. Rouvrez le suivi de votre commande, puis réessayez.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "Indiquez votre nom et votre prénom.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "Indiquez une adresse e-mail valide pour l'accusé de réception.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "Sélectionnez au moins un produit.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "Ce produit n'ouvre pas droit à rétractation pour cette commande.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "La quantité demandée dépasse la quantité commandée.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "La demande n'a pas pu être enregistrée. Réessayez dans un instant.",
   trackingPageTitle: "Suivi de commande",
   trackingOrderNumber: "Commande #{n}",
   trackingInvalidTitle: "Lien de suivi introuvable",
@@ -941,7 +996,7 @@ const en: Dict = {
   legalCgvExemptPerishable: "Exempt (perishable goods)",
   legalCgvStandard14Days: "Standard (14 days)",
   legalCgvMixed: "Mixed (not supported in v1)",
-  legalCgvOnlineWithdrawalFunctionGap: "This regime requires an online withdrawal function that Scanym does not yet provide — see the audit documentation.",
+  legalCgvOnlineWithdrawalFunctionGap: "This regime requires a complete online withdrawal function: the online declaration exists, but the acknowledgement of receipt on a durable medium cannot yet be sent to the customer — publishing the terms stays blocked until that channel exists.",
   legalCgvIncomplete: "The profile must be complete to preview or publish.",
   legalCgvStatus: "Status",
   legalCgvPublish: "Publish a new version",
@@ -957,7 +1012,7 @@ const en: Dict = {
   legalCgvError_CUSTOMER_CONTACT_MISSING: "No customer contact (email or phone) is set.",
   legalCgvError_MEDIATOR_INFO_MISSING: "The consumer mediator information is incomplete.",
   legalCgvError_WITHDRAWAL_REGIME_MISSING: "The withdrawal regime is not set.",
-  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "The \"mixed\" regime is not yet supported — choose a single regime.",
+  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "The \"mixed\" regime requires a terms template that carries the mixed-order clause — attach this establishment to a template version that has it.",
   legalCgvError_PREPARATION_POLICY_MISSING: "The preparation time is not set.",
   legalCgvError_TEMPLATE_UNRESOLVED: "No CGV template is available for this country.",
 
@@ -1257,6 +1312,12 @@ const en: Dict = {
   mcFilterAll: "All",
   mcFilterAvailableYes: "Available",
   mcFilterAvailableNo: "Unavailable",
+  // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr.
+  catalogueWithdrawalEligibleLabel: "Eligible for withdrawal",
+  commonYes: "Yes",
+  commonNo: "No",
+  catalogueWithdrawalFilterAll: "All",
+  catalogueImportWithdrawalInvalid: "Invalid « Rétractable » value (expected: Oui or Non).",
   mcSortLabel: "Sort",
   mcSortNameAsc: "Name A → Z",
   mcSortNameDesc: "Name Z → A",
@@ -1440,6 +1501,33 @@ const en: Dict = {
 
   // CUSTOMER TRACKING EXPERIENCE v2.
   trackYourOrder: "Track your order",
+  withdrawalEntryAction: "Exercise my right of withdrawal",
+  withdrawalEntryHelp: "Some products in this order may be withdrawn.",
+  withdrawalOrderRef: "Order #{n}",
+  withdrawalSelectionHelp: "Select the products concerned and the quantity to withdraw.",
+  withdrawalQuantityLabel: "Quantity to withdraw:",
+  withdrawalBack: "Back",
+  withdrawalContinue: "Continue",
+  withdrawalReviewTitle: "Review my withdrawal request",
+  withdrawalFirstNameLabel: "First name",
+  withdrawalLastNameLabel: "Surname",
+  withdrawalAckAddressLabel: "E-mail address for the acknowledgement",
+  withdrawalAckAddressHelp: "Enter the electronic address at which you wish to receive the acknowledgement of your declaration.",
+  withdrawalConfirmAction: "Confirm the withdrawal",
+  withdrawalSubmitting: "Recording…",
+  withdrawalDoneTitle: "Withdrawal request recorded",
+  withdrawalRequestRef: "Request #{ref}",
+  withdrawalDeclaredAt: "Declared on {date} at {time}",
+  withdrawalAckSent: "The acknowledgement has been sent to you.",
+  withdrawalAckPending: "Your request has been recorded, with its date and time. The electronic acknowledgement has not been sent yet.",
+  withdrawalAckUnavailable: "Your request has been recorded, with its date and time. The electronic acknowledgement is not available at present.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "This tracking link is no longer valid. Reopen your order tracking, then try again.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "Please enter your surname and first name.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "Please enter a valid e-mail address for the acknowledgement.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "Select at least one product.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "This product carries no right of withdrawal for this order.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "The requested quantity exceeds the quantity ordered.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "The request could not be recorded. Please try again shortly.",
   trackingPageTitle: "Order tracking",
   trackingOrderNumber: "Order #{n}",
   trackingInvalidTitle: "Tracking link not found",
@@ -1668,7 +1756,7 @@ const ar: Dict = {
   legalCgvExemptPerishable: "معفى (سلع قابلة للتلف)",
   legalCgvStandard14Days: "قياسي (14 يومًا)",
   legalCgvMixed: "مختلط (غير مدعوم في هذا الإصدار)",
-  legalCgvOnlineWithdrawalFunctionGap: "يتطلب هذا النظام وظيفة رجوع عبر الإنترنت لا تتوفر بعد في Scanym — راجع وثائق التدقيق.",
+  legalCgvOnlineWithdrawalFunctionGap: "يتطلب هذا النظام وظيفة رجوع كاملة عبر الإنترنت: إعلان الرجوع متاح، لكن لا يمكن بعد إرسال إشعار الاستلام على وسيط دائم إلى العميل — يبقى نشر الشروط متوقفًا حتى تتوفر قناة الإرسال.",
   legalCgvIncomplete: "يجب أن يكون الملف كاملاً لعرض معاينة أو النشر.",
   legalCgvStatus: "الحالة",
   legalCgvPublish: "نشر نسخة جديدة",
@@ -1684,7 +1772,7 @@ const ar: Dict = {
   legalCgvError_CUSTOMER_CONTACT_MISSING: "لا توجد وسيلة اتصال بالعملاء (بريد إلكتروني أو هاتف).",
   legalCgvError_MEDIATOR_INFO_MISSING: "معلومات وسيط الاستهلاك غير مكتملة.",
   legalCgvError_WITHDRAWAL_REGIME_MISSING: "نظام حق التراجع غير محدد.",
-  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "النظام «المختلط» غير مدعوم بعد — يرجى اختيار نظام واحد.",
+  legalCgvError_WITHDRAWAL_REGIME_MIXED_UNSUPPORTED: "يتطلب النظام «المختلط» نموذج شروط يتضمن بند الطلبات المختلطة — اربط المؤسسة بإصدار من النموذج يتضمنه.",
   legalCgvError_PREPARATION_POLICY_MISSING: "مدة التحضير غير محددة.",
   legalCgvError_TEMPLATE_UNRESOLVED: "لا يوجد نموذج شروط وأحكام متاح لهذا البلد.",
 
@@ -1980,6 +2068,15 @@ const ar: Dict = {
   mcFilterAll: "الكل",
   mcFilterAvailableYes: "متوفر",
   mcFilterAvailableNo: "غير متوفر",
+  // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr. Les valeurs
+  // « Oui »/« Non » du FICHIER XLSX restent en français (c'est le
+  // format de fichier lui-même, pas une chaîne d'interface) : le
+  // message d'erreur les cite donc telles quelles.
+  catalogueWithdrawalEligibleLabel: "قابل للتراجع",
+  commonYes: "نعم",
+  commonNo: "لا",
+  catalogueWithdrawalFilterAll: "الكل",
+  catalogueImportWithdrawalInvalid: "قيمة « Rétractable » غير صالحة (المتوقع: Oui أو Non).",
   mcSortLabel: "ترتيب",
   mcSortNameAsc: "الاسم أ → ي",
   mcSortNameDesc: "الاسم ي → أ",
@@ -2163,6 +2260,33 @@ const ar: Dict = {
 
   // CUSTOMER TRACKING EXPERIENCE v2.
   trackYourOrder: "تتبع طلبك",
+  withdrawalEntryAction: "ممارسة حقي في التراجع",
+  withdrawalEntryHelp: "بعض منتجات هذا الطلب يمكن التراجع عنها.",
+  withdrawalOrderRef: "الطلب رقم {n}",
+  withdrawalSelectionHelp: "اختر المنتجات المعنية والكمية المراد التراجع عنها.",
+  withdrawalQuantityLabel: "الكمية المراد التراجع عنها:",
+  withdrawalBack: "رجوع",
+  withdrawalContinue: "متابعة",
+  withdrawalReviewTitle: "مراجعة طلب التراجع",
+  withdrawalFirstNameLabel: "الاسم الشخصي",
+  withdrawalLastNameLabel: "الاسم العائلي",
+  withdrawalAckAddressLabel: "البريد الإلكتروني لاستلام الإشعار",
+  withdrawalAckAddressHelp: "أدخل العنوان الإلكتروني الذي ترغب في تلقّي إشعار استلام تصريحك عليه.",
+  withdrawalConfirmAction: "تأكيد التراجع",
+  withdrawalSubmitting: "جارٍ التسجيل…",
+  withdrawalDoneTitle: "تم تسجيل طلب التراجع",
+  withdrawalRequestRef: "الطلب رقم {ref}",
+  withdrawalDeclaredAt: "صُرِّح به في {date} على الساعة {time}",
+  withdrawalAckSent: "تم إرسال الإشعار إليك.",
+  withdrawalAckPending: "تم تسجيل طلبك مع تاريخه وساعته. لم يُرسَل إشعار الاستلام الإلكتروني بعد.",
+  withdrawalAckUnavailable: "تم تسجيل طلبك مع تاريخه وساعته. إشعار الاستلام الإلكتروني غير متاح حاليًا.",
+  withdrawalError_WITHDRAWAL_CAPABILITY_INVALID: "لم يعد رابط التتبّع صالحًا. أعد فتح تتبّع طلبك ثم حاول مجددًا.",
+  withdrawalError_WITHDRAWAL_IDENTITY_REQUIRED: "يرجى إدخال اسمك الشخصي والعائلي.",
+  withdrawalError_WITHDRAWAL_ACK_ADDRESS_INVALID: "يرجى إدخال بريد إلكتروني صالح لإشعار الاستلام.",
+  withdrawalError_WITHDRAWAL_NO_ITEM_SELECTED: "اختر منتجًا واحدًا على الأقل.",
+  withdrawalError_WITHDRAWAL_LINE_NOT_ELIGIBLE: "هذا المنتج لا يخوّل حق التراجع في هذا الطلب.",
+  withdrawalError_WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED: "الكمية المطلوبة تتجاوز الكمية المطلوبة في الطلب.",
+  withdrawalError_WITHDRAWAL_UNAVAILABLE: "تعذّر تسجيل الطلب. يرجى المحاولة بعد قليل.",
   trackingPageTitle: "تتبّع الطلب",
   trackingOrderNumber: "الطلب رقم {n}",
   trackingInvalidTitle: "رابط التتبّع غير موجود",

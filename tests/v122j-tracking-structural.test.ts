@@ -277,7 +277,16 @@ test("archi: app/api/track/exchange/route.ts (point de terminaison d'échange de
   const trackApiFiles = existsSync("app/api/track") ? walk("app/api/track").filter((f) => /\.tsx?$/.test(f)) : [];
   assert.deepEqual(
     trackApiFiles,
-    ["app/api/track/exchange/route.ts"],
+    [
+      "app/api/track/exchange/route.ts",
+      // ONLINE WITHDRAWAL / RETRACTATION FOUNDATION v1 -- lot
+      // ULTÉRIEUR : enregistrement de la déclaration statutaire de
+      // rétractation (art. L221-21 / D.221-5). Entrée EXACTE unique
+      // ajoutée à cette liste FERMÉE, jamais une correspondance large ;
+      // cette route s'appuie sur la MÊME session de suivi que
+      // l'échange, elle n'introduit aucun second mécanisme d'accès.
+      "app/api/track/withdrawal/route.ts",
+    ],
     `app/api/track/ contient des fichiers inattendus : ${trackApiFiles.join(", ")}`
   );
 });

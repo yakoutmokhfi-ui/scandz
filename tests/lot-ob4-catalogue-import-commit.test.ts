@@ -482,6 +482,12 @@ test("13/14/15. Tags/Collections et Photo ne sont JAMAIS transmis à create_prod
       "p_tax_rate",
       "p_unit_weight_grams",
       "p_weight_is_approximate",
+      // ONLINE WITHDRAWAL v1 -- nouveau paramètre PUBLIÉ de
+      // create_product (voir
+      // supabase/DRAFT-lot-online-withdrawal-foundation-v1.sql) :
+      // l'allowlist s'élargit du strict minimum, l'exigence réelle de
+      // ce test (aucun p_tags/p_photo/p_image_url) est inchangée.
+      "p_withdrawal_eligible",
     ].sort(),
     "create_product ne reçoit QUE les paramètres publiés -- aucun p_tags/p_photo/p_image_url"
   );

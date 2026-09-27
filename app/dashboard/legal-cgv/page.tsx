@@ -563,7 +563,17 @@ export default function LegalCgvPage() {
                * warrants). Purely informational: never disables Save/
                * Publish/Activate below.
                */}
-              {cgv.withdrawal_regime === "STANDARD_14_DAYS" && (
+              {/*
+                ONLINE WITHDRAWAL v1.1 -- le régime MIXTE est lui aussi
+                concerné : il comporte, par définition, des produits
+                ouvrant droit à rétractation. La bannière suit donc
+                EXACTEMENT la condition que les deux gardes SQL
+                appliquent désormais (regime in STANDARD_14_DAYS,
+                MIXED), jamais une condition plus étroite qui
+                laisserait croire à un marchand MIXTE qu'il peut
+                publier.
+              */}
+              {(cgv.withdrawal_regime === "STANDARD_14_DAYS" || cgv.withdrawal_regime === "MIXED") && (
                 <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{t("legalCgvOnlineWithdrawalFunctionGap")}</p>
               )}
               {canEdit && <button disabled={saving} onClick={saveCgvProfile} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}

@@ -93,8 +93,20 @@ const TRACKING_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   // lib/server/tracking-customer-context.ts -- même capacité, module
   // server-only scopé, ajouté nommément ici (jamais un joker
   // lib/server/*).
-  "app/track/[orderId]/page.tsx": /^@\/lib\/server\/tracking-(service|errors|session|customer-context)$/,
+  // ONLINE WITHDRAWAL / RETRACTATION FOUNDATION v1 (lot ULTÉRIEUR) :
+  // la page de suivi lit en plus les lignes ENCORE rétractables de la
+  // commande, avec la MÊME capacité déjà vérifiée, via un module
+  // server-only dédié -- ajouté NOMMÉMENT (`withdrawal-service`),
+  // jamais un joker lib/server/*, exactement comme
+  // `tracking-customer-context` ci-dessus.
+  "app/track/[orderId]/page.tsx": /^@\/lib\/server\/(tracking-(service|errors|session|customer-context)|withdrawal-service)$/,
   "app/api/track/exchange/route.ts": /^@\/lib\/server\/tracking-(service|errors|session)$/,
+  // ONLINE WITHDRAWAL v1 -- SEUL point d'écriture de la déclaration de
+  // rétractation. Scopé à DEUX modules exactement : le service de
+  // rétractation, et la session de suivi (d'où la capacité est lue --
+  // jamais du corps de la requête). Jamais un module de paiement,
+  // jamais un joker.
+  "app/api/track/withdrawal/route.ts": /^@\/lib\/server\/(withdrawal-service|tracking-session)$/,
 };
 // CORRECTIF v2.6.1 (STUART-V26-P3A1-ALLOWLIST-01, MEDIUM) : le
 // déclencheur Stuart était auparavant ajouté à
@@ -408,7 +420,14 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // SELLER LEGAL PROFILE + CGV ENGINE v1 (également ULTÉRIEURE et SANS
   // RAPPORT avec PAYMENT P3-A1 -- publication CGV serveur-autoritaire
   // uniquement, aucun paiement/Stuart/suivi/photo déclenché ; entrée
-  // EXACTE unique, jamais une correspondance large).
+  // EXACTE unique, jamais une correspondance large)
+  // + 1 route ONLINE WITHDRAWAL / RETRACTATION FOUNDATION v1
+  // (également ULTÉRIEURE et SANS RAPPORT avec PAYMENT P3-A1 --
+  // enregistrement de la DÉCLARATION statutaire de rétractation du
+  // consommateur, art. L221-21 / D.221-5 ; aucun paiement, aucun
+  // remboursement, aucun statut de commande touché ; autorité = la
+  // session de suivi HttpOnly déjà auditée. Entrée EXACTE unique
+  // ajoutée à cette liste FERMÉE, jamais une correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/checkout/invoice-request/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
@@ -421,7 +440,18 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
     "app/api/payments/monetico/callback/route.ts",
     "app/api/payments/monetico/checkout/route.ts",
     "app/api/track/exchange/route.ts",
+    "app/api/track/withdrawal/route.ts",
   ]);
+
+  // La route de rétractation ne parle, elle non plus, AUCUN concept de
+  // paiement : la rétractation est une déclaration juridique, le
+  // remboursement est hors périmètre de ce lot.
+  const withdrawalRouteSrc = readFileSync("app/api/track/withdrawal/route.ts", "utf8");
+  assert.equal(
+    /payment|monetico|refund|rembours/i.test(withdrawalRouteSrc),
+    false,
+    "app/api/track/withdrawal/route.ts ne doit référencer aucun concept de paiement ni de remboursement"
+  );
 
   const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");
   assert.equal(
