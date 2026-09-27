@@ -225,6 +225,75 @@ test("[ADDRESS UX v1] 1 pays configuré : message proéminent « uniquement en F
   }
 });
 
+test("[MICRO-FIX dark-theme contrast] message proéminent : couleur de texte CALCULÉE (text-ink-on-bg), jamais --sc-ink brut (text-espresso)", async () => {
+  // Preuve DOM directe sur le VRAI élément rendu (pas seulement un grep
+  // source) : la classe de couleur doit être celle recalculée contre
+  // --sc-bg (lib/color-contrast.ts, readableAccentOnBg), garantissant
+  // 4.5:1 quel que soit secondary_color -- même patron que V73-02 sur
+  // InlineOptions.tsx. text-espresso (--sc-ink non calculée) devenait
+  // quasi invisible sur ce panneau bg-caramel/10 avec un thème sombre.
+  const { container, root } = render({ country: FIXTURE_FR, options: [], scope: [FIXTURE_FR] });
+  await flush();
+  try {
+    const prominent = q(container, '[data-testid="delivery-country-scope-prominent"]');
+    assert.ok(prominent);
+    assert.ok(
+      prominent!.className.includes("text-ink-on-bg"),
+      "le message proéminent doit utiliser la couleur calculée text-ink-on-bg"
+    );
+    assert.equal(
+      prominent!.className.includes("text-espresso"),
+      false,
+      "text-espresso (couleur brute, non calculée) ne doit plus être utilisé ici"
+    );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[MICRO-FIX doublon] 1 pays configuré : le rappel « Livraison en France uniquement » ne double PLUS le message proéminent", async () => {
+  // Constat CIO en Production (Au Lait Cru) : les deux textes étaient
+  // rendus simultanément pour un établissement à un seul pays -- le
+  // message proéminent CIO ADDENDUM (ci-dessus) ET l'ancien rappel
+  // discret `countryDeliveryContext` (PR #106). Le second doit
+  // disparaître dès que le premier couvre déjà l'information.
+  const { container, root } = render({ country: FIXTURE_FR, options: [], scope: [FIXTURE_FR] });
+  await flush();
+  try {
+    assert.ok(
+      q(container, '[data-testid="delivery-country-scope-prominent"]'),
+      "le message proéminent doit bien être présent (condition du test)"
+    );
+    assert.equal(
+      q(container, '[data-testid="delivery-country-context"]'),
+      null,
+      "le petit rappel redondant ne doit plus être rendu à côté du message proéminent"
+    );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[MICRO-FIX doublon] pas de deliveryCountryScope fourni : le rappel `delivery-country-context` reste rendu (pas de régression pour un appelant qui n'a pas encore migré)", async () => {
+  const { container, root } = render({ country: FIXTURE_FR, options: [] });
+  await flush();
+  try {
+    assert.equal(
+      q(container, '[data-testid="delivery-country-scope-prominent"]'),
+      null,
+      "sans deliveryCountryScope, aucun message proéminent à afficher"
+    );
+    const ctx = q(container, '[data-testid="delivery-country-context"]');
+    assert.ok(ctx, "le rappel discret reste seul responsable de l'info pays quand le message proéminent est absent");
+    assert.equal(ctx!.getAttribute("data-country-code"), "FR");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
 test("[ADDRESS UX v1] 2 pays configurés (FR + IT) : message proéminent avec liste jointe « et »", async () => {
   const { container, root } = render({
     country: FIXTURE_FR,
