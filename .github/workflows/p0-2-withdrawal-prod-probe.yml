@@ -1,5 +1,8 @@
 name: p0-2-withdrawal-prod-probe
-on: workflow_dispatch
+on:
+  push:
+    branches:
+      - ci/p0-2-withdrawal-prod-probe
 jobs:
   probe:
     runs-on: ubuntu-latest
