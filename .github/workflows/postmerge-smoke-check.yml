@@ -8,7 +8,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: HTTP checks
+      - name: HTTP checks with body preview
         run: |
           set +e
           check() {
@@ -16,16 +16,10 @@ jobs:
             local label="$2"
             code=$(curl -s -o /tmp/body.html -w "%{http_code}" -L --max-time 15 "$url")
             bytes=$(wc -c < /tmp/body.html)
-            sig_notfound=$(grep -c "Restaurant introuvable" /tmp/body.html 2>/dev/null || echo 0)
-            sig_error=$(grep -Eic "internal server error|application error|unhandled|stack trace|500 |ECONNREFUSED" /tmp/body.html 2>/dev/null || echo 0)
-            echo "::notice title=${label}::url=${url} http=${code} bytes=${bytes} notfound_signature=${sig_notfound} error_signature=${sig_error}"
+            preview=$(tr -d '\n' < /tmp/body.html | tr -s ' ' | cut -c1-300)
+            echo "::notice title=${label}::url=${url} http=${code} bytes=${bytes} preview=${preview}"
           }
           check "https://scanym.com/" "root"
-          check "https://www.scanym.com/" "www-root"
-          check "https://scanym.com/aulaitcru" "vanity-aulaitcru"
           check "https://scanym.com/r/aulaitcru" "r-aulaitcru"
-          check "https://scanym.com/r/au-lait-cru" "r-au-lait-cru"
-          check "https://scanym.com/r/definitely-does-not-exist-xyz-123" "r-bogus-control"
+          check "https://scanym.com/nonexistent-xyz-check" "generic-404-baseline"
           check "https://scanym.com/dashboard/login" "dashboard-login"
-          check "https://scanym.com/legal/cgv" "legal-cgv"
-          check "https://scanym.com/track/00000000-0000-0000-0000-000000000000" "track-bogus"
