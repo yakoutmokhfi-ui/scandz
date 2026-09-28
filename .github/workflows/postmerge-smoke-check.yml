@@ -8,15 +8,10 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Headers and title check
+      - name: DNS resolution check
         run: |
           set +e
-          url="https://scandz-fpitp8s7o-scandz1.vercel.app/r/aulaitcru"
-          curl -sD /tmp/headers.txt -o /tmp/body.html -L --max-time 15 "$url" > /dev/null
-          echo "::notice title=headers::$(tr -d '\r' < /tmp/headers.txt | tr '\n' '|' | cut -c1-800)"
-          title=$(grep -o '<title[^>]*>[^<]*</title>' /tmp/body.html | head -1)
-          echo "::notice title=page-title::${title}"
-          noscript=$(grep -o '<noscript>.\{0,300\}' /tmp/body.html | head -1)
-          echo "::notice title=noscript-snippet::${noscript}"
-          bodytext=$(grep -oE 'Vercel Authentication|vercel\.com/sso|_vercel_jwt|Log in to Vercel|Access to this' /tmp/body.html | sort -u | tr '\n' ',')
-          echo "::notice title=gate-markers::${bodytext}"
+          echo "::notice title=dns-scanym::$(dig +short scanym.com A | tr '\n' ',')"
+          echo "::notice title=dns-www-scanym::$(dig +short www.scanym.com CNAME A | tr '\n' ',')"
+          echo "::notice title=dns-vercel-scandz::$(dig +short scandz-fpitp8s7o-scandz1.vercel.app A | tr '\n' ',')"
+          echo "::notice title=whois-snippet::$(curl -s https://ipinfo.io/$(dig +short scanym.com A | head -1)/org 2>/dev/null | tr -d '\n')"
