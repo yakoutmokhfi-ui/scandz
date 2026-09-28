@@ -88,7 +88,7 @@ const realAckDependencies: AckDependencies = {
 
 /**
  * Point d'entrée BEST-EFFORT appelé après un `submitWithdrawalRequest`
- * réussi (app/api/track/withdrawal/route.ts). Ne lève JAMAIS -- une
+ * réussi (app/track/[orderId]/withdrawal/route.ts). Ne lève JAMAIS -- une
  * erreur inattendue (réseau, RPC, etc.) est capturée ICI, en dernier
  * ressort, pour garantir que l'envoi de l'accusé ne peut jamais faire
  * échouer une réponse HTTP déjà déterminée par l'enregistrement de la

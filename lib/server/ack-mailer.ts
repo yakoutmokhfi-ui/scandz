@@ -462,7 +462,7 @@ const MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR =
  * BEST-EFFORT / NON-BLOQUANT : l'appelant (route de soumission de
  * rétractation) doit TOUJOURS traiter cette fonction comme pouvant
  * échouer sans faire échouer la déclaration elle-même déjà enregistrée
- * (voir app/api/track/withdrawal/route.ts) -- cette fonction n'expose
+ * (voir app/track/[orderId]/withdrawal/route.ts) -- cette fonction n'expose
  * donc aucune exception à son appelant : toute erreur est capturée et
  * renvoyée dans `SendAckOutcome`, et `record_withdrawal_acknowledgement_
  * result` est appelée dans TOUS les cas (succès ou échec réel), jamais

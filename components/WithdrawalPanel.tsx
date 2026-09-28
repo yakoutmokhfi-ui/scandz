@@ -15,12 +15,25 @@ import { translate, type Lang } from "@/lib/i18n";
  *                   réception de l'accusé, rappel EXACT des produits et
  *                   quantités demandés. Aucune écriture.
  *   3. CONFIRMATION EXPLICITE — « Confirmer la rétractation » : seule
- *                   action qui écrit, via /api/track/withdrawal.
+ *                   action qui écrit, via /track/{orderId}/withdrawal.
  *
  * Ce composant ne décide JAMAIS de l'éligibilité : il affiche les
  * lignes que le serveur a déclarées éligibles à partir de l'instantané
  * immuable de la commande, et n'envoie que des identifiants de ligne et
  * des quantités.
+ *
+ * LOT 1 (P0, cookie-path fix) : ce point de terminaison vivait
+ * auparavant sous app/api/track/withdrawal/route.ts. Le cookie de
+ * session de suivi (`st_session`, lib/server/tracking-session.ts) est
+ * volontairement scopé à `path: /track/{orderId}` -- un chemin sous
+ * `/api/track/...` n'est JAMAIS un sous-chemin de `/track/{orderId}`
+ * (RFC 6265 §5.1.4), donc le navigateur ne l'envoyait jamais à cette
+ * route : la confirmation échouait systématiquement avec
+ * WITHDRAWAL_CAPABILITY_INVALID, quelle que soit la validité réelle de
+ * la capacité. Correctif structurel : la route vit maintenant sous
+ * `/track/{orderId}/withdrawal`, un sous-chemin réel de la portée du
+ * cookie -- aucun changement du modèle d'autorisation lui-même
+ * (verifyTrackingSessionToken + liaison orderId, inchangés).
  */
 
 export interface WithdrawalPanelOption {
@@ -106,7 +119,7 @@ export default function WithdrawalPanel({
     setSubmitting(true);
     setErrorCode(null);
     try {
-      const response = await fetch("/api/track/withdrawal", {
+      const response = await fetch(`/track/${orderId}/withdrawal`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

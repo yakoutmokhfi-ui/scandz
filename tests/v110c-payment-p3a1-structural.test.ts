@@ -106,7 +106,10 @@ const TRACKING_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   // rétractation, et la session de suivi (d'où la capacité est lue --
   // jamais du corps de la requête). Jamais un module de paiement,
   // jamais un joker.
-  "app/api/track/withdrawal/route.ts": /^@\/lib\/server\/(withdrawal-service|tracking-session)$/,
+  // LOT 1 (P0, cookie-path fix) : déplacée sous app/track/[orderId]/
+  // withdrawal/route.ts (hors app/api/, donc plus dans routeFiles
+  // ci-dessous) -- même portée d'imports server-only, INCHANGÉE.
+  "app/track/[orderId]/withdrawal/route.ts": /^@\/lib\/server\/(withdrawal-service|tracking-session)$/,
 };
 // CORRECTIF v2.6.1 (STUART-V26-P3A1-ALLOWLIST-01, MEDIUM) : le
 // déclencheur Stuart était auparavant ajouté à
@@ -450,17 +453,21 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
     "app/api/payments/monetico/callback/route.ts",
     "app/api/payments/monetico/checkout/route.ts",
     "app/api/track/exchange/route.ts",
-    "app/api/track/withdrawal/route.ts",
+    // LOT 1 (P0, cookie-path fix) : "app/api/track/withdrawal/route.ts"
+    // a été DÉPLACÉE sous app/track/[orderId]/withdrawal/route.ts (hors
+    // app/api/, donc plus énumérée ici par construction -- walk("app/api")
+    // ne la découvre plus). Voir tests/v122j-tracking-structural.test.ts
+    // pour l'inventaire fermé équivalent sous app/track/[orderId]/.
   ]);
 
   // La route de rétractation ne parle, elle non plus, AUCUN concept de
   // paiement : la rétractation est une déclaration juridique, le
   // remboursement est hors périmètre de ce lot.
-  const withdrawalRouteSrc = readFileSync("app/api/track/withdrawal/route.ts", "utf8");
+  const withdrawalRouteSrc = readFileSync("app/track/[orderId]/withdrawal/route.ts", "utf8");
   assert.equal(
     /payment|monetico|refund|rembours/i.test(withdrawalRouteSrc),
     false,
-    "app/api/track/withdrawal/route.ts ne doit référencer aucun concept de paiement ni de remboursement"
+    "app/track/[orderId]/withdrawal/route.ts ne doit référencer aucun concept de paiement ni de remboursement"
   );
 
   const exchangeRouteSrc = readFileSync("app/api/track/exchange/route.ts", "utf8");

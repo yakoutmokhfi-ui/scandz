@@ -313,7 +313,10 @@ test("N — rien n'est écrit avant « Confirmer la rétractation »", async () 
   await click(q(container, '[data-withdrawal-action="confirm"]'));
 
   assert.equal(fetchCalls.length, 1, "UNE écriture, déclenchée par la confirmation explicite");
-  assert.equal(fetchCalls[0]!.url, "/api/track/withdrawal");
+  // LOT 1 (P0, cookie-path fix) : déplacée sous /track/{orderId}/withdrawal
+  // -- un sous-chemin réel de la portée (Path) du cookie de session
+  // `st_session`, contrairement à /api/track/withdrawal (RFC 6265 §5.1.4).
+  assert.equal(fetchCalls[0]!.url, `/track/${ORDER_ID}/withdrawal`);
   const body = fetchCalls[0]!.body;
   assert.equal(body.orderId, ORDER_ID);
   assert.equal(body.firstName, "Victor");

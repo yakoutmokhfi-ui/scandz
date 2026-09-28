@@ -50,6 +50,25 @@
  * EN PREMIER et n'est jamais atteint par cette branche générique
  * (comportement byte-identique pour "next/server" à celui déjà publié
  * et testé par CUSTOMER TRACKING EXPERIENCE v2.1).
+ *
+ * LOT 1 (P0, cookie-path fix) : redirige aussi le spécificateur nu
+ * "next/headers" vers un stub TEST-ONLY (tests/next-headers-stub.mjs),
+ * même mécanisme exact que "server-only" ci-dessus. Sans cette
+ * redirection, le VRAI `cookies()` de Next.js lève systématiquement
+ * "called outside a request scope" sous `node --test` brut (vérifié
+ * empiriquement) -- aucun test direct n'a jamais pu invoquer une route
+ * qui LIT un cookie entrant (par opposition à app/api/track/exchange/
+ * route.ts, qui n'en écrit un que sur la réponse qu'il construit
+ * lui-même, sans jamais appeler `cookies()`). Portée strictement
+ * scopée au spécificateur littéral "next/headers", consultée AVANT le
+ * repli générique "next/" ci-dessous, jamais un stub pour un autre
+ * sous-chemin "next/*". Aucun fichier `.dom.test.ts` n'est affecté :
+ * ces tests bundlent leur propre mock "next/headers" via esbuild
+ * (résolution totalement séparée de ce hook Node), et aucun test
+ * `.test.ts` existant n'importait "next/headers" via la résolution
+ * Node normale avant ce lot (vérifié par recherche exhaustive) --
+ * cette redirection ne change donc le comportement d'AUCUN test
+ * préexistant.
  */
 import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
@@ -60,6 +79,9 @@ const root = path.resolve(import.meta.dirname, "..");
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === "server-only") {
     return nextResolve(pathToFileURL(path.join(root, "tests/server-only-stub.mjs")).href, context);
+  }
+  if (specifier === "next/headers") {
+    return nextResolve(pathToFileURL(path.join(root, "tests/next-headers-stub.mjs")).href, context);
   }
   if (specifier === "next/server") {
     return nextResolve(pathToFileURL(path.join(root, "node_modules/next/server.js")).href, context);
