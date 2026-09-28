@@ -1,0 +1,330 @@
+name: PSM v1 Remediation — Linux Full-Suite Verification (Round 4, evidence-only)
+
+# ============================================================================
+# Independent, reproducible Linux verification evidence for PRODUCT SERVICE
+# MODES v1 (issue scanym-orchestrator#11), Round 4 -- EVIDENCE/CI REMEDIATION
+# ONLY. No application behavior changed this round (Chateaubriand's round-3
+# re-audit confirmed the UX fix itself, no functional blocker remains).
+#
+# CHANGES VS ROUND 3 WORKFLOW (per CHATEAUBRIAND's round-3 re-audit findings,
+# posted on issue #11):
+#   1. A NEW gate checks EXACT totals (tests/pass/fail), not just the
+#      failure-name set, against a SHA-keyed fixture
+#      (.github/psmv1-fix-expected-totals.txt) -- round 3's gate matched the
+#      failure-NAME set but never checked the total/pass/fail counts
+#      themselves, so a run with a different total (e.g. skipped tests)
+#      could still pass that gate. Fails the job on any mismatch.
+#   2. Totals and the failure-name set are now also echoed with plain `cat`/
+#      `echo` (ordinary step stdout, visible in the normal job log), not only
+#      written to $GITHUB_STEP_SUMMARY -- round 3 only wrote totals to the
+#      summary, never to ordinary log output.
+#   3. The SQL harness step's root cause is now IDENTIFIED (round 3's step
+#      failed with `cd: /home/runner/work/scandz/scandz: Permission denied`
+#      -- postgres, an unrelated OS user, cannot traverse the runner's
+#      actions/checkout directory tree, which is unrelated to SQL logic).
+#      Fixed by copying the checked-out tree to a `/tmp` path with permissive
+#      permissions before invoking the harness as the postgres OS user.
+#   4. The SQL harness step now GATES the job (fails it on a non-PASS result)
+#      -- but ONLY when the harness script is actually present in the
+#      checked-out ref. Main baseline does not yet contain this PSM SQL
+#      layer (it lives only on the feature branch), so requiring identical
+#      SQL evidence on both refs would be a fabricated main-vs-candidate
+#      equivalence Ravel explicitly said not to require. When the script is
+#      absent, the step succeeds trivially with an explicit "not applicable
+#      on this ref" note; when present, PASS=32/FAIL=0 is required or the
+#      job fails.
+# ============================================================================
+
+on:
+  push:
+    branches:
+      - ci/psmv1-fix-r4-linux-verification
+      - ci/psmv1-fix-r4-linux-verification-candidate
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Optional: full commit SHA to check out and verify instead of the triggering push's HEAD (only usable once this file is merged to the default branch)"
+        required: false
+      label:
+        description: "Optional: short label override for this run's evidence"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Linux full-suite verification — ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Record and self-verify target commit
+        run: |
+          set -e
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -n "${{ github.event.inputs.target_sha }}" ]; then
+            TARGET_SHA="${{ github.event.inputs.target_sha }}"
+          else
+            TARGET_SHA="$(cat .github/psmv1-fix-r4-ci-verification-target.txt | tr -d '[:space:]')"
+          fi
+
+          if ! git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
+            echo "::error::Claimed target commit $TARGET_SHA is not an ancestor of HEAD ($HEAD_SHA) -- refusing to proceed."
+            exit 1
+          fi
+
+          ALLOWED='^\.github/(workflows/psmv1-fix-r4-linux-verification\.yml|psmv1-fix-r4-ci-verification-target\.txt|psmv1-fix-expected-main-failures\.txt|psmv1-fix-expected-totals\.txt)$'
+          UNEXPECTED="$(git diff --name-only "$TARGET_SHA" HEAD | grep -Ev "$ALLOWED" || true)"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Files changed between claimed target $TARGET_SHA and HEAD beyond CI tooling -- this run cannot certify commit $TARGET_SHA:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          LABEL="${{ github.event.inputs.label }}"
+          if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
+          LABEL="$(echo "$LABEL" | tr '/' '-')"
+          {
+            echo "workflow_head_sha=$HEAD_SHA"
+            echo "verified_target_commit=$TARGET_SHA (self-verified: ancestor of HEAD, zero non-CI-tooling diff to HEAD)"
+            echo "verified_target_tree=$(git rev-parse ${TARGET_SHA}^{tree})"
+            echo "label=$LABEL"
+          } | tee identity.txt
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
+          {
+            echo "## Identity"
+            echo '```'
+            cat identity.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Record runtime/OS identity
+        run: |
+          {
+            echo "os: $(uname -a)"
+            echo "node: $(node --version)"
+            echo "npm: $(npm --version)"
+          } | tee -a identity.txt
+
+      - name: Install dependencies (lockfile-exact)
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check (npx tsc --noEmit) -- FAILS the job on any type error
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npx tsc --noEmit > tsc-noemit-output.txt 2>&1
+          TSC_EXIT=$?
+          echo "EXIT=$TSC_EXIT" >> tsc-noemit-output.txt
+          echo "--- tsc --noEmit output (exit $TSC_EXIT) ---"
+          cat tsc-noemit-output.txt
+          {
+            echo "## TypeScript (tsc --noEmit)"
+            echo "exit code: $TSC_EXIT"
+            echo '```'
+            cat tsc-noemit-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TSC_EXIT" != "0" ]; then
+            echo "::error::tsc --noEmit failed (exit $TSC_EXIT) -- see output above."
+            exit 1
+          fi
+
+      - name: Run full test suite (raw output preserved; failures/totals are policy-checked in the next step, not here)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npm test > full-suite-output.log 2>&1
+          echo "npm test exit code: $?" | tee -a full-suite-output.log
+          set -e
+
+      - name: Extract failure-name list and test totals (echoed to ordinary log, not only the job summary)
+        run: |
+          grep -E "^not ok " full-suite-output.log | sed -E 's/^not ok [0-9]+ - //' | sort > failure-names.txt || true
+          grep -E "^# (tests|pass|fail|suites|cancelled|skipped|todo) " full-suite-output.log > test-totals.txt || true
+          echo "--- test totals (tests/) ---"
+          cat test-totals.txt
+          echo "--- failure count: $(wc -l < failure-names.txt) ---"
+          echo "--- failure names ---"
+          cat failure-names.txt
+          {
+            echo "## Full suite results"
+            echo '```'
+            cat test-totals.txt
+            echo '```'
+            echo "### Failure names ($(wc -l < failure-names.txt))"
+            echo '```'
+            cat failure-names.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify results against expected baseline -- FAILS the job on any mismatch (failure-name set AND exact totals)
+        run: |
+          set -e
+
+          # --- Part A: failure-name set must match exactly ---
+          EXPECTED_FAILURES=".github/psmv1-fix-expected-main-failures.txt"
+          if [ ! -f "$EXPECTED_FAILURES" ]; then
+            echo "::error::Expected-failures fixture $EXPECTED_FAILURES is missing -- cannot verify policy."
+            exit 1
+          fi
+          sort "$EXPECTED_FAILURES" > expected-failures-sorted.txt
+          if diff -u expected-failures-sorted.txt failure-names.txt > diff-vs-expected-failures.txt; then
+            echo "PASS: failure-name set matches the expected baseline exactly ($(wc -l < failure-names.txt) known, unrelated pre-existing failures)."
+          else
+            echo "::error::Failure-name set does NOT match the expected baseline -- see diff below."
+            cat diff-vs-expected-failures.txt
+            {
+              echo "## Baseline policy check: FAILED (failure-name set)"
+              echo '```diff'
+              cat diff-vs-expected-failures.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          # --- Part B: EXACT totals (tests/pass/fail) must match the
+          # authoritative value recorded for THIS target SHA -- round 3's
+          # gate never checked this (CHATEAUBRIAND finding).
+          EXPECTED_TOTALS=".github/psmv1-fix-expected-totals.txt"
+          if [ ! -f "$EXPECTED_TOTALS" ]; then
+            echo "::error::Expected-totals fixture $EXPECTED_TOTALS is missing -- cannot verify policy."
+            exit 1
+          fi
+          EXPECTED_LINE="$(grep "^${TARGET_SHA} " "$EXPECTED_TOTALS" || true)"
+          if [ -z "$EXPECTED_LINE" ]; then
+            echo "::error::No expected-totals entry for target SHA $TARGET_SHA in $EXPECTED_TOTALS -- this run cannot verify policy for an unrecorded commit. Add a line for this SHA before trusting this run."
+            exit 1
+          fi
+          EXPECTED_TESTS="$(echo "$EXPECTED_LINE" | grep -oE 'tests=[0-9]+' | cut -d= -f2)"
+          EXPECTED_PASS="$(echo "$EXPECTED_LINE" | grep -oE 'pass=[0-9]+' | cut -d= -f2)"
+          EXPECTED_FAIL="$(echo "$EXPECTED_LINE" | grep -oE 'fail=[0-9]+' | cut -d= -f2)"
+          ACTUAL_TESTS="$(grep -oE '^# tests [0-9]+' test-totals.txt | grep -oE '[0-9]+')"
+          ACTUAL_PASS="$(grep -oE '^# pass [0-9]+' test-totals.txt | grep -oE '[0-9]+')"
+          ACTUAL_FAIL="$(grep -oE '^# fail [0-9]+' test-totals.txt | grep -oE '[0-9]+')"
+
+          echo "--- exact-totals policy check for $TARGET_SHA ---"
+          echo "expected: tests=$EXPECTED_TESTS pass=$EXPECTED_PASS fail=$EXPECTED_FAIL"
+          echo "actual:   tests=$ACTUAL_TESTS pass=$ACTUAL_PASS fail=$ACTUAL_FAIL"
+
+          TOTALS_OK=1
+          if [ "$ACTUAL_TESTS" != "$EXPECTED_TESTS" ] || [ "$ACTUAL_PASS" != "$EXPECTED_PASS" ] || [ "$ACTUAL_FAIL" != "$EXPECTED_FAIL" ]; then
+            TOTALS_OK=0
+          fi
+
+          if [ "$TOTALS_OK" = "1" ]; then
+            echo "PASS: exact totals match the authoritative expected value for $TARGET_SHA."
+            {
+              echo "## Baseline policy check: exact totals"
+              echo "expected: tests=$EXPECTED_TESTS pass=$EXPECTED_PASS fail=$EXPECTED_FAIL"
+              echo "actual:   tests=$ACTUAL_TESTS pass=$ACTUAL_PASS fail=$ACTUAL_FAIL"
+              echo "**PASS**"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Exact totals do NOT match the expected value for $TARGET_SHA -- expected tests=$EXPECTED_TESTS pass=$EXPECTED_PASS fail=$EXPECTED_FAIL, got tests=$ACTUAL_TESTS pass=$ACTUAL_PASS fail=$ACTUAL_FAIL."
+            {
+              echo "## Baseline policy check: exact totals -- FAILED"
+              echo "expected: tests=$EXPECTED_TESTS pass=$EXPECTED_PASS fail=$EXPECTED_FAIL"
+              echo "actual:   tests=$ACTUAL_TESTS pass=$ACTUAL_PASS fail=$ACTUAL_FAIL"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: SQL harness on real PostgreSQL (supabase/tests/product-service-modes-v1-check.sh) -- gates the job WHEN the harness script is present in this ref
+        # Round 3's version of this step failed with a permission error
+        # unrelated to SQL logic: the postgres OS user could not `cd` into
+        # the actions/checkout tree at all
+        # (`/home/runner/work/scandz/scandz: Permission denied`), because
+        # ancestor directories owned by the `runner` user/group are not
+        # traversable by an unrelated `postgres` OS user. Fixed by copying
+        # the checked-out tree to a permissive /tmp path before invoking the
+        # harness as postgres, which sidesteps the runner-home permission
+        # question entirely rather than trying to chmod ancestor directories
+        # outside this job's control.
+        #
+        # GATING RULE: main baseline does not (yet) contain this PSM SQL
+        # layer -- it lives only on the feature branch -- so this step is
+        # only a hard requirement (PASS=32/FAIL=0 or the job fails) when the
+        # harness script is actually present in the checked-out ref. When
+        # absent (main baseline), the step succeeds trivially with an
+        # explicit "not applicable" note -- never a fabricated main-vs-
+        # candidate SQL equivalence.
+        run: |
+          set +e
+          if [ ! -f supabase/tests/product-service-modes-v1-check.sh ]; then
+            echo "supabase/tests/product-service-modes-v1-check.sh is not present in this ref ($TARGET_SHA) -- expected for main baseline, which does not yet contain the PSM SQL layer. Nothing to run; this step is not applicable here and does not gate this ref."
+            {
+              echo "## SQL harness (real PostgreSQL)"
+              echo "Not applicable to this ref -- harness script absent (expected for main baseline)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          CI_SQL_DIR="/tmp/psm-sql-ci"
+          rm -rf "$CI_SQL_DIR"
+          mkdir -p "$CI_SQL_DIR"
+          cp -r "$GITHUB_WORKSPACE"/. "$CI_SQL_DIR"/
+          chmod -R o+rX "$CI_SQL_DIR"
+
+          sudo apt-get update -y > apt-update.log 2>&1
+          sudo apt-get install -y postgresql > apt-install-pg.log 2>&1
+          sudo pg_lsclusters > pg-lsclusters.log 2>&1
+          sudo service postgresql start >> pg-lsclusters.log 2>&1
+          sleep 3
+          sudo pg_lsclusters >> pg-lsclusters.log 2>&1
+
+          echo "--- postgres sanity check ---"
+          sudo -u postgres psql -c "select version();" | tee pg-sanity-check.log
+          PG_SANITY_EXIT=$?
+
+          echo "--- running harness from $CI_SQL_DIR (permission-safe copy) ---"
+          sudo -u postgres bash -c "cd '$CI_SQL_DIR' && bash supabase/tests/product-service-modes-v1-check.sh" > sql-harness-output.log 2>&1
+          SQL_EXIT=$?
+          echo "--- SQL harness output (exit $SQL_EXIT) ---"
+          cat sql-harness-output.log
+          {
+            echo "## SQL harness (real PostgreSQL) -- supabase/tests/product-service-modes-v1-check.sh"
+            echo "exit code: $SQL_EXIT"
+            echo '```'
+            cat pg-lsclusters.log
+            echo '---'
+            cat pg-sanity-check.log
+            echo '```'
+            echo '```'
+            tail -80 sql-harness-output.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SQL_EXIT" != "0" ] || ! grep -q "FAIL=0" sql-harness-output.log; then
+            echo "::error::SQL harness failed or did not reach PASS=32/FAIL=0 (exit $SQL_EXIT) -- see output above."
+            exit 1
+          fi
+          echo "PASS: SQL harness reached PASS=32/FAIL=0 on real PostgreSQL in this CI job."
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psmv1-fix-r4-verification-${{ env.LABEL }}
+          path: |
+            identity.txt
+            tsc-noemit-output.txt
+            full-suite-output.log
+            failure-names.txt
+            test-totals.txt
+            diff-vs-expected-failures.txt
+            sql-harness-output.log
+            pg-lsclusters.log
+            pg-sanity-check.log
+          retention-days: 90
