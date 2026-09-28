@@ -1,0 +1,25 @@
+name: Production smoke — page content via annotations
+
+on:
+  push:
+    branches:
+      - ci/release-train-smoke-check-v3
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch and report title/h1 as annotations
+        run: |
+          set -e
+          check() {
+            local url="$1"
+            local label="$2"
+            curl -sS -o /tmp/body.html -w "%{http_code}" -L --max-time 20 "$url" > /tmp/code.txt || true
+            code=$(cat /tmp/code.txt)
+            bytes=$(wc -c < /tmp/body.html)
+            title=$(grep -io "<title>[^<]*</title>" /tmp/body.html | head -1 | sed 's/<[^>]*>//g')
+            echo "::notice title=$label::HTTP=$code bytes=$bytes title=[$title]"
+          }
+          check "https://scandz-1xs2qe7ci-scandz1.vercel.app" "scandz-prod"
+          check "https://scanym-sanaa-6mo4bybuv-scandz1.vercel.app" "scanym-sanaa-prod"
