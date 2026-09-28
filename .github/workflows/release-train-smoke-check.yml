@@ -1,0 +1,38 @@
+name: Production smoke — basic reachability (release train evidence)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/release-train-smoke-check
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reachability + status code checks (read-only, no mutation)
+        run: |
+          set -e
+          check() {
+            local url="$1"
+            local label="$2"
+            echo "=== $label : $url ==="
+            code=$(curl -sS -o /tmp/body.html -w "%{http_code}" -L --max-time 20 "$url" || echo "CURL_FAIL")
+            echo "HTTP status: $code"
+            if [ "$code" != "200" ]; then
+              echo "::error::$label ($url) returned HTTP $code, expected 200"
+              exit 1
+            fi
+            bytes=$(wc -c < /tmp/body.html)
+            echo "Body size: $bytes bytes"
+            if [ "$bytes" -lt 500 ]; then
+              echo "::error::$label ($url) body suspiciously small ($bytes bytes) — possible error page"
+              exit 1
+            fi
+            if grep -qi "internal server error\|application error\|500\b.*error\|this page could not be found" /tmp/body.html; then
+              echo "::warning::$label ($url) body contains an error-page signature string"
+            fi
+            echo "OK"
+          }
+          check "https://scandz-1xs2qe7ci-scandz1.vercel.app" "scandz (Production)"
+          check "https://scanym-sanaa-6mo4bybuv-scandz1.vercel.app" "scanym-sanaa (Production)"
