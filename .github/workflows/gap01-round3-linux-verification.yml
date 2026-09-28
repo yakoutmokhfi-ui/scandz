@@ -1,0 +1,126 @@
+name: GAP-01 Round 3 — Linux Full-Suite Verification
+
+# ============================================================================
+# Independent, reproducible Linux verification evidence for GAP-01 ROUND 3
+# re-audit (issue scanym-orchestrator#11).
+#
+# Context: the independent auditor's first Round 3 re-audit attempt ran the
+# full suite on Windows, which produces many unrelated path-separator /
+# structural-test failures that are NOT comparable to the Linux baseline
+# supplied by the developer (Boulez). The auditor could not therefore
+# independently certify that the GAP-01 candidate introduces exactly zero
+# NEW failures versus current main -- only that the same 10 pre-existing
+# failures were expected. This workflow removes that dependency on any one
+# party's local machine: it runs on GitHub's standard ubuntu-latest runner,
+# with a pinned Node version and `npm ci` (lockfile-exact install), for
+# WHATEVER commit SHA is given as input -- so the SAME workflow definition
+# can be dispatched once against current main and once against the GAP-01
+# candidate, producing two directly comparable, independently reproducible,
+# and publicly inspectable (immutable run URL + uploaded log artifacts)
+# results.
+#
+# This workflow makes NO code change and asserts NO pass/fail verdict of
+# its own -- it only produces raw, uploaded evidence (full test log,
+# extracted failure-name list, tsc --noEmit output, and recorded
+# ref/tree/OS/runtime identity) for a human or another independent auditor
+# to compare. Deliberately dispatched from a dedicated verification branch
+# (ci/gap01-round3-linux-verification), NOT from the GAP-01 feature branch
+# itself, so it does not appear in PR #108's diff and does not expand that
+# PR's audited scope.
+# ============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Full commit SHA to check out and verify (any ref in this repo, e.g. current main or the GAP-01 candidate)"
+        required: true
+      label:
+        description: "Short label for this run's evidence, e.g. main-baseline or gap01-candidate-round3"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Linux full-suite verification — ${{ github.event.inputs.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout target SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_sha }}
+          fetch-depth: 0
+
+      - name: Confirm checked-out identity (fail hard on mismatch)
+        run: |
+          set -e
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "$ACTUAL_SHA" != "${{ github.event.inputs.target_sha }}" ]; then
+            echo "::error::Checked-out HEAD ($ACTUAL_SHA) does not match requested target_sha (${{ github.event.inputs.target_sha }})"
+            exit 1
+          fi
+          echo "sha=$ACTUAL_SHA" | tee identity.txt
+          echo "tree=$(git rev-parse HEAD^{tree})" | tee -a identity.txt
+          echo "label=${{ github.event.inputs.label }}" | tee -a identity.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Record runtime/OS identity
+        run: |
+          {
+            echo "os: $(uname -a)"
+            echo "node: $(node --version)"
+            echo "npm: $(npm --version)"
+          } | tee -a identity.txt
+
+      - name: Install dependencies (lockfile-exact)
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check (npx tsc --noEmit)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npx tsc --noEmit > tsc-noemit-output.txt 2>&1
+          echo "EXIT=$?" >> tsc-noemit-output.txt
+          cat tsc-noemit-output.txt
+
+      - name: Run full test suite (raw output preserved, non-zero exit tolerated for evidence capture)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npm test > full-suite-output.log 2>&1
+          echo "npm test exit code: $?" | tee -a full-suite-output.log
+          set -e
+
+      - name: Extract failure-name list
+        run: |
+          grep -E "^not ok " full-suite-output.log | sed -E 's/^not ok [0-9]+ - //' | sort > failure-names.txt || true
+          {
+            echo "failure count: $(wc -l < failure-names.txt)"
+            echo "--- failure names ---"
+            cat failure-names.txt
+          } | tee failure-summary.txt
+
+      - name: Extract test totals
+        run: |
+          grep -E "^# (tests|pass|fail|suites|cancelled|skipped|todo) " full-suite-output.log | tee test-totals.txt || true
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gap01-r3-verification-${{ github.event.inputs.label }}
+          path: |
+            identity.txt
+            tsc-noemit-output.txt
+            full-suite-output.log
+            failure-names.txt
+            failure-summary.txt
+            test-totals.txt
+          retention-days: 90
