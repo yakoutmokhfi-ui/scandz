@@ -61,7 +61,6 @@ const fr: Dict = {
   subcategoryFilterAll: "Tous",
   // P1 CUSTOMER COLLECTIONS BY TAGS -- navigation « Collections ».
   collectionsNavLabel: "Collections",
-  collectionsShowAll: "Tout le catalogue",
   alreadyInCart: "{n} déjà dans votre panier",
 
   cartBarItems: "{n} article",
@@ -964,7 +963,6 @@ const en: Dict = {
   ourFlavors: "Our flavours",
   subcategoryFilterAll: "All",
   collectionsNavLabel: "Collections",
-  collectionsShowAll: "Full menu",
   alreadyInCart: "{n} already in your cart",
 
   cartBarItems: "{n} item",
@@ -1742,7 +1740,6 @@ const ar: Dict = {
   ourFlavors: "نكهاتنا",
   subcategoryFilterAll: "الكل",
   collectionsNavLabel: "المجموعات",
-  collectionsShowAll: "القائمة كاملة",
   alreadyInCart: "{n} في سلتك",
 
   cartBarItems: "{n} منتج",
