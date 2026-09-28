@@ -25,6 +25,23 @@ import { isPlausibleUuid } from "@/lib/tracking/uuid";
  *
  * Cette route est le SEUL point d'écriture du parcours : ouvrir l'écran
  * de rétractation ou cocher des produits n'appelle jamais rien.
+ *
+ * LOT 1 (P0, cookie-path fix, post-release-train live walkthrough) :
+ * cette route vivait auparavant sous app/api/track/withdrawal/route.ts.
+ * Le cookie `st_session` (lib/server/tracking-session.ts) est posé avec
+ * `path: /track/{orderId}` (mandat §10, "narrow path where
+ * practical") -- `/api/track/withdrawal` n'est PAS un sous-chemin de
+ * `/track/{orderId}` (RFC 6265 §5.1.4, correspondance de PRÉFIXE DE
+ * SEGMENT, jamais un simple préfixe textuel), donc le navigateur
+ * n'envoyait JAMAIS ce cookie ici : `cookies().get(...)` retournait
+ * systématiquement `undefined`, donc `WITHDRAWAL_CAPABILITY_INVALID`
+ * à CHAQUE tentative de confirmation, quelle que soit la validité
+ * réelle de la capacité -- confirmé en Production par Yakout (issue
+ * #11). Déplacée ici, sous `/track/{orderId}/withdrawal`, qui EST un
+ * sous-chemin réel de la portée du cookie. Aucun autre changement :
+ * `verifyTrackingSessionToken` et la liaison orderId restent
+ * strictement identiques, la portée du cookie lui-même reste étroite
+ * (jamais élargie à `/`) -- seul l'EMPLACEMENT de cette route change.
  */
 
 export const runtime = "nodejs";

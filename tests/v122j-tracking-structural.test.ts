@@ -272,22 +272,42 @@ test("archi: le token-transport/UI/service de suivi v2 ne référence JAMAIS pay
 // (seule source de vérité pour cette liste, jamais dupliquée ici).
 // --------------------------------------------------------------
 
-test("archi: app/api/track/exchange/route.ts (point de terminaison d'échange de ce lot) existe, et aucune AUTRE route sous app/api/track/ n'a été ajoutée par ce lot (mandat §19 -- la liste fermée et exhaustive de TOUT app/api/, Monetico inclus, est vérifiée par tests/v110c-payment-p3a1-structural.test.ts)", () => {
+test("archi: app/api/track/exchange/route.ts (point de terminaison d'échange de ce lot) existe, et aucune AUTRE route sous app/api/track/ (mandat §19 -- la liste fermée et exhaustive de TOUT app/api/, Monetico inclus, est vérifiée par tests/v110c-payment-p3a1-structural.test.ts). LOT 1 (P0, cookie-path fix) : app/api/track/withdrawal/route.ts a été DÉPLACÉE hors de app/api/ -- voir le test suivant pour son nouvel emplacement fermé.", () => {
   assert.ok(existsSync("app/api/track/exchange/route.ts"), "app/api/track/exchange/route.ts devrait exister");
   const trackApiFiles = existsSync("app/api/track") ? walk("app/api/track").filter((f) => /\.tsx?$/.test(f)) : [];
   assert.deepEqual(
     trackApiFiles,
-    [
-      "app/api/track/exchange/route.ts",
-      // ONLINE WITHDRAWAL / RETRACTATION FOUNDATION v1 -- lot
-      // ULTÉRIEUR : enregistrement de la déclaration statutaire de
-      // rétractation (art. L221-21 / D.221-5). Entrée EXACTE unique
-      // ajoutée à cette liste FERMÉE, jamais une correspondance large ;
-      // cette route s'appuie sur la MÊME session de suivi que
-      // l'échange, elle n'introduit aucun second mécanisme d'accès.
-      "app/api/track/withdrawal/route.ts",
-    ],
+    ["app/api/track/exchange/route.ts"],
     `app/api/track/ contient des fichiers inattendus : ${trackApiFiles.join(", ")}`
+  );
+});
+
+// --------------------------------------------------------------
+// LOT 1 (P0, cookie-path fix, post-release-train live walkthrough) :
+// app/api/track/withdrawal/route.ts posait la confirmation de
+// rétractation sous /api/track/withdrawal -- un chemin qui n'est PAS
+// un sous-chemin de /track/{orderId}, la portée (Path) du cookie de
+// session `st_session` (lib/server/tracking-session.ts). Par la RFC
+// 6265 §5.1.4, le navigateur n'envoyait donc jamais ce cookie à cette
+// route : la confirmation échouait systématiquement avec
+// WITHDRAWAL_CAPABILITY_INVALID en Production, quelle que soit la
+// validité réelle de la capacité. Correctif structurel choisi par
+// Ravel/CIO (issue #11) : déplacer la route sous /track/{orderId}/...,
+// un sous-chemin réel de la portée du cookie -- PAS élargir le cookie
+// à "/". Ce test ferme l'inventaire du nouvel emplacement, exactement
+// comme le test ci-dessus fermait l'ancien.
+// --------------------------------------------------------------
+
+test("archi: app/track/[orderId]/withdrawal/route.ts (LOT 1, P0 cookie-path fix) existe au nouvel emplacement, et c'est le SEUL fichier route.ts sous app/track/[orderId]/ (inventaire fermé, même discipline que le test précédent pour app/api/track/)", () => {
+  assert.ok(
+    existsSync("app/track/[orderId]/withdrawal/route.ts"),
+    "app/track/[orderId]/withdrawal/route.ts devrait exister"
+  );
+  const trackOrderIdRouteFiles = walk("app/track/[orderId]").filter((f) => /\/route\.tsx?$/.test(f));
+  assert.deepEqual(
+    trackOrderIdRouteFiles,
+    ["app/track/[orderId]/withdrawal/route.ts"],
+    `app/track/[orderId]/ contient des fichiers route.ts inattendus : ${trackOrderIdRouteFiles.join(", ")}`
   );
 });
 
