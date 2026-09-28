@@ -29,42 +29,73 @@ name: GAP-01 Round 3 — Linux Full-Suite Verification
 # PR's audited scope.
 # ============================================================================
 
+# NOTE ON TRIGGER CHOICE: `workflow_dispatch` only becomes dispatchable via
+# the API/UI once its workflow file is registered on the repository's
+# DEFAULT branch (main) -- and Boulez (the developer role operating this
+# repo) never merges to main. So this workflow is triggered by `push`
+# instead: each verification branch (ci/gap01-round3-linux-verification for
+# current main, ci/gap01-round3-linux-verification-candidate for the GAP-01
+# candidate) consists of exactly the target commit plus ONE extra commit
+# that adds only this workflow file under .github/workflows/ -- zero
+# application/test code changed. Pushing that branch fires this workflow
+# against that exact tree. The "Record verified target commit" step below
+# resolves and asserts the parent of HEAD (i.e. the actual target commit,
+# with the CI-file-only commit subtracted back out) so the evidence is
+# unambiguous about which application-code commit was really tested.
 on:
+  push:
+    branches:
+      - ci/gap01-round3-linux-verification
+      - ci/gap01-round3-linux-verification-candidate
   workflow_dispatch:
     inputs:
       target_sha:
-        description: "Full commit SHA to check out and verify (any ref in this repo, e.g. current main or the GAP-01 candidate)"
-        required: true
+        description: "Optional: full commit SHA to check out and verify instead of the triggering push's HEAD (only usable once this file is merged to the default branch)"
+        required: false
       label:
-        description: "Short label for this run's evidence, e.g. main-baseline or gap01-candidate-round3"
-        required: true
+        description: "Optional: short label override for this run's evidence"
+        required: false
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    name: Linux full-suite verification — ${{ github.event.inputs.label }}
+    name: Linux full-suite verification — ${{ github.ref_name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Checkout target SHA
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.target_sha }}
+          ref: ${{ github.event.inputs.target_sha || github.sha }}
           fetch-depth: 0
 
-      - name: Confirm checked-out identity (fail hard on mismatch)
+      - name: Record verified target commit
         run: |
           set -e
-          ACTUAL_SHA="$(git rev-parse HEAD)"
-          if [ "$ACTUAL_SHA" != "${{ github.event.inputs.target_sha }}" ]; then
-            echo "::error::Checked-out HEAD ($ACTUAL_SHA) does not match requested target_sha (${{ github.event.inputs.target_sha }})"
-            exit 1
+          HEAD_SHA="$(git rev-parse HEAD)"
+          # On a `push`-triggered run, HEAD is [target commit] + [this
+          # workflow-file-only commit]. The actual application-code commit
+          # under test is therefore HEAD^ -- unless this run was dispatched
+          # manually with an explicit target_sha (workflow_dispatch, only
+          # usable once merged to the default branch), in which case HEAD
+          # itself IS the requested target and has no such parent commit
+          # relationship to assume.
+          if [ -n "${{ github.event.inputs.target_sha }}" ]; then
+            TARGET_SHA="$HEAD_SHA"
+          else
+            TARGET_SHA="$(git rev-parse HEAD^1)"
           fi
-          echo "sha=$ACTUAL_SHA" | tee identity.txt
-          echo "tree=$(git rev-parse HEAD^{tree})" | tee -a identity.txt
-          echo "label=${{ github.event.inputs.label }}" | tee -a identity.txt
+          LABEL="${{ github.event.inputs.label }}"
+          if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
+          {
+            echo "workflow_head_sha=$HEAD_SHA"
+            echo "verified_target_commit=$TARGET_SHA"
+            echo "verified_target_tree=$(git rev-parse ${TARGET_SHA}^{tree})"
+            echo "label=$LABEL"
+          } | tee identity.txt
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -115,7 +146,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gap01-r3-verification-${{ github.event.inputs.label }}
+          name: gap01-r3-verification-${{ env.LABEL }}
           path: |
             identity.txt
             tsc-noemit-output.txt
