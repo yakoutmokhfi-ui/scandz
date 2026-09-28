@@ -217,6 +217,21 @@ const fr: Dict = {
   deliveryTimingNoticeConfirm: "J'ai compris, continuer",
   pickup: "À emporter",
   delivery: "Livraison",
+  // PRODUCT SERVICE MODES v1 -- réutilise pickup/delivery/modeTable
+  // ci-dessus pour {mode}/{modes} (jamais un second jeu de libellés de
+  // mode) : la carte publique (badge produit, MenuItemCard.tsx) et le
+  // panier (blocage panier mixte, CartPanel.tsx) composent ces clés
+  // avec ces mêmes libellés, voir lib/service-mode-restrictions.ts.
+  modeOnlyLabel: "{mode} uniquement",
+  modeSubsetLabel: "Disponible pour : {modes}",
+  // CORRECTIF (audit CHATEAUBRIAND round 2, issue #11) -- pour un
+  // produit dont la restriction serveur explicite ne contient AUCUN
+  // mode frontend-connu (ex. room_service, click_collect seuls) : on
+  // ne peut nommer aucun mode précis (mensonger), mais on doit quand
+  // même signaler que le produit N'EST PAS disponible pour tous les
+  // modes -- jamais un badge "Retrait uniquement" non vrai ici.
+  modeLimitedLabel: "Mode de service limité",
+  serviceModeBlockedByCart: "{mode} indisponible avec ce panier : {items}.",
   pickupNote: "Nous vous confirmons l'heure et le lieu de retrait par message.",
   deliveryNote: "Nous vous confirmons le créneau de livraison par message.",
   deliveryFree: "Livraison offerte — {zone}.",
@@ -526,6 +541,16 @@ const fr: Dict = {
   // « Oui »/« Non » nue n'existait jusqu'ici -- mcFilterAvailableYes/No
   // disent « Disponibles »/« Indisponibles », pas « Oui »/« Non »).
   catalogueWithdrawalEligibleLabel: "Rétractable",
+  // PRODUCT SERVICE MODES v1 -- éditeur de catalogue marchand
+  // (ProductForm, app/dashboard/catalogue/page.tsx). Strictement
+  // indépendant de catalogueWithdrawalEligibleLabel ci-dessus (aucun
+  // couplage, exigence CIO).
+  mcAllowedSaleModesLabel: "Modes de vente proposés pour ce produit",
+  mcAllowedSaleModesAll: "Tous les modes",
+  mcServiceModesEmptyRestriction:
+    "Sélectionnez au moins un mode, ou choisissez « Tous les modes ».",
+  mcInvalidSaleModeForEstablishment:
+    "Un des modes sélectionnés n'est plus activé pour cet établissement. Rechargez la page et vérifiez votre sélection.",
   commonYes: "Oui",
   commonNo: "Non",
   catalogueWithdrawalFilterAll: "Tous",
@@ -1065,6 +1090,12 @@ const en: Dict = {
   deliveryTimingNoticeConfirm: "I understand, continue",
   pickup: "Pickup",
   delivery: "Delivery",
+  // PRODUCT SERVICE MODES v1 -- see the French block for the full
+  // rationale (reuses pickup/delivery/modeTable for {mode}/{modes}).
+  modeOnlyLabel: "{mode} only",
+  modeSubsetLabel: "Available for: {modes}",
+  modeLimitedLabel: "Limited service mode",
+  serviceModeBlockedByCart: "{mode} unavailable with this basket: {items}.",
   pickupNote: "We will confirm the pickup time and place by message.",
   deliveryNote: "We will confirm the delivery slot by message.",
   deliveryFree: "Free delivery — {zone}.",
@@ -1331,6 +1362,13 @@ const en: Dict = {
   mcFilterAvailableNo: "Unavailable",
   // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr.
   catalogueWithdrawalEligibleLabel: "Eligible for withdrawal",
+  // PRODUCT SERVICE MODES v1 -- see the French block for the full
+  // rationale.
+  mcAllowedSaleModesLabel: "Service modes offered for this product",
+  mcAllowedSaleModesAll: "All modes",
+  mcServiceModesEmptyRestriction: "Select at least one mode, or choose \"All modes\".",
+  mcInvalidSaleModeForEstablishment:
+    "One of the selected modes is no longer enabled for this establishment. Reload the page and check your selection.",
   commonYes: "Yes",
   commonNo: "No",
   catalogueWithdrawalFilterAll: "All",
@@ -1830,6 +1868,12 @@ const ar: Dict = {
   deliveryTimingNoticeConfirm: "فهمت، متابعة",
   pickup: "استلام من المحل",
   delivery: "توصيل",
+  // PRODUCT SERVICE MODES v1 -- انظر الكتلة الفرنسية للتفاصيل الكاملة
+  // (يعاد استخدام pickup/delivery/modeTable لـ {mode}/{modes}).
+  modeOnlyLabel: "{mode} فقط",
+  modeSubsetLabel: "متوفر لـ: {modes}",
+  modeLimitedLabel: "نمط خدمة محدود",
+  serviceModeBlockedByCart: "{mode} غير متاح مع هذه السلة: {items}.",
   pickupNote: "سنؤكد لك وقت ومكان الاستلام برسالة.",
   deliveryNote: "سنؤكد لك موعد التوصيل برسالة.",
   deliveryFree: "التوصيل مجاني — {zone}.",
@@ -2095,6 +2139,12 @@ const ar: Dict = {
   // format de fichier lui-même, pas une chaîne d'interface) : le
   // message d'erreur les cite donc telles quelles.
   catalogueWithdrawalEligibleLabel: "قابل للتراجع",
+  // PRODUCT SERVICE MODES v1 -- انظر الكتلة الفرنسية للتفاصيل الكاملة.
+  mcAllowedSaleModesLabel: "أنماط الخدمة المتاحة لهذا المنتج",
+  mcAllowedSaleModesAll: "كل الأنماط",
+  mcServiceModesEmptyRestriction: "اختر نمطًا واحدًا على الأقل، أو اختر «كل الأنماط».",
+  mcInvalidSaleModeForEstablishment:
+    "أحد الأنماط المختارة لم يعد مفعّلاً لهذا المطعم. أعد تحميل الصفحة وتحقق من اختيارك.",
   commonYes: "نعم",
   commonNo: "لا",
   catalogueWithdrawalFilterAll: "الكل",

@@ -35,6 +35,10 @@ export function makeProduct(overrides: Partial<CatalogueProduct> & { product_id:
     // colonne en base ; un test qui vise la rétractabilité passe
     // `withdrawal_eligible: true` via `overrides`.
     withdrawal_eligible: false,
+    // PRODUCT SERVICE MODES v1 -- `null` (ALL) par défaut, exactement
+    // comme l'absence de ligne en base ; un test qui vise une
+    // restriction passe `allowed_sale_modes: [...]` via `overrides`.
+    allowed_sale_modes: null,
     ...overrides,
   };
 }

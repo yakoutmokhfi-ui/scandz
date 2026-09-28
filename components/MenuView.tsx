@@ -106,6 +106,7 @@ import {
 } from "@/lib/cart";
 import { dirOf, translate, type Lang } from "@/lib/i18n";
 import { tName, tCategoryDescription, tSubcategoryName } from "@/lib/menu-i18n";
+import { blockingItemsByMode } from "@/lib/service-mode-restrictions";
 import Ltr from "@/components/Bidi";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
@@ -930,6 +931,38 @@ export default function MenuView({
     0
   );
 
+  /**
+   * PRODUCT SERVICE MODES v1 (issue #11, décision CIO) -- un mode déjà
+   * CHOISI qui devient bloqué par le panier (ex. le client ajoute, une
+   * fois "Livraison" déjà sélectionné, un produit restreint au retrait)
+   * ne doit jamais rester silencieusement sélectionné : `orderContext`/
+   * `canSubmit` plus bas n'ont aucune connaissance du contenu du panier,
+   * donc sans ce garde-fou une commande resterait "prête à partir" pour
+   * un mode que create_order (serveur) rejetterait de toute façon.
+   *
+   * Effet SÉPARÉ de celui ci-dessus (disponibilité établissement) --
+   * jamais fusionné avec lui : celui-ci réagit à un changement de
+   * PANIER (déclencheur local, fréquent), l'autre à un changement de
+   * CATALOGUE établissement (déclencheur serveur, rare) ; les fusionner
+   * risquerait de faire réagir l'un aux dépendances de l'autre.
+   *
+   * Ne touche QUE `serviceMode` -- jamais le panier lui-même (aucun
+   * retrait d'article, aucun scindage, mandat CIO "keep all items") ni
+   * les coordonnées déjà saisies (`customer`/`tableNumber`/`note`) :
+   * un mode encore disponible pour ce panier (ex. "Retrait") reste
+   * réutilisable tel quel si le client le choisit ensuite. La rangée
+   * "howToReceive" (CartPanel.tsx) affiche déjà, en continu, le motif
+   * exact (produits bloquants nommés) -- ce garde-fou ne fait que
+   * réinitialiser le CHOIX devenu invalide, jamais expliquer pourquoi
+   * (déjà fait ailleurs).
+   */
+  useEffect(() => {
+    if (serviceMode === null) return;
+    const blocked = blockingItemsByMode(lines.map((l) => l.item));
+    if (blocked[serviceMode]) {
+      setServiceMode(null);
+    }
+  }, [lines, serviceMode]);
 
   /**
    * Clic "Ajouter" ou "+" sur une carte du menu.

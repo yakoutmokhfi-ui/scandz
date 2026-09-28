@@ -56,6 +56,24 @@ export const PRODUCT_DUPLICATE_NAME_CODE = "SCANYM_PRODUCT_DUPLICATE_NAME";
  *  depuis la présence de tax_rate). */
 export const TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE = "SCANYM_TAX_RATE_REQUIRED_FOR_AVAILABILITY";
 
+/** PRODUCT SERVICE MODES v1 — mêmes constantes EXACTES que les
+ *  `raise exception ...` de create_product/update_product (voir
+ *  supabase/DRAFT-lot-product-service-modes-v1.sql). SQLSTATE réel
+ *  22023 (invalid_parameter_value) pour les deux, même discipline que
+ *  SUBCATEGORY_CATEGORY_MISMATCH_CODE ci-dessus — jamais un code
+ *  inventé.
+ *  - EMPTY_RESTRICTION : `p_allowed_sale_modes` non-NULL mais VIDE —
+ *    refusé (jamais un repli silencieux sur ALL, qui serait
+ *    l'INVERSE de ce que le marchand a explicitement demandé en
+ *    envoyant un tableau).
+ *  - INVALID_SALE_MODE_FOR_ESTABLISHMENT : au moins un code de
+ *    `p_allowed_sale_modes` n'est pas un mode ACTUELLEMENT ACTIVÉ pour
+ *    cet établissement (restaurant_sale_modes) — restreindre un
+ *    produit à un mode que l'établissement lui-même ne propose pas
+ *    n'a aucun sens. */
+export const SERVICE_MODES_EMPTY_RESTRICTION_CODE = "SCANYM_SERVICE_MODES_EMPTY_RESTRICTION";
+export const INVALID_SALE_MODE_FOR_ESTABLISHMENT_CODE = "SCANYM_INVALID_SALE_MODE_FOR_ESTABLISHMENT";
+
 export class ShortDescriptionTooLongError extends Error {
   constructor() {
     super(SHORT_DESCRIPTION_TOO_LONG_CODE);
@@ -146,6 +164,24 @@ export class TaxRateRequiredForAvailabilityError extends Error {
   }
 }
 
+/** PRODUCT SERVICE MODES v1 — voir SERVICE_MODES_EMPTY_RESTRICTION_CODE
+ *  ci-dessus. */
+export class ServiceModesEmptyRestrictionError extends Error {
+  constructor() {
+    super(SERVICE_MODES_EMPTY_RESTRICTION_CODE);
+    this.name = "ServiceModesEmptyRestrictionError";
+  }
+}
+
+/** PRODUCT SERVICE MODES v1 — voir
+ *  INVALID_SALE_MODE_FOR_ESTABLISHMENT_CODE ci-dessus. */
+export class InvalidSaleModeForEstablishmentError extends Error {
+  constructor() {
+    super(INVALID_SALE_MODE_FOR_ESTABLISHMENT_CODE);
+    this.name = "InvalidSaleModeForEstablishmentError";
+  }
+}
+
 export interface RpcErrorLike {
   message?: string | null;
   code?: string | null;
@@ -226,6 +262,24 @@ export function isTaxRateRequiredForAvailabilityError(
 ): boolean {
   if (!error) return false;
   return error.code === "23514" && error.message === TAX_RATE_REQUIRED_FOR_AVAILABILITY_CODE;
+}
+
+/** PRODUCT SERVICE MODES v1 — même discipline (code ET message) que
+ *  isSubcategoryCategoryMismatchError ci-dessus. */
+export function isServiceModesEmptyRestrictionError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "22023" && error.message === SERVICE_MODES_EMPTY_RESTRICTION_CODE;
+}
+
+/** PRODUCT SERVICE MODES v1 — même discipline (code ET message) que
+ *  isSubcategoryCategoryMismatchError ci-dessus. */
+export function isInvalidSaleModeForEstablishmentError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error) return false;
+  return error.code === "22023" && error.message === INVALID_SALE_MODE_FOR_ESTABLISHMENT_CODE;
 }
 
 const FISCAL_MEASUREMENT_ERROR_CODES: readonly string[] = [

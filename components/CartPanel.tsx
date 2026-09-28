@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
@@ -22,6 +22,7 @@ import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog"
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
 import { normalizeOrderNote, ORDER_NOTE_MAX_LENGTH } from "@/lib/order-note";
+import { blockingItemsByMode, serviceModeNameKey } from "@/lib/service-mode-restrictions";
 
 interface CartEntry extends CartLine {
   key: string;
@@ -335,6 +336,20 @@ export default function CartPanel({
   const noteState = normalizeOrderNote(note);
 
   /**
+   * PRODUCT SERVICE MODES v1 -- panier mixte (issue #11, décision CIO) :
+   * quels modes de service l'établissement propose sont désormais
+   * bloqués PAR LE CONTENU ACTUEL DU PANIER, et par quels produits.
+   * Purement présentation -- `create_order` (serveur) reste la seule
+   * autorité qui compte (voir lib/service-mode-restrictions.ts) : aucun
+   * article n'est jamais retiré ni scindé ici, seul le CHOIX DE MODE
+   * peut devenir indisponible.
+   */
+  const blockedModes = useMemo(
+    () => blockingItemsByMode(lines.map((l) => l.item)),
+    [lines]
+  );
+
+  /**
    * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
    * frais de livraison ESTIMÉ (voir lib/delivery.ts,
    * computeDeliveryFee) : jamais appliqué au retrait/sur place (§16 :
@@ -345,6 +360,17 @@ export default function CartPanel({
   const deliveryFee =
     serviceMode === "delivery" ? deliveryStatus.deliveryFee ?? 0 : 0;
   const grandTotal = totalPrice + deliveryFee;
+
+  /**
+   * PRODUCT SERVICE MODES v1 -- modes de l'établissement qu'aucun
+   * produit du panier actuel ne bloque. Le popup de choix (ci-dessous)
+   * ne propose jamais un mode bloqué -- rien d'utile à choisir tant
+   * que le panier lui-même n'a pas changé (message dédié, rangée
+   * "howToReceive" plus bas, qui reste seule à afficher TOUS les
+   * modes -- y compris bloqués -- pour que le client comprenne la
+   * situation).
+   */
+  const unblockedServiceModes = availableServiceModes.filter((m) => !blockedModes[m]);
 
   /**
    * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE POPUP v1 :
@@ -358,9 +384,15 @@ export default function CartPanel({
    * ces deux états, availableServiceModes (dérivé de saleModesData
    * côté MenuView) est de toute façon vide, donc length > 1 est déjà
    * fail-closed.
+   *
+   * PRODUCT SERVICE MODES v1 -- utilise désormais
+   * `unblockedServiceModes` (jamais `availableServiceModes` seul) :
+   * un panier déjà mixte au moment où ce choix devient nécessaire ne
+   * doit jamais proposer, dans ce popup, un mode que ce même panier
+   * bloque de toute façon.
    */
   const requiresFulfillmentChoice =
-    serviceMode === null && availableServiceModes.length > 1;
+    serviceMode === null && unblockedServiceModes.length > 1;
 
   /**
    * Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : trois états
@@ -456,7 +488,7 @@ export default function CartPanel({
             <>
               <FulfillmentChoiceModal
                 open={requiresFulfillmentChoice}
-                modes={availableServiceModes}
+                modes={unblockedServiceModes}
                 onSelect={onSelectFulfillment}
               />
               <DeliveryTimingNoticeDialog
@@ -555,16 +587,43 @@ export default function CartPanel({
 
         {lines.length > 0 && (
           <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-espresso/10 bg-crema px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
-            {availableServiceModes.length > 1 && (
+            {/* CORRECTIF (audit CHATEAUBRIAND round 2, issue #11) --
+                cette rangée entière était masquée dès que
+                l'établissement ne propose qu'UN SEUL mode
+                (`availableServiceModes.length > 1`), y compris le
+                message nommant le(s) produit(s) bloquant(s) -- un
+                établissement mono-mode dont l'unique mode devenait
+                bloqué par le panier (ex. produit restreint à
+                room_service seul) n'affichait alors STRICTEMENT AUCUNE
+                explication au client (le bouton "Commander" restait
+                simplement désactivé, canSubmit, sans aucun message).
+                Le sélecteur de mode (boutons) reste inutile quand il
+                n'y a qu'un seul mode -- rien à choisir -- mais le
+                message de blocage, lui, DOIT rester visible dès qu'un
+                mode (seul ou parmi plusieurs) est bloqué par le
+                panier. */}
+            {(availableServiceModes.length > 1 ||
+              (availableServiceModes.length === 1 &&
+                Boolean(blockedModes[availableServiceModes[0]]))) && (
               <div className="mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
-                  {t("howToReceive")}
-                </p>
-                <div className="mt-2 flex gap-2">
+                {availableServiceModes.length > 1 && (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
+                      {t("howToReceive")}
+                    </p>
+                    <div className="mt-2 flex gap-2">
                   {availableServiceModes.map((mode) => {
                     const selected = serviceMode === mode;
                     const deliveryIncomplete =
                       mode === "delivery" && selected && !deliveryStatus.eligible;
+                    // PRODUCT SERVICE MODES v1 -- ce mode, par ailleurs
+                    // activé pour l'établissement, est rendu
+                    // indisponible par au moins un produit du panier
+                    // actuel. Prime sur `deliveryIncomplete` (raison
+                    // distincte, jamais cumulée dans le même bouton) --
+                    // le message dédié ci-dessous, sous la rangée, nomme
+                    // le(s) produit(s) en cause.
+                    const blockedByCart = blockedModes[mode];
                     const hint =
                       deliveryStatus.block === "out-of-zone"
                         ? t("deliveryOutOfZoneShort")
@@ -575,26 +634,39 @@ export default function CartPanel({
                     return (
                       <button
                         key={mode}
-                        onClick={() => onSelectFulfillment(mode)}
+                        type="button"
+                        onClick={() => {
+                          // Un mode bloqué par le panier n'est jamais
+                          // sélectionnable -- aucun scindage automatique,
+                          // aucun retrait d'article : le client doit
+                          // d'abord ajuster son panier (message dédié
+                          // ci-dessous) ou choisir un autre mode.
+                          if (blockedByCart) return;
+                          onSelectFulfillment(mode);
+                        }}
+                        disabled={Boolean(blockedByCart)}
                         aria-pressed={selected}
-                        aria-invalid={deliveryIncomplete || undefined}
+                        aria-invalid={deliveryIncomplete || Boolean(blockedByCart) || undefined}
+                        aria-describedby={blockedByCart ? `mode-blocked-${mode}` : undefined}
                         className={
                           "min-w-0 flex-1 rounded-xl border px-2 py-2.5 text-sm font-semibold " +
-                          (deliveryIncomplete
-                            ? "border-amber-500 bg-amber-50 text-amber-900"
-                            : selected
-                              ? "border-caramel bg-caramel text-caramel-ink"
-                              // Corrige UIFIX-01 : même défaut que
-                              // CategoryNav -- bg-crema (= var(--sc-bg))
-                              // réaligne fond et texte sur la même
-                              // source de contraste.
-                              : "border-transparent bg-crema text-ink-on-bg shadow-sm")
+                          (blockedByCart
+                            ? "cursor-not-allowed border-amber-200 bg-amber-50/60 text-amber-900/70"
+                            : deliveryIncomplete
+                              ? "border-amber-500 bg-amber-50 text-amber-900"
+                              : selected
+                                ? "border-caramel bg-caramel text-caramel-ink"
+                                // Corrige UIFIX-01 : même défaut que
+                                // CategoryNav -- bg-crema (= var(--sc-bg))
+                                // réaligne fond et texte sur la même
+                                // source de contraste.
+                                : "border-transparent bg-crema text-ink-on-bg shadow-sm")
                         }
                       >
                         <span className="block">
                           {t(mode === "table" ? "modeTable" : mode)}
                         </span>
-                        {deliveryIncomplete && (
+                        {deliveryIncomplete && !blockedByCart && (
                           <span className="mt-0.5 block truncate text-[0.65rem] font-medium">
                             {hint}
                           </span>
@@ -602,7 +674,39 @@ export default function CartPanel({
                       </button>
                     );
                   })}
-                </div>
+                    </div>
+                  </>
+                )}
+                {/* PRODUCT SERVICE MODES v1 -- un message par mode
+                    BLOQUÉ (jamais fusionnés en un seul texte ambigu),
+                    nommant explicitement le(s) produit(s) en cause --
+                    high-contrast (amber-50/amber-900, même paire que
+                    les autres avertissements de ce panier), jamais une
+                    couleur seule sur le bouton ci-dessus qui le
+                    suffirait pas seule à en expliquer la raison.
+                    CORRECTIF round 2 : reste rendu même quand
+                    `availableServiceModes.length === 1` (pas de
+                    rangée de boutons au-dessus dans ce cas -- voir
+                    commentaire plus haut) car c'est la condition
+                    englobante qui garantit déjà qu'au moins un mode
+                    de `availableServiceModes` est bloqué ici. */}
+                {availableServiceModes.map((mode) => {
+                  const blockers = blockedModes[mode];
+                  if (!blockers) return null;
+                  return (
+                    <p
+                      key={`blocked-${mode}`}
+                      id={`mode-blocked-${mode}`}
+                      role="status"
+                      className="mt-2 rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900"
+                    >
+                      {t("serviceModeBlockedByCart", {
+                        mode: t(serviceModeNameKey(mode)),
+                        items: blockers.map((i) => tName(i, lang, sourceLanguage)).join(", "),
+                      })}
+                    </p>
+                  );
+                })}
               </div>
             )}
 

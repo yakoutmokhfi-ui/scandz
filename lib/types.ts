@@ -269,6 +269,15 @@ export interface MenuItem {
    *  (lib/services/restaurant.ts) depuis get_restaurant_collections.
    *  Dédoublonnés, ordonnés. Absent = produit sans tag public. */
   customer_tags?: string[];
+  /** PRODUCT SERVICE MODES v1 -- sous-ensemble des modes de service de
+   *  l'établissement (PICKUP/DELIVERY/DINE_IN…) auquel ce produit est
+   *  restreint, résolu côté service (lib/services/restaurant.ts) depuis
+   *  menu_item_sale_modes. `null`/absent = ALL (aucune restriction,
+   *  sémantique ALL-par-absence, même convention que côté base) ;
+   *  jamais un tableau vide (rejeté à la source par create_product/
+   *  update_product). Strictement indépendant de tout attribut de
+   *  droit de rétractation -- aucun couplage, aucune inférence. */
+  allowed_sale_modes?: string[] | null;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug

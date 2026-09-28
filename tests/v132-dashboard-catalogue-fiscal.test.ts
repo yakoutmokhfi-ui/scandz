@@ -59,6 +59,12 @@ test("createProduct: transmet les 3 p_* fiscaux à create_product avec les valeu
     // `false` = défaut serveur EXACT, comportement historique
     // inchangé pour tout appelant qui ne le fournit pas.
     p_withdrawal_eligible: false,
+    // PRODUCT SERVICE MODES v1 -- 11e paramètre optionnel (DERNIER)
+    // ajouté à create_product/update_product par ce lot (voir
+    // supabase/DRAFT-lot-product-service-modes-v1.sql) ; `null` =
+    // défaut serveur EXACT (ALL-par-absence), comportement historique
+    // inchangé pour tout appelant qui ne le fournit pas.
+    p_allowed_sale_modes: null,
   });
 });
 
@@ -90,6 +96,8 @@ test("createProduct: aucun 6e argument fourni -- retombe EXACTEMENT sur le compo
     // `false` = défaut serveur EXACT, comportement historique
     // inchangé pour tout appelant qui ne le fournit pas.
     p_withdrawal_eligible: false,
+    // PRODUCT SERVICE MODES v1 -- voir le test précédent.
+    p_allowed_sale_modes: null,
   });
 });
 
@@ -120,6 +128,8 @@ test("createProduct: AUCUN paramètre RPC résiduel du modèle v1 (sales_unit/pr
     // réelle de ce test (aucun paramètre résiduel du modèle v1) est
     // inchangée.
     "p_withdrawal_eligible",
+    // PRODUCT SERVICE MODES v1 -- même raisonnement exact.
+    "p_allowed_sale_modes",
   ].sort());
 });
 
@@ -155,6 +165,8 @@ test("updateProduct: transmet les 3 p_* fiscaux à update_product", async (t) =>
     // `false` = défaut serveur EXACT, comportement historique
     // inchangé pour tout appelant qui ne le fournit pas.
     p_withdrawal_eligible: false,
+    // PRODUCT SERVICE MODES v1 -- voir createProduct ci-dessus.
+    p_allowed_sale_modes: null,
   });
 });
 

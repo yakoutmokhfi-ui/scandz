@@ -141,6 +141,9 @@ const mocks: Record<string, string> = {
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/catalogue-tags": MOCK_TAGS,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
+  // PRODUCT SERVICE MODES v1 -- getPublicSaleModes() n'est pas l'objet de
+  // ce test ; tableau vide, patron déjà suivi par les autres mocks ci-dessus.
+  "@/lib/sale-modes-public": `export async function getPublicSaleModes() { return []; }`,
 };
 
 /**
