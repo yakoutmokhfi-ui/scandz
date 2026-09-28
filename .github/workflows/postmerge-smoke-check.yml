@@ -8,25 +8,23 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Real storefront smoke check
+      - name: Real storefront - detailed check
         run: |
           set +e
-          check() {
-            local url="$1"
-            local label="$2"
-            code=$(curl -s -o /tmp/body_$label.html -w "%{http_code}" -L --max-time 15 "$url")
-            bytes=$(wc -c < /tmp/body_$label.html)
-            notfound=$(grep -c "Restaurant introuvable" /tmp/body_$label.html)
-            errsig=$(grep -Eic "application error|internal server error|unhandled runtime|digest.:|502 Bad Gateway|503 Service" /tmp/body_$label.html)
-            title=$(grep -o '<title[^>]*>[^<]*</title>' /tmp/body_$label.html | head -1)
-            echo "::notice title=${label}::url=${url} http=${code} bytes=${bytes} restaurant_introuvable=${notfound} error_signature=${errsig} title=${title}"
-          }
-          check "https://scanym-sanaa.vercel.app/r/au-lait-cru" "aulaitcru-real"
-          check "https://scanym-sanaa.vercel.app/r/definitely-bogus-xyz-999" "bogus-control"
-          check "https://scanym-sanaa.vercel.app/" "storefront-root"
-      - name: Extract product/restriction snippets
-        run: |
-          echo "=== oeufs/lait cru mentions ==="
-          grep -oE '.{40}(uf|Oeuf|Lait cru|Retrait uniquement|pickup only|Mode de service).{40}' /tmp/body_aulaitcru-real.html | head -10
-          echo "=== restaurant name check ==="
-          grep -oE '.{20}(Au Lait Cru|au-lait-cru).{20}' /tmp/body_aulaitcru-real.html | head -5
+          curl -s -o /tmp/body.html -w "HTTPCODE=%{http_code}\n" --max-time 20 "https://scanym-sanaa.vercel.app/r/au-lait-cru" > /tmp/code.txt
+          cat /tmp/code.txt
+          echo "::notice title=http-code-no-redirect::$(cat /tmp/code.txt)"
+          bytes=$(wc -c < /tmp/body.html)
+          echo "::notice title=bytes::${bytes}"
+          # how many times does the not-found phrase appear, and in what context (near a <script> tag = js bundle false positive, near <main>/<h1> = real page)
+          ctx=$(grep -o '.\{60\}Restaurant introuvable.\{60\}' /tmp/body.html | head -3)
+          echo "::notice title=notfound-context::${ctx}"
+          # product/menu content
+          prod=$(grep -oE '.{30}(uf|Oeuf|Lait cru|Retrait uniquement|Delivery|Pickup|Panier|Cart|price|prix|EUR|€).{30}' /tmp/body.html | head -8 | tr '\n' '|')
+          echo "::notice title=product-content::${prod}"
+          # h1/main tag near top of body (server rendered heading)
+          h1=$(grep -oE '<h1[^>]*>[^<]{0,80}' /tmp/body.html | head -3 | tr '\n' '|')
+          echo "::notice title=h1-tags::${h1}"
+          # check for restaurant name text
+          rname=$(grep -oc "Au Lait Cru" /tmp/body.html)
+          echo "::notice title=restaurant-name-count::${rname}"
