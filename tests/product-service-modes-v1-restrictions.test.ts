@@ -71,17 +71,55 @@ test("frontendRestrictedModes : plusieurs modes connus restreints -> tous, dans 
   );
 });
 
-test("frontendRestrictedModes : code(s) non reconnu(s) par le frontend seul(s) -> null (fail-closed/ignoré, jamais un crash)", () => {
-  assert.equal(
+// CORRECTIF (audit indépendant CHATEAUBRIAND, issue #11) : une
+// restriction explicite et non vide dont AUCUN code n'est
+// frontend-connu N'EST PLUS jamais traitée comme "Tous" (`null`) --
+// c'était le désaccord client/serveur confirmé par l'audit :
+// `create_order` (serveur) rejette bien cet article pour
+// table/pickup/delivery (voir DRAFT-lot-product-service-modes-v1.sql),
+// donc le client doit désormais refléter EXACTEMENT le même refus.
+// `[]` (distinct de `null`) signifie "restreint, à aucun mode
+// frontend-connu" -- voir blockingItemsByMode ci-dessous pour la
+// conséquence sur le blocage panier.
+test("frontendRestrictedModes : code(s) non reconnu(s) par le frontend seul(s) -> [] (restriction réelle, PAS 'Tous' -- accord client/serveur)", () => {
+  assert.deepEqual(
     frontendRestrictedModes(item({ allowed_sale_modes: ["some-future-mode"] })),
-    null
+    []
   );
 });
 
-test("frontendRestrictedModes : mélange connu + inconnu -> seuls les codes connus sont retenus", () => {
+test("frontendRestrictedModes : restreint à 'room_service' seul (mode serveur réel, non rendu par le frontend) -> [] (jamais 'Tous')", () => {
+  assert.deepEqual(
+    frontendRestrictedModes(item({ allowed_sale_modes: ["room_service"] })),
+    []
+  );
+});
+
+test("frontendRestrictedModes : restreint à 'click_collect' seul (mode serveur réel, non rendu par le frontend) -> [] (jamais 'Tous')", () => {
+  assert.deepEqual(
+    frontendRestrictedModes(item({ allowed_sale_modes: ["click_collect"] })),
+    []
+  );
+});
+
+test("frontendRestrictedModes : mélange de PLUSIEURS codes non reconnus (room_service + click_collect) -> [] (jamais 'Tous')", () => {
+  assert.deepEqual(
+    frontendRestrictedModes(item({ allowed_sale_modes: ["room_service", "click_collect"] })),
+    []
+  );
+});
+
+test("frontendRestrictedModes : mélange connu + inconnu -> seuls les codes connus sont retenus (comportement pickup/delivery existant inchangé)", () => {
   assert.deepEqual(
     frontendRestrictedModes(item({ allowed_sale_modes: ["pickup", "some-future-mode"] })),
     ["pickup"]
+  );
+});
+
+test("frontendRestrictedModes : mélange connu + room_service -> seul le code connu ('delivery') est retenu", () => {
+  assert.deepEqual(
+    frontendRestrictedModes(item({ allowed_sale_modes: ["delivery", "room_service"] })),
+    ["delivery"]
   );
 });
 
@@ -90,6 +128,13 @@ test("frontendRestrictedModes : totalement indépendant de withdrawal_eligible (
   const notRestricted = item({ allowed_sale_modes: ["pickup"], withdrawal_eligible: false } as Partial<MenuItem>);
   assert.deepEqual(frontendRestrictedModes(restricted), ["pickup"]);
   assert.deepEqual(frontendRestrictedModes(notRestricted), ["pickup"]);
+});
+
+test("frontendRestrictedModes : indépendant de withdrawal_eligible également pour une restriction à un code non reconnu (room_service) -- même résultat [] quelle que soit la valeur", () => {
+  const eligible = item({ allowed_sale_modes: ["room_service"], withdrawal_eligible: true } as Partial<MenuItem>);
+  const notEligible = item({ allowed_sale_modes: ["room_service"], withdrawal_eligible: false } as Partial<MenuItem>);
+  assert.deepEqual(frontendRestrictedModes(eligible), []);
+  assert.deepEqual(frontendRestrictedModes(notEligible), []);
 });
 
 // --------------------------------------------------------------------
@@ -162,9 +207,43 @@ test("blockingItemsByMode : un item dont la restriction couvre TOUS les modes fr
   assert.deepEqual(blockingItemsByMode([allModes]), {});
 });
 
-test("blockingItemsByMode : un item dont TOUTE la restriction est un code non reconnu par le frontend -- traité comme ALL, ne bloque rien (fail-closed/ignoré)", () => {
-  const unknownOnly = item({ id: "a", allowed_sale_modes: ["kiosk-v2"] });
-  assert.deepEqual(blockingItemsByMode([unknownOnly]), {});
+// CORRECTIF (audit indépendant CHATEAUBRIAND, issue #11) : c'était le
+// finding confirmé -- un item dont TOUTE la restriction serveur est
+// un code non reconnu par le frontend (ex. "kiosk-v2", ou un vrai
+// mode serveur pas encore rendu comme room_service/click_collect)
+// bloquait AUPARAVANT `{}` (aucun mode bloqué), alors que
+// `create_order` (serveur) rejette cet article pour
+// table/pickup/delivery : désaccord client/serveur confirmé. Corrigé
+// -- bloque désormais les TROIS modes frontend-connus, exactement
+// comme le ferait le serveur (accord client/serveur rétabli).
+test("blockingItemsByMode : un item dont TOUTE la restriction est un code non reconnu par le frontend -- bloque les 3 modes frontend-connus (accord client/serveur, PAS traité comme ALL)", () => {
+  const unknownOnly = item({ id: "a", name: "Article kiosque only", allowed_sale_modes: ["kiosk-v2"] });
+  const result = blockingItemsByMode([unknownOnly]);
+  assert.deepEqual(Object.keys(result).sort(), ["delivery", "pickup", "table"]);
+  assert.deepEqual(result.table, [unknownOnly]);
+  assert.deepEqual(result.pickup, [unknownOnly]);
+  assert.deepEqual(result.delivery, [unknownOnly]);
+});
+
+test("blockingItemsByMode : restreint à 'room_service' seul (mode serveur réel) -- bloque les 3 modes frontend-connus, exactement comme create_order le ferait", () => {
+  const roomServiceOnly = item({ id: "a", allowed_sale_modes: ["room_service"] });
+  const result = blockingItemsByMode([roomServiceOnly]);
+  assert.deepEqual(Object.keys(result).sort(), ["delivery", "pickup", "table"]);
+});
+
+test("blockingItemsByMode : restreint à 'click_collect' seul (mode serveur réel) -- bloque les 3 modes frontend-connus, exactement comme create_order le ferait", () => {
+  const clickCollectOnly = item({ id: "a", allowed_sale_modes: ["click_collect"] });
+  const result = blockingItemsByMode([clickCollectOnly]);
+  assert.deepEqual(Object.keys(result).sort(), ["delivery", "pickup", "table"]);
+});
+
+test("blockingItemsByMode : mélange connu + inconnu ('pickup' + 'room_service') -- seul 'pickup' reste utilisable, table/delivery bloqués (comportement pickup/delivery existant inchangé, extension non reconnue ignorée sans jamais élargir vers ALL)", () => {
+  const mixed = item({ id: "a", name: "Article mixte", allowed_sale_modes: ["pickup", "room_service"] });
+  const result = blockingItemsByMode([mixed]);
+  assert.deepEqual(Object.keys(result).sort(), ["delivery", "table"]);
+  assert.deepEqual(result.table, [mixed]);
+  assert.deepEqual(result.delivery, [mixed]);
+  assert.equal(result.pickup, undefined);
 });
 
 test("blockingItemsByMode : indépendant de withdrawal_eligible sur les items du panier (aucun couplage, exigence CIO)", () => {
@@ -172,4 +251,13 @@ test("blockingItemsByMode : indépendant de withdrawal_eligible sur les items du
   const result = blockingItemsByMode([restricted]);
   assert.deepEqual(result.table, [restricted]);
   assert.deepEqual(result.delivery, [restricted]);
+});
+
+test("blockingItemsByMode : indépendant de withdrawal_eligible également pour une restriction à un code non reconnu (room_service) -- même blocage des 3 modes quelle que soit la valeur", () => {
+  const eligible = item({ id: "a", allowed_sale_modes: ["room_service"], withdrawal_eligible: true } as Partial<MenuItem>);
+  const notEligible = item({ id: "b", allowed_sale_modes: ["room_service"], withdrawal_eligible: false } as Partial<MenuItem>);
+  const resultEligible = blockingItemsByMode([eligible]);
+  const resultNotEligible = blockingItemsByMode([notEligible]);
+  assert.deepEqual(Object.keys(resultEligible).sort(), ["delivery", "pickup", "table"]);
+  assert.deepEqual(Object.keys(resultNotEligible).sort(), ["delivery", "pickup", "table"]);
 });

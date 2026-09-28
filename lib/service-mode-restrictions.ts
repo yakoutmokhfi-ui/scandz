@@ -26,21 +26,34 @@ const FRONTEND_SUPPORTED_MODES: ServiceMode[] = ["table", "pickup", "delivery"];
 
 /**
  * Sous-ensemble des modes frontend-connus auquel CE produit est
- * restreint, ou `null` si le produit est disponible pour TOUS les
- * modes de l'établissement (aucune restriction), ou si sa restriction
- * est entièrement composée de codes que le frontend ne sait pas encore
- * rendre -- même repli fail-closed/ignoré que `availableServiceModes`
- * dans MenuView.tsx (FRONTEND_SUPPORTED_MODES) : un mode non reconnu
- * ne peut simplement jamais être ni choisi ni affiché ici non plus,
- * jamais un crash ni un rendu incorrect.
+ * restreint, ou `null` UNIQUEMENT si le produit est disponible pour
+ * TOUS les modes de l'établissement (aucune restriction -- `raw`
+ * absent/null/[]).
+ *
+ * CORRECTIF (audit indépendant CHATEAUBRIAND, issue #11) : une
+ * restriction serveur EXPLICITE et non vide (`raw.length > 0`) N'EST
+ * JAMAIS traitée comme "Tous", même quand elle est composée en tout
+ * ou partie de codes que le frontend ne sait pas encore rendre
+ * individuellement (ex. `room_service`, `click_collect`, ou tout
+ * futur mode). Dans ce cas, cette fonction retourne le sous-ensemble
+ * des modes frontend-connus explicitement autorisés -- qui peut être
+ * un tableau VIDE (`[]`, distinct de `null`) quand AUCUN mode
+ * frontend-connu n'est autorisé (ex. `["room_service"]` seul) :
+ * `create_order` (serveur, seule autorité qui compte) rejettera une
+ * commande `table`/`pickup`/`delivery` pour cet article, donc le
+ * client doit refléter EXACTEMENT le même refus -- jamais l'inverse
+ * (désaccord client/serveur = régression fonctionnelle confirmée,
+ * corrigée ici). `[]` étant "truthy" en JS (`![] === false`), tous
+ * les appelants qui testent `if (!restricted) // ALL` continuent de
+ * fonctionner sans modification : seul `null` signifie "aucune
+ * restriction", `[]` signifie "restreint, à rien de frontend-connu".
  */
 export function frontendRestrictedModes(item: MenuItem): ServiceMode[] | null {
   const raw = item.allowed_sale_modes;
   if (!raw || raw.length === 0) return null;
-  const known = raw.filter((m): m is ServiceMode =>
+  return raw.filter((m): m is ServiceMode =>
     (FRONTEND_SUPPORTED_MODES as string[]).includes(m)
   );
-  return known.length > 0 ? known : null;
 }
 
 /** Clé i18n du libellé d'un mode -- même convention déjà utilisée par
@@ -68,7 +81,12 @@ export function blockingItemsByMode(
     const blockers: MenuItem[] = [];
     for (const item of items) {
       const restricted = frontendRestrictedModes(item);
-      if (!restricted) continue; // ALL (ou restriction non reconnue) -- ne bloque jamais rien
+      if (!restricted) continue; // `null` uniquement = ALL (vraiment non restreint) -- ne bloque jamais rien
+      // `restricted` peut être `[]` (restriction explicite composée
+      // uniquement de codes non reconnus par le frontend) : `mode`
+      // (toujours frontend-connu ici) n'y est alors jamais inclus,
+      // donc l'item bloque bien CE mode -- comportement voulu (accord
+      // client/serveur, voir frontendRestrictedModes ci-dessus).
       if (restricted.includes(mode)) continue;
       if (seen.has(item.id)) continue;
       seen.add(item.id);
