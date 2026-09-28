@@ -587,12 +587,31 @@ export default function CartPanel({
 
         {lines.length > 0 && (
           <div className="min-w-0 max-w-full shrink-0 overflow-x-hidden border-t border-espresso/10 bg-crema px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.06)]">
-            {availableServiceModes.length > 1 && (
+            {/* CORRECTIF (audit CHATEAUBRIAND round 2, issue #11) --
+                cette rangée entière était masquée dès que
+                l'établissement ne propose qu'UN SEUL mode
+                (`availableServiceModes.length > 1`), y compris le
+                message nommant le(s) produit(s) bloquant(s) -- un
+                établissement mono-mode dont l'unique mode devenait
+                bloqué par le panier (ex. produit restreint à
+                room_service seul) n'affichait alors STRICTEMENT AUCUNE
+                explication au client (le bouton "Commander" restait
+                simplement désactivé, canSubmit, sans aucun message).
+                Le sélecteur de mode (boutons) reste inutile quand il
+                n'y a qu'un seul mode -- rien à choisir -- mais le
+                message de blocage, lui, DOIT rester visible dès qu'un
+                mode (seul ou parmi plusieurs) est bloqué par le
+                panier. */}
+            {(availableServiceModes.length > 1 ||
+              (availableServiceModes.length === 1 &&
+                Boolean(blockedModes[availableServiceModes[0]]))) && (
               <div className="mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
-                  {t("howToReceive")}
-                </p>
-                <div className="mt-2 flex gap-2">
+                {availableServiceModes.length > 1 && (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">
+                      {t("howToReceive")}
+                    </p>
+                    <div className="mt-2 flex gap-2">
                   {availableServiceModes.map((mode) => {
                     const selected = serviceMode === mode;
                     const deliveryIncomplete =
@@ -655,14 +674,22 @@ export default function CartPanel({
                       </button>
                     );
                   })}
-                </div>
+                    </div>
+                  </>
+                )}
                 {/* PRODUCT SERVICE MODES v1 -- un message par mode
                     BLOQUÉ (jamais fusionnés en un seul texte ambigu),
                     nommant explicitement le(s) produit(s) en cause --
                     high-contrast (amber-50/amber-900, même paire que
                     les autres avertissements de ce panier), jamais une
                     couleur seule sur le bouton ci-dessus qui le
-                    suffirait pas seule à en expliquer la raison. */}
+                    suffirait pas seule à en expliquer la raison.
+                    CORRECTIF round 2 : reste rendu même quand
+                    `availableServiceModes.length === 1` (pas de
+                    rangée de boutons au-dessus dans ce cas -- voir
+                    commentaire plus haut) car c'est la condition
+                    englobante qui garantit déjà qu'au moins un mode
+                    de `availableServiceModes` est bloqué ici. */}
                 {availableServiceModes.map((mode) => {
                   const blockers = blockedModes[mode];
                   if (!blockers) return null;

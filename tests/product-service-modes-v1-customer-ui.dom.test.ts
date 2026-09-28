@@ -271,6 +271,37 @@ function mockRpc(t: { mock: { method: Function } }) {
   });
 }
 
+/**
+ * CORRECTIF round 2 (audit CHATEAUBRIAND, issue #11) -- variante de
+ * mockRpc() pour un établissement qui ne propose qu'UN SEUL mode de
+ * service (pickup seul), nécessaire pour prouver que le message
+ * nommant le produit bloquant reste visible même quand
+ * `availableServiceModes.length === 1` (la rangée de boutons
+ * "howToReceive", elle, n'a jamais de raison d'apparaître dans ce cas
+ * -- rien à choisir entre un seul mode).
+ */
+function mockRpcSingleMode(t: { mock: { method: Function } }) {
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") {
+      return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    }
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
+  t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") {
+      return { data: [saleModeRow("pickup")], error: null };
+    }
+    if (name === "get_restaurant_public_field_requirements") {
+      return { data: PICKUP_REQS, error: null };
+    }
+    if (name === "get_restaurant_public_delivery_countries") return { data: [], error: null };
+    if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
+    if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
+    if (name === "get_restaurant_public_cgv") return { data: [], error: null };
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+}
+
 async function renderCatalogue(items: Record<string, unknown>[]) {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
@@ -352,6 +383,96 @@ test("[Badge] produit SANS restriction (allowed_sale_modes = null) -- aucun badg
       null,
       "aucun badge ne doit apparaître pour un produit disponible à tous les modes"
     );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+// ------------------------------------------------------------------
+// A bis. CORRECTIF round 2 (audit CHATEAUBRIAND, issue #11) -- badge
+// pour une restriction composée en tout ou partie de codes non
+// reconnus par le frontend (room_service, click_collect) : DOIT
+// rester visible (message générique, jamais un mode nommé qui serait
+// faux), jamais silencieusement absent comme avant le correctif.
+// ------------------------------------------------------------------
+
+test("[Badge] produit restreint à room_service SEUL (mode serveur réel, non rendu par le frontend) -- badge générique « Mode de service limité », jamais aucun badge", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Plateau chambre seul", allowed_sale_modes: ["room_service"] }),
+  ]);
+  try {
+    await waitFor(
+      () => container.querySelector('[data-testid="service-mode-restriction-badge"]') !== null,
+      "le badge de restriction générique doit être rendu même pour une restriction non reconnue par le frontend"
+    );
+    const badge = container.querySelector('[data-testid="service-mode-restriction-badge"]');
+    assert.equal(badge!.textContent?.trim(), "Mode de service limité");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[Badge] produit restreint à click_collect SEUL -- même badge générique « Mode de service limité »", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Commande drive seule", allowed_sale_modes: ["click_collect"] }),
+  ]);
+  try {
+    await waitFor(
+      () => container.querySelector('[data-testid="service-mode-restriction-badge"]') !== null,
+      "le badge de restriction générique doit être rendu"
+    );
+    const badge = container.querySelector('[data-testid="service-mode-restriction-badge"]');
+    assert.equal(badge!.textContent?.trim(), "Mode de service limité");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[Badge] mélange connu + inconnu (pickup + room_service) -- badge nomme SEULEMENT le mode connu, comportement pickup/delivery existant inchangé", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Coffret mixte", allowed_sale_modes: ["pickup", "room_service"] }),
+  ]);
+  try {
+    await waitFor(
+      () => container.querySelector('[data-testid="service-mode-restriction-badge"]') !== null,
+      "le badge de restriction doit être rendu"
+    );
+    const badge = container.querySelector('[data-testid="service-mode-restriction-badge"]');
+    // Jamais le badge générique ici : "pickup" est un mode connu, donc
+    // nommé normalement -- comportement pickup/delivery existant
+    // strictement inchangé, "room_service" est simplement ignoré côté
+    // libellé (déjà correctement pris en compte côté blocage panier,
+    // testé plus bas).
+    assert.equal(badge!.textContent?.trim(), "À emporter uniquement");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[Badge] restriction à room_service seul -- indépendant de withdrawal_eligible (aucun couplage, exigence CIO déjà prouvée pour le cas connu, re-confirmée ici pour le cas corrigé)", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({
+      id: "p1",
+      name: "Plateau chambre avec droit de rétractation",
+      allowed_sale_modes: ["room_service"],
+      withdrawal_eligible: true,
+    }),
+  ]);
+  try {
+    await waitFor(
+      () => container.querySelector('[data-testid="service-mode-restriction-badge"]') !== null,
+      "le badge de restriction générique doit être rendu quelle que soit withdrawal_eligible"
+    );
+    const badge = container.querySelector('[data-testid="service-mode-restriction-badge"]');
+    assert.equal(badge!.textContent?.trim(), "Mode de service limité");
   } finally {
     root.unmount();
     container.remove();
@@ -448,6 +569,117 @@ test("[Panier mixte] AUCUN article n'est jamais retiré ni scindé par le blocag
     // aucun n'a été retiré par le blocage du mode livraison.
     assert.ok(container.textContent?.includes("Coffret retrait seul"));
     assert.ok(container.textContent?.includes("Article libre"));
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[Panier mixte] produit restreint à room_service SEUL -- bloque LES DEUX modes de l'établissement (table/pickup/delivery non représentés, room_service non rendu), messages nommant le produit pour chacun", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Plateau chambre seul", allowed_sale_modes: ["room_service"] }),
+  ]);
+  try {
+    await waitFor(() => container.textContent?.includes("Plateau chambre seul") === true, "produit rendu");
+    addToCartByName(container, "Plateau chambre seul");
+    await flush();
+    openCart(container);
+    await flush();
+
+    const pickupBtn = inlineButtonWithText(container, "À emporter");
+    const deliveryBtn = inlineButtonWithText(container, "Livraison");
+    assert.ok(pickupBtn && deliveryBtn, "les deux boutons de mode doivent exister");
+    assert.equal(pickupBtn!.disabled, true, "'À emporter' doit être bloqué (room_service n'y est pas inclus)");
+    assert.equal(deliveryBtn!.disabled, true, "'Livraison' doit être bloqué (room_service n'y est pas inclus)");
+
+    const pickupMsg = container.querySelector("#mode-blocked-pickup");
+    const deliveryMsg = container.querySelector("#mode-blocked-delivery");
+    assert.ok(pickupMsg && deliveryMsg, "un message doit nommer le produit bloquant pour CHAQUE mode");
+    assert.equal(
+      pickupMsg!.textContent?.trim(),
+      "À emporter indisponible avec ce panier : Plateau chambre seul."
+    );
+    assert.equal(
+      deliveryMsg!.textContent?.trim(),
+      "Livraison indisponible avec ce panier : Plateau chambre seul."
+    );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+// CORRECTIF (audit CHATEAUBRIAND round 2, issue #11) -- avant ce
+// correctif, la rangée "howToReceive" ENTIÈRE (boutons ET messages de
+// blocage) était masquée dès que l'établissement ne propose qu'UN
+// SEUL mode de service, même quand ce mode unique était bloqué par le
+// panier : le client ne voyait alors STRICTEMENT AUCUNE indication de
+// ce qui l'empêchait de commander. Ce scénario prouve que le message
+// nommant le produit bloquant reste visible même dans ce cas -- sans
+// pour autant faire réapparaître une rangée de boutons inutile (un
+// seul mode, rien à choisir).
+test("[Panier mixte, établissement MONO-MODE] le message nommant le produit bloquant reste visible même quand un SEUL mode client est proposé (pas de rangée de boutons -- rien à choisir)", async (t) => {
+  mockRpcSingleMode(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Plateau chambre seul", allowed_sale_modes: ["room_service"] }),
+  ]);
+  try {
+    await waitFor(() => container.textContent?.includes("Plateau chambre seul") === true, "produit rendu");
+    addToCartByName(container, "Plateau chambre seul");
+    await flush();
+    openCart(container);
+    await flush();
+
+    // Aucune rangée de boutons "howToReceive" : rien à choisir entre
+    // un seul mode -- comportement existant inchangé pour ce cas.
+    assert.equal(
+      inlineButtonWithText(container, "À emporter"),
+      undefined,
+      "aucun bouton de mode ne doit apparaître -- établissement mono-mode, rien à choisir"
+    );
+
+    // Mais le message nommant le produit bloquant DOIT être présent :
+    // c'est la seule information disponible expliquant au client
+    // pourquoi il ne peut pas finaliser sa commande.
+    const pickupMsg = container.querySelector("#mode-blocked-pickup");
+    assert.ok(
+      pickupMsg,
+      "le message nommant le produit bloquant doit rester visible même sans rangée de boutons"
+    );
+    assert.equal(pickupMsg!.getAttribute("role"), "status");
+    assert.equal(
+      pickupMsg!.textContent?.trim(),
+      "À emporter indisponible avec ce panier : Plateau chambre seul."
+    );
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[Panier mixte, établissement MONO-MODE] AUCUN message de blocage quand le panier ne contient QUE des produits utilisables pour l'unique mode (comportement existant inchangé)", async (t) => {
+  mockRpcSingleMode(t);
+  const { container, root } = await renderCatalogue([
+    menuItem({ id: "p1", name: "Article libre mono-mode" }),
+  ]);
+  try {
+    await waitFor(() => container.textContent?.includes("Article libre mono-mode") === true, "produit rendu");
+    addToCartByName(container, "Article libre mono-mode");
+    await flush();
+    openCart(container);
+    await flush();
+
+    assert.equal(
+      container.querySelector("#mode-blocked-pickup"),
+      null,
+      "aucun message de blocage quand rien ne bloque l'unique mode -- comportement existant inchangé"
+    );
+    assert.equal(
+      inlineButtonWithText(container, "À emporter"),
+      undefined,
+      "toujours aucune rangée de boutons -- établissement mono-mode, rien à choisir, avec ou sans blocage"
+    );
   } finally {
     root.unmount();
     container.remove();

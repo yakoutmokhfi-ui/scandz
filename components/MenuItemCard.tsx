@@ -86,20 +86,35 @@ export default function MenuItemCard({
   // (règle SCANYM globale : l'information importante ne dépend jamais
   // d'un contraste faible ni de la seule couleur). `null` = produit
   // disponible pour TOUS les modes de l'établissement -- aucun badge.
+  //
+  // CORRECTIF (audit indépendant CHATEAUBRIAND round 2, issue #11) :
+  // une restriction EXPLICITE dont AUCUN mode n'est frontend-connu
+  // (ex. allowed_sale_modes: ["room_service"] seul -- frontendRestrictedModes
+  // retourne alors `[]`, distinct de `null`, voir lib/service-mode-
+  // restrictions.ts) doit RESTER visible pour le client, même si aucun
+  // mode précis ne peut être nommé -- sinon le produit apparaît comme
+  // disponible pour tout alors qu'il est en réalité bloqué pour
+  // table/pickup/delivery (le panier le bloquera bien, voir
+  // CartPanel.tsx, mais sans indication ici le client ne comprend pas
+  // pourquoi avant d'atteindre le panier). Jamais un libellé nommant un
+  // mode précis ("Retrait uniquement") quand ce n'est pas vrai --
+  // message générique dédié (mcServiceModeLimitedLabel, lib/i18n.ts).
   const restrictedModes = frontendRestrictedModes(item);
   const restrictionBadge =
-    restrictedModes && restrictedModes.length > 0 ? (
+    restrictedModes === null ? null : (
       <span
         data-testid="service-mode-restriction-badge"
         className="mt-1 inline-block w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900"
       >
-        {restrictedModes.length === 1
-          ? t("modeOnlyLabel", { mode: t(serviceModeNameKey(restrictedModes[0])) })
-          : t("modeSubsetLabel", {
-              modes: restrictedModes.map((m) => t(serviceModeNameKey(m))).join(", "),
-            })}
+        {restrictedModes.length === 0
+          ? t("modeLimitedLabel")
+          : restrictedModes.length === 1
+            ? t("modeOnlyLabel", { mode: t(serviceModeNameKey(restrictedModes[0])) })
+            : t("modeSubsetLabel", {
+                modes: restrictedModes.map((m) => t(serviceModeNameKey(m))).join(", "),
+              })}
       </span>
-    ) : null;
+    );
 
   if (isInline) {
     return (

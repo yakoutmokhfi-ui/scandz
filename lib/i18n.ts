@@ -223,6 +223,13 @@ const fr: Dict = {
   // avec ces mêmes libellés, voir lib/service-mode-restrictions.ts.
   modeOnlyLabel: "{mode} uniquement",
   modeSubsetLabel: "Disponible pour : {modes}",
+  // CORRECTIF (audit CHATEAUBRIAND round 2, issue #11) -- pour un
+  // produit dont la restriction serveur explicite ne contient AUCUN
+  // mode frontend-connu (ex. room_service, click_collect seuls) : on
+  // ne peut nommer aucun mode précis (mensonger), mais on doit quand
+  // même signaler que le produit N'EST PAS disponible pour tous les
+  // modes -- jamais un badge "Retrait uniquement" non vrai ici.
+  modeLimitedLabel: "Mode de service limité",
   serviceModeBlockedByCart: "{mode} indisponible avec ce panier : {items}.",
   pickupNote: "Nous vous confirmons l'heure et le lieu de retrait par message.",
   deliveryNote: "Nous vous confirmons le créneau de livraison par message.",
@@ -1085,6 +1092,7 @@ const en: Dict = {
   // rationale (reuses pickup/delivery/modeTable for {mode}/{modes}).
   modeOnlyLabel: "{mode} only",
   modeSubsetLabel: "Available for: {modes}",
+  modeLimitedLabel: "Limited service mode",
   serviceModeBlockedByCart: "{mode} unavailable with this basket: {items}.",
   pickupNote: "We will confirm the pickup time and place by message.",
   deliveryNote: "We will confirm the delivery slot by message.",
@@ -1861,6 +1869,7 @@ const ar: Dict = {
   // (يعاد استخدام pickup/delivery/modeTable لـ {mode}/{modes}).
   modeOnlyLabel: "{mode} فقط",
   modeSubsetLabel: "متوفر لـ: {modes}",
+  modeLimitedLabel: "نمط خدمة محدود",
   serviceModeBlockedByCart: "{mode} غير متاح مع هذه السلة: {items}.",
   pickupNote: "سنؤكد لك وقت ومكان الاستلام برسالة.",
   deliveryNote: "سنؤكد لك موعد التوصيل برسالة.",
