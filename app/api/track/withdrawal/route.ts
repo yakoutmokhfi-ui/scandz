@@ -6,6 +6,7 @@ import {
   WithdrawalRejectedError,
   WithdrawalUnavailableError,
 } from "@/lib/server/withdrawal-service";
+import { tryDispatchWithdrawalAcknowledgement } from "@/lib/server/withdrawal-ack-service";
 import {
   TRACKING_SESSION_COOKIE_NAME,
   verifyTrackingSessionToken,
@@ -122,6 +123,18 @@ export async function POST(request: NextRequest) {
       items,
       clientRequestId,
     });
+
+    // GAP-01 — BEST-EFFORT, NON BLOQUANT : la déclaration de
+    // rétractation est déjà enregistrée avec succès ci-dessus ; un
+    // échec d'envoi de l'accusé (canal absent, panne SMTP,
+    // ré-attribution concurrente) ne doit JAMAIS transformer cette
+    // réponse en erreur -- il est seulement journalisé dans
+    // withdrawal_requests via record_withdrawal_acknowledgement_result
+    // (voir lib/server/ack-mailer.ts). `void` : ne bloque jamais la
+    // réponse HTTP sur l'envoi réel de l'e-mail.
+    if (!receipt.replayed) {
+      void tryDispatchWithdrawalAcknowledgement(receipt.withdrawalRequestId);
+    }
 
     return NextResponse.json({
       ok: true,
