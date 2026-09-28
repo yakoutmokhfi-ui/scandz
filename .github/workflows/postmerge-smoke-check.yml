@@ -8,18 +8,15 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Deep content checks
+      - name: Headers and title check
         run: |
           set +e
-          check() {
-            local url="$1"
-            local label="$2"
-            code=$(curl -s -o /tmp/body.html -w "%{http_code}" -L --max-time 15 "$url")
-            bytes=$(wc -c < /tmp/body.html)
-            has_notfound=$(grep -c "Restaurant introuvable" /tmp/body.html)
-            has_error=$(grep -Eic "application error|internal server error|unhandled runtime|digest.:" /tmp/body.html)
-            has_oeufs=$(grep -ic "Retrait uniquement\|delivery\|pickup\|menu" /tmp/body.html)
-            echo "::notice title=${label}::url=${url} http=${code} bytes=${bytes} restaurant_introuvable=${has_notfound} error_signature=${has_error} menu_keywords=${has_oeufs}"
-          }
-          check "https://scandz-fpitp8s7o-scandz1.vercel.app/r/aulaitcru" "real-slug-aulaitcru"
-          check "https://scandz-fpitp8s7o-scandz1.vercel.app/r/definitely-bogus-xyz-999" "bogus-slug-control"
+          url="https://scandz-fpitp8s7o-scandz1.vercel.app/r/aulaitcru"
+          curl -sD /tmp/headers.txt -o /tmp/body.html -L --max-time 15 "$url" > /dev/null
+          echo "::notice title=headers::$(tr -d '\r' < /tmp/headers.txt | tr '\n' '|' | cut -c1-800)"
+          title=$(grep -o '<title[^>]*>[^<]*</title>' /tmp/body.html | head -1)
+          echo "::notice title=page-title::${title}"
+          noscript=$(grep -o '<noscript>.\{0,300\}' /tmp/body.html | head -1)
+          echo "::notice title=noscript-snippet::${noscript}"
+          bodytext=$(grep -oE 'Vercel Authentication|vercel\.com/sso|_vercel_jwt|Log in to Vercel|Access to this' /tmp/body.html | sort -u | tr '\n' ',')
+          echo "::notice title=gate-markers::${bodytext}"
