@@ -1,0 +1,40 @@
+name: lot1-preview-smoke-check
+on:
+  workflow_dispatch:
+  push:
+    branches: [ ci/lot1-preview-smoke-check ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preview reachability + auth-gate check (read-only, no mutation)
+        run: |
+          set +e
+          PREVIEW="https://scanym-sanaa-2y5yud1nc-scandz1.vercel.app"
+
+          echo "=== root ==="
+          code_root=$(curl -s -o /tmp/root.html -w "%{http_code}" --max-time 20 "$PREVIEW/")
+          echo "::notice title=root-http-code::${code_root}"
+          loc_root=$(grep -ioE 'vercel.com/sso-api|_vercel/insights|Authentication Required' /tmp/root.html | sort -u | tr '\n' '|')
+          echo "::notice title=root-sso-markers::${loc_root:-none}"
+          head -c 300 /tmp/root.html | tr -d '\n' > /tmp/root-snip.txt
+          echo "::notice title=root-body-snippet::$(cat /tmp/root-snip.txt)"
+
+          echo "=== withdrawal route, no cookie (expect 403 if reachable and unauthenticated) ==="
+          code_wd=$(curl -s -o /tmp/wd.html -w "%{http_code}" --max-time 20 -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"clientRequestId":"lot1-smoke-probe-no-session","items":[]}' \
+            "$PREVIEW/track/lot1-smoke-probe-nonexistent-order/withdrawal")
+          echo "::notice title=withdrawal-no-cookie-http-code::${code_wd}"
+          head -c 300 /tmp/wd.html | tr -d '\n' > /tmp/wd-snip.txt
+          echo "::notice title=withdrawal-no-cookie-body-snippet::$(cat /tmp/wd-snip.txt)"
+
+          echo "=== exchange route probe, bogus order (expect a real JSON error if reachable, not an HTML SSO page) ==="
+          code_ex=$(curl -s -o /tmp/ex.html -w "%{http_code}" --max-time 20 -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"orderId":"lot1-smoke-probe-nonexistent-order","trackingToken":"invalid"}' \
+            "$PREVIEW/api/track/exchange")
+          echo "::notice title=exchange-probe-http-code::${code_ex}"
+          head -c 300 /tmp/ex.html | tr -d '\n' > /tmp/ex-snip.txt
+          echo "::notice title=exchange-probe-body-snippet::$(cat /tmp/ex-snip.txt)"
