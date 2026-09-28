@@ -12,8 +12,7 @@ jobs:
       - name: Inspect scanym.com root content + headers
         run: |
           set -e
-          curl -sSI --max-time 20 "https://scanym.com" | grep -i "x-vercel\|content-type\|cache-control" || true
-          echo "=== body (first 3000 chars, tags stripped for readability) ==="
+          curl -sSI --max-time 20 "https://scanym.com" -o /tmp/headers.txt
           curl -sS --max-time 20 "https://scanym.com" -o /tmp/root.html
           python3 - << 'PYEOF'
 import re
@@ -23,5 +22,14 @@ text = re.sub(r'<script[\s\S]*?</script>', '', html)
 text = re.sub(r'<style[\s\S]*?</style>', '', text)
 text = re.sub(r'<[^>]+>', ' ', text)
 text = re.sub(r'\s+', ' ', text).strip()
-print(text[:1500])
+snippet = text[:900]
+with open('/tmp/headers.txt') as h:
+    headers = h.read()
+vercel_id = ''
+for line in headers.splitlines():
+    if line.lower().startswith('x-vercel-id'):
+        vercel_id = line.strip()
+msg = f"vercel_id=[{vercel_id}] text=[{snippet}]"
+msg = msg.replace('\n', ' ').replace('\r', '')
+print(f"::notice title=scanym.com-content::{msg}")
 PYEOF
