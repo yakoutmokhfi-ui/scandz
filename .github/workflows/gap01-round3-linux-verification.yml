@@ -89,6 +89,9 @@ jobs:
           fi
           LABEL="${{ github.event.inputs.label }}"
           if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
+          # Artifact names may not contain "/" (branch names like
+          # ci/gap01-round3-linux-verification do) -- sanitize.
+          LABEL="$(echo "$LABEL" | tr '/' '-')"
           {
             echo "workflow_head_sha=$HEAD_SHA"
             echo "verified_target_commit=$TARGET_SHA"
