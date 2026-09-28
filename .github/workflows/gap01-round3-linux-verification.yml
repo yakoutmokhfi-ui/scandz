@@ -71,22 +71,44 @@ jobs:
           ref: ${{ github.event.inputs.target_sha || github.sha }}
           fetch-depth: 0
 
-      - name: Record verified target commit
+      - name: Record and self-verify target commit
         run: |
           set -e
           HEAD_SHA="$(git rev-parse HEAD)"
-          # On a `push`-triggered run, HEAD is [target commit] + [this
-          # workflow-file-only commit]. The actual application-code commit
-          # under test is therefore HEAD^ -- unless this run was dispatched
-          # manually with an explicit target_sha (workflow_dispatch, only
-          # usable once merged to the default branch), in which case HEAD
-          # itself IS the requested target and has no such parent commit
-          # relationship to assume.
           if [ -n "${{ github.event.inputs.target_sha }}" ]; then
-            TARGET_SHA="$HEAD_SHA"
+            TARGET_SHA="${{ github.event.inputs.target_sha }}"
           else
-            TARGET_SHA="$(git rev-parse HEAD^1)"
+            # The claimed target commit is declared in a small marker file
+            # committed alongside the workflow file, NOT derived by
+            # counting parent commits (HEAD^N) -- that breaks the moment a
+            # second CI-only fix-up commit lands on this branch, silently
+            # pointing "the target" at the wrong commit. Instead: read the
+            # claim, then INDEPENDENTLY VERIFY it in this same step rather
+            # than trusting the file's content at face value.
+            TARGET_SHA="$(cat .github/gap01-round3-ci-verification-target.txt | tr -d '[:space:]')"
           fi
+
+          # Verification 1: the claimed target must be a real ancestor
+          # commit actually reachable from HEAD in this branch's history.
+          if ! git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
+            echo "::error::Claimed target commit $TARGET_SHA is not an ancestor of HEAD ($HEAD_SHA) -- refusing to proceed."
+            exit 1
+          fi
+
+          # Verification 2: everything between the claimed target and HEAD
+          # must touch ONLY this workflow's own CI-tooling files -- i.e.
+          # the application/test code at HEAD is byte-for-byte the same as
+          # at the claimed target commit. Any other file changed in
+          # between invalidates the claim that "this run verifies commit
+          # $TARGET_SHA".
+          ALLOWED='^\.github/(workflows/gap01-round3-linux-verification\.yml|gap01-round3-ci-verification-target\.txt)$'
+          UNEXPECTED="$(git diff --name-only "$TARGET_SHA" HEAD | grep -Ev "$ALLOWED" || true)"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Files changed between claimed target $TARGET_SHA and HEAD beyond CI tooling -- this run cannot certify commit $TARGET_SHA:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
           LABEL="${{ github.event.inputs.label }}"
           if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
           # Artifact names may not contain "/" (branch names like
@@ -94,7 +116,7 @@ jobs:
           LABEL="$(echo "$LABEL" | tr '/' '-')"
           {
             echo "workflow_head_sha=$HEAD_SHA"
-            echo "verified_target_commit=$TARGET_SHA"
+            echo "verified_target_commit=$TARGET_SHA (self-verified: ancestor of HEAD, zero non-CI-tooling diff to HEAD)"
             echo "verified_target_tree=$(git rev-parse ${TARGET_SHA}^{tree})"
             echo "label=$LABEL"
           } | tee identity.txt
