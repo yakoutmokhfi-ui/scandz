@@ -48,10 +48,18 @@ export default function DashboardLoginPage() {
         <h1 className="mt-2 text-2xl font-bold text-stone-900">{t("authTitle")}</h1>
         <p className="mt-2 text-sm text-stone-600">{t("authSubtitle")}</p>
 
-        <label className="mt-7 block text-sm font-semibold text-stone-700">
+        {/* UX AUDIT LOT 1 (constat A) -- les libellés visibles existaient
+            déjà, mais n'étaient associés à AUCUN champ : les deux <input>
+            n'avaient donc aucun nom accessible dans l'arbre d'accessibilité.
+            Correction MINIMALE : association sémantique htmlFor/id. Aucun
+            libellé visible n'est remplacé par un aria-label, aucune classe,
+            aucun style et aucun comportement de connexion ne change. */}
+        <label htmlFor="login-email" className="mt-7 block text-sm font-semibold text-stone-700">
           {t("authEmail")}
         </label>
         <input
+          id="login-email"
+          name="email"
           type="email"
           required
           autoComplete="email"
@@ -60,10 +68,12 @@ export default function DashboardLoginPage() {
           className="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 outline-none focus:border-amber-600"
         />
 
-        <label className="mt-4 block text-sm font-semibold text-stone-700">
+        <label htmlFor="login-password" className="mt-4 block text-sm font-semibold text-stone-700">
           {t("authPassword")}
         </label>
         <input
+          id="login-password"
+          name="password"
           type="password"
           required
           autoComplete="current-password"
