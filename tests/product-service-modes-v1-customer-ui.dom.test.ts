@@ -397,7 +397,7 @@ test("[Badge] produit SANS restriction (allowed_sale_modes = null) -- aucun badg
 // faux), jamais silencieusement absent comme avant le correctif.
 // ------------------------------------------------------------------
 
-test("[Badge] produit restreint à room_service SEUL (mode serveur réel, non rendu par le frontend) -- badge générique « Mode de service limité », jamais aucun badge", async (t) => {
+test("[Badge] produit restreint à room_service SEUL (mode serveur réel, non rendu par le frontend) -- badge générique « Mode de service limité » (jamais aucun badge absent, jamais un libellé nommant un mode inexistant côté client)", async (t) => {
   mockRpc(t);
   const { container, root } = await renderCatalogue([
     menuItem({ id: "p1", name: "Plateau chambre seul", allowed_sale_modes: ["room_service"] }),
