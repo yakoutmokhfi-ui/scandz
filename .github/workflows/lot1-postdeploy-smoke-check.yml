@@ -1,0 +1,42 @@
+name: lot1-postdeploy-smoke-check
+on:
+  workflow_dispatch:
+  push:
+    branches: [ ci/lot1-postdeploy-smoke-check ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Production alias reachability + withdrawal-route existence check (read-only, no mutation)
+        run: |
+          set +e
+          PROD="https://scanym-sanaa.vercel.app"
+
+          echo "=== root ==="
+          code_root=$(curl -s -o /tmp/root.html -w "%{http_code}" --max-time 20 "$PROD/")
+          echo "::notice title=root-http-code::${code_root}"
+          sso=$(grep -ioE 'vercel_auth_enabled|Protected deployment|sso-api' /tmp/root.html | sort -u | tr '\n' '|')
+          echo "::notice title=root-sso-markers::${sso:-none}"
+
+          echo "=== known catalogue page, unchanged by this lot (sanity: still real content) ==="
+          code_cat=$(curl -s -o /tmp/cat.html -w "%{http_code}" --max-time 20 "$PROD/r/au-lait-cru")
+          echo "::notice title=catalogue-http-code::${code_cat}"
+          h1=$(grep -oE '<h1[^>]*>[^<]*</h1>' /tmp/cat.html | head -1)
+          echo "::notice title=catalogue-h1::${h1:-none}"
+
+          echo "=== new withdrawal route location, fake orderId, no cookie (expect real app JSON 403, NOT Vercel SSO 401) ==="
+          code_wd=$(curl -s -o /tmp/wd.html -w "%{http_code}" --max-time 20 -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"clientRequestId":"lot1-postdeploy-smoke-probe","items":[]}' \
+            "$PROD/track/lot1-postdeploy-smoke-nonexistent-order/withdrawal")
+          echo "::notice title=withdrawal-route-http-code::${code_wd}"
+          head -c 400 /tmp/wd.html | tr -d '\n' > /tmp/wd-snip.txt
+          echo "::notice title=withdrawal-route-body-snippet::$(cat /tmp/wd-snip.txt)"
+
+          echo "=== old (pre-lot1) withdrawal route location, must now be gone (404) ==="
+          code_old=$(curl -s -o /tmp/old.html -w "%{http_code}" --max-time 20 -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"clientRequestId":"lot1-postdeploy-smoke-probe-old","items":[]}' \
+            "$PROD/api/track/withdrawal")
+          echo "::notice title=old-route-http-code::${code_old}"
