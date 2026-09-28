@@ -1,0 +1,33 @@
+name: Production smoke — reachability + error-string context
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ci/release-train-smoke-check-v2
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reachability + show matched context
+        run: |
+          set -e
+          check() {
+            local url="$1"
+            local label="$2"
+            echo "=== $label : $url ==="
+            code=$(curl -sS -o /tmp/body.html -w "%{http_code}" -L --max-time 20 "$url" || echo "CURL_FAIL")
+            echo "HTTP status: $code"
+            bytes=$(wc -c < /tmp/body.html)
+            echo "Body size: $bytes bytes"
+            echo "--- matched lines (grep -i, context 1) ---"
+            grep -in -C1 "internal server error\|application error\|this page could not be found\|Something went wrong" /tmp/body.html | head -20 || echo "(no match on refined patterns)"
+            echo "--- <title> ---"
+            grep -io "<title>[^<]*</title>" /tmp/body.html | head -3
+            echo "--- visible text hints (h1/h2) ---"
+            grep -io "<h1[^>]*>[^<]*<\|<h2[^>]*>[^<]*<" /tmp/body.html | head -10
+          }
+          check "https://scandz-1xs2qe7ci-scandz1.vercel.app" "scandz (Production)"
+          echo ""
+          check "https://scanym-sanaa-6mo4bybuv-scandz1.vercel.app" "scanym-sanaa (Production)"
