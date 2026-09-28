@@ -152,6 +152,9 @@ const mocks: Record<string, string> = {
   "@/components/ProductPhotoPlaceholder": MOCK_PHOTO_PLACEHOLDER,
   "@/components/dashboard/BulkPhotoUpload": MOCK_BULK_PHOTO_UPLOAD,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
+  // PRODUCT SERVICE MODES v1 -- getPublicSaleModes() n'est pas l'objet de
+  // ce test ; tableau vide, patron déjà suivi par les autres mocks ci-dessus.
+  "@/lib/sale-modes-public": `export async function getPublicSaleModes() { return []; }`,
 };
 
 const mockPlugin: esbuild.Plugin = {
