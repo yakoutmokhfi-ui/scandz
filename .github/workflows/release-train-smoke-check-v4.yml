@@ -1,0 +1,27 @@
+name: Production smoke — check scanym.com custom domain
+
+on:
+  push:
+    branches:
+      - ci/release-train-smoke-check-v4
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check candidate public domains
+        run: |
+          set -e
+          check() {
+            local url="$1"
+            local label="$2"
+            code=$(curl -sS -o /tmp/body.html -w "%{http_code}" -L --max-time 20 "$url" 2>/tmp/err.txt || echo "FAIL")
+            bytes=$(wc -c < /tmp/body.html 2>/dev/null || echo 0)
+            title=$(grep -io "<title>[^<]*</title>" /tmp/body.html 2>/dev/null | head -1 | sed 's/<[^>]*>//g')
+            err=$(cat /tmp/err.txt 2>/dev/null | head -1)
+            echo "::notice title=$label::HTTP=$code bytes=$bytes title=[$title] err=[$err]"
+          }
+          check "https://scanym.com" "scanym.com root"
+          check "https://www.scanym.com" "www.scanym.com"
+          check "https://scanym.com/aulaitcru" "scanym.com/aulaitcru"
+          check "https://scandz1.vercel.app" "scandz1 team domain guess"
