@@ -1,0 +1,236 @@
+name: PSM v1 Remediation — Linux Full-Suite Verification (Round 3)
+
+# ============================================================================
+# Independent, reproducible Linux verification evidence for the PRODUCT
+# SERVICE MODES v1 targeted remediation (issue scanym-orchestrator#11),
+# Round 3.
+#
+# CHANGES VS ROUND 2 WORKFLOW (per CHATEAUBRIAND's round-2 verification-gap
+# findings, posted on issue #11):
+#   1. The job now genuinely FAILS when `tsc --noEmit` exits non-zero --
+#      round 2's workflow only captured the exit code into a log file and
+#      always reported step success regardless, so a real type error would
+#      have left the run green.
+#   2. A new "Verify results against expected baseline" step FAILS the job
+#      unless the extracted failure-name set exactly matches a checked-in
+#      expected-baseline fixture (.github/psmv1-fix-expected-main-failures.txt,
+#      the 10 pre-existing, unrelated failures already tracked on this issue)
+#      -- so the run's conclusion is an honest signal of whether results
+#      match policy, not just "the commands were executed".
+#   3. Test totals, failure names, and the SQL-harness result are written
+#      directly into the job summary ($GITHUB_STEP_SUMMARY) so an auditor
+#      can read them on the run page itself, without needing artifact
+#      download access (round 2's auditor reported the results-receiver
+#      domain used for artifact/log downloads was unreachable from their
+#      environment).
+#   4. The real-PostgreSQL SQL harness (supabase/tests/product-service-modes-v1-check.sh)
+#      now also runs IN this CI job (installed via apt, not a service
+#      container, matching the harness's own `su postgres` invocation
+#      convention) so its PASS/FAIL is independently visible in GitHub job
+#      logs/summary, not only as a log file in Boulez's own sandbox.
+#
+# Context (unchanged from round 2): this workflow makes NO code change and
+# asserts no verdict of its own beyond the invariants above -- it runs on
+# GitHub's standard ubuntu-latest runner, pinned Node version, `npm ci`
+# (lockfile-exact), for whatever commit SHA is the self-verified target, so
+# the SAME workflow definition run once against current main and once
+# against the PSM v1 candidate produces two directly comparable,
+# independently reproducible, publicly inspectable results. Dispatched from
+# a dedicated verification branch (ci/psmv1-fix-r3-linux-verification[-candidate]),
+# NOT from the PSM v1 feature branch itself, so it never appears in PR #110's
+# diff and never expands that PR's audited scope.
+# ============================================================================
+
+on:
+  push:
+    branches:
+      - ci/psmv1-fix-r3-linux-verification
+      - ci/psmv1-fix-r3-linux-verification-candidate
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Optional: full commit SHA to check out and verify instead of the triggering push's HEAD (only usable once this file is merged to the default branch)"
+        required: false
+      label:
+        description: "Optional: short label override for this run's evidence"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Linux full-suite verification — ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Record and self-verify target commit
+        run: |
+          set -e
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -n "${{ github.event.inputs.target_sha }}" ]; then
+            TARGET_SHA="${{ github.event.inputs.target_sha }}"
+          else
+            TARGET_SHA="$(cat .github/psmv1-fix-r3-ci-verification-target.txt | tr -d '[:space:]')"
+          fi
+
+          if ! git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
+            echo "::error::Claimed target commit $TARGET_SHA is not an ancestor of HEAD ($HEAD_SHA) -- refusing to proceed."
+            exit 1
+          fi
+
+          ALLOWED='^\.github/(workflows/psmv1-fix-r3-linux-verification\.yml|psmv1-fix-r3-ci-verification-target\.txt|psmv1-fix-expected-main-failures\.txt)$'
+          UNEXPECTED="$(git diff --name-only "$TARGET_SHA" HEAD | grep -Ev "$ALLOWED" || true)"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Files changed between claimed target $TARGET_SHA and HEAD beyond CI tooling -- this run cannot certify commit $TARGET_SHA:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          LABEL="${{ github.event.inputs.label }}"
+          if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
+          LABEL="$(echo "$LABEL" | tr '/' '-')"
+          {
+            echo "workflow_head_sha=$HEAD_SHA"
+            echo "verified_target_commit=$TARGET_SHA (self-verified: ancestor of HEAD, zero non-CI-tooling diff to HEAD)"
+            echo "verified_target_tree=$(git rev-parse ${TARGET_SHA}^{tree})"
+            echo "label=$LABEL"
+          } | tee identity.txt
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
+          {
+            echo "## Identity"
+            echo '```'
+            cat identity.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Record runtime/OS identity
+        run: |
+          {
+            echo "os: $(uname -a)"
+            echo "node: $(node --version)"
+            echo "npm: $(npm --version)"
+          } | tee -a identity.txt
+
+      - name: Install dependencies (lockfile-exact)
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check (npx tsc --noEmit) -- FAILS the job on any type error
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npx tsc --noEmit > tsc-noemit-output.txt 2>&1
+          TSC_EXIT=$?
+          echo "EXIT=$TSC_EXIT" >> tsc-noemit-output.txt
+          cat tsc-noemit-output.txt
+          {
+            echo "## TypeScript (tsc --noEmit)"
+            echo "exit code: $TSC_EXIT"
+            echo '```'
+            cat tsc-noemit-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$TSC_EXIT" != "0" ]; then
+            echo "::error::tsc --noEmit failed (exit $TSC_EXIT) -- see summary/output above."
+            exit 1
+          fi
+
+      - name: Run full test suite (raw output preserved; failures are policy-checked in the next step, not here)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npm test > full-suite-output.log 2>&1
+          echo "npm test exit code: $?" | tee -a full-suite-output.log
+          set -e
+
+      - name: Extract failure-name list and test totals
+        run: |
+          grep -E "^not ok " full-suite-output.log | sed -E 's/^not ok [0-9]+ - //' | sort > failure-names.txt || true
+          grep -E "^# (tests|pass|fail|suites|cancelled|skipped|todo) " full-suite-output.log > test-totals.txt || true
+          {
+            echo "failure count: $(wc -l < failure-names.txt)"
+            echo "--- failure names ---"
+            cat failure-names.txt
+          } | tee failure-summary.txt
+          {
+            echo "## Full suite results"
+            echo '```'
+            cat test-totals.txt
+            echo '```'
+            echo "### Failure names ($(wc -l < failure-names.txt))"
+            echo '```'
+            cat failure-names.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify results against expected baseline -- FAILS the job on any mismatch
+        run: |
+          set -e
+          EXPECTED=".github/psmv1-fix-expected-main-failures.txt"
+          if [ ! -f "$EXPECTED" ]; then
+            echo "::error::Expected-baseline fixture $EXPECTED is missing -- cannot verify policy."
+            exit 1
+          fi
+          sort "$EXPECTED" > expected-sorted.txt
+          if diff -u expected-sorted.txt failure-names.txt > diff-vs-expected.txt; then
+            echo "PASS: failure-name set matches the expected baseline exactly ($(wc -l < failure-names.txt) known, unrelated pre-existing failures -- no new failure introduced, no previously-failing test unexpectedly fixed by this commit)." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Failure-name set does NOT match the expected baseline -- see diff below. This means either a NEW failure was introduced, or a previously-failing test's status changed -- either way this run cannot certify 'zero regression' and must be investigated before merge."
+            cat diff-vs-expected.txt
+            {
+              echo "## Baseline policy check: FAILED"
+              echo '```diff'
+              cat diff-vs-expected.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: SQL harness on real PostgreSQL (supabase/tests/product-service-modes-v1-check.sh)
+        run: |
+          set +e
+          sudo apt-get update -y > /tmp/apt-update.log 2>&1
+          sudo apt-get install -y postgresql > /tmp/apt-install-pg.log 2>&1
+          sudo service postgresql start
+          sleep 2
+          sudo -u postgres bash -c "cd '$GITHUB_WORKSPACE' && bash supabase/tests/product-service-modes-v1-check.sh" > sql-harness-output.log 2>&1
+          SQL_EXIT=$?
+          cat sql-harness-output.log
+          {
+            echo "## SQL harness (real PostgreSQL) -- supabase/tests/product-service-modes-v1-check.sh"
+            echo "exit code: $SQL_EXIT"
+            echo '```'
+            tail -60 sql-harness-output.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SQL_EXIT" != "0" ]; then
+            echo "::error::SQL harness failed (exit $SQL_EXIT) -- see summary/output above."
+            exit 1
+          fi
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psmv1-fix-r3-verification-${{ env.LABEL }}
+          path: |
+            identity.txt
+            tsc-noemit-output.txt
+            full-suite-output.log
+            failure-names.txt
+            failure-summary.txt
+            test-totals.txt
+            diff-vs-expected.txt
+            sql-harness-output.log
+          retention-days: 90
