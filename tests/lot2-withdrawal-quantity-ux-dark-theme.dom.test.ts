@@ -30,6 +30,13 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 //   [QTY-N-CLAMP] une saisie dépassant le reste rétractable est bornée.
 //   [QTY-N-UNCHECK] décocher une ligne éditée remet sa quantité à 0 ;
 //                la recocher repart de 1 (jamais un résidu de saisie).
+//   [QTY-N-ZERO]  RÉGRESSION (audit Chateaubriand/Ravel, commentaires
+//                5876097341/5876134468) : taper "0" (valeur VALIDÉE,
+//                jamais un état de saisie intermédiaire) dans le champ
+//                de quantité désélectionne la ligne -- règle approuvée
+//                mandat #5873108024, littéral « 0 = unselected » --
+//                exactement comme décocher la case, et la ligne est
+//                omise du récapitulatif/de l'envoi.
 //   [DARK-RETOUR] les deux boutons « Retour » (sélection et
 //                récapitulatif) portent explicitement text-ink-on-bg
 //                (point 8), comme le bouton d'entrée déjà correct.
@@ -274,6 +281,48 @@ test("[QTY-N-UNCHECK] décocher une ligne éditée remet la quantité à 0 ; rec
     q<HTMLInputElement>(container, `[data-withdrawal-quantity="${LINE_MULTI}"]`)!.value,
     "1",
     "aucun résidu de la précédente saisie après un cycle décocher/recocher"
+  );
+});
+
+// ==================================================================
+// [QTY-N-ZERO] Taper "0" (valeur validée) désélectionne la ligne --
+// RÉGRESSION mandat #5873108024 « 0 = unselected » (audit
+// Chateaubriand/Ravel, commentaires 5876097341/5876134468).
+// ==================================================================
+test("[QTY-N-ZERO] taper 0 dans le champ de quantité désélectionne la ligne et l'omet du récapitulatif", async () => {
+  const { container } = await mount();
+  await click(q(container, '[data-withdrawal-action="open"]'));
+
+  // Deux lignes sélectionnées : LINE_SINGLE (sans sélecteur de
+  // quantité) reste sélectionnée tout du long, ce qui permet de
+  // vérifier que SEULE la ligne LINE_MULTI est désélectionnée par la
+  // saisie de "0", jamais un effet de bord sur l'autre ligne ni sur le
+  // bouton "Continuer" (qui resterait activé grâce à LINE_SINGLE).
+  await check(q(container, `[data-withdrawal-line="${LINE_SINGLE}"] input[type="checkbox"]`), true);
+  const multiLine = q(container, `[data-withdrawal-line="${LINE_MULTI}"]`)!;
+  const multiCheckbox = q<HTMLInputElement>(multiLine, 'input[type="checkbox"]')!;
+  await check(multiCheckbox, true);
+
+  const qtyInput = () => q<HTMLInputElement>(container, `[data-withdrawal-quantity="${LINE_MULTI}"]`)!;
+  assert.equal(qtyInput().value, "1");
+
+  // Valeur VALIDÉE (jamais un état de saisie intermédiaire -- "0" est
+  // un nombre fini dès la première frappe, contrairement à "" qui
+  // passe par le tampon de saisie brute) : doit désélectionner la
+  // ligne exactement comme décocher la case.
+  await setInputValue(qtyInput(), "0");
+
+  assert.equal(multiCheckbox.checked, false, "la case se décoche quand la quantité validée tombe à 0");
+  assert.equal(qtyInput().disabled, true, "le champ se désactive, comme pour toute ligne désélectionnée");
+
+  // LINE_SINGLE reste sélectionnée -> le bouton "Continuer" reste actif
+  // et seule LINE_SINGLE doit apparaître au récapitulatif.
+  await click(q(container, '[data-withdrawal-action="continue"]'));
+  assert.ok(q(container, `[data-withdrawal-review-line="${LINE_SINGLE}"]`), "LINE_SINGLE reste au récapitulatif");
+  assert.equal(
+    q(container, `[data-withdrawal-review-line="${LINE_MULTI}"]`),
+    null,
+    "LINE_MULTI, désélectionnée par la saisie de 0, est omise du récapitulatif"
   );
 });
 

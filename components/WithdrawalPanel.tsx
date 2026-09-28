@@ -46,9 +46,19 @@ import { translate, type Lang } from "@/lib/i18n";
  *   - le champ de quantité (remainingQuantity > 1) ne se désactive plus
  *     lui-même en cours de frappe : voir `quantityDrafts` et
  *     handleQuantityInput/commitQuantityDraft ci-dessous pour le
- *     mécanisme -- la quantité RETENUE (`quantities`) ne descend plus
- *     jamais à 0 par la saisie, seule la case à cocher désélectionne
- *     une ligne (point 5) ;
+ *     mécanisme -- un état de saisie INTERMÉDIAIRE (champ vidé pour
+ *     retaper, valeur momentanément non numérique) ne touche JAMAIS la
+ *     quantité RETENUE (`quantities`), donc ne peut plus désactiver le
+ *     champ en cours de frappe (point 5). La règle métier approuvée
+ *     (mandat #5873108024, littéral : « 0 = unselected ») reste
+ *     inchangée : une valeur numérique VALIDÉE (commitée) à 0
+ *     désélectionne bien la ligne, exactement comme décocher la case --
+ *     REMÉDIATION (audit Chateaubriand/Ravel, commentaires 5876097341/
+ *     5876134468) : une version antérieure de ce lot avait par erreur
+ *     remonté le plancher de clamp de 0 à 1, empêchant `0` tapé et
+ *     validé de désélectionner une ligne. Corrigé ici -- le plancher
+ *     redevient 0, uniquement pour la valeur RETENUE (jamais pour un
+ *     état de saisie intermédiaire, qui ne passe jamais par ce chemin) ;
  *   - les boutons secondaires « Retour » (sélection et récapitulatif)
  *     portent désormais `text-ink-on-bg` explicitement, comme le
  *     bouton d'entrée déjà correct plus haut dans ce même fichier --
@@ -145,13 +155,17 @@ export default function WithdrawalPanel({
   }
 
   // LOT 2 -- QUANTITÉ UX (point 4/5 du mandat CIO/Ravel, issue #11
-  // #5873108024) : la quantité RETENUE ne descend plus jamais à 0 par
-  // la saisie -- seule la case à cocher (toggle ci-dessus) désélectionne
-  // une ligne. Le plancher passe de 0 à 1 : un champ numérique ne peut
-  // donc plus se désactiver lui-même en cours de frappe (voir le
-  // commentaire sur quantityDrafts ci-dessus pour le mécanisme complet).
+  // #5873108024). RÈGLE APPROUVÉE (mandat, littéral) : « Quantity>1:
+  // customer can choose integer 1..ordered quantity; 0 = unselected. »
+  // Plancher à 0 (jamais 1 -- voir REMÉDIATION dans l'en-tête de ce
+  // fichier) : une valeur numérique VALIDÉE (commitée depuis
+  // handleQuantityInput, donc jamais depuis un état de saisie
+  // intermédiaire, cf. quantityDrafts) à 0 désélectionne la ligne,
+  // exactement comme décocher la case -- `checked`/`disabled` en
+  // dérivent directement (checked={quantity > 0}), donc aucun état
+  // supplémentaire à synchroniser ici.
   function setQuantity(option: WithdrawalPanelOption, value: number) {
-    const clamped = Math.max(1, Math.min(option.remainingQuantity, Math.trunc(value)));
+    const clamped = Math.max(0, Math.min(option.remainingQuantity, Math.trunc(value)));
     setQuantities((prev) => ({ ...prev, [option.orderItemId]: clamped }));
   }
 
