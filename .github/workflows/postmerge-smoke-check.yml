@@ -8,7 +8,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: HTTP checks with body preview
+      - name: HTTP checks with fuller body preview
         run: |
           set +e
           check() {
@@ -16,10 +16,11 @@ jobs:
             local label="$2"
             code=$(curl -s -o /tmp/body.html -w "%{http_code}" -L --max-time 15 "$url")
             bytes=$(wc -c < /tmp/body.html)
-            preview=$(tr -d '\n' < /tmp/body.html | tr -s ' ' | cut -c1-300)
+            preview=$(tr -d '\n' < /tmp/body.html | tr -s ' ' | cut -c1-500)
             echo "::notice title=${label}::url=${url} http=${code} bytes=${bytes} preview=${preview}"
           }
-          check "https://scanym.com/" "root"
-          check "https://scanym.com/r/aulaitcru" "r-aulaitcru"
-          check "https://scanym.com/nonexistent-xyz-check" "generic-404-baseline"
-          check "https://scanym.com/dashboard/login" "dashboard-login"
+          check "https://scandz-fpitp8s7o-scandz1.vercel.app/" "vercel-scandz-prod-root"
+          check "https://scandz-fpitp8s7o-scandz1.vercel.app/r/aulaitcru" "vercel-scandz-prod-r-aulaitcru"
+          check "https://scanym-sanaa-iduw9n55y-scandz1.vercel.app/" "vercel-scanym-sanaa-prod-root"
+          check "https://scanym.com/" "scanym-root-recheck"
+          check "https://www.scanym.com/" "www-scanym-root-recheck"
