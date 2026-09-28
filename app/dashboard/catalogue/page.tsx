@@ -90,7 +90,19 @@ import {
 import {
   FiscalMeasurementValidationError,
   TaxRateRequiredForAvailabilityError,
+  ServiceModesEmptyRestrictionError,
+  InvalidSaleModeForEstablishmentError,
 } from "@/lib/services/catalogue-error";
+// PRODUCT SERVICE MODES v1 -- réutilise le service PUBLIC existant
+// (déjà audité, déjà utilisé par le menu client -- voir
+// components/MenuView.tsx) pour lire les modes de vente RÉELLEMENT
+// activés de CET établissement, plutôt que d'introduire une seconde
+// RPC/un second chemin de lecture marchand pour la même donnée.
+// `getPublicSaleModes` ne renvoie que des données de référence non
+// sensibles (code/label/category d'un mode déjà public) -- aucune
+// donnée marchande privée n'y transite.
+import { getPublicSaleModes } from "@/lib/sale-modes-public";
+import type { SaleMode } from "@/lib/sale-modes-types";
 
 type ProductDraft = {
   name: string;
@@ -124,6 +136,13 @@ type ProductDraft = {
    *  un nouveau produit vaut donc Non tant que le marchand ne choisit
    *  pas Oui. Attribut INTERNE : jamais exposé au client. */
   withdrawalEligible: boolean;
+  /** PRODUCT SERVICE MODES v1 -- sous-ensemble des modes de service de
+   *  l'établissement auquel ce produit est restreint. `null` = ALL
+   *  (aucune restriction, sémantique ALL-par-absence, même convention
+   *  que côté base) -- jamais un tableau vide (create_product/
+   *  update_product le refusent). Strictement indépendant de
+   *  `withdrawalEligible` ci-dessus -- aucun couplage (exigence CIO). */
+  allowedSaleModes: string[] | null;
 };
 
 type CategoryDraft = {
@@ -156,6 +175,10 @@ const EMPTY_PRODUCT_DRAFT: ProductDraft = {
   // défaut, exactement comme la colonne en base (`default false`) :
   // l'éligibilité est une décision explicite du marchand.
   withdrawalEligible: false,
+  // PRODUCT SERVICE MODES v1 -- un NOUVEAU produit vaut ALL par
+  // défaut, exactement comme l'absence de ligne menu_item_sale_modes
+  // en base : la restriction est une décision explicite du marchand.
+  allowedSaleModes: null,
 };
 
 const EMPTY_SUBCATEGORY_DRAFT: SubcategoryDraft = {
@@ -296,6 +319,14 @@ export default function CataloguePage() {
 
   const [currency, setCurrency] = useState("DZD");
   const [staffLang, setStaffLang] = useState<string>("fr");
+  /** PRODUCT SERVICE MODES v1 -- modes de vente RÉELLEMENT activés
+   *  pour l'établissement courant (voir l'effet ci-dessous), utilisés
+   *  pour peupler le sélecteur multi-mode de ProductForm. `[]` par
+   *  défaut/en cas d'échec de lecture -- fail-soft, jamais bloquant
+   *  pour l'écran catalogue : le multi-mode reste alors simplement
+   *  vide (ProductForm ne rend aucune case), comme un établissement
+   *  sans aucun mode configuré. */
+  const [establishmentSaleModes, setEstablishmentSaleModes] = useState<SaleMode[]>([]);
 
   // OPERATOR DASHBOARD CONTEXT v1 (corrige le rendu cross-tenant : un
   // opérateur Scanym (scanym_operators) n'a généralement AUCUNE ligne
@@ -788,6 +819,33 @@ export default function CataloguePage() {
   }, [restaurantId]);
 
   /**
+   * PRODUCT SERVICE MODES v1 -- même patron EXACT que l'effet devise/
+   * langue ci-dessus (garde `cancelled`, échec silencieux, aucun impact
+   * sur le reste de l'écran). `getPublicSaleModes` est le même service
+   * PUBLIC déjà audité que consomme le menu client (voir
+   * components/MenuView.tsx) -- aucune seconde RPC introduite pour
+   * cette lecture.
+   */
+  useEffect(() => {
+    if (!restaurantId) {
+      setEstablishmentSaleModes([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const modes = await getPublicSaleModes(restaurantId);
+        if (!cancelled) setEstablishmentSaleModes(modes);
+      } catch {
+        if (!cancelled) setEstablishmentSaleModes([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantId]);
+
+  /**
    * `action` peut retourner `true` pour signaler qu'un message
    * post-action a déjà été posé (via setError) et doit être PRÉSERVÉ :
    * dans ce cas, run() n'exécute pas son reload() automatique, qui
@@ -842,6 +900,15 @@ export default function CataloguePage() {
         // produit disponible sans taux de TVA. Message applicatif
         // clair, jamais le texte brut de la contrainte Postgres.
         setError(t("mcTaxRateRequiredForAvailability"));
+      } else if (e instanceof ServiceModesEmptyRestrictionError) {
+        // PRODUCT SERVICE MODES v1 -- ne devrait normalement jamais se
+        // produire depuis ce formulaire (le multi-mode envoie toujours
+        // `null` ou un tableau non vide, jamais []) ; conservé comme
+        // garde-fou défensif si la RPC devait un jour être appelée
+        // autrement.
+        setError(t("mcServiceModesEmptyRestriction"));
+      } else if (e instanceof InvalidSaleModeForEstablishmentError) {
+        setError(t("mcInvalidSaleModeForEstablishment"));
       } else {
         setError(e instanceof Error ? e.message : t("mcRefused"));
       }
@@ -968,6 +1035,11 @@ export default function CataloguePage() {
       // ouvrir un produit en édition ne doit jamais le faire basculer
       // à « Oui » à l'insu du marchand.
       withdrawalEligible: p.withdrawal_eligible ?? false,
+      // PRODUCT SERVICE MODES v1 -- même repli défensif que
+      // withdrawal_eligible ci-dessus (base non encore migrée =>
+      // `undefined`), ramené à `null` (ALL) -- jamais un tableau vide
+      // inventé.
+      allowedSaleModes: p.allowed_sale_modes ?? null,
     });
   }
 
@@ -1109,6 +1181,7 @@ export default function CataloguePage() {
               onCancel={() => setEditingId(null)}
               t={t}
               subcategories={subcategories}
+              establishmentSaleModes={establishmentSaleModes}
               onSubmit={() =>
                 run(p.product_id, async () => {
                   const { fields: fiscalFields } = parseFiscalDraft(draft);
@@ -1128,6 +1201,11 @@ export default function CataloguePage() {
                       // startEdit) est donc toujours transmise, jamais
                       // omise.
                       withdrawalEligible: draft.withdrawalEligible,
+                      // PRODUCT SERVICE MODES v1 -- même raisonnement
+                      // exact : update_product réécrit TOUJOURS
+                      // l'ensemble des restrictions, la valeur courante
+                      // du brouillon est donc toujours transmise.
+                      allowedSaleModes: draft.allowedSaleModes,
                     },
                     draft.subcategoryId
                   );
@@ -1731,6 +1809,7 @@ export default function CataloguePage() {
                   showPhotoPicker
                   t={t}
                   subcategories={cat.subcategories}
+                  establishmentSaleModes={establishmentSaleModes}
                   onCancel={() => setCreatingIn(null)}
                   onSubmit={() =>
                     run("new", async () => {
@@ -1749,6 +1828,10 @@ export default function CataloguePage() {
                           // marchand dans le formulaire ; `false` par
                           // défaut (EMPTY_PRODUCT_DRAFT).
                           withdrawalEligible: draft.withdrawalEligible,
+                          // PRODUCT SERVICE MODES v1 -- choix explicite
+                          // du marchand ; `null` (ALL) par défaut
+                          // (EMPTY_PRODUCT_DRAFT).
+                          allowedSaleModes: draft.allowedSaleModes,
                         },
                         draft.subcategoryId
                       );
@@ -2438,6 +2521,7 @@ function ProductForm({
   submitting = false,
   showPhotoPicker = false,
   subcategories = [],
+  establishmentSaleModes = [],
 }: {
   draft: ProductDraft;
   setDraft: (d: ProductDraft) => void;
@@ -2463,6 +2547,14 @@ function ProductForm({
    *  Tableau vide (commerçant sans sous-catégorie) = aucun sélecteur
    *  affiché, formulaire strictement identique à avant ce lot. */
   subcategories?: CatalogueSubcategory[];
+  /** PRODUCT SERVICE MODES v1 -- modes de vente RÉELLEMENT activés de
+   *  l'établissement courant (lu par la page via getPublicSaleModes,
+   *  jamais recalculé ici). Tableau vide = aucune case rendue (aucun
+   *  mode configuré, ou lecture pas encore résolue) -- le champ
+   *  `allowedSaleModes` du brouillon reste alors simplement inerte
+   *  (aucune UI pour le modifier), jamais bloquant pour le reste du
+   *  formulaire. */
+  establishmentSaleModes?: SaleMode[];
 }) {
   const shortState = normalizeText(draft.shortDescription, SHORT_DESCRIPTION_MAX_LENGTH);
   const longState = normalizeText(draft.description, LONG_DESCRIPTION_MAX_LENGTH);
@@ -2685,6 +2777,77 @@ function ProductForm({
           <option value="no">{t("commonNo")}</option>
         </select>
       </LabeledField>
+
+      {/* PRODUCT SERVICE MODES v1 -- restriction PAR PRODUIT d'un
+          sous-ensemble des modes de service de l'établissement,
+          STRICTEMENT INDÉPENDANTE du droit de rétractation ci-dessus
+          (aucun couplage, aucune inférence croisée -- exigence CIO).
+          N'apparaît que si l'établissement a au moins un mode de vente
+          activé -- même patron que le sélecteur de sous-catégorie
+          ci-dessus (rien à choisir sinon). Sémantique ALL-par-absence :
+          "Tous" (coché par défaut, `allowedSaleModes === null`) EFFACE
+          la restriction plutôt que de matérialiser une ligne par mode
+          (décision CIO) ; décocher "Tous" démarre avec TOUS les modes
+          actuels pré-cochés (jamais un tableau vide transitoire), et
+          décocher un mode individuel qui viderait entièrement la
+          sélection est refusé côté UI (un produit restreint doit
+          conserver au moins un mode -- défense en profondeur : la RPC
+          refuse aussi un tableau vide, voir
+          SCANYM_SERVICE_MODES_EMPTY_RESTRICTION). */}
+      {establishmentSaleModes.length > 0 && (
+        <LabeledField id="product-sale-modes" label={t("mcAllowedSaleModesLabel")}>
+          <div className="space-y-1.5 rounded-xl border border-stone-300 p-2.5">
+            <label className="flex items-center gap-2 text-sm font-medium text-stone-700">
+              <input
+                type="checkbox"
+                data-testid="product-sale-modes-all"
+                checked={draft.allowedSaleModes === null}
+                onChange={() => {
+                  setDraft({
+                    ...draft,
+                    allowedSaleModes:
+                      draft.allowedSaleModes === null
+                        ? establishmentSaleModes.map((m) => m.code)
+                        : null,
+                  });
+                }}
+              />
+              {t("mcAllowedSaleModesAll")}
+            </label>
+            {establishmentSaleModes.map((m) => {
+              const isAll = draft.allowedSaleModes === null;
+              const checked = isAll || (draft.allowedSaleModes?.includes(m.code) ?? false);
+              return (
+                <label
+                  key={m.code}
+                  className={
+                    "flex items-center gap-2 pl-5 text-sm " +
+                    (isAll ? "text-stone-400" : "text-stone-700")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`product-sale-modes-${m.code}`}
+                    disabled={isAll}
+                    checked={checked}
+                    onChange={() => {
+                      const current = new Set(draft.allowedSaleModes ?? []);
+                      if (current.has(m.code)) current.delete(m.code);
+                      else current.add(m.code);
+                      // Un produit restreint conserve au moins un mode
+                      // -- décocher le dernier mode restant est un
+                      // no-op côté UI (voir commentaire ci-dessus).
+                      if (current.size === 0) return;
+                      setDraft({ ...draft, allowedSaleModes: Array.from(current) });
+                    }}
+                  />
+                  {m.label}
+                </label>
+              );
+            })}
+          </div>
+        </LabeledField>
+      )}
 
       {/* CATALOGUE FISCAL & PRODUCT MEASUREMENTS v1.1 (mandat §8) --
           modèle SIMPLIFIÉ portion-à-prix-fixe : champs indépendants

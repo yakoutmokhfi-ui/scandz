@@ -533,6 +533,16 @@ const fr: Dict = {
   // « Oui »/« Non » nue n'existait jusqu'ici -- mcFilterAvailableYes/No
   // disent « Disponibles »/« Indisponibles », pas « Oui »/« Non »).
   catalogueWithdrawalEligibleLabel: "Rétractable",
+  // PRODUCT SERVICE MODES v1 -- éditeur de catalogue marchand
+  // (ProductForm, app/dashboard/catalogue/page.tsx). Strictement
+  // indépendant de catalogueWithdrawalEligibleLabel ci-dessus (aucun
+  // couplage, exigence CIO).
+  mcAllowedSaleModesLabel: "Modes de vente proposés pour ce produit",
+  mcAllowedSaleModesAll: "Tous les modes",
+  mcServiceModesEmptyRestriction:
+    "Sélectionnez au moins un mode, ou choisissez « Tous les modes ».",
+  mcInvalidSaleModeForEstablishment:
+    "Un des modes sélectionnés n'est plus activé pour cet établissement. Rechargez la page et vérifiez votre sélection.",
   commonYes: "Oui",
   commonNo: "Non",
   catalogueWithdrawalFilterAll: "Tous",
@@ -1342,6 +1352,13 @@ const en: Dict = {
   mcFilterAvailableNo: "Unavailable",
   // ONLINE WITHDRAWAL v1 -- voir le dictionnaire fr.
   catalogueWithdrawalEligibleLabel: "Eligible for withdrawal",
+  // PRODUCT SERVICE MODES v1 -- see the French block for the full
+  // rationale.
+  mcAllowedSaleModesLabel: "Service modes offered for this product",
+  mcAllowedSaleModesAll: "All modes",
+  mcServiceModesEmptyRestriction: "Select at least one mode, or choose \"All modes\".",
+  mcInvalidSaleModeForEstablishment:
+    "One of the selected modes is no longer enabled for this establishment. Reload the page and check your selection.",
   commonYes: "Yes",
   commonNo: "No",
   catalogueWithdrawalFilterAll: "All",
@@ -2110,6 +2127,12 @@ const ar: Dict = {
   // format de fichier lui-même, pas une chaîne d'interface) : le
   // message d'erreur les cite donc telles quelles.
   catalogueWithdrawalEligibleLabel: "قابل للتراجع",
+  // PRODUCT SERVICE MODES v1 -- انظر الكتلة الفرنسية للتفاصيل الكاملة.
+  mcAllowedSaleModesLabel: "أنماط الخدمة المتاحة لهذا المنتج",
+  mcAllowedSaleModesAll: "كل الأنماط",
+  mcServiceModesEmptyRestriction: "اختر نمطًا واحدًا على الأقل، أو اختر «كل الأنماط».",
+  mcInvalidSaleModeForEstablishment:
+    "أحد الأنماط المختارة لم يعد مفعّلاً لهذا المطعم. أعد تحميل الصفحة وتحقق من اختيارك.",
   commonYes: "نعم",
   commonNo: "لا",
   catalogueWithdrawalFilterAll: "الكل",
