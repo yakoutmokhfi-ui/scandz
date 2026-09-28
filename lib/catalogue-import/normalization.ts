@@ -109,6 +109,102 @@ const WITHDRAWAL_ELIGIBLE_ALIASES: ReadonlyMap<string, boolean> = new Map([
 ]);
 
 /**
+ * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- codes stables acceptés
+ * dans la colonne « Modes de vente », EXACTEMENT ceux de
+ * `sale_mode_catalog.code` (supabase/migration-v82-lot2a-sale-modes.sql).
+ * Décision CIO/Ravel (issue #11) : jamais les libellés FR affichés
+ * côté client (ex. `sale_mode_catalog.label` "Retrait" pour `pickup`
+ * collisionne avec `lib/i18n.ts` "À emporter") -- format d'échange
+ * volontairement DÉCOUPLÉ de toute traduction, v1 n'accepte AUCUN
+ * alias de libellé.
+ */
+export const SALE_MODE_CODES: readonly string[] = [
+  "table",
+  "pickup",
+  "click_collect",
+  "room_service",
+  "delivery",
+];
+const SALE_MODE_CODE_SET: ReadonlySet<string> = new Set(SALE_MODE_CODES);
+
+/** Valeur littérale explicite de remise à ALL (mandat CIO/Ravel : « Le
+ *  littéral `Tous` est l'instruction explicite d'effacer les
+ *  restrictions et de remettre le produit à tous les modes de vente
+ *  disponibles »). Comparaison insensible à la casse/accents/espaces,
+ *  même discipline que ROW_TYPE_ALIASES. */
+const ALL_SALE_MODES_LITERAL = "tous";
+
+/**
+ * Résultat de la coercion de la cellule « Modes de vente ». QUATRE
+ * états DISTINCTS, jamais superposés (exigence CIO/Ravel explicite :
+ * « do not overload null to mean both Tous/ALL and invalid » -- une
+ * valeur mal formée ne doit jamais pouvoir devenir ALL par accident) :
+ *
+ *   - `unset`   -- colonne absente OU cellule vide : AUCUNE information
+ *                  donnée par le fichier. Résolu par preview.ts selon
+ *                  CREATE/UPDATE (jamais ici, ce module ne connaît pas
+ *                  le catalogue existant) -- UPDATE -> restriction
+ *                  ACTUELLE inchangée, CREATE -> ALL (défaut serveur).
+ *   - `all`     -- littéral « Tous » : instruction EXPLICITE de
+ *                  remettre à ALL (jamais confondu avec `unset`, même
+ *                  si le résultat final côté CREATE est identique --
+ *                  la distinction compte pour UPDATE : `unset` PRÉSERVE
+ *                  l'existant, `all` l'EFFACE explicitement).
+ *   - `codes`   -- ensemble de codes reconnus, valides, dédupliqués
+ *                  (ordre de première apparition dans la cellule --
+ *                  l'ordre CANONIQUE d'export est décidé séparément,
+ *                  voir SALE_MODE_CODES).
+ *   - `invalid` -- au moins un jeton non reconnu dans une cellule non
+ *                  vide qui n'est pas le littéral « Tous ». BLOQUANT
+ *                  (validation.ts, SCANYM_IMPORT_INVALID_SALE_MODE) --
+ *                  jamais un repli silencieux vers `unset` ou `all`,
+ *                  et un seul jeton invalide bloque TOUTE la cellule
+ *                  (mandat CIO/Ravel : « do not silently ignore one
+ *                  invalid token inside an otherwise valid list »).
+ */
+export type CoercedAllowedSaleModes =
+  | { kind: "unset" }
+  | { kind: "all" }
+  | { kind: "codes"; codes: string[] }
+  | { kind: "invalid" };
+
+/**
+ * Découpe et valide la cellule « Modes de vente ». Séparateur `;`
+ * EXCLUSIVEMENT (mandat CIO/Ravel : « canonical stable codes, separated
+ * by " ; " » -- format d'échange strict, jamais le double séparateur
+ * virgule/point-virgule toléré pour « Tags / Collections », qui est
+ * lui un champ informatif, pas un contrat d'écriture).
+ */
+export function coerceAllowedSaleModes(raw: string | undefined): CoercedAllowedSaleModes {
+  if (raw === undefined) return { kind: "unset" };
+  const { value, isEmpty } = normalizeText(raw, Number.POSITIVE_INFINITY);
+  if (isEmpty) return { kind: "unset" };
+  if (foldRowTypeValue(value) === ALL_SALE_MODES_LITERAL) return { kind: "all" };
+
+  const tokens = value
+    .split(";")
+    .map((t) => normalizeText(t, Number.POSITIVE_INFINITY).value)
+    .filter((t) => t !== "");
+  // Cellule non vide mais ne contenant, après découpage, aucun jeton
+  // exploitable (ex. simplement ";" ou ";;") -- jamais ALL, jamais un
+  // ensemble de codes fantôme : traité comme `unset`, le repli le plus
+  // sûr (préserve l'existant en UPDATE plutôt que d'inventer un état).
+  if (tokens.length === 0) return { kind: "unset" };
+
+  const seen = new Set<string>();
+  const codes: string[] = [];
+  for (const token of tokens) {
+    const code = foldRowTypeValue(token);
+    if (!SALE_MODE_CODE_SET.has(code)) return { kind: "invalid" };
+    if (!seen.has(code)) {
+      seen.add(code);
+      codes.push(code);
+    }
+  }
+  return { kind: "codes", codes };
+}
+
+/**
  * TYPE — CATEGORY / SUBCATEGORY ROW SUPPORT v1 (remplace la sémantique
  * OB-3 d'origine, ci-dessous documentée pour mémoire historique).
  *

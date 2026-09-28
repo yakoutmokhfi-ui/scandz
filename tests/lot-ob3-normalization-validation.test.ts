@@ -289,6 +289,10 @@ function baseValues(overrides: Partial<Record<string, unknown>>) {
     // défaut dans ces fixtures : comportement historique EXACT (aucun
     // diagnostic, valeur résolue ailleurs par la preview).
     withdrawalEligible: undefined as boolean | null | undefined,
+    // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- colonne
+    // « Modes de vente » absente/vide par défaut dans ces fixtures,
+    // même discipline exacte que « Rétractable » ci-dessus.
+    allowedSaleModesRaw: { kind: "unset" as const },
     tags: [] as string[],
     type: { kind: "PRODUCT" as const },
     categoryNameRaw: "Pizzas",

@@ -5,7 +5,7 @@
  */
 
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
-import type { RowTypeClassification } from "@/lib/catalogue-import/normalization";
+import type { CoercedAllowedSaleModes, RowTypeClassification } from "@/lib/catalogue-import/normalization";
 import type { TagResolution } from "@/lib/catalogue-import/tag-resolution";
 
 export type IssueSeverity = "BLOCKING_ERROR" | "WARNING" | "INFO";
@@ -73,6 +73,13 @@ export interface NormalizedRowValues {
    *  La valeur réellement écrite est `PreviewRow.withdrawalEligibleToWrite`
    *  ci-dessous, jamais ce champ brut. */
   withdrawalEligible: boolean | null | undefined;
+  /** XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- valeur BRUTE, non
+   *  résolue, lue dans la colonne « Modes de vente ». Voir
+   *  coerceAllowedSaleModes (normalization.ts) pour les 4 états
+   *  distincts. La valeur réellement écrite est
+   *  `PreviewRow.allowedSaleModesToWrite` ci-dessous, jamais ce champ
+   *  brut. */
+  allowedSaleModesRaw: CoercedAllowedSaleModes;
   tags: string[];
   type: RowTypeClassification;
   /** Nom de catégorie à RÉSOUDRE pour cette ligne (jamais interrogé
@@ -151,6 +158,33 @@ export interface PreviewRow {
    * n'écrivent aucun produit).
    */
   withdrawalEligibleToWrite: boolean;
+  /**
+   * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- valeur EFFECTIVE de
+   * `allowed_sale_modes` que le commit transmettra à
+   * create_product/update_product pour CETTE ligne. Résolue UNE SEULE
+   * FOIS par preview.ts, jamais recalculée par le commit. `null` =
+   * ALL (sémantique serveur ALL-par-absence) :
+   *
+   *   - cellule avec des codes valides -> ce tableau, en ORDRE
+   *     CANONIQUE (voir SALE_MODE_CODES, normalization.ts) ;
+   *   - cellule littéral « Tous »       -> `null` (effacement EXPLICITE) ;
+   *   - cellule VIDE / colonne absente :
+   *       -> produit EXISTANT : sa restriction ACTUELLE (inchangée --
+   *          une cellule vide ne REMPLACE JAMAIS une restriction par
+   *          ALL, alors même que update_product réécrit TOUJOURS la
+   *          colonne) ;
+   *       -> produit NOUVEAU : `null` (ALL, défaut de la migration) ;
+   *   - cellule INVALIDE -> la ligne est BLOQUÉE (rien n'est écrit) ;
+   *     cette valeur retombe sur le MÊME repli que la cellule vide
+   *     (jamais sur `null`/ALL directement -- distinction cellule
+   *     vide vs invalide non pertinente ici puisque rien n'est écrit
+   *     de toute façon, mais jamais une confusion conceptuelle entre
+   *     les deux états, voir CoercedAllowedSaleModes).
+   *
+   * Toujours calculée, y compris pour une ligne CATEGORY/SUBCATEGORY
+   * (où elle n'a aucun sens et n'est jamais lue).
+   */
+  allowedSaleModesToWrite: string[] | null;
 }
 
 export type PreviewFileEligibility = "ELIGIBLE" | "ELIGIBLE_WITH_WARNINGS" | "NOT_ELIGIBLE";

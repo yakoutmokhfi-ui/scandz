@@ -7,7 +7,7 @@
  * ------------------------------------------------------------------
  * COMPATIBILITÉ IMPORT / EXPORT (mandat §12)
  * ------------------------------------------------------------------
- * Les 12 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
+ * Les 13 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
  * l'ordre exact du format d'import -- réutilisées depuis
  * lib/catalogue-import/column-mapping.ts, jamais recopiées à la main,
  * de sorte qu'elles ne peuvent pas diverger silencieusement si le
@@ -22,6 +22,18 @@
  * d'import : c'est une VRAIE colonne d'ALLER-RETOUR (exportée « Oui »/
  * « Non », relue et RÉELLEMENT appliquée à la réimportation), à ne pas
  * confondre avec les deux colonnes purement informatives ci-dessous.
+ *
+ * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- « Modes de vente » est
+ * elle aussi une VRAIE colonne d'ALLER-RETOUR, même statut que
+ * « Rétractable » : `p.allowed_sale_modes === null` (ALL, aucune
+ * restriction) est exporté comme le littéral « Tous », jamais une
+ * cellule vide (une cellule vide signifierait « inchangé » à la
+ * réimportation -- exporter « Tous » explicitement est ce qui rend le
+ * cycle exporter -> effacer une restriction -> réimporter réellement
+ * possible). Un ensemble de codes est exporté en ORDRE CANONIQUE
+ * (SALE_MODE_CODES), jamais l'ordre renvoyé par le serveur -- pour
+ * qu'un produit non modifié par le marchand réimporte en SKIP, pas en
+ * UPDATE (voir valuesEqualExisting, preview.ts).
  *
  * DEUX colonnes supplémentaires suivent, exigées par le mandat §11 et
  * absentes du format d'import :
@@ -52,7 +64,18 @@
  */
 import { zipSync, strToU8 } from "fflate";
 import { IMPORT_COLUMNS } from "@/lib/catalogue-import/column-mapping";
+import { SALE_MODE_CODES } from "@/lib/catalogue-import/normalization";
 import type { FlatProduct } from "@/lib/catalogue-management/filtering";
+
+/** Formate `allowed_sale_modes` pour la cellule « Modes de vente » --
+ *  littéral « Tous » si `null` (ALL), sinon les codes présents dans
+ *  `raw`, réordonnés en ordre CANONIQUE et joints par ` ; ` (même
+ *  séparateur que coerceAllowedSaleModes attend en réimport). */
+function formatAllowedSaleModes(raw: string[] | null): string {
+  if (raw === null) return "Tous";
+  const set = new Set(raw);
+  return SALE_MODE_CODES.filter((c) => set.has(c)).join(" ; ");
+}
 
 /** Colonnes supplémentaires, APRÈS les colonnes d'import. */
 export const EXPORT_EXTRA_COLUMNS = ["Disponible", "Prix de référence (€/kg)"] as const;
@@ -88,6 +111,10 @@ export function buildExportRows(products: ReadonlyArray<FlatProduct>): ExportCel
       // inexploitable pour BASCULER une valeur) et jamais un booléen
       // brut (`true`/`false` ne serait pas relu par l'import).
       p.withdrawal_eligible ? "Oui" : "Non",
+      // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- voir
+      // formatAllowedSaleModes ci-dessus et le commentaire d'en-tête
+      // de ce fichier.
+      formatAllowedSaleModes(p.allowed_sale_modes),
       p.is_available ? "Oui" : "Non",
       p.reference_price_per_kg ?? "",
     ];

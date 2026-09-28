@@ -73,6 +73,11 @@ function product(over: Record<string, unknown> = {}) {
     // pas sur la rétractabilité (couverte par
     // tests/online-withdrawal-catalogue-v1.test.ts).
     withdrawal_eligible: false,
+    // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- `null` par défaut
+    // (ALL, aucune restriction), comme la colonne en base : ces tests
+    // portent sur la recherche/filtre/tri/export, pas sur les modes de
+    // vente (couverts par tests/lot3-xlsx-psm-roundtrip.test.ts).
+    allowed_sale_modes: null,
     ...over,
   } as any;
 }
@@ -351,7 +356,7 @@ test("[E] le tri ne MUTE JAMAIS la liste reçue", () => {
 // F. Export
 // ==================================================================
 
-test("[F] les 12 premières colonnes d'export sont EXACTEMENT celles de l'import, dans le même ordre (réutilisées, jamais recopiées)", () => {
+test("[F] les colonnes d'import (« Rétractable » et « Modes de vente » incluses) sont EXACTEMENT reprises en tête de l'export, dans le même ordre (réutilisées, jamais recopiées)", () => {
   assert.deepEqual(EXPORT_COLUMNS.slice(0, IMPORT_COLUMNS.length), [...IMPORT_COLUMNS]);
   assert.deepEqual(EXPORT_COLUMNS.slice(IMPORT_COLUMNS.length), [...EXPORT_EXTRA_COLUMNS]);
 });
@@ -368,15 +373,20 @@ test("[F] une ligne d'export reprend les champs marchands attendus, tags inclus"
     // ici) s'intercale entre « Photo fichier » et « Disponible » :
     // c'est une colonne d'IMPORT, elle est donc rendue AVANT les deux
     // colonnes supplémentaires d'export.
-    "Affiné 12 mois", "", 12.5, 5.5, 250, "", "Non", "Oui", 50,
+    //
+    // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- « Modes de vente »
+    // suit immédiatement « Rétractable », même statut de colonne
+    // d'import d'ALLER-RETOUR ; « Tous » ici car `product()` ne fixe
+    // par défaut aucune restriction (allowed_sale_modes = null).
+    "Affiné 12 mois", "", 12.5, 5.5, 250, "", "Non", "Tous", "Oui", 50,
   ]);
 });
 
 test("[F] un produit INDISPONIBLE est exporté « Non » -- le statut est une donnée, jamais une omission", () => {
   const flat = flattenCatalogue([category({ products: [product({ is_available: false })] })]);
-  // Index 12 depuis ONLINE WITHDRAWAL v1 (« Rétractable » insérée en
-  // position 11, dernière colonne d'import) -- même assertion, même
-  // exigence, seule la position de la colonne « Disponible » change.
+  // Position dynamique via EXPORT_COLUMNS.indexOf -- même assertion,
+  // même exigence, insensible à l'ajout de colonnes d'import
+  // ultérieures (« Rétractable », « Modes de vente », etc.).
   assert.equal(buildExportRows(flat)[0][EXPORT_COLUMNS.indexOf("Disponible")], "Non");
 });
 

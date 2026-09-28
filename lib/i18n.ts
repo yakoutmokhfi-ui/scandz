@@ -559,6 +559,11 @@ const fr: Dict = {
   // (lib/catalogue-import/validation.ts) -- égalité prouvée par
   // tests/online-withdrawal-catalogue-v1.test.ts.
   catalogueImportWithdrawalInvalid: "Valeur « Rétractable » invalide (attendu : Oui ou Non).",
+  // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- même patron exact,
+  // réplique SALE_MODE_INVALID_MESSAGE (lib/catalogue-import/
+  // validation.ts) -- égalité prouvée par test.
+  catalogueImportSaleModeInvalid:
+    "Valeur « Modes de vente » invalide (attendu : codes séparés par « ; » parmi table, pickup, click_collect, room_service, delivery -- ou « Tous »).",
   mcSortLabel: "Trier",
   mcSortNameAsc: "Nom A → Z",
   mcSortNameDesc: "Nom Z → A",
@@ -1373,6 +1378,8 @@ const en: Dict = {
   commonNo: "No",
   catalogueWithdrawalFilterAll: "All",
   catalogueImportWithdrawalInvalid: "Invalid « Rétractable » value (expected: Oui or Non).",
+  catalogueImportSaleModeInvalid:
+    "Invalid « Modes de vente » value (expected: codes separated by « ; » among table, pickup, click_collect, room_service, delivery -- or « Tous »).",
   mcSortLabel: "Sort",
   mcSortNameAsc: "Name A → Z",
   mcSortNameDesc: "Name Z → A",
@@ -2149,6 +2156,8 @@ const ar: Dict = {
   commonNo: "لا",
   catalogueWithdrawalFilterAll: "الكل",
   catalogueImportWithdrawalInvalid: "قيمة « Rétractable » غير صالحة (المتوقع: Oui أو Non).",
+  catalogueImportSaleModeInvalid:
+    "قيمة « Modes de vente » غير صالحة (المتوقع: رموز مفصولة بـ « ; » من بين table, pickup, click_collect, room_service, delivery -- أو « Tous »).",
   mcSortLabel: "ترتيب",
   mcSortNameAsc: "الاسم أ → ي",
   mcSortNameDesc: "الاسم ي → أ",
