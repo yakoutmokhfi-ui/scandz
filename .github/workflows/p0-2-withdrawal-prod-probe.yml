@@ -7,43 +7,15 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe withdrawal POST without cookie (canonical alias)
+      - name: Probe the scandz-project Production deployment URL directly
         run: |
-          BASE="https://scanym-sanaa.vercel.app"
-          FAKE_ORDER="11111111-1111-4111-8111-111111111111"
-          echo "::notice::--- POST ${BASE}/track/${FAKE_ORDER}/withdrawal (no cookie, no body fields) ---"
-          BODY=$(curl -sS -X POST "${BASE}/track/${FAKE_ORDER}/withdrawal" \
-            -H "Content-Type: application/json" \
-            -H "Origin: ${BASE}" \
-            -d '{"orderId":"'"${FAKE_ORDER}"'","firstName":"Test","lastName":"Test","acknowledgementAddress":"test@example.com","clientRequestId":"22222222-2222-4222-8222-222222222222","items":[{"orderItemId":"33333333-3333-4333-8333-333333333333","quantity":1}]}' \
-            -o /tmp/resp1.json -w "HTTP_STATUS:%{http_code}")
-          echo "::notice::status_line=${BODY}"
-          echo "::notice::body=$(cat /tmp/resp1.json)"
+          HOST="scandz-54qo0f6p0-scandz1.vercel.app"
+          echo "::notice::--- GET https://${HOST}/ (this project's OWN Production-tagged deployment URL) ---"
+          curl -sS -D /tmp/h1.txt -o /tmp/b1.html -m 15 "https://${HOST}/" || echo "::notice::unreachable"
+          echo "::notice::headers=$(cat /tmp/h1.txt 2>/dev/null | tr '\n' '|')"
+          echo "::notice::snippet=$(head -c 500 /tmp/b1.html 2>/dev/null | tr '\n' ' ')"
 
-          echo "::notice::--- Same POST, WITHOUT Origin header (simulates stripped header) ---"
-          BODY2=$(curl -sS -X POST "${BASE}/track/${FAKE_ORDER}/withdrawal" \
-            -H "Content-Type: application/json" \
-            -d '{"orderId":"'"${FAKE_ORDER}"'","firstName":"Test","lastName":"Test","acknowledgementAddress":"test@example.com","clientRequestId":"22222222-2222-4222-8222-222222222222","items":[{"orderItemId":"33333333-3333-4333-8333-333333333333","quantity":1}]}' \
-            -o /tmp/resp2.json -w "HTTP_STATUS:%{http_code}")
-          echo "::notice::status_line2=${BODY2}"
-          echo "::notice::body2=$(cat /tmp/resp2.json)"
-
-          echo "::notice::--- GET root, response headers only (confirm Set-Cookie / caching behavior of / and /track) ---"
-          curl -sS -D /tmp/root_headers.txt -o /dev/null "${BASE}/"
-          echo "::notice::root_headers=$(cat /tmp/root_headers.txt | tr '\n' '|')"
-
-          echo "::notice::--- GET /track/<fakeOrder> (plausible UUID, no cookie) response headers + first 400 bytes ---"
-          curl -sS -D /tmp/track_headers.txt -o /tmp/track_body.html "${BASE}/track/${FAKE_ORDER}"
-          echo "::notice::track_headers=$(cat /tmp/track_headers.txt | tr '\n' '|')"
-          echo "::notice::track_body_snippet=$(head -c 400 /tmp/track_body.html | tr '\n' ' ')"
-
-      - name: Probe the OTHER Vercel project alias (scandz1 org, project name scandz) if resolvable
-        continue-on-error: true
-        run: |
-          echo "::notice::--- Attempting to resolve a plain 'scandz' project alias (best-effort, may not exist) ---"
-          for host in "scandz.vercel.app"; do
-            echo "::notice::trying ${host}"
-            curl -sS -D /tmp/alt_headers.txt -o /tmp/alt_body.html -m 10 "https://${host}/" || echo "::notice::${host} unreachable/error"
-            echo "::notice::${host}_headers=$(cat /tmp/alt_headers.txt 2>/dev/null | tr '\n' '|')"
-            echo "::notice::${host}_snippet=$(head -c 200 /tmp/alt_body.html 2>/dev/null | tr '\n' ' ')"
-          done
+          echo "::notice::--- GET https://scandz.vercel.app/ full headers (checking for vercel auth / access-restriction markers) ---"
+          curl -sS -D /tmp/h2.txt -o /tmp/b2.html -m 15 "https://scandz.vercel.app/"
+          echo "::notice::headers2=$(cat /tmp/h2.txt | tr '\n' '|')"
+          echo "::notice::snippet2=$(head -c 1200 /tmp/b2.html | tr '\n' ' ')"
