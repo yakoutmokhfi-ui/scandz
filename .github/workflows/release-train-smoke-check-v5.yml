@@ -1,0 +1,27 @@
+name: Production smoke — scanym.com content detail
+
+on:
+  push:
+    branches:
+      - ci/release-train-smoke-check-v5
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect scanym.com root content + headers
+        run: |
+          set -e
+          curl -sSI --max-time 20 "https://scanym.com" | grep -i "x-vercel\|content-type\|cache-control" || true
+          echo "=== body (first 3000 chars, tags stripped for readability) ==="
+          curl -sS --max-time 20 "https://scanym.com" -o /tmp/root.html
+          python3 - << 'PYEOF'
+import re
+with open('/tmp/root.html', encoding='utf-8', errors='replace') as f:
+    html = f.read()
+text = re.sub(r'<script[\s\S]*?</script>', '', html)
+text = re.sub(r'<style[\s\S]*?</style>', '', text)
+text = re.sub(r'<[^>]+>', ' ', text)
+text = re.sub(r'\s+', ' ', text).strip()
+print(text[:1500])
+PYEOF
