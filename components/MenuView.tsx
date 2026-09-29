@@ -386,8 +386,14 @@ export default function MenuView({
 
   // P1 CUSTOMER COLLECTIONS BY TAGS -- null = catalogue normal. Vue
   // supplémentaire uniquement : activeCategoryId/activeSubcategoryId
-  // restent intacts pendant le mode collection, donc « Tout le
-  // catalogue » restaure exactement la navigation précédente.
+  // restent intacts pendant le mode collection (lus, jamais réécrits,
+  // par ce setter). NAVIGATION CATALOGUE MICRO-LOT (issue #11,
+  // issuecomment-5875680103) -- il n'existe plus de bouton dédié pour
+  // repasser à `null` sans changer de catégorie : le SEUL chemin de
+  // sortie du mode collection est désormais changeActiveCategory
+  // ci-dessus, qui remet aussi activeSubcategoryId à null. Décision
+  // produit explicite : aucune restauration de l'ancienne
+  // catégorie/sous-catégorie n'est effectuée.
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
 
   // Récupération de la commande
@@ -1644,7 +1650,24 @@ export default function MenuView({
         banner={variant?.banner ?? settings.banner}
       />
 
+      {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
+          issuecomment-5875680103) : Tags/Collections transversaux
+          AU-DESSUS des catégories (ordre inversé par rapport à
+          l'historique). CollectionNav possède désormais mt-6 (ancien
+          espacement de CategoryNav sous le header), CategoryNav
+          hérite du mt-3 (ancien espacement entre les deux blocs) --
+          chaque bloc reste sans marge propre, l'appelant (ici) reste
+          seul propriétaire de l'espacement vertical. */}
       <div className="mt-6">
+        <CollectionNav
+          collections={collections}
+          activeId={activeCollection?.id ?? null}
+          onSelect={setActiveCollectionId}
+          navLabel={t("collectionsNavLabel")}
+        />
+      </div>
+
+      <div className="mt-3">
         <CategoryNav
           categories={restaurant.categories}
           activeId={activeCollection ? "" : activeCategoryId}
@@ -1652,14 +1675,6 @@ export default function MenuView({
           variant={menuVariant}
         />
       </div>
-
-      <CollectionNav
-        collections={collections}
-        activeId={activeCollection?.id ?? null}
-        onSelect={setActiveCollectionId}
-        navLabel={t("collectionsNavLabel")}
-        allLabel={t("collectionsShowAll")}
-      />
 
       <main className="px-4">
         {!activeCollection && activeCategory && (

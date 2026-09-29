@@ -245,7 +245,6 @@ test("[I18N] les libellés client et marchand existent dans les 3 dictionnaires 
   const { DICTS } = await import("../lib/i18n.ts");
   const keys = [
     "collectionsNavLabel",
-    "collectionsShowAll",
     "mcCollectionsTitle",
     "mcCollectionsHint",
     "mcCollectionsNone",

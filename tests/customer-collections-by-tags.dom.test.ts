@@ -16,12 +16,15 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 //
 // Couvre : §1 seules les collections publiées (non vides) sont rendues,
 // §2 aucun tag interne découvrable, §4 une collection sélectionne dans
-// plusieurs catégories/sous-catégories, §5 ordre serveur, §6 retour au
-// catalogue normal restaure catégorie + sous-catégorie, §7 badges
-// inchangés, §8 identifiants inconnus sans effet, §11 une seule ligne
-// défilable non repliée, §12 nav nommée + vrais boutons + aria-pressed
-// + focus clavier, §14 aucune collection -> catalogue normal intact.
-// Le panier n'est pas affecté par le mode collection.
+// plusieurs catégories/sous-catégories, §5 ordre serveur, §6 quitter le
+// mode collection via une catégorie N'restaure PAS l'ancienne sous-
+// catégorie (NAVIGATION CATALOGUE MICRO-LOT, issuecomment-5875680103 --
+// pilule « Tout le catalogue » retirée, aucun mécanisme de restauration
+// de remplacement), §7 badges inchangés, §8 identifiants inconnus sans
+// effet, §11 une seule ligne défilable non repliée, §12 nav nommée +
+// vrais boutons + aria-pressed + focus clavier, §14 aucune collection ->
+// catalogue normal intact. Le panier n'est pas affecté par le mode
+// collection.
 // ====================================================================
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -273,13 +276,13 @@ test("[NO COLLECTION] sans collection (champ absent OU vide), aucune navigation 
   }
 });
 
-test("[PUBLISHED][ORDER][A11Y] navigation nommée, vrais boutons, « Tout le catalogue » puis les collections publiées dans l'ordre serveur", async () => {
+test("[PUBLISHED][ORDER][A11Y] navigation nommée, vrais boutons, les collections publiées dans l'ordre serveur, aucune pilule « Tout le catalogue »", async () => {
   const x = await render(restaurant(PUBLISHED));
   const nav = collectionsNav(x.container);
   assert.ok(nav, "la navigation Collections doit être rendue");
   assert.equal(nav!.tagName, "NAV");
   assert.equal(nav!.getAttribute("aria-label"), "Collections");
-  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Tout le catalogue", "Apéro", "Bio"]);
+  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Apéro", "Bio"]);
   for (const b of collectionButtons(x.container)) {
     assert.equal(b.tagName, "BUTTON");
     assert.equal(b.getAttribute("type"), "button");
@@ -287,7 +290,15 @@ test("[PUBLISHED][ORDER][A11Y] navigation nommée, vrais boutons, « Tout le cat
     assert.notEqual(b.getAttribute("tabindex"), "-1", "atteignable au clavier");
     assert.ok((b.getAttribute("class") ?? "").includes("focus-visible:outline"), "focus clavier visible");
   }
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"], "catalogue normal actif par défaut");
+  // NAVIGATION CATALOGUE MICRO-LOT (issuecomment-5875680103) : plus de
+  // pilule représentant le catalogue normal -- aucune collection n'est
+  // pressée par défaut, ce qui EST l'état par défaut (aucune ambiguïté).
+  assert.deepEqual(pressedCollections(x.container), [], "aucune pilule pressée par défaut (catalogue normal)");
+  assert.equal(
+    collectionButtons(x.container).some((b) => b.getAttribute("data-customer-collection-option") === "__catalogue__"),
+    false,
+    "la pilule « Tout le catalogue » ne doit plus exister"
+  );
   // Focus clavier réel.
   const apero = collectionButton(x.container, "Apéro");
   apero.focus();
@@ -300,7 +311,7 @@ test("[INTERNAL] aucun identifiant de tag ni tag interne n'est exposé dans la n
   const html = collectionsNav(x.container)!.outerHTML;
   assert.equal(html.includes("t-apero") || html.includes("t-bio"), false, "aucun identifiant de tag dans le DOM");
   assert.deepEqual(
-    collectionButtons(x.container).slice(1).map((b) => b.textContent),
+    collectionButtons(x.container).map((b) => b.textContent),
     PUBLISHED.map((p) => p.label),
     "seuls les libellés publiés reçus du contrat public"
   );
@@ -330,7 +341,7 @@ test("[MULTI-CATEGORY][BADGES] choisir une collection affiche tous et seulement 
   cleanup(x);
 });
 
-test("[RETURN] « Tout le catalogue » restaure EXACTEMENT la catégorie et la sous-catégorie précédentes", async () => {
+test("[NO RESTORE] quitter une collection via une catégorie n'restaure PAS l'ancienne sous-catégorie (arbitrage CIO/Ravel issuecomment-5875680103, point 6)", async () => {
   const x = await render(restaurant(PUBLISHED));
   click(subcategoryPill(x.container, "Raclette"));
   await flush();
@@ -340,15 +351,28 @@ test("[RETURN] « Tout le catalogue » restaure EXACTEMENT la catégorie et la s
   await flush();
   assert.deepEqual(cardNames(x.container), ["Crottin"]);
 
-  click(collectionButton(x.container, "Tout le catalogue"));
+  // Seul chemin de sortie restant : choisir une catégorie (la même
+  // catégorie qu'avant l'entrée en mode collection, "Fromages") --
+  // jamais de bouton de retour dédié.
+  click(categoryButton(x.container, "Fromages"));
   await flush();
   assert.equal(x.container.querySelector("[data-customer-collection-view]"), null);
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"]);
+  assert.deepEqual(pressedCollections(x.container), [], "aucune pilule de collection pressée hors mode collection");
   assert.equal(sectionTitle(x.container), "Fromages");
   assert.deepEqual(pressedCategories(x.container), ["Fromages"]);
-  assert.deepEqual(pressedSubcategories(x.container), ["Raclette"]);
-  assert.deepEqual(cardNames(x.container), ["Raclette fumée", "Raclette nature"]);
-  assert.deepEqual(badgesOf(x.container, "Raclette fumée"), ["Apéro"], "badges de la navigation normale inchangés");
+  // Le point décisif : la sous-catégorie "Raclette", active avant
+  // l'entrée en mode collection, n'est PAS restaurée -- la catégorie
+  // s'ouvre dans son état par défaut ("Tous" pressé, jamais "Raclette").
+  assert.deepEqual(
+    pressedSubcategories(x.container),
+    ["Tous"],
+    "état par défaut ('Tous'), pas l'ancienne sous-catégorie 'Raclette'"
+  );
+  assert.deepEqual(
+    cardNames(x.container),
+    ["Tomme directe", "Raclette fumée", "Raclette nature", "Crottin"],
+    "catégorie ouverte dans son état par défaut, pas filtrée sur l'ancienne sous-catégorie"
+  );
   cleanup(x);
 });
 
@@ -359,7 +383,7 @@ test("[EXIT] choisir une catégorie normale quitte le mode collection", async ()
   click(categoryButton(x.container, "Vins"));
   await flush();
   assert.equal(x.container.querySelector("[data-customer-collection-view]"), null);
-  assert.deepEqual(pressedCollections(x.container), ["Tout le catalogue"]);
+  assert.deepEqual(pressedCollections(x.container), [], "aucune pilule de collection pressée hors mode collection");
   assert.equal(sectionTitle(x.container), "Vins");
   assert.deepEqual(pressedCategories(x.container), ["Vins"]);
   assert.deepEqual(cardNames(x.container), ["Rouge maison", "Chablis"]);
@@ -373,7 +397,7 @@ test("[FAIL-CLOSED] identifiants inconnus / d'un autre établissement : jamais r
       { id: "t-foreign", label: "Étrangère", displayOrder: 2, menuItemIds: ["foreign-tenant-b-product"] },
     ])
   );
-  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Tout le catalogue", "Mix"]);
+  assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Mix"]);
   click(collectionButton(x.container, "Mix"));
   await flush();
   assert.deepEqual(cardNames(x.container), ["Rouge maison"]);
@@ -413,7 +437,8 @@ test("[CART] le mode collection ne touche pas au panier : un ajout depuis une co
   await flush();
   assert.ok((x.container.textContent ?? "").includes("1 article"), "barre panier : 1 article");
 
-  click(collectionButton(x.container, "Tout le catalogue"));
+  // Sortie du mode collection via le seul chemin restant : une catégorie.
+  click(categoryButton(x.container, "Fromages"));
   await flush();
   assert.ok((x.container.textContent ?? "").includes("1 article"), "le panier est conservé");
   click(subcategoryPill(x.container, "Chèvres"));
