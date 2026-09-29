@@ -100,10 +100,16 @@ function Field({
           (error ? "border-red-600" : "border-espresso/15")
         }
       />
-      {/* Le texte d'erreur, lui, est rendu sur le fond de page ambiant
-          (--sc-bg) -- text-error (var(--sc-error)) est donc la
-          couleur adaptée ici. */}
-      {error && <p className="mt-1 text-xs text-error">{error}</p>}
+      {/* Correctif Chateaubriand (audit PR #119) : CE champ précis est
+          rendu à l'intérieur du panneau bg-white/50 (translucide) de
+          InvoiceRequestFields, pas directement sur --sc-bg -- le fond
+          RÉEL derrière ce texte est donc la composition blanc à 50%
+          sur --sc-bg (compositeOver), jamais --sc-bg brut. text-error
+          (calculée contre --sc-bg pur) donnait un contraste erroné ici
+          (~1,30:1 mesuré sur le fond sombre TRACKING_SURFACE_COLORS) ;
+          text-error-on-invoice-panel (var(--sc-error-on-invoice-panel),
+          lib/themes.ts) est calculée contre ce fond composité réel. */}
+      {error && <p className="mt-1 text-xs text-error-on-invoice-panel">{error}</p>}
     </div>
   );
 }

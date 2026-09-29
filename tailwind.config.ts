@@ -60,6 +60,13 @@ const config: Config = {
         // sombre (LOT 1A, restaurant_configs.bg_color) fait basculer
         // vers la teinte claire calculée.
         error: "var(--sc-error, #991B1B)",
+        // Correctif Chateaubriand (audit PR #119) : InvoiceRequestFields
+        // affiche son message d'erreur dans un panneau bg-white/50
+        // (translucide), pas directement sur --sc-bg -- --sc-error seul
+        // n'y garantit rien. Calculée contre le fond RÉELLEMENT composité
+        // (blanc à 50% sur --sc-bg), voir lib/themes.ts. Repli identique
+        // (#991B1B) : mêmes 5 thèmes historiques, aucune régression.
+        "error-on-invoice-panel": "var(--sc-error-on-invoice-panel, #991B1B)",
       },
     },
   },

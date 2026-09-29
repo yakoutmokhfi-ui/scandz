@@ -42,6 +42,7 @@ const buildResult = await esbuild.build({
   stdin: {
     contents: `
       export { default as CartPanel } from "@/components/CartPanel";
+      export { default as InvoiceRequestFields } from "@/components/InvoiceRequestFields";
       export { I18nProvider } from "@/lib/i18n-context";
     `,
     resolveDir: REPO_ROOT,
@@ -67,7 +68,7 @@ const buildResult = await esbuild.build({
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-checkout-ux-a11y-"));
 const tmpFile = path.join(tmpDir, "CartPanel.mjs");
 writeFileSync(tmpFile, buildResult.outputFiles[0].text);
-const { CartPanel, I18nProvider } = await import(pathToFileURL(tmpFile).href);
+const { CartPanel, InvoiceRequestFields, I18nProvider } = await import(pathToFileURL(tmpFile).href);
 rmSync(tmpDir, { recursive: true, force: true });
 
 function flush(ms = 10): Promise<void> {
@@ -246,6 +247,69 @@ test("Erreur de soumission : bandeau rouge (bg-red-50/text-red-800), plus amber"
   assert.ok(!(banner as HTMLElement).className.includes("amber"));
   view.root.unmount();
   view.container.remove();
+});
+
+// --------------------------------------------------------------------
+// Correctif Chateaubriand (audit PR #119) : le message d'erreur du
+// panneau facture (bg-white/50, translucide) doit porter la classe
+// dédiée text-error-on-invoice-panel -- preuve par rendu RÉEL, pas
+// seulement par lecture du code source (voir checkout-ux-a11y-v1.test.ts
+// pour la preuve structurelle/de calcul).
+// --------------------------------------------------------------------
+
+test("InvoiceRequestFields : le message d'erreur, rendu dans le panneau translucide bg-white/50, porte la classe text-error-on-invoice-panel (pas text-error nu)", async () => {
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(
+    React.createElement(I18nProvider, {
+      lang: "fr",
+      sourceLanguage: "fr",
+      activeLanguages: [{ code: "fr", dir: "ltr" }],
+      children: React.createElement(InvoiceRequestFields, {
+        info: {
+          wantsInvoice: true,
+          invoiceType: "company",
+          addressLine1: "",
+          addressLine2: "",
+          city: "",
+          postalCode: "",
+          country: "",
+          companyLegalName: "",
+          vatNumber: "",
+          contactName: "",
+          contactEmail: "",
+        },
+        errors: { companyLegalName: "invoiceCompanyNameRequired" },
+        onChange: () => {},
+        serviceMode: "pickup",
+        customer: undefined,
+      }),
+    })
+  );
+  await flush();
+
+  const panel = container.querySelector(".bg-white\\/50");
+  assert.ok(panel, "le panneau translucide bg-white/50 doit être rendu (facture demandée)");
+
+  const errorParagraph = [...container.querySelectorAll("p")].find((p) =>
+    p.className.includes("text-error-on-invoice-panel")
+  );
+  assert.ok(
+    errorParagraph,
+    "le message d'erreur du champ raison sociale doit porter text-error-on-invoice-panel"
+  );
+  assert.ok(panel!.contains(errorParagraph!), "ce message doit bien être rendu À L'INTÉRIEUR du panneau translucide");
+  // Ne doit plus porter la classe text-error nue (calculée contre le
+  // mauvais fond pour ce contexte précis) en plus de la nouvelle --
+  // une seule classe de couleur d'erreur doit s'appliquer ici.
+  assert.ok(
+    !/(^|\s)text-error(\s|$)/.test(errorParagraph!.className),
+    `ne doit pas porter text-error nu en plus, obtenu: ${errorParagraph!.className}`
+  );
+
+  root.unmount();
+  container.remove();
 });
 
 after(() => dom.window.close());

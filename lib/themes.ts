@@ -232,6 +232,17 @@ export function themeStyle(
     // une classe Tailwind littérale indépendante du fond réel (voir
     // errorTextOnBg, lib/color-contrast.ts, pour le défaut corrigé).
     "--sc-error": errorTextOnBg(bg),
+    // Correctif Chateaubriand (audit PR #119) : InvoiceRequestFields
+    // affiche ce même message d'erreur DANS un panneau translucide
+    // (bg-white/50), pas directement sur --sc-bg -- exactement le
+    // même principe que --sc-ink-text-on-bg-20 ci-dessus (V71-02) :
+    // un fond translucide sur un arrière-plan connu se calcule par
+    // composition alpha RÉELLE (compositeOver), jamais contre le fond
+    // de page brut. --sc-error, lui, reste correct pour tout message
+    // d'erreur affiché à même --sc-bg (FulfillmentSelector, CartPanel)
+    // -- ce nouveau token est réservé au cas précis du panneau à 50%
+    // d'opacité blanche d'InvoiceRequestFields.
+    "--sc-error-on-invoice-panel": errorTextOnBg(compositeOver("#ffffff", bg, 0.5)),
   };
 }
 

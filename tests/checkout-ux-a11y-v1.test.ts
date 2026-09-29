@@ -30,12 +30,24 @@ import { readFileSync } from "node:fs";
 // rapport de livraison), conformément à la consigne littérale reçue.
 // ====================================================================
 
-const colorContrastSrc = readFileSync("lib/color-contrast.ts", "utf8");
-const themesSrc = readFileSync("lib/themes.ts", "utf8");
-const tailwindConfigSrc = readFileSync("tailwind.config.ts", "utf8");
-const fulfillmentSelectorSrc = readFileSync("components/FulfillmentSelector.tsx", "utf8");
-const invoiceRequestFieldsSrc = readFileSync("components/InvoiceRequestFields.tsx", "utf8");
-const cartPanelSrc = readFileSync("components/CartPanel.tsx", "utf8");
+// Remédiation (commentaire Ravel, audit Chateaubriand PR #119) : les
+// assertions structurelles ci-dessous comparent des blocs multi-lignes
+// EXACTS (littéraux contenant des \n) -- si le fichier source réel est
+// en CRLF, la comparaison échoue silencieusement pour une raison qui
+// n'a rien à voir avec le CODE PRODUIT lui-même. Normalise donc CRLF
+// -> LF une seule fois, ici, à la lecture -- jamais dans le code
+// produit -- pour que ces tests restent fiables quels que soient les
+// retours à la ligne réels du fichier sur disque.
+function readSrc(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
+const colorContrastSrc = readSrc("lib/color-contrast.ts");
+const themesSrc = readSrc("lib/themes.ts");
+const tailwindConfigSrc = readSrc("tailwind.config.ts");
+const fulfillmentSelectorSrc = readSrc("components/FulfillmentSelector.tsx");
+const invoiceRequestFieldsSrc = readSrc("components/InvoiceRequestFields.tsx");
+const cartPanelSrc = readSrc("components/CartPanel.tsx");
 
 // --------------------------------------------------------------------
 // errorTextOnBg -- garantie de contraste WCAG AA (4.5:1) contre tout
@@ -117,6 +129,79 @@ test("tailwind.config.ts : la couleur 'error' est mappée sur var(--sc-error, ..
 });
 
 // --------------------------------------------------------------------
+// Correctif Chateaubriand (audit PR #119) : --sc-error-on-invoice-panel
+// -- InvoiceRequestFields rend son message d'erreur DANS un panneau
+// bg-white/50 (translucide), pas directement sur --sc-bg. Reproduit
+// PRÉCISÉMENT le scénario chiffré de l'audit : bg=#0F0F10 (fond réel
+// déjà en production, TRACKING_SURFACE_COLORS) -> composited=#878788
+// -> l'ancien text-error y donnait ~1,30:1 (mesure de l'audit,
+// reproduite ici) ; le nouveau token doit garantir >= 4.5:1.
+// --------------------------------------------------------------------
+
+test("themeStyle() : --sc-error-on-invoice-panel posée et égale à errorTextOnBg(compositeOver(blanc, bg, 0.5)), avec et sans surcharge", async () => {
+  const { themeStyle } = await import("../lib/themes.ts");
+  const { errorTextOnBg, compositeOver } = await import("../lib/color-contrast.ts");
+
+  const defaultStyle = themeStyle("cafe");
+  assert.equal(
+    defaultStyle["--sc-error-on-invoice-panel"],
+    errorTextOnBg(compositeOver("#ffffff", defaultStyle["--sc-bg"], 0.5))
+  );
+
+  const overridden = themeStyle("cafe", { bg: "#0F0F10" });
+  assert.equal(
+    overridden["--sc-error-on-invoice-panel"],
+    errorTextOnBg(compositeOver("#ffffff", "#0F0F10", 0.5))
+  );
+  // Doit réellement dépendre du fond réel -- pas une constante gelée
+  // identique quel que soit le thème.
+  assert.notEqual(overridden["--sc-error-on-invoice-panel"], defaultStyle["--sc-error-on-invoice-panel"]);
+  // Ne doit PAS être une simple copie de --sc-error : les deux tokens
+  // sont calculés contre des fonds différents et peuvent diverger
+  // (c'est exactement le cas sur ce fond sombre, voir le test suivant).
+  assert.notEqual(overridden["--sc-error-on-invoice-panel"], overridden["--sc-error"]);
+});
+
+test("themeStyle() : cas exact de l'audit Chateaubriand -- bg=#0F0F10 (fond réel déjà en production), panneau composité = #878788, ancien text-error y donnait ~1,30:1, le nouveau token garantit >= 4.5:1", async () => {
+  const { themeStyle } = await import("../lib/themes.ts");
+  const { errorTextOnBg, contrastRatio, compositeOver } = await import("../lib/color-contrast.ts");
+
+  const bg = "#0F0F10";
+  const composited = compositeOver("#ffffff", bg, 0.5);
+  assert.equal(composited.toLowerCase(), "#878788", "fond composité attendu, identique à la mesure de l'audit");
+
+  // Reproduit précisément le bug signalé : l'ancien choix (text-error,
+  // calculé contre --sc-bg BRUT plutôt que contre le fond composité
+  // réel) donne bien un contraste très insuffisant sur ce fond --
+  // confirme le diagnostic avant de vérifier le correctif.
+  const oldWrongColor = errorTextOnBg(bg);
+  const oldWrongRatio = contrastRatio(oldWrongColor, composited);
+  assert.ok(oldWrongRatio < 4.5, `attendu insuffisant (reproduit le bug) -- obtenu ${oldWrongRatio.toFixed(2)}:1`);
+  assert.ok(Math.abs(oldWrongRatio - 1.3) < 0.05, `attendu ~1,30:1 (mesure exacte de l'audit) -- obtenu ${oldWrongRatio.toFixed(2)}:1`);
+
+  const style = themeStyle("cafe", { bg });
+  const fixedColor = style["--sc-error-on-invoice-panel"];
+  const fixedRatio = contrastRatio(fixedColor, composited);
+  assert.ok(fixedRatio >= 4.5, `contraste insuffisant (${fixedRatio.toFixed(2)}:1) pour ${fixedColor} sur le panneau composité ${composited}`);
+});
+
+test("themeStyle() : --sc-error-on-invoice-panel reste >= 4.5:1 sur le panneau composité pour les 5 thèmes par défaut", async () => {
+  const { themeStyle } = await import("../lib/themes.ts");
+  const { THEMES } = await import("../lib/themes.ts");
+  const { contrastRatio, compositeOver } = await import("../lib/color-contrast.ts");
+  for (const name of Object.keys(THEMES)) {
+    const style = themeStyle(name);
+    const composited = compositeOver("#ffffff", style["--sc-bg"], 0.5);
+    const ratio = contrastRatio(style["--sc-error-on-invoice-panel"], composited);
+    assert.ok(ratio >= 4.5, `thème '${name}': contraste insuffisant (${ratio.toFixed(2)}:1) sur le panneau composité ${composited}`);
+  }
+});
+
+test("tailwind.config.ts : la couleur 'error-on-invoice-panel' est mappée sur var(--sc-error-on-invoice-panel, ...)", () => {
+  assert.match(tailwindConfigSrc, /"error-on-invoice-panel":\s*"var\(--sc-error-on-invoice-panel,\s*#[0-9A-Fa-f]{6}\)"/);
+});
+
+// --------------------------------------------------------------------
 // Champs de formulaire (FulfillmentSelector / InvoiceRequestFields) --
 // bordure rouge FIXE (le champ reste toujours sur bg-white, quel que
 // soit le thème -- voir le commentaire dans les composants), message
@@ -133,11 +218,35 @@ for (const [label, src] of [
     assert.ok(!/text-amber-700">\{error\}/.test(src), `${label}: text-amber-700 résiduel sur le message d'erreur`);
   });
 
-  test(`${label} : bordure d'erreur fixe (red-600, contraste vérifié >= 4.5:1 sur bg-white) et message adaptatif (text-error)`, () => {
+  test(`${label} : bordure d'erreur fixe (red-600, contraste vérifié >= 4.5:1 sur bg-white)`, () => {
     assert.ok(src.includes('"border-red-600"'), `${label}: border-red-600 attendu`);
-    assert.ok(/text-error">\{error\}/.test(src), `${label}: text-error attendu sur le message d'erreur`);
   });
 }
+
+// Correctif Chateaubriand (audit PR #119) : FulfillmentSelector.tsx
+// rend son message d'erreur directement sur le fond de page ambiant
+// (--sc-bg) -- text-error (adaptatif contre --sc-bg) y est correct.
+// InvoiceRequestFields.tsx, lui, rend le MÊME message DANS un panneau
+// translucide (bg-white/50) -- text-error y serait FAUX (calculé
+// contre le mauvais fond) ; il doit utiliser le token dédié
+// text-error-on-invoice-panel (calculé contre le fond RÉELLEMENT
+// composité, voir lib/themes.ts). Les deux fichiers divergent donc
+// désormais volontairement sur ce point précis.
+test("FulfillmentSelector.tsx : message d'erreur en text-error (adaptatif, rendu directement sur --sc-bg)", () => {
+  assert.ok(/text-error">\{error\}/.test(fulfillmentSelectorSrc), "text-error attendu sur le message d'erreur");
+  assert.ok(!fulfillmentSelectorSrc.includes("text-error-on-invoice-panel"), "FulfillmentSelector ne rend pas dans le panneau translucide -- ne doit pas utiliser ce token");
+});
+
+test("InvoiceRequestFields.tsx : message d'erreur en text-error-on-invoice-panel (calculé contre le fond RÉELLEMENT composité du panneau bg-white/50, pas contre --sc-bg brut)", () => {
+  assert.ok(
+    /text-error-on-invoice-panel">\{error\}/.test(invoiceRequestFieldsSrc),
+    "text-error-on-invoice-panel attendu sur le message d'erreur du panneau translucide"
+  );
+  // Ne doit plus utiliser text-error nu (calculé contre le mauvais
+  // fond) pour ce message -- seule la classe la plus spécifique doit
+  // matcher, jamais les deux au même endroit.
+  assert.ok(!/[^-]text-error">\{error\}/.test(invoiceRequestFieldsSrc), "text-error nu ne doit plus être utilisé sur ce message");
+});
 
 test("FulfillmentSelector.tsx : sélecteur de ville (cas one-off, hors composant Field) aligné lui aussi", () => {
   assert.ok(fulfillmentSelectorSrc.includes('err("city") ? "border-red-600"'));
