@@ -51,6 +51,15 @@ const config: Config = {
         // Tailwind qui dégraderait la garantie de contraste calculée.
         "ink-on-bg-muted": "var(--sc-ink-on-bg-muted, #625752)",
         "accent-dark-on-bg-muted": "var(--sc-accent-dark-on-bg-muted, #8A5322)",
+        // Couleur d'erreur sémantique (CHECKOUT UX/A11Y MICRO-LOT, issue
+        // #11) -- TOUJOURS calculée contre --sc-bg (lib/color-contrast.ts,
+        // errorTextOnBg), jamais choisie par le commerçant. Repli
+        // (#991B1B, red-800) identique à la valeur "fond clair" que
+        // calcule errorTextOnBg pour les 5 thèmes historiques -- aucune
+        // régression visuelle par défaut, seulement un fond personnalisé
+        // sombre (LOT 1A, restaurant_configs.bg_color) fait basculer
+        // vers la teinte claire calculée.
+        error: "var(--sc-error, #991B1B)",
       },
     },
   },

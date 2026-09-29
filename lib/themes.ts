@@ -16,7 +16,7 @@
  * réalimentées par la config établissement quand elle est renseignée.
  * `null`/absent = comportement exactement identique à avant V69.
  */
-import { darken, readableTextColor, compositeOver, readableAccentOnBg, mutedOnBg } from "@/lib/color-contrast";
+import { darken, readableTextColor, compositeOver, readableAccentOnBg, mutedOnBg, errorTextOnBg } from "@/lib/color-contrast";
 
 /** Composantes RVB d'une couleur hexadécimale. */
 export function rgbOf(hex: string): [number, number, number] {
@@ -226,6 +226,12 @@ export function themeStyle(
     // ferait tomber le contraste sous 4.5:1 (voir mutedOnBg).
     "--sc-ink-on-bg-muted": mutedOnBg(readableAccentOnBg(ink, bg), bg),
     "--sc-accent-dark-on-bg-muted": mutedOnBg(readableAccentOnBg(accentDark, bg), bg),
+    // CHECKOUT UX/A11Y MICRO-LOT (issue #11, CIO) -- couleur d'erreur
+    // sémantique (messages de validation du formulaire de commande),
+    // calculée contre --sc-bg comme le reste de ce fichier -- jamais
+    // une classe Tailwind littérale indépendante du fond réel (voir
+    // errorTextOnBg, lib/color-contrast.ts, pour le défaut corrigé).
+    "--sc-error": errorTextOnBg(bg),
   };
 }
 

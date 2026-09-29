@@ -110,6 +110,49 @@ export function darken(hex: string, amount: number): string {
 }
 
 /**
+ * Couleur de TEXTE D'ERREUR (rouge) lisible sur un fond donné.
+ *
+ * CHECKOUT UX/A11Y MICRO-LOT (issue #11, CIO) : les messages d'erreur
+ * du formulaire de commande (composants Field de FulfillmentSelector.tsx
+ * / InvoiceRequestFields.tsx, compteur de note de CartPanel.tsx)
+ * utilisaient jusqu'ici `text-amber-700` (#b45309) -- une teinte
+ * littérale, INDÉPENDANTE du fond réellement affiché. Ce texte est
+ * rendu à même le fond de page (`bg-crema` = `var(--sc-bg)`), qui est
+ * personnalisable par le commerçant depuis LOT 1A
+ * (`restaurant_configs.bg_color`) -- y compris vers un fond quasi noir
+ * (voir TRACKING_SURFACE_COLORS, `bg: "#0F0F10"`, lib/themes.ts) : sur
+ * un tel fond, un brun/rouge foncé comme #b45309 devient quasi
+ * invisible. Exactement le même défaut structurel, jamais corrigé
+ * pour cette famille de couleur, que celui déjà refermé ailleurs
+ * (V69-V73 ci-dessus) pour ink/accent/highlight.
+ *
+ * Contrairement à `readableAccentOnBg` (qui replie sur noir/blanc PUR
+ * dès que la couleur de marque n'est pas assez contrastée), une
+ * erreur doit rester visuellement reconnaissable comme "rouge" quel
+ * que soit le fond -- un repli noir/blanc perdrait ce sens sémantique
+ * précis (l'utilisateur associe la couleur rouge à "erreur", pas la
+ * position noir/blanc). On choisit donc entre une teinte rouge
+ * FONCÉE (conçue pour un fond clair) et une teinte rouge CLAIRE
+ * (conçue pour un fond sombre), celle des deux offrant le MEILLEUR
+ * contraste WCAG contre ce fond précis -- jamais une couleur choisie
+ * par le commerçant, toujours calculée. Repli EXCEPTIONNEL sur
+ * `readableTextColor` (noir/blanc) uniquement si NI l'une NI l'autre
+ * teinte rouge n'atteint 4.5:1 (fond personnalisé gris moyen,
+ * ni clair ni sombre -- aucun cas réel observé à ce jour, voir
+ * lib/themes.ts THEMES + TRACKING_SURFACE_COLORS, mais jamais un
+ * texte illisible pour préserver à tout prix la teinte rouge).
+ */
+export function errorTextOnBg(bgHex: string, minRatio = 4.5): string {
+  const ERROR_RED_ON_LIGHT_BG = "#991B1B"; // Tailwind red-800
+  const ERROR_RED_ON_DARK_BG = "#F87171"; // Tailwind red-400
+  const best =
+    contrastRatio(ERROR_RED_ON_LIGHT_BG, bgHex) >= contrastRatio(ERROR_RED_ON_DARK_BG, bgHex)
+      ? ERROR_RED_ON_LIGHT_BG
+      : ERROR_RED_ON_DARK_BG;
+  return contrastRatio(best, bgHex) >= minRatio ? best : readableTextColor(bgHex);
+}
+
+/**
  * Composite `fgHex` par-dessus `bgHex` à l'opacité `alpha` (0 à 1) et
  * renvoie la couleur RÉELLEMENT visible qui en résulte — alpha
  * blending standard, canal par canal.

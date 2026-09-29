@@ -63,10 +63,22 @@ function Field({
         aria-invalid={error ? true : undefined}
         className={
           "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
-          (error ? "border-amber-400" : "border-espresso/15")
+          // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- bordure rouge FIXE
+          // (jamais var(--sc-error)) : ce champ reste toujours sur un
+          // fond bg-white littéral, quel que soit le thème de
+          // l'établissement, donc la bordure doit rester contrastée
+          // contre CE fond fixe précis (blanc), pas contre --sc-bg
+          // (qui peut être sombre) -- une couleur adaptée à un fond
+          // sombre serait au contraire peu lisible ici. red-600
+          // (#dc2626) : 4,83:1 contre blanc, vérifié.
+          (error ? "border-red-600" : "border-espresso/15")
         }
       />
-      {error && <p className="mt-1 text-xs text-amber-700">{error}</p>}
+      {/* Texte D'ERREUR, lui, est rendu sur le fond de PAGE ambiant
+          (--sc-bg), potentiellement personnalisé et sombre (LOT 1A) --
+          text-error (var(--sc-error)) est donc bien la couleur
+          adaptée ici, contrairement à la bordure ci-dessus. */}
+      {error && <p className="mt-1 text-xs text-error">{error}</p>}
     </div>
   );
 }
@@ -674,7 +686,10 @@ export default function FulfillmentSelector({
                 aria-invalid={err("city") ? true : undefined}
                 className={
                   "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm " +
-                  (err("city") ? "border-amber-400" : "border-espresso/15")
+                  // Voir le commentaire du composant Field ci-dessus :
+                  // bg-white fixe -> bordure rouge fixe (red-600),
+                  // jamais adaptée à --sc-bg.
+                  (err("city") ? "border-red-600" : "border-espresso/15")
                 }
               >
                 <option value="">{t("cityChoosePrompt")}</option>
@@ -684,7 +699,7 @@ export default function FulfillmentSelector({
                   </option>
                 ))}
               </select>
-              {err("city") && <p className="mt-1 text-xs text-amber-700">{err("city")}</p>}
+              {err("city") && <p className="mt-1 text-xs text-error">{err("city")}</p>}
             </div>
           ) : (
             <Field
@@ -766,7 +781,7 @@ export default function FulfillmentSelector({
       <div key={`group-${item.groupName}`} className="space-y-3">
         {item.fields.map((f) => renderMappedField(f.field, `${item.groupName}-${f.field}`))}
         {showErrors && !groupSatisfied && (
-          <p className="text-xs text-amber-700">
+          <p className="text-xs text-error">
             {t("fieldOneOfRequired", { fields: memberLabels })}
           </p>
         )}

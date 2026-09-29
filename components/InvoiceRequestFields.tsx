@@ -92,10 +92,18 @@ function Field({
         aria-invalid={error ? true : undefined}
         className={
           "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
-          (error ? "border-amber-400" : "border-espresso/15")
+          // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- même raisonnement
+          // que FulfillmentSelector.tsx : ce champ reste toujours sur
+          // bg-white littéral, donc bordure rouge FIXE (red-600),
+          // jamais var(--sc-error) (adaptée au fond de PAGE, pas au
+          // fond fixe de ce champ précis).
+          (error ? "border-red-600" : "border-espresso/15")
         }
       />
-      {error && <p className="mt-1 text-xs text-amber-700">{error}</p>}
+      {/* Le texte d'erreur, lui, est rendu sur le fond de page ambiant
+          (--sc-bg) -- text-error (var(--sc-error)) est donc la
+          couleur adaptée ici. */}
+      {error && <p className="mt-1 text-xs text-error">{error}</p>}
     </div>
   );
 }
