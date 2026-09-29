@@ -5,3 +5,9 @@ node_modules
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# E2E Foundation v1 (Playwright) -- local run artifacts, never committed;
+# CI uploads these as workflow artifacts on failure instead (see
+# .github/workflows/e2e-foundation-v1.yml).
+/playwright-report/
+/test-results/

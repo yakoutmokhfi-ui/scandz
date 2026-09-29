@@ -1,0 +1,87 @@
+name: E2E Foundation v1 (informational)
+
+# ============================================================================
+# SCANYM E2E AUTOMATION FOUNDATION v1 (issue #11, comments `5886339688`,
+# `5894999069`, `5896211327`).
+#
+# Deterministic Playwright/Chromium executor, SEPARATE from the existing
+# Node/jsdom suite (tests/*.test.ts, run via `npm test`) and from
+# `restaurant-context-critical-regression-gate.yml` -- never merged into
+# either, never replaces either.
+#
+# v1 IS INFORMATIONAL / NON-BLOCKING BY DESIGN (approved CIO preference,
+# comment `5896211327`, section 2): it does NOT gate merges or the
+# release train. Failures here are visible and investigated by a human,
+# not auto-retried, not silently ignored either. After a burn-in period
+# with zero flakes on the stable scenarios, promoting specific scenarios
+# to a required/blocking check is a SEPARATE, explicit follow-up change
+# to branch protection -- not something this workflow does on its own.
+#
+# READ-ONLY ONLY: every scenario under e2e/ only navigates and reads --
+# no cart mutation, no checkout, no Production data is ever written by
+# this workflow.
+# ============================================================================
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-foundation-v1:
+    name: E2E Foundation v1 (Chromium, mobile + desktop, read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright (Chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E Foundation v1 scenarios
+        id: e2e
+        env:
+          # Chemin public en lecture seule -- jamais un secret, jamais
+          # un tenant de mutation. Peut être redéfini via
+          # workflow_dispatch/environment sans toucher au code des
+          # scénarios (voir playwright.config.ts).
+          PLAYWRIGHT_BASE_URL: https://scanym-sanaa.vercel.app
+        run: npx playwright test
+
+      - name: Upload Playwright report (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload traces/screenshots (on failure only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results-${{ github.sha }}
+          path: test-results/
+          retention-days: 7
+
+      - name: Result summary
+        if: always()
+        run: |
+          if [ "${{ steps.e2e.outcome }}" != "success" ]; then
+            echo "::warning::E2E Foundation v1 FAILED at commit ${{ github.sha }}. This is INFORMATIONAL ONLY in v1 -- it does not block merges or the release train. Download the uploaded artifacts (Playwright report + traces/screenshots) and investigate: product regression, environment/network flake, or an obsolete scenario. See issue #11 for the approved v1 design and constraints."
+          else
+            echo "E2E Foundation v1: all scenarios passed at commit ${{ github.sha }}."
+          fi
