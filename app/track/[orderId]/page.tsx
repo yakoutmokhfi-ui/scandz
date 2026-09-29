@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { getOrderTracking } from "@/lib/server/tracking-service";
 import {
@@ -30,6 +29,7 @@ import { translate, resolveLangFromParam } from "@/lib/i18n";
 import { DEFAULT_THEME, TRACKING_SURFACE_COLORS, themeStyle } from "@/lib/themes";
 import { formatPrice } from "@/lib/whatsapp";
 import TrackingAutoRefresh from "@/components/TrackingAutoRefresh";
+import TrackingManualRefreshLink from "@/components/TrackingManualRefreshLink";
 import TrackingEntryGate from "@/components/TrackingEntryGate";
 import TrackingFragmentScrubber from "@/components/TrackingFragmentScrubber";
 import WithdrawalPanel from "@/components/WithdrawalPanel";
@@ -59,6 +59,24 @@ import Ltr from "@/components/Bidi";
  * à `metadata.robots` ci-dessous.
  */
 export const dynamic = "force-dynamic";
+
+/**
+ * TRACKING FRESHNESS v1 — AUDIT REMEDIATION (issue #11, comment
+ * `5884325325`, BLOCKER B : "the server-error rendering path removes
+ * BOTH TrackingAutoRefresh and the manual fallback, leaving no way to
+ * recover automatically even if the server becomes healthy again").
+ *
+ * Cadence dédiée, volontairement PLUS LENTE que la cadence normale de
+ * suivi (5s, `TrackingAutoRefresh`'s own default) -- mandat explicite
+ * de l'audit : "avoid an aggressive retry loop" sur une branche qui,
+ * par construction, vient d'échouer à joindre le serveur. Simple
+ * intervalle fixe (le même mécanisme `setInterval` déjà utilisé
+ * partout dans ce composant, aucune nouvelle machinerie de
+ * backoff/retry) -- cohérent avec le mandat "no WebSocket/realtime
+ * complexity unless a concrete requirement proves it necessary" déjà
+ * appliqué au reste de ce lot.
+ */
+const TRACKING_ERROR_RECOVERY_INTERVAL_MS = 20_000;
 
 /**
  * CUSTOMER CONFIRMATION + TRACKING FINAL v1 (mandat, "FR/EN/AR i18n") —
@@ -119,6 +137,14 @@ export default async function TrackingPage({
     );
   }
 
+  // AUDIT REMEDIATION BLOCKER B : calculé ICI (fonction pure de
+  // `orderId`, déjà validé ci-dessus) plutôt qu'après le bloc
+  // try/catch ci-dessous, pour être disponible aussi bien sur le
+  // chemin de succès que sur les branches d'erreur TRANSITOIRE, qui
+  // ont désormais besoin du même chemin "propre" (jamais de jeton)
+  // pour leur propre mécanisme de récupération.
+  const cleanPath = buildCleanTrackingPath(orderId);
+
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get(TRACKING_SESSION_COOKIE_NAME)?.value ?? null;
   const session = sessionCookie ? verifyTrackingSessionToken(sessionCookie, orderId) : null;
@@ -154,24 +180,49 @@ export default async function TrackingPage({
       );
     }
     if (err instanceof TrackingServerUnavailableError) {
+      // AUDIT REMEDIATION BLOCKER B : panne D'INFRASTRUCTURE
+      // (Supabase injoignable, erreur Postgrest inattendue --
+      // lib/server/tracking-errors.ts) -- par construction TRANSITOIRE,
+      // jamais une preuve que le lien/jeton lui-même est invalide.
+      // Contrairement à `TrackingLinkInvalidError` ci-dessus (état
+      // TERMINAL, aucune récupération possible en réessayant), cette
+      // branche conserve désormais un mécanisme de récupération :
+      // rafraîchissement automatique à cadence LENTE (voir
+      // `TRACKING_ERROR_RECOVERY_INTERVAL_MS`, "avoid an aggressive
+      // retry loop") et le même repli manuel que le chemin de succès.
       return (
         <TrackingShell>
+          <TrackingAutoRefresh enabled intervalMs={TRACKING_ERROR_RECOVERY_INTERVAL_MS} />
           <StatusMessage
             title={t("trackingUnavailableTitle")}
             message={t("trackingUnavailableMessage")}
           />
+          <TrackingManualRefreshLink href={cleanPath} label={t("trackingRefreshLabel")} />
         </TrackingShell>
       );
     }
     // Défensif : toute autre exception inattendue reste traitée comme
     // une panne d'infrastructure GÉNÉRIQUE, jamais propagée telle
     // quelle (mandat §13).
+    //
+    // AUDIT REMEDIATION BLOCKER B : la taxonomie d'erreurs de ce
+    // fichier (lib/server/tracking-errors.ts) documente explicitement
+    // "deux cas SEULEMENT, délibérément distincts" -- cette branche
+    // n'est donc PAS une troisième catégorie métier, seulement un
+    // filet défensif pour l'inattendu. Elle partageait déjà le MÊME
+    // message que `TrackingServerUnavailableError` ci-dessus ; elle
+    // partage désormais, pour la MÊME raison de prudence (un
+    // problème réellement transitoire ne doit pas priver le client
+    // d'un moyen de récupérer), le même mécanisme de récupération --
+    // jamais traitée comme un état terminal inventé.
     return (
       <TrackingShell>
+        <TrackingAutoRefresh enabled intervalMs={TRACKING_ERROR_RECOVERY_INTERVAL_MS} />
         <StatusMessage
           title={t("trackingUnavailableTitle")}
           message={t("trackingUnavailableMessage")}
         />
+        <TrackingManualRefreshLink href={cleanPath} label={t("trackingRefreshLabel")} />
       </TrackingShell>
     );
   }
@@ -189,7 +240,6 @@ export default async function TrackingPage({
   const currentLabelKey = isException
     ? statusLabelKey(tracking.orderStatus)
     : statusLabelKeyForServiceMode(tracking.orderStatus, tracking.serviceMode);
-  const cleanPath = buildCleanTrackingPath(orderId);
   const terminal = isTerminalStatus(tracking.orderStatus);
 
   // CUSTOMER CONTACT + LIVE TRACKING v1 — contexte client
@@ -441,15 +491,14 @@ export default async function TrackingPage({
           Mandat §24 (ferme CTE-V1-ACCESSIBILITY-01) : le symbole "⟳"
           seul, sans nom accessible, est INTERDIT -- ce lien porte
           désormais un libellé visible ET un aria-label équivalent,
-          avec une cible tactile mobile d'environ 44×44px. */}
-      <Link
-        href={cleanPath}
-        aria-label={t("trackingRefreshLabel")}
-        className="mt-8 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-caramel px-4 py-2 text-sm font-bold text-accent-dark-on-bg"
-      >
-        <span aria-hidden="true">⟳</span>
-        <span>{t("trackingRefreshLabel")}</span>
-      </Link>
+          avec une cible tactile mobile d'environ 44×44px.
+          AUDIT REMEDIATION BLOCKER A (issue #11, comment `5884325325`) :
+          `TrackingManualRefreshLink` rend le MÊME `<Link>` qu'avant ce
+          lot (même markup, même repli sans JS) mais partage désormais,
+          quand JavaScript s'exécute, le MÊME verrou mono-vol que le
+          minuteur et le focus de TrackingAutoRefresh -- voir
+          components/TrackingManualRefreshLink.tsx. */}
+      <TrackingManualRefreshLink href={cleanPath} label={t("trackingRefreshLabel")} />
     </TrackingShell>
   );
 }
