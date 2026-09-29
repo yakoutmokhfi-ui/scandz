@@ -48,6 +48,17 @@ on:
 
 permissions:
   contents: read
+  # Nécessaire UNIQUEMENT pour l'étape "Post failure summary to PR"
+  # ci-dessous (diagnostic, gated sur `github.event_name ==
+  # 'pull_request' && failure()`) : les endpoints de logs/artefacts
+  # GitHub (`.../actions/jobs/{id}/logs`, `.../actions/artifacts/{id}/zip`)
+  # redirigent (302) vers un stockage blob Azure inatteignable depuis
+  # l'environnement d'investigation habituel (voir issue #11) -- un
+  # commentaire posté ici, via `api.github.com` (toujours atteignable),
+  # est donc le seul canal fiable pour voir le détail réel d'un échec
+  # Playwright. N'accorde jamais d'écriture sur `contents`, `issues`, ou
+  # quoi que ce soit d'autre.
+  pull-requests: write
 
 jobs:
   e2e-foundation-v1:
@@ -77,7 +88,15 @@ jobs:
           # workflow_dispatch/environment sans toucher au code des
           # scénarios (voir playwright.config.ts).
           PLAYWRIGHT_BASE_URL: https://scanym-sanaa.vercel.app
-        run: npx playwright test
+        shell: bash
+        run: |
+          set -o pipefail
+          # Sortie du reporter "list" dupliquée dans un fichier (jamais
+          # committé, voir .gitignore) pour l'étape de diagnostic
+          # ci-dessous -- seul moyen de voir le détail réel d'un échec
+          # depuis un environnement qui ne peut pas atteindre le
+          # stockage blob des logs/artefacts GitHub (voir issue #11).
+          npx playwright test 2>&1 | tee playwright-run.log
 
       - name: Upload Playwright report (on failure only)
         if: failure()
@@ -94,6 +113,41 @@ jobs:
           name: playwright-test-results-${{ github.sha }}
           path: test-results/
           retention-days: 7
+
+      - name: Post failure summary to PR (diagnostic, informational)
+        # Gated sur pull_request : un run workflow_dispatch n'a pas de PR
+        # associée à commenter. N'écrit jamais sur `main`, ne modifie
+        # aucun fichier du dépôt, ne débloque ni ne bloque rien -- un
+        # commentaire de plus, purement informationnel, au même titre que
+        # l'annotation ::warning:: de l'étape "Result summary" ci-dessous.
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tail -n 200 playwright-run.log > /tmp/playwright-tail.log 2>/dev/null || echo "(aucun log capturé)" > /tmp/playwright-tail.log
+          {
+            echo "### E2E Foundation v1 -- échec informationnel à \`${COMMIT_SHA}\`"
+            echo ""
+            echo "Commentaire posté automatiquement par \`e2e-foundation-v1.yml\` (voir issue #11) : les endpoints de logs/artefacts GitHub redirigent vers un stockage blob inatteignable depuis l'environnement d'investigation habituel -- ce commentaire est donc le seul canal permettant de voir le détail réel de l'échec Playwright. Non bloquant en v1, ne modifie rien d'autre."
+            echo ""
+            echo "<details><summary>Dernières lignes du run Playwright (tronqué à 200 lignes)</summary>"
+            echo ""
+            echo '```'
+            cat /tmp/playwright-tail.log
+            echo '```'
+            echo ""
+            echo "</details>"
+          } > /tmp/playwright-comment-body.txt
+          jq -Rs '{body: .}' /tmp/playwright-comment-body.txt > /tmp/playwright-comment.json
+          curl -sS -o /tmp/curl-response.json -w "\nHTTP %{http_code}\n" -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -d @/tmp/playwright-comment.json
 
       - name: Result summary
         if: always()

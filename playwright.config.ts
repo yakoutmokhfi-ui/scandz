@@ -35,7 +35,13 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined,
 
   // Rapport HTML jamais ouvert automatiquement (environnement CI sans
-  // affichage) -- consommé comme artefact, voir le workflow.
+  // affichage) -- consommé comme artefact, voir le workflow. Le reporter
+  // "list" (stdout) est aussi redirigé vers un fichier par le workflow
+  // CI (`playwright-run.log`, jamais committé -- voir .gitignore) : c'est
+  // ce texte, et non le rapport JSON structuré, qui est repris en cas
+  // d'échec pour un commentaire de diagnostic sur la PR, car l'endpoint
+  // de logs/artefacts GitHub redirige vers un stockage blob inatteignable
+  // depuis l'environnement d'investigation habituel (voir issue #11).
   reporter: [["html", { open: "never", outputFolder: "playwright-report" }], ["list"]],
 
   use: {
