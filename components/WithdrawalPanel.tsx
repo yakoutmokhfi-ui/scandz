@@ -34,6 +34,41 @@ import { translate, type Lang } from "@/lib/i18n";
  * `/track/{orderId}/withdrawal`, un sous-chemin réel de la portée du
  * cookie -- aucun changement du modèle d'autorisation lui-même
  * (verifyTrackingSessionToken + liaison orderId, inchangés).
+ *
+ * LOT 2 (P1, quantité + contraste) : correctifs UX ciblés (issue #11,
+ * mandat CIO/Ravel #5873108024, points 4/5/8), sans changement au
+ * modèle de données ni à l'autorité serveur (déjà exercée par la RPC
+ * submit_withdrawal_request_by_capability, WITHDRAWAL_QUANTITY_EXCEEDS_ORDERED
+ * déjà en vigueur -- point 7 du mandat déjà satisfait, aucun code
+ * serveur touché par ce lot) :
+ *   - une ligne dont remainingQuantity === 1 n'affiche plus AUCUN
+ *     sélecteur de quantité -- cocher la ligne signifie 1/1 (point 4) ;
+ *   - le champ de quantité (remainingQuantity > 1) ne se désactive plus
+ *     lui-même en cours de frappe : voir `quantityDrafts` et
+ *     handleQuantityInput/commitQuantityDraft ci-dessous pour le
+ *     mécanisme -- un état de saisie INTERMÉDIAIRE (champ vidé pour
+ *     retaper, valeur momentanément non numérique) ne touche JAMAIS la
+ *     quantité RETENUE (`quantities`), donc ne peut plus désactiver le
+ *     champ en cours de frappe (point 5). La règle métier approuvée
+ *     (mandat #5873108024, littéral : « 0 = unselected ») reste
+ *     inchangée : une valeur numérique VALIDÉE (commitée) à 0
+ *     désélectionne bien la ligne, exactement comme décocher la case --
+ *     REMÉDIATION (audit Chateaubriand/Ravel, commentaires 5876097341/
+ *     5876134468) : une version antérieure de ce lot avait par erreur
+ *     remonté le plancher de clamp de 0 à 1, empêchant `0` tapé et
+ *     validé de désélectionner une ligne. Corrigé ici -- le plancher
+ *     redevient 0, uniquement pour la valeur RETENUE (jamais pour un
+ *     état de saisie intermédiaire, qui ne passe jamais par ce chemin) ;
+ *   - les boutons secondaires « Retour » (sélection et récapitulatif)
+ *     portent désormais `text-ink-on-bg` explicitement, comme le
+ *     bouton d'entrée déjà correct plus haut dans ce même fichier --
+ *     jusqu'ici ils héritaient une couleur de texte non garantie,
+ *     illisible sur certains thèmes sombres personnalisés par le
+ *     commerçant (même défaut de fond, même classe de correction, que
+ *     UIFIX-01 déjà appliqué à CategoryNav.tsx) (point 8).
+ * Le point 6 (récapitulatif = quantités exactes) et le point 7
+ * (autorité serveur) étaient déjà satisfaits avant ce lot -- vérifiés,
+ * non modifiés.
  */
 
 export interface WithdrawalPanelOption {
@@ -82,6 +117,16 @@ export default function WithdrawalPanel({
 
   const [step, setStep] = useState<Step>("closed");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  // LOT 2 -- QUANTITÉ UX. Tampon de SAISIE BRUTE, distinct de
+  // `quantities` (la quantité RETENUE, seule source pour `checked`,
+  // `disabled` et l'envoi). Sans ce tampon, vider le champ pour
+  // retaper une nouvelle valeur passait par un état intermédiaire
+  // quantité=0 -- qui désactivait le champ (disabled={quantity===0})
+  // AVANT que l'utilisateur ait pu taper le chiffre suivant, le
+  // bloquant en plein milieu de sa saisie. Un champ vidé (chaîne vide)
+  // ou momentanément non numérique reste ici SANS toucher à la
+  // quantité retenue -- voir handleQuantityInput/commitQuantityDraft.
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [ackAddress, setAckAddress] = useState("");
@@ -106,11 +151,63 @@ export default function WithdrawalPanel({
   function toggle(option: WithdrawalPanelOption, checked: boolean) {
     setErrorCode(null);
     setQuantities((prev) => ({ ...prev, [option.orderItemId]: checked ? 1 : 0 }));
+    clearQuantityDraft(option);
   }
 
+  // LOT 2 -- QUANTITÉ UX (point 4/5 du mandat CIO/Ravel, issue #11
+  // #5873108024). RÈGLE APPROUVÉE (mandat, littéral) : « Quantity>1:
+  // customer can choose integer 1..ordered quantity; 0 = unselected. »
+  // Plancher à 0 (jamais 1 -- voir REMÉDIATION dans l'en-tête de ce
+  // fichier) : une valeur numérique VALIDÉE (commitée depuis
+  // handleQuantityInput, donc jamais depuis un état de saisie
+  // intermédiaire, cf. quantityDrafts) à 0 désélectionne la ligne,
+  // exactement comme décocher la case -- `checked`/`disabled` en
+  // dérivent directement (checked={quantity > 0}), donc aucun état
+  // supplémentaire à synchroniser ici.
   function setQuantity(option: WithdrawalPanelOption, value: number) {
     const clamped = Math.max(0, Math.min(option.remainingQuantity, Math.trunc(value)));
     setQuantities((prev) => ({ ...prev, [option.orderItemId]: clamped }));
+  }
+
+  function clearQuantityDraft(option: WithdrawalPanelOption) {
+    setQuantityDrafts((prev) => {
+      if (!(option.orderItemId in prev)) return prev;
+      const next = { ...prev };
+      delete next[option.orderItemId];
+      return next;
+    });
+  }
+
+  /**
+   * Appelé à CHAQUE frappe dans le champ de quantité (uniquement rendu
+   * quand remainingQuantity > 1, voir le rendu plus bas).
+   *
+   * Chaîne vide ou non numérique : affichée telle quelle (l'utilisateur
+   * est en train de composer une nouvelle valeur) -- SANS jamais
+   * toucher à `quantities`, donc sans jamais désactiver le champ ni
+   * décocher la ligne pendant la frappe.
+   *
+   * Valeur numérique valide : commit immédiat dans `quantities`
+   * (bornée par setQuantity), et le tampon brut est effacé -- le champ
+   * affiche alors directement la quantité RETENUE (bornée), jamais une
+   * saisie non validée qui dépasserait le stock restant.
+   */
+  function handleQuantityInput(option: WithdrawalPanelOption, raw: string) {
+    if (raw.trim() === "" || !Number.isFinite(Number(raw))) {
+      setQuantityDrafts((prev) => ({ ...prev, [option.orderItemId]: raw }));
+      return;
+    }
+    setQuantity(option, Number(raw));
+    clearQuantityDraft(option);
+  }
+
+  /**
+   * Au blur : abandonne toute saisie brute non commitée (ex. champ
+   * laissé vide sans nombre valide) -- l'affichage revient alors à la
+   * quantité réellement retenue, jamais un champ vide/incohérent.
+   */
+  function commitQuantityDraft(option: WithdrawalPanelOption) {
+    clearQuantityDraft(option);
   }
 
   async function confirm() {
@@ -203,22 +300,32 @@ export default function WithdrawalPanel({
                     {option.optionName ? (
                       <span className="block text-ink-on-bg-muted">+ {option.optionName}</span>
                     ) : null}
-                    <span className="mt-1 flex items-center gap-2">
-                      <span className="text-ink-on-bg-muted">{t("withdrawalQuantityLabel")}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={option.remainingQuantity}
-                        value={quantity > 0 ? quantity : 1}
-                        disabled={quantity === 0}
-                        data-withdrawal-quantity={option.orderItemId}
-                        onChange={(event) => setQuantity(option, Number(event.target.value))}
-                        className="w-16 rounded-lg border border-ink-on-bg/30 px-2 py-1"
-                      />
-                      <span className="text-ink-on-bg-muted">
-                        / {option.remainingQuantity}
+                    {/* LOT 2 -- QUANTITÉ UX (point 4 du mandat) : une ligne
+                        dont il ne reste qu'une seule unité rétractable
+                        n'offre AUCUN choix de quantité -- la case cochée
+                        signifie 1/1, sans sélecteur numérique redondant
+                        ("/ 1" n'apportait aucune information). Rendu
+                        strictement identique au comportement historique
+                        dès que remainingQuantity > 1. */}
+                    {option.remainingQuantity > 1 ? (
+                      <span className="mt-1 flex items-center gap-2">
+                        <span className="text-ink-on-bg-muted">{t("withdrawalQuantityLabel")}</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={option.remainingQuantity}
+                          value={quantityDrafts[option.orderItemId] ?? String(quantity > 0 ? quantity : 1)}
+                          disabled={quantity === 0}
+                          data-withdrawal-quantity={option.orderItemId}
+                          onChange={(event) => handleQuantityInput(option, event.target.value)}
+                          onBlur={() => commitQuantityDraft(option)}
+                          className="w-16 rounded-lg border border-ink-on-bg/30 px-2 py-1"
+                        />
+                        <span className="text-ink-on-bg-muted">
+                          / {option.remainingQuantity}
+                        </span>
                       </span>
-                    </span>
+                    ) : null}
                   </span>
                 </label>
               </li>
@@ -230,7 +337,7 @@ export default function WithdrawalPanel({
           <button
             type="button"
             onClick={() => setStep("closed")}
-            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold"
+            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
           >
             {t("withdrawalBack")}
           </button>
@@ -315,7 +422,7 @@ export default function WithdrawalPanel({
           <button
             type="button"
             onClick={() => setStep("selection")}
-            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold"
+            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
           >
             {t("withdrawalBack")}
           </button>
