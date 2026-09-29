@@ -26,6 +26,24 @@ on:
   push:
     branches:
       - main
+  # Scoped to the E2E layer itself (not every PR): lets THIS lot's own
+  # PR get a real execution before merge/review, and any FUTURE PR that
+  # touches the E2E layer get one too, without adding browser-test
+  # latency/cost to ordinary feature PRs that never touch e2e/.
+  # `workflow_dispatch` alone cannot do this: GitHub only allows
+  # dispatching a workflow that already exists on the default branch,
+  # so a brand-new workflow has no way to get its first real run before
+  # being on `main` without either this, or merging first (not done
+  # here -- this PR stays draft).
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "e2e/**"
+      - "playwright.config.ts"
+      - ".github/workflows/e2e-foundation-v1.yml"
+      - "package.json"
+      - "package-lock.json"
   workflow_dispatch: {}
 
 permissions:
