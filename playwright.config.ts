@@ -63,7 +63,21 @@ export default defineConfig({
   projects: [
     {
       name: "mobile",
-      use: { ...devices["iPhone 13"] }, // 390x844, correspond à la preuve visuelle déjà produite pour PR #115
+      use: {
+        ...devices["iPhone 13"], // 390x844, correspond à la preuve visuelle déjà produite pour PR #115
+        // Le profil `devices["iPhone 13"]` de Playwright fixe
+        // `defaultBrowserType: "webkit"` (émulation Safari mobile
+        // réel) -- ce qui, sans cette ligne, fait échouer CE projet
+        // précis en CI (`browserType.launch: Executable doesn't
+        // exist at .../webkit-.../pw_run.sh`), car le workflow
+        // n'installe QUE Chromium (`npx playwright install
+        // --with-deps chromium`), conformément au périmètre v1
+        // "Chromium only (no Firefox/WebKit) unless a concrete
+        // future need appears". On conserve donc le viewport/UA/
+        // touch de l'émulation iPhone 13, mais en forçant le moteur
+        // Chromium réellement installé.
+        browserName: "chromium",
+      },
     },
     {
       name: "desktop",
