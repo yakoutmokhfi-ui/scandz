@@ -206,10 +206,21 @@ function renderBoth(props: { enabled: boolean; intervalMs?: number }) {
   return { container, root };
 }
 
-function clickManualLink(container: Element) {
+/**
+ * ROUND 4 : renvoie désormais `event.defaultPrevented` -- les
+ * appelants PRÉ-Round-4 ignorent simplement cette valeur de retour
+ * (aucun n'est modifié par ce changement), tandis que les nouveaux
+ * scénarios [T1]-[T5] Round 4 ci-dessous l'utilisent pour vérifier
+ * QUAND la navigation par défaut est empêchée -- exactement le
+ * comportement qui vient de devenir CONDITIONNEL dans
+ * `TrackingManualRefreshLink.tsx`.
+ */
+function clickManualLink(container: Element): boolean {
   const anchor = container.querySelector("a")!;
   assert.ok(anchor, "le lien de rafraîchissement manuel doit être rendu");
-  anchor.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const event = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+  anchor.dispatchEvent(event);
+  return event.defaultPrevented;
 }
 
 /**
@@ -669,6 +680,200 @@ test("[V7] un retour de focus PENDANT que l'onglet est marqué caché ne déclen
     await waitFor(() => callCount === 1, "le focus redevient opérant dès que l'onglet redevient visible");
   } finally {
     Object.defineProperty(window.document, "visibilityState", { value: "visible", configurable: true });
+    root.unmount();
+    container.remove();
+  }
+});
+
+// ====================================================================
+// [T] ROUND 4 (issue #11, Ravel relayant Château Margaux -- régression
+//     repli manuel en STATUT DE COMMANDE terminal) -- scénarios
+//     OBLIGATOIRES T1-T7 du document de remédiation Round 4.
+//
+//     `app/track/[orderId]/page.tsx` calcule `enabled={!terminal}` sur
+//     `<TrackingAutoRefresh>`, où `terminal = isTerminalStatus(tracking.
+//     orderStatus)` est VRAI pour EXACTEMENT les trois statuts
+//     `completed`/`rejected`/`cancelled` (lib/tracking/status.ts) -- les
+//     trois se traduisent donc, au niveau de CE composant, par
+//     EXACTEMENT le même `enabled={false}` : aucune notion de statut de
+//     commande n'existe à l'intérieur de `TrackingAutoRefresh`/
+//     `TrackingManualRefreshLink` eux-mêmes (voir leurs commentaires de
+//     tête respectifs). T1/T2/T3 exercent donc, chacun explicitement
+//     nommé et tracé au document de remédiation, le MÊME comportement
+//     `enabled={false}` -- refaire descendre un vrai statut de commande
+//     jusqu'à ce niveau nécessiterait de reconstruire l'intégralité de
+//     la chaîne de mocks du chemin de succès de page.tsx (getOrderTracking
+//     + contexte client + overrides de texte + options de retrait), une
+//     expansion que ce round exclut explicitement ("Fix this minimally").
+//     Rien ici ne remplace [H1]/[H6] (volet PAGE, fichier séparé), qui
+//     vérifient déjà QUELLES branches montent quels composants.
+// ====================================================================
+
+test("[T1] statut de commande TERMINAL (completed) : lien manuel présent, clic NE PAS empêcher la navigation par défaut, aucun rafraîchissement déclenché", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  // `enabled={false}` == exactement ce que page.tsx passe à
+  // `TrackingAutoRefresh` quand `tracking.orderStatus === "completed"`.
+  const { container, root } = renderBoth({ enabled: false });
+  try {
+    await flush(20);
+    const anchor = container.querySelector("a")!;
+    assert.ok(anchor, "le lien de rafraîchissement manuel doit rester rendu en statut terminal");
+    assert.equal(anchor.getAttribute("href"), CLEAN_HREF, "le href réel doit rester intact -- c'est lui qui doit porter la navigation");
+
+    const prevented = clickManualLink(container);
+    assert.equal(prevented, false, "aucun déclencheur canonique enregistré en statut terminal -- preventDefault() ne doit PAS être appelé, pour laisser la navigation normale suivre le href réel");
+    await flush(30);
+    assert.equal(callCount, 0, "aucun rafraîchissement ne doit être déclenché -- aucun déclencheur n'est enregistré en statut terminal");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T2] statut de commande TERMINAL (rejected) : même comportement attendu que T1", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: false });
+  try {
+    await flush(20);
+    const prevented = clickManualLink(container);
+    assert.equal(prevented, false, "rejected -- comme completed, aucun déclencheur enregistré -- preventDefault() ne doit PAS être appelé");
+    await flush(30);
+    assert.equal(callCount, 0, "rejected -- aucun rafraîchissement déclenché");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T3] statut de commande TERMINAL (cancelled) : même comportement attendu que T1/T2", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: false });
+  try {
+    await flush(20);
+    const prevented = clickManualLink(container);
+    assert.equal(prevented, false, "cancelled -- comme completed/rejected, aucun déclencheur enregistré -- preventDefault() ne doit PAS être appelé");
+    await flush(30);
+    assert.equal(callCount, 0, "cancelled -- aucun rafraîchissement déclenché");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T4] statut ACTIF : clic manuel intercepté, navigation par défaut empêchée, rafraîchissement canonique déclenché exactement une fois", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+    await waitForMountReady(() => callCount);
+
+    const before = callCount;
+    const prevented = clickManualLink(container);
+    assert.equal(prevented, true, "statut actif -- un déclencheur canonique EST enregistré -- preventDefault() DOIT être appelé");
+    await waitFor(() => callCount === before + 1, "le rafraîchissement canonique doit être déclenché exactement une fois");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T5] ERREUR SERVEUR TRANSITOIRE (AutoRefresh de récupération lente enregistré) : clic manuel intercepté, rafraîchissement canonique déclenché exactement une fois, jamais de navigation normale", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  // `intervalMs: 20_000` reproduit la cadence de récupération LENTE de
+  // la branche d'erreur transitoire de page.tsx
+  // (TRACKING_ERROR_RECOVERY_INTERVAL_MS) -- ce composant lui-même ne
+  // distingue pas "actif" d'"erreur transitoire" (les deux sont
+  // `enabled={true}`, seule la cadence diffère) ; le câblage page-level
+  // réel de cette branche est déjà vérifié indépendamment par
+  // [H2]-[H4] (fichier -page.dom.test.ts).
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 20_000 });
+  try {
+    await flush(20);
+    const anchorHrefBefore = container.querySelector("a")!.getAttribute("href");
+
+    const prevented = clickManualLink(container);
+    assert.equal(prevented, true, "un déclencheur canonique EST enregistré (récupération lente) -- preventDefault() DOIT être appelé, jamais de repli sur la navigation normale");
+    await waitFor(() => callCount === 1, "le rafraîchissement canonique doit être déclenché exactement une fois");
+    assert.equal(container.querySelector("a")!.getAttribute("href"), anchorHrefBefore, "le href réel reste intact -- il n'a simplement pas été suivi, le composant a pris le relais");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T6] contrat SANS JavaScript préservé (statut terminal) : href réel, libellé visible, aria-label -- une navigation normale fonctionnerait", async () => {
+  // Complète [F] ci-dessus (déjà vérifié en `enabled: false`, jamais
+  // affaibli par ce round) -- ici comme scénario EXPLICITEMENT tracé
+  // au document de remédiation Round 4 (T6).
+  __resetTrackingRefreshRegistryForTests();
+  const { container, root } = renderBoth({ enabled: false });
+  try {
+    await flush(20);
+    const anchor = container.querySelector("a")!;
+    assert.equal(anchor.getAttribute("href"), CLEAN_HREF, "href réel intact");
+    assert.equal(anchor.getAttribute("aria-label"), REFRESH_LABEL, "aria-label intact");
+    assert.equal(anchor.textContent?.includes(REFRESH_LABEL), true, "libellé visible intact, pas seulement le symbole ⟳");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[T7] NON-RÉGRESSION : le scénario actif même-tick (rafale focus+manuel, contrat void littéral) reste vert après le correctif Round 4", async () => {
+  // Ne remplace ni n'affaiblit [V1]-[V7]/[E1]-[E4] ci-dessus (tous
+  // INCHANGÉS par ce round) -- répète explicitement l'un d'eux, nommé
+  // et tracé au document de remédiation Round 4 (T7 : "at least one
+  // existing active-state same-tick / in-flight scenario must remain
+  // green").
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+    const baseline = await waitForMountReady(() => callCount);
+
+    window.dispatchEvent(new window.Event("focus"));
+    clickManualLink(container);
+    assert.equal(callCount, baseline + 1, "focus + clic manuel synchrones -- toujours un seul appel après le correctif Round 4");
+
+    await flush(30);
+    assert.equal(callCount, baseline + 1, "toujours un seul appel après un court délai");
+  } finally {
     root.unmount();
     container.remove();
   }

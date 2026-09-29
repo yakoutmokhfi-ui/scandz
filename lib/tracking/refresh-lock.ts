@@ -46,17 +46,37 @@
  * (`useTransition()`), et donne à `TrackingManualRefreshLink` un
  * moyen de l'ATTEINDRE plutôt que d'en posséder une copie.
  *
- * INVARIANT (vrai par construction dans `app/track/[orderId]/page.tsx`,
- * NON imposé par ce module) : `TrackingManualRefreshLink` n'est
- * JAMAIS rendu sur une branche où `TrackingAutoRefresh` ne l'est pas
- * AUSSI -- les deux se montent ensemble sur toute branche qui affiche
- * l'un ou l'autre (chemin de succès, `TrackingServerUnavailableError`,
- * exception générique), et aucun des deux ne se monte sur une branche
- * TERMINALE. Si cet invariant était un jour violé,
- * `requestTrackingRefresh()` dégrade SANS DANGER vers un no-op
- * silencieux (voir ci-dessous) plutôt que de lever une exception : un
- * clic manuel sans déclencheur enregistré ne fait simplement rien,
- * jamais un crash.
+ * ROUND 4 (issue #11, Ravel relaying Château Margaux's re-audit) :
+ * correction de l'invariant ci-dessus, qui était FAUX dans sa version
+ * Round 2 -- il ne distinguait pas deux notions différentes de
+ * "terminal". `TrackingManualRefreshLink` est bien monté sur TOUTES
+ * les branches où un mécanisme de récupération a un sens (chemin de
+ * succès ET branches d'erreur transitoire), inchangé. Mais SUR LE
+ * CHEMIN DE SUCCÈS LUI-MÊME, `TrackingAutoRefresh` y est monté avec
+ * `enabled={!terminal}` où `terminal` reflète le STATUT DE LA
+ * COMMANDE (`completed`/`rejected`/`cancelled`) -- une notion
+ * complètement différente des branches TERMINALES au sens
+ * "lien invalide" (order_id malformé, session absente,
+ * `TrackingLinkInvalidError`) évoquées ci-dessus. Sur un statut de
+ * commande terminal, `TrackingAutoRefresh` ne monte donc AUCUN
+ * déclencheur (son effet retourne avant l'appel à
+ * `registerTrackingRefreshTrigger`) alors que
+ * `TrackingManualRefreshLink`, lui, reste monté et cliquable -- ce qui
+ * est le comportement VOULU (repli de navigation toujours disponible
+ * en statut terminal), mais son gestionnaire `onClick` appelait
+ * inconditionnellement `event.preventDefault()` avant de transmettre à
+ * ce registre, produisant un no-op silencieux total (ni rafraîchissement,
+ * ni navigation) au lieu du repli `href` normal attendu.
+ *
+ * D'où le changement Round 4 : `requestTrackingRefresh()` RENVOIE
+ * désormais un booléen signalant si un déclencheur enregistré a
+ * effectivement traité la demande, pour que l'appelant (le gestionnaire
+ * `onClick` de `TrackingManualRefreshLink`) puisse n'empêcher la
+ * navigation par défaut QUE lorsque c'est le cas -- voir ce composant.
+ * Aucun changement de mécanique interne ici : toujours un simple
+ * registre à un seul emplacement, toujours un no-op sans danger quand
+ * rien n'est enregistré, seule la VALEUR DE RETOUR devient observable
+ * par l'appelant.
  *
  * Sûreté SSR : inchangée depuis Round 1 -- ce module n'est importé
  * QUE par des Client Components ("use client", voir
@@ -107,11 +127,21 @@ export function registerTrackingRefreshTrigger(trigger: TrackingRefreshTrigger):
  * comme un tic de minuteur l'aurait été, jamais empilé, jamais deux
  * requêtes réseau concurrentes.
  *
- * No-op silencieux quand rien n'est enregistré (voir invariant
- * ci-dessus) -- jamais une exception.
+ * ROUND 4 : renvoie désormais `true` si un déclencheur était enregistré
+ * et a été appelé, `false` sinon (rien n'est enregistré -- statut de
+ * commande terminal, voir le commentaire de tête). Toujours SANS
+ * DANGER dans les deux cas -- jamais d'exception -- mais la valeur de
+ * retour permet enfin à l'appelant de distinguer "j'ai bien déclenché
+ * le rafraîchissement canonique" de "il n'y avait rien à déclencher",
+ * pour qu'il puisse décider lui-même s'il doit empêcher ou laisser
+ * filer la navigation par défaut du lien.
  */
-export function requestTrackingRefresh(): void {
-  registeredTrigger?.();
+export function requestTrackingRefresh(): boolean {
+  if (registeredTrigger) {
+    registeredTrigger();
+    return true;
+  }
+  return false;
 }
 
 /** Échappatoire réservée aux tests : réinitialise le registre entre

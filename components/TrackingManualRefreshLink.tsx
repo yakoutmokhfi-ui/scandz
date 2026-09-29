@@ -48,9 +48,30 @@ import { requestTrackingRefresh } from "@/lib/tracking/refresh-lock";
  * bien sur le chemin de succès que sur les branches d'ERREUR
  * TRANSITOIRE de `page.tsx` (`TrackingServerUnavailableError` et
  * l'exception générique non classifiée) -- jamais sur les branches
- * TERMINALES (order_id malformé, session absente,
- * `TrackingLinkInvalidError`), qui continuent de ne rendre aucun
- * mécanisme de récupération, inchangé.
+ * TERMINALES au sens "lien invalide" (order_id malformé, session
+ * absente, `TrackingLinkInvalidError`), qui continuent de ne rendre
+ * aucun mécanisme de récupération, inchangé.
+ *
+ * ROUND 4 (issue #11, Ravel relayant Château Margaux -- régression
+ * repli manuel en STATUT DE COMMANDE terminal) : sur le chemin de
+ * succès, ce composant reste monté INCONDITIONNELLEMENT quel que soit
+ * le statut de la commande -- y compris `completed`/`rejected`/
+ * `cancelled` -- alors que `TrackingAutoRefresh`, lui, n'enregistre
+ * AUCUN déclencheur canonique sur ces statuts (`enabled={false}`, voir
+ * `app/track/[orderId]/page.tsx`). L'ancien `handleClick`
+ * n'en tenait pas compte : il appelait toujours `preventDefault()`
+ * avant de transmettre au registre, produisant -- sur un statut
+ * terminal, avec JS actif -- un no-op TOTAL (ni rafraîchissement, ni
+ * navigation), cassant au passage le repli de navigation normale que
+ * ce composant promet pourtant explicitement (voir plus haut). Ce
+ * composant appelle désormais `preventDefault()` UNIQUEMENT quand
+ * `requestTrackingRefresh()` signale qu'un déclencheur canonique a
+ * réellement pris en charge la demande ; sinon, il laisse la
+ * navigation `href` réelle suivre son cours -- exactement le
+ * comportement sans JavaScript, obtenu ici même AVEC JavaScript actif,
+ * précisément parce qu'aucun mécanisme n'écoute. Statut actif ou
+ * erreur transitoire (déclencheur enregistré) : comportement
+ * inchangé, clic toujours intercepté.
  */
 export default function TrackingManualRefreshLink({
   href,
@@ -60,13 +81,27 @@ export default function TrackingManualRefreshLink({
   label: string;
 }) {
   function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
-    // Toujours intercepté quand JS s'exécute -- un clic pendant un
-    // rafraîchissement déjà en cours (ailleurs) est simplement ignoré
-    // par la garde mono-vol de `TrackingAutoRefresh` (même sémantique
-    // que le minuteur/le focus), jamais laissé retomber sur une
-    // navigation complète concurrente.
-    event.preventDefault();
-    requestTrackingRefresh();
+    // ROUND 4 : on demande D'ABORD au registre s'il y a un déclencheur
+    // canonique à traiter, et on n'empêche la navigation par défaut que
+    // si la réponse est oui.
+    //
+    // Déclencheur enregistré (statut actif, ou erreur transitoire avec
+    // récupération lente) : comportement inchangé depuis Round 2 -- un
+    // clic pendant un rafraîchissement déjà en cours (ailleurs) est
+    // simplement ignoré par la garde mono-vol de `TrackingAutoRefresh`
+    // (même sémantique que le minuteur/le focus), jamais laissé
+    // retomber sur une navigation complète concurrente.
+    //
+    // Aucun déclencheur enregistré (statut de commande terminal --
+    // `completed`/`rejected`/`cancelled` -- où `TrackingAutoRefresh` est
+    // monté avec `enabled={false}` et n'enregistre donc rien) : on NE
+    // PAS empêcher la navigation par défaut, pour laisser le vrai
+    // `href` de ce `<Link>` suivre son cours normalement -- exactement
+    // le repli sans JavaScript, préservé ici même avec JavaScript actif.
+    const handled = requestTrackingRefresh();
+    if (handled) {
+      event.preventDefault();
+    }
   }
 
   return (
