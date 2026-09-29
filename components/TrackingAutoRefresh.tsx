@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 
 /**
  * CUSTOMER TRACKING EXPERIENCE v2 — rafraîchissement automatique léger
- * de la page de suivi (mandat §19, ~15s acceptable pour le MVP si les
- * tests confirment un comportement sûr).
+ * de la page de suivi (mandat §19).
  *
  * DÉLIBÉRÉMENT `router.refresh()` (Next.js App Router), JAMAIS un
  * second appel Supabase direct depuis ce composant client : la seule
@@ -26,14 +25,18 @@ import { useRouter } from "next/navigation";
  * cancelled") dès que `enabled` devient `false` -- l'appelant (le
  * Server Component) calcule `enabled` à partir de `isTerminalStatus`
  * (lib/tracking/status.ts) à CHAQUE rendu ; ce composant ne connaît
- * lui-même aucune règle métier de statut.
+ * lui-même aucune règle métier de statut. TOUS les mécanismes de ce
+ * fichier (minuteur ET écouteur de focus ci-dessous) s'arrêtent avec
+ * `enabled` -- aucun ne fonctionne indépendamment de lui.
  *
  * CUSTOMER TRACKING EXPERIENCE v2.1 (ferme CTE-V2-AUTOREFRESH-01, LOW,
  * Work re-audit de v2) : GARDE MONO-VOL ("single-flight guard") --
- * chaque tick de `setInterval` est désormais IGNORÉ si un rafraîchissement
- * précédent est encore en cours, plutôt que d'empiler un second
- * `router.refresh()` par-dessus un premier qui n'a pas encore abouti
- * (réseau lent -> requêtes concurrentes redondantes vers le serveur).
+ * un déclenchement (tick de minuteur OU retour de focus, voir
+ * TRACKING FRESHNESS v1 ci-dessous) est désormais IGNORÉ si un
+ * rafraîchissement précédent est encore en cours, plutôt que
+ * d'empiler un second `router.refresh()` par-dessus un premier qui
+ * n'a pas encore abouti (réseau lent -> requêtes concurrentes
+ * redondantes vers le serveur).
  *
  * MÉCANISME (vérifié directement dans le code source de Next.js livré
  * dans ce dépôt, node_modules/next/dist/client/components/
@@ -50,10 +53,11 @@ import { useRouter } from "next/navigation";
  * vérifié ici empiriquement (voir 21-AUTOREFRESH-SINGLE-FLIGHT-REPORT.txt)
  * avant d'être choisi comme correctif plutôt que supposé correct.
  *
- * `isPendingRef` : `setInterval` capture la closure de son premier
- * rendu -- sans ce miroir par ref, `isPending` y resterait figé à sa
- * valeur initiale (même piège, et même remède, que `mounted`
- * ci-dessous, déjà établi dans ce fichier avant v2.1).
+ * `isPendingRef` : `setInterval`/les écouteurs d'événements capturent
+ * la closure de leur premier rendu -- sans ce miroir par ref,
+ * `isPending` y resterait figé à sa valeur initiale (même piège, et
+ * même remède, que `mounted` ci-dessous, déjà établi dans ce fichier
+ * avant v2.1).
  *
  * La branche `result && typeof result.then === "function"` est
  * INERTE en production réelle (`router.refresh()` y retourne
@@ -63,17 +67,63 @@ import { useRouter } from "next/navigation";
  * contrôlée par le test, rendant la garde mono-vol vérifiable de
  * façon déterministe sans reproduire l'intégralité du mécanisme
  * interne de Next.js dans un bouchon de test.
+ *
+ * ------------------------------------------------------------------
+ * TRACKING FRESHNESS v1 (issue #11, comment 5883794674, Ravel)
+ * ------------------------------------------------------------------
+ * Trois changements, chacun isolé de PR #115 (navigation), PR #116
+ * (XLSX/PSM), Lot 2 withdrawal, CGV, ACK email et test-baseline
+ * cleanup :
+ *
+ * 1. CADENCE 5s (`intervalMs` par défaut : 15_000 -> 5_000). Le site
+ *    d'appel (app/track/[orderId]/page.tsx) reste INCHANGÉ
+ *    (`<TrackingAutoRefresh enabled={!terminal} />`), donc la
+ *    non-régression `tests/tracking-storefront-visual-alignment.test.ts`
+ *    (qui vérifie cette ligne EXACTE comme une "autorité de suivi")
+ *    reste valide sans modification.
+ *
+ * 2. PAUSE PENDANT QUE L'ONGLET EST CACHÉ. Le tic du minuteur vérifie
+ *    `document.visibilityState === "hidden"` et n'appelle PAS
+ *    `router.refresh()` dans ce cas -- AUCUNE requête réseau tant que
+ *    l'onglet n'est pas visible. Le minuteur JS lui-même continue de
+ *    tourner (coût nul, aucun effet observable, aucune requête) plutôt
+ *    que d'être détruit/recréé à chaque bascule de visibilité --
+ *    volontairement simple, mandat "no WebSocket/realtime complexity
+ *    unless a concrete requirement proves it necessary" appliqué ici
+ *    aussi à la mécanique de pause elle-même.
+ *
+ * 3. RAFRAÎCHISSEMENT IMMÉDIAT AU RETOUR DU FOCUS. Un écouteur
+ *    `window.addEventListener("focus", ...)` SÉPARÉ du minuteur,
+ *    actif seulement tant que `enabled` est vrai, déclenche un
+ *    `router.refresh()` immédiat via la MÊME fonction de
+ *    déclenchement (donc la MÊME garde mono-vol) que le minuteur --
+ *    jamais un appel concurrent à un rafraîchissement déjà en cours.
+ *    DEUX mécanismes distincts (visibilité pour la pause, focus pour
+ *    le rafraîchissement immédiat) plutôt qu'un seul : changer
+ *    d'onglet déclenche les deux (le focus de fenêtre suit la
+ *    bascule de visibilité dans la quasi-totalité des navigateurs),
+ *    mais changer d'application (alt-tab) ne déclenche QUE
+ *    blur/focus -- l'onglet reste "visible" au sens de la Page
+ *    Visibility API pendant que la fenêtre du navigateur perd le
+ *    focus -- d'où la nécessité des deux écouteurs pour couvrir
+ *    "tab/window regains focus" au sens littéral du mandat.
+ *
+ * États terminaux : comportement `enabled` INCHANGÉ (déjà conforme,
+ * rien à modifier). Repli manuel "Actualiser le suivi" : un composant
+ * SÉPARÉ (`<Link href={cleanPath}>` dans page.tsx, hors de ce
+ * fichier) -- non touché par ce lot.
  */
 export default function TrackingAutoRefresh({
   enabled,
-  intervalMs = 15_000,
+  intervalMs = 5_000,
 }: {
   enabled: boolean;
   intervalMs?: number;
 }) {
   const router = useRouter();
-  // Évite un intervalle fantôme après démontage (changement de page) --
-  // même précaution que les autres effets à minuteur de ce dépôt.
+  // Évite un intervalle/écouteur fantôme après démontage (changement
+  // de page) -- même précaution que les autres effets à minuteur de
+  // ce dépôt.
   const mounted = useRef(true);
   const [isPending, startTransition] = useTransition();
   const isPendingRef = useRef(isPending);
@@ -88,13 +138,20 @@ export default function TrackingAutoRefresh({
 
   useEffect(() => {
     if (!enabled) return;
-    const id = setInterval(() => {
+
+    // Fonction de déclenchement UNIQUE, partagée entre le tic du
+    // minuteur et l'écouteur de focus (TRACKING FRESHNESS v1) --
+    // garantit que la garde mono-vol (`isPendingRef`) protège les
+    // DEUX déclencheurs de la même manière : un retour de focus ne
+    // peut jamais empiler un `router.refresh()` par-dessus un tic de
+    // minuteur encore en attente, et réciproquement.
+    function triggerRefresh() {
       if (!mounted.current) return;
-      // Mandat CTE-V2-AUTOREFRESH-01 : garde mono-vol -- ce tick est
-      // simplement IGNORÉ (jamais mis en file, jamais reporté) si un
-      // rafraîchissement précédent est encore en attente ; le tick
-      // SUIVANT (toujours à la cadence ~15s inchangée) retentera
-      // normalement.
+      // Mandat CTE-V2-AUTOREFRESH-01 : garde mono-vol -- ce
+      // déclenchement est simplement IGNORÉ (jamais mis en file,
+      // jamais reporté) si un rafraîchissement précédent est encore
+      // en attente ; le déclenchement SUIVANT (tic de minuteur ou
+      // focus) retentera normalement.
       if (isPendingRef.current) return;
       startTransition(() => {
         const result: unknown = router.refresh();
@@ -102,8 +159,28 @@ export default function TrackingAutoRefresh({
           return (result as Promise<unknown>).then(() => undefined);
         }
       });
+    }
+
+    const id = setInterval(() => {
+      // TRACKING FRESHNESS v1, point 2 : onglet caché -> aucune
+      // requête réseau. Le minuteur continue de tourner (voir
+      // commentaire de tête) mais ce tic n'appelle jamais
+      // `triggerRefresh`.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      triggerRefresh();
     }, intervalMs);
-    return () => clearInterval(id);
+
+    // TRACKING FRESHNESS v1, point 3 : retour de focus fenêtre/onglet
+    // -> rafraîchissement immédiat, sans attendre le prochain tic.
+    function onFocus() {
+      triggerRefresh();
+    }
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [enabled, intervalMs, router]);
 
   return null;
