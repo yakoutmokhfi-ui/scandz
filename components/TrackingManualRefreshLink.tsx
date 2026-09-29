@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { attemptGatedRefresh } from "@/lib/tracking/refresh-lock";
+import { requestTrackingRefresh } from "@/lib/tracking/refresh-lock";
 
 /**
  * TRACKING FRESHNESS v1 — AUDIT REMEDIATION (issue #11, comment
@@ -23,22 +21,34 @@ import { attemptGatedRefresh } from "@/lib/tracking/refresh-lock";
  *
  * La SEULE différence est un gestionnaire `onClick`, actif
  * UNIQUEMENT quand JavaScript s'exécute : il empêche la navigation
- * complète par défaut et déclenche à la place un `router.refresh()`
- * DOUX (sans rechargement de page) via `attemptGatedRefresh` -- la
- * MÊME fonction, donc le MÊME verrou partagé
- * (`lib/tracking/refresh-lock.ts`), que le minuteur et l'écouteur de
- * focus de `TrackingAutoRefresh`. Un clic manuel pendant un
- * rafraîchissement déjà en cours (minuteur, focus, OU un clic manuel
- * précédent) est donc IGNORÉ exactement comme un tic de minuteur
- * l'aurait été -- jamais empilé, jamais deux requêtes réseau
- * concurrentes, quelle que soit la combinaison des trois
- * déclencheurs.
+ * complète par défaut et appelle `requestTrackingRefresh()` à la
+ * place.
  *
- * BLOCKER B (même comment d'audit) : ce composant est désormais
- * monté aussi bien sur le chemin de succès que sur les branches
- * d'ERREUR TRANSITOIRE de `page.tsx` (`TrackingServerUnavailableError`
- * et l'exception générique non classifiée) -- jamais sur les
- * branches TERMINALES (order_id malformé, session absente,
+ * ROUND 2 (issue #11, comment `5885210667`, Margaux re-audit) : ce
+ * composant n'a PLUS AUCUN état `useTransition`/verrou à lui --
+ * Round 1 lui donnait sa propre `useTransition()` locale, ce qui
+ * n'avait rien d'incorrect en soi mais dupliquait un mécanisme dont
+ * l'UNIQUE source de vérité doit être `TrackingAutoRefresh` (voir le
+ * commentaire de tête de ce fichier). `requestTrackingRefresh()`
+ * (`lib/tracking/refresh-lock.ts`) transmet directement au
+ * déclencheur canonique enregistré par `TrackingAutoRefresh`, gardé
+ * par SA PROPRE `useTransition()`/`isPending` réel -- donc un clic
+ * manuel pendant un rafraîchissement déjà en cours (minuteur, focus,
+ * OU un clic manuel précédent) est ignoré exactement comme un tic de
+ * minuteur l'aurait été, jamais empilé, jamais deux requêtes réseau
+ * concurrentes, quelle que soit la combinaison des trois
+ * déclencheurs. Aucun `router`/`mounted` local n'est plus nécessaire
+ * ici : ce composant ne possède plus rien à protéger d'un appel
+ * après démontage -- c'est `TrackingAutoRefresh` qui se
+ * désenregistre lui-même du registre à son propre démontage (voir ce
+ * fichier), auquel cas `requestTrackingRefresh()` dégrade en no-op
+ * silencieux (voir `lib/tracking/refresh-lock.ts`).
+ *
+ * BLOCKER B (comment `5884325325`) : ce composant est monté aussi
+ * bien sur le chemin de succès que sur les branches d'ERREUR
+ * TRANSITOIRE de `page.tsx` (`TrackingServerUnavailableError` et
+ * l'exception générique non classifiée) -- jamais sur les branches
+ * TERMINALES (order_id malformé, session absente,
  * `TrackingLinkInvalidError`), qui continuent de ne rendre aucun
  * mécanisme de récupération, inchangé.
  */
@@ -49,25 +59,14 @@ export default function TrackingManualRefreshLink({
   href: string;
   label: string;
 }) {
-  const router = useRouter();
-  const mounted = useRef(true);
-  const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
   function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
     // Toujours intercepté quand JS s'exécute -- un clic pendant un
     // rafraîchissement déjà en cours (ailleurs) est simplement ignoré
-    // par `attemptGatedRefresh` (même sémantique que le minuteur/le
-    // focus), jamais laissé retomber sur une navigation complète
-    // concurrente.
+    // par la garde mono-vol de `TrackingAutoRefresh` (même sémantique
+    // que le minuteur/le focus), jamais laissé retomber sur une
+    // navigation complète concurrente.
     event.preventDefault();
-    attemptGatedRefresh(mounted, startTransition, () => router.refresh());
+    requestTrackingRefresh();
   }
 
   return (

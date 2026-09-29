@@ -10,41 +10,56 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
 // ====================================================================
-// Scanym — TRACKING FRESHNESS v1 — AUDIT REMEDIATION (issue #11,
-// comment `5884325325`), volet COMPOSANT :
+// Scanym — TRACKING FRESHNESS v1 — AUDIT REMEDIATION, ROUND 2 (issue
+// #11, comment `5885210667`, Chateau Margaux re-audit relayed by
+// Ravel), volet COMPOSANT :
 //
-//   [E] BLOCKER A -- le verrou mono-vol PARTAGÉ
-//       (lib/tracking/refresh-lock.ts) protège désormais les TROIS
-//       déclencheurs (minuteur, focus, clic manuel), montés dans DEUX
-//       composants distincts (TrackingAutoRefresh +
-//       TrackingManualRefreshLink) : aucune combinaison des trois ne
-//       peut jamais empiler un second `router.refresh()` par-dessus
-//       un premier encore en attente ; le verrou se relâche aussi
-//       bien après un SUCCÈS qu'après un ÉCHEC réseau.
-//   [F] BLOCKER A (complément) -- le clic manuel sans JavaScript
-//       (repli, mandat §19) reste un `<Link href>` valide.
-//   [G] BLOCKER A (complément, relevé par l'audit) -- un retour de
-//       focus PENDANT que l'onglet est marqué "hidden" ne déclenche
-//       plus de requête réseau (même garde que le minuteur).
+//   BLOCKER A REOUVERT après Round 1 (commit `bee21b2`) : le verrou
+//   partagé de Round 1 (`attemptGatedRefresh`) relâchait le verrou en
+//   inspectant la valeur de retour de `refresh()` pour un thenable --
+//   INERTE en production réelle (`router.refresh()` y renvoie
+//   toujours `void`) -- donc le verrou ne protégeait plus rien en
+//   production. Contre-preuve littérale de Margaux :
+//   `{"calls":2,"contract":"refresh returns void"}`. Second écart :
+//   aucune protection contre un lancer (throw) synchrone.
+//
+//   ROUND 2 (voir components/TrackingAutoRefresh.tsx et
+//   lib/tracking/refresh-lock.ts pour le mécanisme complet) : la
+//   garde mono-vol revient dans TrackingAutoRefresh, gardée par le
+//   VRAI `isPending` de `useTransition()`, JAMAIS par la valeur de
+//   retour de `refresh()`, renforcée par une garde synchrone
+//   même-tick (`busyRef`) et un `try`/`catch` À L'INTÉRIEUR du
+//   callback de `startTransition`.
+//
+// Ce fichier vérifie les 7 scénarios OBLIGATOIRES du re-audit
+// Margaux (comment `5885210667`), section [V] ci-dessous -- CHACUN
+// avec `router.refresh()` renvoyant littéralement `undefined` (le
+// VRAI contrat de production) comme preuve PRINCIPALE, jamais une
+// promesse modélisant `refresh()` lui-même :
+//   V1. `router.refresh` renvoie `void` -- et referme BLOCKER A.
+//   V2. focus PUIS manuel en succession immédiate -> un seul
+//       déclenchement.
+//   V3. manuel PUIS minuteur -> un seul déclenchement.
+//   V4. rafale focus+manuel+minuteur -> un seul déclenchement.
+//   V5. un rafraîchissement SUIVANT redevient possible après le cycle
+//       de vie de la garde/coalescence prévu.
+//   V6. un lancer (throw) synchrone -> l'état se rétablit.
+//   V7. un focus PENDANT que l'onglet est caché reste ignoré.
+//
+// La section [E] (héritée de Round 1, RENOMMÉE ci-dessous) reste
+// utile pour vérifier le cycle de vie de coalescence de façon
+// déterministe via un double de test à résolution contrôlée -- mais
+// AUCUN de ces tests ne prétend, à lui seul, refermer BLOCKER A :
+// c'est la section [V], au contrat `void` littéral, qui le referme.
+// La section [F] (repli sans JavaScript) est inchangée.
 //
 // Même harnais que tests/tracking-freshness-v1.dom.test.ts (esbuild +
 // JSDOM + mock de next/navigation), étendu pour monter les DEUX
 // composants ensemble. Le volet BLOCKER B (app/track/[orderId]/
 // page.tsx, branches d'erreur) vit dans un fichier SÉPARÉ,
 // tests/tracking-freshness-v1-audit-remediation-page.dom.test.ts --
-// jamais dans le même fichier qu'un harnais composant : ce dépôt
-// n'a, à ce jour, jamais mêlé un harnais "fenêtre JSDOM nue pour un
-// composant client" et un harnais "page Server Component réelle"
-// dans un seul et même module (voir tracking-freshness-v1.dom.test.ts
-// vs cclt-v1-tracking-page.dom.test.ts, déjà séparés pour la même
-// raison) -- les deux harnais construisent des bundles esbuild
-// distincts avec des jeux de mocks distincts (next/headers,
-// @/lib/server/tracking-service, etc. n'existent que côté page), et
-// les combiner dans un seul module a provoqué un blocage du
-// processus de test à l'exécution (l'objet `window` JSDOM du volet
-// composant, déjà posé sur `globalThis` avant que le bundle de PAGE
-// ne soit importé, changeait le comportement observé de ce second
-// bundle) -- séparés, les deux volets s'exécutent chacun normalement.
+// jamais dans le même fichier qu'un harnais composant (voir ce
+// fichier pour la raison, inchangée depuis Round 1).
 // ====================================================================
 
 function flush(ms = 20): Promise<void> {
@@ -152,7 +167,7 @@ const mockPlugin: esbuild.Plugin = {
 const entrySource = `
 export { default as TrackingAutoRefresh } from "@/components/TrackingAutoRefresh";
 export { default as TrackingManualRefreshLink } from "@/components/TrackingManualRefreshLink";
-export { __resetTrackingRefreshLockForTests } from "@/lib/tracking/refresh-lock";
+export { __resetTrackingRefreshRegistryForTests } from "@/lib/tracking/refresh-lock";
 `;
 
 const buildResult = await esbuild.build({
@@ -168,7 +183,7 @@ const buildResult = await esbuild.build({
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-trackfresh-remediation-"));
 const tmpFile = path.join(tmpDir, "components.mjs");
 writeFileSync(tmpFile, buildResult.outputFiles[0].text);
-const { TrackingAutoRefresh, TrackingManualRefreshLink, __resetTrackingRefreshLockForTests } = await import(
+const { TrackingAutoRefresh, TrackingManualRefreshLink, __resetTrackingRefreshRegistryForTests } = await import(
   pathToFileURL(tmpFile).href
 );
 rmSync(tmpDir, { recursive: true, force: true });
@@ -197,12 +212,293 @@ function clickManualLink(container: Element) {
   anchor.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-// --------------------------------------------------------------
-// [E] BLOCKER A — verrou PARTAGÉ entre les trois déclencheurs.
-// --------------------------------------------------------------
+/**
+ * Attend que le montage soit RÉELLEMENT prêt pour un test de rafale
+ * SYNCHRONE (écouteur `focus` attaché, déclencheur enregistré) via un
+ * signal OBSERVABLE (un premier déclenchement réussi), plutôt qu'un
+ * simple délai fixe -- un `flush(20)` s'est révélé occasionnellement
+ * insuffisant sous charge (JSDOM/esbuild à froid pour le tout premier
+ * test du fichier), ce qui est un artefact du HARNAIS de test, pas du
+ * mécanisme lui-même : sans ce signal, un test de rafale lirait
+ * parfois `callCount === 0` au lieu de `1` juste parce que les
+ * gestionnaires n'étaient pas encore attachés au moment du
+ * déclenchement, jamais parce que la garde aurait laissé passer deux
+ * appels. Laisse ensuite le cycle `isPending` de ce déclenchement de
+ * réchauffement se refermer avant de renvoyer `callCount`, pour que
+ * la rafale du test lui-même parte d'un état propre (`busyRef`
+ * relâché).
+ */
+async function waitForMountReady(getCallCount: () => number): Promise<number> {
+  const before = getCallCount();
+  window.dispatchEvent(new window.Event("focus"));
+  // Marge généreuse (8s, contre les 3s par défaut de `waitFor`) :
+  // purement défensif contre une machine de CI chargée/contendue --
+  // le mécanisme lui-même répond en pratique en quelques
+  // millisecondes (voir TrackingAutoRefresh.tsx), jamais des
+  // secondes ; une régression réelle finirait donc encore par faire
+  // expirer ce délai, seulement plus tard.
+  await waitFor(() => getCallCount() > before, "montage prêt : le déclenchement de réchauffement (focus) doit réussir avant le test de rafale", 8000, 20);
+  await flush(50);
+  return getCallCount();
+}
 
-test("[E1] BLOCKER A : un clic manuel PENDANT un rafraîchissement déclenché par le FOCUS (en attente) est ignoré -- jamais empilé", async () => {
-  __resetTrackingRefreshLockForTests();
+// ====================================================================
+// [V] SCÉNARIOS OBLIGATOIRES DU RE-AUDIT MARGAUX (comment
+//     `5885210667`) -- contrat `void` LITTÉRAL (`router.refresh()`
+//     renvoie `undefined`, JAMAIS une promesse) : c'est CETTE section
+//     qui referme BLOCKER A.
+// ====================================================================
+
+test("[V1] BLOCKER A (contrat void) : deux déclenchements SYNCHRONES (focus + clic manuel, sans attente entre eux) sur un `router.refresh()` qui renvoie littéralement `undefined` ne produisent qu'UN SEUL appel -- réfute directement la contre-preuve Round 1 ({\"calls\":2,\"contract\":\"refresh returns void\"})", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined; // le VRAI contrat de production -- jamais une promesse ici.
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+    const baseline = await waitForMountReady(() => callCount);
+
+    // Déclenchement SYNCHRONE : focus puis clic manuel dans la MÊME
+    // exécution de script, sans `await` entre les deux -- exactement
+    // le cas que le verrou Round 1 (relâchement basé sur la valeur de
+    // retour de `refresh()`) échouait à protéger : avec un `refresh`
+    // renvoyant `void`, Round 1 relâchait son verrou immédiatement
+    // après le PREMIER appel, laissant passer le second.
+    window.dispatchEvent(new window.Event("focus"));
+    clickManualLink(container);
+
+    // Lu immédiatement, AVANT tout flush -- si le second déclenchement
+    // avait été accepté de façon synchrone, callCount serait déjà
+    // baseline + 2 ici.
+    assert.equal(callCount, baseline + 1, "un seul appel synchrone -- la garde même-tick (busyRef) a bloqué le second déclenchement AVANT tout appel à startTransition");
+
+    await flush(30);
+    assert.equal(callCount, baseline + 1, "toujours un seul appel après un court délai -- aucun empilement différé non plus");
+
+    // Un déclenchement SUIVANT, après que le cycle isPending du
+    // premier se soit refermé, doit réussir normalement -- le verrou
+    // ne reste pas bloqué indéfiniment (contrat void : la garde se
+    // relâche même sans jamais observer de promesse).
+    window.dispatchEvent(new window.Event("focus"));
+    await waitFor(() => callCount === baseline + 2, "un déclenchement après le cycle du premier doit réussir normalement");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[V2] focus PUIS clic manuel en succession immédiate (contrat void) -> un seul déclenchement", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+    const baseline = await waitForMountReady(() => callCount);
+
+    window.dispatchEvent(new window.Event("focus"));
+    clickManualLink(container);
+
+    assert.equal(callCount, baseline + 1, "focus puis clic manuel immédiat -> un seul appel");
+    await flush(30);
+    assert.equal(callCount, baseline + 1, "toujours un seul appel");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[V3] clic manuel PUIS tic(s) de minuteur pendant que le premier reste en attente -> un seul déclenchement (fenêtre déterministe, voir note ci-dessous)", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  const deferred = createDeferred<void>();
+  // NOTE : une fenêtre "en attente" pilotée par un double de test
+  // (comme [E1]-[E4]) est nécessaire ici pour observer de façon
+  // FIABLE un tic de minuteur atterrissant PENDANT le cycle
+  // `isPending` -- ce dernier, au contrat `void` réel, ne dure que
+  // quelques millisecondes (voir [V1]/[V2] ci-dessus, qui prouvent le
+  // contrat `void` littéral lui-même sur une paire SYNCHRONE) ; faire
+  // coïncider un `setInterval` réel avec une fenêtre de 2ms serait
+  // intrinsèquement instable. Le MÉCANISME observé (garde
+  // `busyRef`/`isPending`) reste rigoureusement le même dans les deux
+  // cas -- seule la DURÉE de la fenêtre est contrôlée pour que ce
+  // test soit déterministe plutôt que dépendant du minutage réel du
+  // moteur JS.
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return deferred.promise;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 30 });
+  try {
+    await flush(20);
+
+    clickManualLink(container);
+    await waitFor(() => callCount === 1, "le clic manuel doit déclencher un premier rafraîchissement");
+
+    // Laisse largement le temps à au moins deux tics du minuteur
+    // (30ms) de se produire pendant que le rafraîchissement manuel
+    // reste en attente -- aucun ne doit s'empiler.
+    await flush(90);
+    assert.equal(callCount, 1, "aucun tic de minuteur ne s'empile pendant un rafraîchissement manuel en attente");
+
+    deferred.resolve();
+    await waitFor(() => callCount === 2, "le prochain tic APRÈS résolution doit déclencher normalement", 3000, 10);
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[V4] rafale focus + clic manuel SYNCHRONES (contrat void), PUIS un VRAI tic de minuteur atterrissant pendant que ce cycle est encore en attente -> un seul déclenchement sur toute la fenêtre", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  const deferred = createDeferred<void>();
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return deferred.promise;
+  };
+
+  // Cadence de minuteur choisie pour atterrir PENDANT la fenêtre
+  // "en attente" (contrôlée par `deferred` ci-dessus, donc aussi
+  // longue que nécessaire pour que ce test reste déterministe) --
+  // mais assez longue pour ne JAMAIS tiquer pendant le
+  // `flush(20)` de stabilisation du montage ci-dessous (20ms < 150ms).
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 150 });
+  try {
+    await flush(20);
+
+    // Rafale SYNCHRONE : focus puis clic manuel dans la MÊME
+    // exécution de script, sans `await` entre les deux -- exactement
+    // le cas que [V1]/[V2] prouvent déjà au contrat `void` réel. Ici,
+    // le PREMIER rafraîchissement qu'ils déclenchent ensemble reste
+    // délibérément en attente (`deferred`), pour qu'un troisième
+    // déclencheur -- un VRAI tic de `setInterval`, une vraie
+    // macro-tâche, jamais simulé -- puisse atterrir PENDANT cette
+    // même fenêtre et être observé comme ignoré lui aussi.
+    window.dispatchEvent(new window.Event("focus"));
+    clickManualLink(container);
+    assert.equal(callCount, 1, "focus+manuel synchrones -> un seul appel avant tout tic de minuteur");
+
+    // Le tic de minuteur (150ms) atterrit ici, PENDANT que le premier
+    // rafraîchissement (focus+manuel) reste en attente -- doit être
+    // ignoré, comme tout déclencheur pendant un cycle en cours.
+    await flush(220);
+    assert.equal(callCount, 1, "le tic de minuteur qui atterrit pendant la fenêtre en attente est ignoré -- un seul appel au total pour focus+manuel+minuteur");
+
+    // Le mécanisme se rétablit normalement une fois le cycle refermé.
+    deferred.resolve();
+    window.dispatchEvent(new window.Event("focus"));
+    await waitFor(() => callCount === 2, "un déclenchement après résolution doit réussir normalement");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[V5] un rafraîchissement SUIVANT redevient possible après le cycle de garde/coalescence complet, de façon répétée", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+
+    for (let i = 1; i <= 3; i++) {
+      clickManualLink(container);
+      await waitFor(() => callCount === i, `déclenchement #${i} doit réussir après que le précédent se soit refermé`);
+      // Un second déclenchement immédiat (même tick) pendant que
+      // celui-ci referme son propre cycle est ignoré -- vérifie que
+      // CHAQUE cycle, pas seulement le premier, protège correctement.
+      clickManualLink(container);
+      await flush(15);
+    }
+    assert.equal(callCount, 3, "trois cycles complets, chacun suivi d'un déclenchement immédiat ignoré -- jamais d'empilement, jamais de blocage permanent");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[V6] un lancer (throw) SYNCHRONE dans `router.refresh()` -- l'état se rétablit, jamais de verrou permanent", async () => {
+  __resetTrackingRefreshRegistryForTests();
+  let callCount = 0;
+  (globalThis as any).__mockRouterRefresh = () => {
+    callCount++;
+    if (callCount === 1) {
+      throw new Error("boom -- erreur synchrone simulée (ex. mauvais état interne du routeur)");
+    }
+    return undefined;
+  };
+
+  const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
+  try {
+    await flush(20);
+
+    // Ne doit PAS faire remonter l'exception jusqu'au test -- le
+    // `try`/`catch` À L'INTÉRIEUR du callback de `startTransition`
+    // (voir TrackingAutoRefresh.tsx) l'avale avant qu'elle ne puisse
+    // s'échapper.
+    assert.doesNotThrow(() => {
+      clickManualLink(container);
+    }, "un clic déclenchant un router.refresh() qui lance de façon synchrone ne doit jamais faire remonter l'exception jusqu'à l'appelant");
+
+    assert.equal(callCount, 1, "le premier appel a bien eu lieu (et a lancé)");
+
+    // Second déclenchement immédiat (même tick) : ignoré, comme tout
+    // déclenchement pendant qu'un cycle est encore en cours -- MÊME
+    // quand ce cycle va se terminer par une exception.
+    clickManualLink(container);
+    assert.equal(callCount, 1, "un déclenchement immédiat pendant le cycle qui vient de lancer est ignoré, pas empilé");
+
+    // Le mécanisme doit se rétablir : un déclenchement SUIVANT, une
+    // fois le cycle refermé, doit réussir normalement -- jamais de
+    // verrou bloqué indéfiniment après une exception synchrone.
+    //
+    // `callCount >= 1` est déjà vrai à cet instant (le premier appel a
+    // eu lieu ci-dessus) -- un `waitFor` sur cette seule condition
+    // reviendrait donc IMMÉDIATEMENT, sans laisser à l'effet
+    // `isPending -> busyRef.current = false` (TrackingAutoRefresh.tsx)
+    // la moindre chance de s'exécuter, et ferait à tort ressembler un
+    // troisième clic ENCORE prématuré (donc légitimement ignoré) à un
+    // verrou resté bloqué. Un court délai RÉEL, laissant le cycle
+    // `isPending` du premier clic se refermer authentiquement (il se
+    // referme en quelques millisecondes au contrat `void`, voir
+    // [V1]), est ce qui rend ce test significatif.
+    await flush(50);
+    clickManualLink(container);
+    await waitFor(() => callCount === 2, "un déclenchement après une exception synchrone doit réussir -- le mécanisme n'est pas resté bloqué");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+// ====================================================================
+// [E] Cycle de vie de coalescence -- double de test à résolution
+//     CONTRÔLÉE (hérité de Round 1). AUCUN de ces tests ne referme,
+//     à lui seul, BLOCKER A (voir section [V] ci-dessus pour la
+//     preuve au contrat void littéral) -- ils vérifient que le cycle
+//     de garde, une fois observé à travers un `isPending` dont la
+//     résolution est entièrement pilotée par le test, se comporte
+//     comme attendu sur toute sa durée (et pas seulement à l'instant
+//     de l'appel synchrone à `refresh()`).
+// ====================================================================
+
+test("[E1] un clic manuel PENDANT un rafraîchissement déclenché par le FOCUS (en attente) est ignoré -- jamais empilé", async () => {
+  __resetTrackingRefreshRegistryForTests();
   let callCount = 0;
   const deferred = createDeferred<void>();
   (globalThis as any).__mockRouterRefresh = () => {
@@ -232,8 +528,8 @@ test("[E1] BLOCKER A : un clic manuel PENDANT un rafraîchissement déclenché p
   }
 });
 
-test("[E2] BLOCKER A : un tic de minuteur PENDANT un rafraîchissement MANUEL (en attente) est ignoré -- jamais empilé", async () => {
-  __resetTrackingRefreshLockForTests();
+test("[E2] un tic de minuteur PENDANT un rafraîchissement MANUEL (en attente) est ignoré -- jamais empilé", async () => {
+  __resetTrackingRefreshRegistryForTests();
   let callCount = 0;
   const deferred = createDeferred<void>();
   (globalThis as any).__mockRouterRefresh = () => {
@@ -262,8 +558,8 @@ test("[E2] BLOCKER A : un tic de minuteur PENDANT un rafraîchissement MANUEL (e
   }
 });
 
-test("[E3] BLOCKER A : un focus PENDANT un rafraîchissement de MINUTEUR (en attente) est ignoré -- jamais empilé", async () => {
-  __resetTrackingRefreshLockForTests();
+test("[E3] un focus PENDANT un rafraîchissement de MINUTEUR (en attente) est ignoré -- jamais empilé", async () => {
+  __resetTrackingRefreshRegistryForTests();
   let callCount = 0;
   const deferred = createDeferred<void>();
   (globalThis as any).__mockRouterRefresh = () => {
@@ -271,13 +567,6 @@ test("[E3] BLOCKER A : un focus PENDANT un rafraîchissement de MINUTEUR (en att
     return deferred.promise;
   };
 
-  // On déclenche le PREMIER rafraîchissement via un focus (cadence du
-  // minuteur volontairement longue), PUIS on vérifie qu'un SECOND
-  // focus ET un clic manuel pendant qu'il reste en attente sont TOUS
-  // deux ignorés -- même scénario que le test [C] pré-existant
-  // (tests/tracking-freshness-v1.dom.test.ts), mais désormais à
-  // travers le verrou PARTAGÉ, aux côtés du composant de lien manuel
-  // monté simultanément.
   const { container, root } = renderBoth({ enabled: true, intervalMs: 5000 });
   try {
     await flush(20);
@@ -298,8 +587,8 @@ test("[E3] BLOCKER A : un focus PENDANT un rafraîchissement de MINUTEUR (en att
   }
 });
 
-test("[E4] BLOCKER A, point 4 : le verrou se relâche après un ÉCHEC réseau (promesse rejetée), pas seulement après un succès", async () => {
-  __resetTrackingRefreshLockForTests();
+test("[E4] le verrou se relâche après un ÉCHEC réseau (promesse rejetée), pas seulement après un succès", async () => {
+  __resetTrackingRefreshRegistryForTests();
   let callCount = 0;
   const deferred = createDeferred<void>();
   (globalThis as any).__mockRouterRefresh = () => {
@@ -340,7 +629,7 @@ test("[E4] BLOCKER A, point 4 : le verrou se relâche après un ÉCHEC réseau (
 // --------------------------------------------------------------
 
 test("[F] TrackingManualRefreshLink rend un <a href> valide (repli sans JavaScript, mandat §19) avec le libellé accessible attendu", async () => {
-  __resetTrackingRefreshLockForTests();
+  __resetTrackingRefreshRegistryForTests();
   const { container, root } = renderBoth({ enabled: false });
   try {
     await flush(20);
@@ -355,11 +644,11 @@ test("[F] TrackingManualRefreshLink rend un <a href> valide (repli sans JavaScri
 });
 
 // --------------------------------------------------------------
-// [G] BLOCKER A (relevé par l'audit) — focus pendant onglet caché.
+// [V7] BLOCKER A (relevé par l'audit) — focus pendant onglet caché.
 // --------------------------------------------------------------
 
-test("[G] un retour de focus PENDANT que l'onglet est marqué caché ne déclenche AUCUNE requête réseau", async () => {
-  __resetTrackingRefreshLockForTests();
+test("[V7] un retour de focus PENDANT que l'onglet est marqué caché ne déclenche AUCUNE requête réseau", async () => {
+  __resetTrackingRefreshRegistryForTests();
   let callCount = 0;
   (globalThis as any).__mockRouterRefresh = () => {
     callCount++;
@@ -389,8 +678,24 @@ after(async () => {
   await new Promise((r) => setTimeout(r, 50));
   window.close();
   await esbuild.stop();
+  // ROUND 2 (re-audit Margaux, comment `5885210667`) : un `unref()`
+  // AVEUGLE de TOUTE poignée active masquerait une vraie fuite créée
+  // par ce harnais (ex. un `setInterval` de TrackingAutoRefresh mal
+  // nettoyé) exactement aussi silencieusement qu'il masque la
+  // poignée `MessagePort` bénigne du planificateur de React (créée
+  // paresseusement dès que `useTransition`/`startTransition` effectue
+  // un vrai travail sous Node/JSDOM, sans rapport avec ce fichier).
+  // On ne relâche donc QUE les poignées dont le CONSTRUCTEUR est
+  // reconnu comme provenant de ce mécanisme connu et inoffensif --
+  // toute autre poignée active reste NON relâchée, pour que ce
+  // fichier de test continue de bloquer le processus (donc de
+  // signaler le problème) si un futur changement introduit une vraie
+  // fuite ailleurs.
   for (const h of (process as any)._getActiveHandles?.() ?? []) {
-    if (typeof h.unref === "function") h.unref();
+    const ctorName = h?.constructor?.name;
+    if (ctorName === "MessagePort" && typeof h.unref === "function") {
+      h.unref();
+    }
   }
   delete (globalThis as any).window;
   delete (globalThis as any).document;

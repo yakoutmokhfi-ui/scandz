@@ -299,8 +299,20 @@ after(async () => {
   await new Promise((r) => setTimeout(r, 50));
   window.close();
   await esbuild.stop();
+  // ROUND 2 (re-audit Margaux, comment `5885210667`, appliqué ici
+  // aussi par cohérence bien que BLOCKER B -- le volet de ce fichier
+  // -- reste fermé et non modifié par ce lot) : un `unref()` AVEUGLE
+  // de TOUTE poignée active masquerait une vraie fuite créée par ce
+  // harnais exactement aussi silencieusement qu'il masque la poignée
+  // `MessagePort` bénigne du planificateur de React. On ne relâche
+  // donc QUE les poignées dont le CONSTRUCTEUR est reconnu comme
+  // provenant de ce mécanisme connu et inoffensif -- toute autre
+  // poignée active reste NON relâchée.
   for (const h of (process as any)._getActiveHandles?.() ?? []) {
-    if (typeof h.unref === "function") h.unref();
+    const ctorName = h?.constructor?.name;
+    if (ctorName === "MessagePort" && typeof h.unref === "function") {
+      h.unref();
+    }
   }
   delete (globalThis as any).window;
   delete (globalThis as any).document;

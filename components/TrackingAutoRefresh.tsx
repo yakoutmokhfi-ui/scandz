@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { attemptGatedRefresh } from "@/lib/tracking/refresh-lock";
+import { registerTrackingRefreshTrigger } from "@/lib/tracking/refresh-lock";
 
 /**
  * CUSTOMER TRACKING EXPERIENCE v2 — rafraîchissement automatique léger
@@ -52,34 +52,91 @@ import { attemptGatedRefresh } from "@/lib/tracking/refresh-lock";
  * résolue -- exactement le patron documenté par Next.js pour afficher
  * un état "en cours" autour de `router.refresh()`/`router.push()`,
  * vérifié ici empiriquement (voir 21-AUTOREFRESH-SINGLE-FLIGHT-REPORT.txt)
- * avant d'être choisi comme correctif plutôt que supposé correct.
+ * avant d'être choisi comme correctif plutôt que supposé correct. En
+ * production, `router.refresh()` renvoie `void` -- `isPending`
+ * reflète tout de même fidèlement la durée réelle du rafraîchissement
+ * parce que React "coalesce" le travail de la transition interne du
+ * routeur SOUS le flag `isPending` de NOTRE transition englobante,
+ * indépendamment de ce que `refresh()` lui-même renvoie à l'appelant.
  *
- * TRACKING FRESHNESS v1 — AUDIT REMEDIATION (issue #11, comment
- * `5884325325`, BLOCKER A) : la garde mono-vol elle-même a été
- * EXTRAITE de ce fichier vers un module partagé
- * (`lib/tracking/refresh-lock.ts`, `attemptGatedRefresh`), pour que
- * le clic manuel "Actualiser le suivi" (`TrackingManualRefreshLink`,
- * composant SÉPARÉ, ni parent ni enfant de celui-ci) l'acquière
- * exactement de la MÊME façon que le tic de minuteur et le retour de
- * focus ci-dessous -- les TROIS déclencheurs partagent désormais UN
- * SEUL verrou, jamais deux requêtes réseau concurrentes quelle que
- * soit la combinaison de déclencheurs. L'ancien miroir local
- * `isPendingRef` (nécessaire uniquement pour exposer `isPending` de
- * `useTransition` à des callbacks à closure figée) a disparu avec
- * lui : `attemptGatedRefresh` lit/écrit directement l'état du module
- * partagé, jamais une valeur capturée par une closure de rendu, donc
- * plus aucun besoin de miroir par ref pour CE mécanisme. `mounted`
- * (ci-dessous) reste nécessaire pour sa propre raison, inchangée :
- * éviter d'invoquer `router.refresh()` après démontage.
+ * ------------------------------------------------------------------
+ * TRACKING FRESHNESS v1 — AUDIT REMEDIATION, ROUND 2 (issue #11,
+ * comment `5885210667`, Chateau Margaux re-audit relayé par Ravel) :
+ * BLOCKER A REOUVERT après Round 1 (commit `bee21b2`)
+ * ------------------------------------------------------------------
+ * Round 1 avait extrait la garde mono-vol vers un module partagé
+ * (`lib/tracking/refresh-lock.ts`, `attemptGatedRefresh`) qui
+ * relâchait le verrou en inspectant la valeur de retour de
+ * `refresh()` pour un thenable -- INERTE en production réelle
+ * (`router.refresh()` y renvoie toujours `void`, voir ci-dessus),
+ * donc le verrou se relâchait pratiquement IMMÉDIATEMENT après
+ * l'appel synchrone à `refresh()`, avant même que le vrai cycle
+ * réseau/rendu ait commencé -- le verrou ne protégeait plus rien en
+ * production. Les tests de Round 1 n'avaient exercé qu'un double de
+ * test renvoyant une promesse, prouvant le contrat du MOCK, jamais le
+ * contrat de PRODUCTION -- contre-preuve littérale de Margaux :
+ * `{"calls":2,"contract":"refresh returns void"}`. Second écart
+ * relevé : aucune protection `try`/`finally`, donc un lancer (throw)
+ * synchrone pouvait laisser le verrou bloqué indéfiniment.
  *
- * La branche `result && typeof result.then === "function"` est
- * INERTE en production réelle (`router.refresh()` y retourne
- * toujours `void`, jamais un thenable -- ce test ne s'y déclenche
- * donc jamais) ; elle existe UNIQUEMENT pour permettre à un double de
- * test de fournir une promesse dont la résolution est entièrement
- * contrôlée par le test, rendant la garde mono-vol vérifiable de
- * façon déterministe sans reproduire l'intégralité du mécanisme
- * interne de Next.js dans un bouchon de test.
+ * ROUND 2 -- la garde mono-vol elle-même REVIENT dans CE fichier
+ * (comme en v2.1, avant Round 1), mais renforcée par DEUX mécanismes
+ * qui n'existaient ni en v2.1 ni en Round 1 :
+ *
+ * 1. `busyRef` (garde SYNCHRONE, posée à `true` l'INSTANT où un
+ *    déclenchement est ACCEPTÉ, AVANT même l'appel à
+ *    `startTransition`) -- protège contre une VRAIE RAFALE
+ *    synchrone (ex. focus + clic manuel + tic de minuteur
+ *    déclenchés à la suite dans la MÊME exécution de script, avant
+ *    que React n'ait eu l'occasion de re-rendre). Un simple miroir
+ *    `isPendingRef` mis à jour seulement au rendu (l'approche v2.1
+ *    et pré-Round-1) NE PROTÈGE PAS contre ce cas -- confirmé de
+ *    façon empirique avant ce lot : trois appels synchrones passent
+ *    TOUS quand la seule garde est un ref mis à jour uniquement par
+ *    le rendu.
+ * 2. `busyRef` n'est JAMAIS relâché de façon synchrone ni en
+ *    inspectant la valeur de retour de `refresh()` -- il ne l'est
+ *    QUE par l'effet ci-dessous, qui observe le VRAI `isPending`
+ *    (même `useTransition()` que celui qui enveloppe
+ *    `router.refresh()`) -- exactement le "signal observable de
+ *    complétion de page/rendu qui existe réellement dans cette
+ *    architecture" que Margaux elle-même proposait comme direction
+ *    acceptable dans son re-audit.
+ * 3. `try`/`catch` À L'INTÉRIEUR du callback passé à
+ *    `startTransition`, enveloppant l'appel à `router.refresh()` :
+ *    un lancer (throw) synchrone qui S'ÉCHAPPE de ce callback laisse
+ *    `isPending` de React bloqué à `true` POUR TOUJOURS (confirmé
+ *    empiriquement avant ce lot : aucune ré-exécution d'effet
+ *    ultérieure ne montre plus jamais `isPending: false` après un
+ *    tel lancer non intercepté) -- ce qui bloquerait `busyRef` de la
+ *    même façon, puisque son relâchement dépend lui-même
+ *    d'`isPending`. Intercepter ICI, pour que rien ne s'échappe du
+ *    callback, est ce qui permet au mécanisme de se rétablir après
+ *    une exception synchrone (scénario obligatoire de re-audit
+ *    Margaux n°6).
+ *
+ * PARTAGE ENTRE LES TROIS DÉCLENCHEURS : `TrackingManualRefreshLink`
+ * (composant SÉPARÉ, ni parent ni enfant de celui-ci) n'a désormais
+ * PLUS AUCUN état `useTransition`/verrou à lui -- son clic appelle
+ * `requestTrackingRefresh()` (`lib/tracking/refresh-lock.ts`), qui
+ * transmet à la fonction `triggerRefresh` ci-dessous, ENREGISTRÉE
+ * dans ce module partagé au montage de CE composant (voir l'effet
+ * "enabled" plus bas) et désenregistrée à son nettoyage. Le tic de
+ * minuteur, le retour de focus, ET le clic manuel appellent donc
+ * TOUS la MÊME instance de `triggerRefresh`, gardée par le MÊME
+ * `busyRef`/`isPending` -- jamais trois gardes indépendantes qui
+ * s'accordent simplement par coïncidence, et jamais une garde dont le
+ * relâchement dépend de ce que `refresh()` renvoie.
+ *
+ * La branche `result && typeof result.then === "function"` reste
+ * INERTE en production réelle (`router.refresh()` y renvoie toujours
+ * `void`, jamais un thenable) ; elle existe UNIQUEMENT pour permettre
+ * à un double de test de fournir une promesse dont la
+ * résolution/le rejet est entièrement contrôlé par le test, afin de
+ * vérifier `busyRef`/`isPending` de façon déterministe SANS que cette
+ * branche ne soit jamais ce qui "referme" BLOCKER A -- c'est le
+ * scénario `void` explicite (scénario obligatoire n°1, `refresh`
+ * renvoyant littéralement `undefined`) qui le referme.
  *
  * ------------------------------------------------------------------
  * TRACKING FRESHNESS v1 (issue #11, comment 5883794674, Ravel)
@@ -119,14 +176,17 @@ import { attemptGatedRefresh } from "@/lib/tracking/refresh-lock";
  *    blur/focus -- l'onglet reste "visible" au sens de la Page
  *    Visibility API pendant que la fenêtre du navigateur perd le
  *    focus -- d'où la nécessité des deux écouteurs pour couvrir
- *    "tab/window regains focus" au sens littéral du mandat.
+ *    "tab/window regains focus" au sens littéral du mandat. Un
+ *    événement `focus` PENDANT que l'onglet est marqué "hidden" (cas
+ *    marginal mais réel) est gardé par la MÊME vérification de
+ *    visibilité que le tic de minuteur (AUDIT REMEDIATION Round 1,
+ *    BLOCKER A complément, comment `5884325325` -- inchangé en
+ *    Round 2).
  *
  * États terminaux : comportement `enabled` INCHANGÉ (déjà conforme,
  * rien à modifier). Repli manuel "Actualiser le suivi" : un composant
- * SÉPARÉ (`TrackingManualRefreshLink.tsx`) -- non touché par le lot
- * TRACKING FRESHNESS v1 original, mais désormais RELIÉ à ce fichier
- * par le verrou partagé de `lib/tracking/refresh-lock.ts` depuis
- * l'AUDIT REMEDIATION ci-dessus (BLOCKER A).
+ * SÉPARÉ (`TrackingManualRefreshLink.tsx`) -- relié à ce fichier par
+ * le registre partagé de `lib/tracking/refresh-lock.ts`.
  */
 export default function TrackingAutoRefresh({
   enabled,
@@ -140,7 +200,12 @@ export default function TrackingAutoRefresh({
   // de page) -- même précaution que les autres effets à minuteur de
   // ce dépôt.
   const mounted = useRef(true);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
+
+  // ROUND 2 : garde synchrone même-tick -- voir le commentaire de
+  // tête, point 1. Posée à `true` par `triggerRefresh` avant même
+  // l'appel à `startTransition`.
+  const busyRef = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -149,21 +214,59 @@ export default function TrackingAutoRefresh({
     };
   }, []);
 
+  // ROUND 2 : relâche `busyRef` UNIQUEMENT quand `isPending` (le VRAI
+  // signal, celui de la MÊME `useTransition()` qui enveloppe
+  // `router.refresh()` ci-dessous) redevient `false` -- jamais de
+  // façon synchrone, jamais en fonction de ce que `refresh()` renvoie.
+  // Voir le commentaire de tête, point 2.
+  useEffect(() => {
+    if (!isPending) {
+      busyRef.current = false;
+    }
+  }, [isPending]);
+
   useEffect(() => {
     if (!enabled) return;
 
     // Fonction de déclenchement UNIQUE, partagée entre le tic du
-    // minuteur et l'écouteur de focus (TRACKING FRESHNESS v1) -- et,
-    // depuis l'AUDIT REMEDIATION BLOCKER A, avec le clic manuel
-    // "Actualiser le suivi" d'un composant SÉPARÉ, via le MÊME verrou
-    // partagé (`attemptGatedRefresh`, `lib/tracking/refresh-lock.ts`).
-    // Un déclenchement (tic, focus, OU clic manuel ailleurs sur la
-    // page) ne peut donc JAMAIS empiler un `router.refresh()`
-    // par-dessus un autre encore en attente, quelle que soit la
-    // combinaison des trois.
+    // minuteur, l'écouteur de focus ci-dessous, ET (via le registre
+    // `lib/tracking/refresh-lock.ts`) le clic manuel d'un composant
+    // SÉPARÉ (`TrackingManualRefreshLink`) -- garantit que les TROIS
+    // déclencheurs passent par la MÊME `useTransition()`, gardée par
+    // le MÊME `busyRef`/`isPending`, jamais trois gardes
+    // indépendantes.
     function triggerRefresh() {
-      attemptGatedRefresh(mounted, startTransition, () => router.refresh());
+      if (!mounted.current) return;
+      if (busyRef.current) return;
+      busyRef.current = true;
+      startTransition(() => {
+        // ROUND 2, point 3 du commentaire de tête : `try`/`catch` À
+        // L'INTÉRIEUR de ce callback -- rien ne doit jamais
+        // s'échapper vers React (voir justification empirique
+        // ci-dessus). Le prochain déclenchement (tic, focus, ou clic
+        // manuel) retentera normalement une fois `isPending` retombé
+        // à `false`.
+        try {
+          const result: unknown = router.refresh();
+          if (result && typeof (result as Promise<unknown>).then === "function") {
+            return (result as Promise<unknown>).then(
+              () => undefined,
+              () => undefined
+            );
+          }
+        } catch {
+          // Avalé délibérément -- voir commentaire de tête, point 3.
+        }
+      });
     }
+
+    // Enregistre le déclencheur canonique auprès du registre partagé
+    // pour que `TrackingManualRefreshLink` puisse l'atteindre via
+    // `requestTrackingRefresh()`. Désenregistré au nettoyage (fin de
+    // vie de cet effet OU démontage) pour qu'un clic manuel ne puisse
+    // jamais atteindre une fermeture figée sur un `router` déjà
+    // périmé.
+    const unregister = registerTrackingRefreshTrigger(triggerRefresh);
 
     const id = setInterval(() => {
       // TRACKING FRESHNESS v1, point 2 : onglet caché -> aucune
@@ -176,18 +279,6 @@ export default function TrackingAutoRefresh({
 
     // TRACKING FRESHNESS v1, point 3 : retour de focus fenêtre/onglet
     // -> rafraîchissement immédiat, sans attendre le prochain tic.
-    //
-    // AUDIT REMEDIATION (issue #11, comment `5884325325`) : l'audit a
-    // relevé que ce gestionnaire ne vérifiait PAS lui-même la
-    // visibilité, en demandant de vérifier si cela pouvait déclencher
-    // une requête inutile pendant que l'onglet est caché. Un
-    // événement `focus` fenêtre PENDANT que `document.visibilityState`
-    // vaut `"hidden"` est un cas marginal mais réel (ex. focus
-    // programmatique, ou bascule OS où le focus fenêtre et la
-    // visibilité d'onglet ne changent pas de façon parfaitement
-    // synchrone) -- désormais gardé par la MÊME vérification que le
-    // tic de minuteur, pour ne jamais émettre de requête réseau tant
-    // que la page n'est pas visible, quel que soit le déclencheur.
     function onFocus() {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       triggerRefresh();
@@ -195,6 +286,7 @@ export default function TrackingAutoRefresh({
     window.addEventListener("focus", onFocus);
 
     return () => {
+      unregister();
       clearInterval(id);
       window.removeEventListener("focus", onFocus);
     };
