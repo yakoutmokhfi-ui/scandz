@@ -64,17 +64,30 @@
  */
 import { zipSync, strToU8 } from "fflate";
 import { IMPORT_COLUMNS } from "@/lib/catalogue-import/column-mapping";
-import { SALE_MODE_CODES } from "@/lib/catalogue-import/normalization";
+import { canonicalizeSaleModeCodes } from "@/lib/catalogue-import/normalization";
 import type { FlatProduct } from "@/lib/catalogue-management/filtering";
 
 /** Formate `allowed_sale_modes` pour la cellule « Modes de vente » --
  *  littéral « Tous » si `null` (ALL), sinon les codes présents dans
  *  `raw`, réordonnés en ordre CANONIQUE et joints par ` ; ` (même
- *  séparateur que coerceAllowedSaleModes attend en réimport). */
+ *  séparateur que coerceAllowedSaleModes attend en réimport).
+ *
+ *  AUDIT LOT 3 (issue #11, comment 5883893142, BLOCKER B) -- correctif :
+ *  `canonicalizeSaleModeCodes` (lib/catalogue-import/normalization.ts)
+ *  REMPLACE l'ancien filtrage `SALE_MODE_CODES.filter(...)`, qui
+ *  supprimait silencieusement tout code hors du référentiel d'entrée
+ *  v1 (ex. un code futur d'un catalogue de modes de vente extensible).
+ *  Un tel code est désormais exporté TEL QUEL (représentation SANS
+ *  PERTE -- le format texte n'a aucune limite de vocabulaire), classé
+ *  après les codes canoniques et trié alphabétiquement entre eux pour
+ *  un résultat déterministe. Que ce code ne soit pas RÉ-IMPORTABLE via
+ *  la colonne « Modes de vente » (le vocabulaire D'ENTRÉE v1 reste
+ *  strict, voir coerceAllowedSaleModes) est SANS RAPPORT avec l'export
+ *  : cette fonction restitue fidèlement ce qui est EN BASE, elle ne
+ *  garantit jamais la ré-importabilité de chaque valeur possible. */
 function formatAllowedSaleModes(raw: string[] | null): string {
   if (raw === null) return "Tous";
-  const set = new Set(raw);
-  return SALE_MODE_CODES.filter((c) => set.has(c)).join(" ; ");
+  return canonicalizeSaleModeCodes(raw).join(" ; ");
 }
 
 /** Colonnes supplémentaires, APRÈS les colonnes d'import. */

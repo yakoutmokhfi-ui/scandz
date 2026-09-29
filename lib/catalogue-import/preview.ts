@@ -34,13 +34,13 @@
 import type { CatalogueCategory } from "@/lib/services/dashboard";
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
 import {
+  canonicalizeSaleModeCodes,
   classifyRowType,
   coerceAllowedSaleModes,
   coerceInteger,
   coerceNumeric,
   coerceWithdrawalEligible,
   normalizedKey,
-  SALE_MODE_CODES,
   splitTagsColumn,
   type CoercedAllowedSaleModes,
 } from "@/lib/catalogue-import/normalization";
@@ -171,14 +171,6 @@ function resolveWithdrawalEligibleToWrite(
   return existing?.withdrawal_eligible ?? false;
 }
 
-/** Ordre CANONIQUE (SALE_MODE_CODES) -- jamais l'ordre d'apparition
- *  dans la cellule ni celui renvoyé par le serveur, pour un export et
- *  des comparaisons déterministes. Déduplique implicitement (Set). */
-function canonicalSaleModes(codes: readonly string[]): string[] {
-  const set = new Set(codes);
-  return SALE_MODE_CODES.filter((c) => set.has(c));
-}
-
 /**
  * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- résout la valeur
  * EFFECTIVE de `allowed_sale_modes` pour une ligne (contrat complet
@@ -198,17 +190,33 @@ function canonicalSaleModes(codes: readonly string[]): string[] {
  * CREATE -- la distinction ne compte QUE pour UPDATE.
  *
  * CODES (`codes`) : le tableau, en ordre canonique.
+ *
+ * AUDIT LOT 3 (issue #11, comment 5883893142, BLOCKER B) -- correctif :
+ * la reconduction de l'existant (branche "unset"/"invalid" ci-dessous)
+ * utilise désormais `canonicalizeSaleModeCodes`, qui NE FILTRE PLUS le
+ * jeu existant à travers le référentiel d'ENTRÉE v1 (`SALE_MODE_CODES`)
+ * -- un code hors de ce référentiel (catalogue de modes de vente
+ * extensible à l'avenir) est désormais reconduit TEL QUEL, jamais
+ * silencieusement supprimé. Avant ce correctif, un produit existant
+ * avec `["pickup", "future_mode"]` et une cellule vide/absente en
+ * réimport perdait silencieusement `"future_mode"` (bug reproduit par
+ * l'audit). Ceci ne concerne QUE la reconduction de données déjà EN
+ * BASE : le VOCABULAIRE D'ENTRÉE accepté depuis une cellule reste
+ * strictement limité aux cinq codes canoniques (`coerceAllowedSaleModes`,
+ * kind "invalid" sur tout code hors référentiel -- inchangé par ce
+ * correctif, contrat v1 non affaibli).
  */
 function resolveAllowedSaleModesToWrite(
   raw: CoercedAllowedSaleModes,
   existing: { allowed_sale_modes: string[] | null } | undefined
 ): string[] | null {
-  if (raw.kind === "codes") return canonicalSaleModes(raw.codes);
+  if (raw.kind === "codes") return canonicalizeSaleModeCodes(raw.codes);
   if (raw.kind === "all") return null;
-  // "unset" ou "invalid" -- même repli : préserver l'existant (ou ALL
-  // pour un produit nouveau, où `existing` est `undefined`).
+  // "unset" ou "invalid" -- même repli : préserver l'existant SANS
+  // PERTE (ou ALL pour un produit nouveau, où `existing` est
+  // `undefined`).
   const current = existing?.allowed_sale_modes ?? null;
-  return current === null ? null : canonicalSaleModes(current);
+  return current === null ? null : canonicalizeSaleModeCodes(current);
 }
 
 function valuesEqualExisting(
@@ -244,8 +252,12 @@ function valuesEqualExisting(
   // actuelle, donc n'introduit JAMAIS un faux UPDATE ; un changement
   // réel (codes différents, ou "Tous" sur un produit restreint)
   // produit bien un UPDATE.
+  // AUDIT LOT 3 (BLOCKER B) : canonicalisation SANS PERTE -- un code
+  // existant hors référentiel v1 reste significatif pour l'égalité
+  // (jamais filtré, donc jamais faussement "égal" à une valeur qui
+  // l'aurait silencieusement perdu).
   const existingSaleModes =
-    existing.allowed_sale_modes === null ? null : canonicalSaleModes(existing.allowed_sale_modes);
+    existing.allowed_sale_modes === null ? null : canonicalizeSaleModeCodes(existing.allowed_sale_modes);
   const saleModesEqual =
     allowedSaleModesToWrite === null
       ? existingSaleModes === null

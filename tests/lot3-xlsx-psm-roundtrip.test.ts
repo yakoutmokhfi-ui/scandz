@@ -41,8 +41,24 @@ import assert from "node:assert/strict";
 //       (SCANYM_IMPORT_INVALID_SALE_MODE), jamais un « Tous » silencieux ;
 //   [I] rétro-compatibilité : un fichier SANS la colonne « Modes de
 //       vente » du tout s'importe exactement comme avant ce lot ;
+//   [K] AUDIT LOT 3, BLOCKER B (issuecomment-5883893142, remédiation
+//       post-audit) : un code EXISTANT hors du référentiel d'entrée v1
+//       (catalogue de modes de vente extensible à l'avenir, ex.
+//       "future_mode") est reconduit/exporté SANS PERTE -- distinct du
+//       VOCABULAIRE D'ENTRÉE, qui reste strictement limité aux cinq
+//       codes canoniques ([K4], garde-fou) ;
 //   [J] i18n : le message du diagnostic et la clé
 //       catalogueImportSaleModeInvalid ne peuvent pas diverger.
+//
+// AUDIT LOT 3, BLOCKER A (issuecomment-5883893142, remédiation
+// post-audit, section [A]) : quatre cas concrets reproduits par l'audit
+// sont désormais prouvés BLOQUÉS plutôt que silencieusement
+// réinterprétés -- ";" seul, "pickup;;delivery" (jeton vide), "píckup"
+// (variante accentuée d'un code), "Tôus" (variante accentuée du
+// littéral ALL). La correspondance de jeton contre le référentiel et
+// contre le littéral "Tous" est désormais une égalité de CHAÎNE
+// EXACTE (plus aucun repliement casse/accent), tout en conservant le
+// retrait des espaces de bordure et la déduplication.
 // ====================================================================
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
@@ -151,16 +167,22 @@ test("[A] coerceAllowedSaleModes : colonne absente / cellule vide -> unset", () 
   assert.deepEqual(coerceAllowedSaleModes(undefined), { kind: "unset" });
   assert.deepEqual(coerceAllowedSaleModes(""), { kind: "unset" });
   assert.deepEqual(coerceAllowedSaleModes("   "), { kind: "unset" });
-  assert.deepEqual(coerceAllowedSaleModes(";"), { kind: "unset" }, "que des séparateurs -> aucun jeton exploitable");
 });
 
-test("[A] coerceAllowedSaleModes : littéral « Tous », insensible casse/espaces/accents", () => {
-  for (const raw of ["Tous", "tous", "TOUS", "  Tous  ", "ToUs"]) {
-    assert.deepEqual(coerceAllowedSaleModes(raw), { kind: "all" }, `« ${raw} » doit être reconnu comme Tous`);
+test("[A] coerceAllowedSaleModes : littéral « Tous » -- correspondance EXACTE uniquement (AUDIT LOT 3, BLOCKER A, issuecomment-5883893142)", () => {
+  assert.deepEqual(coerceAllowedSaleModes("Tous"), { kind: "all" });
+  // Les espaces de BORDURE de la cellule restent retirés (harmless
+  // whitespace trimming, EXPLICITEMENT préservé par l'audit).
+  assert.deepEqual(coerceAllowedSaleModes("  Tous  "), { kind: "all" });
+  // Casse ou accent différents -> jamais reconnu comme ALL -- décision
+  // exacte de l'audit : "literal ALL instruction is exactly \"Tous\"",
+  // aucune variante repliée n'est tolérée.
+  for (const raw of ["tous", "TOUS", "ToUs", "Tôus", "Touss"]) {
+    assert.deepEqual(coerceAllowedSaleModes(raw), { kind: "invalid" }, `« ${raw} » ne doit PAS être reconnu comme Tous`);
   }
 });
 
-test("[A] coerceAllowedSaleModes : codes valides, séparés par « ; », dédupliqués (ordre de première apparition), insensibles à la casse", () => {
+test("[A] coerceAllowedSaleModes : codes valides, séparés par « ; », dédupliqués (ordre de première apparition) -- correspondance EXACTE, jamais insensible à la casse", () => {
   assert.deepEqual(coerceAllowedSaleModes("pickup"), { kind: "codes", codes: ["pickup"] });
   assert.deepEqual(coerceAllowedSaleModes("pickup ; delivery"), { kind: "codes", codes: ["pickup", "delivery"] });
   assert.deepEqual(
@@ -168,7 +190,12 @@ test("[A] coerceAllowedSaleModes : codes valides, séparés par « ; », dédupl
     { kind: "codes", codes: ["delivery", "pickup"] },
     "doublon supprimé, première occurrence conservée"
   );
-  assert.deepEqual(coerceAllowedSaleModes("PICKUP ; Room_Service"), { kind: "codes", codes: ["pickup", "room_service"] });
+  // Les espaces de bordure de CHAQUE jeton restent retirés (harmless
+  // whitespace trimming, préservé) -- mais la casse ne l'est plus
+  // (AUDIT LOT 3, BLOCKER A) : "PICKUP" / "Room_Service" sont
+  // désormais des jetons INVALIDES, pas des alias de "pickup"/
+  // "room_service".
+  assert.deepEqual(coerceAllowedSaleModes("PICKUP ; Room_Service"), { kind: "invalid" });
 });
 
 test("[A] coerceAllowedSaleModes : la virgule N'est PAS un séparateur (format d'échange strict, distinct de « Tags / Collections »)", () => {
@@ -181,6 +208,30 @@ test("[A] coerceAllowedSaleModes : un seul jeton invalide bloque TOUTE la cellul
   assert.deepEqual(coerceAllowedSaleModes("pickup ; retrait"), { kind: "invalid" }, "'retrait' n'est pas un code -- toute la cellule est invalide");
   assert.deepEqual(coerceAllowedSaleModes("emporter"), { kind: "invalid" });
   assert.deepEqual(coerceAllowedSaleModes("à emporter"), { kind: "invalid" }, "le libellé client n'est PAS un alias accepté (décision CIO v1)");
+});
+
+// ------------------------------------------------------------------
+// AUDIT LOT 3 (issue #11, comment 5883893142) -- BLOCKER A : régression
+// ciblée sur les QUATRE cas concrets reproduits par l'audit, chacun
+// prouvé BLOQUÉ (jamais silencieusement réinterprété).
+// ------------------------------------------------------------------
+
+test("[A] AUDIT BLOCKER A : une cellule ne contenant QUE des séparateurs (\";\") est INVALIDE, jamais 'unset'", () => {
+  assert.deepEqual(coerceAllowedSaleModes(";"), { kind: "invalid" });
+  assert.deepEqual(coerceAllowedSaleModes(";;"), { kind: "invalid" });
+});
+
+test("[A] AUDIT BLOCKER A : un jeton VIDE entre deux jetons valides (\"pickup;;delivery\") est INVALIDE, jamais silencieusement filtré vers ['pickup','delivery']", () => {
+  assert.deepEqual(coerceAllowedSaleModes("pickup;;delivery"), { kind: "invalid" });
+  assert.deepEqual(coerceAllowedSaleModes("pickup;"), { kind: "invalid" }, "jeton vide en fin de cellule -- bloqué, pas juste ignoré");
+});
+
+test("[A] AUDIT BLOCKER A : une variante accentuée/repliée d'un code (\"píckup\") est INVALIDE, jamais silencieusement acceptée comme alias de 'pickup'", () => {
+  assert.deepEqual(coerceAllowedSaleModes("píckup"), { kind: "invalid" });
+});
+
+test("[A] AUDIT BLOCKER A : une variante accentuée du littéral ALL (\"Tôus\") est INVALIDE, jamais silencieusement reconnue comme 'Tous'", () => {
+  assert.deepEqual(coerceAllowedSaleModes("Tôus"), { kind: "invalid" });
 });
 
 test("[A] SALE_MODE_CODES contient exactement les 5 codes du référentiel serveur, en ordre canonique", () => {
@@ -534,6 +585,144 @@ test("[I] un fichier SANS la colonne « Modes de vente » du tout s'importe exac
   const update = h.rpcCalls.find((c) => c.name === "update_product");
   assert.ok(update);
   assert.deepEqual(update!.args.p_allowed_sale_modes, ["room_service"], "colonne absente -> restriction préservée");
+});
+
+// ==================================================================
+// K. AUDIT LOT 3 (issue #11, comment 5883893142) -- BLOCKER B : un
+//    code EXISTANT hors du référentiel d'entrée v1 (catalogue de
+//    modes de vente extensible à l'avenir, ex. "future_mode") doit
+//    être reconduit/exporté SANS PERTE -- jamais filtré à travers
+//    SALE_MODE_CODES. Distinct du VOCABULAIRE D'ENTRÉE (ce qu'un
+//    marchand peut TAPER dans une cellule), qui reste strictement
+//    limité aux cinq codes canoniques ([K4] ci-dessous).
+// ==================================================================
+
+test("[K1] AUDIT BLOCKER B : produit existant [\"pickup\",\"future_mode\"], colonne « Modes de vente » ABSENTE, un AUTRE champ change -> l'ensemble EXACT est reconduit dans allowedSaleModesToWrite, 'future_mode' inclus", () => {
+  const existing = [
+    makeCategory({
+      category_id: "cat-fromages",
+      category_name: "Fromages",
+      products: [
+        makeProduct({
+          product_id: "p-victor",
+          name: "Coffret de Victor",
+          price: 24,
+          allowed_sale_modes: ["pickup", "future_mode"],
+        }),
+      ],
+    }),
+  ];
+
+  // Colonne "Modes de vente" absente du fichier -- seul le prix change.
+  const report = buildPreviewReport(
+    [{ row: 2, cells: { Nom: "Coffret de Victor", "Catégorie parent": "Fromages", "Prix TTC (€)": "29" } }],
+    existing,
+    []
+  );
+
+  assert.equal(report.rows[0].plannedAction, "UPDATE", "le prix a changé");
+  assert.deepEqual(
+    report.rows[0].allowedSaleModesToWrite,
+    ["pickup", "future_mode"],
+    "'future_mode' NE DOIT PAS être silencieusement supprimé -- avant le correctif, canonicalSaleModes le filtrait à travers SALE_MODE_CODES et ne renvoyait que ['pickup']"
+  );
+});
+
+test("[K2] AUDIT BLOCKER B : même scénario avec une cellule « Modes de vente » explicitement VIDE (pas seulement absente) -> même préservation exacte", () => {
+  const existing = [
+    makeCategory({
+      category_id: "cat-fromages",
+      category_name: "Fromages",
+      products: [
+        makeProduct({
+          product_id: "p-victor",
+          name: "Coffret de Victor",
+          price: 24,
+          allowed_sale_modes: ["pickup", "future_mode"],
+        }),
+      ],
+    }),
+  ];
+
+  const report = buildPreviewReport(
+    [{ row: 2, cells: { Nom: "Coffret de Victor", "Catégorie parent": "Fromages", "Prix TTC (€)": "29", [SALE_MODE_COLUMN]: "" } }],
+    existing,
+    []
+  );
+
+  assert.equal(report.rows[0].plannedAction, "UPDATE");
+  assert.deepEqual(report.rows[0].allowedSaleModesToWrite, ["pickup", "future_mode"]);
+});
+
+test("[K3] AUDIT BLOCKER B : EXPORT d'un produit existant avec un code futur -- aucune perte silencieuse", () => {
+  const flat = flattenCatalogue([
+    makeCategory({
+      category_id: "cat-fromages",
+      category_name: "Fromages",
+      products: [
+        makeProduct({
+          product_id: "p-victor",
+          name: "Coffret de Victor",
+          allowed_sale_modes: ["pickup", "future_mode"],
+        }),
+      ],
+    }),
+  ]);
+  const rows = buildExportRows(flat);
+  assert.equal(
+    rows[0][EXPORT_COLUMNS.indexOf(SALE_MODE_COLUMN)],
+    "pickup ; future_mode",
+    "le code inconnu 'future_mode' doit apparaître dans l'export, jamais être filtré silencieusement"
+  );
+});
+
+test("[K4] AUDIT BLOCKER B (garde-fou) : un code INCONNU TAPÉ PAR L'UTILISATEUR reste BLOQUÉ -- le vocabulaire D'ENTRÉE v1 n'est PAS affaibli par la préservation des données existantes", () => {
+  const report = buildPreviewReport(
+    [{ row: 2, cells: { Nom: "Coffret de Victor", "Catégorie parent": "Fromages", "Prix TTC (€)": "24", [SALE_MODE_COLUMN]: "future_mode" } }],
+    [makeCategory({ category_id: "cat-fromages", category_name: "Fromages" })],
+    []
+  );
+  const row = report.rows[0];
+  assert.deepEqual(row.normalizedValues.allowedSaleModesRaw, { kind: "invalid" });
+  assert.equal(row.status, "BLOCKED");
+  assert.ok(row.errors.some((e) => e.code === "SCANYM_IMPORT_INVALID_SALE_MODE"));
+});
+
+test("[K5] AUDIT BLOCKER B : ALLER-RETOUR COMPLET (commit RPC réel) -- un produit existant [\"pickup\",\"future_mode\"], réimport avec cellule vide et prix modifié -> update_product reçoit l'ensemble EXACT, 'future_mode' inclus", async (t) => {
+  const { buildImportXlsx } = await import("./helpers/xlsx-fixture-builder.ts");
+  const buf = buildImportXlsx(FULL_HEADER, [
+    productFileRow({ Nom: "Coffret de Victor", "Catégorie parent": "Fromages", "Prix TTC (€)": "29" }),
+  ]);
+  const file = new File([buf], "victor-future-mode.xlsx", {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  const h: ImportHarness = {
+    rpcCalls: [],
+    catalogueRows: [
+      catalogueRow({
+        product_id: "p-victor",
+        name: "Coffret de Victor",
+        price: 24,
+        is_available: true,
+        display_order: 1,
+        is_option_source: false,
+        allowed_sale_modes: ["pickup", "future_mode"],
+      }),
+    ],
+  };
+  installImportMocks(t, h);
+
+  const result = await commitCatalogueImport(file, RESTO_VICTOR);
+  assert.equal(result.kind, "COMMITTED");
+
+  const update = h.rpcCalls.find((c) => c.name === "update_product");
+  assert.ok(update, "le prix a changé, un UPDATE doit avoir lieu");
+  assert.deepEqual(
+    update!.args.p_allowed_sale_modes,
+    ["pickup", "future_mode"],
+    "AVANT le correctif BLOCKER B : p_allowed_sale_modes aurait valu ['pickup'] seul, perdant silencieusement 'future_mode' au commit RPC réel"
+  );
 });
 
 // ==================================================================
