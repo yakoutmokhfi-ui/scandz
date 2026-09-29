@@ -391,6 +391,15 @@ export async function commitCatalogueImport(
       // actuelle du produit existant / `false` pour un produit
       // nouveau. Voir PreviewRow.withdrawalEligibleToWrite.
       withdrawalEligible: row.withdrawalEligibleToWrite,
+      // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- MÊME patron
+      // exact : valeur EFFECTIVE déjà résolue par la preview fraîche,
+      // jamais recalculée ici. C'est CE champ, auparavant absent de
+      // cet objet, qui causait la perte de données identifiée dans
+      // l'analyse d'impact (issue #11) : `fiscal.allowedSaleModes`
+      // valait toujours `undefined` -> `?? null` (dashboard.ts) ->
+      // ALL envoyé au serveur à CHAQUE UPDATE, quelle que soit la
+      // restriction existante. Voir PreviewRow.allowedSaleModesToWrite.
+      allowedSaleModes: row.allowedSaleModesToWrite,
     };
 
     try {

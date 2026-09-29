@@ -34,12 +34,15 @@
 import type { CatalogueCategory } from "@/lib/services/dashboard";
 import type { ImportColumn } from "@/lib/catalogue-import/column-mapping";
 import {
+  canonicalizeSaleModeCodes,
   classifyRowType,
+  coerceAllowedSaleModes,
   coerceInteger,
   coerceNumeric,
   coerceWithdrawalEligible,
   normalizedKey,
   splitTagsColumn,
+  type CoercedAllowedSaleModes,
 } from "@/lib/catalogue-import/normalization";
 import { normalizeText } from "@/lib/catalogue-text";
 import {
@@ -125,6 +128,12 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
     // (resolveWithdrawalEligibleToWrite), car elle dépend du produit
     // EXISTANT, que cette fonction ne voit pas.
     withdrawalEligible: coerceWithdrawalEligible(cells["Rétractable"]),
+    // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- valeur BRUTE (4
+    // états distincts, voir CoercedAllowedSaleModes). La valeur
+    // effectivement écrite est résolue plus bas
+    // (resolveAllowedSaleModesToWrite), car elle dépend du produit
+    // EXISTANT, que cette fonction ne voit pas.
+    allowedSaleModesRaw: coerceAllowedSaleModes(cells["Modes de vente"]),
     tags: splitTagsColumn(cells["Tags / Collections"]),
     type,
     categoryNameRaw,
@@ -162,10 +171,68 @@ function resolveWithdrawalEligibleToWrite(
   return existing?.withdrawal_eligible ?? false;
 }
 
+/**
+ * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- résout la valeur
+ * EFFECTIVE de `allowed_sale_modes` pour une ligne (contrat complet
+ * documenté sur `PreviewRow.allowedSaleModesToWrite`, types.ts).
+ *
+ * CELLULE VIDE/ABSENTE (`unset`) OU INVALIDE (`invalid`) = « inchangé
+ * pour un produit existant, ALL (`null`) pour un produit nouveau » --
+ * MÊME discipline exacte que resolveWithdrawalEligibleToWrite :
+ * `update_product` réécrit TOUJOURS la colonne (drop+recreate côté
+ * SQL), donc omettre cette résolution effacerait silencieusement une
+ * restriction existante à chaque réimport d'un fichier sans cette
+ * colonne -- c'est précisément le défaut identifié dans l'analyse
+ * d'impact (issue #11).
+ *
+ * LITTÉRAL « Tous » (`all`) : effacement EXPLICITE vers `null` (ALL),
+ * jamais confondu avec `unset` malgré un résultat identique côté
+ * CREATE -- la distinction ne compte QUE pour UPDATE.
+ *
+ * CODES (`codes`) : le tableau, en ordre canonique.
+ *
+ * AUDIT LOT 3 (issue #11, comment 5883893142, BLOCKER B) -- correctif :
+ * la reconduction de l'existant (branche "unset"/"invalid" ci-dessous)
+ * utilise désormais `canonicalizeSaleModeCodes`, qui NE FILTRE PLUS le
+ * jeu existant à travers le référentiel d'ENTRÉE v1 (`SALE_MODE_CODES`)
+ * -- un code hors de ce référentiel (catalogue de modes de vente
+ * extensible à l'avenir) est désormais reconduit TEL QUEL, jamais
+ * silencieusement supprimé. Avant ce correctif, un produit existant
+ * avec `["pickup", "future_mode"]` et une cellule vide/absente en
+ * réimport perdait silencieusement `"future_mode"` (bug reproduit par
+ * l'audit). Ceci ne concerne QUE la reconduction de données déjà EN
+ * BASE : le VOCABULAIRE D'ENTRÉE accepté depuis une cellule reste
+ * strictement limité aux cinq codes canoniques (`coerceAllowedSaleModes`,
+ * kind "invalid" sur tout code hors référentiel -- inchangé par ce
+ * correctif, contrat v1 non affaibli).
+ */
+function resolveAllowedSaleModesToWrite(
+  raw: CoercedAllowedSaleModes,
+  existing: { allowed_sale_modes: string[] | null } | undefined
+): string[] | null {
+  if (raw.kind === "codes") return canonicalizeSaleModeCodes(raw.codes);
+  if (raw.kind === "all") return null;
+  // "unset" ou "invalid" -- même repli : préserver l'existant SANS
+  // PERTE (ou ALL pour un produit nouveau, où `existing` est
+  // `undefined`).
+  const current = existing?.allowed_sale_modes ?? null;
+  return current === null ? null : canonicalizeSaleModeCodes(current);
+}
+
 function valuesEqualExisting(
   values: NormalizedRowValues,
-  existing: { price: number; short_description: string | null; description: string | null; tax_rate: number | null; unit_weight_grams: number | null; weight_is_approximate: boolean; withdrawal_eligible: boolean },
-  withdrawalEligibleToWrite: boolean
+  existing: {
+    price: number;
+    short_description: string | null;
+    description: string | null;
+    tax_rate: number | null;
+    unit_weight_grams: number | null;
+    weight_is_approximate: boolean;
+    withdrawal_eligible: boolean;
+    allowed_sale_modes: string[] | null;
+  },
+  withdrawalEligibleToWrite: boolean,
+  allowedSaleModesToWrite: string[] | null
 ): boolean {
   const priceEqual =
     values.price !== undefined && values.price !== null && Math.round(values.price * 100) === Math.round(existing.price * 100);
@@ -179,7 +246,25 @@ function valuesEqualExisting(
   // Oui <-> Non produit bien un UPDATE, jamais un SKIP qui perdrait
   // silencieusement la modification voulue par le marchand.
   const withdrawalEqual = withdrawalEligibleToWrite === existing.withdrawal_eligible;
-  return priceEqual && shortDescEqual && descEqual && taxEqual && weightEqual && withdrawalEqual;
+  // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- comparer la valeur
+  // EFFECTIVE canonicalisée des deux côtés (et non la cellule brute
+  // ni l'ordre serveur) : une cellule vide résout vers la restriction
+  // actuelle, donc n'introduit JAMAIS un faux UPDATE ; un changement
+  // réel (codes différents, ou "Tous" sur un produit restreint)
+  // produit bien un UPDATE.
+  // AUDIT LOT 3 (BLOCKER B) : canonicalisation SANS PERTE -- un code
+  // existant hors référentiel v1 reste significatif pour l'égalité
+  // (jamais filtré, donc jamais faussement "égal" à une valeur qui
+  // l'aurait silencieusement perdu).
+  const existingSaleModes =
+    existing.allowed_sale_modes === null ? null : canonicalizeSaleModeCodes(existing.allowed_sale_modes);
+  const saleModesEqual =
+    allowedSaleModesToWrite === null
+      ? existingSaleModes === null
+      : existingSaleModes !== null &&
+        allowedSaleModesToWrite.length === existingSaleModes.length &&
+        allowedSaleModesToWrite.every((c, i) => c === existingSaleModes[i]);
+  return priceEqual && shortDescEqual && descEqual && taxEqual && weightEqual && withdrawalEqual && saleModesEqual;
 }
 
 /**
@@ -294,6 +379,13 @@ export function buildPreviewReport(
       values.withdrawalEligible,
       matchedExistingProduct
     );
+    // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- même patron exact,
+    // même source unique (matchedExistingProduct) pour la valeur
+    // « inchangée » quand la cellule « Modes de vente » est vide.
+    const allowedSaleModesToWrite = resolveAllowedSaleModesToWrite(
+      values.allowedSaleModesRaw,
+      matchedExistingProduct
+    );
 
     const issues = validateRow({
       values,
@@ -327,7 +419,9 @@ export function buildPreviewReport(
     } else if (productMatch.state === "EXISTING_MATCH" && productMatch.existingId) {
       const existing = matchedExistingProduct;
       plannedAction =
-        existing && valuesEqualExisting(values, existing, withdrawalEligibleToWrite) ? "SKIP" : "UPDATE";
+        existing && valuesEqualExisting(values, existing, withdrawalEligibleToWrite, allowedSaleModesToWrite)
+          ? "SKIP"
+          : "UPDATE";
     } else {
       // AMBIGUOUS_DUPLICATE sans erreur bloquante ne devrait jamais
       // se produire (validateRow émet toujours SCANYM_IMPORT_
@@ -353,6 +447,7 @@ export function buildPreviewReport(
       rowType,
       plannedAction,
       withdrawalEligibleToWrite,
+      allowedSaleModesToWrite,
     };
   });
 

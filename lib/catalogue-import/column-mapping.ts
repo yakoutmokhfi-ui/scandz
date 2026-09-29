@@ -7,13 +7,21 @@
  * documenté du format cible :
  *   Type, Nom, Catégorie parent, Sous-catégorie parent,
  *   Tags / Collections, Description courte, Description longue,
- *   Prix TTC (€), TVA (%), Poids (g), Photo fichier, Rétractable.
+ *   Prix TTC (€), TVA (%), Poids (g), Photo fichier, Rétractable,
+ *   Modes de vente.
  *
  * ONLINE WITHDRAWAL v1 -- « Rétractable » est une VRAIE colonne
  * d'aller-retour (jamais une colonne d'export purement informative,
  * comme « Disponible »/« Prix de référence (€/kg) ») : elle est
  * exportée ET relue à l'import. Optionnelle, valeurs « Oui »/« Non »
  * uniquement (voir coerceWithdrawalEligible, normalization.ts).
+ *
+ * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 (issue #11, décision
+ * CIO/Ravel) -- « Modes de vente » est elle aussi une VRAIE colonne
+ * d'aller-retour, MÊME discipline exacte que « Rétractable » :
+ * codes stables séparés par `;` (jamais les libellés FR affichés
+ * côté client, voir coerceAllowedSaleModes, normalization.ts),
+ * littéral « Tous » pour l'effacement EXPLICITE des restrictions.
  *
  * DÉCISION DOCUMENTÉE (IMPORT-CONTRACT.md) -- colonnes REQUISES vs
  * OPTIONNELLES : le mandat ne le précise pas explicitement ; la
@@ -24,7 +32,7 @@
  *   REQUISES : Nom, Catégorie parent, Prix TTC (€)
  *   OPTIONNELLES : Type, Sous-catégorie parent, Tags / Collections,
  *   Description courte, Description longue, TVA (%), Poids (g),
- *   Photo fichier, Rétractable.
+ *   Photo fichier, Rétractable, Modes de vente.
  * Une colonne optionnelle absente du fichier ne bloque PAS l'import
  * (mandat "Do not invent semantics for ambiguous fields" -- une
  * colonne manquante n'est pas ambiguë, elle est simplement absente ;
@@ -47,6 +55,10 @@ export const IMPORT_COLUMNS = [
   // fichier antérieur à ce lot (qui ne la contient pas) reste importé
   // exactement comme avant, colonne simplement absente.
   "Rétractable",
+  // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- même discipline :
+  // ajoutée APRÈS "Rétractable", en dernière position. Tout fichier
+  // antérieur à ce lot reste importé exactement comme avant.
+  "Modes de vente",
 ] as const;
 
 export type ImportColumn = (typeof IMPORT_COLUMNS)[number];

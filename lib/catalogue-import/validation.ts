@@ -70,6 +70,17 @@ import type { CategoryResolution, ImportIssue, NormalizedRowValues, ProductMatch
 export const WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE =
   "Valeur « Rétractable » invalide (attendu : Oui ou Non).";
 
+/**
+ * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- message du diagnostic
+ * « Modes de vente » invalide. MÊME discipline que
+ * WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE ci-dessus : exporté pour rester
+ * la SEULE formulation, répliqué à l'identique sous la clé i18n
+ * `catalogueImportSaleModeInvalid` (lib/i18n.ts), égalité prouvée par
+ * test.
+ */
+export const SALE_MODE_INVALID_MESSAGE =
+  "Valeur « Modes de vente » invalide (attendu : codes séparés par « ; » parmi table, pickup, click_collect, room_service, delivery -- ou « Tous »).";
+
 export interface RowValidationInput {
   values: NormalizedRowValues;
   categoryResolution: CategoryResolution;
@@ -426,6 +437,25 @@ function validateProductRow(
       severity: "BLOCKING_ERROR",
       message: WITHDRAWAL_ELIGIBLE_INVALID_MESSAGE,
       field: "Rétractable",
+    });
+  }
+  // --- Modes de vente (XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1) ---
+  // MÊME discipline FAIL CLOSED que « Rétractable » ci-dessus : un
+  // jeton non reconnu bloque TOUTE la ligne (mandat CIO/Ravel : « do
+  // not silently ignore one invalid token inside an otherwise valid
+  // list »), jamais un repli silencieux vers ALL ou vers l'existant --
+  // cette résolution-là n'a lieu QUE pour une cellule vide/absente,
+  // jamais pour une cellule invalide qui n'a simplement pas pu être
+  // comprise (voir resolveAllowedSaleModesToWrite, preview.ts : la
+  // ligne étant bloquée, cette valeur de repli n'est de toute façon
+  // jamais écrite). Une cellule VIDE ou le littéral « Tous » ne sont
+  // PAS des erreurs.
+  if (values.allowedSaleModesRaw.kind === "invalid") {
+    issues.push({
+      code: "SCANYM_IMPORT_INVALID_SALE_MODE",
+      severity: "BLOCKING_ERROR",
+      message: SALE_MODE_INVALID_MESSAGE,
+      field: "Modes de vente",
     });
   }
 
