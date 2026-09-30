@@ -16,7 +16,7 @@
  * réalimentées par la config établissement quand elle est renseignée.
  * `null`/absent = comportement exactement identique à avant V69.
  */
-import { darken, readableTextColor, compositeOver, readableAccentOnBg, mutedOnBg } from "@/lib/color-contrast";
+import { darken, readableTextColor, compositeOver, readableAccentOnBg, mutedOnBg, errorTextOnBg } from "@/lib/color-contrast";
 
 /** Composantes RVB d'une couleur hexadécimale. */
 export function rgbOf(hex: string): [number, number, number] {
@@ -226,6 +226,23 @@ export function themeStyle(
     // ferait tomber le contraste sous 4.5:1 (voir mutedOnBg).
     "--sc-ink-on-bg-muted": mutedOnBg(readableAccentOnBg(ink, bg), bg),
     "--sc-accent-dark-on-bg-muted": mutedOnBg(readableAccentOnBg(accentDark, bg), bg),
+    // CHECKOUT UX/A11Y MICRO-LOT (issue #11, CIO) -- couleur d'erreur
+    // sémantique (messages de validation du formulaire de commande),
+    // calculée contre --sc-bg comme le reste de ce fichier -- jamais
+    // une classe Tailwind littérale indépendante du fond réel (voir
+    // errorTextOnBg, lib/color-contrast.ts, pour le défaut corrigé).
+    "--sc-error": errorTextOnBg(bg),
+    // Correctif Chateaubriand (audit PR #119) : InvoiceRequestFields
+    // affiche ce même message d'erreur DANS un panneau translucide
+    // (bg-white/50), pas directement sur --sc-bg -- exactement le
+    // même principe que --sc-ink-text-on-bg-20 ci-dessus (V71-02) :
+    // un fond translucide sur un arrière-plan connu se calcule par
+    // composition alpha RÉELLE (compositeOver), jamais contre le fond
+    // de page brut. --sc-error, lui, reste correct pour tout message
+    // d'erreur affiché à même --sc-bg (FulfillmentSelector, CartPanel)
+    // -- ce nouveau token est réservé au cas précis du panneau à 50%
+    // d'opacité blanche d'InvoiceRequestFields.
+    "--sc-error-on-invoice-panel": errorTextOnBg(compositeOver("#ffffff", bg, 0.5)),
   };
 }
 

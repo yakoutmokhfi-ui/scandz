@@ -564,15 +564,25 @@ export default function CartPanel({
                   aria-invalid={!noteState.isValid || undefined}
                   className={
                     "mt-1.5 w-full resize-none rounded-xl border bg-white p-3 text-sm text-stone-900 placeholder:text-stone-500 " +
+                    // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- pastille
+                    // OPAQUE auto-suffisante (bg-red-50 + border-red-500,
+                    // couple fixe, contraste interne 3,44:1 vérifié) :
+                    // remplace intégralement bg-white, donc jamais
+                    // dépendante de --sc-bg -- pas var(--sc-error) ici
+                    // (qui répondrait au mauvais fond).
                     (noteState.isValid
                       ? "border-espresso/10"
-                      : "border-amber-500 bg-amber-50")
+                      : "border-red-500 bg-red-50")
                   }
                 />
                 <p
                   className={
                     "mt-1 text-right text-xs " +
-                    (noteState.isValid ? "text-ink-on-bg-muted" : "font-semibold text-amber-700")
+                    // Ce texte, contrairement à la pastille ci-dessus,
+                    // reste rendu à même le fond de PAGE ambiant
+                    // (--sc-bg) -- text-error (adaptatif) est donc le
+                    // bon choix ici, pas un rouge fixe.
+                    (noteState.isValid ? "text-ink-on-bg-muted" : "font-semibold text-error")
                   }
                 >
                   {t("noteCounter", {
@@ -740,7 +750,11 @@ export default function CartPanel({
               </span>
             </div>
             {submitError && (
-              <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- pastille
+              // opaque fixe (bg-red-50/text-red-800, 7,60:1 vérifié),
+              // vraie couleur d'erreur (remplace amber-50/amber-900) ;
+              // fond auto-suffisant, pas var(--sc-error) ici.
+              <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
                 {submitError}
               </p>
             )}
@@ -753,7 +767,9 @@ export default function CartPanel({
               // SEULE, jamais une nouvelle soumission complète du
               // panier (qui recréerait une commande).
               <>
-                <p className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                {/* CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- même
+                    pastille opaque fixe que submitError ci-dessus. */}
+                <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
                   {invoiceRequestError}
                 </p>
                 <button
@@ -829,14 +845,29 @@ export default function CartPanel({
                   disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
                   aria-busy={isSubmitting}
                   className={
-                    "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
-                    (whatsappEnabled
-                      ? isSubmitting || (cgvEnforced && !cgvAccepted)
-                        ? "cursor-not-allowed bg-[#25D366]/60"
-                        : "bg-[#25D366]"
-                      : isSubmitting || (cgvEnforced && !cgvAccepted)
-                        ? "cursor-not-allowed bg-espresso/60"
-                        : "bg-espresso")
+                    "block w-full rounded-xl py-3.5 text-center font-bold " +
+                    // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- signal
+                    // de validité, PAS un signal de marque : cette
+                    // condition (isSubmitting || CGV manquantes) est
+                    // exactement "toutes les conditions ne sont pas
+                    // encore remplies" (champs+mode déjà garantis par
+                    // le rendu de cette branche, voir plus bas --
+                    // seules CGV/soumission restent à couvrir ici).
+                    // Vert UNIQUEMENT quand tout est effectivement
+                    // validable -- jamais la couleur de marque
+                    // WhatsApp (#25D366) : le mandat CUSTOMER CONTACT
+                    // v1 ci-dessus ("AUCUNE mention WhatsApp -- texte,
+                    // couleur, libellé" quand désactivé) interdit déjà
+                    // de réserver cette teinte à ce canal -- green-700
+                    // est une couleur sémantique générique, jamais un
+                    // rappel de marque, appliquée identiquement que
+                    // WhatsApp soit actif ou non. Gris net (pas une
+                    // simple opacité réduite de la couleur active) pour
+                    // un état "clairement inactif" sans ambiguïté --
+                    // les deux paires vérifiées WCAG (5,02:1 et 6,90:1).
+                    (isSubmitting || (cgvEnforced && !cgvAccepted)
+                      ? "cursor-not-allowed bg-stone-300 text-stone-700"
+                      : "bg-green-700 text-white")
                   }
                 >
                   {isSubmitting

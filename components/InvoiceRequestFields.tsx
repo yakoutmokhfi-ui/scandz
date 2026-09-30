@@ -92,10 +92,24 @@ function Field({
         aria-invalid={error ? true : undefined}
         className={
           "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
-          (error ? "border-amber-400" : "border-espresso/15")
+          // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- même raisonnement
+          // que FulfillmentSelector.tsx : ce champ reste toujours sur
+          // bg-white littéral, donc bordure rouge FIXE (red-600),
+          // jamais var(--sc-error) (adaptée au fond de PAGE, pas au
+          // fond fixe de ce champ précis).
+          (error ? "border-red-600" : "border-espresso/15")
         }
       />
-      {error && <p className="mt-1 text-xs text-amber-700">{error}</p>}
+      {/* Correctif Chateaubriand (audit PR #119) : CE champ précis est
+          rendu à l'intérieur du panneau bg-white/50 (translucide) de
+          InvoiceRequestFields, pas directement sur --sc-bg -- le fond
+          RÉEL derrière ce texte est donc la composition blanc à 50%
+          sur --sc-bg (compositeOver), jamais --sc-bg brut. text-error
+          (calculée contre --sc-bg pur) donnait un contraste erroné ici
+          (~1,30:1 mesuré sur le fond sombre TRACKING_SURFACE_COLORS) ;
+          text-error-on-invoice-panel (var(--sc-error-on-invoice-panel),
+          lib/themes.ts) est calculée contre ce fond composité réel. */}
+      {error && <p className="mt-1 text-xs text-error-on-invoice-panel">{error}</p>}
     </div>
   );
 }
