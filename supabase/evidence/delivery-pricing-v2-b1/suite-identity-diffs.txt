@@ -1,0 +1,17 @@
+# diff base (npm test) vs candidat (npm test) — historique complet
+(vide : ensembles identiques)
+
+# diff base (--test-concurrency=1) vs candidat (--test-concurrency=1) — historique complet
+(vide : ensembles identiques)
+
+# diff npm test vs --test-concurrency=1 (base) — l'invocation ne change rien
+(vide : ensembles identiques)
+
+# diff historique complet vs clone shallow (base, --test-concurrency=1) — les 4 écarts
+1a2
+> tests/ob1-harness-allowlist-narrowness-check.test.ts:68 | EMAIL-V1-OB1-HARNESS-01 (negative control): an unrelated synthetic supabase/ file still trips the real, unmodified OB-1 non-modification guard -- the new allowlist entry is exact, never a broad exemption
+6a8
+> tests/ob1-non-modification-proof.test.ts:301 | non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout additif, ligne par ligne prouvé, de l'onglet CGV (aucune ligne existante retirée, aucun ajout hors-sujet) ; lib/services/dashboard.ts (services marchand partagés) INCHANGÉ SAUF retrait du wrapper mort setProductPhoto (BULK PRODUCT PHOTOS v1.4, RPC sous-jacente supprimée par Cat Stevens Blocker 1 -- voir CAT-STEVENS-FINDINGS-REMEDIATION.md)
+10a13,14
+> tests/v91-lot2b4a2-structural.test.ts:128 | LOT 2B.4a.2: compatibilité WhatsApp / création de commande -- lib/whatsapp.ts, lib/services/order-payload.ts, lib/delivery.ts restent BYTE-IDENTIQUES à la baseline (section 7 de la mission)
+> tests/v91-lot2b4a2-structural.test.ts:143 | LOT 2B.4a.2: aucun fichier hors périmètre (SQL/RPC, cycle de vie de commande avancé, Dashboard) n'apparaît dans le diff réel

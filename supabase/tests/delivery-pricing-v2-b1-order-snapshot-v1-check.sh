@@ -52,7 +52,7 @@ pass() { PASS_COUNT=$((PASS_COUNT+1)); log "PASS: $*"; }
 fail() { FAIL_COUNT=$((FAIL_COUNT+1)); printf '%s\n' "$*" >> "$FAIL_LOG"; log "FAIL: $*"; }
 
 cleanup() {
-  for d in "$DB" "$DB_PRE" "$DB_AUX" "${DB_AUX}_x15" "${DB_AUX}_vat" "${DB_AUX}_vatb1"; do
+  for d in "$DB" "$DB_PRE" "$DB_AUX" "${DB_AUX}_x15" "${DB_AUX}_vat" "${DB_AUX}_vatb1" "${DB_AUX}_b5"; do
     psql -c "drop database if exists \"$d\";" >/dev/null 2>&1 || true
   done
   rm -f "${FAIL_LOG:-}" /tmp/scanym-b1-out-$$.txt /tmp/scanym-b1-err-$$.txt /tmp/scanym-b1-chain-$$.err /tmp/scanym-b1-par-$$-* 2>/dev/null || true
@@ -478,7 +478,7 @@ log "=== [B1-X-14 / B1-T-16] Résolveur substitué dans le harnais ==="
 # Substitution TEMPORAIRE du résolveur (harnais uniquement) : le vrai est
 # renommé, un faux de même signature le relaie en altérant une valeur.
 swap_resolver() { # $1 = expression SQL de delivery_fee, $2 = expression de pricing_mode
-  psql -X -q -d "$DB" -v ON_ERROR_STOP=1 >/dev/null <<SQL
+  psql -X -q -d "${SWAP_DB:-$DB}" -v ON_ERROR_STOP=1 >/dev/null <<SQL
 alter function public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric) rename to resolve_delivery_fulfillment_real;
 create function public.resolve_delivery_fulfillment(p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric default null)
 returns table (eligible boolean, fulfillment_rule_id uuid, fulfillment_code text, provider text, matched_prefix text, zone_prefixes text[], is_fallback boolean, min_items integer, customer_text text, display_order integer, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, block text, missing integer)
@@ -490,7 +490,7 @@ language sql stable security definer set search_path = '' as \$f\$
 SQL
 }
 restore_resolver() {
-  psql -X -q -d "$DB" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+  psql -X -q -d "${SWAP_DB:-$DB}" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 drop function public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric);
 alter function public.resolve_delivery_fulfillment_real(uuid,text,text,integer,numeric) rename to resolve_delivery_fulfillment;
 SQL
@@ -505,19 +505,76 @@ assert_eq "B1-X-14c. code d'erreur 22023" "22023" "$X14_STATE"
 assert_eq "B1-X-14d. transaction ENTIÈRE annulée : aucune commande, aucune ligne" "$N_ORD|$N_SNAP" "$(order_count)|$(snap_count)"
 restore_resolver
 
-# B1-T-16 — simulation B5 : un pricing_mode hors vocabulaire v1.
+# B1-T-16 — pricing_mode hors vocabulaire v1 (simulation B5).
+# ARBITRAGE RAVEL/CIO (scanym-orchestrator#17, REMEDIATION_REQUESTED —
+# NARROW, suite au FAIL Chateaubriand B1-T16-CONTRACT) :
+#   - §8.3 B1-A-01 fait autorité à l'exécution : create_order DOIT échouer
+#     fermé si le résolveur renvoie un pricing_mode dont B1-A-01 ne connaît
+#     pas encore la formule de frais ;
+#   - B5 devra mettre à jour le résolveur ET la transcription B1-A-01
+#     atomiquement, dans la même livraison, avant tout usage au checkout ;
+#   - §6.2 inchangé : la TABLE ne porte aucun CHECK énuméré.
+# B1-T-16 est donc clarifié en trois volets :
+#   (a) la table accepte, isolément, un pricing_mode non-v1 ;
+#   (b) create_order REJETTE un pricing_mode inconnu de B1-A-01 ;
+#   (c) une fois B1-A-01 étendu de façon cohérente avec le résolveur,
+#       le checkout PASSE pour ce nouveau mode.
 RC="$(sql_rc "begin; insert into public.order_delivery_fulfillment_snapshot (order_id, fulfillment_rule_id, is_fallback, matched_prefix, pricing_mode, fixed_fee, free_threshold, customer_text) values ('$PRE_ORDER_NEW', gen_random_uuid(), false, '75', 'percentage_b5', null, null, null); rollback;")"
-assert_eq "B1-T-16a. la TABLE accepte un pricing_mode hors vocabulaire v1 (aucun CHECK énuméré)" "0" "$RC"
+assert_eq "B1-T-16a. (a) la TABLE accepte isolément un pricing_mode non-v1 (aucun CHECK énuméré, §6.2)" "0" "$RC"
+
+N_ORD="$(order_count)"; N_SNAP="$(snap_count)"
 swap_resolver "r.delivery_fee" "'percentage_b5'::text"
 RC="$(co b1-zone delivery "$(items "$ITEM_A" 1)" null "$(cust 75018 Paris)")"
-assert_nonzero_rc "B1-T-16b. via create_order, mode inconnu de la formule v1 : B1-A-01 lève (frais non corroboré)" "$RC"
-assert_contains "B1-T-16c. le refus vient de B1-A-01, pas d'une contrainte de vocabulaire" "SCANYM_DELIVERY_SNAPSHOT_INCONSISTENT" "$(last_err)"
+assert_nonzero_rc "B1-T-16b. (b) mode inconnu de B1-A-01 (frais du résolveur = fixed_fee) : create_order rejette" "$RC"
+assert_contains "B1-T-16c. (b) le rejet vient de B1-A-01 (22023), pas d'une contrainte de vocabulaire" "SCANYM_DELIVERY_SNAPSHOT_INCONSISTENT" "$(last_err)"
 restore_resolver
-swap_resolver "r.delivery_fee" "case when r.pricing_mode = 'fixed' then 'fixed'::text else r.pricing_mode end"
+# Contre-exemple exact de l'audit : mode inconnu ET frais nul.
+swap_resolver "0::numeric" "'percentage_b5'::text"
 RC="$(co b1-zone delivery "$(items "$ITEM_A" 1)" null "$(cust 75018 Paris)")"
-assert_eq "B1-T-16d. résolveur substitué COHÉRENT : commande acceptée (A-01 ne lève que sur incohérence)" "0" "$RC"
+assert_nonzero_rc "B1-T-16d. (b) contre-exemple Chateaubriand : pricing_mode='percentage_b5', delivery_fee=0 -> rejet" "$RC"
+assert_contains "B1-T-16e. (b) ... par B1-A-01" "SCANYM_DELIVERY_SNAPSHOT_INCONSISTENT" "$(last_err)"
 restore_resolver
-assert_eq "B1-T-16e. résolveur réel restauré (md5 inchangé)" "$PRE_RES_MD5" "$(fn_md5 "$RES_SIG")"
+assert_eq "B1-T-16f. (b) aucune commande ni ligne créée par les rejets" "$N_ORD|$N_SNAP" "$(order_count)|$(snap_count)"
+
+# (c) — SIMULATION B5, HARNAIS UNIQUEMENT, sur une base CLONE : la
+# migration B1 n'est pas modifiée. On régénère create_order depuis
+# pg_get_functiondef en ajoutant UNE seule branche à la transcription
+# B1-A-01 (formule fictive « pourcentage » : fixed_fee % du sous-total),
+# et le résolveur substitué renvoie ce mode avec le frais correspondant.
+DB_B5="${DB_AUX}_b5"
+psql -c "create database \"$DB_B5\" template \"$DB\";" >/dev/null 2>"$ERR" || fatal "clone B5 : $(cat "$ERR")"
+psql -X -q -d "$DB_B5" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<'SQL' || fatal "extension B1-A-01 simulée : $(cat "$ERR")"
+do $b5$
+declare
+  d text;
+  needle constant text := E'        else null\n      end\n    ) then';
+begin
+  d := pg_get_functiondef('public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)'::regprocedure);
+  if (length(d) - length(replace(d, needle, ''))) / length(needle) <> 1 then
+    raise exception 'ancre B1-A-01 introuvable ou non unique';
+  end if;
+  d := replace(d, needle,
+    E'        when v_resolved.pricing_mode = ''percentage_b5'' then\n'
+    || E'          round(coalesce(v_subtotal, 0) * v_resolved.fixed_fee / 100, 2)\n'
+    || needle);
+  execute d;
+end $b5$;
+SQL
+assert_eq "B1-T-16g. (c) clone : B1-A-01 étendu d'une seule branche, create_order toujours unique" "1|1" \
+  "$(psql -X -A -q -t -d "$DB_B5" -c "select count(*) || '|' || (select (length(prosrc) - length(replace(prosrc, 'percentage_b5', ''))) / length('percentage_b5') from pg_proc where oid='$CO_SIG'::regprocedure) from pg_proc where proname='create_order';")"
+SWAP_DB="$DB_B5" swap_resolver "round(coalesce(p_subtotal, 0) * r.fixed_fee / 100, 2)" "'percentage_b5'::text"
+B5_OUT="$(PGOPTIONS="-c role=anon" psql -X -A -q -t -d "$DB_B5" -c "select order_id from public.create_order('b1-zone','delivery','$(items "$ITEM_A" 1)'::jsonb, null, '$(cust 75018 Paris)'::jsonb, null, 'fr', false);" 2>&1)"
+assert_eq "B1-T-16h. (c) nouveau mode + B1-A-01 étendu de façon cohérente : le checkout PASSE" "36" "${#B5_OUT}"
+assert_eq "B1-T-16i. (c) instantané du nouveau mode et frais corroboré (4.90 % de 10.00 = 0.49)" "percentage_b5|4.90|0.49|v1" \
+  "$(psql -X -A -q -t -d "$DB_B5" -c "select s.pricing_mode||'|'||s.fixed_fee||'|'||o.delivery_fee||'|'||s.snapshot_method_version from public.orders o join public.order_delivery_fulfillment_snapshot s on s.order_id=o.id where o.id::text='$B5_OUT';")"
+SWAP_DB="$DB_B5" restore_resolver
+SWAP_DB="$DB_B5" swap_resolver "round(coalesce(p_subtotal, 0) * r.fixed_fee / 100, 2) + 1.00" "'percentage_b5'::text"
+RC="$(PGOPTIONS="-c role=anon" psql -X -A -q -t -d "$DB_B5" -c "select order_id from public.create_order('b1-zone','delivery','$(items "$ITEM_A" 1)'::jsonb, null, '$(cust 75018 Paris)'::jsonb, null, 'fr', false);" >/dev/null 2>/tmp/scanym-b1-err-$$.txt; echo $?)"
+assert_nonzero_rc "B1-T-16j. (c) même B1-A-01 étendu, frais INCOHÉRENT pour le nouveau mode : toujours rejeté" "$RC"
+assert_contains "B1-T-16k. (c) ... par B1-A-01" "SCANYM_DELIVERY_SNAPSHOT_INCONSISTENT" "$(last_err)"
+SWAP_DB="$DB_B5" restore_resolver
+psql -c "drop database if exists \"$DB_B5\";" >/dev/null 2>&1
+assert_eq "B1-T-16l. résolveur réel restauré sur la base principale (md5 inchangé)" "$PRE_RES_MD5" "$(fn_md5 "$RES_SIG")"
 
 # ============================================================
 log "=== [B1-X-01..08 / Preuve 11] Privilèges : instantané inaltérable ==="

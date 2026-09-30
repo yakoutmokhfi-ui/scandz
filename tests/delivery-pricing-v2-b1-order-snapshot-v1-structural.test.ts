@@ -32,7 +32,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
  *      aucune surface applicative ne lit l'instantané (§12.1).
  */
 
-const read = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+// Fins de ligne normalisées (CRLF -> LF) : un checkout Windows avec
+// core.autocrlf produit du CRLF, et toutes les ancres ci-dessous sont
+// écrites en LF. Portabilité du TEST uniquement ; aucun fichier modifié.
+const read = (rel: string) =>
+  readFileSync(new URL(`../${rel}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 const forwardSql = read("supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql");
 const rollbackSql = read("supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1-ROLLBACK.sql");
