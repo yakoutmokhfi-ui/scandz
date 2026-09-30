@@ -1,0 +1,509 @@
+{
+  "_comment": "DELIVERY PRICING v2 -- B0 -- fixture declarative partagee (contrat Ravel/CIO, issue #11, commentaire 'DELIVERY PRICING v2 -- B0 -- CANONICAL CONTRACT NOW PROVIDED', SHA-256 6cb185117ea923457d268f4134d79d1768107c2bb1d588be39ea42212c355f0b, baseline 50f0775258607b99fc72323326e6d2c2b0f05ae2). Aucune fonction TS, aucun regex, aucune representation specifique a un langage -- consommable telle quelle par les tests TypeScript de B0 (tests/b0-delivery-zone-validation.test.ts) ET, plus tard, par un harnais SQL B2. Chaque code de la taxonomie figee (contrat section 3) apparait dans au moins un cas ci-dessous.",
+  "cases": [
+    {
+      "id": "B0-F-01",
+      "description": "75018 valide (forme + longueur nominales)",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-02",
+      "description": "750 valide (prefixe partiel, dans la plage [minPrefixLength, exactLength])",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["750"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["750"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-03",
+      "description": "'75 018' (espace interne) => ZV-FORM-INVALID",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75 018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75 018", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75 018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-04",
+      "description": "'7501A' sous allowedChars=digits => ZV-FORM-INVALID",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7501A"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "7501A", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7501A"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-05",
+      "description": "'750180' avec exactLength=5 => ZV-TOO-LONG",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["750180"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-TOO-LONG", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "750180", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["750180"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-06",
+      "description": "'7' sous minPrefixLength=2 => ZV-VERY-BROAD, non bloquant",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-VERY-BROAD", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "7", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-07",
+      "description": "decision D-B0-2 : ' 75018 ' (espaces autour) => ZV-FORM-INVALID, AUCUN trim silencieux",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [" 75018 "] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": " 75018 ", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [" 75018 "] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-08",
+      "description": "chaine vide => ZV-FORM-INVALID",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [""] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [""] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "B0-F-09",
+      "description": "contre-preuve de B0-F-07 : '75018' (sans espaces) reste valide sous la MEME forme",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-01",
+      "description": "specifique avant general (75018 rang0, 75 rang1) => accepte, rien n'est mort",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-02",
+      "description": "general avant specifique (75 rang0, 75018 rang1) => 75018 mort, ZV-COVERED-BY-HIGHER + REORDER_BEFORE",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rB", "ruleLabel": "Zone B", "zone": "75018", "relatedRuleId": "rA", "relatedRuleLabel": "Zone A", "relatedZone": "75", "remedy": "REORDER_BEFORE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-03",
+      "description": "doublon exact entre tarifs differents (75018 sur rA et rB) => ZV-DUPLICATE-ACROSS",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-DUPLICATE-ACROSS", "severity": "BLOCKING_ERROR", "ruleId": "rB", "ruleLabel": "Zone B", "zone": "75018", "relatedRuleId": "rA", "relatedRuleLabel": "Zone A", "relatedZone": "75018", "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-04",
+      "description": "'92' avant '9201' => '9201' mort, ZV-COVERED-BY-HIGHER",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["92"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["9201"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rB", "ruleLabel": "Zone B", "zone": "9201", "relatedRuleId": "rA", "relatedRuleLabel": "Zone A", "relatedZone": "92", "remedy": "REORDER_BEFORE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["92"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["9201"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-05",
+      "description": "zones disjointes (75 / 92) => accepte",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["92"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["92"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "C-06",
+      "description": "cascade '7' (rang0) / '75' (rang1) / '75018' (rang2) : findings de zone morte deterministes -- '75' ET '75018' sont morts A CAUSE DE '7' (la toute premiere regle qui les intercepte), jamais l'un a cause de l'autre",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rC", "label": "Zone C", "displayOrder": 2, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-VERY-BROAD", "severity": "WARNING", "ruleId": "rA", "ruleLabel": "Zone A", "zone": "7", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rB", "ruleLabel": "Zone B", "zone": "75", "relatedRuleId": "rA", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": "REORDER_BEFORE" },
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rC", "ruleLabel": "Zone C", "zone": "75018", "relatedRuleId": "rA", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": "REORDER_BEFORE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "rC", "label": "Zone C", "displayOrder": 2, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "WITHIN-01",
+      "description": "doublon exact au sein d'UNE MEME regle => ZV-DUPLICATE-WITHIN, dedupliquee dans normalizedRules",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018", "75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-DUPLICATE-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75018", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "75018", "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "WITHIN-02",
+      "description": "large + specifique dans la MEME regle (75, 75018) => ZV-REDUNDANT-WITHIN, non bloquant, non dedupliquee (pas un doublon exact)",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75", "75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75018", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "75", "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75", "75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "WITHIN-03-order-preserved",
+      "description": "deduplication : l'ordre des zones RESTANTES est preserve (75018, 75019, 75018) -> (75018, 75019)",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018", "75019", "75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-DUPLICATE-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75018", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "75018", "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018", "75019"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEFAULT-01",
+      "description": "regle par defaut sans aucune zone => accepte",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEFAULT-02",
+      "description": "regle par defaut AVEC zone(s) => ZV-DEFAULT-HAS-ZONES + REMOVE_ZONE",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": ["93"] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "93", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": ["93"] }
+      ]
+    },
+    {
+      "id": "DEFAULT-03",
+      "description": "aucune regle par defaut => ZV-NO-DEFAULT, severite INFO SEULEMENT (ne bascule jamais decision vers ACCEPTED_WITH_WARNINGS a lui seul)",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [
+        { "code": "ZV-NO-DEFAULT", "severity": "INFO", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] }
+      ]
+    },
+    {
+      "id": "DEFAULT-04",
+      "description": "plusieurs regles par defaut => ZV-INPUT-MULTIPLE-DEFAULTS, bloquant",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "d1", "label": "Repli 1", "displayOrder": 0, "isDefault": true, "zones": [] },
+        { "ruleId": "d2", "label": "Repli 2", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-INPUT-MULTIPLE-DEFAULTS", "severity": "BLOCKING_ERROR", "ruleId": "d2", "ruleLabel": "Repli 2", "zone": null, "relatedRuleId": "d1", "relatedRuleLabel": "Repli 1", "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "d1", "label": "Repli 1", "displayOrder": 0, "isDefault": true, "zones": [] },
+        { "ruleId": "d2", "label": "Repli 2", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEFAULT-05",
+      "description": "la regle par defaut est EXCLUE de l'analyse de couverture inter-regles -- meme avec un displayOrder plus bas et une zone qui la couvrirait autrement, 75018 (rB) n'est PAS signalee comme couverte par la zone du repli",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "default", "label": "Repli", "displayOrder": 0, "isDefault": true, "zones": ["75"] },
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 1, "isDefault": false, "zones": ["75018"] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "75", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "default", "label": "Repli", "displayOrder": 0, "isDefault": true, "zones": ["75"] },
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 1, "isDefault": false, "zones": ["75018"] }
+      ]
+    },
+    {
+      "id": "DEAD-01",
+      "description": "regle non-defaut sans aucune zone => ZV-EMPTY-ZONES, bloquant",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEAD-02",
+      "description": "aucune zone nulle part ET aucune regle par defaut => ZV-NO-DEFAULT-NO-ZONES, bloquant (coexiste avec ZV-EMPTY-ZONES sur la meme regle et ZV-NO-DEFAULT, INFO) -- distinct du cas 'aucune regle du tout'",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
+        { "code": "ZV-NO-DEFAULT", "severity": "INFO", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
+        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEAD-03",
+      "description": "aucune regle du tout => accepte, aucun finding",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": []
+    },
+    {
+      "id": "INPUT-01",
+      "description": "deux regles avec le MEME displayOrder => ZV-INPUT-DUPLICATE-ORDER, bloquant",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["93"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-INPUT-DUPLICATE-ORDER", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["93"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "INPUT-02",
+      "description": "ordres non contigus (0, 5, 99) => aucun probleme en soi, accepte",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 5, "isDefault": false, "zones": ["93"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75018"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 5, "isDefault": false, "zones": ["93"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "ALNUM-01",
+      "description": "extension au-dela du minimum requis : forme allowedChars=alnum acceptee (non exigee explicitement par le contrat, ajoutee pour prouver que le module ne suppose pas allowedChars=digits en dur)",
+      "shape": { "allowedChars": "alnum", "exactLength": 6, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["AB1234"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["AB1234"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "ALNUM-02",
+      "description": "extension : allowedChars=alnum rejette toujours la ponctuation (tiret) => ZV-FORM-INVALID",
+      "shape": { "allowedChars": "alnum", "exactLength": 6, "minPrefixLength": 2 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["AB-234"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "AB-234", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["AB-234"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    }
+  ]
+}
