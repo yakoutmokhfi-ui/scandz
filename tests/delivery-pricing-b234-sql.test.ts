@@ -26,6 +26,10 @@ async function userQuery(sql:string,args:unknown[]=[],uid:string|null=owner,role
 const payload=(extra:Record<string,unknown>={})=>({fulfillmentCode:"Zone",provider:"internal",zones:["75018"],enabled:true,isFallback:false,
   pricingMode:"fixed",fixedFee:6.9,freeThreshold:null,customerText:"Livraison",minItems:null,...extra});
 async function save(p:Record<string,unknown>,rid:string|null=null,uid=owner,tenant=A) {
+  if(p.enabled===false) {
+    const preview=(await userQuery('select preview_merchant_delivery_rule_save($1,$2,false) result',[tenant,rid],uid)).rows[0].result;
+    if(preview!=='none') p={...p,legacyConfirmation:preview};
+  }
   const result=await userQuery("select mutate_merchant_delivery_rule($1,'save',$2,$3::jsonb) id",[tenant,rid,JSON.stringify(p)],uid);
   return String(result.rows[0].id);
 }
@@ -75,6 +79,10 @@ test("operator without membership can read, create, edit and test",async()=>{
   assert.equal((await userQuery("select test_merchant_delivery_postcode($1,'95000','FR',10,1) r",[A],operator)).rows[0].r.eligible,true);
 });
 test("other tenant, staff write, anon and unauthenticated claims rejected",async()=>{
+  for(const uid of [stranger,staff]) await assert.rejects(()=>userQuery('select preview_merchant_delivery_rule_save($1,$2,false)',[A,localRule],uid),/Not authorized/);
+  for(const uid of [owner,manager,operator]) assert.equal((await userQuery('select preview_merchant_delivery_rule_save($1,$2,false) result',[A,localRule],uid)).rows[0].result,'none');
+  await assert.rejects(()=>userQuery('select preview_merchant_delivery_rule_save($1,$2,false)',[B,localRule],stranger),/unavailable/);
+  for(const role of ['anon','authenticated']) await assert.rejects(()=>userQuery('select preview_merchant_delivery_rule_save($1,$2,false)',[A,localRule],null,role),/permission denied|Authentication required/);
   for(const uid of [stranger,staff]) await rejectsUnchanged(()=>save(payload(),localRule,uid),/Not authorized/);
   await assert.rejects(()=>userQuery('select * from get_merchant_delivery_fulfillment_pricing($1)',[A],stranger),/Not authorized/);
   await assert.rejects(()=>save(payload(),localRule,stranger,B),/unavailable/);
@@ -125,6 +133,8 @@ test("real B1 order before edit preserves its immutable snapshot and monetary fa
   historicOrder=String(created.order_id);assert.equal(Number(created.delivery_fee),6.9);
   snapshot=JSON.stringify((await db.query<Record<string, any>>('select to_jsonb(s) s from order_delivery_fulfillment_snapshot s where order_id=$1',[historicOrder])).rows);
   assert.notEqual(snapshot,'[]');
+  await userQuery("select mutate_merchant_delivery_rule($1,'move',$2,$3::jsonb)",[A,localRule,JSON.stringify({otherRuleId:fallback})]);
+  assert.equal(JSON.stringify((await db.query<Record<string, any>>('select to_jsonb(s) s from order_delivery_fulfillment_snapshot s where order_id=$1',[historicOrder])).rows),snapshot);
   await save(payload({fixedFee:8.9}),localRule);
   assert.equal(Number((await preview()).delivery_fee),8.9);
   assert.equal(JSON.stringify((await db.query<Record<string, any>>('select to_jsonb(s) s from order_delivery_fulfillment_snapshot s where order_id=$1',[historicOrder])).rows),snapshot);
@@ -163,4 +173,18 @@ test("parent mode reactivation validates the final rule set",async()=>{
   await save(payload({zones:['12340'],enabled:true}));
   await assert.rejects(()=>db.query<Record<string, any>>("update restaurant_sale_modes set enabled=true where restaurant_id=$1 and mode_code='delivery'",[A]),/B234_INVALID_ZONES/);
   assert.equal((await preview('12345')).status,'mode-disabled');
+});
+
+test('B234 rechecks last-active confirmation under the mutation lock after server state changes',async()=>{
+  const first=await save(payload({zones:['75']}),null,stranger,B);
+  const second=await save(payload({zones:['92']}),null,stranger,B);
+  assert.equal((await userQuery('select preview_merchant_delivery_rule_save($1,$2,false) result',[B,first],stranger)).rows[0].result,'none');
+  await save(payload({zones:['92'],enabled:false}),second,stranger,B);
+  const mutate=(ack?:string)=>userQuery("select mutate_merchant_delivery_rule($1,'save',$2,$3::jsonb)",[B,first,JSON.stringify(payload({zones:['75'],enabled:false,...(ack?{legacyConfirmation:ack}:{})}))],stranger);
+  await assert.rejects(()=>mutate(),/B234_CONFIRM_LEGACY_REQUIRED/);
+  await db.query("update restaurant_sale_modes set config=$2::jsonb where restaurant_id=$1 and mode_code='delivery'",[B,JSON.stringify({delivery_zone_prefixes:['75']})]);
+  await assert.rejects(()=>mutate('legacy-unavailable'),/B234_CONFIRM_LEGACY_REQUIRED/);
+  assert.equal((await db.query<{enabled:boolean}>('select enabled from restaurant_sale_mode_fulfillments where id=$1',[first])).rows[0].enabled,true);
+  await mutate('legacy-zones');
+  assert.equal((await db.query<{enabled:boolean}>('select enabled from restaurant_sale_mode_fulfillments where id=$1',[first])).rows[0].enabled,false);
 });

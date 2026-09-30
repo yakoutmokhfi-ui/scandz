@@ -6,6 +6,7 @@ export function parseZoneInput(input: string): string[] {
 export function deliveryRuleErrorKey(error: unknown): string {
   const e = error as { message?: string; details?: string } | null;
   const text = `${e?.message ?? ""} ${e?.details ?? ""}`;
+  if (/B234_CONFIRM_LEGACY_REQUIRED/.test(text)) return "dpLegacyChanged";
   if (/ZV-(COVERED|UNREACHABLE|DUPLICATE-ACROSS)/.test(text)) return "dpZoneOverlap";
   if (/ZV-(FORM|TOO-LONG)/.test(text)) return "dpZoneFormat";
   if (/ZV-(EMPTY|NO-DEFAULT-NO-ZONES)/.test(text)) return "dpZoneRequired";

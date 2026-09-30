@@ -1,5 +1,7 @@
 # Delivery Pricing v2 — B2+B3+B4 audit candidate
 
+Historical evidence for candidate `d5bc75c8b522fecc5a20c07ab5c188b3f31653bd`, audited FAIL. For the current three-blocker remediation, preflight, confirmation and rollback, see [the remediation report](../delivery-pricing-b234-remediation/README.md). Counts and limitations below describe that earlier candidate.
+
 Base exacte : `74b83a3cf21784066c3704156cadf80655598df6` (B1 / PR #121).
 Branche : `maxwell/delivery-pricing-b234`. SHA/tree candidats publiés dans la PR draft et l’issue orchestrateur. Aucun merge, aucune exécution Production/PREPROD.
 

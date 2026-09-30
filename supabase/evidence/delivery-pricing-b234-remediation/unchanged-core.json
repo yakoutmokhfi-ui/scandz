@@ -1,0 +1,21 @@
+{
+  "functions": {
+    "scanym_internal.delivery_zone_blockers": {
+      "previousSha256": "4dfcfb31a54d0b45d44c855fb38d7c5b4c5ebe6d58f1e56ecf0fea6d03b0d07b",
+      "currentSha256": "4dfcfb31a54d0b45d44c855fb38d7c5b4c5ebe6d58f1e56ecf0fea6d03b0d07b"
+    },
+    "scanym_internal.delivery_postal_shape": {
+      "previousSha256": "116dc78ed6641db2aed3491e47c97840989053ae627482f15a7080f4ee1c97a3",
+      "currentSha256": "116dc78ed6641db2aed3491e47c97840989053ae627482f15a7080f4ee1c97a3"
+    },
+    "scanym_internal.assert_delivery_zones": {
+      "previousSha256": "53481e37baddb781d9088e66d5c188743011685f89cfda9648ecb26199a07a22",
+      "currentSha256": "53481e37baddb781d9088e66d5c188743011685f89cfda9648ecb26199a07a22"
+    },
+    "public.test_merchant_delivery_postcode": {
+      "previousSha256": "41eb50a8d227f3dc7e33a98d933c370d3d16e3205e9fa5dae1abffe3fc89a555",
+      "currentSha256": "41eb50a8d227f3dc7e33a98d933c370d3d16e3205e9fa5dae1abffe3fc89a555"
+    }
+  },
+  "limit": "Byte identity preserves the audited validation/resolver-call bodies; mutation additionally rechecks confirmation after the existing tenant lock. This is not a new multi-session concurrency execution."
+}

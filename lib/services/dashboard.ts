@@ -1495,6 +1495,7 @@ export async function getMerchantPaymentProviderConfig(
 
 /** B234: structural writes are explicit tenant-scoped RPCs, never table writes. */
 export interface DeliveryRulePayload {
+  legacyConfirmation?: "legacy-zones" | "legacy-unavailable";
   fulfillmentCode: string;
   provider: "internal" | "stuart" | "chronofresh" | "other_external";
   zones: string[];
@@ -1529,6 +1530,15 @@ export async function moveMerchantDeliveryRule(restaurantId: string, ruleId: str
     p_restaurant_id: restaurantId, p_action: "move", p_rule_id: ruleId, p_payload: { otherRuleId },
   });
   if (error) throw new DeliveryRuleError(error.message, error.details);
+}
+
+export async function previewMerchantDeliveryRuleSave(restaurantId: string, ruleId: string | null, enabled: boolean): Promise<"none" | "legacy-zones" | "legacy-unavailable"> {
+  const { data, error } = await supabase.rpc("preview_merchant_delivery_rule_save", {
+    p_restaurant_id: restaurantId, p_rule_id: ruleId, p_enabled: enabled,
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+  if (data !== "none" && data !== "legacy-zones" && data !== "legacy-unavailable") throw new Error("Unexpected transition preview");
+  return data;
 }
 
 export interface DeliveryPostcodeResult {

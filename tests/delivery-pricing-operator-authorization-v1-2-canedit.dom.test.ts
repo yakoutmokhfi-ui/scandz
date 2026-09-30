@@ -120,6 +120,7 @@ export async function updateMerchantDeliveryMethodNotice() {}
 export async function getMerchantDeliveryTestCountries() { return []; }
 export async function testMerchantDeliveryPostcode() { throw new Error("Unexpected tester call"); }
 export async function saveMerchantDeliveryRule() { throw new Error("Unexpected creation call"); }
+export async function previewMerchantDeliveryRuleSave() { return "none"; }
 export async function moveMerchantDeliveryRule() { throw new Error("Unexpected move call"); }
 `;
 

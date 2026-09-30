@@ -43,6 +43,9 @@ export function dirOf(
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  "dpConfirmLegacyUnavailable": "Cette sauvegarde laissera zéro règle de livraison active. Sans zones historiques configurées, la livraison deviendra indisponible tant qu’aucune règle active n’existe. Confirmer la sauvegarde ?",
+  "dpLegacyChanged": "La configuration a changé. Relancez l’enregistrement pour vérifier et confirmer le comportement de livraison.",
+  "dpConfirmLegacyZones": "Cette sauvegarde laissera zéro règle de livraison active. Le checkout utilisera les anciennes zones et leur comportement tarifaire historique, réservé à la France ; la livraison hors France sera indisponible sans règle active. Confirmer la sauvegarde ?",
   "dpZonesHint": "Configurez vos zones et tarifs. La première règle active correspondante est appliquée.",
   "dpNewZone": "Ajouter une zone",
   "dpZoneName": "Nom de la règle",
@@ -1006,6 +1009,9 @@ const fr: Dict = {
 };
 
 const en: Dict = {
+  "dpConfirmLegacyUnavailable": "This save will leave no active delivery rules. With no legacy zones configured, delivery will be unavailable while no rule is active. Confirm save?",
+  "dpLegacyChanged": "The configuration changed. Save again to review and confirm the delivery behavior.",
+  "dpConfirmLegacyZones": "This save will leave no active delivery rules. Checkout will use the legacy zones and legacy fee behavior, restricted to France; delivery outside France will be unavailable without an active rule. Confirm save?",
   "dpZonesHint": "Configure delivery zones and fees. The first matching active rule wins.",
   "dpNewZone": "Add a zone",
   "dpZoneName": "Rule name",
@@ -1834,6 +1840,9 @@ const en: Dict = {
 
 // Arabe littéraire (arabe standard moderne).
 const ar: Dict = {
+  "dpConfirmLegacyUnavailable": "سيؤدي الحفظ إلى عدم وجود أي قاعدة توصيل نشطة. لعدم وجود مناطق قديمة مهيأة، سيصبح التوصيل غير متاح ما دامت لا توجد قاعدة نشطة. هل تؤكد الحفظ؟",
+  "dpLegacyChanged": "تغيرت الإعدادات. أعد الحفظ لمراجعة سلوك التوصيل وتأكيده.",
+  "dpConfirmLegacyZones": "سيؤدي الحفظ إلى عدم وجود أي قاعدة توصيل نشطة. سيستخدم الدفع المناطق القديمة وسلوك رسومها التاريخي، المخصص لفرنسا؛ لن يتاح التوصيل خارج فرنسا دون قاعدة نشطة. هل تؤكد الحفظ؟",
   "dpZonesHint": "اضبط مناطق التوصيل ورسومها. تُطبق أول قاعدة نشطة مطابقة.",
   "dpNewZone": "إضافة منطقة",
   "dpZoneName": "اسم القاعدة",

@@ -11,6 +11,7 @@ import {
   updateMerchantDeliveryMethodNotice,
   saveMerchantDeliveryRule,
   moveMerchantDeliveryRule,
+  previewMerchantDeliveryRuleSave,
   type DeliveryRulePayload,
 } from "@/lib/services/dashboard";
 import type {
@@ -432,6 +433,15 @@ export default function DeliveryPricingPage() {
         enabled: draft.enabled, isFallback: draft.isFallback, pricingMode: draft.pricingMode, fixedFee: fee,
         freeThreshold: threshold, customerText, minItems: draft.minItems.trim() === "" ? null : Number(draft.minItems),
       };
+      if (!rule.enabled) {
+        const transition = await previewMerchantDeliveryRuleSave(targetRestaurantId, ruleId === "new" ? null : ruleId, rule.enabled);
+        if (!isOperationCurrent()) return;
+        if (transition !== "none" && !window.confirm(t(transition === "legacy-zones" ? "dpConfirmLegacyZones" : "dpConfirmLegacyUnavailable"))) {
+          setDrafts((prev) => ({ ...prev, [ruleId]: { ...prev[ruleId], saving: false } }));
+          return;
+        }
+        if (transition !== "none") rule.legacyConfirmation = transition;
+      }
       if (ruleId === "new") {
         await saveMerchantDeliveryRule(targetRestaurantId, null, rule);
       } else await updateMerchantDeliveryFulfillmentPricing({

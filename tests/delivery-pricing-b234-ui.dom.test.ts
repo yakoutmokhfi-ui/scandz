@@ -24,9 +24,13 @@ Object.defineProperty(globalThis,"navigator",{value:window.navigator,configurabl
 (globalThis as any).HTMLElement=window.HTMLElement;
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const React=await import("react"); const {createRoot}=await import("react-dom/client");
+const confirmations:string[]=[]; let confirmationAnswer=false;
+window.confirm=(message?:string)=>{confirmations.push(message??"");return confirmationAnswer;};
 const calls:Array<{name:string; args:Record<string,any>}>=[];
 let holdTester=false, releaseTester:(()=>void)|null=null;
+let changeLegacyAfterPreview=false;
 const signatures:Record<string,{keys:string[]; scalar?:boolean}>={
+  preview_merchant_delivery_rule_save:{keys:["p_restaurant_id","p_rule_id","p_enabled"],scalar:true},
   get_merchant_delivery_fulfillment_pricing:{keys:["p_restaurant_id"]},
   get_merchant_delivery_method_notices:{keys:["p_restaurant_id"]},
   get_restaurant_public_delivery_countries:{keys:["p_restaurant_id"]},
@@ -46,6 +50,10 @@ const signatures:Record<string,{keys:string[]; scalar?:boolean}>={
         return tx.query<Record<string,any>>(`select ${spec.scalar?'':'* from '}${name}(${spec.keys.map((_,i)=>`$${i+1}`).join(',')})${spec.scalar?' as value':''}`,spec.keys.map(k=>typeof args[k]==='object'&&args[k]!==null?JSON.stringify(args[k]):args[k]));
       });
       const response={data:spec.scalar?result.rows[0].value:result.rows,error:null};
+      if(name==='preview_merchant_delivery_rule_save'&&changeLegacyAfterPreview) {
+        changeLegacyAfterPreview=false;
+        await db.query("update restaurant_sale_modes set config='{}' where restaurant_id=$1 and mode_code='delivery'",[A]);
+      }
       if(name==='test_merchant_delivery_postcode'&&holdTester) await new Promise<void>(resolve=>{releaseTester=resolve;});
       return response;
     }catch(error:any){return {data:null,error:{message:error.message,details:error.detail??null}};}
@@ -138,8 +146,52 @@ test("B234 UI ignores late tester results after input change and A -> B -> A",as
 });
 
 test("B234 UI permits disabling every rule and explains the unchanged legacy path",async()=>{
+  confirmationAnswer=true;
   for(const name of ['Paris 18','Reste du territoire']){const c=card(name);await click(field(c,"Active"));await click(button(c,"Enregistrer"));await until(()=>c.textContent!.includes('Enregistré'));}
   await change(field(tester(),"Code postal"),"75018");await click(button(tester(),"Tester"));
   await until(()=>tester().textContent!.includes('Aucune règle active'));
   assert.ok(!tester().querySelector('dl'));
+});
+
+for(const legacy of [null,[],['75']]) test(`B234 UI last-active confirmation uses server legacy ${JSON.stringify(legacy)}; cancel never mutates`,async()=>{
+  await db.query("update restaurant_sale_modes set config=jsonb_build_object('delivery_zone_prefixes',$2::jsonb) where restaurant_id=$1 and mode_code='delivery'",[A,JSON.stringify(legacy)]);
+  const c=card('Paris 18');
+  const initial=confirmations.length;
+  await click(field(c,'Active'));await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  assert.equal(confirmations.length,initial,'reactivation must not warn');
+  await click(field(c,'Active'));
+  const mutations=()=>calls.filter(x=>x.name==='mutate_merchant_delivery_rule').length;
+  const before=mutations();confirmationAnswer=false;
+  await click(button(c,'Enregistrer'));await until(()=>confirmations.length>initial);
+  assert.equal(mutations(),before,'cancel must occur before any mutation');
+  assert.equal((await db.query<{enabled:boolean}>("select enabled from restaurant_sale_mode_fulfillments where restaurant_id=$1 and fulfillment_code='Paris 18'",[A])).rows[0].enabled,true);
+  const warning=confirmations.at(-1)!;
+  assert.match(warning,legacy?.length?/anciennes zones.*tarifaire historique.*France/:/Sans zones historiques.*indisponible/);
+  assert.doesNotMatch(warning,/gratuite/);
+  confirmationAnswer=true;await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  assert.equal(mutations(),before+1);
+  assert.equal((await db.query<{enabled:boolean}>("select enabled from restaurant_sale_mode_fulfillments where restaurant_id=$1 and fulfillment_code='Paris 18'",[A])).rows[0].enabled,false);
+  assert.equal(calls.at(-1)!.name,'get_merchant_delivery_fulfillment_pricing');
+});
+
+test('B234 UI no last-active warning when another active rule remains, or on creation',async()=>{
+  const start=confirmations.length;
+  for(const name of ['Paris 18','Reste du territoire']) {const c=card(name);await click(field(c,'Active'));await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));}
+  const c=card('Paris 18');await click(field(c,'Active'));await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  assert.equal(confirmations.length,start);
+  await click(button(container,'Ajouter une zone'));const fresh=card('Ajouter une zone');
+  await change(field(fresh,'Nom de la règle'),'Creation after transition');await change(field(fresh,'Codes postaux / préfixes'),'92');await change(field(fresh,'Frais de livraison'),'5');
+  await click(button(fresh,'Enregistrer'));await until(()=>!![...container.querySelectorAll('h3')].find(e=>e.textContent==='Creation after transition'));
+  assert.equal(confirmations.length,start);
+});
+
+test('B234 UI requires a fresh warning when legacy state changes after preview',async()=>{
+  const other=card('Creation after transition');await click(field(other,'Active'));await click(button(other,'Enregistrer'));await until(()=>other.textContent!.includes('Enregistré'));
+  const c=card('Reste du territoire');await click(field(c,'Active'));
+  changeLegacyAfterPreview=true;confirmationAnswer=true;
+  await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('La configuration a changé'));
+  assert.match(confirmations.at(-1)!,/anciennes zones/);
+  assert.equal((await db.query<{enabled:boolean}>("select enabled from restaurant_sale_mode_fulfillments where restaurant_id=$1 and fulfillment_code='Reste du territoire'",[A])).rows[0].enabled,true);
+  await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  assert.match(confirmations.at(-1)!,/Sans zones historiques.*indisponible/);
 });
