@@ -413,16 +413,16 @@
     },
     {
       "id": "DEAD-02",
-      "description": "aucune zone nulle part ET aucune regle par defaut => ZV-NO-DEFAULT-NO-ZONES, bloquant (coexiste avec ZV-EMPTY-ZONES sur la meme regle et ZV-NO-DEFAULT, INFO) -- distinct du cas 'aucune regle du tout'",
+      "description": "aucune zone nulle part ET aucune regle par defaut => ZV-NO-DEFAULT-NO-ZONES, bloquant (coexiste avec ZV-EMPTY-ZONES sur la meme regle et ZV-NO-DEFAULT, INFO) -- distinct du cas 'aucune regle du tout' ; ordre corrige apres re-audit Chateaubriand (D-B0-3, scopeRank 0=global avant 1=tarif-scope) : les 2 findings GLOBAUX passent EN PREMIER, avant ZV-EMPTY-ZONES (tarif-scope)",
       "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
       "rules": [
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] }
       ],
       "expectedDecision": "REJECTED",
       "expectedFindings": [
-        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
         { "code": "ZV-NO-DEFAULT", "severity": "INFO", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
-        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r1", "ruleLabel": "Zone A", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" }
       ],
       "expectedNormalizedRules": [
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": [] }
@@ -507,7 +507,7 @@
     },
     {
       "id": "NULLID-01",
-      "description": "amendement D-B0-3 : une regle NON SAUVEGARDEE (ruleId null) a displayOrder 0 doit trier AVANT une regle SAUVEGARDEE a displayOrder 1 -- ruleId ne joue plus AUCUN role dans le tri (bug racine trouve par Chateaubriand sur le candidat precedent, ou ruleId===null etait a tort traite comme 'finding global')",
+      "description": "amendement D-B0-3 : une regle NON SAUVEGARDEE (ruleId null) a displayOrder 0 doit trier AVANT une regle SAUVEGARDEE a displayOrder 1 -- ruleId ne joue plus AUCUN role dans le tri (bug racine trouve par Chateaubriand sur le candidat precedent, ou ruleId===null etait a tort traite comme 'finding global') ; ordre corrige apres re-audit Chateaubriand (scopeRank 0=global avant 1=tarif-scope) : les 2 findings GLOBAUX passent EN PREMIER, puis les 2 findings tarif-scopes dans l'ordre de leur displayOrder reel (null-ruleId displayOrder0 avant r2 displayOrder1)",
       "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
       "rules": [
         { "ruleId": null, "label": "Nouveau tarif (non enregistre)", "displayOrder": 0, "isDefault": false, "zones": [] },
@@ -515,10 +515,10 @@
       ],
       "expectedDecision": "REJECTED",
       "expectedFindings": [
-        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "Nouveau tarif (non enregistre)", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
-        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
         { "code": "ZV-NO-DEFAULT", "severity": "INFO", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
-        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "Nouveau tarif (non enregistre)", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" }
       ],
       "expectedNormalizedRules": [
         { "ruleId": null, "label": "Nouveau tarif (non enregistre)", "displayOrder": 0, "isDefault": false, "zones": [] },
@@ -658,6 +658,32 @@
         { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["10"] },
         { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["1"] },
         { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "SAMERULE-NOEFFECT-01",
+      "description": "CORRECTIF re-audit Chateaubriand (comment 5906076932, contre-exemple exact) : une SEULE regle, zones '70'..'79' PUIS '7' -- H(R) (D-B0-4) ne contient QUE des zones de tarifs a displayOrder STRICTEMENT INFERIEUR ; des zones de la MEME regle ne saturent JAMAIS rien (meme regle gagne de toute facon) -- '7' reste ATTEIGNABLE, AUCUN ZV-UNREACHABLE-BY-HIGHER-SET, malgre une 'saturation numerique' apparente identique a COLLECTIVE-01. Chaque '7X' reste neanmoins signalee ZV-REDUNDANT-WITHIN (D-B0-6, remedy null) car '7' la couvre deja AU SEIN de la MEME regle -- ceci est attendu et orthogonal a la couverture inter-regles.",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "70", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "71", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "72", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "73", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "74", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "76", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "77", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "78", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null },
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "79", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "7", "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
       ]
     }
   ]

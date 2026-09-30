@@ -195,7 +195,18 @@ function reduceToAntichain(suffixes: Set<string>): Set<string> {
 }
 
 type SortKey = {
-  /** 0 = finding rattaché à une règle réelle (tarif-scoped) ; 1 = finding GLOBAL, sans règle (ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES). Trie tout finding tarif-scoped AVANT tout finding global (contrat §8, comportement inchangé -- seule la CLASSIFICATION change, voir D-B0-3 ci-dessus). */
+  /**
+   * CORRECTIF (re-audit Chateaubriand, issue #11, comment 5906076932) :
+   * le contrat amendé D-B0-3 est EXPLICITE -- `scopeRank = 0` pour un
+   * finding GLOBAL (ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES, sans tarif),
+   * `scopeRank = 1` pour un finding rattaché à un tarif réel. Trie donc
+   * tout finding GLOBAL AVANT tout finding tarif-scoped (inversion du
+   * comportement de la première livraison remédiée, qui triait les
+   * findings globaux en dernier -- erreur confirmée : la présente clé
+   * suit désormais EXACTEMENT la numérotation normative du contrat,
+   * jamais une préférence de compatibilité avec un comportement
+   * antérieur).
+   */
   scopeRank: 0 | 1;
   /** displayOrder du tarif propriétaire ; 0 (sentinelle) pour un finding global. */
   displayOrder: number;
@@ -230,9 +241,9 @@ function makeFinding(
 ): InternalFinding {
   const sortKey: SortKey =
     fields.rule === null
-      ? { scopeRank: 1, displayOrder: 0, zoneIndex: NO_ZONE_SORT_POSITION }
+      ? { scopeRank: 0, displayOrder: 0, zoneIndex: NO_ZONE_SORT_POSITION }
       : {
-          scopeRank: 0,
+          scopeRank: 1,
           displayOrder: fields.rule.displayOrder,
           zoneIndex: fields.zoneIndexInRule ?? NO_ZONE_SORT_POSITION,
         };
@@ -561,12 +572,24 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     const extendingSuffixes = new Set<string>();
     for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
       const earlier = rankedPositions[rankedIndices[earlierRank]];
+      // CORRECTIF (re-audit Chateaubriand, issue #11, comment
+      // 5906076932) : H(R) -- l'ensemble des zones qui peuvent SATURER
+      // COLLECTIVEMENT la zone courante -- ne contient, par définition
+      // normative, que des zones de tarifs à displayOrder STRICTEMENT
+      // INFÉRIEUR. Une zone de la MÊME règle ne "sature" jamais rien :
+      // qu'elle matche ou non, c'est de toute façon la MÊME règle qui
+      // gagne (même principe que l'étape 1 ci-dessus, qui exclut déjà
+      // ces paires intra-règle -- l'étape 2 devait faire EXACTEMENT la
+      // même exclusion et ne la faisait pas : bug confirmé, contre-
+      // exemple Chateaubriand -- une seule règle, zones "70".."79" puis
+      // "7", saturation collective faussement déclenchée sur "7").
+      if (earlier.ruleIndex === current.ruleIndex) continue;
       if (earlier.zone === current.zone) continue;
       if (earlier.zone.startsWith(current.zone)) {
         extendingSuffixes.add(earlier.zone.slice(current.zone.length));
       }
     }
-    if (extendingSuffixes.size === 0) continue; // aucune zone antérieure ne l'étend -- rien à saturer.
+    if (extendingSuffixes.size === 0) continue; // aucune zone antérieure (d'une AUTRE règle) ne l'étend -- rien à saturer.
 
     if (!reachabilityComputable) {
       findings.push(
@@ -696,7 +719,9 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
 
   // ------------------------------------------------------------------
   // 8) Tri final (contrat §8, amendé D-B0-3) : `scopeRank` (finding
-  //    tarif-scoped avant finding global) ASC, puis `displayOrder` ASC
+  //    GLOBAL avant finding tarif-scoped -- scopeRank 0 = global, 1 =
+  //    tarif-scoped, numérotation normative du contrat, corrigée après
+  //    re-audit Chateaubriand) ASC, puis `displayOrder` ASC
   //    (0 pour un finding global), puis position BRUTE de la zone dans
   //    le tableau de sa règle (findings sans zone en premier), puis
   //    code ASCII/littéral -- comparaison par `<`/`>` sur des chaînes

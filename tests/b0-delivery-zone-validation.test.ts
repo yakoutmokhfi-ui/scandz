@@ -314,6 +314,7 @@ test("B0-R-04 : couverture de la taxonomie de saturation collective (D-B0-4) -- 
     "INVALID-PRIOR-01": null, // zone antérieure invalide '7X' -- sans effet, '7' vivante.
     "DEFAULT-NOEFFECT-01": null, // zones du repli -- sans effet, '7' vivante.
     "REACH-NOTCOMPUTED-01": null, // abstention (ZV-REACHABILITY-NOT-COMPUTED), pas un finding de couverture.
+    "SAMERULE-NOEFFECT-01": null, // re-audit Chateaubriand : zones de la MÊME règle ('70'..'79') ne saturent jamais '7' -- H(R) est inter-règles uniquement.
   };
   for (const [caseId, expectedCode] of Object.entries(expectedByCaseId)) {
     const testCase = fixture.cases.find((c) => c.id === caseId);
@@ -423,14 +424,20 @@ test("Déterminisme : ordre de saisie des règles (tableau `rules`) sans effet s
 });
 
 test("B0-DET-06 (D-B0-3) : le tri des findings, pour une règle NON SAUVEGARDÉE (ruleId null) rattachée à un displayOrder réel, ne dépend JAMAIS de l'ordre de SAISIE du tableau `rules` -- même résultat, règle non sauvegardée en premier OU en second dans le tableau d'entrée (bug racine Chateaubriand : ruleId===null ne doit JAMAIS agir comme proxy de tri)", () => {
+  // Une règle par défaut est incluse pour que les DEUX findings observés
+  // soient tarif-scopés (isole la preuve ruleId-vs-tri de la question,
+  // distincte, de l'ordre global-vs-tarif -- couverte séparément par
+  // B0-DET-07 ci-dessous).
   const nullIdRule: ZoneRuleInput = { ruleId: null, label: "Nouveau tarif (non enregistré)", displayOrder: 0, isDefault: false, zones: [] };
   const savedRule: ZoneRuleInput = { ruleId: "r2", label: "Zone B", displayOrder: 1, isDefault: false, zones: [] };
+  const defaultRule: ZoneRuleInput = { ruleId: "default", label: "Repli", displayOrder: 2, isDefault: true, zones: [] };
   const shape: ZoneValidationInput["shape"] = { allowedChars: "digits", exactLength: 5, minPrefixLength: 1 };
 
-  const inOrder = validateDeliveryZones({ shape, rules: [nullIdRule, savedRule] });
-  const reversed = validateDeliveryZones({ shape, rules: [savedRule, nullIdRule] });
+  const inOrder = validateDeliveryZones({ shape, rules: [nullIdRule, savedRule, defaultRule] });
+  const reversed = validateDeliveryZones({ shape, rules: [savedRule, nullIdRule, defaultRule] });
 
   assert.deepEqual(reversed.findings, inOrder.findings, "l'ordre de SAISIE du tableau `rules` ne doit jamais changer l'ordre des findings -- seul le displayOrder RÉEL de chaque règle pilote le tri");
+  assert.equal(inOrder.findings.length, 2, "attendu exactement 2 findings (ZV-EMPTY-ZONES x2, aucun finding global grâce à la règle par défaut)");
   // Preuve positive et non tautologique : la règle non sauvegardée
   // (displayOrder 0) doit trier AVANT la règle sauvegardée
   // (displayOrder 1) dans les DEUX permutations -- l'ancien bug aurait
@@ -438,6 +445,25 @@ test("B0-DET-06 (D-B0-3) : le tri des findings, pour une règle NON SAUVEGARDÉE
   // ruleId===null traitée comme "global").
   assert.equal(inOrder.findings[0]!.ruleId, null, "le finding de displayOrder 0 (règle non sauvegardée) doit être en PREMIER");
   assert.equal(inOrder.findings[1]!.ruleId, "r2", "le finding de displayOrder 1 (règle sauvegardée) doit être en SECOND");
+});
+
+test("B0-DET-07 (D-B0-3, re-audit Chateaubriand comment 5906076932) : scopeRank normatif -- UN finding GLOBAL (sans tarif) et UN finding TARIF-SCOPÉ doivent trier avec le GLOBAL EN PREMIER (scopeRank 0 = global, 1 = tarif-scopé, jamais l'inverse)", () => {
+  // Une seule règle, non-défaut, avec UNE zone mal formée : exactement
+  // un finding tarif-scopé (ZV-FORM-INVALID) et, faute de règle par
+  // défaut, exactement un finding global (ZV-NO-DEFAULT -- et UN SEUL :
+  // hasAnyZoneAnywhere reste vrai grâce à cette zone brute, même mal
+  // formée, donc ZV-NO-DEFAULT-NO-ZONES ne se déclenche pas -- preuve
+  // volontairement réduite au minimum demandé : un global, un tarif-scopé).
+  const rule: ZoneRuleInput = { ruleId: "r1", label: "Zone A", displayOrder: 0, isDefault: false, zones: ["75 018"] };
+  const shape: ZoneValidationInput["shape"] = { allowedChars: "digits", exactLength: 5, minPrefixLength: 1 };
+
+  const result = validateDeliveryZones({ shape, rules: [rule] });
+
+  assert.equal(result.findings.length, 2, `attendu exactement 2 findings (1 global + 1 tarif-scopé), obtenu ${JSON.stringify(result.findings.map((f) => f.code))}`);
+  assert.equal(result.findings[0]!.code, "ZV-NO-DEFAULT", "le finding GLOBAL (scopeRank 0) doit être EN PREMIER");
+  assert.equal(result.findings[0]!.ruleId, null, "le finding global n'a pas de ruleId");
+  assert.equal(result.findings[1]!.code, "ZV-FORM-INVALID", "le finding TARIF-SCOPÉ (scopeRank 1) doit être EN SECOND");
+  assert.equal(result.findings[1]!.ruleId, "r1", "le finding tarif-scopé porte le ruleId de sa règle");
 });
 
 test("Pureté : scan de source -- aucune dépendance interdite (Date, fetch, Math.random, Supabase, Next.js, React, services applicatifs), aucune API sensible à la locale", () => {
