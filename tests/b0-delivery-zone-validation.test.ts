@@ -142,6 +142,38 @@ function rankedNonDefaultZones(
   return entries;
 }
 
+/**
+ * CORRECTIF (re-audit Chateaubriand, issue #11, comment `5907809132` --
+ * B0-R03-SCOPE-01) : ensemble des INDEX de règles NON-DÉFAUT réellement
+ * impliquées dans une collision de `displayOrder` avec une AUTRE règle
+ * NON-DÉFAUT -- utilisé pour savoir quand B0-R-03 (résolution vers LA
+ * règle attendue) n'a normativement PAS de réponse définie (voir le
+ * commentaire dans B0-R-02 ci-dessous).
+ *
+ * Défaut CORRIGÉ : la version précédente comparait `rule.displayOrder`
+ * à TOUTE autre règle, y COMPRIS la règle PAR DÉFAUT. Or une règle par
+ * défaut ne participe JAMAIS à la compétition inter-règles / H(R)
+ * (contrat §4, "Default/fallback rules are excluded from inter-rule
+ * coverage analysis" -- elle ne teste jamais ses propres zones, contrat
+ * §2.6) : partager son `displayOrder` avec une règle non-défaut ne crée
+ * AUCUNE ambiguïté réelle de résolution. Ne considère donc désormais que
+ * les collisions ENTRE DEUX RÈGLES NON-DÉFAUT -- et seules LES règles
+ * effectivement en collision sont ajoutées (jamais une règle tierce à
+ * `displayOrder` unique, même si une collision SANS RAPPORT existe
+ * ailleurs dans la saisie).
+ */
+function duplicateOrderCollisionRuleIndices(rules: ZoneRuleInput[]): Set<number> {
+  const result = new Set<number>();
+  rules.forEach((rule, index) => {
+    if (rule.isDefault) return;
+    const collides = rules.some(
+      (other, otherIndex) => otherIndex !== index && !other.isDefault && other.displayOrder === rule.displayOrder
+    );
+    if (collides) result.add(index);
+  });
+  return result;
+}
+
 const ALPHABETS: Record<"digits" | "alnum", string[]> = {
   digits: "0123456789".split(""),
   alnum: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".split(""),
@@ -306,11 +338,17 @@ test("B0-R-02 / B0-R-03 : toute zone valide NON morte (règle non-défaut, sans 
     // UNIQUEMENT B0-R-02 (un témoin existe -- la zone n'est pas morte à
     // tort) et SAUTE explicitement B0-R-03 (résolution vers LA règle
     // attendue), qui n'a pas de réponse normativement définie ici.
-    const duplicateOrderRuleIndices = new Set<number>();
-    testCase.rules.forEach((rule, index) => {
-      const collides = testCase.rules.some((other, otherIndex) => otherIndex !== index && other.displayOrder === rule.displayOrder);
-      if (collides) duplicateOrderRuleIndices.add(index);
-    });
+    //
+    // CORRECTIF (re-audit Chateaubriand, comment 5907809132 --
+    // B0-R03-SCOPE-01) : ce calcul est désormais délégué à
+    // `duplicateOrderCollisionRuleIndices`, qui exclut correctement les
+    // règles PAR DÉFAUT (elles ne participent jamais à H(R)) et ne
+    // marque QUE les règles NON-DÉFAUT réellement impliquées dans LEUR
+    // PROPRE collision -- voir sa documentation ci-dessus et le test
+    // dédié B0-R03-SCOPE-01 plus bas, qui PROUVE que B0-R-03 s'exécute
+    // bien dans les deux cas que l'ancienne version aurait supprimés à
+    // tort.
+    const duplicateOrderRuleIndices = duplicateOrderCollisionRuleIndices(testCase.rules);
 
     ranked.forEach((entry, rank) => {
       const key = `${entry.ruleId}::${entry.zone}`;
@@ -382,6 +420,114 @@ test("B0-R-04 : couverture de la taxonomie de saturation collective (D-B0-4) -- 
   assert.ok(
     reachResult.findings.some((f) => f.code === "ZV-REACHABILITY-NOT-COMPUTED"),
     "REACH-NOTCOMPUTED-01: attendu ZV-REACHABILITY-NOT-COMPUTED"
+  );
+});
+
+test("B0-R03-SCOPE-01 (re-audit Chateaubriand, comment 5907809132) : le carve-out B0-R-03 (collision de displayOrder) ne doit être élargi NI par une règle PAR DÉFAUT de même displayOrder, NI par une collision de displayOrder SANS RAPPORT ailleurs dans la saisie -- seules les règles NON-DÉFAUT réellement impliquées dans LEUR PROPRE collision comptent. PROUVE que B0-R-03 (résolution du témoin vers la règle attendue) s'exécute réellement dans les deux cas que l'ancienne version aurait supprimés à tort (preuve d'exécution, pas seulement absence d'échec global)", () => {
+  let b0R03Executions = 0;
+
+  // Cas A (exigence Ravel #1) : une règle non-défaut (displayOrder 1) ET
+  // la règle PAR DÉFAUT (MÊME displayOrder 1). La règle par défaut ne
+  // teste jamais ses propres zones (contrat §2.6) et ne participe jamais
+  // à H(R) (contrat §4) -- aucune ambiguïté réelle de résolution. B0-R-03
+  // DOIT donc s'exécuter, jusqu'au bout, pour la règle non-défaut.
+  {
+    const shape: ZoneValidationInput["shape"] = { allowedChars: "digits", exactLength: 5, minPrefixLength: 1 };
+    const rules: ZoneRuleInput[] = [
+      { ruleId: "r1", label: "Zone A", displayOrder: 1, isDefault: false, zones: ["50000"] },
+      { ruleId: "default", label: "Repli", displayOrder: 1, isDefault: true, zones: [] },
+    ];
+    const collisions = duplicateOrderCollisionRuleIndices(rules);
+    assert.equal(
+      collisions.has(0),
+      false,
+      "Cas A : 'r1' (non-défaut) ne doit PAS être marquée en collision -- seule la règle PAR DÉFAUT partage son displayOrder, ce qui ne compte pas"
+    );
+
+    const ranked = rankedNonDefaultZones(shape, rules);
+    const result = validateDeliveryZones({ shape, rules });
+    assert.ok(
+      result.findings.some((f) => f.code === "ZV-INPUT-DUPLICATE-ORDER"),
+      "Cas A : ZV-INPUT-DUPLICATE-ORDER doit tout de même être signalé à la SAISIE (r1/default partagent bien displayOrder 1)"
+    );
+    const deadKeys = new Set(
+      result.findings
+        .filter((f) => f.code === "ZV-COVERED-BY-HIGHER" || f.code === "ZV-DUPLICATE-ACROSS" || f.code === "ZV-UNREACHABLE-BY-HIGHER-SET")
+        .map((f) => `${f.ruleId}::${f.zone}`)
+    );
+    const entry = ranked.find((e) => e.ruleId === "r1" && e.zone === "50000");
+    assert.ok(entry, "Cas A : zone '50000' (r1) absente du classement resolver-order");
+    assert.equal(deadKeys.has(`${entry!.ruleId}::${entry!.zone}`), false, "Cas A : '50000' ne doit pas être une zone 'morte'");
+    assert.equal(collisions.has(entry!.ruleIndex), false, "Cas A : l'index de r1 ne doit pas être en collision");
+
+    const rank = ranked.indexOf(entry!);
+    const earlierZones = ranked
+      .slice(0, rank)
+      .filter((e) => e.ruleIndex !== entry!.ruleIndex && e.displayOrder < entry!.displayOrder)
+      .map((e) => e.zone);
+    const witness = findWitness(shape, earlierZones, entry!.zone);
+    assert.ok(witness !== null, "Cas A : témoin introuvable pour '50000'");
+    // B0-R-03 lui-même : DOIT s'exécuter ici (aucun skip). Si le
+    // carve-out était encore trop large (bug d'origine), ce bloc ne
+    // s'exécuterait jamais et `b0R03Executions` resterait à 0 en fin de
+    // test -- c'est la preuve d'EXÉCUTION explicitement demandée par
+    // Ravel, pas une simple absence d'échec.
+    const resolved = simulateResolver(rules, witness!);
+    assert.equal(resolved.ruleId, "r1", "Cas A : le témoin doit résoudre vers 'r1'");
+    b0R03Executions += 1;
+  }
+
+  // Cas B (exigence Ravel #2) : une collision de displayOrder SANS
+  // RAPPORT ailleurs dans la saisie (rX/rY, displayOrder 0, zones
+  // disjointes) NE DOIT PAS supprimer B0-R-03 pour une règle INDÉPENDANTE
+  // à displayOrder UNIQUE (rC, displayOrder 5) -- le carve-out reste
+  // scopé strictement aux règles réellement impliquées dans LEUR PROPRE
+  // collision, jamais élargi à une règle tierce sans rapport.
+  {
+    const shape: ZoneValidationInput["shape"] = { allowedChars: "digits", exactLength: 5, minPrefixLength: 1 };
+    const rules: ZoneRuleInput[] = [
+      { ruleId: "rX", label: "Zone X", displayOrder: 0, isDefault: false, zones: ["10000"] },
+      { ruleId: "rY", label: "Zone Y", displayOrder: 0, isDefault: false, zones: ["20000"] },
+      { ruleId: "rC", label: "Zone C", displayOrder: 5, isDefault: false, zones: ["99999"] },
+      { ruleId: "default", label: "Repli", displayOrder: 6, isDefault: true, zones: [] },
+    ];
+    const collisions = duplicateOrderCollisionRuleIndices(rules);
+    assert.equal(collisions.has(0), true, "Cas B : 'rX' doit être marquée en collision (partage displayOrder 0 avec 'rY')");
+    assert.equal(collisions.has(1), true, "Cas B : 'rY' doit être marquée en collision (partage displayOrder 0 avec 'rX')");
+    assert.equal(
+      collisions.has(2),
+      false,
+      "Cas B : 'rC' (displayOrder 5, unique) ne doit PAS être marquée en collision par une collision SANS RAPPORT ailleurs dans la saisie"
+    );
+
+    const ranked = rankedNonDefaultZones(shape, rules);
+    const result = validateDeliveryZones({ shape, rules });
+    const deadKeys = new Set(
+      result.findings
+        .filter((f) => f.code === "ZV-COVERED-BY-HIGHER" || f.code === "ZV-DUPLICATE-ACROSS" || f.code === "ZV-UNREACHABLE-BY-HIGHER-SET")
+        .map((f) => `${f.ruleId}::${f.zone}`)
+    );
+    const entry = ranked.find((e) => e.ruleId === "rC" && e.zone === "99999");
+    assert.ok(entry, "Cas B : zone '99999' (rC) absente du classement resolver-order");
+    assert.equal(deadKeys.has(`${entry!.ruleId}::${entry!.zone}`), false, "Cas B : '99999' ne doit pas être une zone 'morte'");
+    assert.equal(collisions.has(entry!.ruleIndex), false, "Cas B : l'index de rC ne doit pas être en collision");
+
+    const rank = ranked.indexOf(entry!);
+    const earlierZones = ranked
+      .slice(0, rank)
+      .filter((e) => e.ruleIndex !== entry!.ruleIndex && e.displayOrder < entry!.displayOrder)
+      .map((e) => e.zone);
+    const witness = findWitness(shape, earlierZones, entry!.zone);
+    assert.ok(witness !== null, "Cas B : témoin introuvable pour '99999'");
+    const resolved = simulateResolver(rules, witness!);
+    assert.equal(resolved.ruleId, "rC", "Cas B : le témoin doit résoudre vers 'rC'");
+    b0R03Executions += 1;
+  }
+
+  assert.equal(
+    b0R03Executions,
+    2,
+    "les DEUX cas (A et B) doivent avoir exécuté B0-R-03 jusqu'au bout -- preuve d'exécution explicite, jamais une simple inférence à partir du PASS global du fichier"
   );
 });
 
@@ -539,6 +685,83 @@ test("B0-DET-08 (D-B0-4, re-audit Chateaubriand comment 5906573419) : displayOrd
     collectiveResult.findings.map((f) => f.code),
     ["ZV-INPUT-DUPLICATE-ORDER"],
     `STRICT-ORDER-COLLECTIVE-01: attendu UNIQUEMENT ZV-INPUT-DUPLICATE-ORDER, jamais ZV-UNREACHABLE-BY-HIGHER-SET, obtenu ${JSON.stringify(collectiveResult.findings.map((f) => f.code))}`
+  );
+});
+
+test("B0-PLURAL-ID-01 (clarification de conception Debussy \"Option C\", Ravel comment 5908021131) : `relatedZoneRefs` -- présent SI ET SEULEMENT SI ZV-UNREACHABLE-BY-HIGHER-SET, un enregistrement par membre de S* (displayOrder/ruleLabel/zone jamais null, ruleId peut être null pour une règle non sauvegardée, zone toujours COMPLÈTE), champs singuliers relatedRuleId/relatedRuleLabel/relatedZone à null quand il est présent, ABSENT pour tout autre code, ordre DÉTERMINISTE (displayOrder ASC), aucune zone dupliquée", () => {
+  let unreachableFindingsChecked = 0;
+  let unsavedRefsSeen = 0;
+  for (const testCase of fixture.cases) {
+    const result = validateDeliveryZones({ shape: testCase.shape, rules: testCase.rules });
+    for (const finding of result.findings) {
+      if (finding.code === "ZV-UNREACHABLE-BY-HIGHER-SET") {
+        assert.ok(
+          Array.isArray(finding.relatedZoneRefs) && finding.relatedZoneRefs.length >= 1,
+          `${testCase.id}: ZV-UNREACHABLE-BY-HIGHER-SET doit porter relatedZoneRefs, un tableau non vide`
+        );
+        // Champs singuliers à null quand relatedZoneRefs est présent.
+        assert.equal(finding.relatedRuleId, null, `${testCase.id}: relatedRuleId doit être null quand relatedZoneRefs est présent`);
+        assert.equal(finding.relatedRuleLabel, null, `${testCase.id}: relatedRuleLabel doit être null quand relatedZoneRefs est présent`);
+        assert.equal(finding.relatedZone, null, `${testCase.id}: relatedZone doit être null quand relatedZoneRefs est présent`);
+
+        const refs = finding.relatedZoneRefs!;
+        const seenZones = new Set<string>();
+        let lastDisplayOrder = -Infinity;
+        for (const ref of refs) {
+          assert.equal(typeof ref.displayOrder, "number", `${testCase.id}: displayOrder ne doit jamais être null/non-numérique`);
+          assert.equal(typeof ref.ruleLabel, "string", `${testCase.id}: ruleLabel doit rester une chaîne (peut être vide, jamais null)`);
+          assert.ok(
+            typeof ref.zone === "string" && ref.zone.length > 0,
+            `${testCase.id}: zone doit être la zone COMPLÈTE, jamais null ni vide (jamais un suffixe)`
+          );
+          assert.ok(ref.ruleId === null || typeof ref.ruleId === "string", `${testCase.id}: ruleId doit être string OU null (jamais autre chose)`);
+          if (ref.ruleId === null) unsavedRefsSeen += 1;
+          // Aucune zone dupliquée (déduplication par zone COMPLÈTE, "no omission, grouping or duplication").
+          assert.equal(seenZones.has(ref.zone), false, `${testCase.id}: zone '${ref.zone}' apparaît plusieurs fois dans relatedZoneRefs -- duplication interdite`);
+          seenZones.add(ref.zone);
+          // Ordre déterministe : displayOrder ASC (clé de tri primaire -- non décroissant sur tout le tableau).
+          assert.ok(
+            ref.displayOrder >= lastDisplayOrder,
+            `${testCase.id}: relatedZoneRefs n'est pas trié par displayOrder ASC (${ref.displayOrder} après ${lastDisplayOrder})`
+          );
+          lastDisplayOrder = ref.displayOrder;
+        }
+        unreachableFindingsChecked += 1;
+      } else {
+        // Absent pour tout autre code -- jamais présent, même comme tableau vide.
+        assert.equal(
+          "relatedZoneRefs" in finding,
+          false,
+          `${testCase.id}: ${finding.code} ne doit JAMAIS exposer relatedZoneRefs (réservé exclusivement à ZV-UNREACHABLE-BY-HIGHER-SET)`
+        );
+      }
+    }
+  }
+  assert.ok(unreachableFindingsChecked >= 2, `attendu au moins 2 findings ZV-UNREACHABLE-BY-HIGHER-SET vérifiés (COLLECTIVE-01, COLLECTIVE-TWO-UNSAVED-01), obtenu ${unreachableFindingsChecked}`);
+  assert.ok(unsavedRefsSeen >= 15, `attendu au moins 15 relatedZoneRefs avec ruleId:null au total (10 de COLLECTIVE-01 + 10 de COLLECTIVE-TWO-UNSAVED-01, dédupliquées par cas), obtenu ${unsavedRefsSeen}`);
+
+  // Exigence B explicite (Ravel, comment 5908021131) : deux tarifs NON
+  // SAUVEGARDÉS distincts, à des displayOrder DIFFÉRENTS, contribuant
+  // chacun une partie de S* -- vérifie que displayOrder les distingue
+  // bien et que l'ordre entre les deux groupes est déterministe.
+  const twoUnsaved = fixture.cases.find((c) => c.id === "COLLECTIVE-TWO-UNSAVED-01");
+  assert.ok(twoUnsaved, "cas de référence 'COLLECTIVE-TWO-UNSAVED-01' absent de la fixture");
+  const twoUnsavedResult = validateDeliveryZones({ shape: twoUnsaved!.shape, rules: twoUnsaved!.rules });
+  const twoUnsavedFinding = twoUnsavedResult.findings.find((f) => f.code === "ZV-UNREACHABLE-BY-HIGHER-SET");
+  assert.ok(twoUnsavedFinding, "COLLECTIVE-TWO-UNSAVED-01: attendu ZV-UNREACHABLE-BY-HIGHER-SET");
+  const refs = twoUnsavedFinding!.relatedZoneRefs!;
+  assert.equal(refs.length, 10, "COLLECTIVE-TWO-UNSAVED-01: attendu 10 relatedZoneRefs (5 + 5)");
+  assert.ok(refs.every((r) => r.ruleId === null), "COLLECTIVE-TWO-UNSAVED-01: les DEUX tarifs responsables sont non sauvegardés -- ruleId doit être null partout");
+  const displayOrders = refs.map((r) => r.displayOrder);
+  assert.deepEqual(
+    displayOrders,
+    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+    "COLLECTIVE-TWO-UNSAVED-01: displayOrder doit distinguer les deux groupes ET rester dans l'ordre ASC déterministe (groupe displayOrder 0 entièrement avant groupe displayOrder 1)"
+  );
+  assert.deepEqual(
+    refs.map((r) => r.zone),
+    ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"],
+    "COLLECTIVE-TWO-UNSAVED-01: ordre des zones non déterministe ou incorrect"
   );
 });
 

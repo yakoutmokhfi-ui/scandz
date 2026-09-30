@@ -21,9 +21,15 @@
  *   - D-B0-4 : accessibilité COMPLÈTE d'une zone -- domination par
  *     paire (§4 d'origine, inchangée) PUIS saturation COLLECTIVE par
  *     réduction en antichaîne des zones antérieures qui l'étendent.
- *     Nouveau code bloquant `ZV-UNREACHABLE-BY-HIGHER-SET` et nouveaux
- *     champs relationnels PLURIELS (une cause collective n'a pas une
- *     seule règle/zone liée, mais un ensemble).
+ *     Nouveau code bloquant `ZV-UNREACHABLE-BY-HIGHER-SET` et nouveau
+ *     champ relationnel structuré `relatedZoneRefs` (une cause
+ *     collective n'a pas une seule règle/zone liée, mais un ensemble ;
+ *     voir aussi la clarification Debussy "Option C", commentaire
+ *     `5908021131`, qui remplace les trois tableaux parallèles d'une
+ *     version antérieure de cet amendement par ce champ unique).
+ *   - re-audit ultérieur (comment `5906573419`) : H(R) exclut aussi les
+ *     tarifs à `displayOrder` ÉGAL (pas seulement la même règle) --
+ *     voir lib/delivery-zone-validation.ts, étapes 1 et 2.
  *   - Nouveau code `ZV-REACHABILITY-NOT-COMPUTED` (INFO) : abstention
  *     explicite quand le calcul combinatoire dépasserait la précision
  *     entière sûre de JavaScript (2^53).
@@ -114,29 +120,59 @@ export type ZoneFindingCode =
   | "ZV-NO-DEFAULT"
   | "ZV-REACHABILITY-NOT-COMPUTED"; // D-B0-4 : abstention explicite -- le calcul dépasserait 2^53, jamais une réponse inexacte.
 
+/**
+ * D-B0-4, clarification de conception Debussy "Option C" (issue #11,
+ * commentaire `5908021131`, remplaçant les trois tableaux parallèles
+ * `relatedRuleIds`/`relatedRuleLabels`/`relatedZones` de l'amendement
+ * précédent -- ceux-ci obligeaient l'appelant à recombiner trois
+ * tableaux par INDEX pour reconstituer une seule zone liée, fragile et
+ * sans garantie structurelle qu'ils restent alignés). Un enregistrement
+ * par membre de S* (l'antichaîne minimale de zones antérieures dont
+ * l'union sature l'espace restant sous la zone courante) : une zone
+ * COMPLÈTE (jamais un suffixe) et le tarif qui la porte.
+ *
+ * `ruleId` peut légitimement valoir `null` -- exactement la même raison
+ * que `ZoneRuleInput.ruleId` : le tarif responsable peut être une règle
+ * non encore sauvegardée. `displayOrder`, `ruleLabel` et `zone` ne sont
+ * eux JAMAIS `null`.
+ */
+export type ZoneRelatedRef = {
+  displayOrder: number;
+  ruleId: string | null;
+  ruleLabel: string;
+  zone: string;
+};
+
 export type ZoneFinding = {
   code: ZoneFindingCode;
   severity: ZoneFindingSeverity;
   ruleId: string | null;
   ruleLabel: string;
   zone: string | null;
+  /**
+   * `null` pour tout finding portant sur une cause COLLECTIVE
+   * (`ZV-UNREACHABLE-BY-HIGHER-SET`, quand `relatedZoneRefs` est
+   * présent) -- voir `relatedZoneRefs` ci-dessous.
+   */
   relatedRuleId: string | null;
   relatedRuleLabel: string | null;
   relatedZone: string | null;
   /**
-   * D-B0-4 : champs relationnels PLURIELS, utilisés UNIQUEMENT par
-   * `ZV-UNREACHABLE-BY-HIGHER-SET` (une cause COLLECTIVE n'a pas une
-   * seule règle/zone liée, mais l'antichaîne minimale de zones
-   * antérieures dont l'UNION sature l'espace restant -- les champs
+   * D-B0-4, clarification Debussy "Option C" (comment `5908021131`) :
+   * champ structuré PLURIEL, utilisé SI ET SEULEMENT SI
+   * `code === "ZV-UNREACHABLE-BY-HIGHER-SET"` -- une cause COLLECTIVE
+   * n'a pas une seule règle/zone liée, mais l'antichaîne minimale de
+   * zones antérieures dont l'UNION sature l'espace restant. Exactement
+   * un enregistrement par membre de S*, sans omission, regroupement ni
+   * duplication ; ordre normatif : `displayOrder` ASC puis position
+   * D'ORIGINE de la zone ASC (si la même zone complète apparaît dans
+   * plusieurs tarifs antérieurs, seule la première occurrence selon cet
+   * ordre est conservée). Quand ce champ est présent, les champs
    * singuliers `relatedRuleId`/`relatedRuleLabel`/`relatedZone`
-   * valent alors `null`, voir le contrat amendé). Optionnels et
-   * absents pour tout autre code. `relatedRuleIds` peut contenir `null`
-   * (même raison que `ruleId` ci-dessus : une règle antérieure de
-   * l'antichaîne peut être non sauvegardée).
+   * ci-dessus valent `null`. Absent pour tout autre code (jamais un
+   * tableau vide).
    */
-  relatedRuleIds?: (string | null)[];
-  relatedRuleLabels?: string[];
-  relatedZones?: string[];
+  relatedZoneRefs?: ZoneRelatedRef[];
   remedy: ZoneFindingRemedy;
 };
 

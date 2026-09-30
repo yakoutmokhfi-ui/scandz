@@ -86,6 +86,7 @@ import type {
   ZoneFinding,
   ZoneFindingCode,
   ZoneFindingRemedy,
+  ZoneRelatedRef,
   ZoneRuleInput,
   ZoneValidationDecision,
   ZoneValidationInput,
@@ -233,9 +234,16 @@ function makeFinding(
     relatedRuleId?: string | null;
     relatedRuleLabel?: string | null;
     relatedZone?: string | null;
-    relatedRuleIds?: (string | null)[];
-    relatedRuleLabels?: string[];
-    relatedZones?: string[];
+    /**
+     * D-B0-4, clarification Debussy "Option C" (comment 5908021131) :
+     * champ structuré PLURIEL unique, utilisé UNIQUEMENT par
+     * `ZV-UNREACHABLE-BY-HIGHER-SET` -- remplace les trois anciens
+     * tableaux parallèles `relatedRuleIds`/`relatedRuleLabels`/
+     * `relatedZones`. Quand ce champ est fourni, les champs SINGULIERS
+     * `relatedRuleId`/`relatedRuleLabel`/`relatedZone` ci-dessus restent
+     * `null` (jamais fournis ensemble par un appelant de `makeFinding`).
+     */
+    relatedZoneRefs?: ZoneRelatedRef[];
     remedy?: ZoneFindingRemedy;
   }
 ): InternalFinding {
@@ -259,9 +267,7 @@ function makeFinding(
     remedy: fields.remedy ?? null,
     __sortKey: sortKey,
   };
-  if (fields.relatedRuleIds) finding.relatedRuleIds = fields.relatedRuleIds;
-  if (fields.relatedRuleLabels) finding.relatedRuleLabels = fields.relatedRuleLabels;
-  if (fields.relatedZones) finding.relatedZones = fields.relatedZones;
+  if (fields.relatedZoneRefs) finding.relatedZoneRefs = fields.relatedZoneRefs;
   return finding;
 }
 
@@ -655,12 +661,26 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       );
     }
     if (total === target) {
-      // Reconstruit, pour le rapport, les zones ANTÉRIEURES dont les
-      // suffixes forment l'antichaîne retenue -- ordonnées par
-      // displayOrder ASC puis position de zone ASC, dédupliquées par
-      // zone EXACTE (première occurrence, la plus prioritaire pour le
-      // résolveur, conservée).
-      const relatedByZone = new Map<string, ZonePosition>();
+      // CORRECTIF (clarification de conception Debussy, "Option C",
+      // relayée par Ravel, issue #11, commentaire 5908021131) : les
+      // trois champs relationnels PLURIELS (`relatedRuleIds`,
+      // `relatedRuleLabels`, `relatedZones`) sont remplacés par UN
+      // champ structuré unique `relatedZoneRefs` -- un enregistrement
+      // `{ displayOrder, ruleId, ruleLabel, zone }` par membre de S*
+      // (l'ensemble des zones ANTÉRIEURES dont les suffixes forment
+      // l'antichaîne retenue), sans omission ni regroupement.
+      //
+      // Ordre normatif EXPLICITE (comment 5908021131) : (1) displayOrder
+      // ASC, (2) PUIS position D'ORIGINE de la zone (`zonePositionInRule`)
+      // ASC -- PAS `ruleIndex`. Si la MÊME zone complète (chaîne exacte,
+      // jamais le suffixe) apparaît dans PLUSIEURS tarifs antérieurs,
+      // seule la PREMIÈRE occurrence selon CET ordre exact est conservée
+      // -- d'où le tri EXPLICITE de `candidates` par (displayOrder,
+      // zonePositionInRule) AVANT la déduplication ci-dessous (et non un
+      // simple ré-usage de l'ordre de balayage `rankedIndices`, qui
+      // départage par `ruleIndex` avant la position de zone et pourrait
+      // donc retenir une occurrence différente de celle exigée ici).
+      const candidates: ZonePosition[] = [];
       for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
         const earlier = rankedPositions[rankedIndices[earlierRank]];
         // Même garde que ci-dessus (comment 5906573419) : ne jamais
@@ -675,20 +695,32 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
         if (!earlier.zone.startsWith(current.zone)) continue;
         const suffix = earlier.zone.slice(current.zone.length);
         if (!antichain.has(suffix)) continue;
-        if (!relatedByZone.has(earlier.zone)) relatedByZone.set(earlier.zone, earlier);
+        candidates.push(earlier);
       }
-      const related = Array.from(relatedByZone.values()).sort((a, b) => {
+      candidates.sort((a, b) => {
         if (a.rule.displayOrder !== b.rule.displayOrder) return a.rule.displayOrder - b.rule.displayOrder;
         return a.zonePositionInRule - b.zonePositionInRule;
       });
+      const relatedByZone = new Map<string, ZonePosition>();
+      for (const candidate of candidates) {
+        // Zone COMPLÈTE (`candidate.zone`), jamais le suffixe, comme clé
+        // de déduplication -- `Map` préserve l'ordre d'INSERTION, donc la
+        // PREMIÈRE occurrence selon l'ordre normatif ci-dessus (le seul
+        // tri appliqué à `candidates`) est celle conservée.
+        if (!relatedByZone.has(candidate.zone)) relatedByZone.set(candidate.zone, candidate);
+      }
+      const related = Array.from(relatedByZone.values());
       findings.push(
         makeFinding("ZV-UNREACHABLE-BY-HIGHER-SET", {
           rule: current.rule,
           zoneIndexInRule: current.zonePositionInRule,
           zone: current.zone,
-          relatedRuleIds: related.map((entry) => entry.rule.ruleId),
-          relatedRuleLabels: related.map((entry) => entry.rule.label),
-          relatedZones: related.map((entry) => entry.zone),
+          relatedZoneRefs: related.map((entry) => ({
+            displayOrder: entry.rule.displayOrder,
+            ruleId: entry.rule.ruleId,
+            ruleLabel: entry.rule.label,
+            zone: entry.zone,
+          })),
           remedy: null,
         })
       );

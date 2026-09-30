@@ -527,7 +527,7 @@
     },
     {
       "id": "COLLECTIVE-01",
-      "description": "amendement D-B0-4 : '7' (rang1, regle SAUVEGARDEE) est mort par SATURATION COLLECTIVE -- '70'..'79' (rang0, regle NON SAUVEGARDEE, ruleId null) le SATURENT ENSEMBLE (10 x sigma^(k-1) = 10 = sigma^k = target) bien qu'AUCUNE seule d'entre elles ne le domine par paire => ZV-UNREACHABLE-BY-HIGHER-SET, champs relationnels PLURIELS (relatedRuleIds contient null : preuve que le champ pluriel accepte aussi une regle non sauvegardee)",
+      "description": "amendement D-B0-4 : '7' (rang1, regle SAUVEGARDEE) est mort par SATURATION COLLECTIVE -- '70'..'79' (rang0, regle NON SAUVEGARDEE, ruleId null) le SATURENT ENSEMBLE (10 x sigma^(k-1) = 10 = sigma^k = target) bien qu'AUCUNE seule d'entre elles ne le domine par paire => ZV-UNREACHABLE-BY-HIGHER-SET. CORRECTIF Debussy Option C (comment 5908021131) : champ structure unique relatedZoneRefs (remplace les 3 tableaux paralleles) -- une entree porte explicitement ruleId:null (preuve qu'une regle non sauvegardee reste representable dans S*).",
       "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
       "rules": [
         { "ruleId": null, "label": "Zone A (brouillon)", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
@@ -545,9 +545,18 @@
           "relatedRuleId": null,
           "relatedRuleLabel": null,
           "relatedZone": null,
-          "relatedRuleIds": [null, null, null, null, null, null, null, null, null, null],
-          "relatedRuleLabels": ["Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)"],
-          "relatedZones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"],
+          "relatedZoneRefs": [
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "70" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "71" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "72" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "73" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "74" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "75" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "76" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "77" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "78" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone A (brouillon)", "zone": "79" }
+          ],
           "remedy": null
         }
       ],
@@ -572,6 +581,49 @@
         { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78"] },
         { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
         { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "COLLECTIVE-TWO-UNSAVED-01",
+      "description": "CORRECTIF Debussy Option C (Ravel, comment 5908021131, exigence B -- fixture obligatoire) : '7' (rZ, regle SAUVEGARDEE, displayOrder 2) est mort par SATURATION COLLECTIVE dont S* est reparti entre DEUX regles DIFFERENTES NON SAUVEGARDEES (ruleId null) a des displayOrder DIFFERENTS -- 'Zone X (brouillon)' (displayOrder 0, zones '70'..'74') et 'Zone Y (brouillon)' (displayOrder 1, zones '75'..'79'). Verifie : chaque relatedZoneRefs porte ruleId:null explicitement ; displayOrder distingue les deux groupes ; l'ordre est DETERMINISTE (displayOrder ASC -- tout le groupe X, displayOrder 0, avant tout le groupe Y, displayOrder 1 -- puis position d'origine ASC au sein de chaque groupe).",
+      "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": null, "label": "Zone X (brouillon)", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74"] },
+        { "ruleId": null, "label": "Zone Y (brouillon)", "displayOrder": 1, "isDefault": false, "zones": ["75", "76", "77", "78", "79"] },
+        { "ruleId": "rZ", "label": "Zone Z", "displayOrder": 2, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 3, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        {
+          "code": "ZV-UNREACHABLE-BY-HIGHER-SET",
+          "severity": "BLOCKING_ERROR",
+          "ruleId": "rZ",
+          "ruleLabel": "Zone Z",
+          "zone": "7",
+          "relatedRuleId": null,
+          "relatedRuleLabel": null,
+          "relatedZone": null,
+          "relatedZoneRefs": [
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone X (brouillon)", "zone": "70" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone X (brouillon)", "zone": "71" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone X (brouillon)", "zone": "72" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone X (brouillon)", "zone": "73" },
+            { "displayOrder": 0, "ruleId": null, "ruleLabel": "Zone X (brouillon)", "zone": "74" },
+            { "displayOrder": 1, "ruleId": null, "ruleLabel": "Zone Y (brouillon)", "zone": "75" },
+            { "displayOrder": 1, "ruleId": null, "ruleLabel": "Zone Y (brouillon)", "zone": "76" },
+            { "displayOrder": 1, "ruleId": null, "ruleLabel": "Zone Y (brouillon)", "zone": "77" },
+            { "displayOrder": 1, "ruleId": null, "ruleLabel": "Zone Y (brouillon)", "zone": "78" },
+            { "displayOrder": 1, "ruleId": null, "ruleLabel": "Zone Y (brouillon)", "zone": "79" }
+          ],
+          "remedy": null
+        }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": null, "label": "Zone X (brouillon)", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74"] },
+        { "ruleId": null, "label": "Zone Y (brouillon)", "displayOrder": 1, "isDefault": false, "zones": ["75", "76", "77", "78", "79"] },
+        { "ruleId": "rZ", "label": "Zone Z", "displayOrder": 2, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 3, "isDefault": true, "zones": [] }
       ]
     },
     {
