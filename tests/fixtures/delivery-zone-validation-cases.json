@@ -685,6 +685,44 @@
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7"] },
         { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
       ]
+    },
+    {
+      "id": "STRICT-ORDER-PAIRWISE-01",
+      "description": "CORRECTIF re-audit Chateaubriand (comment 5906573419) : DEUX regles DIFFERENTES au MEME displayOrder (0) -- 'r1'/Zone A zone '7', 'r2'/Zone B zone '75'. H(R) (D-B0-4) n'est compose que de tarifs a displayOrder STRICTEMENT INFERIEUR : a displayOrder egal, le tie-break par ruleIndex du tri de balayage n'est qu'un artefact d'implementation, jamais une priorite reelle cote resolveur (Postgres ne specifie aucun tie-break pour deux lignes de meme display_order). AUCUNE relation de domination par paire ne doit donc etre inferee entre 'r1' et 'r2' : seul ZV-INPUT-DUPLICATE-ORDER (deja emis independamment, a la saisie) signale ce cas -- jamais ZV-COVERED-BY-HIGHER.",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-INPUT-DUPLICATE-ORDER", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "STRICT-ORDER-COLLECTIVE-01",
+      "description": "CORRECTIF re-audit Chateaubriand (comment 5906573419) : DEUX regles DIFFERENTES au MEME displayOrder (0) -- 'r1'/Zone A zones '70'..'79', 'r2'/Zone B zone '7' -- meme configuration numerique que COLLECTIVE-01/SAMERULE-NOEFFECT-01 (saturation totale apparente de l'espace restant sous '7'), mais ICI entre DEUX regles DIFFERENTES de MEME displayOrder. Comme pour STRICT-ORDER-PAIRWISE-01, le tie-break ruleIndex du tri de balayage n'est pas une priorite reelle : AUCUNE saturation collective ne doit etre inferee. '7' (r2) reste ATTEIGNABLE, AUCUN ZV-UNREACHABLE-BY-HIGHER-SET -- seul ZV-INPUT-DUPLICATE-ORDER signale ce cas.",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-INPUT-DUPLICATE-ORDER", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 1, "isDefault": true, "zones": [] }
+      ]
     }
   ]
 }

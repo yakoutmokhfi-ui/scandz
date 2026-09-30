@@ -533,6 +533,26 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
       const earlier = rankedPositions[rankedIndices[earlierRank]];
       if (earlier.ruleIndex === current.ruleIndex) continue; // paires intra-règle : ZV-REDUNDANT-WITHIN ci-dessus, pas ici.
+      // CORRECTIF (re-audit Chateaubriand, issue #11, comment 5906573419) :
+      // la relation de domination par paire (§4 d'origine) est normativement
+      // causale -- "z est mort À CAUSE DE h" -- et n'a de sens que si `h`
+      // appartient à un tarif de priorité RÉELLEMENT supérieure, c'est-à-dire
+      // `displayOrder` STRICTEMENT INFÉRIEUR. Le rang dans `rankedIndices`
+      // (tri stable displayOrder ASC puis `ruleIndex` ASC) n'est qu'un ordre
+      // de balayage déterministe pour CE calcul ; à `displayOrder` ÉGAL entre
+      // DEUX RÈGLES DIFFÉRENTES, ce tie-break sur `ruleIndex` est un artefact
+      // d'implémentation -- le vrai résolveur Postgres (`ORDER BY
+      // display_order ASC`) n'a AUCUN tie-break spécifié dans ce cas, donc
+      // affirmer qu'une des deux règles domine causalement l'autre serait
+      // injustifié. Ce cas est déjà signalé indépendamment, à la SAISIE,
+      // par ZV-INPUT-DUPLICATE-ORDER (section 1 ci-dessus) -- la coverage
+      // analysis (§4/D-B0-4) doit rester SILENCIEUSE sur ces paires plutôt
+      // que d'inventer une causalité non fondée. Le tri garantit déjà
+      // `earlier.rule.displayOrder <= current.rule.displayOrder` ; ce garde
+      // explicite exclut le cas d'ÉGALITÉ entre règles différentes (`>=`
+      // reprend la condition normative telle que formulée par Ravel, en
+      // défense en profondeur indépendante de l'implémentation du tri).
+      if (earlier.rule.displayOrder >= current.rule.displayOrder) continue;
       if (earlier.zone === current.zone) {
         findings.push(
           makeFinding("ZV-DUPLICATE-ACROSS", {
@@ -584,6 +604,18 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       // exemple Chateaubriand -- une seule règle, zones "70".."79" puis
       // "7", saturation collective faussement déclenchée sur "7").
       if (earlier.ruleIndex === current.ruleIndex) continue;
+      // CORRECTIF (re-audit Chateaubriand, issue #11, comment 5906573419) :
+      // même principe que le garde ajouté à l'étape 1 ci-dessus -- H(R)
+      // (D-B0-4) ne contient normativement que des zones de tarifs à
+      // `displayOrder` STRICTEMENT INFÉRIEUR à celui de la règle courante.
+      // Entre DEUX RÈGLES DIFFÉRENTES de même `displayOrder`, le tie-break
+      // par `ruleIndex` du tri de balayage n'établit aucune priorité RÉELLE
+      // côté résolveur (Postgres ne spécifie pas ce tie-break) ; ce cas est
+      // déjà couvert, indépendamment, par ZV-INPUT-DUPLICATE-ORDER (section
+      // 1). Sans ce garde, une zone d'une règle de même `displayOrder`
+      // pourrait à tort participer à la saturation collective de la zone
+      // courante.
+      if (earlier.rule.displayOrder >= current.rule.displayOrder) continue;
       if (earlier.zone === current.zone) continue;
       if (earlier.zone.startsWith(current.zone)) {
         extendingSuffixes.add(earlier.zone.slice(current.zone.length));
@@ -631,6 +663,14 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       const relatedByZone = new Map<string, ZonePosition>();
       for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
         const earlier = rankedPositions[rankedIndices[earlierRank]];
+        // Même garde que ci-dessus (comment 5906573419) : ne jamais
+        // rapporter comme "related" une zone d'un tarif à displayOrder
+        // égal ou supérieur, même si son suffixe coïncide textuellement
+        // avec un membre légitime de l'antichaîne (deux tarifs différents
+        // peuvent produire le même suffixe) -- sinon le rapport pourrait
+        // citer une zone qui n'a en réalité joué aucun rôle causal dans
+        // le calcul de `total`.
+        if (earlier.rule.displayOrder >= current.rule.displayOrder) continue;
         if (earlier.zone === current.zone) continue;
         if (!earlier.zone.startsWith(current.zone)) continue;
         const suffix = earlier.zone.slice(current.zone.length);

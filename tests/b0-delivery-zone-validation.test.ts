@@ -118,7 +118,7 @@ function hasValidFormTestOnly(zone: string, shape: ZoneValidationInput["shape"])
 function rankedNonDefaultZones(
   shape: ZoneValidationInput["shape"],
   rules: ZoneRuleInput[]
-): Array<{ ruleIndex: number; ruleId: string | null; ruleLabel: string; zone: string }> {
+): Array<{ ruleIndex: number; displayOrder: number; ruleId: string | null; ruleLabel: string; zone: string }> {
   const entries: Array<{ ruleIndex: number; displayOrder: number; ruleId: string | null; ruleLabel: string; zone: string }> = [];
   rules.forEach((rule, ruleIndex) => {
     if (rule.isDefault) return;
@@ -132,7 +132,14 @@ function rankedNonDefaultZones(
     });
   });
   entries.sort((a, b) => a.displayOrder - b.displayOrder || a.ruleIndex - b.ruleIndex);
-  return entries.map(({ ruleIndex, ruleId, ruleLabel, zone }) => ({ ruleIndex, ruleId, ruleLabel, zone }));
+  // CORRECTIF (re-audit Chateaubriand, issue #11, comment 5906573419) :
+  // `displayOrder` est conservé dans la valeur de retour (il ne l'était
+  // pas avant) -- B0-R-01/B0-R-02 en ont besoin pour appliquer le même
+  // garde normatif que la production (`earlier.displayOrder >=
+  // current.displayOrder` exclu de H(R)), et non plus seulement le rang
+  // dans ce tableau, qui départage arbitrairement par `ruleIndex` à
+  // `displayOrder` égal.
+  return entries;
 }
 
 const ALPHABETS: Record<"digits" | "alnum", string[]> = {
@@ -236,10 +243,16 @@ test("B0-R-01 : toute zone portant un finding bloquant de couverture (ZV-COVERED
       // zone de SA PROPRE règle fait de toute façon gagner la MÊME
       // règle, donc n'a AUCUN effet sur l'atteignabilité de la règle
       // elle-même (même principe que `earlier.ruleIndex ===
-      // current.ruleIndex` en production, étape 1 ET étape 2).
+      // current.ruleIndex` en production, étape 1 ET étape 2). Exclut
+      // AUSSI (re-audit Chateaubriand, comment 5906573419) les zones
+      // d'une règle DIFFÉRENTE à `displayOrder` ÉGAL OU SUPÉRIEUR --
+      // H(R) n'est normativement composé que de tarifs à `displayOrder`
+      // STRICTEMENT INFÉRIEUR, exactement le même garde qu'en
+      // production. (`>=` est redondant avec le tri mais explicite la
+      // condition normative telle que formulée par Ravel.)
       const earlierZones = ranked
         .slice(0, rank)
-        .filter((e) => e.ruleIndex !== ranked[rank]!.ruleIndex)
+        .filter((e) => e.ruleIndex !== ranked[rank]!.ruleIndex && e.displayOrder < ranked[rank]!.displayOrder)
         .map((e) => e.zone);
       const witness = findWitness(testCase.shape, earlierZones, finding.zone!);
       assert.equal(
@@ -274,15 +287,43 @@ test("B0-R-02 / B0-R-03 : toute zone valide NON morte (règle non-défaut, sans 
         )
         .map((f) => `${f.ruleId}::${f.zone}`)
     );
+    // CORRECTIF (re-audit Chateaubriand, comment 5906573419) : quand DEUX
+    // règles DIFFÉRENTES partagent le même displayOrder (déjà bloquant --
+    // ZV-INPUT-DUPLICATE-ORDER, decision REJECTED), le résolveur RÉEL
+    // (`ORDER BY display_order ASC`, sans second critère de tri en base)
+    // n'a AUCUN tie-break garanti entre elles : SI leurs zones se
+    // recoupent (relation de préfixe ou saturation collective), quelle
+    // règle "gagne" pour un code postal donné est proprement INDÉFINI
+    // côté résolveur réel -- pas seulement non prouvé par B0, mais non
+    // prouvable, PAR PRINCIPE, tant que la saisie n'est pas corrigée.
+    // `simulateResolver` (ci-dessous) doit néanmoins choisir UN tie-break
+    // déterministe pour produire une réponse ; ce choix (ordre du
+    // tableau `rules`, comme la production) n'est qu'UNE hypothèse parmi
+    // d'autres également plausibles -- l'ériger en "réponse attendue"
+    // reproduirait exactement l'erreur normative que ce correctif vise à
+    // éliminer, simplement déplacée côté test. Pour les règles
+    // impliquées dans une telle collision, ce test vérifie donc
+    // UNIQUEMENT B0-R-02 (un témoin existe -- la zone n'est pas morte à
+    // tort) et SAUTE explicitement B0-R-03 (résolution vers LA règle
+    // attendue), qui n'a pas de réponse normativement définie ici.
+    const duplicateOrderRuleIndices = new Set<number>();
+    testCase.rules.forEach((rule, index) => {
+      const collides = testCase.rules.some((other, otherIndex) => otherIndex !== index && other.displayOrder === rule.displayOrder);
+      if (collides) duplicateOrderRuleIndices.add(index);
+    });
+
     ranked.forEach((entry, rank) => {
       const key = `${entry.ruleId}::${entry.zone}`;
       if (deadKeys.has(key)) return;
       // Voir le commentaire équivalent dans B0-R-01 -- exclut les
       // zones antérieures de la MÊME règle (paire intra-règle, sans
-      // effet sur l'atteignabilité de la règle).
+      // effet sur l'atteignabilité de la règle) ET les zones d'une
+      // règle différente à `displayOrder` égal ou supérieur (re-audit
+      // Chateaubriand, comment 5906573419 -- H(R) est strictement
+      // `displayOrder` inférieur).
       const earlierZones = ranked
         .slice(0, rank)
-        .filter((e) => e.ruleIndex !== entry.ruleIndex)
+        .filter((e) => e.ruleIndex !== entry.ruleIndex && e.displayOrder < entry.displayOrder)
         .map((e) => e.zone);
       // B0-R-02 : le témoin existe.
       const witness = findWitness(testCase.shape, earlierZones, entry.zone);
@@ -291,6 +332,8 @@ test("B0-R-02 / B0-R-03 : toute zone valide NON morte (règle non-défaut, sans 
         `${testCase.id}: AUCUN témoin trouvé pour la zone vivante '${entry.zone}' (règle '${entry.ruleId}') -- incohérence entre B0 (qui la considère vivante) et la recherche indépendante`
       );
       assert.equal(witness!.length, testCase.shape.exactLength, `${testCase.id}: le témoin '${witness}' n'a pas la longueur exacte attendue`);
+      liveZonesChecked += 1;
+      if (duplicateOrderRuleIndices.has(entry.ruleIndex)) return; // B0-R-03 non applicable -- voir commentaire ci-dessus.
       // B0-R-03 (redéfini D-B0-5) : le témoin exhibé, une fois soumis
       // au simulateur de résolveur INDÉPENDANT, sélectionne bien le
       // tarif attendu -- jamais un autre.
@@ -300,7 +343,6 @@ test("B0-R-02 / B0-R-03 : toute zone valide NON morte (règle non-défaut, sans 
         entry.ruleId,
         `${testCase.id}: le témoin '${witness}' ne résout PAS vers la règle attendue '${entry.ruleId}' (résolu : '${resolved.ruleId}')`
       );
-      liveZonesChecked += 1;
     });
   }
   assert.ok(liveZonesChecked >= 10, `attendu au moins 10 zones vivantes vérifiées, obtenu ${liveZonesChecked}`);
@@ -315,6 +357,8 @@ test("B0-R-04 : couverture de la taxonomie de saturation collective (D-B0-4) -- 
     "DEFAULT-NOEFFECT-01": null, // zones du repli -- sans effet, '7' vivante.
     "REACH-NOTCOMPUTED-01": null, // abstention (ZV-REACHABILITY-NOT-COMPUTED), pas un finding de couverture.
     "SAMERULE-NOEFFECT-01": null, // re-audit Chateaubriand : zones de la MÊME règle ('70'..'79') ne saturent jamais '7' -- H(R) est inter-règles uniquement.
+    "STRICT-ORDER-PAIRWISE-01": null, // re-audit Chateaubriand (5906573419) : displayOrder ÉGAL entre DEUX règles différentes -- aucune domination par paire, seul ZV-INPUT-DUPLICATE-ORDER.
+    "STRICT-ORDER-COLLECTIVE-01": null, // idem, cas collectif -- aucune saturation, seul ZV-INPUT-DUPLICATE-ORDER.
   };
   for (const [caseId, expectedCode] of Object.entries(expectedByCaseId)) {
     const testCase = fixture.cases.find((c) => c.id === caseId);
@@ -464,6 +508,38 @@ test("B0-DET-07 (D-B0-3, re-audit Chateaubriand comment 5906076932) : scopeRank 
   assert.equal(result.findings[0]!.ruleId, null, "le finding global n'a pas de ruleId");
   assert.equal(result.findings[1]!.code, "ZV-FORM-INVALID", "le finding TARIF-SCOPÉ (scopeRank 1) doit être EN SECOND");
   assert.equal(result.findings[1]!.ruleId, "r1", "le finding tarif-scopé porte le ruleId de sa règle");
+});
+
+test("B0-DET-08 (D-B0-4, re-audit Chateaubriand comment 5906573419) : displayOrder ÉGAL entre DEUX règles DIFFÉRENTES n'induit JAMAIS de relation de couverture inter-règles (ni par paire, ni collective) -- le tie-break ruleIndex du tri de balayage n'est qu'un artefact d'implémentation, pas une priorité réelle côté résolveur (Postgres ne spécifie aucun tie-break sur `display_order` égal) ; seul ZV-INPUT-DUPLICATE-ORDER (émis indépendamment à la saisie) doit signaler ce cas", () => {
+  // Cas 1 (pairwise) : STRICT-ORDER-PAIRWISE-01 -- 'r1' zone '7',
+  // 'r2' zone '75', même displayOrder (0). AVANT le correctif, '75'
+  // startsWith '7' aurait déclenché ZV-COVERED-BY-HIGHER (domination
+  // par paire non fondée, puisque rien ne prouve que 'r1' gagne
+  // réellement avant 'r2' à displayOrder égal).
+  const pairwise = fixture.cases.find((c) => c.id === "STRICT-ORDER-PAIRWISE-01");
+  assert.ok(pairwise, "cas de référence 'STRICT-ORDER-PAIRWISE-01' absent de la fixture");
+  const pairwiseResult = validateDeliveryZones({ shape: pairwise!.shape, rules: pairwise!.rules });
+  assert.deepEqual(
+    pairwiseResult.findings.map((f) => f.code),
+    ["ZV-INPUT-DUPLICATE-ORDER"],
+    `STRICT-ORDER-PAIRWISE-01: attendu UNIQUEMENT ZV-INPUT-DUPLICATE-ORDER, jamais ZV-COVERED-BY-HIGHER, obtenu ${JSON.stringify(pairwiseResult.findings.map((f) => f.code))}`
+  );
+
+  // Cas 2 (collectif) : STRICT-ORDER-COLLECTIVE-01 -- 'r1' zones
+  // '70'..'79', 'r2' zone '7', même displayOrder (0). AVANT le
+  // correctif, la saturation numérique totale (identique à
+  // COLLECTIVE-01/SAMERULE-NOEFFECT-01) aurait déclenché à tort
+  // ZV-UNREACHABLE-BY-HIGHER-SET sur '7' (r2), en traitant les zones
+  // de 'r1' comme faisant partie de H(r2) au seul motif du tie-break
+  // ruleIndex.
+  const collective = fixture.cases.find((c) => c.id === "STRICT-ORDER-COLLECTIVE-01");
+  assert.ok(collective, "cas de référence 'STRICT-ORDER-COLLECTIVE-01' absent de la fixture");
+  const collectiveResult = validateDeliveryZones({ shape: collective!.shape, rules: collective!.rules });
+  assert.deepEqual(
+    collectiveResult.findings.map((f) => f.code),
+    ["ZV-INPUT-DUPLICATE-ORDER"],
+    `STRICT-ORDER-COLLECTIVE-01: attendu UNIQUEMENT ZV-INPUT-DUPLICATE-ORDER, jamais ZV-UNREACHABLE-BY-HIGHER-SET, obtenu ${JSON.stringify(collectiveResult.findings.map((f) => f.code))}`
+  );
 });
 
 test("Pureté : scan de source -- aucune dépendance interdite (Date, fetch, Math.random, Supabase, Next.js, React, services applicatifs), aucune API sensible à la locale", () => {
