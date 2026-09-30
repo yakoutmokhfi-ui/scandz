@@ -117,6 +117,10 @@ export async function updateMerchantDeliveryFulfillmentPricing(args) {
   (globalThis).__mockUpdateCalls.push(args);
 }
 export async function updateMerchantDeliveryMethodNotice() {}
+export async function getMerchantDeliveryTestCountries() { return []; }
+export async function testMerchantDeliveryPostcode() { throw new Error("Unexpected tester call"); }
+export async function saveMerchantDeliveryRule() { throw new Error("Unexpected creation call"); }
+export async function moveMerchantDeliveryRule() { throw new Error("Unexpected move call"); }
 `;
 
 const mocks: Record<string, string> = {
@@ -198,7 +202,7 @@ async function renderAndGetInputs() {
   window.history.pushState({}, "", `/dashboard/delivery-pricing?r=${TARGET_ID}`);
   const { container, root } = render(DeliveryPricingPage);
   await waitFor(() => container.textContent!.includes("Livraison standard"));
-  const inputs = [...container.querySelectorAll("input")] as HTMLInputElement[];
+  const inputs = [...container.querySelectorAll("[data-delivery-rule] input")] as HTMLInputElement[];
   assert.ok(inputs.length > 0, "les règles doivent être rendues");
   return { container, root, inputs };
 }

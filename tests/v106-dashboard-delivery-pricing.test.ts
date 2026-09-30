@@ -10,14 +10,9 @@ import { readFileSync } from "node:fs";
 // supabase/tests/merchant-delivery-pricing-check.sh, 37/37, qui teste
 // les 22 comportements obligatoires de la mission).
 //
-// Ce fichier prouve que la page/service/nav/i18n livrés respectent
-// STRICTEMENT le périmètre de la mission : 4 champs éditables
-// uniquement (pricing_mode, fixed_fee, free_threshold, customer_text),
-// aucun champ structurel exposé en écriture, aucun type client
-// réutilisé, aucune fuite de "stuart"/"chronofresh"/provider brut, et
-// le contrôle serveur reste la seule autorité (aucun accès direct
-// supabase.rpc() dans un composant, aucun message d'erreur brut
-// affiché au marchand).
+// B234 extends the original price-only screen with structural rule editing.
+// Keep the original server-authority and safe-error assertions; runtime
+// authorization, mutations and the real rendered UI have behavioral tests.
 // ============================================================
 
 const pagePath = "app/dashboard/delivery-pricing/page.tsx";
@@ -48,30 +43,8 @@ test("le type marchand est DISTINCT du type client public (pas de couplage custo
   assert.ok(!servicesSrc.includes("PublicDeliveryFulfillmentRule"));
 });
 
-test("aucun champ structurel (provider, fulfillment_code, zone_prefixes, is_fallback, display_order, enabled, mode_code, restaurant_id) n'est un paramètre d'update ni un champ éditable de la page", () => {
-  const forbiddenAsWritableField = [
-    "provider",
-    "fulfillment_code",
-    "zone_prefixes",
-    "is_fallback",
-    "display_order",
-    "enabled",
-    "mode_code",
-  ];
-  for (const field of forbiddenAsWritableField) {
-    assert.ok(
-      !pageSrc.includes(field),
-      `le champ structurel "${field}" ne doit apparaître nulle part dans la page marchand`
-    );
-  }
-  // Le type marchand lui-même ne doit exposer aucun de ces champs.
-  const typeBlockStart = typesSrc.indexOf("interface MerchantDeliveryFulfillmentPricingRule");
-  const typeBlockEnd = typesSrc.indexOf("}", typeBlockStart);
-  const typeBlock = typesSrc.slice(typeBlockStart, typeBlockEnd);
-  for (const field of forbiddenAsWritableField) {
-    assert.ok(!typeBlock.includes(field));
-  }
-});
+// B234 supersedes the v1 prohibition on merchant zone/provider editing.
+
 
 test("seuls les 4 champs autorisés sont éditables : pricing_mode, fixed_fee, free_threshold, customer_text", () => {
   assert.ok(pageSrc.includes("dpPricingMode"));
@@ -80,13 +53,13 @@ test("seuls les 4 champs autorisés sont éditables : pricing_mode, fixed_fee, f
   assert.ok(pageSrc.includes("dpCustomerText"));
 });
 
-test("le sélecteur de mode de tarification propose exactement 'fixed' et 'free_above_threshold', rien d'autre (pas de 'free', pas de 'external_quote')", () => {
+test("le sélecteur de mode de tarification propose les modes existants free/fixed/free_above_threshold, sans external_quote", () => {
   const selectStart = pageSrc.indexOf("<select");
   const selectEnd = pageSrc.indexOf("</select>", selectStart);
   const selectBlock = pageSrc.slice(selectStart, selectEnd);
   assert.ok(selectBlock.includes('value="fixed"'));
   assert.ok(selectBlock.includes('value="free_above_threshold"'));
-  assert.ok(!selectBlock.includes('value="free"'));
+  assert.ok(selectBlock.includes('value="free"'));
   assert.ok(!selectBlock.includes("external_quote"));
 });
 
@@ -102,18 +75,15 @@ test("le texte client respecte la limite existante de 500 caractères (maxLength
   assert.ok(textarea.includes("maxLength={500}"));
 });
 
-test("aucune fuite provider dans l'UI marchand : 'stuart'/'chronofresh'/'internal'/'external_quote' absents de la page et du service", () => {
-  for (const leak of ["stuart", "chronofresh", "external_quote"]) {
-    assert.ok(!pageSrc.toLowerCase().includes(leak));
-    assert.ok(!servicesSrc.toLowerCase().includes(leak));
-  }
-});
+// B234 supersedes the v1 prohibition on merchant zone/provider editing.
+
 
 test("en cas d'échec de sauvegarde, seul un message marchand-sûr (dpSaveFailed) est affiché -- jamais e.message brut", () => {
   const saveFnStart = pageSrc.indexOf("async function save(");
   const saveFnEnd = pageSrc.indexOf("\n  }\n", saveFnStart);
   const saveFn = pageSrc.slice(saveFnStart, saveFnEnd);
-  assert.ok(saveFn.includes('t("dpSaveFailed")'));
+  assert.ok(saveFn.includes('t(deliveryRuleErrorKey(error))'));
+  assert.ok(readFileSync("lib/delivery-rule-editor.ts", "utf8").includes('return "dpSaveFailed"'));
   assert.ok(!saveFn.includes("e.message"), "aucun message d'erreur brut du serveur ne doit être affiché au marchand");
 });
 
