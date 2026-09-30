@@ -17,14 +17,29 @@ import type {
 // SHA-256 `6cb185117ea923457d268f4134d79d1768107c2bb1d588be39ea42212c355f0b`,
 // baseline `50f0775258607b99fc72323326e6d2c2b0f05ae2`).
 //
+// AMENDEMENT (arbitrage de conception Debussy après audit FAIL de
+// Chateaubriand sur le candidat `25ce692e962d03258d0b4462abeffd5f1cc575d5`,
+// issue #11, commentaires `5905379897`/`5905402555`) -- D-B0-5 :
+// B0-R-01/B0-R-02 sont réécrits en TÉMOINS (witnesses) : un code postal
+// COMPLET (longueur exacte, forme valide), jamais la zone-préfixe
+// elle-même utilisée comme "candidat" (Blocker 2 de Chateaubriand --
+// une zone-préfixe n'est PAS nécessairement un code postal réel).
+// L'ancienne vérification d'intégrité par hash (étiquetée B0-R-03 dans
+// la première livraison) est renommée B0-INTEGRITY-01 -- ce nom est
+// maintenant repris par une preuve de cohérence différente -- et sa
+// sensibilité aux fins de ligne (CRLF/LF, limite constatée par le
+// replay Windows de Chateaubriand) est corrigée par normalisation
+// avant hachage.
+//
 // Périmètre STRICT (contrat §13) : ce fichier ne modifie AUCUN fichier
 // existant, ne touche jamais `resolve_delivery_fulfillment` ni
-// `lib/delivery.ts`. Le "simulateur de résolveur" ci-dessous est un
-// outil de TEST PUR, autonome, qui REPRODUIT la sémantique déjà
-// vérifiée par lecture directe du SQL réel (voir le commentaire de
-// tête de lib/delivery-zone-validation.ts) -- il n'appelle, n'importe
-// ni ne modifie aucun code de production, et n'existe que pour la
-// preuve de cohérence B0-R-01/B0-R-02 exigée par le contrat §11.
+// `lib/delivery.ts`. Le "simulateur de résolveur" et le "chercheur de
+// témoin" ci-dessous sont des outils de TEST PUR, autonomes, qui
+// REPRODUISENT la sémantique déjà vérifiée par lecture directe du SQL
+// réel (voir le commentaire de tête de lib/delivery-zone-validation.ts)
+// -- ils n'appellent, n'importent ni ne modifient aucun code de
+// production, et n'existent que pour la preuve de cohérence exigée par
+// le contrat §11 (amendée D-B0-5).
 // ====================================================================
 
 const fixturePath = "tests/fixtures/delivery-zone-validation-cases.json";
@@ -82,24 +97,155 @@ function simulateResolver(
   return { ruleId: fallback ? fallback.ruleId : null };
 }
 
+// --------------------------------------------------------------------
+// D-B0-5 -- Reproduction INDÉPENDANTE (TEST-ONLY) du classement
+// "resolver order" des zones non-défaut : displayOrder ASC, puis ordre
+// de saisie du tableau `rules` à égalité -- mêmes règles que le module
+// (contrat §2.2/§2.3/§8), mais réimplémentées ici sans jamais appeler
+// le code de production, pour que la preuve de cohérence soit
+// RÉELLEMENT indépendante.
+// --------------------------------------------------------------------
+function hasValidFormTestOnly(zone: string, shape: ZoneValidationInput["shape"]): boolean {
+  if (zone.length === 0) return false;
+  for (const ch of zone) {
+    const isDigit = ch >= "0" && ch <= "9";
+    const isAlpha = (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z");
+    if (shape.allowedChars === "digits" ? !isDigit : !(isDigit || isAlpha)) return false;
+  }
+  return true;
+}
+
+function rankedNonDefaultZones(
+  shape: ZoneValidationInput["shape"],
+  rules: ZoneRuleInput[]
+): Array<{ ruleIndex: number; ruleId: string | null; ruleLabel: string; zone: string }> {
+  const entries: Array<{ ruleIndex: number; displayOrder: number; ruleId: string | null; ruleLabel: string; zone: string }> = [];
+  rules.forEach((rule, ruleIndex) => {
+    if (rule.isDefault) return;
+    const seenExact = new Set<string>();
+    rule.zones.forEach((zone) => {
+      if (!hasValidFormTestOnly(zone, shape)) return; // ZV-FORM-INVALID -- hors périmètre de l'analyse de couverture.
+      if (zone.length > shape.exactLength) return; // ZV-TOO-LONG -- idem.
+      if (seenExact.has(zone)) return; // doublon EXACT au sein de la règle -- déjà dédupliqué en production (ZV-DUPLICATE-WITHIN).
+      seenExact.add(zone);
+      entries.push({ ruleIndex, displayOrder: rule.displayOrder, ruleId: rule.ruleId, ruleLabel: rule.label, zone });
+    });
+  });
+  entries.sort((a, b) => a.displayOrder - b.displayOrder || a.ruleIndex - b.ruleIndex);
+  return entries.map(({ ruleIndex, ruleId, ruleLabel, zone }) => ({ ruleIndex, ruleId, ruleLabel, zone }));
+}
+
+const ALPHABETS: Record<"digits" | "alnum", string[]> = {
+  digits: "0123456789".split(""),
+  alnum: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".split(""),
+};
+
+/**
+ * D-B0-5 -- Recherche PAR BACKTRACKING (TEST-ONLY) d'un TÉMOIN : un
+ * code postal COMPLET (longueur EXACTE `shape.exactLength`, forme
+ * valide) qui commence par `zone` et n'est dominé par AUCUNE zone
+ * antérieure de `earlierZones` (déjà classées "resolver order" par
+ * `rankedNonDefaultZones`, ordre STRICTEMENT antérieur à `zone`).
+ *
+ * Une zone antérieure `e` DOMINE un candidat `c = zone + suffixe` de
+ * deux façons possibles (jamais d'autre) :
+ *   (a) `e` est un préfixe de `zone` elle-même (`e.length <=
+ *       zone.length`, `zone.startsWith(e)`) -- alors TOUT candidat
+ *       commençant par `zone` commence aussi par `e` : domination
+ *       INCONDITIONNELLE, aucun témoin ne peut jamais exister (c'est
+ *       exactement ZV-COVERED-BY-HIGHER / ZV-DUPLICATE-ACROSS, contrat
+ *       §4 d'origine).
+ *   (b) `e` ÉTEND `zone` (`e.length > zone.length`,
+ *       `e.startsWith(zone)`) -- alors seule une partie des suffixes
+ *       possibles est dominée (celle qui commence par
+ *       `e.slice(zone.length)`) : c'est le cas COLLECTIF (D-B0-4,
+ *       ZV-UNREACHABLE-BY-HIGHER-SET), qui nécessite le parcours
+ *       ci-dessous.
+ * Un `earlierZones` sans rapport avec `zone` (ni préfixe ni extension)
+ * ne peut jamais dominer aucun candidat -- ignoré silencieusement.
+ *
+ * Une ABSENCE de témoin (retour `null`) est une PREUVE D'INATTEIGNABILITÉ
+ * COMPLÈTE, pas seulement l'échec d'une tentative : l'élagage ne retire
+ * jamais qu'un sous-arbre INTÉGRALEMENT dominé (tout candidat de ce
+ * sous-arbre partage le même préfixe dominant), donc le parcours
+ * explore bien, par construction, l'espace ENTIER des suffixes
+ * possibles.
+ */
+function findWitness(
+  shape: ZoneValidationInput["shape"],
+  earlierZones: string[],
+  zone: string
+): string | null {
+  // Cas (a) : domination inconditionnelle.
+  if (earlierZones.some((e) => e.length <= zone.length && zone.startsWith(e))) return null;
+
+  const k = shape.exactLength - zone.length;
+  if (k === 0) return zone; // déjà de longueur maximale -- rien à compléter, aucune zone ne peut plus l'étendre.
+
+  // Cas (b) : suffixes bloquants (zones antérieures qui ÉTENDENT `zone`).
+  const blockingSuffixes = earlierZones
+    .filter((e) => e.length > zone.length && e.startsWith(zone))
+    .map((e) => e.slice(zone.length));
+
+  const alphabet = ALPHABETS[shape.allowedChars];
+
+  function isDominated(partial: string): boolean {
+    return blockingSuffixes.some((s) => s.length <= partial.length && partial.startsWith(s));
+  }
+
+  function search(partial: string): string | null {
+    if (isDominated(partial)) return null;
+    if (partial.length === k) return zone + partial;
+    for (const ch of alphabet) {
+      const found = search(partial + ch);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+
+  return search("");
+}
+
 // ====================================================================
 // B0-R-01 / B0-R-02 -- écrits EN PREMIER (avant les cas d'acceptation
 // détaillés ci-dessous), conformément à la consigne littérale du
-// contrat §11 ("Write B0-R-01 and B0-R-02 EARLY").
+// contrat §11 ("Write B0-R-01 and B0-R-02 EARLY"). Réécrits en TÉMOINS
+// complets par l'amendement D-B0-5 (voir le commentaire de tête).
 // ====================================================================
 
-test("B0-R-01 : toute zone portant un finding ZV-COVERED-BY-HIGHER (ou ZV-DUPLICATE-ACROSS) est bien INATTEIGNABLE par le résolveur simulé -- la règle qui la possède ne gagne JAMAIS pour cette zone utilisée comme code postal candidat", () => {
+test("B0-R-01 : toute zone portant un finding bloquant de couverture (ZV-COVERED-BY-HIGHER, ZV-DUPLICATE-ACROSS ou ZV-UNREACHABLE-BY-HIGHER-SET, D-B0-4) est bien INATTEIGNABLE -- AUCUN témoin (code postal complet, forme valide) commençant par cette zone ne peut jamais résoudre vers sa propre règle, quelle que soit sa complétion", () => {
   let deadZonesChecked = 0;
   for (const testCase of fixture.cases) {
+    const ranked = rankedNonDefaultZones(testCase.shape, testCase.rules);
     const result = validateDeliveryZones({ shape: testCase.shape, rules: testCase.rules });
     for (const finding of result.findings) {
-      if (finding.code !== "ZV-COVERED-BY-HIGHER" && finding.code !== "ZV-DUPLICATE-ACROSS") continue;
+      if (
+        finding.code !== "ZV-COVERED-BY-HIGHER" &&
+        finding.code !== "ZV-DUPLICATE-ACROSS" &&
+        finding.code !== "ZV-UNREACHABLE-BY-HIGHER-SET"
+      ) {
+        continue;
+      }
       assert.ok(finding.zone, `${testCase.id}: finding ${finding.code} sans zone`);
-      const resolved = simulateResolver(testCase.rules, finding.zone!);
-      assert.notEqual(
-        resolved.ruleId,
-        finding.ruleId,
-        `${testCase.id}: la zone morte '${finding.zone}' (règle '${finding.ruleId}') est en réalité résolue par sa PROPRE règle -- le finding ${finding.code} serait un faux positif`
+      const rank = ranked.findIndex((e) => e.ruleId === finding.ruleId && e.ruleLabel === finding.ruleLabel && e.zone === finding.zone);
+      assert.ok(rank >= 0, `${testCase.id}: zone signalée '${finding.zone}' (règle '${finding.ruleId}') introuvable dans le classement resolver-order indépendant`);
+      // Exclut les zones ANTÉRIEURES de la MÊME règle (`ruleIndex`
+      // identique) -- une paire intra-règle ne "domine" jamais au sens
+      // de la couverture inter-règles (ZV-REDUNDANT-WITHIN couvre déjà
+      // ce cas séparément, non bloquant) : matcher n'importe quelle
+      // zone de SA PROPRE règle fait de toute façon gagner la MÊME
+      // règle, donc n'a AUCUN effet sur l'atteignabilité de la règle
+      // elle-même (même principe que `earlier.ruleIndex ===
+      // current.ruleIndex` en production, étape 1 ET étape 2).
+      const earlierZones = ranked
+        .slice(0, rank)
+        .filter((e) => e.ruleIndex !== ranked[rank]!.ruleIndex)
+        .map((e) => e.zone);
+      const witness = findWitness(testCase.shape, earlierZones, finding.zone!);
+      assert.equal(
+        witness,
+        null,
+        `${testCase.id}: un témoin existe ('${witness}') pour la zone signalée morte '${finding.zone}' (règle '${finding.ruleId}', ${finding.code}) -- faux positif`
       );
       deadZonesChecked += 1;
     }
@@ -107,47 +253,97 @@ test("B0-R-01 : toute zone portant un finding ZV-COVERED-BY-HIGHER (ou ZV-DUPLIC
   // Preuve que ce test exerce RÉELLEMENT au moins un cas (sinon la
   // boucle ci-dessus serait vide et le test passerait trivialement
   // sans rien prouver -- garde-fou contre un fixture cassé).
-  assert.ok(deadZonesChecked >= 4, `attendu au moins 4 zones mortes vérifiées (C-02, C-04, C-06 x2), obtenu ${deadZonesChecked}`);
+  assert.ok(
+    deadZonesChecked >= 5,
+    `attendu au moins 5 zones mortes vérifiées (C-02, C-04, C-06 x2, COLLECTIVE-01, PREC-01 x2...), obtenu ${deadZonesChecked}`
+  );
 });
 
-test("B0-R-02 : toute zone valide NON morte (règle non-défaut, sans finding ZV-COVERED-BY-HIGHER ni ZV-DUPLICATE-ACROSS) est bien ATTEIGNABLE par au moins un code postal échantillonné -- elle-même", () => {
+test("B0-R-02 / B0-R-03 : toute zone valide NON morte (règle non-défaut, sans finding bloquant de couverture) est bien ATTEIGNABLE -- un témoin (code postal COMPLET, forme valide) existe ET, la simulation du résolveur le confirme, ce témoin sélectionne bien le TARIF attendu (jamais un autre)", () => {
   let liveZonesChecked = 0;
   for (const testCase of fixture.cases) {
+    const ranked = rankedNonDefaultZones(testCase.shape, testCase.rules);
     const result = validateDeliveryZones({ shape: testCase.shape, rules: testCase.rules });
-    const deadZoneKeys = new Set(
+    const deadKeys = new Set(
       result.findings
-        .filter((f) => f.code === "ZV-COVERED-BY-HIGHER" || f.code === "ZV-DUPLICATE-ACROSS")
+        .filter(
+          (f) =>
+            f.code === "ZV-COVERED-BY-HIGHER" ||
+            f.code === "ZV-DUPLICATE-ACROSS" ||
+            f.code === "ZV-UNREACHABLE-BY-HIGHER-SET"
+        )
         .map((f) => `${f.ruleId}::${f.zone}`)
     );
-    const formInvalidOrTooLongKeys = new Set(
-      result.findings
-        .filter((f) => f.code === "ZV-FORM-INVALID" || f.code === "ZV-TOO-LONG")
-        .map((f) => `${f.ruleId}::${f.zone}`)
-    );
-    for (const rule of testCase.rules) {
-      if (rule.isDefault) continue; // hors périmètre de l'analyse de couverture (contrat §4).
-      for (const zone of rule.zones) {
-        const key = `${rule.ruleId}::${zone}`;
-        if (deadZoneKeys.has(key) || formInvalidOrTooLongKeys.has(key)) continue;
-        // Zone valide et non signalée morte -- doit être atteignable
-        // en l'utilisant elle-même comme candidat (elle "startsWith"
-        // elle-même par construction).
-        const resolved = simulateResolver(testCase.rules, zone);
-        assert.equal(
-          resolved.ruleId,
-          rule.ruleId,
-          `${testCase.id}: la zone vivante '${zone}' (règle '${rule.ruleId}') n'est PAS atteignable par le résolveur simulé -- incohérence entre B0 et la sémantique réelle`
-        );
-        liveZonesChecked += 1;
-      }
-    }
+    ranked.forEach((entry, rank) => {
+      const key = `${entry.ruleId}::${entry.zone}`;
+      if (deadKeys.has(key)) return;
+      // Voir le commentaire équivalent dans B0-R-01 -- exclut les
+      // zones antérieures de la MÊME règle (paire intra-règle, sans
+      // effet sur l'atteignabilité de la règle).
+      const earlierZones = ranked
+        .slice(0, rank)
+        .filter((e) => e.ruleIndex !== entry.ruleIndex)
+        .map((e) => e.zone);
+      // B0-R-02 : le témoin existe.
+      const witness = findWitness(testCase.shape, earlierZones, entry.zone);
+      assert.ok(
+        witness !== null,
+        `${testCase.id}: AUCUN témoin trouvé pour la zone vivante '${entry.zone}' (règle '${entry.ruleId}') -- incohérence entre B0 (qui la considère vivante) et la recherche indépendante`
+      );
+      assert.equal(witness!.length, testCase.shape.exactLength, `${testCase.id}: le témoin '${witness}' n'a pas la longueur exacte attendue`);
+      // B0-R-03 (redéfini D-B0-5) : le témoin exhibé, une fois soumis
+      // au simulateur de résolveur INDÉPENDANT, sélectionne bien le
+      // tarif attendu -- jamais un autre.
+      const resolved = simulateResolver(testCase.rules, witness!);
+      assert.equal(
+        resolved.ruleId,
+        entry.ruleId,
+        `${testCase.id}: le témoin '${witness}' ne résout PAS vers la règle attendue '${entry.ruleId}' (résolu : '${resolved.ruleId}')`
+      );
+      liveZonesChecked += 1;
+    });
   }
   assert.ok(liveZonesChecked >= 10, `attendu au moins 10 zones vivantes vérifiées, obtenu ${liveZonesChecked}`);
 });
 
-test("B0-R-03 : la fixture PRÉEXISTANTE tests/fixtures/delivery-pricing-cases.json n'a pas été touchée par ce lot (hash SHA-256 identique à la baseline main@50f0775)", () => {
-  const existingFixture = readFileSync("tests/fixtures/delivery-pricing-cases.json");
-  const hash = createHash("sha256").update(existingFixture).digest("hex");
+test("B0-R-04 : couverture de la taxonomie de saturation collective (D-B0-4) -- les cas de référence (saturation complète, sous-saturation, précédence étape1/étape2, zone antérieure invalide sans effet, règle par défaut sans effet, garde de sécurité numérique) sont bien présents dans la fixture partagée et produisent le code attendu", () => {
+  const expectedByCaseId: Record<string, string | null> = {
+    "COLLECTIVE-01": "ZV-UNREACHABLE-BY-HIGHER-SET",
+    "COLLECTIVE-02": null, // sous-saturation (9/10) -- aucun finding de couverture.
+    "PREC-01": "ZV-COVERED-BY-HIGHER", // précédence étape 1, jamais ZV-UNREACHABLE-BY-HIGHER-SET pour '75'.
+    "INVALID-PRIOR-01": null, // zone antérieure invalide '7X' -- sans effet, '7' vivante.
+    "DEFAULT-NOEFFECT-01": null, // zones du repli -- sans effet, '7' vivante.
+    "REACH-NOTCOMPUTED-01": null, // abstention (ZV-REACHABILITY-NOT-COMPUTED), pas un finding de couverture.
+  };
+  for (const [caseId, expectedCode] of Object.entries(expectedByCaseId)) {
+    const testCase = fixture.cases.find((c) => c.id === caseId);
+    assert.ok(testCase, `cas de référence '${caseId}' absent de la fixture`);
+    const result = validateDeliveryZones({ shape: testCase!.shape, rules: testCase!.rules });
+    const coverageFindings = result.findings.filter(
+      (f) => f.code === "ZV-COVERED-BY-HIGHER" || f.code === "ZV-DUPLICATE-ACROSS" || f.code === "ZV-UNREACHABLE-BY-HIGHER-SET"
+    );
+    if (expectedCode === null) {
+      assert.equal(coverageFindings.length, 0, `${caseId}: attendu aucun finding de couverture, obtenu ${JSON.stringify(coverageFindings.map((f) => f.code))}`);
+    } else {
+      assert.ok(
+        coverageFindings.some((f) => f.code === expectedCode),
+        `${caseId}: attendu au moins un finding '${expectedCode}', obtenu ${JSON.stringify(coverageFindings.map((f) => f.code))}`
+      );
+    }
+  }
+  // REACH-NOTCOMPUTED-01 exerce spécifiquement l'abstention numérique.
+  const reachCase = fixture.cases.find((c) => c.id === "REACH-NOTCOMPUTED-01")!;
+  const reachResult = validateDeliveryZones({ shape: reachCase.shape, rules: reachCase.rules });
+  assert.ok(
+    reachResult.findings.some((f) => f.code === "ZV-REACHABILITY-NOT-COMPUTED"),
+    "REACH-NOTCOMPUTED-01: attendu ZV-REACHABILITY-NOT-COMPUTED"
+  );
+});
+
+test("B0-INTEGRITY-01 (anciennement étiqueté B0-R-03 -- ce nom est repris par une preuve différente depuis D-B0-5) : la fixture PRÉEXISTANTE tests/fixtures/delivery-pricing-cases.json n'a pas été touchée par ce lot (hash SHA-256 identique à la baseline main@50f0775, CRLF-agnostique -- limite Windows constatée par le replay de Chateaubriand sur PR #119/#120 : les fins de ligne sont normalisées LF avant hachage, pour ne jamais dépendre du paramétrage de checkout git)", () => {
+  const existingFixtureText = readFileSync("tests/fixtures/delivery-pricing-cases.json", "utf8");
+  const normalized = existingFixtureText.replace(/\r\n/g, "\n");
+  const hash = createHash("sha256").update(normalized, "utf8").digest("hex");
   assert.equal(
     hash,
     "8da0e05c592c2cc8ee4fff59ec7188cb106f7d362301ac7c1f82adc34625ad8e",
@@ -224,6 +420,24 @@ test("Déterminisme : ordre de saisie des règles (tableau `rules`) sans effet s
       Object.fromEntries(rs.map((r) => [r.ruleId, r]));
     assert.deepEqual(byId(candidate.normalizedRules), byId(baseline.normalizedRules), "le CONTENU de normalizedRules par règle doit être identique, indépendamment de l'ordre de saisie");
   }
+});
+
+test("B0-DET-06 (D-B0-3) : le tri des findings, pour une règle NON SAUVEGARDÉE (ruleId null) rattachée à un displayOrder réel, ne dépend JAMAIS de l'ordre de SAISIE du tableau `rules` -- même résultat, règle non sauvegardée en premier OU en second dans le tableau d'entrée (bug racine Chateaubriand : ruleId===null ne doit JAMAIS agir comme proxy de tri)", () => {
+  const nullIdRule: ZoneRuleInput = { ruleId: null, label: "Nouveau tarif (non enregistré)", displayOrder: 0, isDefault: false, zones: [] };
+  const savedRule: ZoneRuleInput = { ruleId: "r2", label: "Zone B", displayOrder: 1, isDefault: false, zones: [] };
+  const shape: ZoneValidationInput["shape"] = { allowedChars: "digits", exactLength: 5, minPrefixLength: 1 };
+
+  const inOrder = validateDeliveryZones({ shape, rules: [nullIdRule, savedRule] });
+  const reversed = validateDeliveryZones({ shape, rules: [savedRule, nullIdRule] });
+
+  assert.deepEqual(reversed.findings, inOrder.findings, "l'ordre de SAISIE du tableau `rules` ne doit jamais changer l'ordre des findings -- seul le displayOrder RÉEL de chaque règle pilote le tri");
+  // Preuve positive et non tautologique : la règle non sauvegardée
+  // (displayOrder 0) doit trier AVANT la règle sauvegardée
+  // (displayOrder 1) dans les DEUX permutations -- l'ancien bug aurait
+  // trié le finding de la règle non sauvegardée en DERNIER (sentinelle
+  // ruleId===null traitée comme "global").
+  assert.equal(inOrder.findings[0]!.ruleId, null, "le finding de displayOrder 0 (règle non sauvegardée) doit être en PREMIER");
+  assert.equal(inOrder.findings[1]!.ruleId, "r2", "le finding de displayOrder 1 (règle sauvegardée) doit être en SECOND");
 });
 
 test("Pureté : scan de source -- aucune dépendance interdite (Date, fetch, Math.random, Supabase, Next.js, React, services applicatifs), aucune API sensible à la locale", () => {

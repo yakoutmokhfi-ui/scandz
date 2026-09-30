@@ -8,8 +8,30 @@
  * "DELIVERY PRICING v2 — B0 — CANONICAL CONTRACT NOW PROVIDED",
  * SHA-256 du contrat source : `6cb185117ea923457d268f4134d79d1768107c2bb1d588be39ea42212c355f0b`,
  * baseline `50f0775258607b99fc72323326e6d2c2b0f05ae2`) — ces types
- * reproduisent EXACTEMENT le contrat public §5, sans aucune
- * extension ni simplification.
+ * reproduisent EXACTEMENT le contrat public §5.
+ *
+ * AMENDEMENT (arbitrage de conception Debussy après audit FAIL de
+ * Chateaubriand sur le candidat `25ce692e962d03258d0b4462abeffd5f1cc575d5`,
+ * issue #11, commentaires `5905379897`/`5905402555`, "PR #120 — B0
+ * CONTRACT ARBITRATION FINAL — REMEDIATION GO") :
+ *   - D-B0-3 : le tri des findings n'utilise plus JAMAIS `ruleId`
+ *     (voir lib/delivery-zone-validation.ts -- bug racine trouvé par
+ *     Chateaubriand : une règle NON SAUVEGARDÉE peut légitimement
+ *     avoir `ruleId: null` tout en étant rattachée à un tarif précis).
+ *   - D-B0-4 : accessibilité COMPLÈTE d'une zone -- domination par
+ *     paire (§4 d'origine, inchangée) PUIS saturation COLLECTIVE par
+ *     réduction en antichaîne des zones antérieures qui l'étendent.
+ *     Nouveau code bloquant `ZV-UNREACHABLE-BY-HIGHER-SET` et nouveaux
+ *     champs relationnels PLURIELS (une cause collective n'a pas une
+ *     seule règle/zone liée, mais un ensemble).
+ *   - Nouveau code `ZV-REACHABILITY-NOT-COMPUTED` (INFO) : abstention
+ *     explicite quand le calcul combinatoire dépasserait la précision
+ *     entière sûre de JavaScript (2^53).
+ *   - D-B0-6 : table des `remedy` amendée -- seul changement réel par
+ *     rapport à la première livraison : `ZV-REDUNDANT-WITHIN` ne
+ *     recommande plus `REMOVE_ZONE` (retirer la zone la plus
+ *     spécifique changerait le `matched_prefix` réel du résolveur --
+ *     un remedy non neutre, signalé par Chateaubriand).
  */
 
 /**
@@ -26,7 +48,22 @@ export type PostalCodeShape = {
   minPrefixLength: number;
 };
 
-/** Une règle tarifaire de livraison, telle que fournie par l'appelant (pas encore persistée). */
+/**
+ * Une règle tarifaire de livraison, telle que fournie par l'appelant
+ * (pas encore persistée -- `ruleId` peut donc légitimement valoir
+ * `null` pour une règle en cours de saisie, non encore sauvegardée en
+ * base ; elle reste néanmoins un TARIF réel avec son propre
+ * `displayOrder`, voir D-B0-3 dans lib/delivery-zone-validation.ts).
+ *
+ * Précondition de PARTICIPATION (clarification Debussy, non un champ
+ * -- volontairement PAS ajoutée ici) : l'appelant ne doit transmettre
+ * que les tarifs qui participent RÉELLEMENT à la résolution (règle
+ * `enabled`, mode de vente parent `enabled`) -- exactement comme le
+ * fait `candidate_rules` dans `resolve_delivery_fulfillment`
+ * (`f.enabled = true and (select enabled from parent_mode_enabled)`).
+ * B0 lui-même ne reçoit et ne connaît AUCUN champ `enabled` -- ce
+ * filtrage reste une précondition d'ENTRÉE, à la charge de l'appelant.
+ */
 export type ZoneRuleInput = {
   ruleId: string | null;
   label: string;
@@ -50,18 +87,20 @@ export type ZoneFindingRemedy =
   | null;
 
 /**
- * Taxonomie figée (contrat §3). Bloquants : rejettent la
- * configuration (decision = REJECTED). Avertissements/info : jamais
- * bloquants (ZV-NO-DEFAULT est INFO, jamais WARNING -- ne fait donc
- * jamais basculer decision vers ACCEPTED_WITH_WARNINGS à lui seul,
- * voir §5 "frozen invariants" et le cas d'acceptation "no default =>
- * NO_DEFAULT INFO only").
+ * Taxonomie figée (contrat §3, étendue par l'amendement D-B0-4).
+ * Bloquants : rejettent la configuration (decision = REJECTED).
+ * Avertissements/info : jamais bloquants (ZV-NO-DEFAULT et
+ * ZV-REACHABILITY-NOT-COMPUTED sont INFO, jamais WARNING -- ne font
+ * donc jamais basculer decision vers ACCEPTED_WITH_WARNINGS à eux
+ * seuls, voir §5 "frozen invariants" et le cas d'acceptation "no
+ * default => NO_DEFAULT INFO only").
  */
 export type ZoneFindingCode =
   // Bloquants
   | "ZV-FORM-INVALID"
   | "ZV-TOO-LONG"
   | "ZV-COVERED-BY-HIGHER"
+  | "ZV-UNREACHABLE-BY-HIGHER-SET" // D-B0-4 : saturation COLLECTIVE (aucune zone individuelle ne domine, mais leur UNION couvre tout l'espace restant).
   | "ZV-DUPLICATE-ACROSS"
   | "ZV-EMPTY-ZONES"
   | "ZV-NO-DEFAULT-NO-ZONES"
@@ -72,7 +111,8 @@ export type ZoneFindingCode =
   | "ZV-REDUNDANT-WITHIN"
   | "ZV-VERY-BROAD"
   | "ZV-DEFAULT-HAS-ZONES"
-  | "ZV-NO-DEFAULT";
+  | "ZV-NO-DEFAULT"
+  | "ZV-REACHABILITY-NOT-COMPUTED"; // D-B0-4 : abstention explicite -- le calcul dépasserait 2^53, jamais une réponse inexacte.
 
 export type ZoneFinding = {
   code: ZoneFindingCode;
@@ -83,6 +123,20 @@ export type ZoneFinding = {
   relatedRuleId: string | null;
   relatedRuleLabel: string | null;
   relatedZone: string | null;
+  /**
+   * D-B0-4 : champs relationnels PLURIELS, utilisés UNIQUEMENT par
+   * `ZV-UNREACHABLE-BY-HIGHER-SET` (une cause COLLECTIVE n'a pas une
+   * seule règle/zone liée, mais l'antichaîne minimale de zones
+   * antérieures dont l'UNION sature l'espace restant -- les champs
+   * singuliers `relatedRuleId`/`relatedRuleLabel`/`relatedZone`
+   * valent alors `null`, voir le contrat amendé). Optionnels et
+   * absents pour tout autre code. `relatedRuleIds` peut contenir `null`
+   * (même raison que `ruleId` ci-dessus : une règle antérieure de
+   * l'antichaîne peut être non sauvegardée).
+   */
+  relatedRuleIds?: (string | null)[];
+  relatedRuleLabels?: string[];
+  relatedZones?: string[];
   remedy: ZoneFindingRemedy;
 };
 

@@ -43,6 +43,42 @@
  * ni base de données, ne mute jamais son entrée, et ne dépend
  * d'aucune API sensible à la locale -- vérifié explicitement par un
  * test de scan de source (tests/b0-delivery-zone-validation.test.ts).
+ *
+ * AMENDEMENT (arbitrage de conception Debussy après audit FAIL de
+ * Chateaubriand sur le candidat `25ce692e962d03258d0b4462abeffd5f1cc575d5`,
+ * issue #11, commentaires `5905379897`/`5905402555`, "PR #120 — B0
+ * CONTRACT ARBITRATION FINAL — REMEDIATION GO") :
+ *   - D-B0-3 : le tri des findings n'utilise plus JAMAIS `ruleId` --
+ *     bug racine trouvé par Chateaubriand : une règle NON SAUVEGARDÉE
+ *     (`ruleId: null`) peut légitimement être rattachée à un TARIF
+ *     précis (son propre `displayOrder`), donc `ruleId === null`
+ *     n'est jamais un proxy valide pour "finding global, sans tarif".
+ *     Chaque finding porte désormais sa propre clé de tri, calculée à
+ *     sa CRÉATION directement depuis l'objet règle réel (`rule`,
+ *     jamais re-dérivée après coup via une structure indexée par
+ *     `ruleId`) -- voir `makeFinding`/`SortKey` ci-dessous.
+ *   - D-B0-4 : accessibilité COMPLÈTE d'une zone se vérifie en DEUX
+ *     étapes : (1) domination PAR PAIRE (§4 d'origine, INCHANGÉE --
+ *     une zone antérieure unique couvre déjà entièrement la zone
+ *     courante) ; (2) NOUVEAU -- saturation COLLECTIVE : si aucune
+ *     zone antérieure unique ne domine la zone courante, un ENSEMBLE
+ *     de zones antérieures qui l'ÉTENDENT (préfixe = la zone
+ *     courante) peut néanmoins saturer collectivement tout l'espace
+ *     restant sous cette zone (ex. "7" mort par "70".."79" réunies,
+ *     bien qu'aucune seule ne domine "7"). Nouveau code bloquant
+ *     `ZV-UNREACHABLE-BY-HIGHER-SET`, avec des champs relationnels
+ *     PLURIELS (une cause collective n'a pas une seule règle/zone
+ *     liée, mais l'antichaîne minimale retenue).
+ *   - Nouveau code `ZV-REACHABILITY-NOT-COMPUTED` (INFO) : abstention
+ *     EXPLICITE quand le calcul combinatoire de la saturation
+ *     collective dépasserait la précision entière sûre de JavaScript
+ *     (2^53) -- jamais une réponse inexacte calculée en flottant.
+ *   - D-B0-6 : `ZV-REDUNDANT-WITHIN` ne recommande plus `REMOVE_ZONE`
+ *     (`remedy: null`) -- retirer la zone la plus spécifique
+ *     changerait le `matched_prefix` RÉEL retourné par le résolveur
+ *     pour les codes qu'elle seule matchait exactement ; ce n'était
+ *     donc pas un remedy neutre (signalé par Chateaubriand). Aucune
+ *     autre association `remedy` n'a changé.
  */
 
 import type {
@@ -58,10 +94,11 @@ import type {
 
 /**
  * Sévérité figée par code (contrat §3 -- "Blocking findings" /
- * "Advisory findings"). ZV-NO-DEFAULT est le SEUL code "advisory" à
+ * "Advisory findings", étendue par l'amendement D-B0-4).
+ * ZV-NO-DEFAULT et ZV-REACHABILITY-NOT-COMPUTED sont les SEULS codes à
  * sévérité INFO (jamais WARNING) : contrat §11, cas d'acceptation
- * "no default => NO_DEFAULT INFO only" -- ne fait donc JAMAIS
- * basculer `decision` vers ACCEPTED_WITH_WARNINGS à lui seul (§5,
+ * "no default => NO_DEFAULT INFO only" -- ne font donc JAMAIS
+ * basculer `decision` vers ACCEPTED_WITH_WARNINGS à eux seuls (§5,
  * "frozen invariants": "one BLOCKING_ERROR => REJECTED; else WARNING
  * => ACCEPTED_WITH_WARNINGS; else ACCEPTED" -- INFO n'est ni l'un ni
  * l'autre).
@@ -70,6 +107,7 @@ const SEVERITY_BY_CODE: Record<ZoneFindingCode, "BLOCKING_ERROR" | "WARNING" | "
   "ZV-FORM-INVALID": "BLOCKING_ERROR",
   "ZV-TOO-LONG": "BLOCKING_ERROR",
   "ZV-COVERED-BY-HIGHER": "BLOCKING_ERROR",
+  "ZV-UNREACHABLE-BY-HIGHER-SET": "BLOCKING_ERROR",
   "ZV-DUPLICATE-ACROSS": "BLOCKING_ERROR",
   "ZV-EMPTY-ZONES": "BLOCKING_ERROR",
   "ZV-NO-DEFAULT-NO-ZONES": "BLOCKING_ERROR",
@@ -80,6 +118,7 @@ const SEVERITY_BY_CODE: Record<ZoneFindingCode, "BLOCKING_ERROR" | "WARNING" | "
   "ZV-VERY-BROAD": "WARNING",
   "ZV-DEFAULT-HAS-ZONES": "WARNING",
   "ZV-NO-DEFAULT": "INFO",
+  "ZV-REACHABILITY-NOT-COMPUTED": "INFO",
 };
 
 /**
@@ -95,20 +134,16 @@ const SEVERITY_BY_CODE: Record<ZoneFindingCode, "BLOCKING_ERROR" | "WARNING" | "
  * sans aucune zone) -- jamais une valeur inventée hors de
  * `ZoneFindingRemedy`. Codes sans remedy explicite ci-dessous
  * (ZV-VERY-BROAD, ZV-INPUT-DUPLICATE-ORDER, ZV-INPUT-MULTIPLE-DEFAULTS,
- * ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES) : `remedy: null`, faute d'une
- * action ciblée unique et non ambiguë sur UNE zone/règle précise --
- * voir les appels `makeFinding` correspondants plus bas.
+ * ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES, ZV-UNREACHABLE-BY-HIGHER-SET,
+ * ZV-REACHABILITY-NOT-COMPUTED) : `remedy: null`, faute d'une action
+ * ciblée unique et non ambiguë sur UNE zone/règle précise (pour les
+ * deux derniers, amendement D-B0-4/D-B0-6 : une cause COLLECTIVE n'a,
+ * par nature, aucune zone unique dont le retrait serait un remedy non
+ * ambigu -- voir aussi D-B0-6 ci-dessus pour ZV-REDUNDANT-WITHIN, dont
+ * le remedy est passé de REMOVE_ZONE à null) -- voir les appels
+ * `makeFinding` correspondants plus bas.
  */
 
-/**
- * Sentinelle de tri pour un finding non rattaché à une règle précise
- * (ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES : conditions GLOBALES, pas
- * une règle en particulier) -- trie ces findings APRÈS tout finding
- * rattaché à une règle réelle. Choix documenté ici faute de précision
- * du contrat sur ce cas précis ; déterministe et stable, c'est
- * l'essentiel exigé (contrat §8).
- */
-const NO_RULE_SORT_ORDER = Number.POSITIVE_INFINITY;
 /** Sentinelle de tri pour un finding sans zone précise (ex. ZV-EMPTY-ZONES) -- trié avant toute zone réelle (position >= 0). */
 const NO_ZONE_SORT_POSITION = -1;
 
@@ -137,6 +172,88 @@ function hasValidForm(zone: string, shape: PostalCodeShape): boolean {
   return true;
 }
 
+/**
+ * Réduit un ensemble de suffixes (déjà dédupliqué EXACTEMENT -- un
+ * `Set`) à son ANTICHAÎNE minimale (D-B0-4) : retire tout suffixe
+ * ayant un suffixe STRICTEMENT plus court déjà retenu comme préfixe --
+ * ce suffixe plus court sature déjà TOUT l'espace de codes couvert par
+ * le plus long (un préfixe plus court impose moins de contraintes,
+ * donc couvre un sur-ensemble strict). Traite les suffixes du plus
+ * court au plus long : à longueur égale, deux suffixes distincts ne
+ * peuvent jamais être l'un le préfixe de l'autre (ils seraient
+ * identiques), donc aucune comparaison inter-longueur-égale n'est
+ * nécessaire.
+ */
+function reduceToAntichain(suffixes: Set<string>): Set<string> {
+  const sorted = Array.from(suffixes).sort((a, b) => a.length - b.length);
+  const kept: string[] = [];
+  for (const suffix of sorted) {
+    const dominated = kept.some((shorter) => suffix.startsWith(shorter));
+    if (!dominated) kept.push(suffix);
+  }
+  return new Set(kept);
+}
+
+type SortKey = {
+  /** 0 = finding rattaché à une règle réelle (tarif-scoped) ; 1 = finding GLOBAL, sans règle (ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES). Trie tout finding tarif-scoped AVANT tout finding global (contrat §8, comportement inchangé -- seule la CLASSIFICATION change, voir D-B0-3 ci-dessus). */
+  scopeRank: 0 | 1;
+  /** displayOrder du tarif propriétaire ; 0 (sentinelle) pour un finding global. */
+  displayOrder: number;
+  /** Position BRUTE (pré-déduplication) de la zone dans le tableau `zones` de sa règle ; NO_ZONE_SORT_POSITION (-1) si le finding n'a pas de zone précise ou est global. */
+  zoneIndex: number;
+};
+
+type InternalFinding = ZoneFinding & { __sortKey: SortKey };
+
+function makeFinding(
+  code: ZoneFindingCode,
+  fields: {
+    /**
+     * La règle RÉELLE propriétaire de ce finding, ou `null` UNIQUEMENT
+     * pour un finding GLOBAL (ZV-NO-DEFAULT, ZV-NO-DEFAULT-NO-ZONES).
+     * C'est cet objet -- jamais `ruleId` -- qui détermine la clé de
+     * tri (D-B0-3) : un `rule` non-null avec `ruleId: null` (règle non
+     * sauvegardée) reste correctement classé "tarif-scoped".
+     */
+    rule: ZoneRuleInput | null;
+    /** Position BRUTE (pré-déduplication) de la zone dans `rule.zones`, quand ce finding porte sur une zone précise d'une règle réelle. */
+    zoneIndexInRule?: number;
+    zone: string | null;
+    relatedRuleId?: string | null;
+    relatedRuleLabel?: string | null;
+    relatedZone?: string | null;
+    relatedRuleIds?: (string | null)[];
+    relatedRuleLabels?: string[];
+    relatedZones?: string[];
+    remedy?: ZoneFindingRemedy;
+  }
+): InternalFinding {
+  const sortKey: SortKey =
+    fields.rule === null
+      ? { scopeRank: 1, displayOrder: 0, zoneIndex: NO_ZONE_SORT_POSITION }
+      : {
+          scopeRank: 0,
+          displayOrder: fields.rule.displayOrder,
+          zoneIndex: fields.zoneIndexInRule ?? NO_ZONE_SORT_POSITION,
+        };
+  const finding: InternalFinding = {
+    code,
+    severity: SEVERITY_BY_CODE[code],
+    ruleId: fields.rule?.ruleId ?? null,
+    ruleLabel: fields.rule?.label ?? "",
+    zone: fields.zone,
+    relatedRuleId: fields.relatedRuleId ?? null,
+    relatedRuleLabel: fields.relatedRuleLabel ?? null,
+    relatedZone: fields.relatedZone ?? null,
+    remedy: fields.remedy ?? null,
+    __sortKey: sortKey,
+  };
+  if (fields.relatedRuleIds) finding.relatedRuleIds = fields.relatedRuleIds;
+  if (fields.relatedRuleLabels) finding.relatedRuleLabels = fields.relatedRuleLabels;
+  if (fields.relatedZones) finding.relatedZones = fields.relatedZones;
+  return finding;
+}
+
 type ZonePosition = {
   ruleIndex: number;
   rule: ZoneRuleInput;
@@ -144,31 +261,6 @@ type ZonePosition = {
   /** Position de CETTE occurrence dans le tableau `zones` BRUT (avant déduplication) de sa règle -- clé de tri "zone position" (contrat §8). */
   zonePositionInRule: number;
 };
-
-function makeFinding(
-  code: ZoneFindingCode,
-  fields: {
-    ruleId: string | null;
-    ruleLabel: string;
-    zone: string | null;
-    relatedRuleId?: string | null;
-    relatedRuleLabel?: string | null;
-    relatedZone?: string | null;
-    remedy?: ZoneFindingRemedy;
-  }
-): ZoneFinding {
-  return {
-    code,
-    severity: SEVERITY_BY_CODE[code],
-    ruleId: fields.ruleId,
-    ruleLabel: fields.ruleLabel,
-    zone: fields.zone,
-    relatedRuleId: fields.relatedRuleId ?? null,
-    relatedRuleLabel: fields.relatedRuleLabel ?? null,
-    relatedZone: fields.relatedZone ?? null,
-    remedy: fields.remedy ?? null,
-  };
-}
 
 /**
  * Point d'entrée unique du module (contrat §5). Fonction PURE : ne
@@ -186,7 +278,7 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     return { decision: "ACCEPTED", findings: [], normalizedRules: [] };
   }
 
-  const findings: ZoneFinding[] = [];
+  const findings: InternalFinding[] = [];
 
   // ------------------------------------------------------------------
   // 1) Cohérence de la SAISIE elle-même (avant toute analyse de zone).
@@ -208,8 +300,7 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       const firstRule = rules[firstIndex];
       findings.push(
         makeFinding("ZV-INPUT-DUPLICATE-ORDER", {
-          ruleId: rule.ruleId,
-          ruleLabel: rule.label,
+          rule,
           zone: null,
           relatedRuleId: firstRule.ruleId,
           relatedRuleLabel: firstRule.label,
@@ -230,8 +321,7 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       const firstRule = rules[firstDefaultIndex];
       findings.push(
         makeFinding("ZV-INPUT-MULTIPLE-DEFAULTS", {
-          ruleId: rule.ruleId,
-          ruleLabel: rule.label,
+          rule,
           zone: null,
           relatedRuleId: firstRule.ruleId,
           relatedRuleLabel: firstRule.label,
@@ -253,12 +343,12 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
   const validZonesByRuleIndex: string[][] = rules.map(() => []);
 
   rules.forEach((rule, ruleIndex) => {
-    rule.zones.forEach((zone) => {
+    rule.zones.forEach((zone, zoneIndex) => {
       if (!hasValidForm(zone, shape)) {
         findings.push(
           makeFinding("ZV-FORM-INVALID", {
-            ruleId: rule.ruleId,
-            ruleLabel: rule.label,
+            rule,
+            zoneIndexInRule: zoneIndex,
             zone,
             remedy: "FIX_FORMAT",
           })
@@ -268,8 +358,8 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       if (zone.length > shape.exactLength) {
         findings.push(
           makeFinding("ZV-TOO-LONG", {
-            ruleId: rule.ruleId,
-            ruleLabel: rule.label,
+            rule,
+            zoneIndexInRule: zoneIndex,
             zone,
             remedy: "FIX_FORMAT",
           })
@@ -279,8 +369,8 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       if (zone.length < shape.minPrefixLength) {
         findings.push(
           makeFinding("ZV-VERY-BROAD", {
-            ruleId: rule.ruleId,
-            ruleLabel: rule.label,
+            rule,
+            zoneIndexInRule: zoneIndex,
             zone,
           })
         );
@@ -309,14 +399,14 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     // ZV-TOO-LONG ci-dessus.
     const seenValid = new Set<string>();
     const dedupedRawZones: string[] = [];
-    rule.zones.forEach((zone) => {
+    rule.zones.forEach((zone, zoneIndex) => {
       const isValid = validZonesByRuleIndex[ruleIndex].includes(zone);
       if (isValid) {
         if (seenValid.has(zone)) {
           findings.push(
             makeFinding("ZV-DUPLICATE-WITHIN", {
-              ruleId: rule.ruleId,
-              ruleLabel: rule.label,
+              rule,
+              zoneIndexInRule: zoneIndex,
               zone,
               relatedRuleId: rule.ruleId,
               relatedRuleLabel: rule.label,
@@ -341,6 +431,9 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
   //    zone plus large déjà présente dans LA MÊME règle rend une zone
   //    plus spécifique surperflue (elle ne change jamais le résultat,
   //    la règle correspond déjà via la zone large -- non bloquant).
+  //    D-B0-6 : remedy `null` -- retirer la zone spécifique changerait
+  //    le `matched_prefix` RÉEL retourné par le résolveur pour les
+  //    codes qu'elle seule matchait exactement (remedy non neutre).
   // ------------------------------------------------------------------
 
   rules.forEach((rule, ruleIndex) => {
@@ -350,13 +443,13 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       if (covering) {
         findings.push(
           makeFinding("ZV-REDUNDANT-WITHIN", {
-            ruleId: rule.ruleId,
-            ruleLabel: rule.label,
+            rule,
+            zoneIndexInRule: rule.zones.indexOf(zoneB),
             zone: zoneB,
             relatedRuleId: rule.ruleId,
             relatedRuleLabel: rule.label,
             relatedZone: covering,
-            remedy: "REMOVE_ZONE",
+            remedy: null,
           })
         );
       }
@@ -364,11 +457,20 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
   });
 
   // ------------------------------------------------------------------
-  // 5) Couverture INTER-RÈGLES (ZV-COVERED-BY-HIGHER / ZV-DUPLICATE-ACROSS)
-  //    -- règles NON-DÉFAUT uniquement (contrat §4, "Default/fallback
-  //    rules are excluded from inter-rule coverage analysis"),
-  //    ordonnées par displayOrder ASC puis par ordre de saisie à
-  //    displayOrder égal (contrat §8, déterminisme).
+  // 5) Couverture INTER-RÈGLES -- règles NON-DÉFAUT uniquement (contrat
+  //    §4, "Default/fallback rules are excluded from inter-rule
+  //    coverage analysis"), ordonnées par displayOrder ASC puis par
+  //    ordre de saisie à displayOrder égal (contrat §8, déterminisme).
+  //
+  //    Étape 1 (§4 d'origine, INCHANGÉE) : domination PAR PAIRE --
+  //    ZV-DUPLICATE-ACROSS / ZV-COVERED-BY-HIGHER.
+  //    Étape 2 (D-B0-4, NOUVEAU) : si la zone courante n'est PAS déjà
+  //    signalée par l'étape 1, saturation COLLECTIVE -- un ENSEMBLE de
+  //    zones antérieures qui ÉTENDENT la zone courante (préfixe =
+  //    zone courante) peut néanmoins couvrir tout l'espace restant
+  //    sous elle. L'étape 1 a PRIORITÉ : si elle signale déjà la zone,
+  //    l'étape 2 n'est jamais évaluée pour cette zone (un seul finding
+  //    par zone dans cette section).
   // ------------------------------------------------------------------
 
   const rankedPositions: ZonePosition[] = [];
@@ -397,8 +499,19 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     return a.zonePositionInRule - b.zonePositionInRule;
   });
 
+  const ALPHABET_SIZE = shape.allowedChars === "digits" ? 10 : 62;
+  // Garde de sécurité numérique (D-B0-4) : si l'espace total de codes
+  // possibles dépasse 2^53 (précision entière sûre de JavaScript),
+  // TOUT calcul de saturation collective pour cette forme s'abstient
+  // explicitement (ZV-REACHABILITY-NOT-COMPUTED) plutôt que de risquer
+  // une réponse inexacte calculée en flottant.
+  const reachabilityComputable = Math.pow(ALPHABET_SIZE, shape.exactLength) <= 2 ** 53;
+
   for (let rank = 0; rank < rankedIndices.length; rank += 1) {
     const current = rankedPositions[rankedIndices[rank]];
+
+    // ---- Étape 1 : domination PAR PAIRE (inchangée). ----
+    let flaggedByStep1 = false;
     // Cherche, PARMI LES ZONES ANTÉRIEURES (rang strictement
     // inférieur), la PREMIÈRE (donc la plus prioritaire pour le
     // résolveur réel) qui intercepte déjà `current.zone` -- exactement
@@ -412,8 +525,8 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       if (earlier.zone === current.zone) {
         findings.push(
           makeFinding("ZV-DUPLICATE-ACROSS", {
-            ruleId: current.rule.ruleId,
-            ruleLabel: current.rule.label,
+            rule: current.rule,
+            zoneIndexInRule: current.zonePositionInRule,
             zone: current.zone,
             relatedRuleId: earlier.rule.ruleId,
             relatedRuleLabel: earlier.rule.label,
@@ -421,13 +534,14 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
             remedy: "REMOVE_ZONE",
           })
         );
+        flaggedByStep1 = true;
         break;
       }
       if (current.zone.startsWith(earlier.zone)) {
         findings.push(
           makeFinding("ZV-COVERED-BY-HIGHER", {
-            ruleId: current.rule.ruleId,
-            ruleLabel: current.rule.label,
+            rule: current.rule,
+            zoneIndexInRule: current.zonePositionInRule,
             zone: current.zone,
             relatedRuleId: earlier.rule.ruleId,
             relatedRuleLabel: earlier.rule.label,
@@ -435,8 +549,86 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
             remedy: "REORDER_BEFORE",
           })
         );
+        flaggedByStep1 = true;
         break;
       }
+    }
+    if (flaggedByStep1) continue;
+
+    // ---- Étape 2 (D-B0-4) : saturation COLLECTIVE par antichaîne. ----
+    if (current.zone.length >= shape.exactLength) continue; // aucun espace restant à saturer.
+
+    const extendingSuffixes = new Set<string>();
+    for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
+      const earlier = rankedPositions[rankedIndices[earlierRank]];
+      if (earlier.zone === current.zone) continue;
+      if (earlier.zone.startsWith(current.zone)) {
+        extendingSuffixes.add(earlier.zone.slice(current.zone.length));
+      }
+    }
+    if (extendingSuffixes.size === 0) continue; // aucune zone antérieure ne l'étend -- rien à saturer.
+
+    if (!reachabilityComputable) {
+      findings.push(
+        makeFinding("ZV-REACHABILITY-NOT-COMPUTED", {
+          rule: current.rule,
+          zoneIndexInRule: current.zonePositionInRule,
+          zone: current.zone,
+          remedy: null,
+        })
+      );
+      continue;
+    }
+
+    const antichain = reduceToAntichain(extendingSuffixes);
+    const k = shape.exactLength - current.zone.length;
+    const target = Math.pow(ALPHABET_SIZE, k);
+    let total = 0;
+    antichain.forEach((suffix) => {
+      total += Math.pow(ALPHABET_SIZE, k - suffix.length);
+    });
+    // Invariant interne D-B0-4 : une antichaîne de suffixes induit des
+    // ensembles de codes DEUX-À-DEUX DISJOINTS (aucun suffixe n'est
+    // préfixe d'un autre), donc `total` ne peut JAMAIS dépasser
+    // `target`. Une violation signale un défaut d'implémentation dans
+    // `reduceToAntichain` -- ne JAMAIS continuer silencieusement avec
+    // un verdict potentiellement faux (contrat §8, déterminisme et
+    // correction avant tout).
+    if (total > target) {
+      throw new Error(
+        `B0 internal invariant violated (D-B0-4): collective coverage total (${total}) exceeds target (${target}) for zone "${current.zone}"`
+      );
+    }
+    if (total === target) {
+      // Reconstruit, pour le rapport, les zones ANTÉRIEURES dont les
+      // suffixes forment l'antichaîne retenue -- ordonnées par
+      // displayOrder ASC puis position de zone ASC, dédupliquées par
+      // zone EXACTE (première occurrence, la plus prioritaire pour le
+      // résolveur, conservée).
+      const relatedByZone = new Map<string, ZonePosition>();
+      for (let earlierRank = 0; earlierRank < rank; earlierRank += 1) {
+        const earlier = rankedPositions[rankedIndices[earlierRank]];
+        if (earlier.zone === current.zone) continue;
+        if (!earlier.zone.startsWith(current.zone)) continue;
+        const suffix = earlier.zone.slice(current.zone.length);
+        if (!antichain.has(suffix)) continue;
+        if (!relatedByZone.has(earlier.zone)) relatedByZone.set(earlier.zone, earlier);
+      }
+      const related = Array.from(relatedByZone.values()).sort((a, b) => {
+        if (a.rule.displayOrder !== b.rule.displayOrder) return a.rule.displayOrder - b.rule.displayOrder;
+        return a.zonePositionInRule - b.zonePositionInRule;
+      });
+      findings.push(
+        makeFinding("ZV-UNREACHABLE-BY-HIGHER-SET", {
+          rule: current.rule,
+          zoneIndexInRule: current.zonePositionInRule,
+          zone: current.zone,
+          relatedRuleIds: related.map((entry) => entry.rule.ruleId),
+          relatedRuleLabels: related.map((entry) => entry.rule.label),
+          relatedZones: related.map((entry) => entry.zone),
+          remedy: null,
+        })
+      );
     }
   }
 
@@ -449,8 +641,7 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
     if (!rule.isDefault && rule.zones.length === 0) {
       findings.push(
         makeFinding("ZV-EMPTY-ZONES", {
-          ruleId: rule.ruleId,
-          ruleLabel: rule.label,
+          rule,
           zone: null,
           remedy: "ADD_ZONE",
         })
@@ -463,13 +654,13 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
       // teste jamais ses zones -- semantic §2.6 -- donc AUCUNE zone
       // n'y a sa place).
       const seen = new Set<string>();
-      rule.zones.forEach((zone) => {
+      rule.zones.forEach((zone, zoneIndex) => {
         if (seen.has(zone)) return; // déjà signalée une fois par ZV-DUPLICATE-WITHIN si bien formée -- pas la peine de la répéter ici pour DEFAULT_HAS_ZONES.
         seen.add(zone);
         findings.push(
           makeFinding("ZV-DEFAULT-HAS-ZONES", {
-            ruleId: rule.ruleId,
-            ruleLabel: rule.label,
+            rule,
+            zoneIndexInRule: zoneIndex,
             zone,
             remedy: "REMOVE_ZONE",
           })
@@ -489,11 +680,7 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
   if (!hasDefault) {
     findings.push(
       makeFinding("ZV-NO-DEFAULT", {
-        ruleId: null,
-        // Pas de règle concrète pour ce finding global -- chaîne vide
-        // documentée comme sentinelle (ruleLabel n'est pas nullable
-        // dans le contrat public §5).
-        ruleLabel: "",
+        rule: null,
         zone: null,
       })
     );
@@ -501,50 +688,45 @@ export function validateDeliveryZones(input: ZoneValidationInput): ZoneValidatio
   if (!hasDefault && !hasAnyZoneAnywhere) {
     findings.push(
       makeFinding("ZV-NO-DEFAULT-NO-ZONES", {
-        ruleId: null,
-        ruleLabel: "",
+        rule: null,
         zone: null,
       })
     );
   }
 
   // ------------------------------------------------------------------
-  // 8) Tri final (contrat §8) : displayOrder ASC (findings globaux en
-  //    dernier), puis position de la zone dans le tableau BRUT de sa
-  //    règle (findings sans zone en premier), puis code ASCII/littéral
-  //    -- comparaison par `<`/`>` sur des chaînes JS, jamais
-  //    localeCompare/toLocale*. Tri STABLE (Array#sort de Node est
-  //    stable) : à clés identiques, l'ordre de génération ci-dessus
-  //    (lui-même entièrement déterministe) tranche.
+  // 8) Tri final (contrat §8, amendé D-B0-3) : `scopeRank` (finding
+  //    tarif-scoped avant finding global) ASC, puis `displayOrder` ASC
+  //    (0 pour un finding global), puis position BRUTE de la zone dans
+  //    le tableau de sa règle (findings sans zone en premier), puis
+  //    code ASCII/littéral -- comparaison par `<`/`>` sur des chaînes
+  //    JS, jamais localeCompare/toLocale*, et JAMAIS `ruleId` (voir
+  //    D-B0-3 en tête de fichier : chaque clé a été calculée à la
+  //    CRÉATION du finding, directement depuis l'objet règle réel,
+  //    jamais re-dérivée après coup via une structure indexée par
+  //    `ruleId`). Tri STABLE (Array#sort de Node est stable) : à clés
+  //    identiques, l'ordre de génération ci-dessus (lui-même
+  //    entièrement déterministe) tranche.
   // ------------------------------------------------------------------
 
-  const ruleById = new Map<string, ZoneRuleInput>();
-  rules.forEach((rule) => {
-    if (rule.ruleId !== null) ruleById.set(rule.ruleId, rule);
-  });
-  function displayOrderOf(finding: ZoneFinding): number {
-    if (finding.ruleId === null) return NO_RULE_SORT_ORDER;
-    return ruleById.get(finding.ruleId)?.displayOrder ?? NO_RULE_SORT_ORDER;
-  }
-  function zonePositionOf(finding: ZoneFinding): number {
-    if (finding.zone === null || finding.ruleId === null) return NO_ZONE_SORT_POSITION;
-    const rule = ruleById.get(finding.ruleId);
-    if (!rule) return NO_ZONE_SORT_POSITION;
-    const position = rule.zones.indexOf(finding.zone);
-    return position === -1 ? NO_ZONE_SORT_POSITION : position;
-  }
-
-  const sortedFindings = findings
+  const sortedFindings: ZoneFinding[] = findings
     .map((finding, originalIndex) => ({ finding, originalIndex }))
     .sort((a, b) => {
-      const orderDiff = displayOrderOf(a.finding) - displayOrderOf(b.finding);
+      const scopeDiff = a.finding.__sortKey.scopeRank - b.finding.__sortKey.scopeRank;
+      if (scopeDiff !== 0) return scopeDiff;
+      const orderDiff = a.finding.__sortKey.displayOrder - b.finding.__sortKey.displayOrder;
       if (orderDiff !== 0) return orderDiff;
-      const positionDiff = zonePositionOf(a.finding) - zonePositionOf(b.finding);
+      const positionDiff = a.finding.__sortKey.zoneIndex - b.finding.__sortKey.zoneIndex;
       if (positionDiff !== 0) return positionDiff;
       if (a.finding.code !== b.finding.code) return a.finding.code < b.finding.code ? -1 : 1;
       return a.originalIndex - b.originalIndex;
     })
-    .map((entry) => entry.finding);
+    .map(({ finding }) => {
+      // Retire la clé de tri interne avant de retourner un ZoneFinding
+      // public (jamais exposée dans le contrat §5).
+      const { __sortKey, ...publicFinding } = finding;
+      return publicFinding;
+    });
 
   // ------------------------------------------------------------------
   // 9) Décision (contrat §5, "frozen invariants").

@@ -281,7 +281,7 @@
     },
     {
       "id": "WITHIN-02",
-      "description": "large + specifique dans la MEME regle (75, 75018) => ZV-REDUNDANT-WITHIN, non bloquant, non dedupliquee (pas un doublon exact)",
+      "description": "large + specifique dans la MEME regle (75, 75018) => ZV-REDUNDANT-WITHIN, non bloquant, non dedupliquee (pas un doublon exact) ; remedy null (D-B0-6 : retirer 75018 changerait le matched_prefix reel pour les codes qu'elle seule matchait exactement)",
       "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 2 },
       "rules": [
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75", "75018"] },
@@ -289,7 +289,7 @@
       ],
       "expectedDecision": "ACCEPTED_WITH_WARNINGS",
       "expectedFindings": [
-        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75018", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "75", "remedy": "REMOVE_ZONE" }
+        { "code": "ZV-REDUNDANT-WITHIN", "severity": "WARNING", "ruleId": "r1", "ruleLabel": "Zone A", "zone": "75018", "relatedRuleId": "r1", "relatedRuleLabel": "Zone A", "relatedZone": "75", "remedy": null }
       ],
       "expectedNormalizedRules": [
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["75", "75018"] },
@@ -503,6 +503,161 @@
       "expectedNormalizedRules": [
         { "ruleId": "r1", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["AB-234"] },
         { "ruleId": "default", "label": "Repli", "displayOrder": 99, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "NULLID-01",
+      "description": "amendement D-B0-3 : une regle NON SAUVEGARDEE (ruleId null) a displayOrder 0 doit trier AVANT une regle SAUVEGARDEE a displayOrder 1 -- ruleId ne joue plus AUCUN role dans le tri (bug racine trouve par Chateaubriand sur le candidat precedent, ou ruleId===null etait a tort traite comme 'finding global')",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": null, "label": "Nouveau tarif (non enregistre)", "displayOrder": 0, "isDefault": false, "zones": [] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "Nouveau tarif (non enregistre)", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
+        { "code": "ZV-EMPTY-ZONES", "severity": "BLOCKING_ERROR", "ruleId": "r2", "ruleLabel": "Zone B", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "ADD_ZONE" },
+        { "code": "ZV-NO-DEFAULT", "severity": "INFO", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null },
+        { "code": "ZV-NO-DEFAULT-NO-ZONES", "severity": "BLOCKING_ERROR", "ruleId": null, "ruleLabel": "", "zone": null, "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": null, "label": "Nouveau tarif (non enregistre)", "displayOrder": 0, "isDefault": false, "zones": [] },
+        { "ruleId": "r2", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": [] }
+      ]
+    },
+    {
+      "id": "COLLECTIVE-01",
+      "description": "amendement D-B0-4 : '7' (rang1, regle SAUVEGARDEE) est mort par SATURATION COLLECTIVE -- '70'..'79' (rang0, regle NON SAUVEGARDEE, ruleId null) le SATURENT ENSEMBLE (10 x sigma^(k-1) = 10 = sigma^k = target) bien qu'AUCUNE seule d'entre elles ne le domine par paire => ZV-UNREACHABLE-BY-HIGHER-SET, champs relationnels PLURIELS (relatedRuleIds contient null : preuve que le champ pluriel accepte aussi une regle non sauvegardee)",
+      "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": null, "label": "Zone A (brouillon)", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        {
+          "code": "ZV-UNREACHABLE-BY-HIGHER-SET",
+          "severity": "BLOCKING_ERROR",
+          "ruleId": "rB",
+          "ruleLabel": "Zone B",
+          "zone": "7",
+          "relatedRuleId": null,
+          "relatedRuleLabel": null,
+          "relatedZone": null,
+          "relatedRuleIds": [null, null, null, null, null, null, null, null, null, null],
+          "relatedRuleLabels": ["Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)", "Zone A (brouillon)"],
+          "relatedZones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"],
+          "remedy": null
+        }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": null, "label": "Zone A (brouillon)", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "COLLECTIVE-02",
+      "description": "contre-preuve de COLLECTIVE-01 : '70'..'78' (9 zones sur 10, '79' MANQUANTE) ne saturent PAS collectivement '7' (total=9 < target=10) => aucun finding, '7' reste vivante",
+      "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "PREC-01",
+      "description": "precedence etape 1 sur etape 2 (D-B0-4) : '75' (rang2) est domine PAR PAIRE par '7' (rang0, etape 1) -- meme si '7501' (rang1) l'etend aussi (ce qui aurait pu alimenter un calcul de saturation collective a l'etape 2), SEULE l'etape 1 se declenche pour '75' : un unique finding ZV-COVERED-BY-HIGHER, jamais de second finding ZV-UNREACHABLE-BY-HIGHER-SET",
+      "shape": { "allowedChars": "digits", "exactLength": 5, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "rZ", "label": "Zone Z", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "rW", "label": "Zone W", "displayOrder": 1, "isDefault": false, "zones": ["7501"] },
+        { "ruleId": "rY", "label": "Zone Y", "displayOrder": 2, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 3, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rW", "ruleLabel": "Zone W", "zone": "7501", "relatedRuleId": "rZ", "relatedRuleLabel": "Zone Z", "relatedZone": "7", "remedy": "REORDER_BEFORE" },
+        { "code": "ZV-COVERED-BY-HIGHER", "severity": "BLOCKING_ERROR", "ruleId": "rY", "ruleLabel": "Zone Y", "zone": "75", "relatedRuleId": "rZ", "relatedRuleLabel": "Zone Z", "relatedZone": "7", "remedy": "REORDER_BEFORE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rZ", "label": "Zone Z", "displayOrder": 0, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "rW", "label": "Zone W", "displayOrder": 1, "isDefault": false, "zones": ["7501"] },
+        { "ruleId": "rY", "label": "Zone Y", "displayOrder": 2, "isDefault": false, "zones": ["75"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 3, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "INVALID-PRIOR-01",
+      "description": "amendement D-B0-4 : une zone anterieure MAL FORMEE n'a AUCUN effet sur la saturation collective -- '7X' (invalide sous allowedChars=digits) ne compte jamais comme une zone qui 'etend' '7', qui reste vivante",
+      "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7X"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "REJECTED",
+      "expectedFindings": [
+        { "code": "ZV-FORM-INVALID", "severity": "BLOCKING_ERROR", "ruleId": "rA", "ruleLabel": "Zone A", "zone": "7X", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "FIX_FORMAT" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["7X"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ]
+    },
+    {
+      "id": "DEFAULT-NOEFFECT-01",
+      "description": "amendement D-B0-4 : la regle par defaut reste EXCLUE de la saturation collective, comme de l'etape 1 (DEFAULT-05) -- ses zones '70'..'79' (10/10, saturation numerique complete si elles comptaient) NE COMPTENT JAMAIS comme zones qui etendent '7' (rB, non-defaut) : '7' reste vivante malgre une couverture numerique totale sur le papier",
+      "shape": { "allowedChars": "digits", "exactLength": 2, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "default", "label": "Repli", "displayOrder": 0, "isDefault": true, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] }
+      ],
+      "expectedDecision": "ACCEPTED_WITH_WARNINGS",
+      "expectedFindings": [
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "70", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "71", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "72", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "73", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "74", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "75", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "76", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "77", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "78", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" },
+        { "code": "ZV-DEFAULT-HAS-ZONES", "severity": "WARNING", "ruleId": "default", "ruleLabel": "Repli", "zone": "79", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": "REMOVE_ZONE" }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "default", "label": "Repli", "displayOrder": 0, "isDefault": true, "zones": ["70", "71", "72", "73", "74", "75", "76", "77", "78", "79"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["7"] }
+      ]
+    },
+    {
+      "id": "REACH-NOTCOMPUTED-01",
+      "description": "amendement D-B0-4 : garde de securite numerique -- sous exactLength=16 (digits), sigma^exactLength = 10^16 > 2^53, donc B0 s'ABSTIENT explicitement (ZV-REACHABILITY-NOT-COMPUTED, INFO) au lieu de calculer une reponse potentiellement inexacte en flottant pour '1' (etendue par '10', rang0)",
+      "shape": { "allowedChars": "digits", "exactLength": 16, "minPrefixLength": 1 },
+      "rules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["10"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["1"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
+      ],
+      "expectedDecision": "ACCEPTED",
+      "expectedFindings": [
+        { "code": "ZV-REACHABILITY-NOT-COMPUTED", "severity": "INFO", "ruleId": "rB", "ruleLabel": "Zone B", "zone": "1", "relatedRuleId": null, "relatedRuleLabel": null, "relatedZone": null, "remedy": null }
+      ],
+      "expectedNormalizedRules": [
+        { "ruleId": "rA", "label": "Zone A", "displayOrder": 0, "isDefault": false, "zones": ["10"] },
+        { "ruleId": "rB", "label": "Zone B", "displayOrder": 1, "isDefault": false, "zones": ["1"] },
+        { "ruleId": "default", "label": "Repli", "displayOrder": 2, "isDefault": true, "zones": [] }
       ]
     }
   ]
