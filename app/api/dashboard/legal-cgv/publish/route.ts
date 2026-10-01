@@ -4,6 +4,7 @@ import {
   publishMerchantCgvVersionServerAuthoritative,
   LegalCgvPublishServerError,
 } from "@/lib/server/legal-cgv-publish-service";
+import { invalidatePublicLegalPage } from "@/lib/server/legal-cgv-activate-service";
 
 /**
  * SELLER LEGAL PROFILE + CGV ENGINE v1.1/v1.2 — AUDIT REMEDIATION
@@ -35,6 +36,18 @@ import {
  * valide échoue au niveau de resolve_cgv_publication_context lui-même
  * (auth.uid() is null -> 28000) — pas de duplication de logique
  * d'authentification ici.
+ *
+ * CGV W2 (Noether, scanym-orchestrator#23, W2-6) — après une
+ * publication RÉUSSIE, invalide explicitement le cache ISR de la page
+ * légale publique (`invalidatePublicLegalPage`, partagée avec
+ * app/api/dashboard/legal-cgv/activate/route.ts — jamais une seconde
+ * implémentation). Ajoutée ICI, dans la route, précisément parce que
+ * lib/server/legal-cgv-publish-service.ts reste hors du périmètre
+ * autorisé de ce lot (ZÉRO SQL, aucun changement de modèle métier) :
+ * l'invalidation de cache est une préoccupation de couche HTTP/Next.js
+ * (`revalidatePath` n'est appelable que dans un Route Handler/Server
+ * Action), jamais une préoccupation de confiance métier — elle n'a
+ * donc jamais eu sa place dans le service lui-même.
  */
 export const runtime = "nodejs";
 
@@ -107,6 +120,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const version = await publishMerchantCgvVersionServerAuthoritative(accessToken, body.restaurantId);
+    // W2-6 — best-effort : un échec d'invalidation ne doit jamais
+    // transformer une publication RÉUSSIE (déjà persistée par
+    // publishMerchantCgvVersionServerAuthoritative) en réponse
+    // d'erreur ; seule la vitrine publique mettrait jusqu'à 60s
+    // (app/legal/[slug]/page.tsx, `revalidate = 60`) à refléter le
+    // changement si cet appel échoue.
+    try {
+      await invalidatePublicLegalPage(body.restaurantId);
+    } catch {
+      // best-effort, voir commentaire ci-dessus.
+    }
     return NextResponse.json({ outcome: "ok", version });
   } catch (err) {
     if (err instanceof LegalCgvPublishServerError) return failureResponse(err);

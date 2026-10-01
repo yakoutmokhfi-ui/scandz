@@ -219,11 +219,73 @@ export async function publishMerchantCgvVersion(params: { restaurantId: string }
   return body.version as unknown as MerchantCgvVersion;
 }
 
+/**
+ * Erreur d'activation -- distincte d'une simple `Error(message)`, même
+ * discipline que `PublishCgvError` ci-dessus : le tableau de bord
+ * affiche un message traduit adapté au `reason` stable renvoyé par la
+ * route, jamais un message serveur brut (CGV W2, W2-5).
+ */
+export class ActivateCgvError extends Error {
+  reason: "auth" | "forbidden" | "incomplete" | "not_published" | "unavailable" | "invalid_field";
+  constructor(reason: ActivateCgvError["reason"]) {
+    super(`ActivateCgvError: ${reason}`);
+    this.name = "ActivateCgvError";
+    this.reason = reason;
+  }
+}
+
+/**
+ * CGV W2 (Noether, scanym-orchestrator#23, W2-6) -- l'activation ne
+ * parle plus JAMAIS directement à `activate_merchant_cgv` depuis le
+ * navigateur : elle passe désormais par une frontière serveur de
+ * confiance (app/api/dashboard/legal-cgv/activate/route.ts,
+ * lib/server/legal-cgv-activate-service.ts), MÊME PATRON que
+ * `publishMerchantCgvVersion` ci-dessus -- jamais une seconde
+ * convention. ZÉRO SQL : `activate_merchant_cgv` elle-même, ses
+ * paramètres et ses autorisations sont INCHANGÉS ; seul le point
+ * d'appel se déplace, ce qui permet à la frontière serveur de
+ * déclencher, au même endroit, l'invalidation du cache légal public
+ * (W2-6) -- une opération que le navigateur ne peut de toute façon pas
+ * effectuer lui-même (`revalidatePath` est serveur uniquement).
+ */
+const ACTIVATE_ROUTE = "/api/dashboard/legal-cgv/activate";
+
 export async function activateMerchantCgv(restaurantId: string): Promise<void> {
-  const { error } = await supabase.rpc("activate_merchant_cgv", {
-    p_restaurant_id: restaurantId,
-  });
-  if (error) throw new Error(error.message);
+  const session = await getSession();
+  const accessToken = session?.access_token;
+  if (!accessToken) {
+    throw new ActivateCgvError("auth");
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(ACTIVATE_ROUTE, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ restaurantId }),
+    });
+  } catch {
+    throw new ActivateCgvError("unavailable");
+  }
+
+  let body: { outcome?: string } = {};
+  try {
+    body = await response.json();
+  } catch {
+    // pas de corps JSON exploitable -- l'erreur générique suffit.
+  }
+
+  if (!response.ok || body.outcome !== "ok") {
+    const reason = body.outcome as ActivateCgvError["reason"] | undefined;
+    throw new ActivateCgvError(
+      reason && ["auth", "forbidden", "incomplete", "not_published", "invalid_field"].includes(reason)
+        ? reason
+        : "unavailable"
+    );
+  }
 }
 
 export interface PublicCgv {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import { getMerchantRestaurants } from "@/lib/services/dashboard";
@@ -18,10 +18,31 @@ import {
   publishMerchantCgvVersion,
   activateMerchantCgv,
   PublishCgvError,
+  ActivateCgvError,
 } from "@/lib/services/legal-cgv";
 import { supabase } from "@/lib/supabase";
-import { renderCgv, type CgvTemplateControlledSections } from "@/lib/legal/render";
+import {
+  renderCgv,
+  type CgvTemplateControlledSections,
+  MixedRegimeClauseMissingError,
+  ActualWeightPriceUnsupportedError,
+} from "@/lib/legal/render";
 import CommercialTermsField, { isCustomCommercialTerms } from "@/components/dashboard/CommercialTermsField";
+
+/**
+ * CGV W2 — PUBLICATION BOUNDARY FIXES (Noether, scanym-orchestrator#23).
+ * Raison distincte d'échec d'aperçu/publication — W2-3 exige de
+ * distinguer MixedRegimeClauseMissingError et
+ * ActualWeightPriceUnsupportedError (toutes deux levées par
+ * renderCgv()/lib/legal/render.ts, jamais modifié par ce lot) du
+ * simple "profil incomplet" (champs obligatoires absents, vérifiés
+ * AVANT même d'appeler renderCgv()).
+ */
+type PreviewFailureReason =
+  | "incomplete_fields"
+  | "mixed_regime_clause_missing"
+  | "actual_weight_price_unsupported"
+  | "render_error";
 
 /**
  * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1, Section M.
@@ -61,6 +82,32 @@ export default function LegalCgvPage() {
   const [legalLoadedRestaurantId, setLegalLoadedRestaurantId] = useState<string | null>(null);
   /** CONTEXT HARDENING v1.1 -- contrat anti-réponse-périmée partagé. */
   const guard = useRestaurantContextGuard();
+  /**
+   * CGV W2 (W2-4) -- GÉNÉRATION DE CONTEXTE dédiée aux MUTATIONS
+   * (saveLegal/saveCgvProfile/publish/activate), transposée telle
+   * quelle depuis app/dashboard/delivery-pricing/page.tsx
+   * (contextGenerationRef/enterDashboardContext) -- RÉFÉRENCE LECTURE
+   * SEULE, jamais modifiée par ce lot. Volontairement DISTINCTE de la
+   * séquence de `guard.beginRequest()` (partagée avec les
+   * CHARGEMENTS, via `load()`) : réutiliser cette séquence pour une
+   * sauvegarde invaliderait à tort un chargement légitime encore en
+   * vol, et inversement -- voir le commentaire original dans
+   * delivery-pricing/page.tsx pour le raisonnement complet.
+   */
+  const contextGenerationRef = useRef(0);
+  const enterLegalCgvContext = useCallback(
+    (id: string) => {
+      contextGenerationRef.current += 1;
+      // W2-4 -- une sauvegarde/publication/activation restée en vol
+      // pour le contexte précédent ne doit jamais laisser le nouveau
+      // contexte bloqué (bouton désactivé indéfiniment) : la bascule
+      // elle-même lève le verrou, exactement comme
+      // enterDashboardContext réinitialise `creating`/`structureBusy`.
+      setSaving(false);
+      guard.enterContext(id);
+    },
+    [guard]
+  );
   /** CONTEXT HARDENING v1 (§4.B) -- `?r=` explicite non résoluble. */
   const [unavailableContextId, setUnavailableContextId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -97,7 +144,42 @@ export default function LegalCgvPage() {
         supabase.rpc("get_applicable_cgv_template", { p_restaurant_id: id }),
       ]);
       if (!token.isCurrent()) return;
-      const tpl = templateRow.data as { id: string; controlled_sections: CgvTemplateControlledSections } | null;
+
+      // W2-7 -- getMerchantCgvProfile() déclare renvoyer
+      // `Promise<MerchantCgvProfile>` (jamais undefined), mais son
+      // implémentation (lib/services/legal-cgv.ts) transtype
+      // silencieusement une ligne RPC absente (`data[0]` sur un
+      // tableau vide) en `MerchantCgvProfile` -- le type ment. Avant
+      // ce lot, `setCgv(cgvRow)` propageait ce `undefined` sans
+      // contrôle : les sections 3 à 7 (gardées sur `cgv &&`) se
+      // contentaient alors de disparaître silencieusement, sans la
+      // moindre explication pour le marchand (W2-T-08). On traite
+      // maintenant ce cas explicitement, jamais un transtype silencieux.
+      if (!cgvRow) {
+        setLegal(legalRow ?? {});
+        setCgv(null);
+        setTemplate(null);
+        setEditingTerms({ cancellation: false, substitution: false });
+        setConfirmRestore(null);
+        setLegalLoadedRestaurantId(id);
+        setPageError(t("legalCgvProfileMissing"));
+        return;
+      }
+
+      // W2-1 -- `templateRow.error` n'était jusqu'ici jamais inspecté :
+      // un échec de la RPC get_applicable_cgv_template se comportait
+      // alors EXACTEMENT comme "aucun modèle résolu pour ce pays"
+      // (tpl reste null) -- un échec de transport et une absence de
+      // modèle normale sont pourtant deux situations distinctes. Cette
+      // dernière reste un état normal, actionnable (W2-2 ci-dessous :
+      // bouton Publier désactivé, message explicite) ; la première est
+      // une panne de chargement, qui mérite son propre pageError,
+      // distinct de legalCgvLoadFailed (échec du Promise.all lui-même)
+      // ET de legalCgvNoTemplate (clic sur Publier sans modèle résolu).
+      const tpl = !templateRow.error
+        ? (templateRow.data as { id: string; controlled_sections: CgvTemplateControlledSections } | null)
+        : null;
+
       // Commit ATOMIQUE : valeurs et provenance posées dans la même
       // passe de rendu -- elles ne peuvent jamais se contredire.
       setLegal(legalRow ?? {});
@@ -112,6 +194,9 @@ export default function LegalCgvPage() {
       setEditingTerms({ cancellation: false, substitution: false });
       setConfirmRestore(null);
       setLegalLoadedRestaurantId(id);
+      if (templateRow.error) {
+        setPageError(t("legalCgvTemplateLoadFailed"));
+      }
     } catch {
       if (!token.isCurrent()) return;
       setPageError(t("legalCgvLoadFailed"));
@@ -126,7 +211,7 @@ export default function LegalCgvPage() {
    */
   const handleSelectRestaurant = useCallback(
     (id: string) => {
-      guard.enterContext(id);
+      enterLegalCgvContext(id);
       setLegal({});
       setCgv(null);
       setTemplate(null);
@@ -139,7 +224,7 @@ export default function LegalCgvPage() {
       setConfirmRestore(null);
       setRestaurantId(id);
     },
-    [guard]
+    [enterLegalCgvContext]
   );
 
   useEffect(() => {
@@ -170,7 +255,7 @@ export default function LegalCgvPage() {
           setPageError(t("legalCgvNoRestaurant"));
         } else {
           setUnavailableContextId(null);
-          guard.enterContext(resolution.restaurantId);
+          enterLegalCgvContext(resolution.restaurantId);
           setRestaurantId(resolution.restaurantId);
           if (resolution.source === "operator") {
             try {
@@ -198,12 +283,38 @@ export default function LegalCgvPage() {
     void load(restaurantId);
   }, [restaurantId, load]);
 
+  /**
+   * CGV W2 (W2-4) -- transposé TEL QUEL depuis le patron de
+   * save()/saveModeNotice() d'app/dashboard/delivery-pricing/page.tsx
+   * (référence lecture seule, jamais modifiée par ce lot) : une
+   * mutation CGV est identifiée par le restaurant ET la génération de
+   * contexte AU MOMENT DU LANCEMENT. Trois points de garde -- avant
+   * toute relecture, après la relecture, et sur le chemin d'échec --
+   * jamais une continuation issue d'un contexte quitté entre-temps.
+   * `enterLegalCgvContext` (bascule d'établissement) lève déjà le
+   * verrou `saving` pour le nouveau contexte : une continuation
+   * périmée ici n'a donc PAS besoin de le refaire elle-même -- un
+   * `setSaving(false)` dans une continuation périmée écraserait à tort
+   * l'état `saving` du NOUVEAU contexte si celui-ci avait, entre
+   * temps, lancé sa propre mutation.
+   */
+  function beginLegalCgvOperation(): { targetRestaurantId: string; isOperationCurrent: () => boolean } {
+    const targetRestaurantId = restaurantId;
+    const operationGeneration = contextGenerationRef.current;
+    return {
+      targetRestaurantId,
+      isOperationCurrent: () =>
+        guard.currentRestaurantId() === targetRestaurantId && contextGenerationRef.current === operationGeneration,
+    };
+  }
+
   async function saveLegal() {
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
     try {
       await updateMerchantLegalProfile({
-        restaurantId,
+        restaurantId: targetRestaurantId,
         legalForm: legal.legal_form ?? null,
         addressLine1: legal.address_line1 ?? null,
         addressLine2: legal.address_line2 ?? null,
@@ -222,22 +333,31 @@ export default function LegalCgvPage() {
         consumerMediatorPhone: legal.consumer_mediator_phone ?? null,
         consumerMediatorEmail: legal.consumer_mediator_email ?? null,
       });
-      await load(restaurantId);
+      // Garde 1 -- après la mutation, AVANT toute relecture.
+      if (!isOperationCurrent()) return;
+      await load(targetRestaurantId);
+      // Garde 2 -- après la relecture, AVANT d'afficher « Enregistré ».
+      if (!isOperationCurrent()) return;
       setActionMessage(t("legalCgvSaved"));
-    } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : t("legalCgvSaveFailed"));
-    } finally {
+      setSaving(false);
+    } catch {
+      // Garde 3 -- chemin d'échec, AVANT d'afficher l'erreur. W2-5 :
+      // jamais e.message brut (code SQL/détail interne) -- message
+      // stable et traduit uniquement.
+      if (!isOperationCurrent()) return;
+      setActionMessage(t("legalCgvSaveFailed"));
       setSaving(false);
     }
   }
 
   async function saveCgvProfile() {
     if (!cgv) return;
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
     try {
       await updateMerchantCgvProfile({
-        restaurantId,
+        restaurantId: targetRestaurantId,
         withdrawalRegime: cgv.withdrawal_regime,
         preparationTimeMin: cgv.preparation_time_min,
         preparationTimeMax: cgv.preparation_time_max,
@@ -248,21 +368,35 @@ export default function LegalCgvPage() {
         coldChainApplicable: cgv.cold_chain_applicable ?? false,
         weightPricingMode: cgv.weight_pricing_mode ?? null,
       });
-      await load(restaurantId);
+      // Garde 1 -- après la mutation, AVANT toute relecture.
+      if (!isOperationCurrent()) return;
+      await load(targetRestaurantId);
+      // Garde 2 -- après la relecture, AVANT d'afficher « Enregistré ».
+      if (!isOperationCurrent()) return;
       setActionMessage(t("legalCgvSaved"));
-    } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : t("legalCgvSaveFailed"));
-    } finally {
+      setSaving(false);
+    } catch {
+      // Garde 3 -- chemin d'échec. W2-5 : jamais e.message brut.
+      if (!isOperationCurrent()) return;
+      setActionMessage(t("legalCgvSaveFailed"));
       setSaving(false);
     }
   }
 
-  function buildPreview(): string | null {
+  /**
+   * CGV W2 (W2-3) -- remplace l'ancien `buildPreview(): string | null`,
+   * qui réduisait TOUTE cause d'échec (champs manquants,
+   * MixedRegimeClauseMissingError, ActualWeightPriceUnsupportedError)
+   * au même `null` indifférencié. `renderCgv()` elle-même
+   * (lib/legal/render.ts) n'est JAMAIS modifiée par ce lot -- seule la
+   * classification de ce qu'elle lève, ici, change.
+   */
+  function buildPreviewResult(): { html: string; reason: null } | { html: null; reason: PreviewFailureReason } {
     if (!template || !cgv || !cgv.withdrawal_regime || cgv.preparation_time_min == null || cgv.preparation_time_max == null || !cgv.preparation_time_unit) {
-      return null;
+      return { html: null, reason: "incomplete_fields" };
     }
     try {
-      return renderCgv({
+      const html = renderCgv({
         sellerName: sellerName || "—",
         template,
         legal: {
@@ -297,15 +431,40 @@ export default function LegalCgvPage() {
         locale: "fr",
         presentationVariant: cgv.presentation_variant,
       });
-    } catch {
-      // Couvre à la fois le régime de rétractation non résolu (MIXED)
-      // ET, depuis v2.1, ActualWeightPriceUnsupportedError
-      // (weight_pricing_mode = ACTUAL_WEIGHT_PRICE) -- l'aperçu
-      // affiche simplement "profil incomplet" (voir section 6 du
-      // rendu), jamais une erreur brute ; la publication réelle échoue
-      // fermé indépendamment côté serveur (persist_merchant_cgv_
-      // version).
-      return null;
+      return { html, reason: null };
+    } catch (e) {
+      // W2-3 -- MixedRegimeClauseMissingError (régime MIXED sans
+      // clause de commandes mixtes dans le modèle) et
+      // ActualWeightPriceUnsupportedError (weight_pricing_mode =
+      // ACTUAL_WEIGHT_PRICE, non pris en charge) sont désormais
+      // distinguées du simple "profil incomplet" -- jamais le même
+      // message indifférencié. La publication réelle échoue fermé
+      // indépendamment côté serveur (persist_merchant_cgv_version) :
+      // ce garde local reste un confort UX, jamais l'autorité.
+      if (e instanceof MixedRegimeClauseMissingError) return { html: null, reason: "mixed_regime_clause_missing" };
+      if (e instanceof ActualWeightPriceUnsupportedError) {
+        return { html: null, reason: "actual_weight_price_unsupported" };
+      }
+      return { html: null, reason: "render_error" };
+    }
+  }
+
+  /** Conservé pour l'aperçu à l'écran (section 6) -- ne porte que le
+   *  HTML rendu, jamais la raison d'échec (voir buildPreviewResult). */
+  function buildPreview(): string | null {
+    return buildPreviewResult().html;
+  }
+
+  function previewFailureMessage(reason: PreviewFailureReason): string {
+    switch (reason) {
+      case "mixed_regime_clause_missing":
+        return t("legalCgvMixedRegimeClauseMissing");
+      case "actual_weight_price_unsupported":
+        return t("legalCgvActualWeightPriceUnsupported");
+      case "incomplete_fields":
+      case "render_error":
+      default:
+        return t("legalCgvIncomplete");
     }
   }
 
@@ -323,45 +482,84 @@ export default function LegalCgvPage() {
    * confort UX qui évite un aller-retour réseau pour le cas le plus
    * fréquent -- jamais l'autorité : le serveur revérifie la
    * complétude de toute façon (resolve_cgv_publication_context).
+   *
+   * CGV W2 (W2-2) -- `!template` ne renvoie plus JAMAIS silencieusement
+   * (le bouton lui-même est désormais aussi désactivé dans ce cas,
+   * voir la section 7 du rendu) : un clic malgré tout -- un double-clic
+   * pendant la désactivation, par exemple -- affiche un message
+   * explicite. W2-3 -- l'échec d'aperçu affiche désormais la raison
+   * précise (buildPreviewResult) plutôt que le seul "profil incomplet".
    */
   async function publish() {
-    if (!template) return;
-    if (!buildPreview()) {
-      setActionMessage(t("legalCgvIncomplete"));
+    if (!template) {
+      setActionMessage(t("legalCgvNoTemplate"));
       return;
     }
+    const previewResult = buildPreviewResult();
+    if (previewResult.reason !== null) {
+      setActionMessage(previewFailureMessage(previewResult.reason));
+      return;
+    }
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
     try {
-      await publishMerchantCgvVersion({ restaurantId });
-      await load(restaurantId);
+      await publishMerchantCgvVersion({ restaurantId: targetRestaurantId });
+      // Garde 1 -- après la mutation, AVANT toute relecture.
+      if (!isOperationCurrent()) return;
+      await load(targetRestaurantId);
+      // Garde 2 -- après la relecture, AVANT d'afficher le succès.
+      if (!isOperationCurrent()) return;
       setActionMessage(t("legalCgvPublished"));
+      setSaving(false);
     } catch (e) {
+      // Garde 3 -- chemin d'échec.
+      if (!isOperationCurrent()) return;
       // v1.2 (CGV-V11-PUBLISH-CONTEXT-RACE-01) -- a stale-context
       // rejection is retriable (the profile changed server-side
       // between resolve and persist): tell the merchant to retry
       // rather than showing the generic failure message, which reads
-      // as a permanent error.
+      // as a permanent error. W2-5 : jamais e.message brut.
       setActionMessage(
         e instanceof PublishCgvError && e.reason === "stale_context"
           ? t("legalCgvPublishStale")
           : t("legalCgvPublishFailed")
       );
-    } finally {
       setSaving(false);
     }
   }
 
+  /**
+   * CGV W2 (W2-4/W2-5/W2-6) -- même garde à trois points que les trois
+   * autres mutations ci-dessus ; `activateMerchantCgv` passe désormais
+   * par la frontière serveur additive (lib/server/legal-cgv-activate-
+   * service.ts), qui déclenche l'invalidation de /legal/<slug> -- rien
+   * de plus à faire ici pour W2-6, uniquement consommer le résultat.
+   */
   async function activate() {
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
     try {
-      await activateMerchantCgv(restaurantId);
-      await load(restaurantId);
+      await activateMerchantCgv(targetRestaurantId);
+      // Garde 1 -- après la mutation, AVANT toute relecture.
+      if (!isOperationCurrent()) return;
+      await load(targetRestaurantId);
+      // Garde 2 -- après la relecture, AVANT d'afficher le succès.
+      if (!isOperationCurrent()) return;
       setActionMessage(t("legalCgvActivated"));
+      setSaving(false);
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : t("legalCgvActivateFailed"));
-    } finally {
+      // Garde 3 -- chemin d'échec. W2-5 : jamais e.message brut --
+      // message stable/traduit uniquement, avec deux raisons
+      // spécifiques quand elles sont connues.
+      if (!isOperationCurrent()) return;
+      let message = t("legalCgvActivateFailed");
+      if (e instanceof ActivateCgvError) {
+        if (e.reason === "incomplete") message = t("legalCgvActivateIncomplete");
+        else if (e.reason === "not_published") message = t("legalCgvActivateNotPublished");
+      }
+      setActionMessage(message);
       setSaving(false);
     }
   }
@@ -387,7 +585,9 @@ export default function LegalCgvPage() {
   const restaurantName =
     mappings.find((m) => m.restaurant_id === restaurantId)?.restaurants?.name ?? operatorRestaurantName ?? "";
 
-  const preview = buildPreview();
+  // W2-3 -- la raison d'échec d'aperçu, pas seulement le HTML, doit
+  // atteindre la section 6 ci-dessous pour afficher un message distinct.
+  const previewResult = buildPreviewResult();
 
   return (
     <div className="min-h-screen bg-stone-50 pb-16">
@@ -400,8 +600,8 @@ export default function LegalCgvPage() {
       />
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         <h1 className="text-xl font-bold text-stone-900">{t("legalCgvTitle")}</h1>
-        {pageError && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{pageError}</p>}
-        {actionMessage && <p className="rounded-xl bg-stone-100 p-3 text-sm text-stone-700">{actionMessage}</p>}
+        {pageError && <p data-testid="legal-cgv-page-error" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{pageError}</p>}
+        {actionMessage && <p data-testid="legal-cgv-action-message" className="rounded-xl bg-stone-100 p-3 text-sm text-stone-700">{actionMessage}</p>}
         {!canEdit && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t("legalCgvReadOnly")}</p>}
 
         {/* CONTEXT HARDENING v1.1 (§5) -- PORTE DE PROVENANCE. Rien de
@@ -460,7 +660,7 @@ export default function LegalCgvPage() {
           </div>
           <input disabled={!canEdit} className="w-full rounded-lg border p-2 text-sm" placeholder="FR"
             value={legal.governing_country ?? ""} onChange={(e) => setLegal((p) => ({ ...p, governing_country: e.target.value.toUpperCase() }))} />
-          {canEdit && <button disabled={saving} onClick={saveLegal} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
+          {canEdit && <button data-testid="legal-cgv-save-legal" disabled={saving} onClick={saveLegal} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
         </section>
 
         {cgv && (
@@ -539,7 +739,7 @@ export default function LegalCgvPage() {
                   <option value="ACTUAL_WEIGHT_PRICE">{t("legalCgvWeightPricingModeActualWeight")}</option>
                 </select>
               </div>
-              {canEdit && <button disabled={saving} onClick={saveCgvProfile} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
+              {canEdit && <button data-testid="legal-cgv-save-cgv" disabled={saving} onClick={saveCgvProfile} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white">{t("legalCgvSave")}</button>}
             </section>
 
             <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4">
@@ -618,7 +818,7 @@ export default function LegalCgvPage() {
                     <li key={code}>{t(`legalCgvError_${code}`) !== `legalCgvError_${code}` ? t(`legalCgvError_${code}`) : code}</li>
                   ))}
                 </ul>
-              ) : preview ? (
+              ) : previewResult.reason === null ? (
                 // CGV DOCUMENT PRESENTATION v1 -- l'aperçu marchand
                 // utilise EXACTEMENT la même mise en page que la page
                 // publique (classe `cgv-document`), pour que ce que le
@@ -626,10 +826,12 @@ export default function LegalCgvPage() {
                 // client verra. Aucun contenu n'est modifié ici.
                 <div
                   className="cgv-document max-h-96 overflow-y-auto rounded-lg border p-3 text-sm"
-                  dangerouslySetInnerHTML={{ __html: preview }}
+                  dangerouslySetInnerHTML={{ __html: previewResult.html }}
                 />
               ) : (
-                <p className="text-sm text-stone-500">{t("legalCgvIncomplete")}</p>
+                // W2-3 -- message distinct selon la raison réelle de
+                // l'échec, jamais systématiquement "profil incomplet".
+                <p className="text-sm text-stone-500">{previewFailureMessage(previewResult.reason)}</p>
               )}
             </section>
 
@@ -638,11 +840,16 @@ export default function LegalCgvPage() {
               <p className="text-sm text-stone-500">{t("legalCgvStatus")}: <strong>{cgv.status}</strong></p>
               {canEdit && (
                 <div className="flex gap-2">
-                  <button disabled={saving || cgv.completeness_errors.length > 0} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                  {/* W2-1/W2-2 -- `!template` couvre à la fois "aucun
+                      modèle résolu pour ce pays" et "échec de
+                      get_applicable_cgv_template" (templateRow.error,
+                      voir load()) : dans les deux cas, publier n'a pas
+                      de sens tant qu'aucun modèle n'est en mémoire. */}
+                  <button data-testid="legal-cgv-publish" disabled={saving || cgv.completeness_errors.length > 0 || !template} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                     {t("legalCgvPublish")}
                   </button>
                   {cgv.status !== "CGV_ACTIVE" && (
-                    <button disabled={saving || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                    <button data-testid="legal-cgv-activate" disabled={saving || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                       {t("legalCgvActivate")}
                     </button>
                   )}
