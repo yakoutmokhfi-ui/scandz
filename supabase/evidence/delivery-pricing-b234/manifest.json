@@ -1,0 +1,71 @@
+{
+  "baseSha": "74b83a3cf21784066c3704156cadf80655598df6",
+  "baseTree": "d0cda1a23c4bd3c7a2851960afb75b45717dca05",
+  "node": "v24.18.0",
+  "platform": "win32",
+  "command": "node --experimental-strip-types --import ./tests/register.mjs --test --test-reporter=tap --test-concurrency=1 tests/*.test.ts",
+  "logs": {
+    "baseline": {
+      "tests": 4217,
+      "pass": 4183,
+      "fail": 34,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "57401adf33d845d449e6080f59d0addeec34252d4b585dd510e146f695b0fe5e",
+      "gzipSha256": "031a714b60f0a1780f015504e4091bb339b29919443551ca0acc66bf8524bc48"
+    },
+    "candidate": {
+      "tests": 4238,
+      "pass": 4204,
+      "fail": 34,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "b3181dc970c41ec0585c5b56380eae2b8d78755938276876b818b2e66835f640",
+      "gzipSha256": "cc9a3df1e4b48e5561f522f3a48577652003f10b7c466cae4a15b2491844a3f0"
+    },
+    "focused": {
+      "tests": 52,
+      "pass": 52,
+      "fail": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "f95fa7f424650f60ae1944b21d523d8a12cdd81d179d01ff9895cea454160925",
+      "gzipSha256": "1feb93ad347350940ba3084cc371afaf3ad8aa4765e94160e56f0a5fbeadeae3"
+    },
+    "v149-baseline-diagnostic": {
+      "tests": 18,
+      "pass": 17,
+      "fail": 1,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "77ea5832d8f37a3563381918072e393559bf790f8db0383862538f7f4b977fb6",
+      "gzipSha256": "1473659cdbe9652ba05aa3501da4d407e4f294a2bd3071923b9d98aecaaf285e"
+    },
+    "v149-candidate-diagnostic": {
+      "tests": 18,
+      "pass": 17,
+      "fail": 1,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "f188c53712f2d666e9e15855875601643d60065971f45dbcbcf7a22abd619bf3",
+      "gzipSha256": "89f8980ac8b7e57c51cae52fa93f2479f49e39dac5675d44c84fa450bb09a957"
+    }
+  },
+  "sourceSha256": {
+    "app/dashboard/delivery-pricing/page.tsx": "aa5616e2dca3fb1a30a995508da5f93645bec3865d6f501920eac69fa3346d51",
+    "lib/dashboard-types.ts": "3188410170696e2d90044e305bd2b4d2465cec471859a9e4ac65b2be7eb322ea",
+    "lib/i18n.ts": "c0d44d4d20f6c7d2928ef4a7fe52ff4e74c2adb1c8cf484cd6b00275efc6b470",
+    "lib/services/dashboard.ts": "5d2f452a4391c7e4a45cfa543611ec4c3ffac5bb9a9ff224162384e60b96588e",
+    "package-lock.json": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "package.json": "ff634ba662a71b68b45159ed0fc2e4e158718fade0ddf91e851ed9945db534e9",
+    "tests/delivery-pricing-operator-authorization-v1-2-canedit.dom.test.ts": "224ff717b819d58ab3857a87d3d1f967c6c0d98c8084d273f190ed1f6dcee705",
+    "tests/v106-dashboard-delivery-pricing.test.ts": "34e685cc1eeda5d42a458cf5b41239760308d0b6fb324d5d8593f3af4e2a3742",
+    "tests/v149-operator-dashboard-context-v1.dom.test.ts": "ac4d4df6e79b2b2ea2207fc3e3b9e0a185a87959999c137a81db9d1fd49dc1b3",
+    "components/dashboard/DeliveryPostcodeTester.tsx": "f9bb797e7b9ee202ddd2a1e6ab4d3d9f9be9ff27089908a88908e0c5c4f9d327",
+    "lib/delivery-rule-editor.ts": "3394e8bfbcb1763219ae01c134fa03c19eb41049a7888333949396afa1310cc8",
+    "supabase/migrations/20260930173129_delivery_pricing_b234.sql": "1cf8e8c2d7a024495b818f74b26dd4319a40b4fbc6522ccf3b70fd5f4cece183",
+    "supabase/tests/b234-bootstrap.mjs": "f3a778d27ec6134dc2eca4e0f09d8a7912528cb716b9e152122eb9a5bdd67036",
+    "tests/delivery-pricing-b234-sql.test.ts": "3022fbd22544ef70811786a621f440b34cec2b0c310a3ab46923e5e1de1f6342",
+    "tests/delivery-pricing-b234-ui.dom.test.ts": "e1f410b3acc0bb60771b592d22aab8960be8b09a824264c10bc49577261d21a8"
+  }
+}

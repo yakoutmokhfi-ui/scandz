@@ -1,0 +1,52 @@
+{
+  "baseSha": "74b83a3cf21784066c3704156cadf80655598df6",
+  "previousCandidateSha": "d5bc75c8b522fecc5a20c07ab5c188b3f31653bd",
+  "node": "v24.18.0",
+  "platform": "win32",
+  "command": "$env:TEMP = Join-Path (Get-Location) '.test-tmp'; $env:TMP=$env:TEMP; node --experimental-strip-types --import ./tests/register.mjs --test --test-reporter=tap --test-concurrency=1 tests/*.test.ts",
+  "targetedCommand": "node --experimental-strip-types --import ./tests/register.mjs --test --test-reporter=tap --test-concurrency=1 tests/delivery-pricing-b234-remediation.test.ts tests/delivery-pricing-b234-sql.test.ts tests/delivery-pricing-b234-ui.dom.test.ts tests/delivery-pricing-operator-authorization-v1-2-canedit.dom.test.ts tests/delivery-pricing-rule-stale-tenant.dom.test.ts tests/v106-dashboard-delivery-pricing.test.ts",
+  "typecheckCommand": "node node_modules/typescript/bin/tsc --noEmit --incremental false",
+  "typecheckExit": 0,
+  "logs": {
+    "baseline": {
+      "tests": 4217,
+      "pass": 4183,
+      "fail": 34,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "b09b01cc8261b19f0b221adc02392d6e5d7e94ebe7dae409b600ded9bfb82c73",
+      "gzipSha256": "aa54bc1e14d64bc2463f6d599f6d879c4b69e5aeffe507477f33f552e18b2460"
+    },
+    "candidate": {
+      "tests": 4249,
+      "pass": 4215,
+      "fail": 34,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "57f7a4191cb899294b3489df0b93228c7fc2cfd4747cc2ba7e650f24a2d162a5",
+      "gzipSha256": "6666ce091e4aa0b3c41bd6006d018908e558442e3ee70ae92ff74f5026b75155"
+    },
+    "targeted": {
+      "tests": 63,
+      "pass": 63,
+      "fail": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "537a60e81a4d757ed0c6b00605f651d60eb5f4dc7847a02f1f4795a77fd8dab4",
+      "gzipSha256": "5753bdcf8dbf3504cb3a494b9e9e293eb443c22581e914761ab05d32b6cafecb"
+    }
+  },
+  "sourceSha256": {
+    "app/dashboard/delivery-pricing/page.tsx": "fa8bbc7cb0f4291827ece9cf50c3cabbf339d06df59d7a41b14b9537c0c96ed6",
+    "lib/delivery-rule-editor.ts": "4711ed458f61ecc2ba699e58d05445712ea8eeb6e21f2f55cdd54921cb7670d3",
+    "lib/i18n.ts": "1e50edf475fcc8dace705f4b7b5c4c9f946f986c45a0d310d19ffcb48e179113",
+    "lib/services/dashboard.ts": "c2f0e555493f0e7fc0b780a576e3cda6fc9dc7a2c37e5b3469c352543e144ed6",
+    "supabase/migrations/20260930173129_delivery_pricing_b234.sql": "d6ed4130909d770b5f073b95877b8bc15f6534b8dc65075518041ce2133566eb",
+    "tests/delivery-pricing-b234-sql.test.ts": "dd5812522f7273a5b3ee3900e8d38b1c47ab3558c9b3d3f5df5e30285693fcc0",
+    "tests/delivery-pricing-b234-ui.dom.test.ts": "9e8866d30eaf0dbd4df96b82722b1ae1c7954f4459346a42bfe94c6698811e87",
+    "tests/delivery-pricing-operator-authorization-v1-2-canedit.dom.test.ts": "93d430a13d19d96f654a9b5eb690fcc80499465ca43f0dc40af758ae03af5268",
+    "tests/v149-operator-dashboard-context-v1.dom.test.ts": "3f16df215b1385f8f14a5dffae7bcbbc7fbd40b4d7aa82c4f425598de31ada4b",
+    "supabase/ROLLBACK-delivery-pricing-b234.sql": "3bc19c6fd87818264be93dc0026c28a27187a50cbb10758b65763d364a177d5a",
+    "tests/delivery-pricing-b234-remediation.test.ts": "8c56e7a1613a5e8d8a0ff4ec3710d6794eabd36c0a27218e797abac8dba476de"
+  }
+}

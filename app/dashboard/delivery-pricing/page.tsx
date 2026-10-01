@@ -9,6 +9,10 @@ import {
   getMerchantDeliveryMethodNotices,
   updateMerchantDeliveryFulfillmentPricing,
   updateMerchantDeliveryMethodNotice,
+  saveMerchantDeliveryRule,
+  moveMerchantDeliveryRule,
+  previewMerchantDeliveryRuleSave,
+  type DeliveryRulePayload,
 } from "@/lib/services/dashboard";
 import type {
   MerchantDeliveryFulfillmentPricingRule,
@@ -16,33 +20,23 @@ import type {
   MerchantRestaurant,
 } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
+import DeliveryPostcodeTester from "@/components/dashboard/DeliveryPostcodeTester";
+import { deliveryRuleErrorKey, parseZoneInput } from "@/lib/delivery-rule-editor";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, type Lang } from "@/lib/i18n";
 
-/**
- * Dashboard Delivery Pricing v1 — mission "SCANYM — CIO REQUIREMENT —
- * DASHBOARD DELIVERY PRICING v1 — SAFE MERCHANT EDITING ONLY".
- *
- * PÉRIMÈTRE STRICT : permet à un owner/manager d'éditer UNIQUEMENT
- * pricing_mode/fixed_fee/free_threshold/customer_text sur des règles
- * de livraison DÉJÀ configurées par Scanym. Aucun éditeur de routage,
- * de zone, de prestataire, ni de création/suppression de règle --
- * ces champs restent structurels et ne sont ni lus ni affichés ici
- * (voir get_merchant_delivery_fulfillment_pricing, qui ne les
- * retourne jamais).
- *
- * Save PAR RÈGLE (mission : "Per-rule Save is preferred for
- * simplicity"), chaque sauvegarde est atomique côté serveur (une
- * seule règle par appel RPC). Après un succès, les valeurs sont
- * RELUES depuis le serveur (jamais l'état client seul comme preuve de
- * persistance -- mission : "Do not use client state as final proof
- * of persistance").
- */
+// B234 extends this existing screen; tenant generation guards and notices are preserved.
 
 interface RuleDraft {
-  pricingMode: "fixed" | "free_above_threshold";
+  pricingMode: "free" | "fixed" | "free_above_threshold";
+  zones: string;
+  fulfillmentCode: string;
+  provider: DeliveryRulePayload["provider"];
+  enabled: boolean;
+  isFallback: boolean;
+  minItems: string;
   fixedFee: string;
   freeThreshold: string;
   customerText: string;
@@ -54,6 +48,12 @@ interface RuleDraft {
 function draftFromRule(rule: MerchantDeliveryFulfillmentPricingRule): RuleDraft {
   return {
     pricingMode: rule.pricingMode,
+    zones: (rule.zonePrefixes ?? []).join(", "),
+    fulfillmentCode: rule.fulfillmentCode ?? rule.fulfillmentLabel,
+    provider: rule.provider ?? "internal",
+    enabled: rule.enabled ?? true,
+    isFallback: rule.isFallback ?? false,
+    minItems: rule.minItems == null ? "" : String(rule.minItems),
     fixedFee: rule.fixedFee === null ? "" : String(rule.fixedFee),
     freeThreshold: rule.freeThreshold === null ? "" : String(rule.freeThreshold),
     customerText: rule.customerText ?? "",
@@ -134,6 +134,8 @@ export default function DeliveryPricingPage() {
   const enterDashboardContext = useCallback(
     (id: string) => {
       contextGenerationRef.current += 1;
+      setCreating(false);
+      setStructureBusy(false);
       guard.enterContext(id);
     },
     [guard]
@@ -143,6 +145,10 @@ export default function DeliveryPricingPage() {
   const [drafts, setDrafts] = useState<Record<string, RuleDraft>>({});
   const [modeDrafts, setModeDrafts] = useState<Record<string, ModeNoticeDraft>>({});
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [structureBusy, setStructureBusy] = useState(false);
+  const [testerRevision, setTesterRevision] = useState(0);
+  const rulesBusy = structureBusy || Object.values(drafts).some((draft) => draft.saving);
   const [pageError, setPageError] = useState<string | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
@@ -308,6 +314,7 @@ export default function DeliveryPricingPage() {
   }, [restaurantId, load]);
 
   function updateDraft(ruleId: string, patch: Partial<RuleDraft>) {
+    setTesterRevision((v) => v + 1);
     setDrafts((prev) => ({
       ...prev,
       [ruleId]: { ...prev[ruleId], ...patch, error: null, saved: false },
@@ -375,6 +382,7 @@ export default function DeliveryPricingPage() {
   }
 
   async function save(ruleId: string) {
+    if (!canEdit || rulesBusy) return;
     const draft = drafts[ruleId];
     if (!draft) return;
     const targetRestaurantId = restaurantId;
@@ -395,15 +403,15 @@ export default function DeliveryPricingPage() {
     // substitut : le serveur revalide tout, y compris ce que ce
     // formulaire ne pourrait pas produire (voir mission "SERVER
     // AUTHORITY").
-    const fee = Number(draft.fixedFee);
-    if (draft.fixedFee.trim() === "" || Number.isNaN(fee) || fee < 0) {
+    const fee = draft.pricingMode === "free" ? null : Number(draft.fixedFee.replace(",", "."));
+    if (draft.pricingMode !== "free" && (draft.fixedFee.trim() === "" || !Number.isFinite(fee) || fee! < 0)) {
       updateDraft(ruleId, { error: t("dpInvalidFee") });
       return;
     }
     let threshold: number | null = null;
     if (draft.pricingMode === "free_above_threshold") {
-      const parsedThreshold = Number(draft.freeThreshold);
-      if (draft.freeThreshold.trim() === "" || Number.isNaN(parsedThreshold) || parsedThreshold < 0) {
+      const parsedThreshold = Number(draft.freeThreshold.replace(",", "."));
+      if (draft.freeThreshold.trim() === "" || !Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
         updateDraft(ruleId, { error: t("dpInvalidThreshold") });
         return;
       }
@@ -420,8 +428,24 @@ export default function DeliveryPricingPage() {
       [ruleId]: { ...prev[ruleId], saving: true, error: null, saved: false },
     }));
     try {
-      await updateMerchantDeliveryFulfillmentPricing({
-        ruleId,
+      const rule: DeliveryRulePayload = {
+        fulfillmentCode: draft.fulfillmentCode, provider: draft.provider, zones: parseZoneInput(draft.zones),
+        enabled: draft.enabled, isFallback: draft.isFallback, pricingMode: draft.pricingMode, fixedFee: fee,
+        freeThreshold: threshold, customerText, minItems: draft.minItems.trim() === "" ? null : Number(draft.minItems),
+      };
+      if (!rule.enabled) {
+        const transition = await previewMerchantDeliveryRuleSave(targetRestaurantId, ruleId === "new" ? null : ruleId, rule.enabled);
+        if (!isOperationCurrent()) return;
+        if (transition !== "none" && !window.confirm(t(transition === "legacy-zones" ? "dpConfirmLegacyZones" : "dpConfirmLegacyUnavailable"))) {
+          setDrafts((prev) => ({ ...prev, [ruleId]: { ...prev[ruleId], saving: false } }));
+          return;
+        }
+        if (transition !== "none") rule.legacyConfirmation = transition;
+      }
+      if (ruleId === "new") {
+        await saveMerchantDeliveryRule(targetRestaurantId, null, rule);
+      } else await updateMerchantDeliveryFulfillmentPricing({
+        ruleId, restaurantId: targetRestaurantId, rule,
         pricingMode: draft.pricingMode,
         fixedFee: fee,
         freeThreshold: threshold,
@@ -436,15 +460,18 @@ export default function DeliveryPricingPage() {
       // d'afficher « Enregistré » (application synchrone ci-dessous).
       if (!isOperationCurrent()) return;
       setRows(next);
+      setCreating(false);
+      setTesterRevision((v) => v + 1);
       setDrafts((prev) => {
-        const merged = { ...prev };
-        const updated = next.find((r) => r.ruleId === ruleId);
-        merged[ruleId] = updated
-          ? { ...draftFromRule(updated), saved: true }
-          : { ...prev[ruleId], saving: false, saved: true };
+        const merged: Record<string, RuleDraft> = {};
+        for (const row of next) {
+          merged[row.ruleId] = row.ruleId === ruleId || !prev[row.ruleId]
+            ? { ...draftFromRule(row), saved: true }
+            : prev[row.ruleId];
+        }
         return merged;
       });
-    } catch {
+    } catch (error) {
       // Garde 3 -- chemin d'échec, AVANT d'afficher l'erreur.
       if (!isOperationCurrent()) return;
       // Erreur SÛRE pour le marchand uniquement -- jamais le message
@@ -452,10 +479,28 @@ export default function DeliveryPricingPage() {
       // (mission : "no SQL/internal security details").
       setDrafts((prev) => ({
         ...prev,
-        [ruleId]: { ...prev[ruleId], saving: false, error: t("dpSaveFailed") },
+        [ruleId]: { ...prev[ruleId], saving: false, error: t(deliveryRuleErrorKey(error)) },
       }));
     }
   }
+
+  async function moveRule(ruleId: string, otherRuleId: string) {
+    if (!canEdit || rulesBusy || creating) return;
+    const id = restaurantId, generation = contextGenerationRef.current;
+    const current = () => guard.currentRestaurantId() === id && contextGenerationRef.current === generation;
+    setStructureBusy(true); setPageError(null); setTesterRevision((v) => v + 1);
+    try {
+      await moveMerchantDeliveryRule(id, ruleId, otherRuleId);
+      if (current()) await load(id);
+    } catch (error) { if (current()) setPageError(t(deliveryRuleErrorKey(error))); }
+    finally { if (current()) setStructureBusy(false); }
+  }
+
+  const newRule: MerchantDeliveryFulfillmentPricingRule = {
+    ruleId: "new", fulfillmentLabel: t("dpNewZone"), fulfillmentCode: "", pricingMode: "fixed", fixedFee: null,
+    freeThreshold: null, customerText: null, customerTextHash: null, translations: null,
+  };
+  const editorRows = creating ? [...rowsInContext, newRule] : rowsInContext;
 
   if (loading) {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
@@ -487,7 +532,7 @@ export default function DeliveryPricingPage() {
         onSelectRestaurant={handleSelectRestaurant}
       />
 
-      <main className="mx-auto max-w-2xl px-4 py-6">
+      <main className="mx-auto max-w-3xl px-4 py-6">
         <a
           href={restaurantId ? `/dashboard?r=${restaurantId}` : "/dashboard"}
           className="mb-4 inline-flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-bold text-stone-800"
@@ -496,7 +541,7 @@ export default function DeliveryPricingPage() {
         </a>
 
         <h2 className="text-xl font-black text-stone-900">{t("dpTitle")}</h2>
-        <p className="mt-1 text-sm text-stone-500">{t("dpHint")}</p>
+        <p className="mt-1 text-sm text-stone-500">{t("dpZonesHint")}</p>
 
         {!canEdit && (
           <p className="mt-3 rounded-xl bg-stone-100 p-3 text-sm text-stone-600">
@@ -568,81 +613,114 @@ export default function DeliveryPricingPage() {
           </section>
         )}
 
-        {rowsInContext.map((rule) => {
+        {canEdit && pricingLoadedRestaurantId === restaurantId && (
+          <button type="button" disabled={creating || rulesBusy} onClick={() => { setDrafts((prev) => ({ ...prev, new: draftFromRule(newRule) })); setCreating(true); }} className="mt-5 rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{t("dpNewZone")}</button>
+        )}
+        {editorRows.map((rule, index) => {
           const draft = drafts[rule.ruleId] ?? draftFromRule(rule);
           return (
             <section
               key={rule.ruleId}
+              data-delivery-rule={rule.ruleId}
               className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
             >
               <h3 className="font-bold text-stone-900">{rule.fulfillmentLabel}</h3>
+              <p className="mt-1 text-sm font-semibold">{rule.pricingMode === "free" ? t("dpFree") : rule.fixedFee != null ? `${Number(rule.fixedFee).toFixed(2)}` : "—"} · {rule.isFallback ? t("dpFallback") : `${t("dpPriority")} ${index + 1}`} · {rule.enabled === false ? t("dpDisabled") : t("dpEnabled")}</p>
+              <p className="text-sm text-stone-600">{(rule.zonePrefixes ?? []).join(", ")}</p>
 
-              <label className="mt-3 block text-xs font-semibold text-stone-600">
+              <label htmlFor={`rule-${rule.ruleId}-pricing`} className="mt-3 block text-xs font-semibold text-stone-600">
                 {t("dpPricingMode")}
               </label>
-              <select
+              <select id={`rule-${rule.ruleId}-pricing`}
                 value={draft.pricingMode}
-                disabled={!canEdit}
+                disabled={!canEdit || rulesBusy}
                 onChange={(e) =>
                   updateDraft(rule.ruleId, {
-                    pricingMode: e.target.value as "fixed" | "free_above_threshold",
+                    pricingMode: e.target.value as RuleDraft["pricingMode"],
                   })
                 }
                 className="mt-1 w-full rounded-xl border border-stone-300 bg-white p-2.5 text-sm disabled:bg-stone-50"
               >
+                <option value="free">{t("dpFree")}</option>
                 <option value="fixed">{t("dpFixed")}</option>
                 <option value="free_above_threshold">{t("dpFreeAboveThreshold")}</option>
               </select>
 
-              <label className="mt-3 block text-xs font-semibold text-stone-600">
+              <label htmlFor={`rule-${rule.ruleId}-fee`} className="mt-3 block text-xs font-semibold text-stone-600">
                 {t("dpFixedFee")}
               </label>
-              <input
+              <input id={`rule-${rule.ruleId}-fee`}
                 type="number"
                 min="0"
                 step="0.01"
                 inputMode="decimal"
                 value={draft.fixedFee}
-                disabled={!canEdit}
+                disabled={!canEdit || rulesBusy || draft.pricingMode === "free"}
                 onChange={(e) => updateDraft(rule.ruleId, { fixedFee: e.target.value })}
                 className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
               />
 
               {draft.pricingMode === "free_above_threshold" && (
                 <>
-                  <label className="mt-3 block text-xs font-semibold text-stone-600">
+                  <label htmlFor={`rule-${rule.ruleId}-threshold`} className="mt-3 block text-xs font-semibold text-stone-600">
                     {t("dpFreeThreshold")}
                   </label>
-                  <input
+                  <input id={`rule-${rule.ruleId}-threshold`}
                     type="number"
                     min="0"
                     step="0.01"
                     inputMode="decimal"
                     value={draft.freeThreshold}
-                    disabled={!canEdit}
+                    disabled={!canEdit || rulesBusy}
                     onChange={(e) => updateDraft(rule.ruleId, { freeThreshold: e.target.value })}
                     className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
                   />
                 </>
               )}
 
-              <label className="mt-3 block text-xs font-semibold text-stone-600">
+              <label htmlFor={`rule-${rule.ruleId}-text`} className="mt-3 block text-xs font-semibold text-stone-600">
                 {t("dpCustomerText")}
               </label>
-              <textarea
+              <textarea id={`rule-${rule.ruleId}-text`}
                 value={draft.customerText}
-                disabled={!canEdit}
+                disabled={!canEdit || rulesBusy}
                 maxLength={500}
                 rows={3}
                 onChange={(e) => updateDraft(rule.ruleId, { customerText: e.target.value })}
                 className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
               />
 
+              <label className="mt-3 block text-xs font-semibold text-stone-600">
+                {t("dpZoneName")}
+                <input value={draft.fulfillmentCode} maxLength={60} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { fulfillmentCode: e.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" />
+              </label>
+              <label className="mt-3 block text-xs font-semibold text-stone-600">
+                {t("dpZones")}
+                <textarea value={draft.zones} disabled={!canEdit || rulesBusy} rows={2} onChange={(e) => updateDraft(rule.ruleId, { zones: e.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" />
+              </label>
+              <p className="text-xs text-stone-500">{t("dpZonesInputHint")}</p>
+              <div className="mt-3 flex flex-wrap gap-5 text-sm">
+                <label><input type="checkbox" checked={draft.isFallback} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { isFallback: e.target.checked })} /> {t("dpFallback")}</label>
+                <label><input type="checkbox" checked={draft.enabled} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { enabled: e.target.checked })} /> {t("dpEnabled")}</label>
+              </div>
+              {draft.isFallback && <p className="mt-2 text-xs text-stone-600">{t("dpFallbackHint")}</p>}
+              <label className="mt-3 block text-xs font-semibold text-stone-600">{t("dpProvider")}
+                <select value={draft.provider} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { provider: e.target.value as DeliveryRulePayload["provider"] })} className="mt-1 w-full rounded-xl border p-2.5 text-sm">
+                  <option value="internal">{t("dpInternal")}</option><option value="stuart">Stuart</option><option value="chronofresh">Chronofresh</option><option value="other_external">{t("dpOtherProvider")}</option>
+                </select>
+              </label>
+              <label className="mt-3 block text-xs font-semibold text-stone-600">{t("dpMinItems")}
+                <input type="number" min="0" step="1" value={draft.minItems} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { minItems: e.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm" />
+              </label>
+              {canEdit && rule.ruleId !== "new" && <div className="mt-3 flex gap-3">
+                <button type="button" disabled={rulesBusy || creating || index === 0} onClick={() => void moveRule(rule.ruleId, rowsInContext[index - 1].ruleId)}>{t("dpMoveUp")}</button>
+                <button type="button" disabled={rulesBusy || creating || index >= rowsInContext.length - 1} onClick={() => void moveRule(rule.ruleId, rowsInContext[index + 1].ruleId)}>{t("dpMoveDown")}</button>
+              </div>}
               {canEdit && (
                 <div className="mt-3 flex items-center gap-3">
                   <button
                     type="button"
-                    disabled={draft.saving}
+                    disabled={rulesBusy}
                     onClick={() => save(rule.ruleId)}
                     className="rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
                   >
@@ -663,6 +741,8 @@ export default function DeliveryPricingPage() {
             </section>
           );
         })}
+        {creating && <button type="button" disabled={rulesBusy} onClick={() => setCreating(false)} className="mt-2 text-sm underline">{t("dpCancel")}</button>}
+        {pricingLoadedRestaurantId === restaurantId && <DeliveryPostcodeTester key={`${restaurantId}:${contextGenerationRef.current}`} restaurantId={restaurantId} revision={testerRevision} lang={uiLang} />}
       </main>
     </>
   );

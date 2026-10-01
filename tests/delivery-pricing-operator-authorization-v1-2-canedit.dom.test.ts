@@ -117,6 +117,11 @@ export async function updateMerchantDeliveryFulfillmentPricing(args) {
   (globalThis).__mockUpdateCalls.push(args);
 }
 export async function updateMerchantDeliveryMethodNotice() {}
+export async function getMerchantDeliveryTestCountries() { return [{code:"FR",name:"France"},{code:"BE",name:"Belgique"}]; }
+export async function testMerchantDeliveryPostcode(args) { globalThis.__mockTesterCalls.push(args); return {status:"resolved",eligible:true,fulfillment_rule_id:"rule-target-1",provider:"chronofresh",fulfillment_code:"Operational route",delivery_fee:4.5}; }
+export async function saveMerchantDeliveryRule() { throw new Error("Unexpected creation call"); }
+export async function previewMerchantDeliveryRuleSave() { return "none"; }
+export async function moveMerchantDeliveryRule() { throw new Error("Unexpected move call"); }
 `;
 
 const mocks: Record<string, string> = {
@@ -192,13 +197,14 @@ function resetGlobalMockState(opts: { isOperator: boolean; role: "owner" | "mana
     ? [{ restaurant_id: TARGET_ID, role: opts.role, restaurants: { id: TARGET_ID, name: TARGET_NAME, slug: "fixture-cible" } }]
     : [];
   (globalThis as any).__mockUpdateCalls = [];
+  (globalThis as any).__mockTesterCalls = [];
 }
 
 async function renderAndGetInputs() {
   window.history.pushState({}, "", `/dashboard/delivery-pricing?r=${TARGET_ID}`);
   const { container, root } = render(DeliveryPricingPage);
   await waitFor(() => container.textContent!.includes("Livraison standard"));
-  const inputs = [...container.querySelectorAll("input")] as HTMLInputElement[];
+  const inputs = [...container.querySelectorAll("[data-delivery-rule] input, [data-delivery-rule] select, [data-delivery-rule] textarea")] as HTMLInputElement[];
   assert.ok(inputs.length > 0, "les règles doivent être rendues");
   return { container, root, inputs };
 }
@@ -254,6 +260,28 @@ test("5. Non-opérateur + mapping staff -> NON éditable (contrat marchand incha
   for (const input of inputs) assert.equal(input.disabled, true, "staff non-opérateur ne doit jamais éditer");
   root.unmount();
   container.remove();
+});
+
+test('B-D-1: staff may edit postcode tester inputs and read operational routing, never rule configuration',async()=>{
+  resetGlobalMockState({isOperator:false,role:'staff'});
+  const {container,root,inputs}=await renderAndGetInputs();
+  for(const input of inputs) assert.equal(input.disabled,true,'every rule input/select/textarea remains gated by canEdit');
+  await waitFor(()=>!!container.querySelector('[aria-labelledby="postcode-test-title"] select'));
+  const tester=container.querySelector('[aria-labelledby="postcode-test-title"]')!;
+  const controls=[...tester.querySelectorAll('input,select')] as Array<HTMLInputElement|HTMLSelectElement>;
+  assert.equal(controls.length,4,'postcode, amount, quantity and country are intentionally available to read-authorized staff');
+  for(const input of controls) assert.equal(input.disabled,false,'tester inputs are read-only simulation parameters, not mutation controls');
+  const submit=tester.querySelector('button')!;
+  assert.equal(submit.disabled,false);
+  // Dispatch the form submission; this test isolates authorization, while the
+  // real-service DOM suite covers input validation and SQL transport.
+  tester.querySelector('form')!.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
+  await waitFor(()=>tester.textContent!.includes('Operational route'));
+  assert.match(tester.textContent!,/chronofresh/,'CIO-approved staff read of provider');
+  assert.equal((globalThis as any).__mockTesterCalls.length,1);
+  assert.equal((globalThis as any).__mockUpdateCalls.length,0,'simulation never invokes mutation');
+  for(const b of container.querySelectorAll('[data-delivery-rule] button')) assert.equal((b as HTMLButtonElement).disabled,true,'staff cannot save or move rules');
+  root.unmount();container.remove();
 });
 
 test("6. Non-opérateur + mapping manager -> éditable (contrat marchand inchangé)", async () => {

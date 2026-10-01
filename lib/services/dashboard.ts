@@ -1329,19 +1329,14 @@ export async function getRestaurantTranslationSettings(
 }
 
 // ------------------------------------------------------------------
-// Dashboard Delivery Pricing v1 -- édition marchand (owner/manager)
-// des 4 champs de tarification d'une règle de livraison DÉJÀ
-// configurée par Scanym (pricing_mode/fixed_fee/free_threshold/
-// customer_text). Tout le reste (provider, fulfillment_code,
-// zone_prefixes, is_fallback, display_order, enabled) reste
-// structurel et n'apparaît jamais dans ces fonctions -- voir
-// supabase/DRAFT-lot-merchant-delivery-pricing.sql pour les deux RPC
-// SECURITY DEFINER correspondantes et leur contrôle d'autorisation.
+// Delivery pricing: authenticated tenant reads and owner/manager/operator edits.
+// B234 extends the read projection and adds structural mutations below.
+// Existing price-only callers retain their original RPC contract.
 // ------------------------------------------------------------------
 
 /** Lecture : tout membre (owner/manager/staff) peut consulter -- seule
  *  l'écriture (updateMerchantDeliveryFulfillmentPricing) est réservée
- *  owner/manager, contrôlé côté serveur par la RPC elle-même. */
+ *  owner/manager ou opérateur Scanym, contrôlé côté serveur par la RPC. */
 export async function getMerchantDeliveryFulfillmentPricing(
   restaurantId: string
 ): Promise<MerchantDeliveryFulfillmentPricingRule[]> {
@@ -1352,7 +1347,9 @@ export async function getMerchantDeliveryFulfillmentPricing(
   return ((data ?? []) as Array<{
     rule_id: string;
     fulfillment_label: string;
-    pricing_mode: "fixed" | "free_above_threshold";
+    pricing_mode: "free" | "fixed" | "free_above_threshold";
+    zone_prefixes: string[]; display_order: number; is_fallback: boolean; enabled: boolean;
+    provider: MerchantDeliveryFulfillmentPricingRule["provider"]; fulfillment_code: string; min_items: number | null;
     fixed_fee: number | string | null;
     free_threshold: number | string | null;
     customer_text: string | null;
@@ -1361,6 +1358,8 @@ export async function getMerchantDeliveryFulfillmentPricing(
     translations?: Translations | null;
   }>).map((row) => ({
     ruleId: row.rule_id,
+    zonePrefixes: row.zone_prefixes, displayOrder: row.display_order, isFallback: row.is_fallback,
+    enabled: row.enabled, provider: row.provider, fulfillmentCode: row.fulfillment_code, minItems: row.min_items,
     fulfillmentLabel: row.fulfillment_label,
     pricingMode: row.pricing_mode,
     fixedFee: row.fixed_fee === null ? null : Number(row.fixed_fee),
@@ -1380,11 +1379,17 @@ export async function getMerchantDeliveryFulfillmentPricing(
  *  persistance). */
 export async function updateMerchantDeliveryFulfillmentPricing(params: {
   ruleId: string;
-  pricingMode: "fixed" | "free_above_threshold";
-  fixedFee: number;
+  pricingMode: "free" | "fixed" | "free_above_threshold";
+  fixedFee: number | null;
+  restaurantId?: string;
+  rule?: DeliveryRulePayload;
   freeThreshold: number | null;
   customerText: string | null;
 }): Promise<void> {
+  if (params.restaurantId && params.rule) {
+    await saveMerchantDeliveryRule(params.restaurantId, params.ruleId, params.rule);
+    return;
+  }
   const { error } = await supabase.rpc("update_merchant_delivery_fulfillment_pricing", {
     p_rule_id: params.ruleId,
     p_pricing_mode: params.pricingMode,
@@ -1486,4 +1491,83 @@ export async function getMerchantPaymentProviderConfig(
     lastVerifiedAt: row.last_verified_at,
     updatedAt: row.updated_at,
   }));
+}
+
+/** B234: structural writes are explicit tenant-scoped RPCs, never table writes. */
+export interface DeliveryRulePayload {
+  legacyConfirmation?: "legacy-zones" | "legacy-unavailable";
+  fulfillmentCode: string;
+  provider: "internal" | "stuart" | "chronofresh" | "other_external";
+  zones: string[];
+  enabled: boolean;
+  isFallback: boolean;
+  pricingMode: "free" | "fixed" | "free_above_threshold";
+  fixedFee: number | null;
+  freeThreshold: number | null;
+  customerText: string | null;
+  minItems: number | null;
+}
+
+export class DeliveryRuleError extends Error {
+  details: string | null;
+  constructor(message: string, details: string | null = null) {
+    super(message);
+    this.name = "DeliveryRuleError";
+    this.details = details;
+  }
+}
+
+export async function saveMerchantDeliveryRule(restaurantId: string, ruleId: string | null, payload: DeliveryRulePayload): Promise<string> {
+  const { data, error } = await supabase.rpc("mutate_merchant_delivery_rule", {
+    p_restaurant_id: restaurantId, p_action: "save", p_rule_id: ruleId, p_payload: payload,
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+  return String(data);
+}
+
+export async function moveMerchantDeliveryRule(restaurantId: string, ruleId: string, otherRuleId: string): Promise<void> {
+  const { error } = await supabase.rpc("mutate_merchant_delivery_rule", {
+    p_restaurant_id: restaurantId, p_action: "move", p_rule_id: ruleId, p_payload: { otherRuleId },
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+}
+
+export async function previewMerchantDeliveryRuleSave(restaurantId: string, ruleId: string | null, enabled: boolean): Promise<"none" | "legacy-zones" | "legacy-unavailable"> {
+  const { data, error } = await supabase.rpc("preview_merchant_delivery_rule_save", {
+    p_restaurant_id: restaurantId, p_rule_id: ruleId, p_enabled: enabled,
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+  if (data !== "none" && data !== "legacy-zones" && data !== "legacy-unavailable") throw new Error("Unexpected transition preview");
+  return data;
+}
+
+export interface DeliveryPostcodeResult {
+  status: "resolved" | "legacy" | "country-required" | "country-not-allowed" | "invalid-postcode" | "mode-disabled";
+  eligible: boolean | null;
+  fulfillment_rule_id?: string | null;
+  fulfillment_code?: string | null;
+  provider?: string | null;
+  matched_prefix?: string | null;
+  is_fallback?: boolean;
+  delivery_fee?: number | string | null;
+  customer_text?: string | null;
+  block?: string | null;
+  missing?: number | null;
+}
+
+export async function testMerchantDeliveryPostcode(params: {
+  restaurantId: string; postalCode: string; countryCode: string | null; subtotal: number; totalCount: number;
+}): Promise<DeliveryPostcodeResult> {
+  const { data, error } = await supabase.rpc("test_merchant_delivery_postcode", {
+    p_restaurant_id: params.restaurantId, p_postal_code: params.postalCode, p_country_code: params.countryCode,
+    p_subtotal: params.subtotal, p_total_count: params.totalCount,
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+  return data as DeliveryPostcodeResult;
+}
+
+export async function getMerchantDeliveryTestCountries(restaurantId: string): Promise<Array<{code: string; name: string}>> {
+  const { data, error } = await supabase.rpc("get_restaurant_public_delivery_countries", { p_restaurant_id: restaurantId });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: { country_code: string; country_name: string }) => ({ code: r.country_code, name: r.country_name }));
 }
