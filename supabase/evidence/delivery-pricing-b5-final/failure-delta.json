@@ -1,0 +1,18 @@
+{
+  "baseline": {
+    "tests": 4491,
+    "pass": 4477,
+    "fail": 14,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "candidate": {
+    "tests": 4506,
+    "pass": 4492,
+    "fail": 14,
+    "cancelled": 0,
+    "skipped": 0
+  },
+  "newFailures": [],
+  "resolvedFailures": []
+}
