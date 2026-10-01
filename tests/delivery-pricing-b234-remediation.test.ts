@@ -4,8 +4,8 @@ import { makeDeliveryDb, sqlFile } from '../supabase/tests/b234-bootstrap.mjs';
 
 const db=await makeDeliveryDb();
 after(()=>db.close());
-const forward=sqlFile('migrations/20260930173129_delivery_pricing_b234.sql');
-const rollback=sqlFile('ROLLBACK-delivery-pricing-b234.sql');
+const forward=sqlFile('DRAFT-lot-delivery-pricing-v2-b234.sql');
+const rollback=sqlFile('DRAFT-lot-delivery-pricing-v2-b234-ROLLBACK.sql');
 const A='00000000-0000-4000-8000-000000000901';
 const snapshot=async()=>({
   functions:(await db.query(`select n.nspname,p.proname,pg_get_functiondef(p.oid) definition,p.proacl::text acl,pg_get_userbyid(p.proowner) owner,obj_description(p.oid,'pg_proc') description
@@ -17,6 +17,28 @@ const snapshot=async()=>({
 
 test('B234 rollback preserves the original schema inventory on first installation',async()=>{
   const before=await snapshot();await db.exec(forward);await db.exec(rollback);assert.deepEqual(await snapshot(),before);
+});
+
+test('B-D-2: column-only UPDATE grants fail closed before DDL and in postflight',async()=>{
+  const columns=['zone_prefixes','provider','is_fallback','display_order','fulfillment_code','enabled','pricing_mode','fixed_fee','free_threshold','customer_text','min_items'];
+  for(const column of columns) {
+    await db.exec(`begin; grant update (${column}) on public.restaurant_sale_mode_fulfillments to authenticated;`);
+    assert.equal((await db.query<{allowed:boolean}>("select has_table_privilege('authenticated','public.restaurant_sale_mode_fulfillments','UPDATE') allowed")).rows[0].allowed,false,'table-only check misses this grant');
+    assert.equal((await db.query<{allowed:boolean}>("select has_column_privilege('authenticated','public.restaurant_sale_mode_fulfillments',$1,'UPDATE') allowed",[column])).rows[0].allowed,true);
+    await db.exec(`create function public.forbid_b234_ddl() returns event_trigger language plpgsql as $$begin raise exception 'DDL_WAS_ATTEMPTED'; end$$;
+      create event trigger forbid_b234_ddl on ddl_command_start execute function public.forbid_b234_ddl();`);
+    await assert.rejects(()=>db.exec(forward.replace(/^begin;$/m,'')),/B234_DIRECT_WRITE_GRANT_UNEXPECTED/,column);
+    await db.exec('rollback');
+  }
+  const postflight=forward.slice(forward.lastIndexOf('do $$ declare role_name text;'),forward.lastIndexOf('commit;'));
+  assert.ok(postflight.includes('has_any_column_privilege'));
+  await db.exec(forward);
+  for(const column of columns) {
+    await db.exec(`begin; grant update (${column}) on public.restaurant_sale_mode_fulfillments to authenticated;`);
+    await assert.rejects(()=>db.exec(postflight),/B234_DIRECT_WRITE_GRANT_UNEXPECTED/,column);
+    await db.exec('rollback');
+  }
+  await db.exec(rollback);
 });
 
 test('B234 preflight rejects each missing dependency before even an attempted DDL',async()=>{

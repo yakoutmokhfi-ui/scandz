@@ -7,7 +7,7 @@ import type { ZoneValidationInput } from "../lib/delivery-zone-validation-types.
 
 const db = await makeDeliveryDb();
 after(async () => { await db.close(); });
-const migration = "migrations/20260930173129_delivery_pricing_b234.sql";
+const migration = "DRAFT-lot-delivery-pricing-v2-b234.sql";
 await db.exec(sqlFile(migration));
 const id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const A=id(1), B=id(2), owner=id(3), manager=id(4), staff=id(5), operator=id(6), stranger=id(7), item=id(8);
@@ -98,9 +98,23 @@ test("other tenant, staff write, anon and unauthenticated claims rejected",async
 });
 test("no direct writes or direct resolver execution granted to application roles",async()=>{
   for(const role of ['anon','authenticated']){
+    assert.equal((await db.query<{allowed:boolean}>("select has_any_column_privilege($1,'public.restaurant_sale_mode_fulfillments','UPDATE') allowed",[role])).rows[0].allowed,false);
+    for(const column of ['zone_prefixes','provider','is_fallback','display_order','fulfillment_code','enabled','pricing_mode','fixed_fee','free_threshold','customer_text','min_items']) {
+      assert.equal((await db.query<{allowed:boolean}>("select has_column_privilege($1,'public.restaurant_sale_mode_fulfillments',$2,'UPDATE') allowed",[role,column])).rows[0].allowed,false,`${role}.${column}`);
+      for(const uid of [owner,staff]) await assert.rejects(()=>userQuery(`update restaurant_sale_mode_fulfillments set ${column}=${column} where id=$1`,[localRule],uid,role),/permission denied/);
+    }
     await assert.rejects(()=>userQuery('update restaurant_sale_mode_fulfillments set fixed_fee=0 where id=$1',[localRule],owner,role),/permission denied/);
     await assert.rejects(()=>userQuery("select * from resolve_delivery_fulfillment($1,'delivery','75018',1,10)",[A],owner,role),/permission denied/);
   }
+});
+
+test('B-D-2: CIO-approved staff READ of provider/fulfillment_code; mutations remain forbidden',async()=>{
+  const rows=(await userQuery('select * from get_merchant_delivery_fulfillment_pricing($1)',[A],staff)).rows;
+  const expected=rows.find(r=>r.rule_id===fallback)!;
+  assert.equal(expected.provider,'chronofresh');assert.equal(expected.fulfillment_code,'Reste du territoire');
+  const tested=(await userQuery("select test_merchant_delivery_postcode($1,'69001','FR',10,1) r",[A],staff)).rows[0].r;
+  assert.equal(tested.provider,expected.provider);assert.equal(tested.fulfillment_code,expected.fulfillment_code);
+  await rejectsUnchanged(()=>save(payload(),localRule,staff),/Not authorized/);
 });
 test("duplicates, covered zones, empty active rules and second fallback fail atomically",async()=>{
   for(const p of [payload(),payload({zones:['92000']}),payload({zones:[]}),payload({zones:[],isFallback:true})])

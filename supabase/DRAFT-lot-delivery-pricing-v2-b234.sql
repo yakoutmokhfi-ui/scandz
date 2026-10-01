@@ -1,4 +1,7 @@
 -- Delivery Pricing v2 B2+B3+B4. LOCAL / DRAFT ONLY. No Production/PREPROD execution.
+-- Manual-release DRAFT, paired with DRAFT-lot-delivery-pricing-v2-b234-ROLLBACK.sql.
+-- No CLI migration ledger/configuration is established by this lot.
+-- Column grants are independent of table grants: preflight and postflight reject both.
 -- B1 must be installed first. No changes to create_order, resolver or snapshots.
 begin;
 -- PREFLIGHT: no persistent DDL precedes the dependency and existing-data checks.
@@ -66,7 +69,8 @@ begin
   ) then raise exception 'B234_DEPENDENCY: unexpected predecessor read return %',actual; end if;
   foreach role_name in array array['anon','authenticated','service_role'] loop
     if not exists(select 1 from pg_roles where rolname=role_name) then raise exception 'B234_DEPENDENCY: role % missing',role_name; end if;
-    if role_name<>'service_role' and has_table_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE,DELETE') then
+    if role_name<>'service_role' and (has_table_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE,DELETE')
+      or has_any_column_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE')) then
       raise exception 'B234_DIRECT_WRITE_GRANT_UNEXPECTED: %',role_name;
     end if;
   end loop;
@@ -552,7 +556,8 @@ grant execute on function public.test_merchant_delivery_postcode(uuid,text,text,
 
 do $$ declare role_name text; begin
   foreach role_name in array array['anon','authenticated'] loop
-    if has_table_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE,DELETE') then
+    if has_table_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE,DELETE')
+      or has_any_column_privilege(role_name,'public.restaurant_sale_mode_fulfillments','INSERT,UPDATE') then
       raise exception 'B234_DIRECT_WRITE_GRANT_UNEXPECTED: %',role_name;
     end if;
   end loop;

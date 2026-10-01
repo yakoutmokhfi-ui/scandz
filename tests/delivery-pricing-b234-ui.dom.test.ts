@@ -10,7 +10,7 @@ import * as esbuild from "esbuild";
 import { makeDeliveryDb, sqlFile } from "../supabase/tests/b234-bootstrap.mjs";
 
 const db = await makeDeliveryDb();
-await db.exec(sqlFile("migrations/20260930173129_delivery_pricing_b234.sql"));
+await db.exec(sqlFile("DRAFT-lot-delivery-pricing-v2-b234.sql"));
 const A="00000000-0000-4000-8000-000000000201", B="00000000-0000-4000-8000-000000000202", user="00000000-0000-4000-8000-000000000203";
 await db.exec(`insert into auth.users(id,email) values ('${user}','ui@example.test');
   insert into restaurants(id,name,slug,status,is_active,country) values ('${A}','Fixture A','ui-a','active',true,'FR'),('${B}','Fixture B','ui-b','active',true,'FR');

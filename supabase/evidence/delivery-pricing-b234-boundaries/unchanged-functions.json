@@ -1,0 +1,25 @@
+{
+  "previousCandidateSha": "85ba126d86515c8e6fd9041be29f444c76b1848b",
+  "previous": {
+    "scanym_internal.delivery_zone_blockers": "4dfcfb31a54d0b45d44c855fb38d7c5b4c5ebe6d58f1e56ecf0fea6d03b0d07b",
+    "scanym_internal.delivery_postal_shape": "116dc78ed6641db2aed3491e47c97840989053ae627482f15a7080f4ee1c97a3",
+    "scanym_internal.assert_delivery_zones": "53481e37baddb781d9088e66d5c188743011685f89cfda9648ecb26199a07a22",
+    "scanym_internal.lock_delivery_rules": "6b6d1abbc1a4c83502def1f8f242cc94ec763e6626d48fd3901fdb3a673f308e",
+    "scanym_internal.check_delivery_rules": "fe9d87c34f573b437c3bf7148f71827afe2a3df3739d213851e48fa882938a6b",
+    "public.get_merchant_delivery_fulfillment_pricing": "69bc17753adf1515834ea9245e5dad289bf9ce06facd2cf0b2d0e442b2994999",
+    "public.preview_merchant_delivery_rule_save": "d586aa3846bd69e244920a0ca8167988ddebc9b8e09c39989d851c1e317c9663",
+    "public.mutate_merchant_delivery_rule": "8d9fafa1afad26abc7b761a8d94a7cc63866fe7f013a7fd868914a5c012d0fba",
+    "public.test_merchant_delivery_postcode": "41eb50a8d227f3dc7e33a98d933c370d3d16e3205e9fa5dae1abffe3fc89a555"
+  },
+  "current": {
+    "scanym_internal.delivery_zone_blockers": "4dfcfb31a54d0b45d44c855fb38d7c5b4c5ebe6d58f1e56ecf0fea6d03b0d07b",
+    "scanym_internal.delivery_postal_shape": "116dc78ed6641db2aed3491e47c97840989053ae627482f15a7080f4ee1c97a3",
+    "scanym_internal.assert_delivery_zones": "53481e37baddb781d9088e66d5c188743011685f89cfda9648ecb26199a07a22",
+    "scanym_internal.lock_delivery_rules": "6b6d1abbc1a4c83502def1f8f242cc94ec763e6626d48fd3901fdb3a673f308e",
+    "scanym_internal.check_delivery_rules": "fe9d87c34f573b437c3bf7148f71827afe2a3df3739d213851e48fa882938a6b",
+    "public.get_merchant_delivery_fulfillment_pricing": "69bc17753adf1515834ea9245e5dad289bf9ce06facd2cf0b2d0e442b2994999",
+    "public.preview_merchant_delivery_rule_save": "d586aa3846bd69e244920a0ca8167988ddebc9b8e09c39989d851c1e317c9663",
+    "public.mutate_merchant_delivery_rule": "8d9fafa1afad26abc7b761a8d94a7cc63866fe7f013a7fd868914a5c012d0fba",
+    "public.test_merchant_delivery_postcode": "41eb50a8d227f3dc7e33a98d933c370d3d16e3205e9fa5dae1abffe3fc89a555"
+  }
+}

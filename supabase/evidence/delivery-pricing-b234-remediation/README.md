@@ -1,5 +1,7 @@
 # B234 — narrow remediation for independent re-audit
 
+Historical evidence for candidate `85ba126d86515c8e6fd9041be29f444c76b1848b`. The subsequent CIO-approved boundary/governance correction and current manual SQL paths are documented in [the lot inventory](../../DRAFT-lot-delivery-pricing-v2-b234-EVIDENCE.md).
+
 Baseline: `74b83a3cf21784066c3704156cadf80655598df6`. Previous failed candidate: `d5bc75c8b522fecc5a20c07ab5c188b3f31653bd`. Same branch and draft PR #122; the new SHA/tree are published in that PR and orchestration issue #18. Exact delta: `git diff d5bc75c8b522fecc5a20c07ab5c188b3f31653bd <new-SHA>`.
 
 - **BLK-1:** forward preflight checks existing active configurations with B0 semantics before any persistent DDL. Failure details contain restaurant ID, slug, rule ID, zone and blocker. Empty active sets remain legal. No data cleanup. Mode triggers ignore pickup and metadata-only edits; delivery activation/identity changes still validate. Country identity/set changes still validate, while no-op updates do not. Multi-country union semantics are unchanged.
