@@ -19,6 +19,8 @@ import FulfillmentSelector from "@/components/FulfillmentSelector";
 import type { DeliveryCountryOption } from "@/lib/delivery-country";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
 import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog";
+import { DeliveryPostcodeResult } from "@/components/DeliveryConditions";
+import { isValidPostalCodeFor } from "@/lib/delivery-country";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
 import { normalizeOrderNote, ORDER_NOTE_MAX_LENGTH } from "@/lib/order-note";
@@ -37,6 +39,7 @@ export default function CartPanel({
   serviceMode,
   fulfillmentSelectionSeq,
   deliveryStatus,
+  deliveryPricingReady = true,
   deliveryCustomerNotice,
   displayItems,
   fieldRequirementsReady,
@@ -85,6 +88,7 @@ export default function CartPanel({
    *  générique. */
   fulfillmentSelectionSeq: number;
   deliveryStatus: DeliveryStatus;
+  deliveryPricingReady?: boolean;
   /** Message public du mode/routage sélectionné, déjà limité au tenant
    * courant par les RPC publiques. null conserve le parcours historique. */
   deliveryCustomerNotice: DeliveryCustomerNotice | null;
@@ -186,6 +190,7 @@ export default function CartPanel({
   const timingNoticeGuardRef = useRef(false);
 
   function requestOrderSubmission() {
+    if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (deliveryCustomerNotice) {
       setTimingNoticeOpen(true);
       return;
@@ -194,6 +199,7 @@ export default function CartPanel({
   }
 
   async function confirmTimingNotice() {
+    if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (timingNoticeGuardRef.current || timingNoticeConfirming || isSubmitting) return;
     timingNoticeGuardRef.current = true;
     setTimingNoticeConfirming(true);
@@ -359,7 +365,8 @@ export default function CartPanel({
    */
   const deliveryFee =
     serviceMode === "delivery" ? deliveryStatus.deliveryFee ?? 0 : 0;
-  const grandTotal = totalPrice + deliveryFee;
+  const pricingUnavailable = serviceMode === "delivery" && deliveryStatus.pricingUnavailable;
+  const grandTotal = (Math.round(totalPrice * 100) + Math.round(deliveryFee * 100)) / 100;
 
   /**
    * PRODUCT SERVICE MODES v1 -- modes de l'établissement qu'aucun
@@ -498,6 +505,10 @@ export default function CartPanel({
                 onConfirm={() => void confirmTimingNotice()}
                 onDismiss={() => setTimingNoticeOpen(false)}
               />
+              <DeliveryPostcodeResult key={restaurant.id}
+                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen}
+                contextKey={`${restaurant.id}:${deliveryCountry?.countryCode ?? ""}`}
+                postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency} />
 
               {serviceMode === "table" && (
                 <TableSelector
@@ -746,9 +757,10 @@ export default function CartPanel({
             <div className="mb-3 flex items-center justify-between font-bold">
               <span>{t("total")}</span>
               <span>
-                <Ltr>{formatPrice(grandTotal, currency)}</Ltr>
+                <Ltr>{pricingUnavailable ? "—" : formatPrice(grandTotal, currency)}</Ltr>
               </span>
             </div>
+            {pricingUnavailable && <p role="status" className="mb-3 text-sm">{t("deliveryPriceUnavailable")}</p>}
             {submitError && (
               // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- pastille
               // opaque fixe (bg-red-50/text-red-800, 7,60:1 vérifié),
@@ -807,7 +819,7 @@ export default function CartPanel({
                 reste EXACTEMENT celui d'avant ce lot : aucune case,
                 aucun lien, aucun blocage supplémentaire. */}
 
-            {canSubmit && noteState.isValid ? (
+            {canSubmit && noteState.isValid && !pricingUnavailable ? (
               <>
                 {cgvEnforced && (
                   <label className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted">

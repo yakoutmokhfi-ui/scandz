@@ -22,6 +22,7 @@ import type {
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DeliveryPostcodeTester from "@/components/dashboard/DeliveryPostcodeTester";
 import { deliveryRuleErrorKey, parseZoneInput } from "@/lib/delivery-rule-editor";
+import { deliveryDecimalUnits } from "@/lib/delivery-discount";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
@@ -30,6 +31,9 @@ import { translate, type Lang } from "@/lib/i18n";
 // B234 extends this existing screen; tenant generation guards and notices are preserved.
 
 interface RuleDraft {
+  discountEnabled: boolean;
+  discountThreshold: string;
+  discountPercentage: string;
   pricingMode: "free" | "fixed" | "free_above_threshold";
   zones: string;
   fulfillmentCode: string;
@@ -47,6 +51,9 @@ interface RuleDraft {
 
 function draftFromRule(rule: MerchantDeliveryFulfillmentPricingRule): RuleDraft {
   return {
+    discountEnabled: rule.discountEnabled ?? false,
+    discountThreshold: rule.discountThreshold == null ? "" : String(rule.discountThreshold),
+    discountPercentage: rule.discountPercentage == null ? "" : String(rule.discountPercentage),
     pricingMode: rule.pricingMode,
     zones: (rule.zonePrefixes ?? []).join(", "),
     fulfillmentCode: rule.fulfillmentCode ?? rule.fulfillmentLabel,
@@ -317,7 +324,7 @@ export default function DeliveryPricingPage() {
     setTesterRevision((v) => v + 1);
     setDrafts((prev) => ({
       ...prev,
-      [ruleId]: { ...prev[ruleId], ...patch, error: null, saved: false },
+      [ruleId]: { ...prev[ruleId], error: null, saved: false, ...patch },
     }));
   }
 
@@ -418,6 +425,13 @@ export default function DeliveryPricingPage() {
       threshold = parsedThreshold;
     }
     const customerText = draft.customerText.trim() === "" ? null : draft.customerText;
+    const discountThreshold = deliveryDecimalUnits(draft.discountThreshold, 99999999.99);
+    const discountPercentage = deliveryDecimalUnits(draft.discountPercentage, 100);
+    const emptyDiscount = !draft.discountEnabled && draft.discountThreshold.trim() === "" && draft.discountPercentage.trim() === "";
+    if (!emptyDiscount && (discountThreshold === null || discountPercentage === null)) {
+      updateDraft(ruleId, { error: t("dpInvalidDiscount") });
+      return;
+    }
     if (customerText !== null && customerText.length > 500) {
       updateDraft(ruleId, { error: t("dpTextTooLong") });
       return;
@@ -429,6 +443,9 @@ export default function DeliveryPricingPage() {
     }));
     try {
       const rule: DeliveryRulePayload = {
+        discountEnabled: draft.discountEnabled,
+        discountThreshold: emptyDiscount ? null : discountThreshold! / 100,
+        discountPercentage: emptyDiscount ? null : discountPercentage! / 100,
         fulfillmentCode: draft.fulfillmentCode, provider: draft.provider, zones: parseZoneInput(draft.zones),
         enabled: draft.enabled, isFallback: draft.isFallback, pricingMode: draft.pricingMode, fixedFee: fee,
         freeThreshold: threshold, customerText, minItems: draft.minItems.trim() === "" ? null : Number(draft.minItems),
@@ -677,6 +694,23 @@ export default function DeliveryPricingPage() {
                   />
                 </>
               )}
+
+              <fieldset disabled={!canEdit || rulesBusy} className="mt-4 space-y-3 rounded-xl border border-stone-200 p-3">
+                <legend className="px-1 text-sm font-semibold">{t("dpDiscountTitle")}</legend>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={draft.discountEnabled} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { discountEnabled: e.target.checked })} />
+                  {t("dpDiscountEnabled")}
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-semibold">{t("dpDiscountThreshold")}
+                    <input type="number" min="0" max="99999999.99" step="0.01" inputMode="decimal" value={draft.discountThreshold} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { discountThreshold: e.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm disabled:bg-stone-50" />
+                  </label>
+                  <label className="text-xs font-semibold">{t("dpDiscountPercentage")}
+                    <input type="number" min="0" max="100" step="0.01" inputMode="decimal" value={draft.discountPercentage} disabled={!canEdit || rulesBusy} onChange={(e) => updateDraft(rule.ruleId, { discountPercentage: e.target.value })} className="mt-1 w-full rounded-xl border p-2.5 text-sm disabled:bg-stone-50" />
+                  </label>
+                </div>
+                <p className="text-xs leading-relaxed text-stone-600">{t("dpDiscountHint")}</p>
+              </fieldset>
 
               <label htmlFor={`rule-${rule.ruleId}-text`} className="mt-3 block text-xs font-semibold text-stone-600">
                 {t("dpCustomerText")}

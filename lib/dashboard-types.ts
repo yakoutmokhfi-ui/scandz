@@ -193,6 +193,9 @@ export interface OperatorOrderSummary {
  * B234 adds zones, priority, activation and the existing provider/code fields.
  * Optional metadata preserves compatibility with older read-only consumers. */
 export interface MerchantDeliveryFulfillmentPricingRule {
+  discountEnabled?: boolean;
+  discountThreshold?: number | null;
+  discountPercentage?: number | null;
   zonePrefixes?: string[];
   displayOrder?: number;
   isFallback?: boolean;

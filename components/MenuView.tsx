@@ -58,6 +58,7 @@ import {
 } from "@/lib/invoice-request";
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
+import { DeliveryConditionsButton } from "@/components/DeliveryConditions";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
 import CollectionNav from "@/components/CollectionNav";
@@ -1649,6 +1650,7 @@ export default function MenuView({
         theme={settings.theme}
         banner={variant?.banner ?? settings.banner}
       />
+      {fulfillmentRulesState.status === "loaded" && <DeliveryConditionsButton key={restaurant.id} rules={fulfillmentRulesState.rules} currency={restaurant.config.currency} />}
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
           issuecomment-5875680103) : Tags/Collections transversaux
@@ -1818,6 +1820,7 @@ export default function MenuView({
           displayItems={displayItems}
           fieldRequirementsReady={fieldRequirementsReady}
           deliveryStatus={deliveryStatus}
+          deliveryPricingReady={fulfillmentRulesState.status === "loaded"}
           deliveryCustomerNotice={deliveryCustomerNotice}
           customer={customer}
           customerErrors={customerErrors}

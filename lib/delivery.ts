@@ -5,6 +5,7 @@ import type {
   DeliveryFulfillmentStatus,
 } from "@/lib/sale-modes-types";
 import { isValidPostalCode } from "@/lib/customer";
+import { deliveryDecimalUnits, discountedDeliveryCents, type DeliveryDiscountPolicy } from "@/lib/delivery-discount";
 import type { Translations } from "@/lib/types";
 
 // Ré-exportée : DeliveryZone devient le modèle COMMUN aux deux
@@ -16,6 +17,8 @@ export type { DeliveryZone };
 export type DeliveryBlock = "below-min" | "no-postal" | "out-of-zone";
 
 export interface DeliveryStatus {
+  pricingUnavailable?: boolean;
+  discountPolicy?: DeliveryDiscountPolicy;
   eligible: boolean;
   zone?: DeliveryZone;
   block?: DeliveryBlock;
@@ -261,21 +264,28 @@ export function getDeliveryStatusFromPublicInfo(
  * `PublicDeliveryFulfillmentRule`, voir lib/sale-modes-types.ts).
  */
 export function computeDeliveryFee(
-  rule: Pick<PublicDeliveryFulfillmentRule, "pricingMode" | "fixedFee" | "freeThreshold">,
+  rule: Pick<PublicDeliveryFulfillmentRule, "pricingMode" | "fixedFee" | "freeThreshold"> & DeliveryDiscountPolicy,
   subtotal: number
-): number {
-  const safeSubtotal = Number.isFinite(subtotal) && subtotal > 0 ? subtotal : 0;
+): number | undefined {
+  const safeSubtotal = Number.isFinite(subtotal) && subtotal > 0 ? Math.round(subtotal * 100) / 100 : 0;
+  let cents: number | null;
   switch (rule.pricingMode) {
     case "free":
       return 0;
     case "fixed":
-      return rule.fixedFee ?? 0;
+      cents = deliveryDecimalUnits(rule.fixedFee, 99999999.99);
+      break;
     case "free_above_threshold":
-      if (rule.freeThreshold !== null && safeSubtotal >= rule.freeThreshold) return 0;
-      return rule.fixedFee ?? 0;
+      if (deliveryDecimalUnits(rule.freeThreshold, 99999999.99) === null) return undefined;
+      if (safeSubtotal >= rule.freeThreshold!) return 0;
+      cents = deliveryDecimalUnits(rule.fixedFee, 99999999.99);
+      break;
     default:
-      return 0;
+      return undefined;
   }
+  if (cents === null) return undefined;
+  const discounted = discountedDeliveryCents(cents, safeSubtotal, rule);
+  return discounted === undefined ? undefined : discounted / 100;
 }
 
 export function resolveDeliveryFulfillment(
@@ -457,6 +467,11 @@ export function deliveryStatusFromFulfillmentResult(
       eligible: true,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
+      ...(result.matchedRule && result.deliveryFee === undefined ? { pricingUnavailable: true } : {}),
+      ...(result.matchedRule?.discountEnabled ? { discountPolicy: {
+        discountEnabled: true, discountThreshold: result.matchedRule.discountThreshold,
+        discountPercentage: result.matchedRule.discountPercentage,
+      } } : {}),
       customerNotice: result.customerText ?? null,
       customerNoticeHash: result.customerTextHash ?? null,
       customerNoticeTranslations: result.customerTextTranslations ?? null,
@@ -469,6 +484,11 @@ export function deliveryStatusFromFulfillmentResult(
       missing: result.missing,
       zone: { code: result.matchedPrefix ?? "", label: result.customerText ?? null },
       deliveryFee: result.deliveryFee,
+      ...(result.matchedRule && result.deliveryFee === undefined ? { pricingUnavailable: true } : {}),
+      ...(result.matchedRule?.discountEnabled ? { discountPolicy: {
+        discountEnabled: true, discountThreshold: result.matchedRule.discountThreshold,
+        discountPercentage: result.matchedRule.discountPercentage,
+      } } : {}),
       customerNotice: result.customerText ?? null,
       customerNoticeHash: result.customerTextHash ?? null,
       customerNoticeTranslations: result.customerTextTranslations ?? null,

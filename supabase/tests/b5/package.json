@@ -1,0 +1,7 @@
+{
+  "name": "scanym-b5-postgres-tests",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test --test-concurrency=1 *.test.mjs" },
+  "dependencies": { "@electric-sql/pglite": "0.5.8" }
+}

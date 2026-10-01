@@ -1,13 +1,13 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { makeDeliveryDb, sqlFile } from "../supabase/tests/b234-bootstrap.mjs";
+import { makeBaseline as makeDeliveryDb, readSql as sqlFile } from "../supabase/tests/b5/bootstrap.mjs";
 import { validateDeliveryZones } from "../lib/delivery-zone-validation.ts";
 import type { ZoneValidationInput } from "../lib/delivery-zone-validation-types.ts";
 
 const db = await makeDeliveryDb();
 after(async () => { await db.close(); });
-const migration = "DRAFT-lot-delivery-pricing-v2-b234.sql";
+const migration = "DRAFT-lot-delivery-pricing-v2-b5.sql";
 await db.exec(sqlFile(migration));
 const id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const A=id(1), B=id(2), owner=id(3), manager=id(4), staff=id(5), operator=id(6), stranger=id(7), item=id(8);

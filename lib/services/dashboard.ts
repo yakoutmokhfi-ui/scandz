@@ -1351,6 +1351,9 @@ export async function getMerchantDeliveryFulfillmentPricing(
     zone_prefixes: string[]; display_order: number; is_fallback: boolean; enabled: boolean;
     provider: MerchantDeliveryFulfillmentPricingRule["provider"]; fulfillment_code: string; min_items: number | null;
     fixed_fee: number | string | null;
+    discount_enabled?: boolean;
+    discount_threshold?: number | string | null;
+    discount_percentage?: number | string | null;
     free_threshold: number | string | null;
     customer_text: string | null;
     // TRANSLATIONS MANAGEMENT v2 -- colonnes ADDITIVES (voir ci-dessous).
@@ -1363,6 +1366,9 @@ export async function getMerchantDeliveryFulfillmentPricing(
     fulfillmentLabel: row.fulfillment_label,
     pricingMode: row.pricing_mode,
     fixedFee: row.fixed_fee === null ? null : Number(row.fixed_fee),
+    discountEnabled: row.discount_enabled ?? false,
+    discountThreshold: row.discount_threshold == null ? null : Number(row.discount_threshold),
+    discountPercentage: row.discount_percentage == null ? null : Number(row.discount_percentage),
     freeThreshold: row.free_threshold === null ? null : Number(row.free_threshold),
     customerText: row.customer_text,
     customerTextHash: row.customer_text_hash ?? null,
@@ -1495,6 +1501,9 @@ export async function getMerchantPaymentProviderConfig(
 
 /** B234: structural writes are explicit tenant-scoped RPCs, never table writes. */
 export interface DeliveryRulePayload {
+  discountEnabled?: boolean;
+  discountThreshold?: number | null;
+  discountPercentage?: number | null;
   legacyConfirmation?: "legacy-zones" | "legacy-unavailable";
   fulfillmentCode: string;
   provider: "internal" | "stuart" | "chronofresh" | "other_external";
