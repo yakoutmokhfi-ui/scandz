@@ -37,7 +37,7 @@ export default function CategoryNav({
         data-category-navigation="true"
         className="border-b border-espresso/10 bg-crema/95 backdrop-blur sm:sticky sm:top-0 sm:z-30"
       >
-        <div className="flex flex-wrap gap-2 px-4 py-3">
+        <div className="flex flex-wrap gap-2 px-4 py-2">
           {categories.map((category) => {
             const isActive = category.id === activeId;
             return (
@@ -46,7 +46,7 @@ export default function CategoryNav({
                 onClick={() => onSelect(category.id)}
                 aria-pressed={isActive}
                 className={
-                  "flex-1 basis-[8rem] rounded-xl px-4 py-3 text-center text-sm font-semibold transition-colors " +
+                  "min-h-11 flex-1 basis-[8rem] rounded-xl px-4 py-2 text-center text-sm font-semibold transition-colors " +
                   (isActive
                     ? "bg-caramel text-caramel-ink shadow-sm"
                     // Corrige UIFIX-01 : l'ancien fond blanc était un

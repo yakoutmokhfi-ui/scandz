@@ -105,7 +105,7 @@ export default function RestaurantInfoBar({
   if (cells.length === 0) return null;
 
   return (
-    <div className="px-4 pb-5">
+    <div className="px-4 pb-4">
       {/* Corrige V72-02 (contre-audit Work, 3e tour) : fond ENTIÈREMENT
           OPAQUE (plus de "/55"), positionné sur la photo de bannière.
           La lisibilité ne doit pas dépendre de la luminosité de la

@@ -1,0 +1,75 @@
+{
+  "fixture": "Au Lait Cru-like fixture (black theme, Instagram/TikTok/Facebook, 3 collections, 4 categories, 2 delivery rules incl. 50% discount from 100 EUR); not Production data",
+  "renderer": "Chromium 1194 (Playwright), esbuild bundle + compiled Tailwind, mocked public RPCs",
+  "unit": "CSS px from page top",
+  "before_main_9a49be0": {
+    "mobile": {
+      "headerHeight": 502,
+      "deliveryButton": 518,
+      "collectionsNav": 588,
+      "categoryNav": 644,
+      "firstSectionH2": 833,
+      "firstProduct": 881,
+      "socialLinks": [
+        "Ouvrir l'itinéraire vers Au Lait Cru:348x50",
+        "Instagram:20x20",
+        "TikTok:20x20",
+        "Facebook:20x20"
+      ],
+      "errors": [],
+      "postcodeText": "Livraison — 75013 | Livraison disponible | Frais de livraison : 3,45 € | Remise de 50 % appliquée aux frais de livraison (seuil : 100,00 €). | Livraison à votre adresse sous 48 h. | Fermer",
+      "conditionsText": "Modes et tarifs de livraison | Zone de livraison 1 | Codes postaux / préfixes : 75, 92 | Tarif de base : 6,90 € | Remise de 50 % sur la livraison dès 100,00 € de produits. | Livraison à votre adresse sous 48 h. | Zone de livraison 2 | Autres codes postaux dans les pays desservis | Tarif de base : 18,90 € | Livraison gratuite dès 150,00 € de produits. | Minimum : 3 articles. | Fermer"
+    },
+    "desktop": {
+      "headerHeight": 502,
+      "deliveryButton": 518,
+      "collectionsNav": 588,
+      "categoryNav": 644,
+      "firstSectionH2": 833,
+      "firstProduct": 881,
+      "socialLinks": [
+        "Ouvrir l'itinéraire vers Au Lait Cru:470x50",
+        "Instagram:20x20",
+        "TikTok:20x20",
+        "Facebook:20x20"
+      ],
+      "errors": [],
+      "postcodeText": "Livraison — 75013 | Livraison disponible | Frais de livraison : 3,45 € | Remise de 50 % appliquée aux frais de livraison (seuil : 100,00 €). | Livraison à votre adresse sous 48 h. | Fermer"
+    }
+  },
+  "after_candidate": {
+    "mobile": {
+      "headerHeight": 482,
+      "deliveryButton": 494,
+      "collectionsNav": 550,
+      "categoryNav": 598,
+      "firstSectionH2": 763,
+      "firstProduct": 811,
+      "socialLinks": [
+        "Ouvrir l'itinéraire vers Au Lait Cru:348x50",
+        "Instagram:40x40",
+        "TikTok:40x40",
+        "Facebook:20x20"
+      ],
+      "errors": [],
+      "postcodeText": "Livraison — 75013 | Disponible — 3,45 € | −50 % appliqué (dès 100,00 €) | Livraison à votre adresse sous 48 h. | Fermer",
+      "conditionsText": "Modes et tarifs de livraison | Codes postaux 75, 92 — 6,90 € | −50 % dès 100,00 € | Livraison à votre adresse sous 48 h. | Autres codes postaux — 18,90 € | Offerte dès 150,00 € · Min. 3 articles | Fermer"
+    },
+    "desktop": {
+      "headerHeight": 482,
+      "deliveryButton": 494,
+      "collectionsNav": 550,
+      "categoryNav": 598,
+      "firstSectionH2": 763,
+      "firstProduct": 811,
+      "socialLinks": [
+        "Ouvrir l'itinéraire vers Au Lait Cru:470x50",
+        "Instagram:40x40",
+        "TikTok:40x40",
+        "Facebook:20x20"
+      ],
+      "errors": [],
+      "postcodeText": "Livraison — 75013 | Disponible — 3,45 € | −50 % appliqué (dès 100,00 €) | Livraison à votre adresse sous 48 h. | Fermer"
+    }
+  }
+}

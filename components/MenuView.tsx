@@ -1660,7 +1660,12 @@ export default function MenuView({
           hérite du mt-3 (ancien espacement entre les deux blocs) --
           chaque bloc reste sans marge propre, l'appelant (ici) reste
           seul propriétaire de l'espacement vertical. */}
-      <div className="mt-6">
+      {/* STOREFRONT UX POLISH v1 -- espacement resserré (mt-6 -> mt-3,
+          mt-3 -> mt-1, sections mt-7 -> mt-5) et wrapper des collections
+          rendu UNIQUEMENT s'il existe des collections (CollectionNav
+          renvoie null sinon) : plus de marge vide avant les catégories. */}
+      {collections.length > 0 && (
+      <div className="mt-3">
         <CollectionNav
           collections={collections}
           activeId={activeCollection?.id ?? null}
@@ -1668,8 +1673,9 @@ export default function MenuView({
           navLabel={t("collectionsNavLabel")}
         />
       </div>
+      )}
 
-      <div className="mt-3">
+      <div className={collections.length > 0 ? "mt-1" : "mt-3"}>
         <CategoryNav
           categories={restaurant.categories}
           activeId={activeCollection ? "" : activeCategoryId}
@@ -1680,7 +1686,7 @@ export default function MenuView({
 
       <main className="px-4">
         {!activeCollection && activeCategory && (
-          <section className="mt-7">
+          <section className="mt-5">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
                 {tName(activeCategory, lang, restaurant.config.source_language ?? "fr")}
@@ -1745,7 +1751,7 @@ export default function MenuView({
           </section>
         )}
         {activeCollection && (
-          <section className="mt-7" data-customer-collection-view="true">
+          <section className="mt-5" data-customer-collection-view="true">
             <h2
               dir="auto"
               className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg"
