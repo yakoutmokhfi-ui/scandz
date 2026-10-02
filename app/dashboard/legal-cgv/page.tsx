@@ -37,8 +37,20 @@ import CommercialTermsField, { isCustomCommercialTerms } from "@/components/dash
  * renderCgv()/lib/legal/render.ts, jamais modifié par ce lot) du
  * simple "profil incomplet" (champs obligatoires absents, vérifiés
  * AVANT même d'appeler renderCgv()).
+ *
+ * REMÉDIATION B1 (Chateaubriand, audit candidat d6ad249) — `no_template`
+ * est désormais SA PROPRE raison, distincte de `incomplete_fields` :
+ * "aucun modèle résolu pour ce pays" n'est PAS "le profil CGV du
+ * marchand est incomplet" -- deux causes, deux explications, jamais la
+ * même étiquette générique. Contrat utilisateur attendu après
+ * remédiation : erreur de transport du modèle -> pageError dédiée
+ * (W2-1, legalCgvTemplateLoadFailed) ; template === null -> CETTE
+ * raison (legalCgvNoTemplate) ; profil incomplet -> incomplete_fields
+ * (legalCgvIncomplete) ; erreurs de rendu structurelles -> leurs
+ * propres raisons (ci-dessous).
  */
 type PreviewFailureReason =
+  | "no_template"
   | "incomplete_fields"
   | "mixed_regime_clause_missing"
   | "actual_weight_price_unsupported"
@@ -392,7 +404,15 @@ export default function LegalCgvPage() {
    * classification de ce qu'elle lève, ici, change.
    */
   function buildPreviewResult(): { html: string; reason: null } | { html: null; reason: PreviewFailureReason } {
-    if (!template || !cgv || !cgv.withdrawal_regime || cgv.preparation_time_min == null || cgv.preparation_time_max == null || !cgv.preparation_time_unit) {
+    // REMÉDIATION B1 -- `!template` est désormais vérifiée EN PREMIER et
+    // séparément : "aucun modèle résolu pour ce pays" n'est jamais
+    // confondue avec "le profil CGV du marchand est incomplet" (les deux
+    // étaient jusqu'ici fusionnées dans la même branche `incomplete_fields`
+    // ci-dessous, donc le même message générique `legalCgvIncomplete`).
+    if (!template) {
+      return { html: null, reason: "no_template" };
+    }
+    if (!cgv || !cgv.withdrawal_regime || cgv.preparation_time_min == null || cgv.preparation_time_max == null || !cgv.preparation_time_unit) {
       return { html: null, reason: "incomplete_fields" };
     }
     try {
@@ -457,6 +477,10 @@ export default function LegalCgvPage() {
 
   function previewFailureMessage(reason: PreviewFailureReason): string {
     switch (reason) {
+      // REMÉDIATION B1 -- sa propre explication, jamais le générique
+      // "profil incomplet" (legalCgvIncomplete) ci-dessous.
+      case "no_template":
+        return t("legalCgvNoTemplate");
       case "mixed_regime_clause_missing":
         return t("legalCgvMixedRegimeClauseMissing");
       case "actual_weight_price_unsupported":
@@ -831,7 +855,16 @@ export default function LegalCgvPage() {
               ) : (
                 // W2-3 -- message distinct selon la raison réelle de
                 // l'échec, jamais systématiquement "profil incomplet".
-                <p className="text-sm text-stone-500">{previewFailureMessage(previewResult.reason)}</p>
+                // REMÉDIATION B1 (Chateaubriand, audit d6ad249) --
+                // `data-testid` dédié : ce paragraphe est rendu de façon
+                // persistante à CHAQUE rendu dès que `cgv` existe (calcul
+                // non conditionné par un clic, voir `previewResult` plus
+                // haut dans le composant) -- le test W2-T-02 réécrit doit
+                // pouvoir affirmer sa présence/son contenu SANS jamais
+                // simuler de clic sur le bouton Publier désactivé.
+                <p data-testid="legal-cgv-preview-message" className="text-sm text-stone-500">
+                  {previewFailureMessage(previewResult.reason)}
+                </p>
               )}
             </section>
 

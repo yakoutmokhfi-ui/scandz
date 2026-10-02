@@ -334,31 +334,30 @@ function clickTestId(container: HTMLElement, testId: string) {
 }
 
 /**
- * W2-T-02 needs to exercise the IN-HANDLER `!template` guard inside
- * `publish()`, independently of the button's own `disabled` state
- * (itself ALSO now driven by `!template`, W2-2) -- that is precisely
- * the "défense en profondeur" the mandate's own comment describes
- * ("un clic malgré tout -- un double-clic pendant la désactivation,
- * par exemple"). No DOM-level simulation can reach it: verified
- * empirically (two standalone React+jsdom scripts, not jsdom alone)
- * that React's synthetic event system refuses to invoke a listener
- * whenever the FIBER's own `disabled` prop (from the last render) is
- * true -- `.click()`, a manually dispatched "click" Event, and even
- * forcing the live DOM `.disabled`/`[disabled]` attribute to `false`
- * immediately before dispatch all fail identically (React consults its
- * own props snapshot, never the live DOM attribute). That is also
- * exactly real-browser behaviour for a genuinely disabled `<button>`,
- * so a real user truly cannot trigger this path by clicking at all --
- * W2-2's own disabling is already the primary defence, and this guard
- * is deliberate defence IN DEPTH beneath it (e.g. a future refactor
- * that loosens the `disabled` condition, or any other code path that
- * ends up calling the same handler). Proving it therefore means
- * invoking the SAME `onClick` closure React attached to this element
- * directly -- via the internal `__reactProps$*` key React itself
- * stores on the DOM node (the standard technique for this; there is no
- * public API for it) -- rather than asserting something that both this
- * stack and every real browser make structurally unreachable by event
- * simulation.
+ * DEFENSE-IN-DEPTH HELPER ONLY -- NOT the primary proof for W2-T-02.
+ *
+ * REMÉDIATION B1 (Chateaubriand, audit indépendant de d6ad249,
+ * scanym-orchestrator#23) -- cette technique invoque directement la
+ * closure `onClick` que React a attachée à l'élément, via la clé
+ * interne `__reactProps$*` que React lui-même stocke sur le nœud DOM.
+ * L'audit a jugé, à raison, qu'une version antérieure de ce fichier
+ * utilisait CETTE technique comme preuve PRINCIPALE du comportement
+ * attendu de W2-T-02 -- ce qui "ne prouve que la branche du handler,
+ * jamais l'exigence visible par l'utilisateur" : aucun utilisateur réel
+ * ne peut cliquer sur un `<button disabled>` (vérifié empiriquement,
+ * deux scripts React+jsdom autonomes : `.click()`, un `Event` "click"
+ * envoyé manuellement, et même forcer `.disabled = false` sur le nœud
+ * DOM réel immédiatement avant l'envoi échouent tous à invoquer le
+ * handler -- React consulte son propre instantané de props du Fiber,
+ * jamais l'attribut DOM en direct ; c'est aussi le comportement exact
+ * d'un vrai navigateur face à un `<button>` réellement désactivé).
+ *
+ * Ce helper reste disponible UNIQUEMENT pour un test SECONDAIRE,
+ * clairement distinct, qui vérifie la défense en profondeur du garde
+ * interne au handler (`publish()`, "un clic malgré tout -- un
+ * double-clic pendant la désactivation, par exemple") -- jamais pour
+ * prouver l'exigence utilisateur elle-même, qui doit être prouvée par
+ * une assertion DOM/état-rendu réelle (voir W2-T-02 ci-dessous).
  */
 function invokeOnClickDirectly(container: HTMLElement, testId: string) {
   const btn = container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement | null;
@@ -376,6 +375,15 @@ function pageErrorText(container: HTMLElement): string | null {
 }
 function actionMessageText(container: HTMLElement): string | null {
   return container.querySelector('[data-testid="legal-cgv-action-message"]')?.textContent ?? null;
+}
+/**
+ * REMÉDIATION B1 (Chateaubriand, audit d6ad249) -- lecture du message
+ * de la section 6 (aperçu), rendu de façon persistante à chaque rendu
+ * dès que `cgv` existe (`previewResult`/`previewFailureMessage` dans
+ * app/dashboard/legal-cgv/page.tsx), jamais conditionné par un clic.
+ */
+function previewMessageText(container: HTMLElement): string | null {
+  return container.querySelector('[data-testid="legal-cgv-preview-message"]')?.textContent ?? null;
 }
 async function waitSettled(container: HTMLElement): Promise<void> {
   // Two phases, deliberately in this order: `container` is still EMPTY
@@ -435,18 +443,67 @@ test("W2-T-01 — get_applicable_cgv_template in error => distinct pageError (le
   container.remove();
 });
 
-test("W2-T-02 — template === null => clicking Publier gives an explicit message, never a silent return (and never calls publish)", async () => {
+test("W2-T-02 — template === null => an explicit, persistent, user-visible 'no template' state is rendered with no click required, Publier stays disabled, never the generic 'profil incomplet', and no publish mutation is ever attempted", async () => {
+  // REMÉDIATION B1 (Chateaubriand/Noether, scanym-orchestrator#23) --
+  // cette version N'INVOQUE JAMAIS `invokeOnClickDirectly` : la preuve
+  // porte sur l'ÉTAT RENDU de la page elle-même (section 6, calculé à
+  // chaque rendu via `buildPreviewResult()`/`previewFailureMessage()`,
+  // JAMAIS à l'intérieur d'un handler de clic), exactement ce que
+  // l'audit exige -- "test the actual rendered DOM/user state, not
+  // __reactProps$ internals".
   resetCommonFixtures();
   (globalThis as any).__legalFallback["resto-a"] = legalProfile("resto-a", "A");
-  (globalThis as any).__cgvFallback["resto-a"] = cgvProfile("resto-a", "A");
+  (globalThis as any).__cgvFallback["resto-a"] = cgvProfile("resto-a", "A"); // complete profile: completeness_errors === []
   (globalThis as any).__templateFallback["resto-a"] = { data: null, error: null }; // no template resolved for this country
 
   const { container, root } = render();
   await waitSettled(container);
 
+  // No click of any kind has happened yet -- the message must already
+  // be present, because "no template resolved" is a page STATE, not an
+  // event outcome.
+  assert.equal(
+    previewMessageText(container),
+    t("legalCgvNoTemplate"),
+    "template === null must persistently render its OWN distinct explanation, with no click required"
+  );
+  assert.notEqual(
+    previewMessageText(container),
+    t("legalCgvIncomplete"),
+    "template === null must NEVER be classified as the generic 'profil incomplet' state"
+  );
+  assert.ok(
+    !(container.textContent ?? "").includes(t("legalCgvIncomplete")),
+    "the generic 'profil incomplet' text must not appear anywhere on the page for this state"
+  );
+
   const publishBtn = container.querySelector('[data-testid="legal-cgv-publish"]') as HTMLButtonElement | null;
   assert.ok(publishBtn, "the Publish button must still render");
-  assert.equal(publishBtn!.disabled, true, "disabled per W2-2, but the handler's own guard must ALSO be exercised");
+  assert.equal(publishBtn!.disabled, true, "Publish must stay disabled while template === null (W2-2)");
+
+  assert.deepEqual(
+    (globalThis as any).__mutationCallLog.publish,
+    [],
+    "no publish mutation may ever be attempted for this state"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("W2-T-02b (défense en profondeur, SECONDAIRE -- ne remplace pas W2-T-02 ci-dessus) — if the in-handler publish() guard is ever reached despite the button being disabled, it still short-circuits with the same explicit message and never calls the mutation", async () => {
+  // Cf. le commentaire sur `invokeOnClickDirectly` : aucun utilisateur
+  // réel ne peut déclencher ce chemin par un clic (le bouton est
+  // désactivé, W2-2) -- ce test vérifie uniquement le garde interne au
+  // handler lui-même, en défense en profondeur, jamais l'exigence
+  // utilisateur (déjà prouvée ci-dessus sans aucun clic).
+  resetCommonFixtures();
+  (globalThis as any).__legalFallback["resto-a"] = legalProfile("resto-a", "A");
+  (globalThis as any).__cgvFallback["resto-a"] = cgvProfile("resto-a", "A");
+  (globalThis as any).__templateFallback["resto-a"] = { data: null, error: null };
+
+  const { container, root } = render();
+  await waitSettled(container);
 
   invokeOnClickDirectly(container, "legal-cgv-publish");
   await waitFor(() => actionMessageText(container) !== null);
