@@ -139,49 +139,28 @@
  *   non.
  */
 
-import { unzipSync } from "fflate";
+import {
+  MAX_IMPORT_FILE_SIZE_BYTES,
+  MAX_METADATA_ENTRY_UNCOMPRESSED_BYTES,
+  MAX_CONTENT_ENTRY_UNCOMPRESSED_BYTES,
+  checkZipSignature,
+  decodeUtf8,
+  unescapeXmlEntities,
+  buildZipManifest as buildManifest,
+  assertNoDuplicateRelevantEntry as assertNoDuplicate,
+  assertEntryDecompressionSafe as assertSafe,
+  extractOnly as extractEntries,
+  type OoxmlZipErrorFactory,
+} from "@/lib/ooxml/zip-safe";
 
-/** Limite de taille COMPRESSÉE du fichier uploadé (mandat OB-3, "sane
- *  file-size limit"). 10 Mo -- un fichier catalogue.xlsx réaliste
- *  (quelques milliers de lignes, texte uniquement, aucune image
- *  embarquée) ne s'en approche jamais ; un fichier plus gros est
- *  rejeté AVANT toute désarchivage. NE BORNE PAS, à elle seule, la
- *  taille DÉCOMPRESSÉE d'une entrée quelconque -- voir les bornes
- *  dédiées ci-dessous (mandat OB-3 v1.1, "XLSX DECOMPRESSION SAFETY"). */
-export const MAX_IMPORT_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-
-/** Taille décompressée maximale tolérée pour `xl/workbook.xml` et
- *  `xl/_rels/workbook.xml.rels` -- ces deux fichiers ne listent que
- *  les métadonnées du classeur (noms de feuilles, relations) et
- *  restent toujours minuscules dans un export réel ; 2 Mo est déjà
- *  très généreux. */
-export const MAX_METADATA_ENTRY_UNCOMPRESSED_BYTES = 2 * 1024 * 1024;
-
-/** Taille décompressée maximale tolérée pour la feuille de calcul
- *  résolue et pour `xl/sharedStrings.xml` -- les deux seules entrées
- *  pouvant légitimement contenir un volume de texte proportionnel au
- *  nombre de lignes du catalogue. 64 Mo de XML texte correspond à un
- *  catalogue de plusieurs centaines de milliers de lignes -- très
- *  largement au-delà de tout usage réaliste de cet import, tout en
- *  restant sans commune mesure avec ce qu'une bombe de décompression
- *  chercherait à produire. */
-export const MAX_CONTENT_ENTRY_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
-
-/** Plafond de la SOMME des tailles décompressées déclarées de toutes
- *  les entrées effectivement extraites pour une même lecture (les 2
- *  métadonnées + feuille + shared strings) -- défense en profondeur
- *  indépendante des bornes par entrée ci-dessus : même si chaque
- *  entrée prise isolément respecte sa propre borne, ce plafond limite
- *  la mémoire totale qu'une seule analyse peut consommer. */
-export const MAX_TOTAL_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
-
-/** Signature binaire ZIP (les fichiers .xlsx sont des archives ZIP)
- *  -- jamais une confiance dans l'extension ou le type MIME déclaré
- *  par le navigateur, même discipline que
- *  lib/services/product-photo.ts (détection par octets magiques). */
-const ZIP_LOCAL_FILE_SIGNATURE = [0x50, 0x4b, 0x03, 0x04];
-/** Une archive ZIP vide est également valide avec cette signature. */
-const ZIP_EMPTY_SIGNATURE = [0x50, 0x4b, 0x05, 0x06];
+export {
+  MAX_IMPORT_FILE_SIZE_BYTES,
+  MAX_METADATA_ENTRY_UNCOMPRESSED_BYTES,
+  MAX_CONTENT_ENTRY_UNCOMPRESSED_BYTES,
+  MAX_TOTAL_UNCOMPRESSED_BYTES,
+  checkZipSignature,
+  unescapeXmlEntities,
+} from "@/lib/ooxml/zip-safe";
 
 export type XlsxReadErrorCode =
   | "FILE_TOO_LARGE"
@@ -201,6 +180,14 @@ export class XlsxReadError extends Error {
   }
 }
 
+/** Preserve the public error class, messages and seven-code vocabulary. */
+const makeZipError: OoxmlZipErrorFactory = (code, message) =>
+  new XlsxReadError(code === "MALFORMED_CONTAINER" ? "MALFORMED_WORKBOOK" : code, message);
+const buildZipManifest = buildManifest.bind(null, makeZipError);
+const assertNoDuplicateRelevantEntry = assertNoDuplicate.bind(null, makeZipError);
+const assertEntryDecompressionSafe = assertSafe.bind(null, makeZipError);
+const extractOnly = extractEntries.bind(null, makeZipError);
+
 /** Une feuille lue : lignes de cellules, 1 ligne = 1 tableau de
  *  chaînes (cellules vides = chaîne vide ""), colonnes alignées sur
  *  la position réelle de la cellule dans la feuille (les cellules
@@ -210,35 +197,6 @@ export class XlsxReadError extends Error {
 export interface ParsedSheet {
   rows: string[][];
   rowNumbers: number[];
-}
-
-/** Détection ZIP par octets magiques, jamais une confiance dans
- *  l'extension/type MIME déclaré -- même discipline que
- *  lib/services/product-photo.ts. Exportée pour être réutilisée telle
- *  quelle par lib/services/catalogue-import.ts (routage xlsx/CSV),
- *  jamais dupliquée. */
-export function checkZipSignature(bytes: Uint8Array): boolean {
-  const matches = (sig: number[]) => sig.every((b, i) => bytes[i] === b);
-  return matches(ZIP_LOCAL_FILE_SIGNATURE) || matches(ZIP_EMPTY_SIGNATURE);
-}
-
-/** Décode un Uint8Array en texte UTF-8. */
-function decodeUtf8(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8").decode(bytes);
-}
-
-/** Dé-échappe les entités XML standard (&amp; &lt; &gt; &quot; &apos;
- *  + références numériques &#NN; / &#xHH;) -- jamais plus, jamais
- *  d'interprétation de balises. */
-export function unescapeXmlEntities(raw: string): string {
-  return raw
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
 }
 
 /** Convertit la partie lettres d'une référence de cellule ("C7" ->
@@ -417,122 +375,6 @@ function findFirstSheetPath(zip: Record<string, Uint8Array>): string {
   if (target.startsWith("/")) target = target.slice(1);
   else target = `xl/${target}`;
   return target;
-}
-
-/** Une entrée du répertoire central ZIP, telle que rapportée par le
- *  filtre `unzipSync` -- lue SANS jamais décompresser quoi que ce
- *  soit (voir passe "manifeste" ci-dessous). `occurrences` compte le
- *  nombre de fois où ce NOM apparaît dans le répertoire central --
- *  strictement plus de 1 signale une entrée dupliquée (OB-3 v1.3,
- *  BLOCKER 1) ; les champs `size`/`originalSize`/`compression`
- *  reflètent alors une occurrence QUELCONQUE parmi les doublons
- *  (indéterminé lequel) -- sans conséquence, puisqu'une entrée
- *  pertinente dupliquée est rejetée avant tout examen de sa taille. */
-interface ZipEntryInfo {
-  size: number;
-  originalSize: number;
-  compression: number;
-  occurrences: number;
-}
-
-/** Construit le manifeste complet du répertoire central ZIP -- nom,
- *  taille compressée, taille décompressée DÉCLARÉE, méthode de
- *  compression, ET nombre d'occurrences, pour CHAQUE entrée -- sans
- *  décompresser AUCUNE d'entre elles. Le filtre renvoie
- *  systématiquement `false`, ce qui fait que `unzipSync` n'atteint
- *  jamais son code de décompression (`inflateSync`) pour quelque
- *  entrée que ce soit ; seul le répertoire central (déjà borné par
- *  MAX_IMPORT_FILE_SIZE_BYTES) est parcouru, un enregistrement par
- *  entrée -- y compris pour un nom dupliqué, chaque occurrence
- *  incrémente `occurrences` sans jamais décompresser quoi que ce
- *  soit. Lève MALFORMED_WORKBOOK si le répertoire central lui-même
- *  est illisible. */
-function buildZipManifest(bytes: Uint8Array): Map<string, ZipEntryInfo> {
-  const manifest = new Map<string, ZipEntryInfo>();
-  try {
-    unzipSync(bytes, {
-      filter: (file) => {
-        const existing = manifest.get(file.name);
-        if (existing) {
-          existing.occurrences += 1;
-        } else {
-          manifest.set(file.name, { size: file.size, originalSize: file.originalSize, compression: file.compression, occurrences: 1 });
-        }
-        return false;
-      },
-    });
-  } catch {
-    throw new XlsxReadError("MALFORMED_WORKBOOK", "Répertoire central de l'archive ZIP illisible.");
-  }
-  return manifest;
-}
-
-/** Rejette une archive dont un CHEMIN PERTINENT apparaît plus d'une
- *  fois dans le répertoire central -- OB-3 v1.3, BLOCKER 1 (Cat
- *  Stevens). Jamais "le premier gagne", jamais "le dernier gagne",
- *  jamais une sélection silencieuse : l'archive entière est rejetée
- *  comme ambiguë, AVANT toute tentative de désarchivage de l'une ou
- *  l'autre occurrence, quelles que soient leurs tailles déclarées
- *  respectives. N'échoue PAS sur un chemin absent (0 occurrence) --
- *  c'est à l'appelant de décider comment traiter une absence. */
-function assertNoDuplicateRelevantEntry(manifest: Map<string, ZipEntryInfo>, name: string): void {
-  const info = manifest.get(name);
-  if (info && info.occurrences > 1) {
-    throw new XlsxReadError(
-      "DUPLICATE_ZIP_ENTRY",
-      `Entrée « ${name} » présente ${info.occurrences} fois dans l'archive -- rejetée avant tout désarchivage, aucune résolution automatique entre occurrences.`
-    );
-  }
-}
-
-/** Vérifie qu'une entrée déjà répertoriée dans le manifeste (passe 1)
- *  peut être décompressée sans danger : méthode de compression
- *  supportée (0 = stockée, 8 = deflate -- les seules que `fflate`
- *  sait décompresser), taille décompressée déclarée sous la borne par
- *  entrée fournie, et somme cumulée sous `MAX_TOTAL_UNCOMPRESSED_BYTES`.
- *  N'échoue PAS silencieusement sur une entrée absente : c'est
- *  l'appelant qui décide comment traiter une absence (mandat "clean
- *  failure messages" -- un code d'erreur distinct par cause). Incrémente
- *  `runningTotal.bytes` UNIQUEMENT si l'entrée est acceptée. */
-function assertEntryDecompressionSafe(
-  manifest: Map<string, ZipEntryInfo>,
-  name: string,
-  maxEntryBytes: number,
-  runningTotal: { bytes: number }
-): void {
-  const info = manifest.get(name);
-  if (!info) return;
-  if (info.compression !== 0 && info.compression !== 8) {
-    throw new XlsxReadError("MALFORMED_WORKBOOK", `Méthode de compression non prise en charge pour « ${name} ».`);
-  }
-  if (info.originalSize > maxEntryBytes) {
-    throw new XlsxReadError(
-      "ENTRY_TOO_LARGE",
-      `Entrée « ${name} » trop volumineuse une fois décompressée (${info.originalSize} octets déclarés, limite ${maxEntryBytes} octets) -- rejetée avant désarchivage.`
-    );
-  }
-  const total = runningTotal.bytes + info.originalSize;
-  if (total > MAX_TOTAL_UNCOMPRESSED_BYTES) {
-    throw new XlsxReadError(
-      "ENTRY_TOO_LARGE",
-      `Volume total décompressé requis (${total} octets) dépasse la limite globale ${MAX_TOTAL_UNCOMPRESSED_BYTES} octets -- rejeté avant désarchivage de « ${name} ».`
-    );
-  }
-  runningTotal.bytes = total;
-}
-
-/** Désarchive UNIQUEMENT les entrées explicitement nommées dans
- *  `names` -- toute autre entrée du ZIP, quelle que soit sa taille
- *  déclarée, n'est jamais atteinte par `inflateSync` (le filtre
- *  l'exclut avant toute décompression). Chaque entrée nommée doit
- *  déjà avoir été validée par `assertEntryDecompressionSafe` avant cet
- *  appel. */
-function extractOnly(bytes: Uint8Array, names: ReadonlySet<string>): Record<string, Uint8Array> {
-  try {
-    return unzipSync(bytes, { filter: (file) => names.has(file.name) });
-  } catch {
-    throw new XlsxReadError("MALFORMED_WORKBOOK", "Le conteneur ZIP est corrompu ou illisible.");
-  }
 }
 
 /**
