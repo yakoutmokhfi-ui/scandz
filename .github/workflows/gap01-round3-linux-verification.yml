@@ -1,0 +1,182 @@
+name: GAP-01 Round 3 — Linux Full-Suite Verification
+
+# ============================================================================
+# Independent, reproducible Linux verification evidence for GAP-01 ROUND 3
+# re-audit (issue scanym-orchestrator#11).
+#
+# Context: the independent auditor's first Round 3 re-audit attempt ran the
+# full suite on Windows, which produces many unrelated path-separator /
+# structural-test failures that are NOT comparable to the Linux baseline
+# supplied by the developer (Boulez). The auditor could not therefore
+# independently certify that the GAP-01 candidate introduces exactly zero
+# NEW failures versus current main -- only that the same 10 pre-existing
+# failures were expected. This workflow removes that dependency on any one
+# party's local machine: it runs on GitHub's standard ubuntu-latest runner,
+# with a pinned Node version and `npm ci` (lockfile-exact install), for
+# WHATEVER commit SHA is given as input -- so the SAME workflow definition
+# can be dispatched once against current main and once against the GAP-01
+# candidate, producing two directly comparable, independently reproducible,
+# and publicly inspectable (immutable run URL + uploaded log artifacts)
+# results.
+#
+# This workflow makes NO code change and asserts NO pass/fail verdict of
+# its own -- it only produces raw, uploaded evidence (full test log,
+# extracted failure-name list, tsc --noEmit output, and recorded
+# ref/tree/OS/runtime identity) for a human or another independent auditor
+# to compare. Deliberately dispatched from a dedicated verification branch
+# (ci/gap01-round3-linux-verification), NOT from the GAP-01 feature branch
+# itself, so it does not appear in PR #108's diff and does not expand that
+# PR's audited scope.
+# ============================================================================
+
+# NOTE ON TRIGGER CHOICE: `workflow_dispatch` only becomes dispatchable via
+# the API/UI once its workflow file is registered on the repository's
+# DEFAULT branch (main) -- and Boulez (the developer role operating this
+# repo) never merges to main. So this workflow is triggered by `push`
+# instead: each verification branch (ci/gap01-round3-linux-verification for
+# current main, ci/gap01-round3-linux-verification-candidate for the GAP-01
+# candidate) consists of exactly the target commit plus ONE extra commit
+# that adds only this workflow file under .github/workflows/ -- zero
+# application/test code changed. Pushing that branch fires this workflow
+# against that exact tree. The "Record verified target commit" step below
+# resolves and asserts the parent of HEAD (i.e. the actual target commit,
+# with the CI-file-only commit subtracted back out) so the evidence is
+# unambiguous about which application-code commit was really tested.
+on:
+  push:
+    branches:
+      - ci/gap01-round3-linux-verification
+      - ci/gap01-round3-linux-verification-candidate
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Optional: full commit SHA to check out and verify instead of the triggering push's HEAD (only usable once this file is merged to the default branch)"
+        required: false
+      label:
+        description: "Optional: short label override for this run's evidence"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Linux full-suite verification — ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Record and self-verify target commit
+        run: |
+          set -e
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ -n "${{ github.event.inputs.target_sha }}" ]; then
+            TARGET_SHA="${{ github.event.inputs.target_sha }}"
+          else
+            # The claimed target commit is declared in a small marker file
+            # committed alongside the workflow file, NOT derived by
+            # counting parent commits (HEAD^N) -- that breaks the moment a
+            # second CI-only fix-up commit lands on this branch, silently
+            # pointing "the target" at the wrong commit. Instead: read the
+            # claim, then INDEPENDENTLY VERIFY it in this same step rather
+            # than trusting the file's content at face value.
+            TARGET_SHA="$(cat .github/gap01-round3-ci-verification-target.txt | tr -d '[:space:]')"
+          fi
+
+          # Verification 1: the claimed target must be a real ancestor
+          # commit actually reachable from HEAD in this branch's history.
+          if ! git merge-base --is-ancestor "$TARGET_SHA" HEAD; then
+            echo "::error::Claimed target commit $TARGET_SHA is not an ancestor of HEAD ($HEAD_SHA) -- refusing to proceed."
+            exit 1
+          fi
+
+          # Verification 2: everything between the claimed target and HEAD
+          # must touch ONLY this workflow's own CI-tooling files -- i.e.
+          # the application/test code at HEAD is byte-for-byte the same as
+          # at the claimed target commit. Any other file changed in
+          # between invalidates the claim that "this run verifies commit
+          # $TARGET_SHA".
+          ALLOWED='^\.github/(workflows/gap01-round3-linux-verification\.yml|gap01-round3-ci-verification-target\.txt)$'
+          UNEXPECTED="$(git diff --name-only "$TARGET_SHA" HEAD | grep -Ev "$ALLOWED" || true)"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Files changed between claimed target $TARGET_SHA and HEAD beyond CI tooling -- this run cannot certify commit $TARGET_SHA:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+
+          LABEL="${{ github.event.inputs.label }}"
+          if [ -z "$LABEL" ]; then LABEL="${{ github.ref_name }}"; fi
+          # Artifact names may not contain "/" (branch names like
+          # ci/gap01-round3-linux-verification do) -- sanitize.
+          LABEL="$(echo "$LABEL" | tr '/' '-')"
+          {
+            echo "workflow_head_sha=$HEAD_SHA"
+            echo "verified_target_commit=$TARGET_SHA (self-verified: ancestor of HEAD, zero non-CI-tooling diff to HEAD)"
+            echo "verified_target_tree=$(git rev-parse ${TARGET_SHA}^{tree})"
+            echo "label=$LABEL"
+          } | tee identity.txt
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Record runtime/OS identity
+        run: |
+          {
+            echo "os: $(uname -a)"
+            echo "node: $(node --version)"
+            echo "npm: $(npm --version)"
+          } | tee -a identity.txt
+
+      - name: Install dependencies (lockfile-exact)
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript check (npx tsc --noEmit)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npx tsc --noEmit > tsc-noemit-output.txt 2>&1
+          echo "EXIT=$?" >> tsc-noemit-output.txt
+          cat tsc-noemit-output.txt
+
+      - name: Run full test suite (raw output preserved, non-zero exit tolerated for evidence capture)
+        run: |
+          rm -f tsconfig.tsbuildinfo
+          set +e
+          npm test > full-suite-output.log 2>&1
+          echo "npm test exit code: $?" | tee -a full-suite-output.log
+          set -e
+
+      - name: Extract failure-name list
+        run: |
+          grep -E "^not ok " full-suite-output.log | sed -E 's/^not ok [0-9]+ - //' | sort > failure-names.txt || true
+          {
+            echo "failure count: $(wc -l < failure-names.txt)"
+            echo "--- failure names ---"
+            cat failure-names.txt
+          } | tee failure-summary.txt
+
+      - name: Extract test totals
+        run: |
+          grep -E "^# (tests|pass|fail|suites|cancelled|skipped|todo) " full-suite-output.log | tee test-totals.txt || true
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gap01-r3-verification-${{ env.LABEL }}
+          path: |
+            identity.txt
+            tsc-noemit-output.txt
+            full-suite-output.log
+            failure-names.txt
+            failure-summary.txt
+            test-totals.txt
+          retention-days: 90
