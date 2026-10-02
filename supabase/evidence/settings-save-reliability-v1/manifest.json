@@ -9,6 +9,8 @@
     "sha": "7ff11769e31a442fdf295b369e4cf3beba5d3d26",
     "tree": "e23361692167a771500d7333898096b2371cab51",
     "branch": "feature/settings-save-reliability-v1",
+    "pr": 128,
+    "prState": "open",
     "prDraft": true,
     "prMerged": false
   },
