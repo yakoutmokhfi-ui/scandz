@@ -1,0 +1,60 @@
+{
+  "lot": "CGV-W2-PUBLICATION-BOUNDARY-FIXES — RE-AUDIT REMEDIATION (B1 ONLY)",
+  "issue": "scanym-orchestrator#23",
+  "mandate": "NOETHER comment id 5951442732 (2026-10-02T11:30:32Z), STATUS: REMEDIATION GO — B1 ONLY",
+  "priorAcceptedEvidence": "supabase/evidence/cgv-w2-b1-b2-remediation/ (base 24dde51a vs candidate f56c4a5) -- accepted by the re-auditor per this mandate: \"B2 STATUS: CLOSED for remediation purposes ... Exact identities and counts from the prior evidence were accepted by the re-auditor.\"",
+  "auditedCandidate": {
+    "sha": "51d8e104b1da5f7b201a4a24e6a68c3a0ef1ca8c",
+    "tree": "52a9c673718009818258fec427ed2ad6f5c96ae9",
+    "codeOnlySha": "f56c4a5228f5148f2c3f78fae83232d30fa9c0eb",
+    "verdict": "FAIL — BLOCKERS (re-audit): template === null masked by non-empty cgv.completeness_errors"
+  },
+  "newCodeCandidate": {
+    "sha": "48ecd5c510f77eec8721304e67c5547cc52576a9",
+    "tree": "dd289592d0142b6d095cbff23d10addcd2893d1a",
+    "branch": "feature/w2-cgv-publication-boundary-fixes",
+    "pr": 125
+  },
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v51 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38 (unchanged since the prior accepted evidence)",
+    "command": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts"
+  },
+  "method": "Per the mandate, B2's exhaustive from-scratch base+candidate comparison is NOT reopened. The already-accepted base failure-identity list (../cgv-w2-b1-b2-remediation/baseline-failures-sorted.txt, from the exact base SHA 24dde51ac047100de7d23c6b28d78b54f013a72c) is reused as-is. Only a FRESH full-suite run against this new code candidate SHA was produced, then diffed against that already-accepted base list.",
+  "logs": {
+    "candidate": {
+      "checkout": "/tmp/scandz-work/scandz, SHA verified via git rev-parse HEAD before the run",
+      "tests": 4511,
+      "pass": 4501,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "f95b2889da6fcfec0cae4b8f6d57816b298186ea074c1a20911296e7b383d365",
+      "gzipFile": "candidate.tap.gz"
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-work/scandz (this candidate), cgv-publication-boundary-v1.dom.test.ts alone",
+      "tests": 20,
+      "pass": 20,
+      "fail": 0,
+      "rawSha256": "2e9758e8a9968bccc9882fe1653220a4aa52e6f2d2bf7e8d2d1682459f152493",
+      "gzipFile": "targeted-raw.tap.gz"
+    }
+  },
+  "testCountDelta": {
+    "candidateMinusAcceptedBase": 20,
+    "explanation": "4511 - 4491 (accepted base) = 20 = 18 pre-existing W2 tests (d6ad249) + 1 secondary defense-in-depth test (W2-T-02b, prior B1 remediation) + 1 new combined-state test (W2-T-02c, this re-audit remediation)."
+  },
+  "failureIdentityDelta": {
+    "comparedAgainst": "../cgv-w2-b1-b2-remediation/baseline-failures-sorted.txt (the already-accepted base, reused unchanged)",
+    "command": "comm -13 baseline-failures-sorted.txt candidate-failures-sorted.txt (added); comm -23 ... (removed)",
+    "added": [],
+    "removed": [],
+    "note": "Identical 10 pre-existing failure identities, same as in the already-accepted evidence (see ../cgv-w2-b1-b2-remediation/README.md for the full explanation of each). Zero new failures, zero newly-fixed failures -- this change touches only app/dashboard/legal-cgv/page.tsx rendering order and its own test file."
+  },
+  "tsc": {
+    "command": "npx tsc --noEmit -p tsconfig.json",
+    "result": "0 errors"
+  }
+}
