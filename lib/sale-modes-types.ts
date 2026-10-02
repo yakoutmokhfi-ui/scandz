@@ -134,6 +134,9 @@ export interface PublicDeliveryInfo {
 export type FulfillmentPricingMode = "free" | "fixed" | "free_above_threshold";
 
 export interface PublicDeliveryFulfillmentRule {
+  discountEnabled?: boolean;
+  discountThreshold?: number | null;
+  discountPercentage?: number | null;
   fulfillmentCode: string;
   zonePrefixes: string[];
   isFallback: boolean;

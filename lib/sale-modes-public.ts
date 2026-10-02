@@ -152,6 +152,9 @@ export async function getPublicDeliveryInfo(
 }
 
 interface PublicDeliveryFulfillmentRuleRow {
+  discount_enabled?: boolean;
+  discount_threshold?: number | null;
+  discount_percentage?: number | null;
   fulfillment_code: string;
   zone_prefixes: string[];
   is_fallback: boolean;
@@ -196,6 +199,11 @@ export async function getPublicDeliveryFulfillments(
   if (error) throw new Error(error.message);
   return ((data ?? []) as PublicDeliveryFulfillmentRuleRow[]).map((row) => ({
     fulfillmentCode: row.fulfillment_code,
+    ...(row.discount_enabled !== undefined ? {
+      discountEnabled: row.discount_enabled,
+      discountThreshold: row.discount_threshold == null ? null : Number(row.discount_threshold),
+      discountPercentage: row.discount_percentage == null ? null : Number(row.discount_percentage),
+    } : {}),
     zonePrefixes: row.zone_prefixes,
     isFallback: row.is_fallback,
     minItems: row.min_items,
@@ -204,8 +212,8 @@ export async function getPublicDeliveryFulfillments(
     translations: row.translations ?? null,
     displayOrder: row.display_order,
     pricingMode: row.pricing_mode,
-    fixedFee: row.fixed_fee,
-    freeThreshold: row.free_threshold,
+    fixedFee: row.fixed_fee == null ? row.fixed_fee : Number(row.fixed_fee),
+    freeThreshold: row.free_threshold == null ? row.free_threshold : Number(row.free_threshold),
   }));
 }
 

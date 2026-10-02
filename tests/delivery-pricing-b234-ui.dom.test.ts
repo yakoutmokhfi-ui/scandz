@@ -7,10 +7,10 @@ import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
-import { makeDeliveryDb, sqlFile } from "../supabase/tests/b234-bootstrap.mjs";
+import { makeBaseline as makeDeliveryDb, readSql as sqlFile } from "../supabase/tests/b5/bootstrap.mjs";
 
 const db = await makeDeliveryDb();
-await db.exec(sqlFile("DRAFT-lot-delivery-pricing-v2-b234.sql"));
+await db.exec(sqlFile("DRAFT-lot-delivery-pricing-v2-b5.sql"));
 const A="00000000-0000-4000-8000-000000000201", B="00000000-0000-4000-8000-000000000202", user="00000000-0000-4000-8000-000000000203";
 await db.exec(`insert into auth.users(id,email) values ('${user}','ui@example.test');
   insert into restaurants(id,name,slug,status,is_active,country) values ('${A}','Fixture A','ui-a','active',true,'FR'),('${B}','Fixture B','ui-b','active',true,'FR');
@@ -194,4 +194,29 @@ test('B234 UI requires a fresh warning when legacy state changes after preview',
   assert.equal((await db.query<{enabled:boolean}>("select enabled from restaurant_sale_mode_fulfillments where restaurant_id=$1 and fulfillment_code='Reste du territoire'",[A])).rows[0].enabled,true);
   await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
   assert.match(confirmations.at(-1)!,/Sans zones historiques.*indisponible/);
+});
+
+test('B5 merchant enables arbitrary threshold/percentage, re-reads policy and sees discounted tester fee',async()=>{
+  const c=card('Paris 18');
+  if(!(field(c,'Active') as HTMLInputElement).checked)await click(field(c,'Active'));
+  await change(field(c,'Mode de tarification'),'fixed');await change(field(c,'Frais de livraison'),'6.90');
+  await click(field(c,'Activer la remise'));await change(field(c,'Seuil du panier'),'100');await change(field(c,'Remise (%)'),'50');
+  await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  const saved=(await db.query<Record<string,any>>("select discount_enabled,discount_threshold,discount_percentage from restaurant_sale_mode_fulfillments where fulfillment_code='Paris 18'")).rows[0];
+  assert.equal(saved.discount_enabled,true);assert.equal(Number(saved.discount_threshold),100);assert.equal(Number(saved.discount_percentage),50);
+  await change(field(tester(),'Code postal'),'75018');await change(field(tester(),'Montant des produits (devise du magasin)'),'100');
+  await click(button(tester(),'Tester'));await until(()=>tester().textContent!.includes('3.45'));
+  await change(field(c,'Seuil du panier'),'60');await change(field(c,'Remise (%)'),'20');
+  await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  await change(field(tester(),'Montant des produits (devise du magasin)'),'60');await click(button(tester(),'Tester'));await until(()=>tester().textContent!.includes('5.52'));
+});
+
+test('B5 merchant rejects invalid percentage before mutation; disable preserves valid parameters',async()=>{
+  const c=card('Paris 18');const count=()=>calls.filter(x=>x.name==='mutate_merchant_delivery_rule').length;
+  const before=count();await change(field(c,'Remise (%)'),'100.01');await click(button(c,'Enregistrer'));
+  await until(()=>c.textContent!.includes('pourcentage de 0 à 100'));assert.equal(count(),before);
+  await change(field(c,'Remise (%)'),'20');await click(field(c,'Activer la remise'));
+  await click(button(c,'Enregistrer'));await until(()=>c.textContent!.includes('Enregistré'));
+  assert.equal((await db.query<Record<string,any>>("select discount_enabled from restaurant_sale_mode_fulfillments where fulfillment_code='Paris 18'")).rows[0].discount_enabled,false);
+  await click(button(tester(),'Tester'));await until(()=>tester().textContent!.includes('6.90'));
 });

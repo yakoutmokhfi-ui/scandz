@@ -1,0 +1,90 @@
+{
+  "base": "24dde51ac047100de7d23c6b28d78b54f013a72c",
+  "implementationCommit": "44e77d726729d5b425fca76762769997f16de759",
+  "implementationTree": "1338bd2a4ac55759a7109685248613f349087aee",
+  "runtime": {
+    "node": "v24.18.0",
+    "platform": "win32",
+    "pglite": "0.5.8",
+    "postgres": "18.3 WASM"
+  },
+  "checks": {
+    "kernel": {
+      "tests": 75,
+      "pass": 75,
+      "fail": 0
+    },
+    "targeted": {
+      "tests": 98,
+      "pass": 98,
+      "fail": 0
+    },
+    "typescript": {
+      "command": "node node_modules/typescript/bin/tsc --noEmit --incremental false",
+      "exitCode": 0
+    },
+    "fullSuite": {
+      "baseline": {
+        "tests": 4491,
+        "pass": 4477,
+        "fail": 14,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "candidate": {
+        "tests": 4506,
+        "pass": 4492,
+        "fail": 14,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "newFailures": [],
+      "resolvedFailures": []
+    }
+  },
+  "logs": {
+    "baseline": {
+      "rawSha256": "e2b546462748122dfc34c7767aa3c91aae581ea87c6e2840e78a1e60ca256089",
+      "gzipSha256": "a55634ed4fab2787227c64029af225588214fb11cbada49f3b30d99e36631f56"
+    },
+    "candidate": {
+      "rawSha256": "d5929b51bb1bc974f96a096db18623b9bb685ad7c6263573d12399c91510def6",
+      "gzipSha256": "f6b99c432e1bbda09a61749250129116278a2c144cf292f6af1bf72fda52574a"
+    },
+    "targeted": {
+      "rawSha256": "ff7ba767e243bb91f7a95f2f4ee3f7703d5621dbe0c799b7211a61aefcf5bf11",
+      "gzipSha256": "fc2c6261e26046ce8c57b89632ed2aff0ce7844af7f4fed12069381b24c221d4"
+    },
+    "kernel": {
+      "rawSha256": "13d61c94f734667b2a1b9bb963441a344474a410e30504f5fa3f1c8cabbb2469",
+      "gzipSha256": "8d1e314087ec3d8911abf56e4a1a16e90f042ca5fbe4d18def2de630faf730f0"
+    }
+  },
+  "codeChangedFiles": [
+    "app/dashboard/delivery-pricing/page.tsx",
+    "components/CartPanel.tsx",
+    "components/DeliveryConditions.tsx",
+    "components/MenuView.tsx",
+    "lib/dashboard-types.ts",
+    "lib/delivery-discount.ts",
+    "lib/delivery-pricing-policy.ts",
+    "lib/delivery-rule-editor.ts",
+    "lib/delivery.ts",
+    "lib/i18n.ts",
+    "lib/sale-modes-public.ts",
+    "lib/sale-modes-types.ts",
+    "lib/services/dashboard.ts",
+    "supabase/DELIVERY-PRICING-B5.md",
+    "supabase/DRAFT-lot-delivery-pricing-v2-b5-ROLLBACK.sql",
+    "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql",
+    "supabase/tests/b5/bootstrap.mjs",
+    "supabase/tests/b5/discount.test.mjs",
+    "supabase/tests/b5/migration.test.mjs",
+    "supabase/tests/b5/package-lock.json",
+    "supabase/tests/b5/package.json",
+    "tests/delivery-pricing-b234-sql.test.ts",
+    "tests/delivery-pricing-b234-ui.dom.test.ts",
+    "tests/delivery-pricing-b5-composition.test.ts",
+    "tests/delivery-pricing-b5-public.dom.test.ts"
+  ]
+}

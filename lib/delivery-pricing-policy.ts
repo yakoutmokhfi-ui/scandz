@@ -332,6 +332,7 @@ export function computeDeliveryPricingPolicy(
     input.merchantDeliveryPricingConfig,
     input.basketSubtotal
   );
+  if (customerDeliveryFee === undefined) throw new DeliveryPricingInvalidMerchantConfigError();
 
   const providerCost = input.providerCost;
   const merchantSubsidy =
