@@ -165,6 +165,13 @@ export const supabase = {
 
 const MOCK_LEGAL_CGV = `
 export class PublishCgvError extends Error {}
+// CGV W2 (Noether, scanym-orchestrator#23) -- mirrors the ActivateCgvError
+// class added to the real lib/services/legal-cgv.ts, exactly as
+// PublishCgvError above already mirrors PublishCgvError there. No
+// behavior change to this gate: the real module's activate() is still
+// stubbed to a no-op below, this only keeps the bundle buildable now
+// that app/dashboard/legal-cgv/page.tsx imports the new named export.
+export class ActivateCgvError extends Error {}
 export async function getMerchantLegalProfile(restaurantId) {
   (globalThis).__legalCallLog.push(restaurantId);
   const deferred = (globalThis).__legalDeferred.get(restaurantId);

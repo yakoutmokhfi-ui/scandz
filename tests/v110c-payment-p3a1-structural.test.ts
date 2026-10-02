@@ -173,8 +173,25 @@ const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
 // TRACKING_ALLOWED_SERVER_IMPORTERS/STUART_ALLOWED_SERVER_IMPORTERS
 // ci-dessus -- UNE SEULE route, UN SEUL module server autorisé, jamais
 // une exemption de répertoire ("legal-*"), jamais un motif générique.
+//
+// CGV W2 -- PUBLICATION BOUNDARY FIXES (Noether, scanym-orchestrator
+// #23 ; lot ULTÉRIEUR et SANS RAPPORT avec PAYMENT P3-A1/Stuart/
+// invoice-request/product-photo) : même mécanisme exact, étendu à
+// DEUX entrées, chacune toujours scopée à exactement UN ou DEUX
+// modules server nommés, jamais un motif générique --
+//   1. publish/route.ts importe désormais AUSSI
+//      legal-cgv-activate-service (W2-6 : invalidation partagée
+//      invalidatePublicLegalPage du cache ISR de la page légale
+//      publique après une publication RÉUSSIE -- jamais une seconde
+//      implémentation, voir le commentaire d'en-tête de la route
+//      elle-même) -- le motif autorisé pour ce fichier est donc élargi
+//      aux DEUX modules, et à ceux-là seulement.
+//   2. activate/route.ts (NOUVELLE route, frontière serveur technique
+//      pour activate_merchant_cgv -- RPC INCHANGÉE, grant INCHANGÉ,
+//      zéro SQL) n'importe QUE legal-cgv-activate-service.
 const LEGAL_CGV_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
-  "app/api/dashboard/legal-cgv/publish/route.ts": /^@\/lib\/server\/legal-cgv-publish-service$/,
+  "app/api/dashboard/legal-cgv/publish/route.ts": /^@\/lib\/server\/legal-cgv-(publish|activate)-service$/,
+  "app/api/dashboard/legal-cgv/activate/route.ts": /^@\/lib\/server\/legal-cgv-activate-service$/,
 };
 test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from \"...\"')", () => {
   const offenders: string[] = [];
@@ -439,12 +456,22 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // scanym_ack_transport_health, seule source lue par
   // _scanym_has_operational_durable_ack_channel() ; aucun paiement,
   // aucun Stuart, aucun suivi déclenché. Entrée EXACTE unique ajoutée
-  // à cette liste FERMÉE, jamais une correspondance large).
+  // à cette liste FERMÉE, jamais une correspondance large)
+  // + 1 route CGV W2 -- PUBLICATION BOUNDARY FIXES (Noether, scanym-
+  // orchestrator#23 ; également ULTÉRIEURE et SANS RAPPORT avec PAYMENT
+  // P3-A1 -- déplace l'appel d'activation CGV existant
+  // (activate_merchant_cgv, RPC INCHANGÉE, grant INCHANGÉ) du
+  // navigateur vers une frontière serveur technique, afin de déclencher
+  // au même endroit l'invalidation du cache ISR de la page légale
+  // publique ; zéro SQL, aucun paiement/Stuart/suivi déclenché. Entrée
+  // EXACTE unique ajoutée à cette liste FERMÉE, jamais une
+  // correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/admin/gap-01-ack-health-check/route.ts",
     "app/api/checkout/invoice-request/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",
+    "app/api/dashboard/legal-cgv/activate/route.ts",
     "app/api/dashboard/legal-cgv/publish/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",

@@ -1,0 +1,79 @@
+{
+  "lot": "CGV-W2-PUBLICATION-BOUNDARY-FIXES — REMEDIATION B1/B2",
+  "issue": "scanym-orchestrator#23",
+  "mandate": "NOETHER comment id 5945862932 (2026-10-02T04:57:23Z), STATUS: REMEDIATION GO — TWO BLOCKERS ONLY",
+  "auditedCandidate": {
+    "sha": "d6ad2497d2af13270034648745f88d5229a3d0bb",
+    "tree": "00d3b143a41f0a6a33c7a9473af7ce8b66534230",
+    "verdict": "FAIL — BLOCKERS (Chateaubriand, independent audit)"
+  },
+  "remediatedCandidate": {
+    "sha": "f56c4a5228f5148f2c3f78fae83232d30fa9c0eb",
+    "tree": "b32dc7139eb7e068e7ed15e33cd005c59193d3b2",
+    "branch": "feature/w2-cgv-publication-boundary-fixes",
+    "pr": 125,
+    "prState": "open",
+    "prDraft": true,
+    "prMerged": false
+  },
+  "base": {
+    "sha": "24dde51ac047100de7d23c6b28d78b54f013a72c",
+    "tree": "42185dbaab5eb8c9d961c184207a6a699cc3eacc"
+  },
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v51 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "install": "npm ci (clean install, identical lockfile, identical Node binary, separate checkouts for base and candidate)",
+    "command": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts"
+  },
+  "logs": {
+    "baseline": {
+      "checkout": "/tmp/scandz-work/w2-baseline (separate clean checkout, exact SHA verified via git rev-parse HEAD before the run)",
+      "tests": 4491,
+      "pass": 4481,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "6e073e84b7f0b88be4fdec019724dfc2070381d45972b6229d200bfcf5c95921",
+      "gzipFile": "baseline.tap.gz",
+      "gzipSha256FromThisHost": "see baseline.tap.gz; recompute with sha256sum after gunzip to verify against rawSha256 above"
+    },
+    "candidate": {
+      "checkout": "/tmp/scandz-work/scandz (exact SHA verified via git rev-parse HEAD before the run)",
+      "tests": 4510,
+      "pass": 4500,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "b44a8e16dae712585e36481b0772af75fa4d5a3536f60791df58391d8f131663",
+      "gzipFile": "candidate.tap.gz"
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-work/scandz (remediated candidate f56c4a5), cgv-publication-boundary-v1.dom.test.ts alone",
+      "tests": 19,
+      "pass": 19,
+      "fail": 0,
+      "skipped": 0,
+      "cancelled": 0,
+      "rawSha256": "11155b6b83e806d8d644b8713dba8da17187c3c5abb72c52f5c5eb4884915c40",
+      "gzipFile": "targeted.tap.gz"
+    }
+  },
+  "testCountDelta": {
+    "candidateMinusBase": 19,
+    "explanation": "18 W2 tests already added by the audited candidate d6ad249 (unchanged by this B1 remediation) + 1 new test added by this remediation itself (W2-T-02b, a secondary defense-in-depth test for publish()'s in-handler guard, added alongside the primary W2-T-02 rewrite which replaces an existing test in place rather than adding a new one). 4510 - 4491 = 19, exact match."
+  },
+  "failureIdentityDelta": {
+    "command": "grep '^not ok' <tap> | sed -E 's/^not ok [0-9]+ - //' | sort > <file>; diff baseline-failures-sorted.txt candidate-failures-sorted.txt",
+    "added": [],
+    "removed": [],
+    "note": "Exactly the same 10 failure identities on base and candidate (see baseline-failures-sorted.txt / candidate-failures-sorted.txt in this directory). All 10 are pre-existing, SHA-independent: 9 are deterministic structural/architecture tests whose assertions compare the live git tree against OTHER lots' fixed historical baseline SHAs (ob1-non-modification-proof.test.ts, v110c-payment-p3a1-structural.test.ts) and are already known-stale on main, entirely unrelated to the W2/CGV lot or to this remediation; 1 (tests/cfte-v1-customer-name-and-email.test.ts) is an environment-configuration failure (this container has no .env.local, and lib/supabase.ts validates NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY eagerly at import time) -- reproduced identically in isolation on BOTH checkouts, confirming it is a container-configuration gap, not a code regression. No nondeterminism was observed: both runs are single, clean executions on their respective SHAs, with identical identities."
+  },
+  "tsc": {
+    "command": "npx tsc --noEmit -p tsconfig.json",
+    "base": "0 errors (clean npm ci)",
+    "candidate": "0 errors (clean npm ci)",
+    "note": "An earlier same-day tsc pass on both SHAs, taken BEFORE a fresh npm ci, showed 7 identical errors confined to tests/delivery-pricing-b234-sql.test.ts and tests/delivery-pricing-b234-ui.dom.test.ts (both outside W2/CGV scope) on BOTH SHAs -- traced to a stale pre-npm-ci node_modules, not a real baseline condition. Superseded by this clean-install result: 0/0."
+  }
+}
