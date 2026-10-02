@@ -10,16 +10,39 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
 // ====================================================================
-// SETTINGS SAVE RELIABILITY v1 (mandat "TO: CLAUDE DEVELOPER", branche
-// feature/settings-save-reliability-v1, base main
-// 0826f5f36d56876fe68cba3a091e6b279a095cb0).
+// SETTINGS SAVE RELIABILITY v1.1 (remédiation du contre-audit
+// indépendant sur la PR #128, pièce jointe "TO: BOULEZ / CLAUDE,
+// STATUS: REMEDIATION REQUIRED -- DO NOT AUDIT YET, PR: #128", branche
+// feature/settings-save-reliability-v1, rebasée sur main
+// 73ca103fdb2045693abebc7738994b4e33fa803f).
 //
-// Couvre les tests S1-S8 mandatés (S9 -- comparaison d'identité de
-// l'échec en full-suite, base/candidat frais -- est, comme pour
-// tests/cgv-publication-boundary-v1.dom.test.ts (W2-T-09/W2-T-10), un
-// contrôle de PROCESSUS vérifié HORS de ce fichier, au moment de
-// l'assemblage du paquet de preuves, jamais à l'intérieur d'un test
-// unitaire).
+// v1 (SETTINGS-SAVE-RELIABILITY-V1-ORDER-01, PR #128 initiale) avait
+// seulement réordonné les RPC mutantes (légal/fiscal en PREMIER) en
+// gardant "soumettre INCONDITIONNELLEMENT toutes les sections à
+// chaque clic". Le contre-audit a REJETÉ la prétention "atomicity
+// preserved, only call order changed" comme INCORRECTE
+// (SETTINGS-SAVE-RELIABILITY-V1-PARTIAL-SAVE-01) : un échec sur une
+// section SANS RAPPORT (ex. couleurs) après que légal/fiscal ait
+// pourtant réussi produisait un message d'échec global AMBIGU, qui ne
+// disait jamais que légal/fiscal avait été persisté.
+//
+// v1.1 sépare explicitement QUELLES sections sont réellement
+// modifiées ("dirty", dérivé par comparaison snapshot/état courant --
+// voir generalSnapshotRef/legalSnapshotRef et les comparateurs
+// `*GroupDirty` en tête de app/dashboard/settings/page.tsx) de
+// QUELLES sections sont soumises : SEULES les sections dirty sont
+// candidates à une mutation, chacune tentée INDÉPENDAMMENT (jamais de
+// transaction inventée entre RPC sans rapport), et l'issue est
+// rapportée SANS AMBIGUÏTÉ (succès global / échec total direct / état
+// MIXTE explicitement préfixé par stPartialSaveError).
+//
+// Couvre les tests S1-S10 mandatés par la remédiation (S11 --
+// comparaison d'identité de l'échec en full-suite, base/candidat
+// FRAIS contre main COURANT -- est, comme pour
+// tests/cgv-publication-boundary-v1.dom.test.ts (W2-T-09/W2-T-10) et
+// comme pour la version v1 de CE MÊME fichier, un contrôle de
+// PROCESSUS vérifié HORS de ce fichier, au moment de l'assemblage du
+// paquet de preuves, jamais à l'intérieur d'un test unitaire).
 //
 // Patron EXACTEMENT repris de tests/cgv-publication-boundary-v1.dom.test.ts
 // (JSDOM + esbuild, `makeMockPlugin`, `flush`/`waitFor`, modules
@@ -29,19 +52,6 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // @/lib/types, @/lib/whatsapp, @/lib/color-contrast, @/lib/maps-url,
 // @/lib/social-links, @/lib/customer-contact, @/lib/tracking/status(-text),
 // @/lib/i18n).
-//
-// Root cause couvert par ces tests (voir le commentaire
-// SETTINGS-SAVE-RELIABILITY-V1-ORDER-01 dans
-// app/dashboard/settings/page.tsx) : submit() ré-enregistre
-// INCONDITIONNELLEMENT ~11 sections à chaque clic sur Enregistrer, et
-// update_receipt_settings (légal/fiscal) était appelée EN DERNIER --
-// l'échec de N'IMPORTE QUELLE section précédente, même sans aucun
-// rapport avec ce que le marchand a modifié, empêchait silencieusement
-// update_receipt_settings d'être jamais atteinte. Remédiation : ordre
-// de MUTATION seul, update_receipt_settings est désormais la TOUTE
-// PREMIÈRE RPC mutante, dans les deux modes (formulaire complet ET
-// opérateur seul) -- aucune validation déplacée, aucune garde
-// affaiblie.
 // ====================================================================
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -198,14 +208,15 @@ export async function removeEstablishmentAsset() { throw new Error("SCANYM_TEST_
 export function validateEstablishmentAssetFile() { return { ok: true }; }
 `;
 
-// SETTINGS SAVE RELIABILITY v1 -- instrumentation générique par
+// SETTINGS SAVE RELIABILITY v1.1 -- instrumentation générique par
 // "kind" de mutation (call-log + deferred + failure), même patron que
 // MOCK_LEGAL_CGV's mutationCall() dans
 // tests/cgv-publication-boundary-v1.dom.test.ts, étendu à toutes les
 // RPC mutantes de submit() (11 sections + le texte de suivi) PLUS un
 // journal d'ORDRE D'APPEL partagé (__callOrder) -- indispensable pour
-// S3 (prouver que le légal/fiscal est désormais appelé AVANT toute
-// autre section, jamais après).
+// prouver, section par section, qu'une section NON dirty n'est JAMAIS
+// appelée (le coeur du contrat v1.1), et que les sections dirty sont
+// chacune tentées indépendamment dans l'ordre fixe du code.
 const MOCK_DASHBOARD = `
 function mutationCall(kind, restaurantId, successValue) {
   (globalThis).__callOrder.push(kind);
@@ -368,7 +379,10 @@ function setFieldValue(el: HTMLInputElement | HTMLTextAreaElement, value: string
  *  <label>, qui lui est toujours un frère DOM immédiatement suivant
  *  (directement, ou à l'intérieur de la même <div> encapsulante) dans
  *  app/dashboard/settings/page.tsx -- jamais par data-testid (cette
- *  page n'en expose aucun pour ses champs légaux/fiscaux). */
+ *  page n'en expose aucun pour ses champs légaux/fiscaux). Fonctionne
+ *  pour les champs légaux/fiscaux (label suivi DIRECTEMENT de
+ *  l'input/textarea), mais PAS pour ColorField (voir
+ *  colorFieldByLabel ci-dessous, structure DOM différente). */
 function fieldByLabel(container: HTMLElement, labelText: string): HTMLInputElement | HTMLTextAreaElement {
   const labels = Array.from(container.querySelectorAll("label"));
   const label = labels.find((l) => (l.textContent ?? "").trim() === labelText.trim());
@@ -378,12 +392,53 @@ function fieldByLabel(container: HTMLElement, labelText: string): HTMLInputEleme
   return field;
 }
 
+/** SETTINGS SAVE RELIABILITY v1.1 (nouveau helper) -- ColorField
+ *  (app/dashboard/settings/page.tsx) rend <label>, puis
+ *  optionnellement un <p> d'aide, puis un <div> englobant DEUX
+ *  <input> (un sélecteur de couleur type="color", puis le champ texte
+ *  "#RRGGBB" réel) -- fieldByLabel (frère DOM direct) ne s'applique
+ *  donc pas ici. On remonte au wrapper <div className="mt-3"> de
+ *  ColorField puis on sélectionne l'input texte (celui qui n'est PAS
+ *  type="color"). Utilisé pour prouver, S3/S4/S7, qu'une section
+ *  "colors" dirty indépendamment du légal/fiscal déclenche (ou non)
+ *  updateRestaurantColors. */
+function colorFieldByLabel(container: HTMLElement, labelText: string): HTMLInputElement {
+  const labels = Array.from(container.querySelectorAll("label"));
+  const label = labels.find((l) => (l.textContent ?? "").trim() === labelText.trim());
+  assert.ok(label, `expected a <label> with text "${labelText}"`);
+  const wrapper = label!.closest("div.mt-3") as HTMLElement | null;
+  assert.ok(wrapper, `expected the ColorField wrapper <div> for label "${labelText}"`);
+  const textInput = wrapper!.querySelector('input:not([type="color"])') as HTMLInputElement | null;
+  assert.ok(textInput, `expected the color text input for label "${labelText}"`);
+  return textInput!;
+}
+
+/** SETTINGS SAVE RELIABILITY v1.1 (nouveau helper) -- le champ
+ *  maps_url (section V70-02, toujours rendue indépendamment de
+ *  isOperatorOnlyMode) n'a pas de <label> propre, seulement un <h3>
+ *  de section. On remonte à la <section> ancêtre du <h3> correspondant
+ *  puis on prend son premier <input>. Utilisé en S7 pour prouver
+ *  qu'une SECONDE section (mapsUrl, distincte de colors) autorisée en
+ *  mode opérateur seul est elle aussi appelée quand (et seulement
+ *  quand) elle est dirty. */
+function fieldInSectionByHeading(container: HTMLElement, headingText: string): HTMLInputElement {
+  const headings = Array.from(container.querySelectorAll("h3"));
+  const heading = headings.find((h) => (h.textContent ?? "").trim() === headingText.trim());
+  assert.ok(heading, `expected an <h3> with text "${headingText}"`);
+  const section = heading!.closest("section") as HTMLElement | null;
+  assert.ok(section, `expected a <section> ancestor for heading "${headingText}"`);
+  const input = section!.querySelector("input") as HTMLInputElement | null;
+  assert.ok(input, `expected an <input> inside the section for heading "${headingText}"`);
+  return input!;
+}
+
 /** Soumet le formulaire en déclenchant directement l'évènement natif
  *  "submit" sur le <form> -- même technique, déjà établie dans ce
  *  dépôt, que tests/ux-audit-lot1-login-accessibility.dom.test.ts.
- *  Utilisée pour TOUS les tests SAUF S8, qui doit au contraire prouver
- *  que le bouton RÉELLEMENT désactivé empêche la re-soumission (voir
- *  S8 ci-dessous, qui utilise `.click()` sur le bouton lui-même). */
+ *  Utilisée pour TOUS les tests SAUF S9 (double-save), qui doit au
+ *  contraire prouver que le bouton RÉELLEMENT désactivé empêche la
+ *  re-soumission (voir S9 ci-dessous, qui utilise `.click()` sur le
+ *  bouton lui-même). */
 function submitForm(container: HTMLElement) {
   const form = container.querySelector("form") as HTMLFormElement | null;
   assert.ok(form, "expected a <form> to be rendered");
@@ -427,6 +482,21 @@ const ALL_KINDS = [
   "trackingText",
 ] as const;
 
+/** Tous les kinds SAUF "receipt" -- utilisé abondamment pour prouver
+ *  qu'une édition légale/fiscale SEULE ne déclenche AUCUNE mutation
+ *  non liée (le coeur du contrat v1.1, Blocker 1). */
+const NON_RECEIPT_KINDS = ALL_KINDS.filter((k) => k !== "receipt");
+
+function assertZeroCalls(kinds: readonly string[], context: string) {
+  for (const kind of kinds) {
+    assert.deepEqual(
+      (globalThis as any).__mutationCallLog[kind],
+      [],
+      `${context}: ${kind} must never be called`
+    );
+  }
+}
+
 function resetCommonFixtures() {
   (globalThis as any).__mappings = [];
   (globalThis as any).__isOperator = false;
@@ -452,10 +522,11 @@ function setupSingleRestaurant(id = "resto-a", marker = "A") {
 }
 
 // ====================================================================
-// Tests S1-S8.
+// Tests S1-S10 (S11 -- comparaison d'identité full-suite -- est un
+// contrôle de PROCESSUS effectué HORS de ce fichier).
 // ====================================================================
 
-test("S1 — legal-only edit reaches updateReceiptSettings exactly once, with the correct (never stale) restaurantId, after a restaurant switch", async () => {
+test("S1 — legal-only edit reaches updateReceiptSettings exactly once, with the correct (never stale) restaurantId, after a restaurant switch, and triggers ZERO unrelated mutating RPCs", async () => {
   resetCommonFixtures();
   (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
   (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
@@ -477,21 +548,27 @@ test("S1 — legal-only edit reaches updateReceiptSettings exactly once, with th
   setFieldValue(footerField, "Nouveau pied de ticket B");
 
   submitForm(container);
-  await waitFor(() => (globalThis as any).__receiptCallLog.length > 0);
+  await waitFor(() => hasText(container, t("stSaved")));
 
   const calls = (globalThis as any).__receiptCallLog as Array<{ restaurantId: string; input: Record<string, unknown> }>;
   assert.equal(calls.length, 1, "updateReceiptSettings doit être appelée EXACTEMENT une fois");
   assert.equal(calls[0].restaurantId, "resto-b", "jamais une valeur de restaurant périmée (A) -- doit être B, le restaurant courant");
   assert.equal(calls[0].input.footerText, "Nouveau pied de ticket B");
 
-  await waitFor(() => hasText(container, t("stSaved")));
+  // SETTINGS SAVE RELIABILITY v1.1 -- le coeur du contrat (Blocker 1) :
+  // une édition légale/fiscale SEULE ne doit JAMAIS appeler une
+  // section sans rapport, qu'elle soit owner/manager (contact bundle)
+  // ou commune (couleurs/maps/identité/bg/réseaux sociaux/langues).
+  assertZeroCalls(NON_RECEIPT_KINDS, "S1 (legal-only)");
+  assert.deepEqual((globalThis as any).__callOrder, ["receipt"], "aucune autre RPC mutante ne doit avoir été tentée");
+
   assert.ok(hasText(container, t("stSaved")), "l'état de succès doit être affiché");
 
   root.unmount();
   container.remove();
 });
 
-test("S2 — tax-rate edit reaches updateReceiptSettings once, with the new numeric rate, no silent no-op", async () => {
+test("S2 — tax-rate-only edit reaches updateReceiptSettings once, with the new numeric rate, no silent no-op, and triggers ZERO unrelated mutating RPCs", async () => {
   setupSingleRestaurant();
   const { container, root } = render();
   await waitSettled(container);
@@ -501,17 +578,50 @@ test("S2 — tax-rate edit reaches updateReceiptSettings once, with the new nume
   setFieldValue(taxRateField, "15.5");
 
   submitForm(container);
-  await waitFor(() => (globalThis as any).__receiptCallLog.length > 0);
+  await waitFor(() => hasText(container, t("stSaved")));
 
   const calls = (globalThis as any).__receiptCallLog as Array<{ restaurantId: string; input: Record<string, unknown> }>;
   assert.equal(calls.length, 1, "updateReceiptSettings doit être appelée EXACTEMENT une fois -- jamais un no-op silencieux");
   assert.equal(calls[0].input.defaultTaxRate, 15.5, "le nouveau taux doit être transmis, jamais l'ancien");
 
+  assertZeroCalls(NON_RECEIPT_KINDS, "S2 (tax-rate-only)");
+  assert.deepEqual((globalThis as any).__callOrder, ["receipt"]);
+
   root.unmount();
   container.remove();
 });
 
-test("S3 — a later (colors) mutation failure is never silent: under the NEW ordering, updateReceiptSettings succeeds FIRST, then a clear, section-specific error is shown for colors, and saved is never shown", async () => {
+test("S3 — colors-only edit reaches updateRestaurantColors exactly once and triggers ZERO calls to updateReceiptSettings (inverse of S1/S2: the new explicit dirty-state contract, mandated correction of the old v1 S3)", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const primaryColorField = colorFieldByLabel(container, t("stPrimaryColor"));
+  assert.equal(primaryColorField.value, "#111111", "doit partir de la valeur chargée (settingsRow primary_color)");
+  setFieldValue(primaryColorField, "#a1b2c3");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "updateRestaurantColors doit être appelée EXACTEMENT une fois");
+  assert.equal(
+    (globalThis as any).__receiptCallLog.length,
+    0,
+    "updateReceiptSettings ne doit JAMAIS être appelée -- rien dans le légal/fiscal n'a changé"
+  );
+  assertZeroCalls(
+    ALL_KINDS.filter((k) => k !== "colors"),
+    "S3 (colors-only)"
+  );
+  assert.deepEqual((globalThis as any).__callOrder, ["colors"]);
+
+  assert.ok(hasText(container, t("stSaved")), "succès affiché -- la seule section dirty (colors) a réussi");
+
+  root.unmount();
+  container.remove();
+});
+
+test("S4 (CRITIQUE) — legal+colors both dirty: each is attempted independently, and a colors failure after a legal success is reported as an EXPLICIT mixed/partial outcome, never a global failure that would hide the legal success, and never a bare global success either", async () => {
   setupSingleRestaurant();
   (globalThis as any).__mutationFailure.colors["resto-a"] = new Error(
     'duplicate key value violates unique constraint "some_pkey" (SQLSTATE 23505)'
@@ -520,39 +630,44 @@ test("S3 — a later (colors) mutation failure is never silent: under the NEW or
   const { container, root } = render();
   await waitSettled(container);
 
+  const footerField = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
+  setFieldValue(footerField, "Pied de ticket mixte");
+  const primaryColorField = colorFieldByLabel(container, t("stPrimaryColor"));
+  setFieldValue(primaryColorField, "#a1b2c3");
+
   submitForm(container);
   await waitFor(() => hasText(container, t("stColorsSaveError")));
 
-  // La RPC légale/fiscale a RÉUSSI, et en PREMIER -- c'est exactement
-  // le contrat explicite choisi par la remédiation (SETTINGS-SAVE-
-  // RELIABILITY-V1-ORDER-01) : plus jamais bloquée par une section
-  // sans rapport, même quand CETTE section échoue ensuite.
-  assert.equal((globalThis as any).__receiptCallLog.length, 1, "updateReceiptSettings doit avoir réussi AVANT l'échec des couleurs");
+  // Les DEUX sections dirty doivent avoir été TENTÉES -- légal/fiscal
+  // réussit (ordre fixe du code : légal est toujours tenté en
+  // premier), couleurs échoue ensuite.
+  assert.equal((globalThis as any).__receiptCallLog.length, 1, "updateReceiptSettings doit avoir réussi (section dirty, tentée, et qui réussit)");
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "updateRestaurantColors doit avoir été tentée (section dirty) et avoir échoué");
   const order = (globalThis as any).__callOrder as string[];
-  assert.ok(order.includes("receipt"), "receipt doit avoir été appelée");
-  assert.ok(order.includes("colors"), "colors doit avoir été tentée");
-  assert.ok(order.indexOf("receipt") < order.indexOf("colors"), "receipt doit être appelée AVANT colors, jamais après");
+  assert.deepEqual(order, ["receipt", "colors"], "seules les DEUX sections dirty sont candidates -- aucune autre RPC, dans aucun ordre");
 
-  // L'échec de colors doit rester NON AMBIGU : message dédié à CETTE
-  // section, jamais le message brut du serveur.
-  assert.ok(hasText(container, t("stColorsSaveError")), "un message clair, dédié à la section colors, doit être affiché");
+  // Aucune section NON dirty ne doit jamais être tentée.
+  assertZeroCalls(
+    ALL_KINDS.filter((k) => k !== "receipt" && k !== "colors"),
+    "S4 (legal+colors mixed)"
+  );
+
+  // L'issue doit être EXPLICITEMENT mixte : le préfixe
+  // stPartialSaveError ET le message spécifique à colors, JAMAIS un
+  // message d'échec générique qui masquerait la réussite du
+  // légal/fiscal, et JAMAIS l'indicateur de succès global (qui, lui,
+  // masquerait l'échec réel de colors).
+  assert.ok(hasText(container, t("stPartialSaveError")), "le préfixe explicite d'état MIXTE doit être affiché");
+  assert.ok(hasText(container, t("stColorsSaveError")), "le message spécifique à la section colors doit être affiché");
   assert.ok(!hasText(container, "constraint"), "aucun fragment SQL/PostgREST brut ne doit jamais atteindre le marchand");
   assert.ok(!hasText(container, "23505"), "aucun code SQLSTATE brut ne doit jamais atteindre le marchand");
-
-  // Le reste de la soumission (sections APRÈS colors dans le nouvel
-  // ordre) ne doit jamais avoir été tenté -- même garantie d'atomicité
-  // qu'avant la remédiation, seul l'ORDRE a changé.
-  assert.deepEqual((globalThis as any).__mutationCallLog.mapsUrl, [], "mapsUrl ne doit jamais être tentée après l'échec de colors");
-  assert.deepEqual((globalThis as any).__mutationCallLog.identity, [], "identity ne doit jamais être tentée après l'échec de colors");
-  assert.deepEqual((globalThis as any).__mutationCallLog.languages, [], "languages ne doit jamais être tentée après l'échec de colors");
-
-  assert.ok(!hasText(container, t("stSaved")), "l'indicateur de succès ne doit JAMAIS être affiché -- la soumission globale a échoué");
+  assert.ok(!hasText(container, t("stSaved")), "l'indicateur de succès GLOBAL ne doit JAMAIS être affiché quand une section dirty a échoué");
 
   root.unmount();
   container.remove();
 });
 
-const S4_CASES: Array<{ label: string; mutate: (container: HTMLElement) => void; errorKey: string }> = [
+const S5_CASES: Array<{ label: string; mutate: (container: HTMLElement) => void; errorKey: string }> = [
   {
     label: "invalid email",
     mutate: (c) => setFieldValue(fieldByLabel(c, t("stLegalEmail")), "not-an-email"),
@@ -570,8 +685,8 @@ const S4_CASES: Array<{ label: string; mutate: (container: HTMLElement) => void;
   },
 ];
 
-for (const { label, mutate, errorKey } of S4_CASES) {
-  test(`S4 (${label}) — legal validation still blocks: updateReceiptSettings NOT called, clear validation error shown`, async () => {
+for (const { label, mutate, errorKey } of S5_CASES) {
+  test(`S5 (${label}) — legal validation still blocks: ZERO mutating RPCs of any kind, clear validation error shown`, async () => {
     setupSingleRestaurant();
     const { container, root } = render();
     await waitSettled(container);
@@ -589,7 +704,7 @@ for (const { label, mutate, errorKey } of S4_CASES) {
   });
 }
 
-test("S5 (CRITIQUE) — provenance guard preserved: legalProfileReady=false (échec de lecture) => ZÉRO appel RPC mutant, updateReceiptSettings non appelée, stLegalNotReady visible", async () => {
+test("S6 (CRITIQUE) — provenance guard preserved: legalProfileReady=false (échec de lecture) => ZÉRO appel RPC mutant, updateReceiptSettings non appelée, stLegalNotReady visible", async () => {
   setupSingleRestaurant();
   (globalThis as any).__receiptLoadFailure["resto-a"] = new Error("transport failure");
 
@@ -610,9 +725,7 @@ test("S5 (CRITIQUE) — provenance guard preserved: legalProfileReady=false (éc
   await flush(50);
 
   assert.equal((globalThis as any).__receiptCallLog.length, 0, "updateReceiptSettings ne doit jamais être appelée");
-  for (const kind of ALL_KINDS) {
-    assert.deepEqual((globalThis as any).__mutationCallLog[kind], [], `${kind} ne doit jamais être appelée -- ZÉRO RPC mutante de quelque nature que ce soit`);
-  }
+  assertZeroCalls(ALL_KINDS, "S6 (provenance guard)");
   assert.deepEqual((globalThis as any).__callOrder, [], "aucune mutation, dans aucun ordre, ne doit avoir été tentée");
   assert.ok(hasText(container, t("stLegalNotReady")), "stLegalNotReady doit être visible");
 
@@ -620,7 +733,7 @@ test("S5 (CRITIQUE) — provenance guard preserved: legalProfileReady=false (éc
   container.remove();
 });
 
-test("S6 — operator-only mode: a valid legal/tax change still reaches updateReceiptSettings first, without requiring any merchant-only (owner/manager) mutation, and role policy is unchanged", async () => {
+test("S7 — operator-only mode: role policy AND dirty-gating both hold together -- a dirty legal edit plus two dirty operator-allowed sections (colors, mapsUrl) all reach their RPC, an UNCHANGED operator-allowed section (identity/bgColor/social/languages) is never called, and the owner/manager-only contact bundle is never called", async () => {
   resetCommonFixtures();
   (globalThis as any).__isOperator = true;
   // rôle réel "staff" (jamais owner/manager) -- canEditFull=false,
@@ -635,44 +748,56 @@ test("S6 — operator-only mode: a valid legal/tax change still reaches updateRe
 
   assert.ok(hasText(container, t("stOperatorOnlyMode")), "le bandeau 'mode opérateur seul' doit être affiché");
 
+  // Trois sections rendues dirty : légal (footer), colors (couleur
+  // primaire) et mapsUrl -- toutes trois autorisées en mode opérateur
+  // seul (V70-02/F-01 Super Admin).
   const footerField = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
   setFieldValue(footerField, "Pied opérateur");
+  const primaryColorField = colorFieldByLabel(container, t("stPrimaryColor"));
+  setFieldValue(primaryColorField, "#a1b2c3");
+  const mapsUrlField = fieldInSectionByHeading(container, t("stMapsTitle"));
+  setFieldValue(mapsUrlField, "https://maps.app.goo.gl/XYZ789");
 
   submitForm(container);
-  await waitFor(() => (globalThis as any).__receiptCallLog.length > 0);
+  await waitFor(() => hasText(container, t("stSaved")));
 
   const calls = (globalThis as any).__receiptCallLog as Array<{ restaurantId: string; input: Record<string, unknown> }>;
-  assert.equal(calls.length, 1, "updateReceiptSettings doit être appelée");
+  assert.equal(calls.length, 1, "updateReceiptSettings doit être appelée (section dirty)");
   assert.equal(calls[0].restaurantId, "resto-a");
   assert.equal(calls[0].input.footerText, "Pied opérateur");
 
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "colors est dirty et autorisée -- doit être appelée");
+  assert.equal((globalThis as any).__mutationCallLog.mapsUrl.length, 1, "mapsUrl est dirty et autorisée -- doit être appelée");
+
   // Politique de rôle INCHANGÉE : les sections réservées owner/manager
   // (contact public/WhatsApp, réglages restaurant génériques, textes
-  // de suivi) ne doivent JAMAIS être appelées en mode opérateur seul.
+  // de suivi) ne doivent JAMAIS être appelées en mode opérateur seul,
+  // dirty ou non (contactDirty est forcé à false par
+  // `!isOperatorOnlyMode` dans submit()).
   assert.deepEqual((globalThis as any).__mutationCallLog.publicContact, [], "publicContact est owner/manager uniquement");
   assert.deepEqual((globalThis as any).__mutationCallLog.whatsapp, [], "whatsapp est owner/manager uniquement");
   assert.deepEqual((globalThis as any).__mutationCallLog.whatsappEnabled, [], "whatsappEnabled est owner/manager uniquement");
   assert.deepEqual((globalThis as any).__mutationCallLog.restaurantSettings, [], "restaurantSettings (adresse/horaires/langue) est owner/manager uniquement");
   assert.deepEqual((globalThis as any).__mutationCallLog.trackingText, [], "les textes de suivi sont owner/manager uniquement");
 
-  // En revanche, colors/mapsUrl/identity/bgColor/social/languages
-  // restent accessibles à un opérateur (assert_restaurant_asset_role,
-  // F-01 Super Admin) -- comportement PRÉEXISTANT, non touché par
-  // cette remédiation, qui doit rester exactement identique.
-  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "colors reste accessible en mode opérateur seul");
-  assert.equal((globalThis as any).__mutationCallLog.mapsUrl.length, 1, "mapsUrl reste accessible en mode opérateur seul");
-  assert.equal((globalThis as any).__mutationCallLog.identity.length, 1, "identity reste accessible en mode opérateur seul");
-  assert.equal((globalThis as any).__mutationCallLog.bgColor.length, 1, "bgColor reste accessible en mode opérateur seul");
-  assert.equal((globalThis as any).__mutationCallLog.social.length, 1, "social reste accessible en mode opérateur seul");
-  assert.equal((globalThis as any).__mutationCallLog.languages.length, 1, "languages reste accessible en mode opérateur seul");
+  // SETTINGS SAVE RELIABILITY v1.1 -- la preuve du dirty-gating :
+  // identity/bgColor/social/languages restent AUTORISÉES pour un
+  // opérateur (comportement préexistant, non touché), mais comme
+  // AUCUN de leurs champs n'a été modifié ici, elles ne doivent PAS
+  // être appelées -- contrairement au comportement v1 (soumission
+  // inconditionnelle de toutes les sections à chaque clic).
+  assert.deepEqual((globalThis as any).__mutationCallLog.identity, [], "identity est autorisée mais NON dirty ici -- ne doit pas être appelée");
+  assert.deepEqual((globalThis as any).__mutationCallLog.bgColor, [], "bgColor est autorisée mais NON dirty ici -- ne doit pas être appelée");
+  assert.deepEqual((globalThis as any).__mutationCallLog.social, [], "social est autorisée mais NON dirty ici -- ne doit pas être appelée");
+  assert.deepEqual((globalThis as any).__mutationCallLog.languages, [], "languages est autorisée mais NON dirty ici -- ne doit pas être appelée");
 
-  await waitFor(() => hasText(container, t("stSaved")));
+  assert.ok(hasText(container, t("stSaved")), "toutes les sections dirty ont réussi -- succès affiché");
 
   root.unmount();
   container.remove();
 });
 
-test("S7 — exact payload preservation: updateReceiptSettings receives ALL current fields correctly, no field dropped/stale/unintended-normalized, when only one field changes", async () => {
+test("S8 — exact payload preservation: updateReceiptSettings receives ALL current fields correctly, no field dropped/stale/unintended-normalized, when only one field changes, and no unrelated section is ever re-saved", async () => {
   setupSingleRestaurant("resto-a", "A");
   const { container, root } = render();
   await waitSettled(container);
@@ -681,7 +806,7 @@ test("S7 — exact payload preservation: updateReceiptSettings receives ALL curr
   setFieldValue(footerField, "Nouveau texte de pied de ticket");
 
   submitForm(container);
-  await waitFor(() => (globalThis as any).__receiptCallLog.length > 0);
+  await waitFor(() => hasText(container, t("stSaved")));
 
   const calls = (globalThis as any).__receiptCallLog as Array<{ restaurantId: string; input: Record<string, unknown> }>;
   assert.equal(calls.length, 1);
@@ -700,17 +825,22 @@ test("S7 — exact payload preservation: updateReceiptSettings receives ALL curr
     showTaxSummary: false,
   }, "tous les champs chargés doivent être retransmis EXACTEMENT tels quels, à l'exception du seul champ modifié -- aucun champ perdu, périmé, ou normalisé de façon inattendue");
 
+  assertZeroCalls(NON_RECEIPT_KINDS, "S8 (exact payload, legal-only)");
+
   root.unmount();
   container.remove();
 });
 
-test("S8 — double-save / saving state: a second rapid click on the (now genuinely disabled) Save button never creates a duplicate updateReceiptSettings call", async () => {
+test("S9 — double-save / saving state: a second rapid click on the (now genuinely disabled) Save button never creates a duplicate updateReceiptSettings call", async () => {
   setupSingleRestaurant();
   const deferred = makeDeferred<void>();
   (globalThis as any).__mutationDeferred.receipt.set("resto-a", deferred);
 
   const { container, root } = render();
   await waitSettled(container);
+
+  const footerField = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
+  setFieldValue(footerField, "Pied en double-clic");
 
   const btn = submitButton(container);
   assert.equal(btn.disabled, false, "le bouton doit être activé avant le premier clic");
@@ -743,6 +873,28 @@ test("S8 — double-save / saving state: a second rapid click on the (now genuin
   // total d'appels reste strictement 1.
   assert.equal(btn.disabled, false, "le bouton doit redevenir actif une fois l'enregistrement terminé");
   assert.equal((globalThis as any).__receiptCallLog.length, 1, "toujours un seul appel au total, même après résolution");
+
+  root.unmount();
+  container.remove();
+});
+
+test("S10 (CRITIQUE) — unchanged form submitted triggers ZERO mutating RPCs of any kind: proves the snapshot-diff dirty-state mechanism itself (generalSnapshotRef/legalSnapshotRef) accurately reflects the loaded state, and a click on Save with nothing edited is never mistaken for an edit", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  // Aucun champ modifié -- soumission du formulaire TEL QUE chargé.
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assertZeroCalls(ALL_KINDS, "S10 (unchanged form)");
+  assert.deepEqual((globalThis as any).__callOrder, [], "AUCUNE RPC mutante, de quelque section que ce soit, ne doit être tentée quand rien n'a changé");
+
+  // Un formulaire inchangé n'est PAS une erreur -- failedKeys reste
+  // vide (aucune section tentée, donc aucune ne peut échouer), donc
+  // l'issue "succès" (soit toutes réussissent, soit aucune n'est
+  // dirty) s'applique bien, jamais confondue avec un échec.
+  assert.ok(hasText(container, t("stSaved")), "succès affiché -- formulaire inchangé n'est jamais un échec");
 
   root.unmount();
   container.remove();
