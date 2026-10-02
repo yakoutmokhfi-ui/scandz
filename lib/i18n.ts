@@ -762,6 +762,11 @@ const fr: Dict = {
   stColorInvalid: "Couleur invalide (format #RRGGBB attendu)",
   stColorsReset: "Réinitialiser les couleurs",
   stColorsSaveError: "Échec de l'enregistrement des couleurs",
+  // SETTINGS SAVE RELIABILITY v1 -- remplace la fuite de message brut
+  // (e.message) précédemment affichée pour cette section (contact
+  // public/WhatsApp/adresse/horaires/textes de suivi) : un message
+  // dédié, traduit, jamais le texte brut renvoyé par le serveur.
+  stContactSaveError: "Échec de l'enregistrement du contact et des coordonnées du restaurant",
   stMapsTitle: "Lien de localisation / itinéraire",
   stMapsHint: "Affiché comme bouton « Itinéraire » sur votre carte publique.",
   stMapsInvalid: "Lien invalide (doit commencer par https://)",
@@ -1663,6 +1668,7 @@ const en: Dict = {
   stColorInvalid: "Invalid color (expected format #RRGGBB)",
   stColorsReset: "Reset colors",
   stColorsSaveError: "Failed to save the colors",
+  stContactSaveError: "Failed to save the restaurant's contact details",
   stMapsTitle: "Location / directions link",
   stMapsHint: "Shown as a \"Directions\" button on your public menu.",
   stMapsInvalid: "Invalid link (must start with https://)",
@@ -2528,6 +2534,7 @@ const ar: Dict = {
   stColorInvalid: "لون غير صالح (الصيغة المتوقعة #RRGGBB)",
   stColorsReset: "إعادة ضبط الألوان",
   stColorsSaveError: "فشل حفظ الألوان",
+  stContactSaveError: "فشل حفظ بيانات التواصل الخاصة بالمطعم",
   stMapsTitle: "رابط الموقع / الاتجاهات",
   stMapsHint: "يظهر كزر «الاتجاهات» في قائمتك العامة.",
   stMapsInvalid: "رابط غير صالح (يجب أن يبدأ بـ https://)",

@@ -677,13 +677,61 @@ export default function SettingsPage() {
 
     setSaving(true);
 
+    // SETTINGS SAVE RELIABILITY v1 -- ferme SETTINGS-SAVE-RELIABILITY-
+    // V1-ORDER-01 (bug Production : une modification légale/fiscale
+    // valide ne persistait pas, aucun appel update_receipt_settings
+    // observé). Root cause : submit() revalide et ré-enregistre
+    // INCONDITIONNELLEMENT ~11 sections à chaque clic sur Enregistrer,
+    // quels que soient les champs réellement modifiés par le
+    // marchand, et update_receipt_settings (légal/fiscal) était
+    // appelée EN DERNIER -- l'échec de N'IMPORTE LAQUELLE des 10
+    // mutations précédentes (contact public/WhatsApp, réglages
+    // restaurant, textes de suivi, couleurs, lien de localisation,
+    // identité, couleur de fond, réseaux sociaux, langues), MÊME SANS
+    // AUCUN RAPPORT avec ce que le marchand a modifié, empêchait donc
+    // silencieusement update_receipt_settings d'être jamais atteinte.
+    //
+    // Remédiation (changement minimal, ordre de MUTATION uniquement --
+    // aucune validation déplacée, aucune garde affaiblie, le principe
+    // d'un échec qui interrompt tout le reste de la soumission reste
+    // entièrement préservé pour chaque section, y compris celle-ci) :
+    // update_receipt_settings est désormais la TOUTE PREMIÈRE RPC
+    // mutante de submit(), dans les deux modes (formulaire complet ET
+    // opérateur seul). Un enregistrement portant uniquement sur des
+    // champs légaux/fiscaux valides n'est donc plus jamais bloqué par
+    // l'échec d'une section que le marchand n'a pas touchée. Si une
+    // section ULTÉRIEURE échoue ensuite, le marchand voit toujours une
+    // erreur claire et dédiée à CETTE section (jamais ambiguë) -- mais
+    // sa modification légale/fiscale, elle, est déjà en sécurité côté
+    // serveur.
+    try {
+      await updateReceiptSettings(restaurantId, {
+        businessName: legalBusinessName.trim() || null,
+        legalName: legalName.trim() || null,
+        legalAddress: legalAddress.trim() || null,
+        phone: legalPhone.trim() || null,
+        email: trimmedLegalEmail || null,
+        taxIdentifier: legalTaxIdentifier.trim() || null,
+        registrationNumber: legalRegistrationNumber.trim() || null,
+        taxLabel: legalTaxLabel.trim(),
+        defaultTaxRate: parsedTaxRate,
+        pricesIncludeTax: legalPricesIncludeTax,
+        footerText: legalFooterText.trim() || null,
+        showTaxSummary: legalShowTaxSummary,
+      });
+    } catch {
+      setError(t("stLegalSaveError"));
+      setSaving(false);
+      return;
+    }
+
     // Corrige V70-02 : WhatsApp/adresse/horaires/langue ne sont
     // JAMAIS appelés en mode opérateur seul -- ni validés, ni
     // enregistrés, ni même lus comme condition de blocage. Pour
     // owner/manager (ou un opérateur qui est PAR AILLEURS
     // légitimement owner/manager de cet établissement), le
     // comportement reste EXACTEMENT celui d'avant V71 : ces RPC sont
-    // appelées en premier, un échec interrompt tout le reste (même
+    // appelées ensemble, un échec interrompt tout le reste (même
     // raison qu'avant -- éviter qu'une partie des réglages change
     // pendant qu'une autre échoue silencieusement).
     if (!isOperatorOnlyMode) {
@@ -714,8 +762,16 @@ export default function SettingsPage() {
         // touche jamais. Un champ laissé vide EFFACE la surcharge et
         // rétablit le texte de base -- jamais un texte vide affiché.
         await setAllMerchantTrackingStatusText(restaurantId, statusTexts);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : t("stSaveFailed"));
+      } catch {
+        // SETTINGS SAVE RELIABILITY v1 -- ferme la fuite de message
+        // serveur brut (invariant explicite : aucune erreur serveur
+        // brute ne doit atteindre le marchand). `e.message` provenait
+        // directement de `throw new Error(error.message)` côté
+        // lib/services/dashboard.ts (texte PostgREST/SQL non traduit,
+        // potentiellement technique/illisible) -- remplacé par le même
+        // patron que toutes les autres sections ci-dessous : un message
+        // fixe, traduit, dédié à cette section.
+        setError(t("stContactSaveError"));
         setSaving(false);
         return;
       }
@@ -797,33 +853,12 @@ export default function SettingsPage() {
     // flux de soumission ENTIER, pas seulement cet appel) -- jamais
     // dupliquée ici, pour ne laisser aucune ambiguïté sur la source de
     // vérité unique de cette garde.
-
-    // MERCHANT LEGAL & TAX PROFILE v1 -- même posture que colors/
-    // maps_url/identity ci-dessus (canEdit, pas seulement canEditFull) :
-    // un opérateur Scanym en mode opérateur seul reste autorisé à
-    // modifier ce profil (assert_receipt_settings_role accepte
-    // owner/manager OU opérateur, même patron que
-    // assert_restaurant_asset_role).
-    try {
-      await updateReceiptSettings(restaurantId, {
-        businessName: legalBusinessName.trim() || null,
-        legalName: legalName.trim() || null,
-        legalAddress: legalAddress.trim() || null,
-        phone: legalPhone.trim() || null,
-        email: trimmedLegalEmail || null,
-        taxIdentifier: legalTaxIdentifier.trim() || null,
-        registrationNumber: legalRegistrationNumber.trim() || null,
-        taxLabel: legalTaxLabel.trim(),
-        defaultTaxRate: parsedTaxRate,
-        pricesIncludeTax: legalPricesIncludeTax,
-        footerText: legalFooterText.trim() || null,
-        showTaxSummary: legalShowTaxSummary,
-      });
-    } catch {
-      setError(t("stLegalSaveError"));
-      setSaving(false);
-      return;
-    }
+    //
+    // SETTINGS SAVE RELIABILITY v1 -- update_receipt_settings n'est
+    // PLUS appelée ici : voir le tout début de la phase de mutation
+    // ci-dessus (immédiatement après `setSaving(true)`), où elle est
+    // désormais la PREMIÈRE RPC mutante, dans les deux modes --
+    // jamais un second chemin d'écriture, jamais dupliquée.
 
     setSaved(true);
     if (!isOperatorOnlyMode) {
