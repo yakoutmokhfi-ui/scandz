@@ -519,6 +519,57 @@ test("W2-T-02b (défense en profondeur, SECONDAIRE -- ne remplace pas W2-T-02 ci
   container.remove();
 });
 
+test("W2-T-02c (ÉTAT COMBINÉ, RE-AUDIT Noether comment 5951442732) — template === null ET cgv.completeness_errors non vide => l'explication explicite 'aucun modèle' reste visible, jamais masquée par la branche de complétude générique, Publier reste désactivé, aucune mutation", async () => {
+  // REMÉDIATION B1 (re-audit) -- la version précédente de la JSX
+  // testait `cgv.completeness_errors.length > 0` AVANT `previewResult
+  // .reason`, donc quand les DEUX conditions étaient vraies en même
+  // temps, la branche de complétude gagnait silencieusement et
+  // l'explication no-template n'était jamais rendue -- exactement le
+  // trou que W2-T-02 (ci-dessus, profil complet / completeness_errors
+  // === []) ne pouvait pas détecter puisqu'il ne couvrait QUE le cas
+  // "profil par ailleurs complet". Ce test couvre l'ÉTAT COMBINÉ.
+  resetCommonFixtures();
+  (globalThis as any).__legalFallback["resto-a"] = legalProfile("resto-a", "A");
+  (globalThis as any).__cgvFallback["resto-a"] = cgvProfile("resto-a", "A", {
+    completeness_errors: ["MEDIATOR_INFO_MISSING"], // non vide, sans rapport avec le template
+  });
+  (globalThis as any).__templateFallback["resto-a"] = { data: null, error: null }; // no template resolved for this country
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  // L'explication no-template DOIT rester visible, que
+  // completeness_errors soit vide ou non -- jamais masquée par la
+  // branche de complétude générique.
+  assert.equal(
+    previewMessageText(container),
+    t("legalCgvNoTemplate"),
+    "l'état combiné (template === null ET completeness_errors non vide) doit TOUJOURS afficher l'explication no-template explicite"
+  );
+  assert.notEqual(
+    previewMessageText(container),
+    t("legalCgvIncomplete"),
+    "l'absence de template ne doit JAMAIS être requalifiée en 'profil incomplet' générique, même quand des erreurs de complétude existent par ailleurs"
+  );
+  assert.ok(
+    !(container.textContent ?? "").includes(t("legalCgvIncomplete")),
+    "le texte générique 'profil incomplet' ne doit apparaître nulle part sur la page pour cet état combiné"
+  );
+
+  const publishBtn = container.querySelector('[data-testid="legal-cgv-publish"]') as HTMLButtonElement | null;
+  assert.ok(publishBtn, "le bouton Publier doit toujours être rendu");
+  assert.equal(publishBtn!.disabled, true, "Publier doit rester désactivé tant que template === null (W2-2)");
+
+  assert.deepEqual(
+    (globalThis as any).__mutationCallLog.publish,
+    [],
+    "aucune mutation de publication ne doit jamais être tentée pour cet état"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
 test("W2-T-03 — MIXED regime without the template's mixed-order clause => message distinct from the generic 'profil incomplet'", async () => {
   resetCommonFixtures();
   (globalThis as any).__legalFallback["resto-a"] = legalProfile("resto-a", "A");

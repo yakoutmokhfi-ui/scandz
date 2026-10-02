@@ -836,7 +836,23 @@ export default function LegalCgvPage() {
                   </span>
                 </p>
               </div>
-              {cgv.completeness_errors.length > 0 ? (
+              {previewResult.reason === "no_template" ? (
+                // REMÉDIATION B1 (RE-AUDIT, Noether comment 5951442732,
+                // scanym-orchestrator#23) -- ÉTAT COMBINÉ : quand
+                // `template === null` ET `cgv.completeness_errors` est
+                // également non vide, la branche ci-dessous (complétude)
+                // masquait silencieusement l'explication no-template --
+                // le JSX ne testait JAMAIS `previewResult.reason` avant
+                // d'avoir déjà écarté le cas "complétude". `no_template`
+                // est désormais vérifiée EN PREMIER, inconditionnellement
+                // : l'explication explicite "aucun modèle applicable"
+                // reste visible que `completeness_errors` soit vide ou
+                // non -- jamais remplacée par le "profil incomplet"
+                // générique, jamais masquée par lui.
+                <p data-testid="legal-cgv-preview-message" className="text-sm text-stone-500">
+                  {previewFailureMessage(previewResult.reason)}
+                </p>
+              ) : cgv.completeness_errors.length > 0 ? (
                 <ul className="list-inside list-disc text-sm text-amber-800">
                   {cgv.completeness_errors.map((code) => (
                     <li key={code}>{t(`legalCgvError_${code}`) !== `legalCgvError_${code}` ? t(`legalCgvError_${code}`) : code}</li>
