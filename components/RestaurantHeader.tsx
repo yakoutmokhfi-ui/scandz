@@ -4,6 +4,7 @@ import type { RestaurantFull } from "@/lib/types";
 import LanguageSelector from "@/components/LanguageSelector";
 import { Ornament } from "@/components/Icons";
 import RestaurantInfoBar from "@/components/RestaurantInfoBar";
+import { InstagramBrandIcon, TikTokBrandIcon } from "@/components/SocialBrandIcons";
 import type { Lang } from "@/lib/i18n";
 
 export default function RestaurantHeader({
@@ -114,7 +115,7 @@ export default function RestaurantHeader({
           (aria-hidden, voir components/Icons.tsx) reste inchangé :
           purement décoratif, hors du champ des exigences de contraste
           de texte WCAG. */}
-      <div className="flex min-h-[15rem] flex-col items-center justify-center gap-3 px-4 pb-6 pt-12 sm:min-h-[17rem]">
+      <div className="flex min-h-[12.5rem] flex-col items-center justify-center gap-2.5 px-4 pb-4 pt-11 sm:min-h-[15rem]">
         {config.logo_url && (
           <img
             src={config.logo_url}
@@ -145,7 +146,7 @@ export default function RestaurantHeader({
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-2 rounded-full border border-ink-text/60 bg-espresso px-4 py-2 text-xs font-semibold text-ink-text"
+            className="inline-flex items-center gap-2 rounded-full border border-ink-text/60 bg-espresso px-4 py-2 text-xs font-semibold text-ink-text"
           >
             📍 {t("directions")}
           </a>
@@ -157,7 +158,7 @@ export default function RestaurantHeader({
             que le reste du header (V72-02) -- pas de dépendance à la
             photo de fond. */}
         {showAnnouncement && (
-          <p className="mt-2 max-w-xs rounded-xl bg-espresso px-4 py-2 text-xs text-ink-text whitespace-pre-line">
+          <p className="max-w-xs rounded-xl bg-espresso px-4 py-2 text-xs text-ink-text whitespace-pre-line">
             {announcementText}
           </p>
         )}
@@ -171,22 +172,23 @@ export default function RestaurantHeader({
           réellement renseignés s'affichent, jamais une icône morte.
           URLs déjà validées serveur (HTTPS strict, domaine exact) par
           update_restaurant_social_links -- ce composant ne fait
-          qu'afficher, aucune validation supplémentaire nécessaire ici. */}
+          qu'afficher, aucune validation supplémentaire nécessaire ici.
+          STOREFRONT UX POLISH v1 -- Instagram et TikTok aux couleurs de
+          leur marque (SVG locaux, components/SocialBrandIcons.tsx) dans
+          une cible tactile de 40 px ; Facebook inchangé. Les icônes
+          fonctionnelles restent sous le thème marchand. */}
       {(config.instagram_url || config.tiktok_url || config.facebook_url) && (
-        <div className="flex items-center justify-center gap-4 pb-4">
+        <div className="flex items-center justify-center gap-2 pb-3">
           {config.instagram_url && (
             <a
               href={config.instagram_url}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Instagram"
-              className="text-ink-text"
+              data-social-brand="instagram"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                <rect x="3" y="3" width="18" height="18" rx="5" />
-                <circle cx="12" cy="12" r="4" />
-                <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
-              </svg>
+              <InstagramBrandIcon />
             </a>
           )}
           {config.tiktok_url && (
@@ -195,14 +197,16 @@ export default function RestaurantHeader({
               target="_blank"
               rel="noopener noreferrer"
               aria-label="TikTok"
-              className="text-ink-text"
+              data-social-brand="tiktok"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M16.5 3c.4 2.2 1.9 3.7 4 3.9v2.6c-1.4 0-2.7-.4-3.9-1.2v6.4c0 3.2-2.3 5.3-5.2 5.3-2.9 0-5.2-2.1-5.2-4.8 0-2.7 2.3-4.8 5.2-4.8.4 0 .8 0 1.2.1v2.7a2.6 2.6 0 0 0-1.2-.3c-1.4 0-2.5 1-2.5 2.3s1.1 2.3 2.5 2.3c1.5 0 2.6-1.1 2.6-2.6V3h2.5z" />
-              </svg>
+              <TikTokBrandIcon />
             </a>
           )}
           {config.facebook_url && (
+            // Facebook hors périmètre : lien et glyphe inchangés, seulement
+            // posé dans un emplacement de même largeur pour aligner la ligne.
+            <span className="inline-flex h-10 w-10 items-center justify-center">
             <a
               href={config.facebook_url}
               target="_blank"
@@ -214,6 +218,7 @@ export default function RestaurantHeader({
                 <path d="M13.5 21v-8h2.7l.4-3.2h-3.1V7.7c0-.9.3-1.5 1.6-1.5h1.7V3.3C16.5 3.2 15.5 3 14.4 3c-2.4 0-4 1.5-4 4.2v2.6H7.7v3.2h2.7v8h3.1z" />
               </svg>
             </a>
+            </span>
           )}
         </div>
       )}
