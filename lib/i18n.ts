@@ -762,6 +762,16 @@ const fr: Dict = {
   stColorInvalid: "Couleur invalide (format #RRGGBB attendu)",
   stColorsReset: "Réinitialiser les couleurs",
   stColorsSaveError: "Échec de l'enregistrement des couleurs",
+  // SETTINGS SAVE RELIABILITY v1 -- remplace la fuite de message brut
+  // (e.message) précédemment affichée pour cette section (contact
+  // public/WhatsApp/adresse/horaires/textes de suivi) : un message
+  // dédié, traduit, jamais le texte brut renvoyé par le serveur.
+  stContactSaveError: "Échec de l'enregistrement du contact et des coordonnées du restaurant",
+  // SETTINGS SAVE RELIABILITY v1.1 -- préfixe affiché UNIQUEMENT dans
+  // l'état MIXTE (au moins une section modifiée a été enregistrée,
+  // au moins une autre a échoué) : jamais un message d'échec
+  // générique qui masquerait silencieusement la réussite partielle.
+  stPartialSaveError: "Certaines modifications ont été enregistrées, d'autres ont échoué :",
   stMapsTitle: "Lien de localisation / itinéraire",
   stMapsHint: "Affiché comme bouton « Itinéraire » sur votre carte publique.",
   stMapsInvalid: "Lien invalide (doit commencer par https://)",
@@ -1663,6 +1673,8 @@ const en: Dict = {
   stColorInvalid: "Invalid color (expected format #RRGGBB)",
   stColorsReset: "Reset colors",
   stColorsSaveError: "Failed to save the colors",
+  stContactSaveError: "Failed to save the restaurant's contact details",
+  stPartialSaveError: "Some changes were saved, others failed:",
   stMapsTitle: "Location / directions link",
   stMapsHint: "Shown as a \"Directions\" button on your public menu.",
   stMapsInvalid: "Invalid link (must start with https://)",
@@ -2528,6 +2540,8 @@ const ar: Dict = {
   stColorInvalid: "لون غير صالح (الصيغة المتوقعة #RRGGBB)",
   stColorsReset: "إعادة ضبط الألوان",
   stColorsSaveError: "فشل حفظ الألوان",
+  stContactSaveError: "فشل حفظ بيانات التواصل الخاصة بالمطعم",
+  stPartialSaveError: "تم حفظ بعض التغييرات، بينما فشلت أخرى:",
   stMapsTitle: "رابط الموقع / الاتجاهات",
   stMapsHint: "يظهر كزر «الاتجاهات» في قائمتك العامة.",
   stMapsInvalid: "رابط غير صالح (يجب أن يبدأ بـ https://)",
