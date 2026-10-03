@@ -271,6 +271,12 @@ export async function updateRestaurantColors(restaurantId, primaryColor, seconda
   return mutationCall("colors", restaurantId, undefined);
 }
 export async function updateRestaurantMapsUrl(restaurantId, mapsUrl) {
+  // SETTINGS SAVE RELIABILITY v1.2 (C3) -- capture la VALEUR exacte
+  // soumise, pas seulement le restaurantId (comme __receiptCallLog
+  // le fait déjà pour le légal/fiscal) : nécessaire pour prouver que
+  // le DEUXIÈME Save envoie bien la saisie la plus récente (Y),
+  // jamais la valeur périmée (X) déjà soumise par le premier Save.
+  (globalThis).__mapsUrlCallLog.push({ restaurantId, mapsUrl });
   return mutationCall("mapsUrl", restaurantId, undefined);
 }
 export async function updateRestaurantIdentity(restaurantId, displayName, introText, announcementText, announcementActive) {
@@ -455,6 +461,38 @@ function hasText(container: HTMLElement, text: string): boolean {
   return (container.textContent ?? "").includes(text);
 }
 
+/** SETTINGS SAVE RELIABILITY v1.2 (K-series, nouveau helper) -- le
+ *  champ numéro WhatsApp n'a pas de <label> propre (seul le <h3> de
+ *  section et la case "activé" en ont un) : dans la section
+ *  stWhatsappTitle, le PREMIER <input> est la case à cocher
+ *  d'activation (type="checkbox", data-settings-whatsapp-enabled),
+ *  le SECOND (rendu seulement quand whatsappEnabled est vrai -- le
+ *  cas par défaut de settingsRow()) est le champ texte du numéro
+ *  lui-même. fieldInSectionByHeading (qui prend toujours le PREMIER
+ *  <input>) ne convient donc pas ici.
+ */
+function whatsappNumberField(container: HTMLElement): HTMLInputElement {
+  const headings = Array.from(container.querySelectorAll("h3"));
+  const heading = headings.find((h) => (h.textContent ?? "").trim() === t("stWhatsappTitle").trim());
+  assert.ok(heading, `expected an <h3> with text "${t("stWhatsappTitle")}"`);
+  const section = heading!.closest("section") as HTMLElement | null;
+  assert.ok(section, "expected a <section> ancestor for the WhatsApp heading");
+  const inputs = section!.querySelectorAll("input");
+  assert.ok(inputs.length >= 2, "expected the enabled checkbox AND the number text field (whatsappEnabled must be true)");
+  return inputs[1] as HTMLInputElement;
+}
+
+/** SETTINGS SAVE RELIABILITY v1.2 (K3/K5, nouveau helper) -- les
+ *  textarea de texte de suivi ont un id stable
+ *  `tracking-status-text-${status}` (voir app/dashboard/settings/page.tsx) --
+ *  plus simple et plus robuste que de recalculer la clé i18n du
+ *  libellé (statusLabelKey) juste pour retrouver le <label>. */
+function trackingTextField(container: HTMLElement, status: string): HTMLTextAreaElement {
+  const field = container.querySelector(`#tracking-status-text-${status}`) as HTMLTextAreaElement | null;
+  assert.ok(field, `expected a tracking-status-text textarea for status "${status}"`);
+  return field!;
+}
+
 /** Même structure à deux phases que CGV W2's waitSettled : `container`
  *  reste VIDE un ou deux ticks après `root.render()` (le commit React
  *  18 est planifié, jamais synchrone), donc attendre UNIQUEMENT
@@ -512,6 +550,9 @@ function resetCommonFixtures() {
   (globalThis as any).__mutationCallLog = Object.fromEntries(ALL_KINDS.map((k) => [k, [] as string[]]));
   (globalThis as any).__mutationDeferred = Object.fromEntries(ALL_KINDS.map((k) => [k, new Map()]));
   (globalThis as any).__mutationFailure = Object.fromEntries(ALL_KINDS.map((k) => [k, {} as Record<string, unknown>]));
+  // SETTINGS SAVE RELIABILITY v1.2 (C3) -- voir le commentaire sur
+  // updateRestaurantMapsUrl ci-dessus.
+  (globalThis as any).__mapsUrlCallLog = [];
 }
 
 function setupSingleRestaurant(id = "resto-a", marker = "A") {
@@ -900,6 +941,429 @@ test("S10 (CRITIQUE) — unchanged form submitted triggers ZERO mutating RPCs of
   container.remove();
 });
 
+// ====================================================================
+// SETTINGS SAVE RELIABILITY v1.2 (remédiation du DEUXIÈME contre-audit
+// indépendant sur la PR #128, pièce jointe "TO: BOULEZ / CLAUDE,
+// STATUS: INDEPENDENT AUDIT FAIL -- NARROW REMEDIATION REQUIRED, PR:
+// #128"). v1.1 (ci-dessus, S1-S10) a correctement séparé QUELLES
+// sections sont dirty de QUELLES sections sont soumises, mais n'avait
+// PROUVÉ ni (Blocker 1) qu'une sauvegarde laissée en vol après une
+// bascule de restaurant ne peut jamais corrompre l'instantané/l'UI
+// d'un NOUVEAU restaurant, ni qu'une saisie plus récente survit à une
+// sauvegarde tardive, ni (Blocker 2) que le lot "contact" (5 RPC sous
+// un seul try/catch) rapporte fidèlement une persistance PARTIELLE.
+//
+// C1-C6 couvrent Blocker 1 (lib/restaurant-context-guard.ts réutilisé
+// par submit() -- `token.isCurrent()` après CHAQUE await, AVANT toute
+// écriture de snapshot/état/compteur/issue). K1-K5 couvrent Blocker 2
+// (le lot contact est désormais QUATRE sous-écritures indépendantes :
+// publicContact, whatsapp [numéro+activation, UN SEUL sous-groupe],
+// restaurantSettings, trackingText).
+// ====================================================================
+
+test("C1 — switch A -> B while a legal save(A) is in flight: late A completion cannot alter B's legal snapshot/UI, and B's own edit remains correctly dirty (still sent on B's own next Save)", async () => {
+  resetCommonFixtures();
+  (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
+  (globalThis as any).__settingsFallback["resto-b"] = settingsRow({ display_name: "Resto B" });
+  (globalThis as any).__receiptFallback["resto-a"] = receiptRow("A");
+  (globalThis as any).__receiptFallback["resto-b"] = receiptRow("B");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  // A : édite le légal/fiscal, puis Save -- la RPC est différée (reste
+  // EN VOL tant que `deferredA` n'est pas résolu).
+  const deferredA = makeDeferred<void>();
+  (globalThis as any).__mutationDeferred.receipt.set("resto-a", deferredA);
+  setFieldValue(fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement, "Pied A en vol");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__receiptCallLog.length === 1);
+  assert.equal((globalThis as any).__receiptCallLog[0].restaurantId, "resto-a");
+
+  // Bascule vers B PENDANT que le save de A est toujours en vol --
+  // invalide immédiatement le jeton de A (guard.enterContext, appelé
+  // synchroniquement par handleSelectRestaurant).
+  switchTo(container, "resto-b");
+  await waitSettled(container);
+
+  // B édite également son propre champ légal/fiscal -- dirty pour B.
+  const footerB = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
+  assert.equal(footerB.value, "Pied de ticket B", "B doit afficher SES PROPRES données chargées, jamais celles de A");
+  setFieldValue(footerB, "Pied B pendant que A finit en retard");
+
+  // La complétion TARDIVE de A arrive maintenant -- DOIT être
+  // silencieusement abandonnée (token.isCurrent() === false) : ni
+  // écriture dans legalSnapshotRef (qui appartient maintenant à B), ni
+  // setSaved(true)/setUiLang affiché alors que B est affiché avec un
+  // enregistrement non sauvegardé.
+  deferredA.resolve(undefined);
+  await flush(50);
+
+  assert.ok(
+    !hasText(container, t("stSaved")),
+    "la réussite TARDIVE du save de A ne doit JAMAIS être présentée comme un succès alors que B est affiché avec un edit non sauvegardé"
+  );
+  assert.equal((globalThis as any).__receiptCallLog.length, 1, "la résolution tardive de A ne doit déclencher AUCUN nouvel appel RPC");
+  assert.equal(footerB.value, "Pied B pendant que A finit en retard", "l'édition de B ne doit jamais être écrasée par la complétion tardive de A");
+
+  // B peut maintenant enregistrer normalement -- la preuve directe que
+  // son édition est restée CORRECTEMENT dirty (pas faussement marquée
+  // propre par la complétion périmée de A) : la RPC légale est
+  // réellement appelée, pour B, avec SA valeur.
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__receiptCallLog.length, 2, "le save de B doit avoir déclenché un DEUXIÈME appel réel");
+  assert.equal((globalThis as any).__receiptCallLog[1].restaurantId, "resto-b");
+  assert.equal((globalThis as any).__receiptCallLog[1].input.footerText, "Pied B pendant que A finit en retard");
+  assert.deepEqual((globalThis as any).__callOrder, ["receipt", "receipt"], "aucune section sans rapport ne doit jamais avoir été appelée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("C2 — switch A -> B while a general-settings save(A) is in flight (colors): late A completion cannot corrupt B's general snapshot -- B's own UNCHANGED colors are never falsely re-saved", async () => {
+  resetCommonFixtures();
+  (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
+  (globalThis as any).__settingsFallback["resto-b"] = settingsRow({
+    display_name: "Resto B",
+    primary_color: "#444444",
+    secondary_color: "#555555",
+    accent_color: "#666666",
+  });
+  (globalThis as any).__receiptFallback["resto-a"] = receiptRow("A");
+  (globalThis as any).__receiptFallback["resto-b"] = receiptRow("B");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const deferredColorsA = makeDeferred<void>();
+  (globalThis as any).__mutationDeferred.colors.set("resto-a", deferredColorsA);
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#aaaaaa");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.colors.length === 1);
+
+  switchTo(container, "resto-b");
+  await waitSettled(container);
+  assert.equal(colorFieldByLabel(container, t("stPrimaryColor")).value, "#444444", "B doit afficher SES propres couleurs chargées");
+
+  const callOrderBeforeLateResolve = [...(globalThis as any).__callOrder];
+  deferredColorsA.resolve(undefined);
+  await flush(50);
+
+  assert.ok(!hasText(container, t("stSaved")), "la complétion tardive de A ne doit jamais être présentée comme un succès pendant que B est affiché");
+  assert.deepEqual((globalThis as any).__callOrder, callOrderBeforeLateResolve, "la résolution tardive ne doit déclencher AUCUN nouvel appel");
+
+  // B n'a JAMAIS touché ses couleurs -- si la complétion tardive de A
+  // avait corrompu generalSnapshotRef (désormais celui de B) avec les
+  // couleurs de A, un Save de B SANS AUCUNE édition deviendrait
+  // faussement "dirty" sur colors et déclencherait une réécriture non
+  // voulue.
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "colors ne doit JAMAIS être rappelée pour B -- ses propres couleurs, non éditées, doivent rester reconnues comme propres");
+  assertZeroCalls(
+    ALL_KINDS.filter((k) => k !== "colors"),
+    "C2 (unrelated sections must stay untouched throughout)"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("C3 — Maps URL: submit X, type Y while the RPC is in flight, resolve X => UI still shows Y => snapshot represents the persisted X => the second Save sends Y", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const mapsField = fieldInSectionByHeading(container, t("stMapsTitle"));
+  const X = "https://maps.app.goo.gl/XVALUE1";
+  const Y = "https://maps.app.goo.gl/YVALUE2";
+  setFieldValue(mapsField, X);
+
+  const deferredMaps = makeDeferred<void>();
+  (globalThis as any).__mutationDeferred.mapsUrl.set("resto-a", deferredMaps);
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.mapsUrl.length === 1);
+
+  // L'utilisateur retape le champ PENDANT que X est encore en vol.
+  setFieldValue(mapsField, Y);
+
+  deferredMaps.resolve(undefined);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal(mapsField.value, Y, "DO NOT call setMapsUrl(X) unconditionally after the await -- l'UI doit rester Y, jamais revenir à X");
+  assert.equal((globalThis as any).__mapsUrlCallLog.length, 1);
+  assert.equal((globalThis as any).__mapsUrlCallLog[0].mapsUrl, X, "le premier appel doit bien avoir soumis X (la valeur au moment du clic)");
+
+  // Le snapshot représente X (persisté) ; l'UI montre Y (non
+  // persisté) -- donc Y doit rester dirty, et le DEUXIÈME Save doit
+  // transmettre Y.
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.mapsUrl.length === 2);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mapsUrlCallLog.length, 2);
+  assert.equal((globalThis as any).__mapsUrlCallLog[1].mapsUrl, Y, "le second Save doit envoyer Y, la saisie la plus récente, jamais X à nouveau");
+
+  root.unmount();
+  container.remove();
+});
+
+test("C4 — Legal field: submit X, type Y while the receipt RPC is in flight, resolve X => UI still shows Y (legal never writes back) => the second Save sends Y", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const footerField = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
+  setFieldValue(footerField, "Pied X");
+
+  const deferredReceipt = makeDeferred<void>();
+  (globalThis as any).__mutationDeferred.receipt.set("resto-a", deferredReceipt);
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__receiptCallLog.length === 1);
+
+  setFieldValue(footerField, "Pied Y");
+
+  deferredReceipt.resolve(undefined);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal(footerField.value, "Pied Y", "le champ légal n'est jamais réécrit par submit() -- l'édition la plus récente reste affichée");
+  assert.equal((globalThis as any).__receiptCallLog[0].input.footerText, "Pied X", "le premier appel doit avoir transmis X");
+
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__receiptCallLog.length === 2);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__receiptCallLog[1].input.footerText, "Pied Y", "le second Save doit transmettre Y -- la preuve que le snapshot a bien avancé à X, laissant Y dirty");
+
+  root.unmount();
+  container.remove();
+});
+
+test("C5 — successful save followed by an immediate second Save with no further edit => ZERO duplicate write", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement, "Pied unique");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__receiptCallLog.length, 1);
+
+  // Deuxième Save IMMÉDIAT, sans la moindre édition entre les deux.
+  submitForm(container);
+  await flush(50);
+
+  assert.equal((globalThis as any).__receiptCallLog.length, 1, "aucune seconde écriture ne doit jamais être déclenchée par un second Save sans édition");
+  assert.deepEqual((globalThis as any).__callOrder, ["receipt"], "aucune RPC mutante, de quelque section que ce soit, n'a dû être tentée lors du second Save");
+  assert.ok(hasText(container, t("stSaved")), "le second Save, bien que n'ayant rien à faire, reste un SUCCÈS -- jamais confondu avec un échec");
+
+  root.unmount();
+  container.remove();
+});
+
+test("C6 — successful save followed by a NEW edit => the new edit remains dirty and is saved", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const footerField = fieldByLabel(container, t("stLegalFooterText")) as HTMLTextAreaElement;
+  setFieldValue(footerField, "Pied X");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__receiptCallLog.length, 1);
+  assert.equal((globalThis as any).__receiptCallLog[0].input.footerText, "Pied X");
+
+  setFieldValue(footerField, "Pied Z (nouvelle édition après succès)");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__receiptCallLog.length === 2);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__receiptCallLog[1].input.footerText, "Pied Z (nouvelle édition après succès)");
+
+  root.unmount();
+  container.remove();
+});
+
+// --------------------------------------------------------------------
+// K1-K5 -- Blocker 2 : le lot contact (publicContact, whatsapp
+// [numéro+activation], restaurantSettings, trackingText) est
+// désormais QUATRE sous-écritures indépendantes.
+// --------------------------------------------------------------------
+
+test("K1 — public contact succeeds, WhatsApp fails => partial-save indication, public-contact snapshot updated, WhatsApp remains dirty, retry does NOT rewrite public contact", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.whatsapp["resto-a"] = new Error('duplicate key value violates unique constraint "some_pkey" (SQLSTATE 23505)');
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stPublicPhoneLabel")) as HTMLInputElement, "+33611111111");
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stContactSaveError")), "le message spécifique au contact doit être affiché");
+  assert.ok(!hasText(container, t("stSaved")), "jamais l'indicateur de succès global quand une sous-écriture a échoué");
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "publicContact doit avoir réussi (tentée une fois)");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp doit avoir été tentée et avoir échoué");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "whatsappEnabled ne doit jamais être atteinte si l'appel numéro échoue avant elle (même sous-groupe)");
+
+  // Retry : la défaillance WhatsApp est levée, aucune autre édition.
+  delete (globalThis as any).__mutationFailure.whatsapp["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "le contact public ne doit JAMAIS être réécrit par le retry -- son snapshot avait déjà avancé");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 2, "WhatsApp, resté dirty, doit avoir été retenté");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "cette fois le sous-groupe WhatsApp va jusqu'au bout");
+
+  root.unmount();
+  container.remove();
+});
+
+test("K2 — WhatsApp succeeds, restaurant settings fails => persisted WhatsApp stays clean (never rewritten on retry), restaurant settings remains dirty", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.restaurantSettings["resto-a"] = new Error("transport failure");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(whatsappNumberField(container), "+33633333333");
+  setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Retry");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp doit avoir réussi");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "whatsappEnabled doit avoir réussi (même sous-groupe, jusqu'au bout)");
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "restaurantSettings doit avoir été tentée et avoir échoué");
+
+  delete (globalThis as any).__mutationFailure.restaurantSettings["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "WhatsApp, déjà propre, ne doit JAMAIS être réécrite par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "idem pour whatsappEnabled");
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 2, "restaurantSettings, resté dirty, doit avoir été retenté et avoir réussi");
+
+  root.unmount();
+  container.remove();
+});
+
+test("K3 — tracking text fails after earlier contact writes succeed => partial-save indication, retry only attempts tracking text", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.trackingText["resto-a"] = new Error("transport failure");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stPublicPhoneLabel")) as HTMLInputElement, "+33611111111");
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+  setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Retry");
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "trackingText doit avoir été tentée et avoir échoué");
+
+  delete (globalThis as any).__mutationFailure.trackingText["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "déjà propre -- jamais réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "déjà propre -- jamais réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "déjà propre -- jamais réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "déjà propre -- jamais réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 2, "seule trackingText, restée dirty, doit avoir été retentée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("K4 — all contact sub-writes succeed => whole contact section clean afterward, second Save causes ZERO contact writes", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stPublicPhoneLabel")) as HTMLInputElement, "+33611111111");
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+  setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Retry");
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  for (const kind of ["publicContact", "whatsapp", "whatsappEnabled", "restaurantSettings", "trackingText"] as const) {
+    assert.equal((globalThis as any).__mutationCallLog[kind].length, 1, `${kind} doit avoir été appelée exactement une fois`);
+  }
+
+  submitForm(container);
+  await flush(50);
+
+  for (const kind of ["publicContact", "whatsapp", "whatsappEnabled", "restaurantSettings", "trackingText"] as const) {
+    assert.equal((globalThis as any).__mutationCallLog[kind].length, 1, `${kind} ne doit JAMAIS être rappelée par un second Save sans édition`);
+  }
+  assert.ok(hasText(container, t("stSaved")), "le second Save doit rester un succès");
+
+  root.unmount();
+  container.remove();
+});
+
+test("K5 — first contact sub-write (public contact) fails => later contact sub-writes are STILL attempted (continue, never stop), and the reported outcome stays truthful", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.publicContact["resto-a"] = new Error("transport failure");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stPublicPhoneLabel")) as HTMLInputElement, "+33611111111");
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+  setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Retry");
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  // Les TROIS sous-écritures SUIVANTES doivent avoir été tentées quand
+  // même -- jamais interrompues par l'échec de la première (K5 :
+  // comportement "continue", explicitement choisi et testé ici).
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "publicContact doit avoir été tentée et avoir échoué");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp doit avoir été tentée MALGRÉ l'échec de publicContact");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "restaurantSettings doit avoir été tentée MALGRÉ l'échec de publicContact");
+  assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "trackingText doit avoir été tentée MALGRÉ l'échec de publicContact");
+  assert.deepEqual(
+    (globalThis as any).__callOrder,
+    ["publicContact", "whatsapp", "whatsappEnabled", "restaurantSettings", "trackingText"],
+    "l'ordre fixe du code doit être respecté, et les 4 sous-écritures doivent TOUTES être tentées"
+  );
+  assert.ok(hasText(container, t("stContactSaveError")), "le rapport doit rester honnête : le message de contact doit être affiché");
+  assert.ok(!hasText(container, t("stSaved")), "jamais un succès global alors qu'une sous-écriture a échoué");
+
+  delete (globalThis as any).__mutationFailure.publicContact["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 2, "seule publicContact, restée dirty, doit avoir été retentée");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "déjà propre -- jamais réécrite par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "déjà propre -- jamais réécrite par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "déjà propre -- jamais réécrite par le retry");
+
+  root.unmount();
+  container.remove();
+});
+
 after(async () => {
   await new Promise((r) => setTimeout(r, 50));
   window.close();
@@ -930,4 +1394,5 @@ after(async () => {
   delete (globalThis as any).__mutationCallLog;
   delete (globalThis as any).__mutationDeferred;
   delete (globalThis as any).__mutationFailure;
+  delete (globalThis as any).__mapsUrlCallLog;
 });

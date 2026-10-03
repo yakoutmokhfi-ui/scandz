@@ -137,23 +137,38 @@ function stringArraysEqual(a: string[], b: string[]): boolean {
 // GROUPE de mutation (jamais un seul "tout ou rien"), exactement
 // aligné sur le découpage RPC existant -- c'est CE découpage, pas un
 // nouveau, qui détermine quelles sections sont indépendamment
-// "dirty". Le lot contact public/WhatsApp/réglages restaurant/textes
-// de suivi (owner/manager uniquement) reste volontairement UN SEUL
-// groupe, au même titre qu'avant v1 : son atomicité INTERNE (un échec
-// y interrompt le reste du groupe) est inchangée, seule la décision
-// de l'ATTEINDRE ou non devient conditionnée par son état "dirty"
-// global.
-function contactGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
-  return (
-    a.lang !== b.lang ||
-    a.address !== b.address ||
-    a.hours !== b.hours ||
-    a.whatsapp !== b.whatsapp ||
-    a.whatsappEnabled !== b.whatsappEnabled ||
-    a.publicPhone !== b.publicPhone ||
-    a.publicEmail !== b.publicEmail ||
-    !statusTextsEqual(a.statusTexts, b.statusTexts)
-  );
+// "dirty".
+//
+// SETTINGS SAVE RELIABILITY v1.2 -- ferme SETTINGS-SAVE-RELIABILITY-
+// V1-CONTACT-BUNDLE-ATOMICITY-01 (contre-audit indépendant, Blocker
+// 2) : le lot contact public/WhatsApp/réglages restaurant/textes de
+// suivi (owner/manager uniquement) contient QUATRE RPC
+// INDÉPENDANTES. v1.1 les traitait comme un seul groupe "dirty" avec
+// un seul try/catch -- un `try/catch` ne rend pas des écritures
+// séparées atomiques, et un échec sur l'UNE d'elles (ex. WhatsApp)
+// après qu'une AUTRE ait déjà réussi (ex. contact public) rapportait
+// "zéro succès" alors que le contact public avait bel et bien été
+// persisté. v1.2 remplace ce groupe UNIQUE par QUATRE comparateurs
+// indépendants -- un par RPC -- exactement comme les 7 groupes
+// généraux ci-dessous ; chacun est tenté et son résultat consigné
+// séparément dans submit() (voir plus bas), avec un SEUL message
+// visuel pour la section contact (mandat : "you may keep one visual
+// error message for the contact section ... but the internal dirty
+// state must be field/subgroup accurate").
+function publicContactSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.publicPhone !== b.publicPhone || a.publicEmail !== b.publicEmail;
+}
+// Numéro ET état d'activation WhatsApp : UN SEUL sous-groupe (comme
+// listé explicitement par le mandat, "WhatsApp number / enabled
+// state" sur une seule puce) -- jamais scindé plus finement.
+function whatsappSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.whatsapp !== b.whatsapp || a.whatsappEnabled !== b.whatsappEnabled;
+}
+function restaurantSettingsSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.lang !== b.lang || a.address !== b.address || a.hours !== b.hours;
+}
+function trackingTextSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return !statusTextsEqual(a.statusTexts, b.statusTexts);
 }
 function colorsGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.primaryColor !== b.primaryColor || a.secondaryColor !== b.secondaryColor || a.accentColor !== b.accentColor;
@@ -426,6 +441,21 @@ export default function SettingsPage() {
     // legalSnapshotRef ci-dessus, pour l'instantané des réglages
     // généraux.
     generalSnapshotRef.current = null;
+    // SETTINGS SAVE RELIABILITY v1.2 -- ferme un verrou mort introduit
+    // par les gardes de péremption `token.isCurrent()` de submit()
+    // (Blocker 1) : une sauvegarde laissée en vol pour l'ANCIEN
+    // restaurant abandonne désormais silencieusement sa continuation
+    // (`return` avant d'atteindre `setSaving(false)` en bas de
+    // submit()) dès qu'elle détecte la bascule -- `saving` resterait
+    // sinon bloqué à `true` POUR TOUJOURS après un changement de
+    // restaurant pendant un enregistrement, désactivant le bouton
+    // Enregistrer du NOUVEAU restaurant sans qu'aucune sauvegarde ne
+    // soit jamais réellement en cours pour lui. Remise à `false` ICI,
+    // synchrone, dans le même geste que les autres réinitialisations de
+    // provenance ci-dessus : le nouveau contexte démarre toujours
+    // disponible pour un Enregistrer, jamais hérité de l'état `saving`
+    // d'un contexte qui n'est plus affiché.
+    setSaving(false);
     setRestaurantId(id);
   }, [resetLegalProfileState, guard]);
 
@@ -903,6 +933,26 @@ export default function SettingsPage() {
 
     setSaving(true);
 
+    // SETTINGS SAVE RELIABILITY v1.2 -- ferme SETTINGS-SAVE-
+    // RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 (contre-audit
+    // indépendant, Blocker 1) : réutilise le MÊME contrat de
+    // provenance que load() (lib/restaurant-context-guard.ts, déjà
+    // audité -- "reuse a smaller existing mechanism", jamais un
+    // nouveau système de jetons inventé). Capturé ICI, avant toute
+    // RPC mutante, `token` doit être revérifié (`token.isCurrent()`)
+    // après CHAQUE `await` ci-dessous, AVANT de toucher un instantané
+    // (`*SnapshotRef.current = ...`), un état React `set*`, un
+    // compteur de succès, ou l'issue finale présentée à l'utilisateur
+    // (`setSaved`/`setError`). Une bascule de restaurant pendant que
+    // cette sauvegarde est en vol (`guard.enterContext` appelé par
+    // `handleSelectRestaurant`) invalide IMMÉDIATEMENT ce jeton (même
+    // génération, même restaurant requis) -- toute continuation
+    // ultérieure de CETTE sauvegarde est alors silencieusement
+    // abandonnée (`return`, jamais de `setError`/`setSaved` pour un
+    // restaurant qui n'est plus affiché, jamais d'écrasement d'un
+    // instantané qui appartient désormais à un AUTRE restaurant).
+    const token = guard.beginRequest(restaurantId);
+
     // SETTINGS SAVE RELIABILITY v1.1 -- ferme SETTINGS-SAVE-
     // RELIABILITY-V1-PARTIAL-SAVE-01 (contre-audit indépendant de
     // 7ff1176 sur v1 : "the page-level flow is NOT atomic -- a
@@ -1015,7 +1065,15 @@ export default function SettingsPage() {
     // une vraie modification.
     const legalDirty = !legalSnapshotRef.current || legalGroupDirty(legalSnapshotRef.current, currentLegal);
     const generalSnap = generalSnapshotRef.current;
-    const contactDirty = !isOperatorOnlyMode && (!generalSnap || contactGroupDirty(generalSnap, currentGeneral));
+    // SETTINGS SAVE RELIABILITY v1.2 -- QUATRE sous-groupes
+    // indépendants (Blocker 2), chacun gardé par `!isOperatorOnlyMode`
+    // (owner/manager uniquement, inchangé) -- remplace l'ancien
+    // `contactDirty` unique, qui masquait quelle RPC précise était
+    // réellement en cause.
+    const publicContactDirty = !isOperatorOnlyMode && (!generalSnap || publicContactSubDirty(generalSnap, currentGeneral));
+    const whatsappDirty = !isOperatorOnlyMode && (!generalSnap || whatsappSubDirty(generalSnap, currentGeneral));
+    const restaurantSettingsDirty = !isOperatorOnlyMode && (!generalSnap || restaurantSettingsSubDirty(generalSnap, currentGeneral));
+    const trackingTextDirty = !isOperatorOnlyMode && (!generalSnap || trackingTextSubDirty(generalSnap, currentGeneral));
     const colorsDirty = !generalSnap || colorsGroupDirty(generalSnap, currentGeneral);
     const mapsUrlDirty = !generalSnap || mapsUrlGroupDirty(generalSnap, currentGeneral);
     const identityDirty = !generalSnap || identityGroupDirty(generalSnap, currentGeneral);
@@ -1044,70 +1102,166 @@ export default function SettingsPage() {
           footerText: currentLegal.legalFooterText,
           showTaxSummary: currentLegal.legalShowTaxSummary,
         });
+        // SETTINGS SAVE RELIABILITY v1.2 -- revérifié APRÈS cet await,
+        // AVANT de toucher `legalSnapshotRef`/`succeededCount` : une
+        // bascule de restaurant pendant que cet appel était en vol a
+        // déjà invalidé `token` (voir sa déclaration ci-dessus) --
+        // abandon silencieux, jamais d'écriture dans l'instantané d'un
+        // AUTRE restaurant désormais affiché.
+        if (!token.isCurrent()) return;
         legalSnapshotRef.current = currentLegal;
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stLegalSaveError");
       }
     }
 
-    // Corrige V70-02 : WhatsApp/adresse/horaires/langue ne sont
-    // JAMAIS appelés en mode opérateur seul -- ni validés, ni
-    // enregistrés, ni même lus comme condition de blocage (déjà
-    // reflété dans `contactDirty` ci-dessus, toujours false en mode
-    // opérateur seul).
-    if (contactDirty) {
+    // SETTINGS SAVE RELIABILITY v1.2 -- ferme SETTINGS-SAVE-
+    // RELIABILITY-V1-CONTACT-BUNDLE-ATOMICITY-01 (contre-audit
+    // indépendant, Blocker 2) : les QUATRE RPC de ce lot (contact
+    // public, WhatsApp numéro+activation, réglages restaurant,
+    // textes de suivi) sont désormais des sous-écritures INDÉPENDANTES
+    // -- chacune avec son propre instantané/dirty-check, sa propre
+    // tentative, et son propre succès/échec consigné séparément. Un
+    // `try/catch` unique les traitait auparavant comme un seul bloc
+    // "tout ou rien" : l'échec de l'UNE (ex. WhatsApp) après le succès
+    // d'une AUTRE (ex. contact public) rapportait "zéro succès" alors
+    // que le contact public avait bel et bien été persisté -- la même
+    // ambiguïté de sauvegarde partielle que Blocker 1, mais À
+    // L'INTÉRIEUR d'un seul groupe UI.
+    //
+    // Mandat : "Keep the existing RPCs. NO new DB-wide transaction. NO
+    // SQL unless absolutely unavoidable." -- aucune RPC ajoutée/retirée/
+    // fusionnée, aucune transaction SQL inventée ; seul le découpage
+    // CÔTÉ INTERFACE de "une section dirty" en "quatre sous-sections
+    // dirty" change, le reste de la mécanique (snapshot-diff,
+    // `succeededCount`/`failedKeys`, issue à trois voies) est RÉUTILISÉ
+    // tel quel (mandat v1.1, inchangé) -- pas un nouveau mécanisme.
+    //
+    // K5 (mandat) -- comportement EXPLICITE si la PREMIÈRE sous-écriture
+    // échoue : les sous-écritures SUIVANTES sont tout de même TENTÉES
+    // (jamais interrompues par l'échec d'une précédente), pour
+    // persister le plus possible de ce que le marchand a réellement
+    // modifié ; la véracité du rapport final (succès/échec/mixte) ne
+    // dépend que des SOUS-RÉSULTATS réels, jamais d'un arrêt précoce.
+    //
+    // Ordre INCHANGÉ (contact public, puis WhatsApp, puis réglages
+    // restaurant, puis textes de suivi) -- seule la portée du
+    // try/catch change, de "tout le lot" à "une seule RPC".
+    if (publicContactDirty) {
       attemptedCount++;
       try {
-        // CUSTOMER CONTACT v1 : activé -> numéro d'abord (l'activation
-        // exige un numéro valide côté SQL) ; désactivé -> le numéro
-        // stocké n'est ni exigé ni modifié.
-        // Contact public EN PREMIER : un refus serveur (format) survient
-        // avant toute modification WhatsApp.
         await updateRestaurantPublicContact(restaurantId, currentGeneral.publicPhone, currentGeneral.publicEmail);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            publicPhone: currentGeneral.publicPhone,
+            publicEmail: currentGeneral.publicEmail,
+          };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        // SETTINGS SAVE RELIABILITY v1 -- ferme la fuite de message
+        // serveur brut (invariant explicite : aucune erreur serveur
+        // brute ne doit atteindre le marchand) -- UN SEUL message
+        // visuel partagé par les quatre sous-écritures de ce lot
+        // (mandat : "you may keep one visual error message for the
+        // contact section"), jamais le texte PostgREST/SQL brut.
+        failedKeys.push("stContactSaveError");
+      }
+    }
+
+    // CUSTOMER CONTACT v1 : activé -> numéro d'abord (l'activation
+    // exige un numéro valide côté SQL) ; désactivé -> le numéro
+    // stocké n'est ni exigé ni modifié. Numéro ET état d'activation
+    // restent UNE SEULE sous-écriture "dirty" (mandat, voir
+    // `whatsappSubDirty` plus haut) -- si l'une des deux RPC internes
+    // échoue, AUCUNE des deux n'avance dans l'instantané (les deux
+    // champs restent dirty, retentés ensemble à la prochaine
+    // soumission -- jamais un état incohérent "numéro propre, activation
+    // sale" ou l'inverse).
+    if (whatsappDirty) {
+      attemptedCount++;
+      try {
         if (currentGeneral.whatsappEnabled) {
           await updateRestaurantWhatsapp(restaurantId, currentGeneral.whatsapp);
-          setWhatsapp(currentGeneral.whatsapp);
+          if (!token.isCurrent()) return;
         }
         await updateRestaurantWhatsappEnabled(restaurantId, currentGeneral.whatsappEnabled);
+        if (!token.isCurrent()) return;
+        // SETTINGS SAVE RELIABILITY v1.2 -- ferme SETTINGS-SAVE-
+        // RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 (Blocker 1, volet
+        // "newer edit") : `setWhatsapp(currentGeneral.whatsapp)` était
+        // auparavant appelé SANS CONDITION après ce succès, écrasant
+        // silencieusement une saisie plus récente (`Y`) par la valeur
+        // SOUMISE (`X`) si l'utilisateur avait retapé le champ pendant
+        // que cette RPC était en vol. Ne réécrit l'état live QUE si le
+        // champ affiche encore EXACTEMENT la valeur BRUTE soumise
+        // (`whatsapp`, capturée par fermeture au tout début de ce
+        // submit()) -- sinon, l'édition plus récente reste affichée
+        // TELLE QUELLE, et restera "dirty" au prochain Enregistrer
+        // (comparée à l'instantané, qui lui avance bien à `X` plus
+        // bas) : c'est exactement le comportement requis par le
+        // mandat ("DB persisted X, snapshot may advance to X, UI
+        // remains Y, Y therefore remains dirty, next Save attempts Y").
+        setWhatsapp((live) => (live === whatsapp ? currentGeneral.whatsapp : live));
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            whatsapp: currentGeneral.whatsapp,
+            whatsappEnabled: currentGeneral.whatsappEnabled,
+          };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stContactSaveError");
+      }
+    }
 
+    if (restaurantSettingsDirty) {
+      attemptedCount++;
+      try {
         await updateRestaurantSettings(restaurantId, currentGeneral.lang, currentGeneral.address, currentGeneral.hours);
-
-        // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — écriture RPC-only
-        // (owner/manager, contrôlé côté SQL). Dans le MÊME groupe
-        // "dirty" que le contact public : un opérateur seul n'y touche
-        // jamais. Un champ laissé vide EFFACE la surcharge et
-        // rétablit le texte de base -- jamais un texte vide affiché.
-        // Identique à currentGeneral.statusTexts (assigné directement
-        // depuis `statusTexts` dans l'instantané ci-dessus) -- `statusTexts`
-        // est utilisée ICI telle quelle pour préserver la signature
-        // littérale exacte attendue par un test structurel préexistant
-        // (tests/cfte-v1-merchant-status-text-write.test.ts, test "3.").
-        await setAllMerchantTrackingStatusText(restaurantId, statusTexts);
-
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = {
             ...generalSnapshotRef.current,
             lang: currentGeneral.lang,
             address: currentGeneral.address,
             hours: currentGeneral.hours,
-            whatsapp: currentGeneral.whatsapp,
-            whatsappEnabled: currentGeneral.whatsappEnabled,
-            publicPhone: currentGeneral.publicPhone,
-            publicEmail: currentGeneral.publicEmail,
-            statusTexts: currentGeneral.statusTexts,
           };
         }
         succeededCount++;
       } catch {
-        // SETTINGS SAVE RELIABILITY v1 -- ferme la fuite de message
-        // serveur brut (invariant explicite : aucune erreur serveur
-        // brute ne doit atteindre le marchand). `e.message` provenait
-        // directement de `throw new Error(error.message)` côté
-        // lib/services/dashboard.ts (texte PostgREST/SQL non traduit,
-        // potentiellement technique/illisible) -- remplacé par le même
-        // patron que toutes les autres sections : un message fixe,
-        // traduit, dédié à cette section.
+        if (!token.isCurrent()) return;
+        failedKeys.push("stContactSaveError");
+      }
+    }
+
+    // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — écriture RPC-only
+    // (owner/manager, contrôlé côté SQL). Un champ laissé vide EFFACE
+    // la surcharge et rétablit le texte de base -- jamais un texte
+    // vide affiché. Identique à currentGeneral.statusTexts (assigné
+    // directement depuis `statusTexts` dans l'instantané ci-dessus) --
+    // `statusTexts` est utilisée ICI telle quelle pour préserver la
+    // signature littérale exacte attendue par un test structurel
+    // préexistant (tests/cfte-v1-merchant-status-text-write.test.ts,
+    // test "3.").
+    if (trackingTextDirty) {
+      attemptedCount++;
+      try {
+        await setAllMerchantTrackingStatusText(restaurantId, statusTexts);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, statusTexts: currentGeneral.statusTexts };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stContactSaveError");
       }
     }
@@ -1116,6 +1270,12 @@ export default function SettingsPage() {
       attemptedCount++;
       try {
         await updateRestaurantColors(restaurantId, currentGeneral.primaryColor, currentGeneral.secondaryColor, currentGeneral.accentColor);
+        // SETTINGS-SAVE-RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 : garde
+        // de péremption après l'await, avant toute écriture de snapshot
+        // ou de compteur de succès -- un switch de restaurant pendant ce
+        // RPC ne doit jamais faire muter l'état/snapshot du NOUVEAU
+        // contexte avec le résultat tardif de l'ANCIEN.
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = {
             ...generalSnapshotRef.current,
@@ -1126,6 +1286,7 @@ export default function SettingsPage() {
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stColorsSaveError");
       }
     }
@@ -1134,12 +1295,27 @@ export default function SettingsPage() {
       attemptedCount++;
       try {
         await updateRestaurantMapsUrl(restaurantId, currentGeneral.mapsUrl);
-        setMapsUrl(currentGeneral.mapsUrl ?? "");
+        if (!token.isCurrent()) return;
+        // SETTINGS-SAVE-RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 : cas
+        // cité nommément par le mandat ("DO NOT call setMapsUrl(X)
+        // unconditionally after the await"). On ne réécrit la valeur
+        // locale QUE si elle est encore strictement égale à la valeur
+        // brute capturée par closure au début de submit() (= aucune
+        // nouvelle frappe de l'utilisateur pendant l'attente du RPC).
+        // Si l'utilisateur a tapé Y pendant que X était en vol, la
+        // fonction updater lit l'état RÉEL courant (jamais une
+        // fermeture périmée) et préserve Y intact : X est persisté en
+        // base et le snapshot peut avancer à X, mais l'UI reste Y, donc
+        // Y reste "dirty" et sera soumis au prochain Save (exactement
+        // le résultat requis par le mandat, section "NEWER USER EDIT
+        // DURING SAVE").
+        setMapsUrl((live) => (live === mapsUrl ? (currentGeneral.mapsUrl ?? "") : live));
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = { ...generalSnapshotRef.current, mapsUrl: currentGeneral.mapsUrl };
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stMapsSaveError");
       }
     }
@@ -1158,6 +1334,7 @@ export default function SettingsPage() {
           currentGeneral.announcementText,
           currentGeneral.announcementActive
         );
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = {
             ...generalSnapshotRef.current,
@@ -1169,6 +1346,7 @@ export default function SettingsPage() {
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stIdentitySaveError");
       }
     }
@@ -1177,11 +1355,13 @@ export default function SettingsPage() {
       attemptedCount++;
       try {
         await updateRestaurantBgColor(restaurantId, currentGeneral.bgColor);
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = { ...generalSnapshotRef.current, bgColor: currentGeneral.bgColor };
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stColorsSaveError");
       }
     }
@@ -1190,6 +1370,7 @@ export default function SettingsPage() {
       attemptedCount++;
       try {
         await updateRestaurantSocialLinks(restaurantId, currentGeneral.instagramUrl, currentGeneral.tiktokUrl, currentGeneral.facebookUrl);
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = {
             ...generalSnapshotRef.current,
@@ -1200,6 +1381,7 @@ export default function SettingsPage() {
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stSocialSaveError");
       }
     }
@@ -1208,11 +1390,13 @@ export default function SettingsPage() {
       attemptedCount++;
       try {
         await updateRestaurantLanguages(restaurantId, currentGeneral.activeLanguageCodes);
+        if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = { ...generalSnapshotRef.current, activeLanguageCodes: currentGeneral.activeLanguageCodes };
         }
         succeededCount++;
       } catch {
+        if (!token.isCurrent()) return;
         failedKeys.push("stLanguagesSaveError");
       }
     }
@@ -1226,6 +1410,14 @@ export default function SettingsPage() {
     // vérité unique de cette garde.
 
     void attemptedCount; // conservé pour lisibilité/débogage, pas utilisé dans la décision ci-dessous
+
+    // SETTINGS-SAVE-RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 : garde
+    // défensive finale avant de PRÉSENTER le résultat (setSaved/setError)
+    // -- techniquement déjà inatteignable si une garde précédente a
+    // renvoyé tôt, mais le mandat exige explicitement de protéger aussi
+    // "presenting save outcome tied to that context", donc on le rend
+    // explicite plutôt que de compter implicitement sur l'ordre du code.
+    if (!token.isCurrent()) return;
 
     if (failedKeys.length === 0) {
       // Soit toutes les sections dirty ont réussi, soit AUCUNE section
