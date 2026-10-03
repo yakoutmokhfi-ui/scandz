@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { ORDER_PAGE_SIZE, validateOrderCursor, type OrderCursor } from "@/lib/dashboard-pagination";
 import type {
   DashboardOrder,
   MerchantDeliveryFulfillmentPricingRule,
@@ -69,11 +70,15 @@ export async function getMerchantRestaurants(): Promise<MerchantRestaurant[]> {
  * (`order_invoice_request_select_staff`, authenticated +
  * restaurant_users) -- aucune exposition anonyme, aucun contournement
  * multi-tenant, aucune clé serveur privilégiée côté navigateur.
+ * Pagination: returns at most ORDER_PAGE_SIZE + 1 rows. The last row is
+ * lookahead; callers use orderPage() and continue from its nextCursor.
  */
 export async function getDashboardOrders(
   restaurantId: string,
-  includeCompleted = false
+  includeCompleted = false,
+  cursor: OrderCursor | null = null,
 ): Promise<DashboardOrder[]> {
+  if (cursor) validateOrderCursor(cursor);
   let query = supabase
     .from("orders")
     .select(
@@ -101,7 +106,12 @@ export async function getDashboardOrders(
     )
     .eq("restaurant_id", restaurantId)
     .order("created_at", { ascending: false })
-    .limit(includeCompleted ? 100 : 50);
+    .order("id", { ascending: false })
+    .limit(ORDER_PAGE_SIZE + 1);
+
+  if (cursor) {
+    query = query.or(`created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})`);
+  }
 
   if (!includeCompleted) {
     query = query.not("status", "in", '(completed,rejected,cancelled)');
@@ -143,22 +153,27 @@ export async function getWithdrawalRequests(restaurantId: string): Promise<Withd
 /**
  * ORDERS OPERATOR READ v1 -- liste MINIMALE et en LECTURE SEULE des
  * commandes d'un restaurant pour un opérateur Scanym, via la RPC
- * SECURITY DEFINER get_operator_restaurant_orders
- * (supabase/DRAFT-lot-orders-operator-read-v1.sql). L'autorité vient
+ * SECURITY DEFINER get_operator_restaurant_orders_page
+ * (supabase/DRAFT-dashboard-active-orders-pagination-v1.sql). L'autorité vient
  * UNIQUEMENT de is_scanym_operator() côté SQL, jamais d'une
  * membership restaurant_users. Aucune donnée client n'est retournée.
  *
  * Une erreur est TOUJOURS propagée : l'appelant ne doit jamais se
  * rabattre sur getDashboardOrders (lecture marchande, RLS
  * is_member_of) qui renverrait silencieusement une liste vide.
+ * Same batch contract as getDashboardOrders: 50 rows plus lookahead.
  */
 export async function getOperatorRestaurantOrders(
   restaurantId: string,
-  includeCompleted = false
+  includeCompleted = false,
+  cursor: OrderCursor | null = null,
 ): Promise<OperatorOrderSummary[]> {
-  const { data, error } = await supabase.rpc("get_operator_restaurant_orders", {
+  if (cursor) validateOrderCursor(cursor);
+  const { data, error } = await supabase.rpc("get_operator_restaurant_orders_page", {
     p_restaurant_id: restaurantId,
     p_include_completed: includeCompleted,
+    p_before_created_at: cursor?.created_at ?? null,
+    p_before_id: cursor?.id ?? null,
   });
   if (error) throw new Error(error.message);
   return ((data ?? []) as OperatorOrderSummary[]).map((row) => ({
