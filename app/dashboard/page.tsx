@@ -25,6 +25,7 @@ import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import { translate, type Lang } from "@/lib/i18n";
+import { orderPage, readOrderWindow, type OrderCursor } from "@/lib/dashboard-pagination";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -142,6 +143,15 @@ export default function DashboardPage() {
    * (constat d'audit, point 8).
    */
   const ordersRequestSeqRef = useRef(0);
+  const nextCursorRef = useRef<OrderCursor | null>(null);
+  const throughRef = useRef<OrderCursor | null>(null);
+  const inFlightRef = useRef<number | null>(null);
+  const pendingRefreshRef = useRef(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const readContextKey = `${restaurantId}:${showHistory}:${isOperatorOrdersView}`;
+  const readContextKeyRef = useRef(readContextKey);
+  readContextKeyRef.current = readContextKey;
   /**
    * Miroir du restaurant SÉLECTIONNÉ, lisible depuis une continuation
    * asynchrone sans risque de fermeture périmée (`restaurantId` capturé
@@ -176,7 +186,7 @@ export default function DashboardPage() {
     oscillator.addEventListener("ended", () => void context.close());
   }, [soundEnabled]);
 
-  const loadOrders = useCallback(async (notify = false) => {
+  const loadOrders = useCallback(async (notify = false, append = false): Promise<void> => {
     // RECEIPT v1.1 (RECEIPT-V1-ORDER-SETTINGS-RACE-01) -- la requête
     // capture le restaurant pour lequel elle part ET sa génération.
     // Aucune hypothèse de timing n'est faite : la réponse devra
@@ -184,12 +194,28 @@ export default function DashboardPage() {
     // qu'elle concerne toujours le restaurant sélectionné.
     const requestedRestaurantId = restaurantId;
     if (!requestedRestaurantId) return;
-    const seq = ++ordersRequestSeqRef.current;
+    const ownsCurrentContext = requestedRestaurantId === selectedRestaurantIdRef.current &&
+      readContextKey === readContextKeyRef.current;
+    // Serialize continuation and realtime refresh: events must not repeatedly
+    // cancel "Load more" and make older active orders unreachable under traffic.
+    if (ownsCurrentContext && inFlightRef.current !== null && (notify || append)) {
+      if (notify) pendingRefreshRef.current = true;
+      return;
+    }
+    const cursor = append ? nextCursorRef.current : null;
+    if (append && !cursor) return;
+    const seq = ownsCurrentContext ? ++ordersRequestSeqRef.current : -1;
+    if (ownsCurrentContext) {
+      inFlightRef.current = seq;
+      setOrdersLoading(true);
+      setError(null);
+    }
 
     /** Une réponse ne peut être appliquée que si les DEUX tiennent. */
     const isStillCurrent = () =>
       seq === ordersRequestSeqRef.current &&
-      requestedRestaurantId === selectedRestaurantIdRef.current;
+      requestedRestaurantId === selectedRestaurantIdRef.current &&
+      readContextKey === readContextKeyRef.current;
 
     try {
       // ORDERS OPERATOR READ v1 -- contexte opérateur : RPC opérateur
@@ -197,14 +223,26 @@ export default function DashboardPage() {
       // commandes ». Une erreur remonte telle quelle (catch ci-dessous),
       // jamais de repli sur getDashboardOrders.
       if (isOperatorOrdersView) {
-        const summaries = await getOperatorRestaurantOrders(requestedRestaurantId, showHistory);
+        const fetchBatch = (before: OrderCursor | null) =>
+          getOperatorRestaurantOrders(requestedRestaurantId, showHistory, before);
+        const page = append
+          ? orderPage(await fetchBatch(cursor))
+          : await readOrderWindow(fetchBatch, throughRef.current, isStillCurrent);
         if (!isStillCurrent()) return;
-        setOperatorOrders(summaries ?? []);
+        setOperatorOrders((previous) => append ? [...previous, ...page.orders] : page.orders);
+        nextCursorRef.current = page.nextCursor;
+        throughRef.current = page.orders.at(-1) ?? throughRef.current;
+        setHasMore(page.nextCursor !== null);
         setOperatorOrdersLoadedForRestaurantId(requestedRestaurantId);
         return;
       }
 
-      const next = await getDashboardOrders(requestedRestaurantId, showHistory);
+      const fetchBatch = (before: OrderCursor | null) =>
+        getDashboardOrders(requestedRestaurantId, showHistory, before);
+      const page = append
+        ? orderPage(await fetchBatch(cursor))
+        : await readOrderWindow(fetchBatch, throughRef.current, isStillCurrent);
+      const next = page.orders;
       // Réponse PÉRIMÉE (requête plus récente, et/ou restaurant changé
       // depuis) -- ignorée INTÉGRALEMENT : ni `orders`, ni
       // `knownOrderIds`, ni la sonnerie ne doivent être touchés, sans
@@ -219,7 +257,10 @@ export default function DashboardPage() {
       // contredire, même un instant. Même discipline que le commit
       // atomique de `legalProfileLoadedRestaurantId` dans
       // app/dashboard/settings/page.tsx.
-      setOrders(next);
+      setOrders((previous) => append ? [...previous, ...next] : next);
+      nextCursorRef.current = page.nextCursor;
+      throughRef.current = next.at(-1) ?? throughRef.current;
+      setHasMore(page.nextCursor !== null);
       setOrdersLoadedForRestaurantId(requestedRestaurantId);
       next.forEach((order) => knownOrderIds.current.add(order.id));
       if (notify && newOrders.length > 0) playSound();
@@ -228,8 +269,17 @@ export default function DashboardPage() {
       // concernerait un restaurant qui n'est plus à l'écran.
       if (!isStillCurrent()) return;
       setError(loadError instanceof Error ? loadError.message : "Chargement impossible");
+    } finally {
+      if (isStillCurrent()) {
+        inFlightRef.current = null;
+        setOrdersLoading(false);
+        if (pendingRefreshRef.current) {
+          pendingRefreshRef.current = false;
+          void loadOrders(true);
+        }
+      }
     }
-  }, [isOperatorOrdersView, playSound, restaurantId, showHistory]);
+  }, [isOperatorOrdersView, playSound, restaurantId, showHistory, readContextKey]);
 
   const dt = (k: string, p?: Record<string, string | number>) =>
     translate(staffLanguage as Lang, k, p);
@@ -324,6 +374,11 @@ export default function DashboardPage() {
     //      vidage immédiat).
     selectedRestaurantIdRef.current = restaurantId;
     ordersRequestSeqRef.current += 1;
+    nextCursorRef.current = null;
+    throughRef.current = null;
+    inFlightRef.current = null;
+    pendingRefreshRef.current = false;
+    setHasMore(false);
     setOrders([]);
     setOperatorOrders([]);
     setOperatorOrdersLoadedForRestaurantId(null);
@@ -489,6 +544,16 @@ export default function DashboardPage() {
 
         {error && <div className="mb-5 rounded-xl bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
 
+        <div className="mb-4 flex items-center gap-3" aria-live="polite">
+          <button type="button" disabled={ordersLoading || !restaurantId}
+            onClick={() => void loadOrders(false)}
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold shadow-sm disabled:opacity-50">
+            Actualiser
+          </button>
+          {ordersLoading && <span role="status">Chargement des commandes…</span>}
+          {hasMore && <span>D’autres commandes sont disponibles.</span>}
+        </div>
+
         {isOperatorOrdersView ? (
           <OperatorOrderList
             orders={operatorOrders}
@@ -513,6 +578,12 @@ export default function DashboardPage() {
               />
             ))}
           </div>
+        )}
+        {hasMore && (
+          <button type="button" disabled={ordersLoading} onClick={() => void loadOrders(false, true)}
+            className="mt-5 rounded-xl bg-stone-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+            Charger plus de commandes
+          </button>
         )}
       </section>
     </main>
