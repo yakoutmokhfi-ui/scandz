@@ -171,7 +171,28 @@ test("2e. un refus serveur interrompt la séquence (jamais un enregistrement par
 test("3. la page Réglages écrit par la RPC, dans le bloc owner/manager, et dérive sa grille des 7 statuts canoniques", () => {
   const src = readFileSync("app/dashboard/settings/page.tsx", "utf8");
 
-  assert.ok(src.includes("setAllMerchantTrackingStatusText(restaurantId, statusTexts)"));
+  // SETTINGS SAVE RELIABILITY v1.3 (Blocker 2B, 3e contre-audit
+  // indépendant, PR #128) : la page n'utilise plus
+  // setAllMerchantTrackingStatusText (une seule RPC par statut,
+  // bouclée en interne -- ce n'était donc déjà pas une écriture
+  // atomique, même utilisée comme telle par v1/v1.1/v1.2) comme la
+  // "transaction" de ce flux. Chaque statut CANONIQUE réellement
+  // modifié ("dirty") est désormais tenté indépendamment via l'appel
+  // UNITAIRE setMerchantTrackingStatusText -- inchangé depuis "2a"
+  // ci-dessus -- pour permettre un rapport de persistance partielle
+  // PAR STATUT (mandat v1.3 : "the dashboard save flow must NOT use
+  // [setAllMerchantTrackingStatusText] as if it were one atomic
+  // write"). setAllMerchantTrackingStatusText reste exportée par le
+  // service (voir "2d"/"2e" ci-dessus) pour d'éventuels autres
+  // appelants, mais n'est plus câblée ICI.
+  assert.ok(
+    src.includes('setMerchantTrackingStatusText(restaurantId, status, currentGeneral.statusTexts[status] ?? "")'),
+    "chaque statut dirty doit être écrit individuellement par la RPC unitaire, jamais par la RPC groupée"
+  );
+  assert.ok(
+    !src.includes("await setAllMerchantTrackingStatusText("),
+    "la page ne doit plus APPELER la RPC groupée comme si elle était atomique (Blocker 2B) -- le nom peut encore apparaître dans un commentaire explicatif"
+  );
   assert.ok(src.includes("getMerchantTrackingStatusText(id)"));
   // Aucune liste de statuts recopiée : la grille itère l'autorité.
   assert.ok(src.includes("CANONICAL_ORDER_STATUSES.map((status)"));

@@ -24,7 +24,7 @@ import {
 import { isValidPublicEmail, isValidPublicPhone } from "@/lib/customer-contact";
 import {
   getMerchantTrackingStatusText,
-  setAllMerchantTrackingStatusText,
+  setMerchantTrackingStatusText,
 } from "@/lib/services/tracking-status-text";
 import { CANONICAL_ORDER_STATUSES, statusLabelKey } from "@/lib/tracking/status";
 import {
@@ -122,13 +122,6 @@ function normStrOrNull(v: string): string | null {
   const trimmed = v.trim();
   return trimmed === "" ? null : trimmed;
 }
-function statusTextsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const k of keys) {
-    if ((a[k] ?? "") !== (b[k] ?? "")) return false;
-  }
-  return true;
-}
 function stringArraysEqual(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
@@ -158,17 +151,44 @@ function stringArraysEqual(a: string[], b: string[]): boolean {
 function publicContactSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.publicPhone !== b.publicPhone || a.publicEmail !== b.publicEmail;
 }
-// Numéro ET état d'activation WhatsApp : UN SEUL sous-groupe (comme
-// listé explicitement par le mandat, "WhatsApp number / enabled
-// state" sur une seule puce) -- jamais scindé plus finement.
-function whatsappSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
-  return a.whatsapp !== b.whatsapp || a.whatsappEnabled !== b.whatsappEnabled;
+// SETTINGS SAVE RELIABILITY v1.3 -- ferme SETTINGS-SAVE-RELIABILITY-
+// V1-WHATSAPP-SUBWRITE-01 (3e contre-audit indépendant, Blocker 2A) :
+// v1.2 traitait numéro ET état d'activation comme UN SEUL sous-groupe
+// "dirty" (lecture littérale du mandat v1.2, "WhatsApp number /
+// enabled state" sur une seule puce). Le contre-audit a montré que
+// l'implémentation exécute en réalité DEUX RPC séparées
+// (updateRestaurantWhatsapp / updateRestaurantWhatsappEnabled), donc
+// un seul sous-groupe masquait exactement le même genre de
+// persistance partielle cachée que Blocker 2 visait à l'origine : si
+// le numéro réussissait puis l'activation échouait, l'instantané ne
+// pouvait pas avancer du tout (le comparateur combiné restait "sale"
+// sur les DEUX champs), et un retry réécrivait inutilement le numéro
+// déjà persisté. Numéro et activation sont donc maintenant DEUX
+// comparateurs indépendants -- la dépendance SQL (activer exige un
+// numéro déjà valide) est préservée dans submit() lui-même (voir le
+// commentaire au-dessus du bloc WhatsApp plus bas), jamais ici.
+function whatsappNumberSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.whatsapp !== b.whatsapp;
+}
+function whatsappEnabledSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.whatsappEnabled !== b.whatsappEnabled;
 }
 function restaurantSettingsSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.lang !== b.lang || a.address !== b.address || a.hours !== b.hours;
 }
-function trackingTextSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
-  return !statusTextsEqual(a.statusTexts, b.statusTexts);
+// SETTINGS SAVE RELIABILITY v1.3 -- ferme SETTINGS-SAVE-RELIABILITY-
+// V1-TRACKING-TEXT-SUBWRITE-01 (Blocker 2B) :
+// setAllMerchantTrackingStatusText() exécute en réalité UNE RPC PAR
+// statut canonique (boucle séquentielle, lib/services/tracking-status-
+// text.ts) -- ce n'était donc déjà pas une écriture atomique, même
+// utilisée comme telle par ce lot. `trackingTextSubDirty` (comparateur
+// combiné, tout-ou-rien sur les 7 statuts) est remplacé par
+// `trackingStatusDirty`, un comparateur PAR STATUT -- la boucle de
+// dirty-check se fait maintenant dans submit() lui-même (voir plus
+// bas), pour produire une liste des statuts RÉELLEMENT modifiés,
+// chacun ensuite tenté et comptabilisé indépendamment.
+function trackingStatusDirty(a: Record<string, string>, b: Record<string, string>, status: string): boolean {
+  return (a[status] ?? "") !== (b[status] ?? "");
 }
 function colorsGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.primaryColor !== b.primaryColor || a.secondaryColor !== b.secondaryColor || a.accentColor !== b.accentColor;
@@ -1071,9 +1091,23 @@ export default function SettingsPage() {
     // `contactDirty` unique, qui masquait quelle RPC précise était
     // réellement en cause.
     const publicContactDirty = !isOperatorOnlyMode && (!generalSnap || publicContactSubDirty(generalSnap, currentGeneral));
-    const whatsappDirty = !isOperatorOnlyMode && (!generalSnap || whatsappSubDirty(generalSnap, currentGeneral));
+    // SETTINGS SAVE RELIABILITY v1.3 -- numéro et activation WhatsApp :
+    // DEUX drapeaux "dirty" indépendants (Blocker 2A), remplaçant
+    // l'ancien `whatsappDirty` combiné.
+    const whatsappNumberDirty = !isOperatorOnlyMode && (!generalSnap || whatsappNumberSubDirty(generalSnap, currentGeneral));
+    const whatsappEnabledDirty = !isOperatorOnlyMode && (!generalSnap || whatsappEnabledSubDirty(generalSnap, currentGeneral));
     const restaurantSettingsDirty = !isOperatorOnlyMode && (!generalSnap || restaurantSettingsSubDirty(generalSnap, currentGeneral));
-    const trackingTextDirty = !isOperatorOnlyMode && (!generalSnap || trackingTextSubDirty(generalSnap, currentGeneral));
+    // SETTINGS SAVE RELIABILITY v1.3 -- ferme Blocker 2B : la liste des
+    // statuts canoniques RÉELLEMENT modifiés (jamais les 7 d'un bloc),
+    // calculée une fois ici comme toutes les autres sections, puis
+    // tentée statut par statut dans submit() (voir plus bas). Un
+    // instantané absent (généralSnap null) traite TOUS les statuts
+    // comme dirty -- même règle défensive que pour les autres sections.
+    const trackingTextDirtyStatuses = isOperatorOnlyMode
+      ? []
+      : CANONICAL_ORDER_STATUSES.filter(
+          (status) => !generalSnap || trackingStatusDirty(generalSnap.statusTexts, currentGeneral.statusTexts, status)
+        );
     const colorsDirty = !generalSnap || colorsGroupDirty(generalSnap, currentGeneral);
     const mapsUrlDirty = !generalSnap || mapsUrlGroupDirty(generalSnap, currentGeneral);
     const identityDirty = !generalSnap || identityGroupDirty(generalSnap, currentGeneral);
@@ -1174,23 +1208,36 @@ export default function SettingsPage() {
       }
     }
 
-    // CUSTOMER CONTACT v1 : activé -> numéro d'abord (l'activation
-    // exige un numéro valide côté SQL) ; désactivé -> le numéro
-    // stocké n'est ni exigé ni modifié. Numéro ET état d'activation
-    // restent UNE SEULE sous-écriture "dirty" (mandat, voir
-    // `whatsappSubDirty` plus haut) -- si l'une des deux RPC internes
-    // échoue, AUCUNE des deux n'avance dans l'instantané (les deux
-    // champs restent dirty, retentés ensemble à la prochaine
-    // soumission -- jamais un état incohérent "numéro propre, activation
-    // sale" ou l'inverse).
-    if (whatsappDirty) {
+    // SETTINGS SAVE RELIABILITY v1.3 -- ferme SETTINGS-SAVE-
+    // RELIABILITY-V1-WHATSAPP-SUBWRITE-01 (Blocker 2A, 3e contre-audit
+    // indépendant) : numéro et activation sont maintenant DEUX
+    // sous-écritures indépendamment comptabilisées (chacune son propre
+    // attemptedCount/try-catch/avancée d'instantané) -- plus un seul
+    // bloc "tout ou rien" comme en v1.2. La dépendance SQL réelle
+    // (CUSTOMER CONTACT v1 : activer WhatsApp exige un numéro déjà
+    // valide en base) est préservée explicitement ci-dessous : si ce
+    // submit() vient LUI-MÊME de tenter de ré-soumettre un numéro dirty
+    // et que cette tentative a échoué, l'activation n'est PAS tentée du
+    // tout quand on cherche à ACTIVER (jamais de fausse réussite
+    // rapportée pour elle -- elle reste dirty, retentée au prochain
+    // Save, une fois le numéro réellement persisté). Désactiver, ou
+    // activer avec un numéro déjà propre (non dirty ce tour-ci, donc
+    // déjà persisté précédemment), n'a aucune dépendance et est tenté
+    // indépendamment, que le numéro soit dirty ou non ce tour-ci
+    // (W3/W4).
+    // Contrat PRÉEXISTANT préservé (CUSTOMER CONTACT v1, inchangé) :
+    // "désactivé -> le numéro stocké n'est ni exigé ni modifié" -- la
+    // sous-écriture NUMÉRO n'est tentée QUE si WhatsApp est
+    // actuellement activé, même si le champ (visible seulement quand
+    // activé) avait été modifié avant une désactivation ultérieure
+    // dans ce même submit(). Un numéro resté dirty mais non tenté ici
+    // n'avance PAS dans l'instantané -- il sera retenté dès que
+    // l'utilisateur réactive, jamais silencieusement perdu.
+    let whatsappNumberFailedThisSubmit = false;
+    if (whatsappNumberDirty && currentGeneral.whatsappEnabled) {
       attemptedCount++;
       try {
-        if (currentGeneral.whatsappEnabled) {
-          await updateRestaurantWhatsapp(restaurantId, currentGeneral.whatsapp);
-          if (!token.isCurrent()) return;
-        }
-        await updateRestaurantWhatsappEnabled(restaurantId, currentGeneral.whatsappEnabled);
+        await updateRestaurantWhatsapp(restaurantId, currentGeneral.whatsapp);
         if (!token.isCurrent()) return;
         // SETTINGS SAVE RELIABILITY v1.2 -- ferme SETTINGS-SAVE-
         // RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01 (Blocker 1, volet
@@ -1207,13 +1254,35 @@ export default function SettingsPage() {
         // bas) : c'est exactement le comportement requis par le
         // mandat ("DB persisted X, snapshot may advance to X, UI
         // remains Y, Y therefore remains dirty, next Save attempts Y").
+        // Toujours vrai en v1.3, inchangé -- seul le sous-groupe qui le
+        // porte a changé (numéro seul, plus numéro+activation).
         setWhatsapp((live) => (live === whatsapp ? currentGeneral.whatsapp : live));
         if (generalSnapshotRef.current) {
-          generalSnapshotRef.current = {
-            ...generalSnapshotRef.current,
-            whatsapp: currentGeneral.whatsapp,
-            whatsappEnabled: currentGeneral.whatsappEnabled,
-          };
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, whatsapp: currentGeneral.whatsapp };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        whatsappNumberFailedThisSubmit = true;
+        failedKeys.push("stContactSaveError");
+      }
+    }
+
+    // Dépendance SQL (CUSTOMER CONTACT v1, inchangée) : n'ACTIVE
+    // jamais sur la base d'un numéro qui vient tout juste d'échouer à
+    // se persister DANS CE MÊME submit(). Ne s'applique qu'à
+    // l'ACTIVATION (whatsappEnabled -> true) -- désactiver n'a jamais
+    // dépendu du numéro (CUSTOMER CONTACT v1 : "désactivé -> le numéro
+    // stocké n'est ni exigé ni modifié").
+    const whatsappEnabledBlockedByNumberDependency =
+      currentGeneral.whatsappEnabled && whatsappNumberDirty && whatsappNumberFailedThisSubmit;
+    if (whatsappEnabledDirty && !whatsappEnabledBlockedByNumberDependency) {
+      attemptedCount++;
+      try {
+        await updateRestaurantWhatsappEnabled(restaurantId, currentGeneral.whatsappEnabled);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, whatsappEnabled: currentGeneral.whatsappEnabled };
         }
         succeededCount++;
       } catch {
@@ -1221,6 +1290,11 @@ export default function SettingsPage() {
         failedKeys.push("stContactSaveError");
       }
     }
+    // Si bloquée par la dépendance : AUCUNE RPC, AUCUN compteur touché
+    // -- `whatsappEnabled` reste simplement dirty (jamais une fausse
+    // réussite, jamais un échec supplémentaire redondant au-dessus de
+    // celui déjà poussé par le numéro ci-dessus), retentée seule une
+    // fois le numéro réellement persisté (W2).
 
     if (restaurantSettingsDirty) {
       attemptedCount++;
@@ -1242,22 +1316,38 @@ export default function SettingsPage() {
       }
     }
 
-    // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 — écriture RPC-only
-    // (owner/manager, contrôlé côté SQL). Un champ laissé vide EFFACE
-    // la surcharge et rétablit le texte de base -- jamais un texte
-    // vide affiché. Identique à currentGeneral.statusTexts (assigné
-    // directement depuis `statusTexts` dans l'instantané ci-dessus) --
-    // `statusTexts` est utilisée ICI telle quelle pour préserver la
-    // signature littérale exacte attendue par un test structurel
-    // préexistant (tests/cfte-v1-merchant-status-text-write.test.ts,
-    // test "3.").
-    if (trackingTextDirty) {
+    // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1 / SETTINGS SAVE
+    // RELIABILITY v1.3 — ferme SETTINGS-SAVE-RELIABILITY-V1-TRACKING-
+    // TEXT-SUBWRITE-01 (Blocker 2B) : setAllMerchantTrackingStatusText
+    // exécute EN RÉALITÉ une RPC PAR statut canonique (boucle
+    // séquentielle, lib/services/tracking-status-text.ts) -- ce
+    // n'était donc déjà pas une écriture atomique, même utilisée comme
+    // telle par v1/v1.1/v1.2. Chaque statut de `trackingTextDirtyStatuses`
+    // (calculée plus haut -- les seuls statuts RÉELLEMENT modifiés) est
+    // maintenant tenté INDÉPENDAMMENT via l'appel UNITAIRE
+    // setMerchantTrackingStatusText (déjà existant, inchangé, RPC
+    // set_merchant_tracking_status_text -- tests/cfte-v1-merchant-
+    // status-text-write.test.ts "2a") -- jamais
+    // setAllMerchantTrackingStatusText, qui reste dans le dépôt pour
+    // d'éventuels autres appelants mais n'est plus utilisée ici comme
+    // la "transaction" de ce flux (mandat : "the dashboard save flow
+    // must NOT use it as if it were one atomic write"). Politique
+    // CONTINUE (mandat, préférée explicitement) : l'échec d'un statut
+    // n'interrompt JAMAIS la tentative des statuts suivants -- tous les
+    // statuts dirty sont tentés, chacun son propre succès/échec, son
+    // propre avancement d'instantané PAR STATUT (jamais la grille
+    // entière). Un champ laissé vide EFFACE la surcharge et rétablit le
+    // texte de base -- jamais un texte vide affiché, inchangé.
+    for (const status of trackingTextDirtyStatuses) {
       attemptedCount++;
       try {
-        await setAllMerchantTrackingStatusText(restaurantId, statusTexts);
+        await setMerchantTrackingStatusText(restaurantId, status, currentGeneral.statusTexts[status] ?? "");
         if (!token.isCurrent()) return;
         if (generalSnapshotRef.current) {
-          generalSnapshotRef.current = { ...generalSnapshotRef.current, statusTexts: currentGeneral.statusTexts };
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            statusTexts: { ...generalSnapshotRef.current.statusTexts, [status]: currentGeneral.statusTexts[status] ?? "" },
+          };
         }
         succeededCount++;
       } catch {

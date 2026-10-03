@@ -259,6 +259,11 @@ export async function updateRestaurantPublicContact(restaurantId, publicPhone, p
   return mutationCall("publicContact", restaurantId, undefined);
 }
 export async function updateRestaurantWhatsapp(restaurantId, whatsappNumber) {
+  // SETTINGS SAVE RELIABILITY v1.3 (W5) -- même raison que
+  // __mapsUrlCallLog (C3) : capture la VALEUR exacte soumise, pas
+  // seulement le restaurantId, nécessaire pour prouver que le
+  // DEUXIÈME Save envoie bien Y, jamais X à nouveau.
+  (globalThis).__whatsappNumberCallLog.push({ restaurantId, whatsappNumber });
   return mutationCall("whatsapp", restaurantId, undefined);
 }
 export async function updateRestaurantWhatsappEnabled(restaurantId, enabled) {
@@ -303,16 +308,36 @@ export async function getRestaurantActiveLanguages(restaurantId) {
 }
 `;
 
+// SETTINGS SAVE RELIABILITY v1.3 -- ferme Blocker 2B : page.tsx
+// n'appelle désormais plus setAllMerchantTrackingStatusText (grille
+// entière) mais setMerchantTrackingStatusText (UN statut à la fois),
+// une fois par statut DIRTY. __mutationCallLog.trackingText reste
+// alimenté (une entrée par APPEL, donc par statut tenté -- compatible
+// avec les tests K3/K4/K5 préexistants, qui n'éditent qu'UN seul
+// statut) ; __trackingTextCallLog, nouveau, capture le détail exact
+// {restaurantId, status, body} par appel -- nécessaire pour les
+// nouveaux tests T1-T6, qui doivent distinguer plusieurs statuts
+// édités dans le MÊME submit(). __trackingStatusFailure permet une
+// injection de panne PAR STATUT (T2/T3/T4) ; __mutationFailure.trackingText
+// (préexistant, par restaurant) reste disponible pour les tests qui
+// n'éditent qu'un seul statut (K3/K5) et continue de fonctionner tel
+// quel.
 const MOCK_TRACKING_STATUS_TEXT = `
 export async function getMerchantTrackingStatusText(restaurantId) {
   const fallback = (globalThis).__statusTextFallback && (globalThis).__statusTextFallback[restaurantId];
   return fallback ?? {};
 }
-export async function setAllMerchantTrackingStatusText(restaurantId, bodies) {
+export async function setMerchantTrackingStatusText(restaurantId, status, body) {
   (globalThis).__callOrder.push("trackingText");
   (globalThis).__mutationCallLog.trackingText.push(restaurantId);
+  (globalThis).__trackingTextCallLog.push({ restaurantId, status, body });
   const deferred = (globalThis).__mutationDeferred.trackingText && (globalThis).__mutationDeferred.trackingText.get(restaurantId);
   if (deferred) return deferred.promise;
+  const byStatus =
+    (globalThis).__trackingStatusFailure &&
+    (globalThis).__trackingStatusFailure[restaurantId] &&
+    (globalThis).__trackingStatusFailure[restaurantId][status];
+  if (byStatus) return Promise.reject(byStatus);
   const failure = (globalThis).__mutationFailure.trackingText && (globalThis).__mutationFailure.trackingText[restaurantId];
   if (failure) return Promise.reject(failure);
   return Promise.resolve(undefined);
@@ -487,6 +512,19 @@ function whatsappNumberField(container: HTMLElement): HTMLInputElement {
  *  `tracking-status-text-${status}` (voir app/dashboard/settings/page.tsx) --
  *  plus simple et plus robuste que de recalculer la clé i18n du
  *  libellé (statusLabelKey) juste pour retrouver le <label>. */
+/** SETTINGS SAVE RELIABILITY v1.3 (W-series, nouveau helper) -- la
+ *  case d'activation WhatsApp porte l'attribut stable
+ *  data-settings-whatsapp-enabled -- plus simple et plus robuste que
+ *  de la retrouver par position dans la section. `.click()` suffit
+ *  (contrairement à un champ texte, un <input type="checkbox"> réagit
+ *  normalement en jsdom à un clic natif, sans contournement du setter
+ *  patché par React). */
+function whatsappEnabledCheckbox(container: HTMLElement): HTMLInputElement {
+  const checkbox = container.querySelector("input[data-settings-whatsapp-enabled]") as HTMLInputElement | null;
+  assert.ok(checkbox, "expected the WhatsApp enabled checkbox");
+  return checkbox!;
+}
+
 function trackingTextField(container: HTMLElement, status: string): HTMLTextAreaElement {
   const field = container.querySelector(`#tracking-status-text-${status}`) as HTMLTextAreaElement | null;
   assert.ok(field, `expected a tracking-status-text textarea for status "${status}"`);
@@ -553,6 +591,13 @@ function resetCommonFixtures() {
   // SETTINGS SAVE RELIABILITY v1.2 (C3) -- voir le commentaire sur
   // updateRestaurantMapsUrl ci-dessus.
   (globalThis as any).__mapsUrlCallLog = [];
+  // SETTINGS SAVE RELIABILITY v1.3 (T1-T6) -- voir le commentaire sur
+  // MOCK_TRACKING_STATUS_TEXT ci-dessus.
+  (globalThis as any).__trackingTextCallLog = [];
+  (globalThis as any).__trackingStatusFailure = {};
+  // SETTINGS SAVE RELIABILITY v1.3 (W5) -- voir le commentaire sur
+  // updateRestaurantWhatsapp ci-dessus.
+  (globalThis as any).__whatsappNumberCallLog = [];
 }
 
 function setupSingleRestaurant(id = "resto-a", marker = "A") {
@@ -1221,7 +1266,13 @@ test("K1 — public contact succeeds, WhatsApp fails => partial-save indication,
 
   assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "le contact public ne doit JAMAIS être réécrit par le retry -- son snapshot avait déjà avancé");
   assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 2, "WhatsApp, resté dirty, doit avoir été retenté");
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "cette fois le sous-groupe WhatsApp va jusqu'au bout");
+  // SETTINGS SAVE RELIABILITY v1.3 -- numéro et activation sont
+  // désormais DEUX sous-écritures indépendantes (Blocker 2A) ; ce test
+  // n'édite jamais la case d'activation (restée à sa valeur chargée,
+  // donc jamais dirty) -- updateRestaurantWhatsappEnabled ne doit donc
+  // JAMAIS être appelée ici, ni au premier essai ni au retry (voir
+  // W1-W5 pour la dépendance numéro/activation elle-même).
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "whatsappEnabled n'a jamais été dirty dans ce scénario -- jamais appelée");
 
   root.unmount();
   container.remove();
@@ -1240,16 +1291,19 @@ test("K2 — WhatsApp succeeds, restaurant settings fails => persisted WhatsApp 
   submitForm(container);
   await waitFor(() => hasText(container, t("stPartialSaveError")));
 
-  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp doit avoir réussi");
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "whatsappEnabled doit avoir réussi (même sous-groupe, jusqu'au bout)");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp (numéro) doit avoir réussi");
+  // SETTINGS SAVE RELIABILITY v1.3 -- l'activation n'est jamais
+  // éditée ici (restée à sa valeur chargée) -- sous-écriture
+  // indépendante jamais dirty, donc jamais appelée (Blocker 2A).
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "whatsappEnabled n'a jamais été dirty dans ce scénario -- jamais appelée");
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "restaurantSettings doit avoir été tentée et avoir échoué");
 
   delete (globalThis as any).__mutationFailure.restaurantSettings["resto-a"];
   submitForm(container);
   await waitFor(() => hasText(container, t("stSaved")));
 
-  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "WhatsApp, déjà propre, ne doit JAMAIS être réécrite par le retry");
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "idem pour whatsappEnabled");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "WhatsApp (numéro), déjà propre, ne doit JAMAIS être réécrite par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "idem -- toujours jamais dirty, toujours jamais appelée");
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 2, "restaurantSettings, resté dirty, doit avoir été retenté et avoir réussi");
 
   root.unmount();
@@ -1273,7 +1327,9 @@ test("K3 — tracking text fails after earlier contact writes succeed => partial
 
   assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1);
   assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1);
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1);
+  // SETTINGS SAVE RELIABILITY v1.3 -- l'activation n'est jamais
+  // éditée ici -- sous-écriture indépendante jamais dirty (Blocker 2A).
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0);
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1);
   assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "trackingText doit avoir été tentée et avoir échoué");
 
@@ -1283,7 +1339,7 @@ test("K3 — tracking text fails after earlier contact writes succeed => partial
 
   assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "déjà propre -- jamais réécrit par le retry");
   assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "déjà propre -- jamais réécrit par le retry");
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "déjà propre -- jamais réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "toujours jamais dirty -- toujours jamais appelée");
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "déjà propre -- jamais réécrit par le retry");
   assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 2, "seule trackingText, restée dirty, doit avoir été retentée");
 
@@ -1291,12 +1347,28 @@ test("K3 — tracking text fails after earlier contact writes succeed => partial
   container.remove();
 });
 
-test("K4 — all contact sub-writes succeed => whole contact section clean afterward, second Save causes ZERO contact writes", async () => {
+test("K4 — all FIVE contact sub-writes succeed (public contact, WhatsApp number, WhatsApp enabled, restaurant settings, tracking text) => whole contact section clean afterward, second Save causes ZERO contact writes", async () => {
   setupSingleRestaurant();
+  // SETTINGS SAVE RELIABILITY v1.3 -- numéro ET activation sont
+  // maintenant deux sous-écritures indépendantes (Blocker 2A) ; ce
+  // test édite délibérément les DEUX pour couvrir les CINQ
+  // sous-écritures (et non plus quatre). Chargé DÉSACTIVÉ ici
+  // (plutôt que le `true` par défaut de settingsRow()) pour pouvoir
+  // exercer le chemin "activer avec un numéro neuf" (dépendance SQL
+  // préservée, CUSTOMER CONTACT v1 : activer exige un numéro valide
+  // -- le numéro est donc tenté AVANT l'activation, qui ne dépend
+  // alors d'aucun échec).
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A", whatsapp_enabled: false });
+
   const { container, root } = render();
   await waitSettled(container);
 
   setFieldValue(fieldByLabel(container, t("stPublicPhoneLabel")) as HTMLInputElement, "+33611111111");
+  // Activer d'abord -- rend le champ numéro visible (il ne l'est que
+  // quand whatsappEnabled est vrai) ; un tick pour laisser React
+  // committer ce rendu conditionnel avant de chercher le champ.
+  whatsappEnabledCheckbox(container).click();
+  await flush();
   setFieldValue(whatsappNumberField(container), "+33622222222");
   setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Retry");
   setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
@@ -1339,14 +1411,16 @@ test("K5 — first contact sub-write (public contact) fails => later contact sub
   // même -- jamais interrompues par l'échec de la première (K5 :
   // comportement "continue", explicitement choisi et testé ici).
   assert.equal((globalThis as any).__mutationCallLog.publicContact.length, 1, "publicContact doit avoir été tentée et avoir échoué");
-  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp doit avoir été tentée MALGRÉ l'échec de publicContact");
-  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1);
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "whatsapp (numéro) doit avoir été tentée MALGRÉ l'échec de publicContact");
+  // SETTINGS SAVE RELIABILITY v1.3 -- l'activation n'est jamais
+  // éditée ici -- sous-écriture indépendante jamais dirty (Blocker 2A).
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0);
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "restaurantSettings doit avoir été tentée MALGRÉ l'échec de publicContact");
   assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "trackingText doit avoir été tentée MALGRÉ l'échec de publicContact");
   assert.deepEqual(
     (globalThis as any).__callOrder,
-    ["publicContact", "whatsapp", "whatsappEnabled", "restaurantSettings", "trackingText"],
-    "l'ordre fixe du code doit être respecté, et les 4 sous-écritures doivent TOUTES être tentées"
+    ["publicContact", "whatsapp", "restaurantSettings", "trackingText"],
+    "l'ordre fixe du code doit être respecté, et toutes les sous-écritures DIRTY doivent être tentées (whatsappEnabled n'est pas dirty ici, donc absente de l'ordre)"
   );
   assert.ok(hasText(container, t("stContactSaveError")), "le rapport doit rester honnête : le message de contact doit être affiché");
   assert.ok(!hasText(container, t("stSaved")), "jamais un succès global alors qu'une sous-écriture a échoué");
@@ -1359,6 +1433,342 @@ test("K5 — first contact sub-write (public contact) fails => later contact sub
   assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "déjà propre -- jamais réécrite par le retry");
   assert.equal((globalThis as any).__mutationCallLog.restaurantSettings.length, 1, "déjà propre -- jamais réécrite par le retry");
   assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 1, "déjà propre -- jamais réécrite par le retry");
+
+  root.unmount();
+  container.remove();
+});
+
+// --------------------------------------------------------------------
+// W1-W5 -- Blocker 2A (SETTINGS SAVE RELIABILITY v1.3, 3e contre-audit
+// indépendant) : le numéro WhatsApp et son activation sont désormais
+// DEUX sous-écritures INDÉPENDAMMENT comptabilisées (updateRestaurantWhatsapp
+// et updateRestaurantWhatsappEnabled -- deux RPC distinctes, jamais le
+// seul sous-groupe combiné de v1.2), chacune avec son propre
+// dirty-flag (whatsappNumberDirty / whatsappEnabledDirty), sa propre
+// tentative, son propre avancement de snapshot. La dépendance SQL
+// préexistante (CUSTOMER CONTACT v1 : activer exige un numéro valide
+// déjà persisté) est préservée explicitement par
+// whatsappEnabledBlockedByNumberDependency.
+// --------------------------------------------------------------------
+
+test("W1 — WhatsApp number succeeds, enabled fails => partial-save indication, number snapshot advances, enabled remains dirty, retry calls enabled ONLY", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A", whatsapp_enabled: false });
+  (globalThis as any).__mutationFailure.whatsappEnabled["resto-a"] = new Error("transport failure");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  whatsappEnabledCheckbox(container).click();
+  await flush();
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stContactSaveError")), "le message spécifique au contact doit être affiché");
+  assert.ok(!hasText(container, t("stSaved")), "jamais l'indicateur de succès global quand une sous-écriture a échoué");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "le numéro doit avoir réussi (tenté une fois)");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "l'activation doit avoir été tentée et avoir échoué");
+
+  // Retry : la défaillance de l'activation est levée, aucune autre édition.
+  delete (globalThis as any).__mutationFailure.whatsappEnabled["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "le numéro, déjà persisté (snapshot avancé au premier essai), ne doit JAMAIS être réécrit par le retry");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 2, "l'activation, restée dirty, doit avoir été retentée seule");
+
+  root.unmount();
+  container.remove();
+});
+
+test("W2 — WhatsApp number fails before enabling => no false success, activation not falsely attempted (dependency), retry re-attempts both truthfully", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A", whatsapp_enabled: false });
+  (globalThis as any).__mutationFailure.whatsapp["resto-a"] = new Error("transport failure");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  whatsappEnabledCheckbox(container).click();
+  await flush();
+  setFieldValue(whatsappNumberField(container), "+33622222222");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stContactSaveError")));
+
+  assert.ok(!hasText(container, t("stSaved")), "jamais un succès alors que le numéro, prérequis de l'activation, a échoué");
+  assert.ok(!hasText(container, t("stPartialSaveError")), "rien n'a réellement été persisté dans ce scénario -- échec direct, jamais un faux état mixte");
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "le numéro doit avoir été tenté et avoir échoué");
+  assert.equal(
+    (globalThis as any).__mutationCallLog.whatsappEnabled.length,
+    0,
+    "l'activation dépend du numéro -- elle ne doit JAMAIS être tentée (donc jamais une fausse réussite) quand le numéro vient d'échouer DANS CE MÊME submit()"
+  );
+
+  // Retry : la défaillance du numéro est levée -- les DEUX sous-écritures,
+  // restées dirty, doivent être retentées, cette fois avec succès.
+  delete (globalThis as any).__mutationFailure.whatsapp["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 2, "le numéro, resté dirty, doit avoir été retenté");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "l'activation, plus bloquée (le numéro vient de réussir), doit maintenant être tentée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("W3 — WhatsApp enabled-only change (number untouched) => zero number RPC", async () => {
+  setupSingleRestaurant(); // whatsapp_enabled: true par défaut (settingsRow())
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  whatsappEnabledCheckbox(container).click(); // désactive -- numéro jamais touché
+  await flush();
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 0, "le numéro est inchangé -- aucune dépendance n'exige de le réécrire");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 1, "seule l'activation, réellement modifiée, doit être tentée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("W4 — WhatsApp number-only edit while already enabled => number RPC only, enabled not redundantly rewritten", async () => {
+  setupSingleRestaurant(); // whatsapp_enabled: true par défaut
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(whatsappNumberField(container), "+33644444444");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__mutationCallLog.whatsapp.length, 1, "le numéro, réellement modifié, doit être tenté");
+  assert.equal((globalThis as any).__mutationCallLog.whatsappEnabled.length, 0, "l'activation est inchangée -- jamais réécrite seulement parce que le numéro a changé");
+
+  root.unmount();
+  container.remove();
+});
+
+test("W5 — WhatsApp number X -> Y edit while the number save is in flight => newer UI edit survives => first persisted X becomes the snapshot => the second Save sends Y", async () => {
+  setupSingleRestaurant(); // whatsapp_enabled: true par défaut -- champ numéro visible
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const X = "+33651111111";
+  const Y = "+33652222222";
+  setFieldValue(whatsappNumberField(container), X);
+
+  const deferredWhatsapp = makeDeferred<void>();
+  (globalThis as any).__mutationDeferred.whatsapp.set("resto-a", deferredWhatsapp);
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.whatsapp.length === 1);
+
+  // L'utilisateur retape le numéro PENDANT que X est encore en vol.
+  setFieldValue(whatsappNumberField(container), Y);
+
+  deferredWhatsapp.resolve(undefined);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal(whatsappNumberField(container).value, Y, "l'UI doit rester Y, jamais revenir à X -- même garde que C3/mapsUrl");
+  assert.equal((globalThis as any).__whatsappNumberCallLog.length, 1);
+  assert.equal((globalThis as any).__whatsappNumberCallLog[0].whatsappNumber, X, "le premier appel doit avoir soumis X (la valeur au moment du clic)");
+
+  // Le snapshot représente X (persisté) ; l'UI montre Y (non persisté)
+  // -- donc Y doit rester dirty, et le DEUXIÈME Save doit transmettre Y.
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.whatsapp.length === 2);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__whatsappNumberCallLog.length, 2);
+  assert.equal((globalThis as any).__whatsappNumberCallLog[1].whatsappNumber, Y, "le second Save doit envoyer Y, la saisie la plus récente, jamais X à nouveau");
+
+  root.unmount();
+  container.remove();
+});
+
+// --------------------------------------------------------------------
+// T1-T6 -- Blocker 2B (SETTINGS SAVE RELIABILITY v1.3) : chaque statut
+// canonique de texte de suivi réellement modifié ("dirty") est
+// désormais une sous-écriture INDÉPENDAMMENT comptabilisée (une RPC
+// unitaire setMerchantTrackingStatusText par statut dirty, jamais les
+// sept d'un bloc via setAllMerchantTrackingStatusText). Politique
+// CONTINUE : l'échec d'un statut ne doit jamais interrompre la
+// tentative des statuts suivants.
+// --------------------------------------------------------------------
+
+test("T1 — only one tracking status changed => exactly one RPC", async () => {
+  setupSingleRestaurant();
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__trackingTextCallLog.length, 1, "un seul statut modifié -- une seule RPC");
+  assert.equal((globalThis as any).__trackingTextCallLog[0].status, "accepted");
+
+  root.unmount();
+  container.remove();
+});
+
+test("T2 — tracking status A succeeds, status B fails => explicit partial-save outcome, A's snapshot advances, B remains dirty, retry calls B ONLY", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__trackingStatusFailure["resto-a"] = { ready: new Error("transport failure") };
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+  setFieldValue(trackingTextField(container, "ready"), "Votre commande est prête !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stContactSaveError")));
+  assert.ok(!hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__trackingTextCallLog.length, 2);
+  assert.deepEqual((globalThis as any).__trackingTextCallLog.map((c: any) => c.status), ["accepted", "ready"]);
+
+  delete (globalThis as any).__trackingStatusFailure["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal(
+    (globalThis as any).__trackingTextCallLog.filter((c: any) => c.status === "accepted").length,
+    1,
+    "« accepted », déjà propre (snapshot avancé au premier essai), ne doit JAMAIS être réécrit par le retry"
+  );
+  assert.equal(
+    (globalThis as any).__trackingTextCallLog.filter((c: any) => c.status === "ready").length,
+    2,
+    "seul « ready », resté dirty, doit avoir été retenté"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("T3 — the FIRST changed tracking status fails => the later changed statuses are STILL attempted (continue policy), outcome stays truthful", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__trackingStatusFailure["resto-a"] = { accepted: new Error("transport failure") };
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+  setFieldValue(trackingTextField(container, "ready"), "Votre commande est prête !");
+  setFieldValue(trackingTextField(container, "completed"), "Votre commande est terminée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stContactSaveError")));
+  assert.ok(!hasText(container, t("stSaved")), "jamais un succès global alors que « accepted » a échoué");
+  // Les DEUX statuts SUIVANTS doivent avoir été tentés quand même --
+  // jamais interrompus par l'échec du premier (politique CONTINUE,
+  // mandat v1.3).
+  assert.deepEqual(
+    (globalThis as any).__trackingTextCallLog.map((c: any) => c.status),
+    ["accepted", "ready", "completed"],
+    "tous les statuts dirty doivent être tentés dans l'ordre canonique, malgré l'échec du premier"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("T4 — three changed tracking statuses, the MIDDLE one fails => the successful statuses go clean, the failed one remains dirty, retry re-attempts only the failed status", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__trackingStatusFailure["resto-a"] = { ready: new Error("transport failure") };
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+  setFieldValue(trackingTextField(container, "ready"), "Votre commande est prête !");
+  setFieldValue(trackingTextField(container, "completed"), "Votre commande est terminée !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.deepEqual(
+    (globalThis as any).__trackingTextCallLog.map((c: any) => c.status),
+    ["accepted", "ready", "completed"],
+    "les trois statuts doivent avoir été tentés malgré l'échec du statut central"
+  );
+
+  delete (globalThis as any).__trackingStatusFailure["resto-a"];
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal(
+    (globalThis as any).__trackingTextCallLog.filter((c: any) => c.status === "accepted").length,
+    1,
+    "« accepted », déjà propre, ne doit jamais être réécrit par le retry"
+  );
+  assert.equal(
+    (globalThis as any).__trackingTextCallLog.filter((c: any) => c.status === "completed").length,
+    1,
+    "« completed », déjà propre, ne doit jamais être réécrit par le retry"
+  );
+  assert.equal(
+    (globalThis as any).__trackingTextCallLog.filter((c: any) => c.status === "ready").length,
+    2,
+    "seul « ready », resté dirty, doit avoir été retenté"
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("T5 — all changed tracking statuses succeed => a second Save with no further edit causes ZERO tracking RPCs", async () => {
+  setupSingleRestaurant();
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(trackingTextField(container, "accepted"), "Votre commande est acceptée !");
+  setFieldValue(trackingTextField(container, "ready"), "Votre commande est prête !");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__trackingTextCallLog.length, 2);
+
+  submitForm(container);
+  await flush(50);
+
+  assert.equal((globalThis as any).__trackingTextCallLog.length, 2, "aucune RPC de texte de suivi supplémentaire sans nouvelle édition");
+  assert.ok(hasText(container, t("stSaved")));
+
+  root.unmount();
+  container.remove();
+});
+
+test("T6 — the seven-status tracking grid is left entirely untouched => zero tracking RPCs, even when an unrelated field is edited", async () => {
+  setupSingleRestaurant();
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(fieldByLabel(container, t("stAddress")) as HTMLInputElement, "12 avenue Inchangée");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.equal((globalThis as any).__trackingTextCallLog.length, 0, "la grille des 7 statuts n'a pas été touchée -- aucune RPC de texte de suivi, même quand une autre section est sauvegardée");
+  assert.equal((globalThis as any).__mutationCallLog.trackingText.length, 0);
 
   root.unmount();
   container.remove();
@@ -1395,4 +1805,7 @@ after(async () => {
   delete (globalThis as any).__mutationDeferred;
   delete (globalThis as any).__mutationFailure;
   delete (globalThis as any).__mapsUrlCallLog;
+  delete (globalThis as any).__trackingTextCallLog;
+  delete (globalThis as any).__trackingStatusFailure;
+  delete (globalThis as any).__whatsappNumberCallLog;
 });
