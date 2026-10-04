@@ -1,0 +1,147 @@
+{
+  "lot": "SETTINGS SAVE RELIABILITY v1.1",
+  "mandate": "TO: BOULEZ / CLAUDE -- independent re-audit of PR #128 (v1): REMEDIATION REQUIRED, DO NOT AUDIT YET -- Blocker 1 (partial save introduced by the v1 reorder) and Blocker 2 (stale full-suite baseline) both closed by this evidence packet",
+  "supersedes": "supabase/evidence/settings-save-reliability-v1/manifest.json (v1, candidate 7ff11769e31a442fdf295b369e4cf3beba5d3d26) -- v1's base/candidate comparison used a stale main (0826f5f3); this packet replaces it with a FRESH comparison against CURRENT main, per Blocker 2",
+  "base": {
+    "sha": "73ca103fdb2045693abebc7738994b4e33fa803f",
+    "description": "origin/main, CURRENT at remediation time (merge of PR #126, CGV W0 ZIP-safe refactor) -- the exact SHA the mandate required, replacing v1's stale 0826f5f3 base"
+  },
+  "candidate": {
+    "sha": "f379477c3debee64642089bd3877e0a60bc7cabb",
+    "tree": "79837c067abd12f934bc4977ad310bc68fa294f5",
+    "branch": "feature/settings-save-reliability-v1",
+    "pr": 128,
+    "prState": "open",
+    "prDraft": true,
+    "prMerged": false,
+    "parentCommit": "b1aa715 (SETTINGS SAVE RELIABILITY v1 -- record PR #128 in evidence manifest)",
+    "rebasedOnto": "73ca103fdb2045693abebc7738994b4e33fa803f"
+  },
+  "blockersClosed": {
+    "blocker1PartialSave": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-PARTIAL-SAVE-01",
+      "rejectedClaim": "v1 (PR #128 initial) claimed 'atomicity preserved, only call order changed' -- the re-audit correctly identified this as INCORRECT: moving updateReceiptSettings first meant it could persist, then a LATER unrelated section (e.g. colors) could fail, producing a global error message that never disclosed the legal/tax success.",
+      "fix": "submit() now derives per-section 'dirty' state from a snapshot/current-value comparison (generalSnapshotRef + legalSnapshotRef, populated/patched throughout load(), plus 8 pure *GroupDirty comparator functions matching the existing RPC/bundle granularity: legal, contact-bundle [owner/manager only], colors, mapsUrl, identity, bgColor, social, languages). ONLY dirty sections are mutation candidates. Each dirty section is attempted independently (no invented cross-RPC transaction). Outcome reporting is three-way and unambiguous: (a) all dirty sections succeed, or none were dirty -> stSaved; (b) zero of the attempted sections succeed -> their failure message(s) directly, nothing to hide; (c) MIXED (>=1 success, >=1 failure) -> new stPartialSaveError-prefixed message naming the failure(s) explicitly, success indicator never shown.",
+      "noDbWideTransactionInvented": true,
+      "noAuthorizationOrProvenanceGuardBypassed": true,
+      "contactBundleInternalAtomicityUnchanged": "the owner/manager-only bundle (public contact/WhatsApp/restaurant settings/tracking text) remains ONE dirty-tracked unit, same as before v1 -- only whether to REACH it is now dirty-gated"
+    },
+    "blocker2StaleBaseline": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-STALE-BASELINE-01",
+      "problem": "v1's evidence packet compared against base 0826f5f36d56876fe68cba3a091e6b279a095cb0, but main had advanced to 73ca103fdb2045693abebc7738994b4e33fa803f (merge of PR #126) by the time of the re-audit.",
+      "fix": "branch rebased onto 73ca103f; this packet's base/candidate full-suite comparison (see logs.baseline/logs.candidate below) uses that exact current-main SHA, with a fresh clean-checkout worktree, separate npm ci, exact failure-identity comparison (not counts alone)."
+    }
+  },
+  "dirtyStateMechanism": {
+    "approach": "snapshot-diff (derived), not per-keystroke dirty flags",
+    "snapshotCapture": "a NORMALIZED snapshot (same trim/null/normalizeMapsUrl/normalizeWhatsappNumber functions used to build each RPC payload) is captured in load() at: initial getRestaurantSettings success (generalSnapshotRef, 20 fields), legal/tax getReceiptSettings success (legalSnapshotRef, 12 fields), and patched in-place when the independently-async statusTexts and activeLanguageCodes loads resolve",
+    "snapshotReset": "generalSnapshotRef/legalSnapshotRef are reset to null synchronously on handleSelectRestaurant (restaurant switch) and resetLegalProfileState, so a dirty check can never compare against a stale restaurant's data",
+    "dirtyComputation": "at submit() time, a `current*` object is built from the live form state (same normalization functions) and compared field-by-field against the snapshot via one pure comparator per group",
+    "defensiveDefault": "a null snapshot (never actually reachable past the page's own loading gates) is treated as dirty, never as clean -- so a real edit can never be silently swallowed by a missing snapshot",
+    "groups": [
+      { "name": "legal", "rpc": "updateReceiptSettings", "fields": 12, "restriction": "none (owner/manager AND operator-only, V70-02)" },
+      { "name": "contact", "rpc": "updateRestaurantPublicContact + updateRestaurantWhatsapp + updateRestaurantWhatsappEnabled + updateRestaurantSettings + setAllMerchantTrackingStatusText", "fields": 8, "restriction": "owner/manager only -- forced non-dirty in operator-only mode", "internalAtomicity": "unchanged from before v1: one internal try/catch, first failure aborts the rest of this one bundle" },
+      { "name": "colors", "rpc": "updateRestaurantColors", "fields": 3, "restriction": "none" },
+      { "name": "mapsUrl", "rpc": "updateRestaurantMapsUrl", "fields": 1, "restriction": "none" },
+      { "name": "identity", "rpc": "updateRestaurantIdentity", "fields": 4, "restriction": "none" },
+      { "name": "bgColor", "rpc": "updateRestaurantBgColor", "fields": 1, "restriction": "none" },
+      { "name": "social", "rpc": "updateRestaurantSocialLinks", "fields": 3, "restriction": "none" },
+      { "name": "languages", "rpc": "updateRestaurantLanguages", "fields": 1, "restriction": "none" }
+    ],
+    "validationScope": "UNCHANGED, explicit out-of-mandate-scope decision -- every client-side validation check still runs unconditionally on every submit (not gated by dirty state); only the set of MUTATING RPCs actually called is now dirty-gated"
+  },
+  "filesChanged": [
+    "app/dashboard/settings/page.tsx",
+    "lib/i18n.ts",
+    "tests/settings-save-reliability-v1.dom.test.ts",
+    "tests/lot-merchant-legal-tax-profile-v1-dom.test.ts"
+  ],
+  "filesChangedOutsideOriginallyStatedScope": {
+    "tests/lot-merchant-legal-tax-profile-v1-dom.test.ts": "two PRE-EXISTING scenarios (C, D) asserted that an unedited form submitted right after a restaurant switch still writes updateReceiptSettings -- an assumption that depended on the exact 'always re-mutate everything' contract this lot intentionally replaces (see blocker1PartialSave and S10 below). Adapted MINIMALLY: each scenario now makes one real, deliberately-unasserted field edit (legal_name) before submitting, so the dirty-tracked legal RPC still fires -- every existing assertion (restaurant targeting, anti-staleness, safe defaults) is preserved byte-for-byte unchanged. One stale comment (claiming 'unconditional' RPCs) was corrected to describe the new dirty-gated reality. No invariant was weakened; this is the same category of adaptation the mandate explicitly permitted for v1's own S3."
+  },
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v51 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "install": "npm ci (clean install, identical lockfile, identical Node binary, separate checkouts for base and candidate -- base via `git worktree add --detach`)",
+    "command": "npm test (== node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts)"
+  },
+  "logs": {
+    "baseline": {
+      "checkout": "/tmp/scandz-work/settings-v11-base (git worktree --detach at 73ca103fdb2045693abebc7738994b4e33fa803f, verified via git rev-parse HEAD before the run)",
+      "tests": 4550,
+      "pass": 4540,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "baseline.tap.gz",
+      "failuresSortedFile": "baseline-failures-sorted.txt"
+    },
+    "candidate": {
+      "checkout": "/tmp/scandz-work/scandz (exact SHA f379477c3debee64642089bd3877e0a60bc7cabb verified via git rev-parse HEAD before the run)",
+      "tests": 4562,
+      "pass": 4552,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "candidate.tap.gz",
+      "failuresSortedFile": "candidate-failures-sorted.txt"
+    },
+    "failureIdentityDelta": {
+      "added": [],
+      "removed": [],
+      "note": "Count delta (4562-4550=12) fully explained by the 12 tests in the rewritten tests/settings-save-reliability-v1.dom.test.ts (S1, S2, S3, S4, S5x3, S6, S7, S8, S9, S10). The 10 failing test identities are byte-identical between base and candidate (diff of the sorted failure-identity files is empty) -- the SAME pre-existing, out-of-scope, process-level structural checks for OTHER lots, none touched by this lot, none newly broken, none newly fixed. A first full-suite run (before two fixes described below) showed 3 EXTRA failures that were NOT present in the base -- caught, diagnosed, and fixed before this final comparison (see selfCorrectionDuringRemediation)."
+    },
+    "selfCorrectionDuringRemediation": {
+      "description": "The first candidate full-suite run after the dirty-state rewrite showed 13 failures (3 more than base's 10): two PRE-EXISTING structural/behavioral tests broke because their assumptions depended on the exact 'always unconditionally re-mutate everything' behavior this lot intentionally changes.",
+      "found": [
+        "tests/cfte-v1-merchant-status-text-write.test.ts, test '3.' -- a literal source-string check for `setAllMerchantTrackingStatusText(restaurantId, statusTexts)`; broke because the rewrite had renamed the call-site argument to `currentGeneral.statusTexts` (the same value, different spelling). Fixed by calling the RPC with the original `statusTexts` variable (identical value, assigned into the snapshot from the same source) instead of renaming it.",
+        "tests/lot-merchant-legal-tax-profile-v1-dom.test.ts, 'MLTP DOM Scénario C' and 'Scénario D' -- both submitted an UNEDITED form right after a restaurant switch and asserted updateReceiptSettings was still called; this is now zero-mutation behavior by design (see S10). Fixed by making each scenario perform one real (and deliberately unasserted) field edit before submitting, preserving every existing assertion unchanged."
+      ],
+      "afterFix": "both files re-verified green (54/54 structural + tracking-text tests), then the FULL candidate suite was re-run from scratch, producing the 4562/4552/10 result recorded above with added=[]/removed=[]."
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-work/scandz (candidate f379477), tests/settings-save-reliability-v1.dom.test.ts alone",
+      "tests": 12,
+      "pass": 12,
+      "fail": 0,
+      "gzipFile": "targeted.tap.gz"
+    },
+    "structural": {
+      "checkout": "/tmp/scandz-work/scandz (candidate f379477), tests/lot-merchant-legal-tax-profile-v1.test.ts + tests/lot-merchant-legal-tax-profile-v1-dom.test.ts + tests/cfte-v1-merchant-status-text-write.test.ts together -- the three pre-existing files touched or at risk from this lot's behavioral change",
+      "tests": 54,
+      "pass": 54,
+      "fail": 0,
+      "gzipFile": "structural.tap.gz"
+    }
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit -p tsconfig.json",
+    "result": "0 errors"
+  },
+  "scopeDiscipline": {
+    "filesModifiedOutsideOriginallyStatedScope": ["tests/lot-merchant-legal-tax-profile-v1-dom.test.ts (see filesChangedOutsideOriginallyStatedScope above)"],
+    "sqlOrMigrationFilesTouched": [],
+    "forbiddenScopeFilesTouched": [],
+    "libServicesDashboardTsModified": false,
+    "noBroadRefactor": "dirty-state granularity matches the EXISTING RPC/bundle boundaries exactly -- no new RPC, no finer-grained tracking introduced inside the owner/manager contact bundle, no DB-wide transaction invented"
+  },
+  "invariantsConfirmed": {
+    "legalProfileReadyGuard": "unchanged -- still the absolute first instruction in submit()",
+    "legalProfileLoadedRestaurantIdGuard": "unchanged",
+    "staleTenantProtection": "unchanged (CONTEXT HARDENING v1.1 settingsLoadedRestaurantId gate untouched)",
+    "operatorOwnerManagerAuthorizationModel": "unchanged -- isOperatorOnlyMode / canEditFull / canEdit logic untouched; contactDirty is explicitly forced false in operator-only mode regardless of snapshot comparison",
+    "updateReceiptSettingsRpcContract": "unchanged -- same function signature, same payload shape, called from exactly one call site",
+    "existingLegalValidation": "unchanged -- email/tax-rate/tax-label/colors/maps/bgColor/social/length validation all still run UNCONDITIONALLY before setSaving(true), never gated by dirty state (explicit, documented, out-of-mandate-scope decision)",
+    "noRawServerErrorsLeaked": "unchanged from v1's fix -- still a dedicated translated key per section, including the new stPartialSaveError prefix",
+    "noCrossRestaurantWritePossible": "unchanged -- restaurantId is always the component's own current state",
+    "noDbWideTransactionInvented": true,
+    "noAuthorizationOrProvenanceGuardBypassed": true,
+    "legalOnlyEditCallsZeroUnrelatedSections": "CONFIRMED -- S1/S2/S8 in tests/settings-save-reliability-v1.dom.test.ts explicitly assert zero calls to every one of the other 7 groups + contact bundle when only legal/tax fields change",
+    "noSecondReceiptUpdatePath": true,
+    "prDraftOnly": true,
+    "prHeadShaMatchesPushedCommit": true
+  },
+  "finalStatusLine": "SETTINGS SAVE RELIABILITY v1 — REMEDIATION COMPLETE — READY FOR INDEPENDENT AUDIT.",
+  "deploymentScope": "NO MERGE / NO PRODUCTION / NO PREPROD."
+}

@@ -342,6 +342,30 @@ function legalNameInput(container: HTMLElement): HTMLInputElement {
   return inputs[1] as HTMLInputElement;
 }
 
+/** Même technique que tests/ux-audit-lot1-login-accessibility.dom.test.ts
+ *  et tests/settings-save-reliability-v1.dom.test.ts -- contourne le
+ *  setter patché de React via le setter NATIF du prototype, puis un
+ *  évènement "input" natif pour que le onChange contrôlé le voie.
+ *
+ *  SETTINGS SAVE RELIABILITY v1.1 (ajout) -- nécessaire pour les
+ *  Scénarios C/D : le nouveau mécanisme de suivi "dirty" (comparaison
+ *  snapshot/état courant, voir app/dashboard/settings/page.tsx) ne
+ *  déclenche plus AUCUNE RPC mutante sur un formulaire soumis SANS
+ *  AUCUNE modification (comportement désormais INTENTIONNEL -- voir
+ *  S10 dans tests/settings-save-reliability-v1.dom.test.ts -- pas une
+ *  régression). Les Scénarios C/D doivent donc modifier RÉELLEMENT un
+ *  champ avant de soumettre pour continuer à exercer la RPC
+ *  légale/fiscale ; `legal_name` est volontairement choisi (jamais
+ *  vérifié par les assertions de ces deux scénarios), pour ne changer
+ *  AUCUNE assertion existante sur business_name/tax_label/
+ *  prices_include_tax/show_tax_summary. */
+function setFieldValue(el: HTMLInputElement, value: string) {
+  const proto = (window as any).HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new window.Event("input", { bubbles: true }));
+}
+
 function selectRestaurantOption(container: HTMLElement, value: string) {
   const select = container.querySelector("select") as HTMLSelectElement | null;
   assert.ok(select, "le sélecteur d'établissement doit exister (mappings.length > 1)");
@@ -541,6 +565,12 @@ test("MLTP DOM Scénario C: A démarre, bascule vers B, B résout EN PREMIER, A 
   assert.ok(!container.textContent!.includes("STALE A DATA"), "la réponse tardive de A ne doit jamais atteindre le DOM");
   assert.equal(getSaveButton(container).disabled, false, "B reste prêt malgré la réponse tardive de A");
 
+  // SETTINGS SAVE RELIABILITY v1.1 -- une édition RÉELLE est
+  // désormais nécessaire pour que la RPC légale/fiscale soit tentée
+  // (suivi "dirty" -- voir setFieldValue ci-dessus) ; `legal_name`
+  // n'est vérifié par AUCUNE assertion ci-dessous.
+  setFieldValue(legalNameInput(container), "B Legal SARL (mise à jour)");
+
   submitForm(container);
   await waitFor(() => mutatingCalls.some((c) => c.name === "update_receipt_settings"), "update_receipt_settings appelée pour B");
 
@@ -548,8 +578,12 @@ test("MLTP DOM Scénario C: A démarre, bascule vers B, B résout EN PREMIER, A 
   assert.equal(legalCall.args.p_restaurant_id, "r-test-2", "l'écriture Legal/Tax doit cibler B, jamais A");
   assert.equal(legalCall.args.p_business_name, "Restaurant B Legal");
   assert.ok(!mutatingCalls.some((c) => c.args?.p_restaurant_id === "r-test-1"), "AUCUNE RPC mutante ne doit cibler A -- la réponse tardive de A n'a rien déclenché");
-  // Les RPC mutantes inconditionnelles (couleurs/maps/identité/social/
-  // langues, V70-02) doivent elles aussi cibler B exclusivement.
+  // SETTINGS SAVE RELIABILITY v1.1 -- couleurs/maps/identité/social/
+  // langues ne sont désormais tentées QUE si elles sont dirty (aucune
+  // ne l'est ici -- seul legal_name a été modifié), donc `mutatingCalls`
+  // ne contient plus que la RPC légale/fiscale ; cette boucle reste la
+  // preuve générale et future-proof que TOUTE RPC mutante, quelle
+  // qu'elle soit, cible B exclusivement.
   for (const call of mutatingCalls) {
     assert.equal(call.args.p_restaurant_id, "r-test-2", `${call.name} doit cibler B, jamais A`);
   }
@@ -592,6 +626,15 @@ test("MLTP DOM Scénario D: A chargé (ligne existante), bascule vers B, lecture
   await waitFor(() => getSaveButton(container).disabled === false, "B -- \"aucune ligne\" confirmée -- bouton doit se réactiver (état prêt valide)");
   assert.equal(legalBusinessNameInput(container).value, "", "B sans aucune ligne -- defaults sûrs, jamais la donnée de A");
   assert.ok(!container.textContent!.includes("Restaurant A Legal"), "aucune trace de A ne doit rester visible");
+
+  // SETTINGS SAVE RELIABILITY v1.1 -- une édition RÉELLE est
+  // désormais nécessaire pour que la RPC légale/fiscale soit tentée
+  // (suivi "dirty" -- voir setFieldValue ci-dessus) ; `legal_name`
+  // n'est vérifié par AUCUNE assertion ci-dessous (business_name,
+  // tax_label, prices_include_tax, show_tax_summary restent, eux,
+  // les defaults sûrs documentés -- la preuve recherchée par ce
+  // scénario).
+  setFieldValue(legalNameInput(container), "Nouveau nom légal B");
 
   submitForm(container);
   await waitFor(() => mutatingCalls.some((c) => c.name === "update_receipt_settings"), "update_receipt_settings appelée -- création autorisée pour B");

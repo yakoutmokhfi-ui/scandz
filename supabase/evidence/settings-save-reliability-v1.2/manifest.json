@@ -1,0 +1,129 @@
+{
+  "lot": "SETTINGS SAVE RELIABILITY v1.2",
+  "mandate": "TO: BOULEZ / CLAUDE -- SECOND independent re-audit of PR #128: STATUS: INDEPENDENT AUDIT FAIL -- NARROW REMEDIATION REQUIRED. Two release blockers: (1) concurrent saves / restaurant switches can corrupt dirty-state provenance and can erase a newer unsaved user edit; (2) the contact bundle contains multiple independent RPC writes but is reported as a single group failure, so partial persistence inside that bundle can be hidden. 'The rest of the v1.1 dirty-state design is accepted as a basis.' 'Do NOT rewrite the whole settings page.'",
+  "base": {
+    "sha": "73ca103fdb2045693abebc7738994b4e33fa803f",
+    "description": "origin/main, unchanged since v1.1's own evidence packet -- re-verified current at remediation time via git fetch origin main"
+  },
+  "candidate": {
+    "sha": "675089ee20c12e3468fb36295ca93394de36e120",
+    "tree": "90cbbe5f852b3e608cb6531d0a8d09a7f2989d17",
+    "branch": "feature/settings-save-reliability-v1",
+    "pr": 128,
+    "prState": "open",
+    "prDraft": true,
+    "prMerged": false,
+    "parentCommit": "eb2df0a1b10df5524402364d7074a86d9ea8767d (SETTINGS SAVE RELIABILITY v1.1 -- evidence packet, fresh base/candidate vs current main)",
+    "rebasedOnto": "73ca103fdb2045693abebc7738994b4e33fa803f (no rebase needed -- base had not moved since v1.1)"
+  },
+  "blockersClosed": {
+    "blocker1ConcurrencySnapshotProvenance": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-STALE-SAVE-CONCURRENCY-01",
+      "problem": "After awaiting a mutation, submit() wrote directly into legalSnapshotRef/generalSnapshotRef, React state (setMapsUrl/setWhatsapp), success counters, and the final outcome presentation WITHOUT proving the restaurant context was still the same, that the submitted value was still the latest UI value, or that the user had not edited that field again while the RPC was in flight. Two concrete examples named by the audit: (A) restaurant switch A->B while save(A) is in flight -- a late successful A mutation could overwrite B's snapshot; (B) Maps URL -- user submits X, types Y while in flight, late success wrote snapshot=X AND called setMapsUrl(X), erasing Y from the UI.",
+      "fix": "submit() now captures a save-attempt identity token via lib/restaurant-context-guard.ts's EXISTING useRestaurantContextGuard() hook (guard.beginRequest(restaurantId)) -- REUSED, not reinvented, per the mandate's own 'keep this narrow' instruction and the same mechanism load() already uses. Immediately after EVERY await in submit() (both the success path and the catch block), `if (!token.isCurrent()) return;` aborts the ENTIRE remaining continuation for a stale save BEFORE touching any snapshot ref, any React set* call, any success counter, or the final three-way outcome presentation (setSaved/setError) -- mirroring the exact idiom already audited and in use inside load(). A restaurant switch (handleSelectRestaurant -> guard.enterContext) invalidates any in-flight token from the old restaurant in the SAME synchronous event handler, so there is no intermediate render where a stale save could still look current.",
+      "newerEditDuringSaveFix": "Where submit() previously wrote a submitted value back into React state unconditionally after a successful await (setMapsUrl(currentGeneral.mapsUrl), setWhatsapp(currentGeneral.whatsapp)), the write is now a conditional updater-function form: `setX((live) => (live === rawValueCapturedAtSubmitStart ? submittedValue : live))`. It reads the TRUE current state at update time (never a stale closure) and only overwrites if the field still shows EXACTLY the value that was submitted (i.e. no new edit happened while the RPC was in flight); otherwise the newer edit is left untouched. The snapshot still advances to the submitted value, so the newer (untouched) UI value correctly remains dirty and is sent on the next Save. The legal/tax section never had this specific hazard -- it never writes a submitted value back into any setLegalXxx state, only advances legalSnapshotRef -- so only the staleness guard (not a back-write fix) was needed there.",
+      "latentDeadlockFoundAndFixed": "Adding the `return`-on-stale guard introduced a NEW defect: an aborted stale continuation never reaches the `setSaving(false)` at the very end of submit(), so `saving` would stay stuck at `true` FOREVER after a restaurant switch mid-save, permanently disabling the Save button for every subsequently selected restaurant even though no save is actually in flight for it. Fixed minimally by adding `setSaving(false)` to handleSelectRestaurant, in the same synchronous reset block as resetLegalProfileState/guard.enterContext/generalSnapshotRef=null -- the new restaurant context always starts with Save available, never inheriting a stuck `saving=true` from a context that is no longer displayed. Caught by writing test C1 before this fix existed and observing the Save button for B never re-enabling; confirmed fixed once this one line was added.",
+      "defensiveFinalGuard": "An additional `if (!token.isCurrent()) return;` was added immediately before the final three-way outcome block (setSaved/setError), even though it is technically already unreachable once every earlier per-await guard has returned -- the mandate explicitly lists 'presenting save outcome tied to that context' as something that must be guarded, so this is made explicit rather than relying implicitly on code order."
+    },
+    "blocker2ContactBundleNotAtomic": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-CONTACT-BUNDLE-ATOMICITY-01",
+      "problem": "The 'contact group' wrapped 5 separate RPC calls (updateRestaurantPublicContact, updateRestaurantWhatsapp, updateRestaurantWhatsappEnabled, updateRestaurantSettings, setAllMerchantTrackingStatusText) in ONE try/catch. A try/catch does not make those writes atomic: if public contact succeeded and WhatsApp then failed, the group recorded zero success and the UI showed only stContactSaveError, even though public contact had already been persisted -- violating v1.1's own promise of unambiguous partial-save reporting, but INSIDE one UI group.",
+      "fix": "Kept the existing 5 RPCs exactly as they are (no new DB-wide transaction, no SQL). Split the bundle internally into FOUR independent sub-writes, matching the mandate's own bullet-list grouping exactly: publicContact (phone+email), whatsapp (number+enabled-state as ONE sub-group, per the mandate's single-bullet listing of 'WhatsApp number / enabled state'), restaurantSettings (lang+address+hours), trackingText (statusTexts). Each sub-write has its own pure *SubDirty comparator (publicContactSubDirty, whatsappSubDirty, restaurantSettingsSubDirty, trackingTextSubDirty), its own attemptedCount++/try/catch, and its own partial generalSnapshotRef advance ONLY for the fields it itself persisted. On any sub-write's failure, the SAME shared stContactSaveError visual message is used (explicitly permitted by the mandate: 'you may keep one visual error message for the contact section'), but the internal dirty state stays field/subgroup-accurate: a failed sub-write's fields remain dirty and are retried in isolation; a succeeded sub-write's fields become clean and are never rewritten by a retry. The pre-existing three-way outcome mechanism (success / direct failure / stPartialSaveError-prefixed mixed) needed ZERO new code to correctly report contact-bundle partial failures -- succeededCount/failedKeys are simply populated at finer (per-sub-write) granularity automatically.",
+      "k5ContinueDecision": "The four sub-writes are attempted in their original, unchanged order (publicContact -> whatsapp -> restaurantSettings -> trackingText) and are NEVER aborted by an earlier sub-write's failure -- all four are still attempted independently every submit, to maximize what actually gets persisted and keep reporting granular. Explicitly chosen and tested (K5) over a 'stop at first failure' design.",
+      "noDbWideTransactionInvented": true,
+      "noNewRpcAddedRemovedOrMerged": true,
+      "sharedVisualErrorMessageRetained": "stContactSaveError, pushed by any of the four sub-writes' catch blocks -- never falsely called 'atomic'"
+    }
+  },
+  "filesChanged": [
+    "app/dashboard/settings/page.tsx",
+    "tests/settings-save-reliability-v1.dom.test.ts"
+  ],
+  "filesChangedOutsideOriginallyStatedScope": {},
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v64 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "install": "npm ci (clean install, identical lockfile, identical Node binary, separate checkouts for base and candidate via `git worktree add --detach`)",
+    "command": "npm test (== node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts)"
+  },
+  "logs": {
+    "baseline": {
+      "checkout": "/tmp/scandz-v12-base (git worktree --detach at 73ca103fdb2045693abebc7738994b4e33fa803f, verified via git rev-parse HEAD before the run)",
+      "tests": 4550,
+      "pass": 4540,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "baseline.tap.gz",
+      "failuresSortedFile": "baseline-failures-sorted.txt"
+    },
+    "candidate": {
+      "checkout": "/tmp/scandz-v12-candidate (git worktree --detach, exact SHA 675089ee20c12e3468fb36295ca93394de36e120 verified via git rev-parse HEAD before the run)",
+      "tests": 4573,
+      "pass": 4563,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "candidate.tap.gz",
+      "failuresSortedFile": "candidate-failures-sorted.txt"
+    },
+    "failureIdentityDelta": {
+      "added": [],
+      "removed": [],
+      "note": "Count delta (4573-4550=23) fully explained by the 11 NEW tests (C1-C6, K1-K5) added to tests/settings-save-reliability-v1.dom.test.ts, on top of v1.1's existing 12 (S1-S10). The 10 failing test identities are byte-for-byte identical between base and candidate (diff of the sorted failure-identity files is empty) -- the SAME pre-existing, out-of-scope, process-level structural checks for OTHER lots, none touched by this lot, none newly broken, none newly fixed."
+    },
+    "nonVacuousnessCheck": {
+      "description": "Before finalizing, the 11 new tests were ALSO run against the pre-remediation code (git stash of app/dashboard/settings/page.tsx only, keeping the new tests) to confirm they are not vacuously true.",
+      "result": "7 of the 11 new tests correctly FAIL without this remediation: C1, C2, C3 (Blocker 1 concurrency/newer-edit scenarios) and K1, K2, K3, K5 (Blocker 2 contact sub-write scenarios). The other 4 (C4, C5, C6, K4) pass on the pre-remediation code too -- expected, since they are regression guards for behavior v1.1's snapshot-diff mechanism already provided correctly (legal has no back-write hazard; same-restaurant double-save and all-succeed cases were already correctly handled by the single-snapshot/single-try-catch v1.1 design). After restoring the fix, all 23 pass."
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-v12-candidate (candidate 675089e), tests/settings-save-reliability-v1.dom.test.ts alone",
+      "tests": 23,
+      "pass": 23,
+      "fail": 0,
+      "gzipFile": "targeted.tap.gz",
+      "breakdown": "12 from v1.1 (S1, S2, S3, S4, S5x3, S6, S7, S8, S9, S10) + 11 new from v1.2 (C1, C2, C3, C4, C5, C6, K1, K2, K3, K4, K5)"
+    },
+    "structural": {
+      "checkout": "/tmp/scandz-v12-candidate (candidate 675089e), tests/lot-merchant-legal-tax-profile-v1.test.ts + tests/lot-merchant-legal-tax-profile-v1-dom.test.ts + tests/cfte-v1-merchant-status-text-write.test.ts + tests/v71-hardening.test.ts + tests/v72-hardening.test.ts together -- the files holding literal-source-string / structural checks on submit()'s exact shape, at risk from the staleness-guard and contact-bundle-split edits",
+      "tests": 119,
+      "pass": 119,
+      "fail": 0,
+      "gzipFile": "structural.tap.gz"
+    }
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit --incremental false -p tsconfig.json",
+    "result": "0 errors",
+    "checkout": "/tmp/scandz-v12-candidate (candidate 675089e)"
+  },
+  "scopeDiscipline": {
+    "filesModifiedOutsideOriginallyStatedScope": [],
+    "sqlOrMigrationFilesTouched": [],
+    "forbiddenScopeFilesTouched": [],
+    "libServicesDashboardTsModified": false,
+    "libRestaurantContextGuardTsModified": false,
+    "noBroadRefactor": "the whole settings page was NOT rewritten, per the mandate's explicit instruction -- changes are confined to: (1) inserting `token.isCurrent()` checks after each existing await/catch in submit(), (2) splitting one existing contact try/catch into four, matching the mandate's own grouping exactly, (3) two conditional-updater back-write fixes (mapsUrl, whatsapp), (4) one line (`setSaving(false)`) in handleSelectRestaurant to close the deadlock the staleness guard introduced. No new RPC, no new DB transaction, no new concurrency primitive -- the EXISTING lib/restaurant-context-guard.ts hook is reused verbatim."
+  },
+  "invariantsConfirmed": {
+    "legalProfileReadyGuard": "unchanged -- still the absolute first instruction in submit()",
+    "legalProfileLoadedRestaurantIdGuard": "unchanged",
+    "settingsLoadedRestaurantIdProvenance": "unchanged",
+    "operatorOnlyAuthorizationRules": "unchanged -- isOperatorOnlyMode / canEditFull / canEdit logic untouched; all four contact sub-dirty flags remain forced false in operator-only mode",
+    "noRawServerErrorsLeaked": "unchanged -- zero raw SQL/PostgREST messages reach the merchant (K-series tests explicitly assert the SQLSTATE/constraint text used to simulate failures never appears in the rendered output)",
+    "legalOnlyEditCallsZeroUnrelatedSections": "unchanged, re-confirmed by S1/S2/S8 (still green) and by C1/C4 (new)",
+    "colorsOnlyEditNeverWritesReceipt": "unchanged, re-confirmed by S3 (still green)",
+    "unchangedFormIsZeroWrites": "unchanged, re-confirmed by S10 (still green) and C5/K4 (new)",
+    "noSqlOrMigrationFileTouched": true,
+    "noSecondReceiptUpdatePath": true,
+    "staleSaveCannotMutateAnotherRestaurantContext": "CONFIRMED -- C1 (legal) and C2 (colors) each explicitly assert that a late completion for restaurant A, resolved AFTER switching to restaurant B, triggers neither a new RPC call nor the success banner while B is displayed, and that B's own correctly-dirty/correctly-clean state is unaffected",
+    "newerUnsavedInputCannotBeOverwrittenByLateSave": "CONFIRMED -- C3 (mapsUrl) and C4 (legal) each explicitly assert the UI still shows the newer value (Y) after the originally-submitted value (X) resolves, and that the SECOND Save sends Y, not X again",
+    "partialContactPersistenceExplicitlyRepresented": "CONFIRMED -- K1/K2/K3/K5 each explicitly assert the stPartialSaveError-prefixed message is shown (never a bare global failure, never the success banner) when exactly one contact sub-write fails among several dirty ones, and that a retry touches ONLY the still-dirty sub-write(s)",
+    "prDraftOnly": true,
+    "prHeadShaMatchesPushedCommit": true,
+    "prMerged": false
+  },
+  "finalStatusLine": "SETTINGS SAVE RELIABILITY v1.2 REMEDIATION COMPLETE — READY FOR INDEPENDENT RE-AUDIT.",
+  "deploymentScope": "NO MERGE / NO PRODUCTION / NO PREPROD."
+}

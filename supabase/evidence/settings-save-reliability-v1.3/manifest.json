@@ -1,0 +1,132 @@
+{
+  "lot": "SETTINGS SAVE RELIABILITY v1.3",
+  "mandate": "TO: BOULEZ / CLAUDE -- THIRD independent re-audit of PR #128: STATUS: SECOND INDEPENDENT RE-AUDIT FAIL, NARROW REMEDIATION REQUIRED. Blocker 1 (concurrency/stale context) CLOSED for the audited named cases -- 'Do NOT redesign that part.' Blocker 2 remains OPEN at a FINER mutation granularity: (2A) the 'whatsapp' sub-write is actually two RPCs (updateRestaurantWhatsapp, updateRestaurantWhatsappEnabled) accounted as one; (2B) the 'trackingText' sub-write (setAllMerchantTrackingStatusText) is actually seven sequential RPCs, one per canonical status, accounted as one.",
+  "base": {
+    "sha": "73ca103fdb2045693abebc7738994b4e33fa803f",
+    "description": "origin/main, unchanged since v1.1/v1.2's own evidence packets -- re-verified current at remediation time"
+  },
+  "candidate": {
+    "sha": "41524d7de8d79da56b28f9a658006b66ee31de08",
+    "tree": "3d6e551f1642a8370d7b8a02cf466e68a2a8b7af",
+    "branch": "feature/settings-save-reliability-v1",
+    "pr": 128,
+    "prState": "open",
+    "prDraft": true,
+    "prMerged": false,
+    "parentCommit": "a688941c3f48dadcd46ede725f1614eabe0042ca (SETTINGS SAVE RELIABILITY v1.2 -- evidence packet, fresh base/candidate vs current main)",
+    "rebasedOnto": "73ca103fdb2045693abebc7738994b4e33fa803f (no rebase needed -- base had not moved since v1.1/v1.2)"
+  },
+  "blockersClosed": {
+    "blocker2aWhatsappNumberEnabledSplit": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-WHATSAPP-SUBWRITE-01",
+      "problem": "v1.2 accounted the WhatsApp number (updateRestaurantWhatsapp) and enabled-state (updateRestaurantWhatsappEnabled) RPCs as ONE sub-write with one try/catch, even though they are two independent calls. Counterexample: number succeeds, enabled fails -> the sub-write is recorded as a single failure, the number's real persistence never advances any snapshot, the UI can show failure-only even though the number WAS persisted, and a retry needlessly resubmits the already-persisted number.",
+      "fix": "whatsappSubDirty/whatsappDirty replaced by whatsappNumberSubDirty/whatsappNumberDirty and whatsappEnabledSubDirty/whatsappEnabledDirty -- two independent dirty flags, two independent attemptedCount++/try/catch sites, two independent partial generalSnapshotRef advances (whatsapp field only on number success; whatsappEnabled field only on enabled success). Same two pre-existing RPCs, no RPC added/removed/merged.",
+      "dependencyPreserved": "CUSTOMER CONTACT v1's existing SQL contract (activating WhatsApp requires an already-valid persisted number) is kept, not dropped: the number sub-write is still gated by `whatsappNumberDirty && currentGeneral.whatsappEnabled` (never write the number while currently disabled); a new `whatsappEnabledBlockedByNumberDependency = currentGeneral.whatsappEnabled && whatsappNumberDirty && whatsappNumberFailedThisSubmit` blocks ONLY the enabled attempt, ONLY when activating, ONLY when the number was dirty and just failed in THIS SAME submit() -- so activation is never falsely reported as attempted/succeeded on top of a number that just failed, and it remains dirty for the very next Save once the number is actually persisted. Disabling never depends on the number (unchanged contract); an already-clean number never blocks activation.",
+      "concurrencyProofAdded": "W5 gives WhatsApp number X->Y-while-in-flight its own direct DOM/call-log proof (mirroring C3's mapsUrl proof) -- closes the re-audit's note that WhatsApp concurrency previously had only code-inspection evidence."
+    },
+    "blocker2bTrackingTextPerStatusSplit": {
+      "id": "SETTINGS-SAVE-RELIABILITY-V1-TRACKING-TEXT-SUBWRITE-01",
+      "problem": "setAllMerchantTrackingStatusText (lib/services/tracking-status-text.ts) loops CANONICAL_ORDER_STATUSES and awaits one RPC per status SEQUENTIALLY, aborting the whole loop (and the whole promise) on the first rejection -- so it was never one atomic write, even though v1/v1.1/v1.2 all used it as the save flow's single 'trackingText' sub-write. Counterexample: status #1 succeeds, status #2 fails -> #1 is persisted but the whole sub-write is recorded as failed, #1's snapshot never advances, a retry needlessly resubmits #1, and failure-only UI can hide the real partial persistence.",
+      "fix": "A new trackingTextDirtyStatuses = CANONICAL_ORDER_STATUSES.filter(status => !generalSnap || trackingStatusDirty(generalSnap.statusTexts, currentGeneral.statusTexts, status)) is computed once per submit(), exactly like every other *Dirty flag. submit() then loops ONLY over that list, calling the pre-existing, UNMODIFIED unitary setMerchantTrackingStatusText(restaurantId, status, body) once per dirty status, each with its own attemptedCount++/try/catch/partial snapshot advance (generalSnapshotRef.current.statusTexts[status] only). Policy: CONTINUE (the mandate's own stated preference) -- one status's failure never skips or aborts later dirty statuses; every dirty status is always attempted and accounted for independently.",
+      "setAllMerchantTrackingStatusTextStatus": "left completely unmodified in lib/services/tracking-status-text.ts ('may remain in the repository if other callers need it') -- it is simply no longer imported or called by app/dashboard/settings/page.tsx's save flow, which now imports and calls setMerchantTrackingStatusText directly. No SQL change, no DB transaction invented, no RPC added/removed/merged.",
+      "doNotUseSetAllAsAtomicityUnit": "confirmed honored -- grep of app/dashboard/settings/page.tsx shows zero remaining `await setAllMerchantTrackingStatusText(` call sites (enforced by tests/cfte-v1-merchant-status-text-write.test.ts test '3.')."
+    }
+  },
+  "outcomeAccountingAndSnapshotInvariant": {
+    "mechanismChanged": false,
+    "note": "The pre-existing three-way outcome mechanism (succeededCount/failedKeys/attemptedCount -> stSaved / direct failure / stPartialSaveError-prefixed mixed) needed ZERO new code. Splitting one combined sub-write into two (WhatsApp) or up to seven (tracking text) independently-counted sites simply makes the SAME mechanism count the REAL underlying persistence units: number-succeeds+enabled-fails is now correctly 1 success + 1 failure (PARTIAL), never a false '0 successes' when one RPC had already persisted. The snapshot continues to mean 'known persisted state' -- only the exact field/status actually confirmed persisted (and, for enabled, only when not blocked by the number dependency) ever advances; everything else stays dirty."
+  },
+  "filesChanged": [
+    "app/dashboard/settings/page.tsx",
+    "tests/settings-save-reliability-v1.dom.test.ts",
+    "tests/cfte-v1-merchant-status-text-write.test.ts"
+  ],
+  "filesChangedOutsideOriginallyStatedScope": {},
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v64 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "install": "npm ci (clean install, identical lockfile, identical Node binary, separate checkouts for base and candidate via `git worktree add --detach`)",
+    "command": "npm test (== node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts)"
+  },
+  "logs": {
+    "baseline": {
+      "checkout": "/tmp/wt-base-v13 (git worktree --detach at 73ca103fdb2045693abebc7738994b4e33fa803f, verified via git rev-parse HEAD before the run)",
+      "tests": 4550,
+      "pass": 4540,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "baseline.tap.gz",
+      "failuresSortedFile": "baseline-failures-sorted.txt"
+    },
+    "candidate": {
+      "checkout": "/tmp/wt-cand-v13 (git worktree --detach, exact SHA 41524d7de8d79da56b28f9a658006b66ee31de08 verified via git rev-parse HEAD before the run)",
+      "tests": 4584,
+      "pass": 4574,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "candidate.tap.gz",
+      "failuresSortedFile": "candidate-failures-sorted.txt"
+    },
+    "failureIdentityDelta": {
+      "added": [],
+      "removed": [],
+      "note": "Count delta (4584-4550=34) fully explained by the 11 NEW tests (W1-W5, T1-T6) added to tests/settings-save-reliability-v1.dom.test.ts, on top of v1.2's existing 23 (S1-S10, C1-C6, K1-K5). The 10 failing test identities are byte-for-byte identical between base and candidate (diff of the sorted failure-identity files is empty) -- the SAME pre-existing, out-of-scope, process-level structural checks for OTHER lots, none touched by this lot, none newly broken, none newly fixed."
+    },
+    "nonVacuousnessCheck": {
+      "description": "Before finalizing, all 11 new tests were run against the pre-remediation (v1.2) app/dashboard/settings/page.tsx (git stash of that one file only, new tests kept in place). A temporary, test-harness-only shim re-added a setAllMerchantTrackingStatusText export to the mocked tracking-status-text module -- reproducing that function's real, already-existing sequential/abort-on-first-failure loop (lib/services/tracking-status-text.ts itself was never touched by this check) -- solely so the reverted page's stale import still resolved for the esbuild bundle step; this shim was removed again before restoring the fix.",
+      "result": "11 of the 34 tests in the file correctly FAIL on the pre-remediation code: K1, K2, K3, K4, K5 (the old four-sub-write contact bundle no longer matches the new five/six-way split's expectations) plus, of the 11 genuinely new tests, W1, W4, T1, T2, T3, T4, T5 -- including all THREE tests the mandate named as critical: W1, T2, T4. The remaining new tests (W2, W3, W5, T6) pass on the pre-remediation code too, as expected -- each covers a scenario the old bundled/looped behavior already happened to satisfy. After restoring the fix, all 34 pass."
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-work/scandz (candidate 41524d7), tests/settings-save-reliability-v1.dom.test.ts alone",
+      "tests": 34,
+      "pass": 34,
+      "fail": 0,
+      "gzipFile": "targeted.tap.gz",
+      "breakdown": "23 from v1.1/v1.2 (S1-S10, C1-C6, K1-K5) + 11 new from v1.3 (W1-W5, T1-T6)"
+    },
+    "structural": {
+      "checkout": "/tmp/scandz-work/scandz (candidate 41524d7), tests/lot-merchant-legal-tax-profile-v1.test.ts + tests/lot-merchant-legal-tax-profile-v1-dom.test.ts + tests/cfte-v1-merchant-status-text-write.test.ts + tests/v71-hardening.test.ts + tests/v72-hardening.test.ts together -- the files holding literal-source-string/structural checks on submit()'s exact shape and on the dashboard's tracking-text wiring, at risk from the WhatsApp-split and tracking-text-loop changes",
+      "tests": 119,
+      "pass": 119,
+      "fail": 0,
+      "gzipFile": "structural.tap.gz"
+    }
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit --incremental false -p tsconfig.json",
+    "result": "0 errors",
+    "checkout": "/tmp/scandz-work/scandz (candidate 41524d7)"
+  },
+  "scopeDiscipline": {
+    "filesModifiedOutsideOriginallyStatedScope": [],
+    "sqlOrMigrationFilesTouched": [],
+    "forbiddenScopeFilesTouched": [],
+    "libServicesDashboardTsModified": false,
+    "libRestaurantContextGuardTsModified": false,
+    "libServicesTrackingStatusTextTsModified": false,
+    "noBroadRefactor": "the whole settings page was NOT rewritten. Changes are confined to: (1) replacing one combined WhatsApp dirty-flag/try-catch with two independent ones plus the number-dependency guard for activation, (2) replacing the single combined tracking-text dirty-flag/call with a per-dirty-status loop over the pre-existing unitary RPC function, (3) the corresponding import change (setAllMerchantTrackingStatusText -> setMerchantTrackingStatusText) in app/dashboard/settings/page.tsx. No v1.2 concurrency guard, back-write, or deadlock fix was touched, redesigned, or removed."
+  },
+  "invariantsConfirmed": {
+    "blocker1ClosedCasesUntouched": "CONFIRMED -- token.isCurrent() guards after every await, restaurant-switch protection (handleSelectRestaurant's setSaving(false)), Maps X->Y protection (C3, still green), legal X->Y protection (C4, still green), and every conditional live-state write-back (mapsUrl, whatsapp) are byte-for-byte unchanged from v1.2; C1-C6 re-verified still green with zero modification to their test bodies",
+    "operatorOnlyAuthorizationRules": "unchanged -- isOperatorOnlyMode / canEditFull / canEdit logic untouched; whatsappNumberDirty/whatsappEnabledDirty/trackingTextDirtyStatuses are all forced false/empty in operator-only mode, same as every other contact-bundle flag",
+    "noRawServerErrorsLeaked": "unchanged -- W1/W2/T2/T3/T4 all assert only the shared stContactSaveError translation key is ever shown, never the raw injected Error's message",
+    "legalOnlyEditCallsZeroUnrelatedSections": "unchanged, re-confirmed by S1/S2/S8/C1/C4 (still green)",
+    "colorsOnlyEditNeverWritesReceipt": "unchanged, re-confirmed by S3 (still green)",
+    "unchangedFormIsZeroWrites": "unchanged, re-confirmed by S10/C5/K4 (still green) and newly by T5/T6 (zero tracking RPCs when the grid, or the whole form, is untouched)",
+    "noSqlOrMigrationFileTouched": true,
+    "noSecondReceiptUpdatePath": true,
+    "whatsappNumberNeverRewrittenWhileDisabled": "unchanged contract re-confirmed: the number sub-write remains gated by currentGeneral.whatsappEnabled, exercised by W3 (disabling, number untouched -> zero number RPC)",
+    "whatsappActivationNeverFalselyReportedOnFailedNumber": "CONFIRMED -- W2: number fails while activating -> whatsappEnabled RPC count stays 0 (never attempted, never a false success), direct-failure message shown (never partial, never success)",
+    "whatsappPartialPersistenceExplicitlyRepresented": "CONFIRMED -- W1: number succeeds + enabled fails -> stPartialSaveError shown, number snapshot advances (never rewritten by retry), enabled alone is retried",
+    "trackingTextPartialPersistenceExplicitlyRepresented": "CONFIRMED -- T2/T4: one status succeeds + a sibling status fails -> stPartialSaveError shown, the successful status's snapshot advances (never rewritten by retry), only the failed status is retried",
+    "trackingTextContinuePolicyConfirmed": "CONFIRMED -- T3/T4: a failing status (first, or middle, of three dirty statuses) never blocks the later dirty statuses from being attempted, proven via the exact ordered call log",
+    "prDraftOnly": true,
+    "prHeadShaMatchesPushedCommit": true,
+    "prMerged": false
+  },
+  "finalStatusLine": "SETTINGS SAVE RELIABILITY v1.3 REMEDIATION COMPLETE — READY FOR INDEPENDENT RE-AUDIT.",
+  "deploymentScope": "NO MERGE / NO PRODUCTION / NO PREPROD."
+}

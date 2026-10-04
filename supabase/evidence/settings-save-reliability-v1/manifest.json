@@ -1,0 +1,95 @@
+{
+  "lot": "SETTINGS SAVE RELIABILITY v1",
+  "mandate": "TO: CLAUDE DEVELOPER -- Production bug: legal/tax/receipt edits in Merchant Settings silently failed to persist",
+  "base": {
+    "sha": "0826f5f36d56876fe68cba3a091e6b279a095cb0",
+    "description": "origin/main at the start of this lot (merge of PR #125, CGV W2 publication boundary fixes)"
+  },
+  "candidate": {
+    "sha": "7ff11769e31a442fdf295b369e4cf3beba5d3d26",
+    "tree": "e23361692167a771500d7333898096b2371cab51",
+    "branch": "feature/settings-save-reliability-v1",
+    "pr": 128,
+    "prState": "open",
+    "prDraft": true,
+    "prMerged": false
+  },
+  "filesChanged": [
+    "app/dashboard/settings/page.tsx",
+    "lib/i18n.ts",
+    "tests/settings-save-reliability-v1.dom.test.ts"
+  ],
+  "rootCause": "submit() unconditionally re-validates and re-mutates ~11 sections on EVERY save click, regardless of which fields the merchant actually touched, and updateReceiptSettings (legal/tax) was the LAST mutating RPC -- the failure of ANY earlier mutation (public contact/WhatsApp, restaurant settings, tracking status text, colors, maps URL, identity, bg color, social links, languages), even one wholly unrelated to what the merchant edited, silently prevented updateReceiptSettings from ever being called. Mutation ORDERING, not validation ordering, stale state, or a permission failure.",
+  "remediation": "updateReceiptSettings moved to be the FIRST mutating RPC in submit(), in both full and operator-only modes. No validation moved, no guard weakened (legalProfileReady / legalProfileLoadedRestaurantId guard stays the absolute first instruction, unchanged). Each section still aborts the rest of the submission on its own failure -- atomicity preserved, only the call ORDER changed. Also fixed a raw-server-error leak in the contact/WhatsApp catch block (was surfacing e.message straight from a PostgREST throw) with a new dedicated stContactSaveError i18n key (fr/en/ar), matching the pattern already used by every other section's catch block.",
+  "environment": {
+    "os": "Linux vm 6.18.44-fc-v51 #1 SMP PREEMPT_DYNAMIC @0 x86_64 x86_64 x86_64 GNU/Linux",
+    "node": "v22.22.2",
+    "packageLockSha256": "0ff7fc6293ef5e5874ca8858b4edb916c62f0169bda53605115bdc225d296a38",
+    "install": "npm ci (clean install, identical lockfile, identical Node binary, separate checkouts for base and candidate)",
+    "command": "npm test (== node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts)"
+  },
+  "logs": {
+    "baseline": {
+      "checkout": "/tmp/scandz-work/settings-v1-base (separate clean checkout, exact SHA verified via git rev-parse HEAD before the run)",
+      "tests": 4537,
+      "pass": 4527,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "baseline.tap.gz",
+      "failuresSortedFile": "baseline-failures-sorted.txt"
+    },
+    "candidate": {
+      "checkout": "/tmp/scandz-work/scandz (exact SHA verified via git rev-parse HEAD before the run)",
+      "tests": 4547,
+      "pass": 4537,
+      "fail": 10,
+      "skipped": 0,
+      "cancelled": 0,
+      "gzipFile": "candidate.tap.gz",
+      "failuresSortedFile": "candidate-failures-sorted.txt"
+    },
+    "failureIdentityDelta": {
+      "added": [],
+      "removed": [],
+      "note": "Count delta (4547-4537=10) fully explained by the 10 new tests in tests/settings-save-reliability-v1.dom.test.ts (S1, S2, S3, S4x3, S5, S6, S7, S8). The 10 failing test identities are byte-identical between base and candidate -- same pre-existing, out-of-scope, process-level structural checks for OTHER lots (Stuart/Payment/Catalogue scope-change detectors and one cfte-v1 test), none touched by this lot."
+    },
+    "targeted": {
+      "checkout": "/tmp/scandz-work/scandz (candidate 7ff1176), tests/settings-save-reliability-v1.dom.test.ts alone",
+      "tests": 10,
+      "pass": 10,
+      "fail": 0,
+      "gzipFile": "targeted.tap.gz"
+    },
+    "structural": {
+      "checkout": "/tmp/scandz-work/scandz (candidate 7ff1176), tests/lot-merchant-legal-tax-profile-v1.test.ts alone -- confirms the pre-existing structural/static test file was left unmodified and still fully passes",
+      "tests": 41,
+      "pass": 41,
+      "fail": 0,
+      "gzipFile": "structural.tap.gz"
+    }
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit -p tsconfig.json",
+    "result": "0 errors"
+  },
+  "scopeDiscipline": {
+    "filesModifiedOutsideExpectedScope": [],
+    "sqlOrMigrationFilesTouched": [],
+    "forbiddenScopeFilesTouched": [],
+    "libServicesDashboardTsModified": false
+  },
+  "invariantsConfirmed": {
+    "legalProfileReadyGuard": "unchanged -- still the absolute first instruction in submit()",
+    "legalProfileLoadedRestaurantIdGuard": "unchanged",
+    "staleTenantProtection": "unchanged (CONTEXT HARDENING v1.1 settingsLoadedRestaurantId gate untouched)",
+    "operatorOwnerManagerAuthorizationModel": "unchanged -- isOperatorOnlyMode / canEditFull / canEdit logic untouched, only mutation call ORDER changed",
+    "updateReceiptSettingsRpcContract": "unchanged -- same function signature, same payload shape, called from exactly one call site",
+    "existingLegalValidation": "unchanged -- email/tax-rate/tax-label validation code untouched, still runs before setSaving(true)",
+    "noRawServerErrorsLeaked": "FIXED (was violated) -- the contact/WhatsApp catch block's `e.message` leak replaced with a dedicated translated key, matching every other section",
+    "noCrossRestaurantWritePossible": "unchanged -- restaurantId is always the component's own state, from the same single source of truth as before",
+    "noDirectDbWritePathIntroduced": true,
+    "noSecondReceiptUpdatePath": true,
+    "prDraftOnly": true
+  }
+}
