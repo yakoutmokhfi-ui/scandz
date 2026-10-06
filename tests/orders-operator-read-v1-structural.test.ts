@@ -125,7 +125,7 @@ test("Rollback : retire exactement la fonction", () => {
 test("Service : RPC opérateur dédiée, lecture marchande inchangée", () => {
   const fn = SERVICE.slice(SERVICE.indexOf("export async function getOperatorRestaurantOrders"));
   const body = fn.slice(0, fn.indexOf("\n}\n"));
-  assert.ok(body.includes('supabase.rpc("get_operator_restaurant_orders"'));
+  assert.ok(body.includes('supabase.rpc("get_operator_restaurant_orders_page"'));
   assert.ok(body.includes("if (error) throw new Error(error.message);"));
   assert.ok(!body.includes(".from("), "aucune lecture directe de table");
   const merchant = SERVICE.slice(SERVICE.indexOf("export async function getDashboardOrders"));
@@ -136,7 +136,7 @@ test("Page : contexte opérateur => RPC opérateur uniquement, pas de repli, pas
   const start = PAGE.indexOf("if (isOperatorOrdersView) {");
   assert.ok(start > 0, "branche opérateur attendue dans loadOrders");
   const block = PAGE.slice(start, PAGE.indexOf("\n      }\n", start));
-  assert.ok(block.includes("getOperatorRestaurantOrders(requestedRestaurantId, showHistory)"));
+  assert.ok(block.includes("getOperatorRestaurantOrders(requestedRestaurantId, showHistory, before)"));
   assert.ok(block.includes("return;"), "la branche opérateur se termine sans passer par la lecture marchande");
   assert.ok(!block.includes("getDashboardOrders"));
   assert.ok(PAGE.includes('resolution.source === "operator" ? resolution.restaurantId : null'));
