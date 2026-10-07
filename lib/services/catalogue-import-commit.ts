@@ -69,12 +69,15 @@ import type { CatalogueImportStructuralError } from "@/lib/services/catalogue-im
 import { buildCommitPlan } from "@/lib/catalogue-import/commit-plan";
 import { addProductTags } from "@/lib/services/catalogue-tags";
 import { normalizedKey } from "@/lib/catalogue-import/normalization";
+import { findExistingProductById } from "@/lib/catalogue-import/resolution";
 import type { PreviewReport } from "@/lib/catalogue-import/types";
 import {
   createCategory,
   createSubcategory,
   createProduct,
   updateProduct,
+  setProductAvailability,
+  getMerchantCatalogue,
   CategoryDuplicateNameError,
   SubcategoryDuplicateNameError,
   ProductDuplicateNameError,
@@ -413,19 +416,39 @@ export async function commitCatalogueImport(
           fiscal,
           subcategoryId
         );
+        if (row.availabilityToWrite !== undefined) {
+          // create_product returns only its id. Read its actual default instead
+          // of duplicating the server's VAT-dependent availability policy here.
+          const created = findExistingProductById(await getMerchantCatalogue(restaurantId), productId);
+          if (!created) throw new Error("Produit créé introuvable lors de la vérification de disponibilité.");
+          if (created.is_available !== row.availabilityToWrite) {
+            await setProductAvailability(productId, row.availabilityToWrite);
+          }
+        }
         await associateTags(productId, values.tags);
         rows.push({ row: row.row, outcome: "CREATED", productId });
         productsCreated++;
       } else if (row.plannedAction === "UPDATE" && row.productMatch.existingId) {
-        await updateProduct(
-          row.productMatch.existingId,
-          values.name,
-          values.description,
-          values.price,
-          values.shortDescription,
-          fiscal,
-          subcategoryId
-        );
+        // An explicit deactivation precedes fiscal edits; activation follows
+        // them so the authoritative VAT guard sees the final fiscal values.
+        // Any sub-write failure is reported FAILED by the existing row catch.
+        if (row.availabilityToWrite === false) {
+          await setProductAvailability(row.productMatch.existingId, false);
+        }
+        if (row.productFieldsChanged) {
+          await updateProduct(
+            row.productMatch.existingId,
+            values.name,
+            values.description,
+            values.price,
+            values.shortDescription,
+            fiscal,
+            subcategoryId
+          );
+        }
+        if (row.availabilityToWrite === true) {
+          await setProductAvailability(row.productMatch.existingId, true);
+        }
         await associateTags(row.productMatch.existingId, values.tags);
         rows.push({ row: row.row, outcome: "UPDATED", productId: row.productMatch.existingId });
         productsUpdated++;

@@ -439,6 +439,14 @@ function validateProductRow(
       field: "Rétractable",
     });
   }
+  if (values.availability === null) {
+    issues.push({
+      code: "SCANYM_IMPORT_INVALID_AVAILABILITY",
+      severity: "BLOCKING_ERROR",
+      message: "Disponibilité invalide : utilisez Oui ou Non, ou laissez la cellule vide pour conserver la disponibilité actuelle.",
+      field: "Disponible",
+    });
+  }
   // --- Modes de vente (XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1) ---
   // MÊME discipline FAIL CLOSED que « Rétractable » ci-dessus : un
   // jeton non reconnu bloque TOUTE la ligne (mandat CIO/Ravel : « do

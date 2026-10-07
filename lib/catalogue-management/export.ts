@@ -7,7 +7,7 @@
  * ------------------------------------------------------------------
  * COMPATIBILITÉ IMPORT / EXPORT (mandat §12)
  * ------------------------------------------------------------------
- * Les 13 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
+ * Les 14 premières colonnes sont EXACTEMENT `IMPORT_COLUMNS`, dans
  * l'ordre exact du format d'import -- réutilisées depuis
  * lib/catalogue-import/column-mapping.ts, jamais recopiées à la main,
  * de sorte qu'elles ne peuvent pas diverger silencieusement si le
@@ -21,7 +21,7 @@
  * ONLINE WITHDRAWAL v1 -- « Rétractable » fait partie de ces colonnes
  * d'import : c'est une VRAIE colonne d'ALLER-RETOUR (exportée « Oui »/
  * « Non », relue et RÉELLEMENT appliquée à la réimportation), à ne pas
- * confondre avec les deux colonnes purement informatives ci-dessous.
+ * confondre avec la colonne purement informative ci-dessous.
  *
  * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- « Modes de vente » est
  * elle aussi une VRAIE colonne d'ALLER-RETOUR, même statut que
@@ -35,21 +35,11 @@
  * qu'un produit non modifié par le marchand réimporte en SKIP, pas en
  * UPDATE (voir valuesEqualExisting, preview.ts).
  *
- * DEUX colonnes supplémentaires suivent, exigées par le mandat §11 et
- * absentes du format d'import :
- *
- *   - « Disponible »                  (statut de disponibilité)
- *   - « Prix de référence (€/kg) »    (colonne GÉNÉRÉE en base, donc
- *                                      autoritative, jamais recalculée
- *                                      ici)
- *
- * DIFFÉRENCE DOCUMENTÉE, PAS SILENCIEUSE : à la réimportation, ces
- * deux colonnes ne sont pas reconnues par l'importateur et produisent
- * un diagnostic INFO « Colonne du fichier non reconnue, ignorée » --
- * jamais un blocage, jamais un avertissement. Elles sont donc
- * informatives pour le marchand et inertes pour l'import. Ce lot ne
- * change AUCUNE règle d'import pour les faire accepter (mandat §12,
- * littéral : « Do NOT change current import semantics in this lot »).
+ * « Disponible » est une colonne d'aller-retour optionnelle : Oui/Non
+ * est appliqué à l'import ; une cellule vide préserve l'état existant
+ * ou le défaut serveur de création. Sa position dans l'export reste
+ * inchangée. Seul « Prix de référence (€/kg) », généré en base, reste
+ * export-only et produit un diagnostic INFO de colonne ignorée.
  *
  * `Photo fichier` est exportée VIDE : le nom de fichier d'origine
  * n'est pas conservé en base (seule une URL publique l'est), et
@@ -91,7 +81,7 @@ function formatAllowedSaleModes(raw: string[] | null): string {
 }
 
 /** Colonnes supplémentaires, APRÈS les colonnes d'import. */
-export const EXPORT_EXTRA_COLUMNS = ["Disponible", "Prix de référence (€/kg)"] as const;
+export const EXPORT_EXTRA_COLUMNS = ["Prix de référence (€/kg)"] as const;
 
 export const EXPORT_COLUMNS: readonly string[] = [...IMPORT_COLUMNS, ...EXPORT_EXTRA_COLUMNS];
 

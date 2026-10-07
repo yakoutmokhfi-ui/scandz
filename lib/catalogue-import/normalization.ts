@@ -108,6 +108,11 @@ const WITHDRAWAL_ELIGIBLE_ALIASES: ReadonlyMap<string, boolean> = new Map([
   ["non", false],
 ]);
 
+/** Same finite Oui/Non vocabulary; absence/blank is distinct from invalid. */
+export function coerceAvailability(raw: string | undefined): boolean | null | undefined {
+  return coerceWithdrawalEligible(raw);
+}
+
 /**
  * XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- codes stables acceptés
  * dans la colonne « Modes de vente », EXACTEMENT ceux de
