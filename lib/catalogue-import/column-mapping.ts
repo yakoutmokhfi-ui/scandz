@@ -8,11 +8,11 @@
  *   Type, Nom, Catégorie parent, Sous-catégorie parent,
  *   Tags / Collections, Description courte, Description longue,
  *   Prix TTC (€), TVA (%), Poids (g), Photo fichier, Rétractable,
- *   Modes de vente.
+ *   Modes de vente, Disponible.
  *
  * ONLINE WITHDRAWAL v1 -- « Rétractable » est une VRAIE colonne
  * d'aller-retour (jamais une colonne d'export purement informative,
- * comme « Disponible »/« Prix de référence (€/kg) ») : elle est
+ * comme « Prix de référence (€/kg) ») : elle est
  * exportée ET relue à l'import. Optionnelle, valeurs « Oui »/« Non »
  * uniquement (voir coerceWithdrawalEligible, normalization.ts).
  *
@@ -32,7 +32,7 @@
  *   REQUISES : Nom, Catégorie parent, Prix TTC (€)
  *   OPTIONNELLES : Type, Sous-catégorie parent, Tags / Collections,
  *   Description courte, Description longue, TVA (%), Poids (g),
- *   Photo fichier, Rétractable, Modes de vente.
+ *   Photo fichier, Rétractable, Modes de vente, Disponible.
  * Une colonne optionnelle absente du fichier ne bloque PAS l'import
  * (mandat "Do not invent semantics for ambiguous fields" -- une
  * colonne manquante n'est pas ambiguë, elle est simplement absente ;
@@ -59,6 +59,8 @@ export const IMPORT_COLUMNS = [
   // ajoutée APRÈS "Rétractable", en dernière position. Tout fichier
   // antérieur à ce lot reste importé exactement comme avant.
   "Modes de vente",
+  // Optional round-trip field; blank means leave availability untouched.
+  "Disponible",
 ] as const;
 
 export type ImportColumn = (typeof IMPORT_COLUMNS)[number];

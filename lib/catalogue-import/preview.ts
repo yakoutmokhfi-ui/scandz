@@ -37,6 +37,7 @@ import {
   canonicalizeSaleModeCodes,
   classifyRowType,
   coerceAllowedSaleModes,
+  coerceAvailability,
   coerceInteger,
   coerceNumeric,
   coerceWithdrawalEligible,
@@ -128,6 +129,7 @@ function normalizeRow(cells: Partial<Record<ImportColumn, string>>): NormalizedR
     // (resolveWithdrawalEligibleToWrite), car elle dépend du produit
     // EXISTANT, que cette fonction ne voit pas.
     withdrawalEligible: coerceWithdrawalEligible(cells["Rétractable"]),
+    availability: coerceAvailability(cells["Disponible"]),
     // XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- valeur BRUTE (4
     // états distincts, voir CoercedAllowedSaleModes). La valeur
     // effectivement écrite est résolue plus bas
@@ -386,6 +388,11 @@ export function buildPreviewReport(
       values.allowedSaleModesRaw,
       matchedExistingProduct
     );
+    const availabilityToWrite = typeof values.availability === "boolean" &&
+      values.availability !== matchedExistingProduct?.is_available
+      ? values.availability : undefined;
+    const productFieldsChanged = !matchedExistingProduct ||
+      !valuesEqualExisting(values, matchedExistingProduct, withdrawalEligibleToWrite, allowedSaleModesToWrite);
 
     const issues = validateRow({
       values,
@@ -417,9 +424,8 @@ export function buildPreviewReport(
       // PRODUCT (explicite ou implicite) -- comportement INCHANGÉ.
       plannedAction = "CREATE";
     } else if (productMatch.state === "EXISTING_MATCH" && productMatch.existingId) {
-      const existing = matchedExistingProduct;
       plannedAction =
-        existing && valuesEqualExisting(values, existing, withdrawalEligibleToWrite, allowedSaleModesToWrite)
+        !productFieldsChanged && availabilityToWrite === undefined
           ? "SKIP"
           : "UPDATE";
     } else {
@@ -446,6 +452,8 @@ export function buildPreviewReport(
       resolvedTags,
       rowType,
       plannedAction,
+      availabilityToWrite,
+      productFieldsChanged,
       withdrawalEligibleToWrite,
       allowedSaleModesToWrite,
     };

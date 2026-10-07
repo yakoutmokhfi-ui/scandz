@@ -73,6 +73,8 @@ export interface NormalizedRowValues {
    *  La valeur réellement écrite est `PreviewRow.withdrawalEligibleToWrite`
    *  ci-dessous, jamais ce champ brut. */
   withdrawalEligible: boolean | null | undefined;
+  /** undefined = absent/blank, null = invalid, boolean = explicit Oui/Non. */
+  availability: boolean | null | undefined;
   /** XLSX / PRODUCT SERVICE MODES ROUND-TRIP v1 -- valeur BRUTE, non
    *  résolue, lue dans la colonne « Modes de vente ». Voir
    *  coerceAllowedSaleModes (normalization.ts) pour les 4 états
@@ -136,6 +138,11 @@ export interface PreviewRow {
   resolvedTags: TagResolution[];
   rowType: RowType;
   plannedAction: PlannedAction;
+  /** Explicit availability sub-write only; undefined preserves the server state.
+   * For CREATE, compare against the actual newly created product before writing. */
+  availabilityToWrite: boolean | undefined;
+  /** Whether the existing product needs updateProduct independently of availability. */
+  productFieldsChanged: boolean;
   /**
    * ONLINE WITHDRAWAL v1 -- valeur EFFECTIVE de `withdrawal_eligible`
    * que le commit transmettra à create_product/update_product pour
