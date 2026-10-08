@@ -1,0 +1,286 @@
+{
+  "observedAt": "2026-10-08T17:18:34.956782+00:00",
+  "project": "ctqfpszwunfomrbxgigu",
+  "restaurant": {
+    "id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+    "name": "Au lait cru",
+    "slug": "au-lait-cru",
+    "status": "active",
+    "is_active": true
+  },
+  "rules": [
+    {
+      "id": "139ed2b5-a14b-4d3c-a12e-cbe19b184691",
+      "config": null,
+      "enabled": true,
+      "provider": "stuart",
+      "fixed_fee": 6.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": null,
+      "customer_text": "UYFEAIUOZJKFOLNF",
+      "display_order": 10,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [
+        "75018"
+      ],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "Livraison 18",
+      "customer_text_hash": "acf4bb70c909e5e8e735b0eca94c99f5",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+      "config": null,
+      "enabled": true,
+      "provider": "stuart",
+      "fixed_fee": 10.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": null,
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit. \nLivraison à vélo dans Paris et banlieues desservies : 8ème, 9ème, 10ème, 17ème, 19ème, Saint-Ouen, Bobigny : 10,90 €.",
+      "display_order": 20,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [
+        "75008",
+        "75009",
+        "75010",
+        "75017",
+        "75019",
+        "93400",
+        "93008"
+      ],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "Paris et banlieues desservies : 8ème, 9ème, 10ème, 17ème, 1",
+      "customer_text_hash": "188ba1166ce28da13b93ad30727515f8",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "58f3e8d8-e929-436d-8d2d-c5e577819cbd",
+      "config": null,
+      "enabled": true,
+      "provider": "stuart",
+      "fixed_fee": 13.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": null,
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit.\nLivraison à vélo dans Paris et banlieues desservies : 1er, 2ème, 3ème, 4ème ,16ème, 20ème, Aubervilliers, Clichy, Levallois-Perret : 13,90€.",
+      "display_order": 21,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [
+        "75001",
+        "75002",
+        "75003",
+        "75004",
+        "75016",
+        "75020",
+        "93300",
+        "92110",
+        "92300"
+      ],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "Livraison à vélo dans Paris : 1er, 2ème, 3ème, 4ème ,16ème,",
+      "customer_text_hash": "4f6cb8c16d193424ca2af5831e767b25",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+      "config": null,
+      "enabled": true,
+      "provider": "internal",
+      "fixed_fee": 15.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": null,
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit.\nLivraison à vélo dans Paris et banlieues desservies  : 5ème, 6ème, 7ème, 11ème, 12ème, 15ème, Pantin, Les Lilas, Bagnolet, Asnières-sur-Seine, Bois-Colombes, Neuilly-sur-Seine : 15,90 €.",
+      "display_order": 22,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [
+        "75005",
+        "75006",
+        "75007",
+        "75011",
+        "75012",
+        "75015",
+        "92051",
+        "92009",
+        "92004",
+        "93500",
+        "93045",
+        "93170"
+      ],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "Livraison 15,9",
+      "customer_text_hash": "3889859eb455b20dd87a5656cc1c9cf1",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "ecf891fe-23da-4060-a130-222707b44408",
+      "config": null,
+      "enabled": true,
+      "provider": "stuart",
+      "fixed_fee": 18.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": null,
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit.\nLivraison à vélo dans Paris : 13ème, 14ème: 18,90€",
+      "display_order": 23,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [
+        "75013",
+        "75014"
+      ],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "Paris 13 et 14",
+      "customer_text_hash": "c822c1f7078888045caf77563958cc17",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "7961d76a-b4e1-411b-abb3-4c84ff67769f",
+      "config": null,
+      "enabled": true,
+      "provider": "chronofresh",
+      "fixed_fee": 18.9,
+      "min_items": null,
+      "mode_code": "delivery",
+      "is_fallback": true,
+      "pricing_mode": "fixed",
+      "translations": {
+        "ar": {
+          "customer_text": "توصيل مبرد متاح إلى عنوانك. سيتم إبلاغك بمواعيد التوصيل عبر البريد الإلكتروني.",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "dc92004a15ba5e55890d5b276af2313a"
+        },
+        "en": {
+          "customer_text": "Refrigerated delivery is available to your address. Delivery times will be sent to you by email.",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "dc92004a15ba5e55890d5b276af2313a"
+        }
+      },
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit.\nLivraison réfrigérée disponible à votre adresse. Les délais de livraison de notre vous seront communique par email.",
+      "display_order": 24,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [],
+      "free_threshold": null,
+      "discount_enabled": true,
+      "fulfillment_code": "refrigerated_shipping",
+      "customer_text_hash": "233d2fd2d9f2209f563a5344c32a39fe",
+      "discount_threshold": 100,
+      "discount_percentage": 50
+    },
+    {
+      "id": "ebbfa054-ccaa-4b40-9033-426ab90a215d",
+      "config": null,
+      "enabled": false,
+      "provider": "stuart",
+      "fixed_fee": 7.5,
+      "min_items": 0,
+      "mode_code": "delivery",
+      "is_fallback": false,
+      "pricing_mode": "fixed",
+      "translations": {
+        "ar": {
+          "customer_text": "توصيل محلي في باريس.",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "1f419ff7ad9711a5742721bd146be713"
+        },
+        "en": {
+          "customer_text": "Local delivery in Paris.",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "1f419ff7ad9711a5742721bd146be713"
+        }
+      },
+      "customer_text": "PROFITEZ DE - 50 % SUR  LES FRAIS DE LIVRAISON A PARTIR DE 100 € D’ACHAT. \nClick & Collect en boutique : gratuit.\nLivraison à vélo dans Paris 18 ème : 6,90 €.\nLivraison à vélo dans Paris et banlieues desservies : 8ème, 9ème, 10ème, 17ème, 19ème, Saint-Ouen, Bobigny : 10,90 €.\nLivraison à vélo dans Paris et banlieues desservies : 1er, 2ème, 3ème, 4ème ,16ème, 20ème, Aubervilliers, Clichy, Levallois-Perret : 13,90€.\nLivraison à vélo dans Paris et banlieues desservies  : 5ème, 6ème, 7ème, 11ème, 12",
+      "display_order": 25,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "zone_prefixes": [],
+      "free_threshold": null,
+      "discount_enabled": false,
+      "fulfillment_code": "local_delivery",
+      "customer_text_hash": "ca57366a139b7f61dc1ed4368c97c0c9",
+      "discount_threshold": null,
+      "discount_percentage": null
+    }
+  ],
+  "modes": [
+    {
+      "id": "aebb8fb9-a861-4d9a-837d-dbde14c45f20",
+      "config": null,
+      "enabled": true,
+      "provider": "internal",
+      "fixed_fee": null,
+      "mode_code": "delivery",
+      "delay_unit": null,
+      "delay_value": null,
+      "pricing_mode": "free",
+      "translations": {
+        "ar": {
+          "customer_text": "لا أعرف متى أرى هذا النص",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "82b6e8a17d2655cfa0eedad82cc692d5"
+        },
+        "en": {
+          "customer_text": "Je ne sais pas quand je vois ce texte",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "82b6e8a17d2655cfa0eedad82cc692d5"
+        }
+      },
+      "customer_text": "Le délai total comprend le temps nécessaire à la préparation de votre commande, auquel s’ajoute le délai de livraison. Selon votre lieu de livraison, celui-ci est généralement compris entre 1 et 3 jours. Vous serez informé lorsque votre commande sera prête à être prise en charge par le transporteur.",
+      "display_order": 2,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "free_threshold": null,
+      "customer_text_hash": "c55faac3edccf5efd79e9072d37b2967"
+    },
+    {
+      "id": "76c54a41-bcab-4e01-b94c-c9f2be2f9a22",
+      "config": null,
+      "enabled": true,
+      "provider": "internal",
+      "fixed_fee": null,
+      "mode_code": "pickup",
+      "delay_unit": null,
+      "delay_value": null,
+      "pricing_mode": "free",
+      "translations": {
+        "ar": {
+          "customer_text": "تيست",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "033bd94b1168d7e4f0d644c3c95e35bf"
+        },
+        "en": {
+          "customer_text": "TEST",
+          "customer_text_status": "validated",
+          "customer_text_source_hash": "033bd94b1168d7e4f0d644c3c95e35bf"
+        }
+      },
+      "customer_text": "Le délai de préparation peut être prolongé pour les commandes passées en dehors des heures d’ouverture, le dimanche ou les jours fériés. Nous vous informerons dès que votre commande sera prête à être retirée pendant les heures d’ouverture de la boutique.",
+      "display_order": 1,
+      "restaurant_id": "e8647a29-4971-4629-a5e8-1f00650adfb4",
+      "free_threshold": null,
+      "customer_text_hash": "854ee120eb53aa573c1f1614fd891a7a"
+    }
+  ],
+  "countries": [
+    "FR"
+  ]
+}

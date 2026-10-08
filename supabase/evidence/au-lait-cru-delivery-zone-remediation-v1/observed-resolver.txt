@@ -1,0 +1,119 @@
+Evidence only; do not execute this definition.
+CREATE OR REPLACE FUNCTION public.resolve_delivery_fulfillment(p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric DEFAULT NULL::numeric)
+ RETURNS TABLE(eligible boolean, fulfillment_rule_id uuid, fulfillment_code text, provider text, matched_prefix text, zone_prefixes text[], is_fallback boolean, min_items integer, customer_text text, display_order integer, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, block text, missing integer, discount_enabled boolean, discount_threshold numeric, discount_percentage numeric)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  with normalized as (
+    select nullif(btrim(p_postal_code), '') as code
+  ),
+  parent_mode_enabled as (
+    select exists (
+      select 1
+      from public.restaurant_sale_modes rsm
+      where rsm.restaurant_id = p_restaurant_id
+        and rsm.mode_code = p_mode_code
+        and rsm.enabled = true
+    ) as enabled
+  ),
+  candidate_rules as (
+    select f.id, f.fulfillment_code, f.provider, f.zone_prefixes, f.is_fallback,
+           f.min_items, f.customer_text, f.display_order,
+           f.pricing_mode, f.fixed_fee, f.free_threshold,
+           f.discount_enabled, f.discount_threshold, f.discount_percentage
+    from public.restaurant_sale_mode_fulfillments f
+    where f.restaurant_id = p_restaurant_id
+      and f.mode_code = p_mode_code
+      and f.enabled = true
+      and (select enabled from parent_mode_enabled)
+      and (select code from normalized) is not null
+  ),
+  matched_rule as (
+    select c.*,
+      (select zp.prefix
+         from unnest(c.zone_prefixes) with ordinality as zp(prefix, ord)
+         where (select code from normalized) like zp.prefix || '%'
+         order by zp.ord
+         limit 1) as matched_prefix
+    from candidate_rules c
+    where c.is_fallback = false
+      and exists (
+        select 1 from unnest(c.zone_prefixes) as zp(prefix)
+        where (select code from normalized) like zp.prefix || '%'
+      )
+    order by c.display_order asc
+    limit 1
+  ),
+  fallback_rule as (
+    select c.*, null::text as matched_prefix
+    from candidate_rules c
+    where c.is_fallback = true
+      and not exists (select 1 from matched_rule)
+    limit 1
+  ),
+  selected as (
+    select * from matched_rule
+    union all
+    select * from fallback_rule
+    limit 1
+  )
+  select
+    (
+      (select code from normalized) is not null
+      and s.fulfillment_code is not null
+      and not (
+        s.min_items is not null
+        and coalesce(p_total_count, 0) < s.min_items
+      )
+    ) as eligible,
+    s.id as fulfillment_rule_id,
+    s.fulfillment_code,
+    s.provider,
+    s.matched_prefix,
+    s.zone_prefixes,
+    s.is_fallback,
+    s.min_items,
+    s.customer_text,
+    s.display_order,
+    s.pricing_mode,
+    s.fixed_fee,
+    s.free_threshold,
+    case
+      when s.discount_enabled and coalesce(p_subtotal, 0) >= s.discount_threshold then
+        round((case
+      when s.fulfillment_code is null then null
+      when s.pricing_mode = 'free' then 0
+      when s.pricing_mode = 'fixed' then s.fixed_fee
+      when s.pricing_mode = 'free_above_threshold' then
+        case when coalesce(p_subtotal, 0) >= s.free_threshold then 0 else s.fixed_fee end
+      else null
+    end) * (1 - s.discount_percentage / 100), 2)
+      else case
+      when s.fulfillment_code is null then null
+      when s.pricing_mode = 'free' then 0
+      when s.pricing_mode = 'fixed' then s.fixed_fee
+      when s.pricing_mode = 'free_above_threshold' then
+        case when coalesce(p_subtotal, 0) >= s.free_threshold then 0 else s.fixed_fee end
+      else null
+    end
+    end as delivery_fee,
+    case
+      when (select code from normalized) is null then 'no-postal'
+      when s.fulfillment_code is null then 'out-of-zone'
+      when s.min_items is not null and coalesce(p_total_count, 0) < s.min_items then 'below-min'
+      else null
+    end as block,
+    case
+      when s.fulfillment_code is not null
+       and s.min_items is not null
+       and coalesce(p_total_count, 0) < s.min_items
+        then s.min_items - coalesce(p_total_count, 0)
+      else null
+    end as missing,
+    s.discount_enabled,
+    s.discount_threshold,
+    s.discount_percentage
+  from (select 1) one
+  left join selected s on true;
+$function$

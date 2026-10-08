@@ -1,0 +1,4 @@
+-- Real resolver, no simulation. Expected to fail the five incident cases BEFORE remediation.
+begin read only; set local statement_timeout='30s'; with cases(postcode,expected_provider,base_fee) as (values ('93000','stuart',10.90::numeric),('92600','stuart',15.90),('92270','stuart',15.90),('92200','stuart',15.90),('93260','stuart',15.90),('75018','stuart',6.90),('69001','chronofresh',18.90)), t as (select *,1 as total_count from cases cross join (values(50::numeric),(99.99),(100),(100.01)) s(subtotal)) select t.postcode,t.subtotal,r.provider,r.delivery_fee,r.fulfillment_rule_id,r.is_fallback,
+ (r.eligible and r.provider=t.expected_provider and r.delivery_fee=case when t.subtotal>=100 then round(t.base_fee/2,2) else t.base_fee end and r.is_fallback=(t.postcode='69001')) as pass
+from t cross join lateral public.resolve_delivery_fulfillment('e8647a29-4971-4629-a5e8-1f00650adfb4','delivery',t.postcode,t.total_count,t.subtotal) r order by t.postcode,t.subtotal; commit;
