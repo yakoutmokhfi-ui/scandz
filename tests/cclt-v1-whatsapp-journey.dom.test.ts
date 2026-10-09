@@ -204,6 +204,15 @@ function installBackend(t: any): Backend {
         };
       case "mark_whatsapp_opened":
         return { data: null, error: null };
+            // MERCHANT CUSTOMER COMMUNICATIONS v1 — projection PUBLIQUE des
+      // textes clients du commerçant, lue par MenuView au montage.
+      // Servie VIDE : « aucun texte personnalisé », qui est l'état de
+      // tout établissement avant configuration -- donc exactement les
+      // formulations plateforme que ces assertions vérifiaient déjà.
+      // Elle fait partie du CONTRAT de lecture publique du parcours,
+      // pas des appels inattendus.
+      case "get_restaurant_public_communication_texts":
+        return { data: [], error: null };
       default:
         backend.unexpected.push(`rpc:${name}`);
         throw new Error(`RPC inattendue : ${name}`);
@@ -218,6 +227,21 @@ function installBackend(t: any): Backend {
     (window as any).open = realOpen;
   });
   t.mock.method(globalThis, "fetch", async (input: unknown) => {
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B) -- l'écran de
+    // confirmation interroge le serveur pour savoir si au moins une
+    // ligne de la commande est rétractable
+    // (POST /api/checkout/withdrawal-eligibility). Ce harnais fournit
+    // la configuration que la PRODUCTION fournit, et il la fournit
+    // FERMÉE (`eligible:false`) : aucun appel à l'action de rétractation
+    // n'apparaît, le parcours observé par les assertions ci-dessous est
+    // donc exactement celui d'avant le lot. Toute AUTRE requête sortante
+    // continue de lever, exactement comme avant.
+    if (String(input).includes("/api/checkout/withdrawal-eligibility")) {
+      return new Response(JSON.stringify({ eligible: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     throw new Error(`requête sortante inattendue : ${String(input)}`);
   });
   return backend;
@@ -277,19 +301,55 @@ async function submit(container: Element, label: string) {
   await waitFor(() => container.textContent?.includes("Commande envoyée avec succès !") ?? false, "confirmation");
 }
 
-function assertTrackingIsPrimary(container: Element) {
-  const cta = container.querySelector<HTMLAnchorElement>("a[data-order-confirmation-tracking]");
-  assert.ok(cta, "lien de suivi présent sur la confirmation");
-  assert.equal(cta!.textContent, "Suivre ma commande");
-  const url = new URL(cta!.getAttribute("href")!, "http://localhost");
-  assert.equal(url.pathname, `/track/${TENANT.orderId}`);
-  assert.equal(url.search, "", "aucun jeton en chaîne de requête");
-  const cls = cta!.className;
-  assert.ok(cls.includes("bg-caramel") && cls.includes("min-h-[44px]"), "action principale, cible tactile mobile >= 44px");
+/**
+ * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
+ * mandat §B, littéral : « Scanym must no longer REQUIRE a
+ * customer-facing "Track my order" CTA after purchase ») ───
+ *
+ * CCLT v1 faisait du suivi l'ACTION PRINCIPALE de l'écran de
+ * confirmation. Ce lot-ci retire cette exigence : l'écran ne porte plus
+ * de bouton « Suivre ma commande », et c'est « Retour au menu » qui
+ * devient l'action principale.
+ *
+ * Ce que CE fichier prouve reste INTACT et c'était son objet réel :
+ * l'écran de confirmation est bien atteint, il ne porte AUCUNE trace
+ * WhatsApp quand WhatsApp est désactivé, et il expose une action
+ * principale CLAIRE, de cible tactile mobile >= 44px, en PREMIÈRE
+ * position (visible sans défilement). Seule l'identité de cette action
+ * change -- c'est précisément ce que le mandat demande.
+ */
+function assertPrimaryActionIsBackToMenu(container: Element) {
+  assert.equal(
+    container.querySelector("a[data-order-confirmation-tracking]"),
+    null,
+    "MCC-V1-CONTRACT-CHANGE-01 : aucun lien de suivi ne doit plus être rendu"
+  );
+  assert.equal(
+    container.textContent?.includes("Suivre ma commande") ?? false,
+    false,
+    "le libellé « Suivre ma commande » ne doit plus apparaître"
+  );
+  assert.equal(
+    container.innerHTML.includes(TENANT.publicToken),
+    false,
+    "le jeton de possession ne doit apparaître NULLE PART dans l'écran de confirmation"
+  );
+
+  const back = container.querySelector<HTMLButtonElement>(
+    "[data-order-confirmation-back-to-menu]"
+  );
+  assert.ok(back, "action de retour au menu présente sur la confirmation");
+  assert.equal(back!.textContent, "Retour au menu");
+  const cls = back!.className;
+  assert.ok(cls.includes("bg-caramel"), "action PRINCIPALE (bouton plein)");
   const actionable = [...container.querySelectorAll("a, button")].filter((el) =>
     el.closest(".fixed.inset-0")
   );
-  assert.equal(actionable[0] === cta, true, "le suivi est la PREMIÈRE action de l'écran de confirmation (visible sans défilement)");
+  assert.equal(
+    actionable[0] === back,
+    true,
+    "le retour au menu est la PREMIÈRE action de l'écran de confirmation (visible sans défilement)"
+  );
 }
 
 // --------------------------------------------------------------------
@@ -310,7 +370,7 @@ test("CCLT-JOURNEY-01 WhatsApp OFF (mobile) : parcours complet sans AUCUNE trace
     assert.deepEqual(backend.openedUrls, [], "aucune ouverture WhatsApp");
     assert.equal(backend.rpcCalls.some((c) => c.name === "mark_whatsapp_opened"), false, "aucun marquage WhatsApp");
     assert.deepEqual(backend.unexpected, []);
-    assertTrackingIsPrimary(container);
+    assertPrimaryActionIsBackToMenu(container);
   } finally {
     root.unmount();
     container.remove();
@@ -323,7 +383,7 @@ test("CCLT-JOURNEY-02 aucun repli caché : WhatsApp activé mais numéro inutili
     await submit(container, "Valider la commande");
     assert.deepEqual(backend.openedUrls, []);
     assert.equal(backend.rpcCalls.some((c) => c.name === "mark_whatsapp_opened"), false);
-    assertTrackingIsPrimary(container);
+    assertPrimaryActionIsBackToMenu(container);
   } finally {
     root.unmount();
     container.remove();
@@ -347,7 +407,7 @@ test("CCLT-JOURNEY-03 WhatsApp ON : comportement historique (wa.me + marquage), 
       p_token: TENANT.publicToken,
     });
     assert.ok(container.textContent?.includes("via WhatsApp"));
-    assertTrackingIsPrimary(container);
+    assertPrimaryActionIsBackToMenu(container);
   } finally {
     root.unmount();
     container.remove();

@@ -76,6 +76,40 @@ const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-invoice-retry-
 const tmpFile = path.join(tmpDir, "MenuView.mjs");
 writeFileSync(tmpFile, code);
 const { MenuView } = await import(pathToFileURL(tmpFile).href);
+
+/**
+ * MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B) — l'écran de
+ * confirmation interroge désormais le serveur pour savoir si au moins
+ * une ligne de la commande est rétractable
+ * (POST /api/checkout/withdrawal-eligibility, voir
+ * lib/services/merchant-communications.ts::fetchWithdrawalEligibility).
+ *
+ * Ce harnais fournit donc la configuration que la PRODUCTION fournit,
+ * et il la fournit FERMÉE (`eligible:false`) : aucun appel à l'action de
+ * rétractation n'apparaît, le parcours observé par les assertions de ce
+ * fichier est donc exactement celui d'avant le lot.
+ *
+ * Conséquence voulue sur les COMPTEURS : les appels à cette route ne
+ * sont jamais délégués au mock du test, donc jamais comptés. C'est ce
+ * que les libellés de ces assertions disaient déjà (« appel fetch
+ * (facture) ») ; aucune assertion n'est affaiblie, et un appel
+ * INATTENDU vers une autre route atteint toujours le mock d'origine,
+ * qui lève comme avant.
+ */
+function withWithdrawalEligibilityClosed(inner: (...args: any[]) => any) {
+  return async (...args: any[]) => {
+    const first: any = args[0];
+    const url = String(first instanceof URL ? first.href : first?.url ?? first);
+    if (url.includes("/api/checkout/withdrawal-eligibility")) {
+      return new Response(JSON.stringify({ eligible: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return inner(...args);
+  };
+}
+
 rmSync(tmpDir, { recursive: true, force: true });
 
 function flush(ms = 0): Promise<void> {
@@ -190,6 +224,12 @@ function mockRpc(t: { mock: { method: Function } }, createOrderCalls: { count: n
       };
     }
     if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
   return createOrderCalls;
@@ -217,6 +257,12 @@ function mockRpcEmailRequired(t: { mock: { method: Function } }, createOrderCall
       };
     }
     if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
   return createOrderCalls;
@@ -307,6 +353,12 @@ function mockRpcDelivery(t: { mock: { method: Function } }, createOrderCalls: { 
       };
     }
     if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
   return createOrderCalls;
@@ -397,7 +449,7 @@ test("1. aucune facture demandée -- checkout normal INCHANGÉ (confirmation dir
   mockRpc(t);
   let fetchCalled = false;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => { fetchCalled = true; throw new Error("ne doit jamais être appelé"); };
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => { fetchCalled = true; throw new Error("ne doit jamais être appelé"); });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -418,7 +470,7 @@ test("2. facture demandée + persistance RÉUSSIE -- completion normale, un seul
   const createOrderCalls = mockRpc(t);
   let fetchCallCount = 0;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => { fetchCallCount += 1; return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 }); };
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => { fetchCallCount += 1; return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 }); });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -441,12 +493,12 @@ test("3/4/5/6/7. facture demandée + persistance ÉCHOUE -- échec VISIBLE, AUCU
   const fetchCalls: Array<{ orderId: string; publicToken: string }> = [];
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     const body = JSON.parse(init.body);
     fetchCalls.push({ orderId: body.orderId, publicToken: body.publicToken });
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let whatsappOpenCount = 0;
   (window as any).open = () => { whatsappOpenCount += 1; return {}; };
@@ -495,11 +547,11 @@ test("8. aucune action WhatsApp dupliquée même si la reprise échoue plusieurs
   const fetchCalls: number[] = [];
   let failCount = 2; // échoue 2 fois, réussit à la 3e tentative (1 initiale + 2 reprises)
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => {
     fetchCalls.push(1);
     if (failCount > 0) { failCount -= 1; return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 }); }
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let whatsappOpenCount = 0;
   (window as any).open = () => { whatsappOpenCount += 1; return {}; };
@@ -529,10 +581,10 @@ test("9/10. aucune action de paiement/Stuart déclenchée par la reprise de fact
   const createOrderCalls = mockRpc(t);
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => {
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -558,7 +610,7 @@ test("9/10. aucune action de paiement/Stuart déclenchée par la reprise de fact
 test("12/13. facture individuelle et société restent valides après le changement de fiabilité (non-régression du formulaire)", async (t) => {
   mockRpc(t);
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => new Response(JSON.stringify({ outcome: "ok" }), { status: 200 }));
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -593,12 +645,12 @@ test("CORRECTABLE-RETRY. facture rejetée pour un champ invalide -- la correctio
   const invoicePayloads: Array<Record<string, unknown>> = [];
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     const body = JSON.parse(init.body);
     invoicePayloads.push(body);
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let capturedWhatsAppUrl: string | null = null;
   let whatsappOpenCount = 0;
@@ -680,10 +732,10 @@ test("FULFILLMENT-FREEZE. changement de mode de fulfillment (pickup -> delivery)
   const createOrderCalls = mockRpc(t);
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async () => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => {
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let capturedWhatsAppUrl: string | null = null;
   (window as any).open = (url: string) => { capturedWhatsAppUrl = url; return {}; };
@@ -736,12 +788,12 @@ test("OVERLAP. sélection explicite de fulfillment (autoscroll v1.1) + facture r
   const invoicePayloads: Array<Record<string, unknown>> = [];
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     const body = JSON.parse(init.body);
     invoicePayloads.push(body);
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let whatsappOpenCount = 0;
   (window as any).open = () => { whatsappOpenCount += 1; return {}; };
@@ -876,11 +928,11 @@ test("EMAIL-VALIDATION-INVOICE. email de contact facture (société) au format i
   let fetchCallCount = 0;
   const fetchBodies: Array<Record<string, unknown>> = [];
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     fetchCallCount += 1;
     fetchBodies.push(JSON.parse(init.body));
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -930,12 +982,12 @@ test("EMAIL-VALIDATION-RETRY. facture société avec email de contact, échec r�
   const invoicePayloads: Array<Record<string, unknown>> = [];
   let shouldFail = true;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     const body = JSON.parse(init.body);
     invoicePayloads.push(body);
     if (shouldFail) return new Response(JSON.stringify({ outcome: "unavailable" }), { status: 502 });
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   let whatsappOpenCount = 0;
   (window as any).open = () => { whatsappOpenCount += 1; return {}; };
@@ -1009,14 +1061,14 @@ test("Delivery-1. Livraison + AUCUNE facture demandée -- checkout inchangé, au
   // aucune facture n'est demandée) doit rester impossible.
   let invoiceFetchCalled = false;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (input: unknown) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (input: unknown) => {
     const url = String(input instanceof URL ? input.href : (input as any)?.url ?? input);
     if (url.startsWith("https://geo.api.gouv.fr/communes")) {
       return new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } });
     }
     invoiceFetchCalled = true;
     throw new Error(`ne doit jamais être appelé : ${url}`);
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -1042,10 +1094,10 @@ test("Delivery-2. Livraison + facture + réutilisation de l'adresse de livraison
   mockRpcDelivery(t);
   let invoicePayload: any = null;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     invoicePayload = JSON.parse(init.body);
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -1090,10 +1142,10 @@ test("Delivery-3. Livraison + facture + adresse de facturation DIFFÉRENTE (togg
   mockRpcDelivery(t);
   let invoicePayload: any = null;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     invoicePayload = JSON.parse(init.body);
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 
@@ -1134,10 +1186,10 @@ test("Delivery-3b. Livraison + facture + adresse différente PUIS décochée à 
   mockRpcDelivery(t);
   let invoicePayload: any = null;
   const realFetch = globalThis.fetch;
-  (globalThis as any).fetch = async (_url: string, init: any) => {
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async (_url: string, init: any) => {
     invoicePayload = JSON.parse(init.body);
     return new Response(JSON.stringify({ outcome: "ok" }), { status: 200 });
-  };
+  });
   const realOpen = window.open;
   (window as any).open = () => ({});
 

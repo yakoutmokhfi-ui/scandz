@@ -83,6 +83,11 @@ import OptionModal from "@/components/OptionModal";
 import OrderConfirmation from "@/components/OrderConfirmation";
 import ProductInfoButton from "@/components/ProductInfoButton";
 import { buildTrackingPath } from "@/lib/tracking/link";
+import {
+  fetchWithdrawalEligibility,
+  getPublicCommunicationTexts,
+} from "@/lib/services/merchant-communications";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 
 import { I18nProvider } from "@/lib/i18n-context";
 import { getTheme, themeStyle } from "@/lib/themes";
@@ -690,6 +695,72 @@ export default function MenuView({
   const [confirmedTotal, setConfirmedTotal] = useState<number | null>(null);
   const [confirmedInvoiceRequested, setConfirmedInvoiceRequested] =
     useState(false);
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharges de texte du
+   * commerçant, lues UNE fois par établissement depuis la projection
+   * PUBLIQUE (les gabarits d'e-mail n'y figurent pas). Objet vide tant
+   * que la lecture n'a pas abouti OU si elle échoue : la vitrine rend
+   * alors exactement les formulations d'avant ce lot, elle ne tombe
+   * jamais en panne pour un texte facultatif.
+   */
+  const [communicationTexts, setCommunicationTexts] =
+    useState<CommunicationTextOverrides>({});
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1.1 — PREUVE D'ÉLIGIBILITÉ LIÉE À
+   * L'IDENTITÉ DE LA COMMANDE AFFICHÉE.
+   *
+   * ─── Ferme MCC-V1-WITHDRAWAL-ELIGIBILITY-RACE-01 (audit indépendant
+   * OpenAI/Codex, blocker 1) ───
+   *
+   * v1 ne gardait qu'un BOOLÉEN (`confirmedWithdrawalEligible`) et
+   * l'écrivait depuis le `.then()` de la requête, sans jamais vérifier
+   * que la réponse appartenait encore à la commande affichée. Une
+   * réponse LENTE de la commande A pouvait donc atterrir alors que
+   * l'écran montrait déjà la commande B — et faire apparaître un appel
+   * à l'action de rétractation sur une commande qui n'est PAS
+   * rétractable. Un booléen ne porte aucune identité : il ne peut pas,
+   * par construction, répondre à la question « de quelle commande
+   * parle cette preuve ? ».
+   *
+   * La preuve porte donc maintenant son identité complète : la
+   * GÉNÉRATION de confirmation qui l'a demandée, l'`order_id`, et le
+   * `trackingPath` — c'est-à-dire la cible RÉELLE du lien que le CTA
+   * va rendre. Les trois doivent coïncider avec l'écran courant pour
+   * que le CTA s'affiche (voir `withdrawalEligibleForDisplayedOrder`).
+   *
+   * FERMÉ AU REPOS : `null` jusqu'à preuve explicite ET concordante.
+   * Ce lot ne calcule aucune règle d'éligibilité, il transporte un
+   * booléen déjà établi par l'instantané SQL — mais il le transporte
+   * désormais avec l'identité de ce qu'il prouve.
+   */
+  interface WithdrawalEligibilityProof {
+    readonly generation: number;
+    readonly orderId: string;
+    readonly trackingPath: string;
+    readonly eligible: boolean;
+  }
+  const [withdrawalEligibilityProof, setWithdrawalEligibilityProof] =
+    useState<WithdrawalEligibilityProof | null>(null);
+  /**
+   * `order_id` de la commande RÉELLEMENT affichée par l'écran de
+   * confirmation. Distinct du `trackingPath` : les deux sont comparés,
+   * parce qu'ils proviennent de la même réponse `create_order` et qu'une
+   * divergence entre eux signalerait un état incohérent qu'il vaut mieux
+   * fermer que rendre.
+   */
+  const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null);
+  /**
+   * GÉNÉRATION DE CONFIRMATION — compteur MONOTONE, incrémenté à chaque
+   * ouverture ET à chaque fermeture d'écran de confirmation.
+   *
+   * Une `ref` et non un `state` : elle doit être lisible de façon
+   * SYNCHRONE depuis une continuation asynchrone (le `.then()` de la
+   * requête d'éligibilité), à l'instant où cette continuation s'exécute.
+   * Un `state` donnerait à la continuation la valeur CAPTURÉE au moment
+   * du rendu qui l'a créée — exactement l'information périmée dont la
+   * course se nourrissait.
+   */
+  const confirmationGenerationRef = useRef(0);
 
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -728,6 +799,34 @@ export default function MenuView({
       cancelled = true;
     };
   }, [restaurant.slug]);
+
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharges de texte du
+   * commerçant, lues UNE fois par établissement.
+   *
+   * Clé d'effet `restaurant.id` et NON `restaurant.slug` : la
+   * projection publique est indexée par identifiant, et c'est lui qui
+   * porte l'isolation multi-tenant (un seul établissement par appel).
+   *
+   * Échec = objet VIDE, jamais une exception remontée : la vitrine rend
+   * alors exactement les formulations d'avant ce lot. `cancelled`
+   * empêche qu'une réponse tardive d'un établissement précédent
+   * n'écrase les textes de l'établissement courant.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setCommunicationTexts({});
+    getPublicCommunicationTexts(restaurant.id)
+      .then((texts) => {
+        if (!cancelled) setCommunicationTexts(texts);
+      })
+      .catch(() => {
+        if (!cancelled) setCommunicationTexts({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurant.id]);
   /**
    * CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2 (FERME
    * "SILENT INVOICE LOSS"). Non-null UNIQUEMENT lorsqu'une commande a
@@ -1400,14 +1499,50 @@ export default function MenuView({
     // public_token proviennent EXCLUSIVEMENT de cette réponse
     // serveur de create_order -- jamais un jeton régénéré/reconstruit
     // ici. Le lien porte le jeton en FRAGMENT d'URL (mandat §6/§7).
-    setConfirmedTrackingPath(
-      buildTrackingPath(order.orderId, order.publicToken)
-    );
+    // MERCHANT CUSTOMER COMMUNICATIONS v1.1 — le chemin de suivi est
+    // calculé UNE fois ici, puis réutilisé tel quel : c'est la valeur
+    // qui part dans la requête d'éligibilité ET celle qui sera comparée
+    // au retour. Le recalculer deux fois ouvrirait la porte à deux
+    // valeurs divergentes pour une même commande.
+    const confirmedPath = buildTrackingPath(order.orderId, order.publicToken);
+    setConfirmedTrackingPath(confirmedPath);
+    setConfirmedOrderId(order.orderId);
     // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : `order.total` est le
     // même champ AUTORITATIF déjà utilisé ci-dessus pour le résumé
     // WhatsApp (SADFP-V2-01) -- jamais une seconde source.
     setConfirmedTotal(order.total);
     setConfirmedInvoiceRequested(invoiceRequested);
+    // MERCHANT CUSTOMER COMMUNICATIONS v1.1 (mandat §B) — l'appel à
+    // l'action de rétractation n'est affiché que sur PREUVE serveur,
+    // et seulement si cette preuve appartient À CETTE commande.
+    //
+    // La GÉNÉRATION est incrémentée AVANT la requête et capturée dans
+    // la fermeture : toute réponse portant une génération périmée est
+    // écartée sans jamais toucher l'état. La preuve est remise à `null`
+    // d'abord — une commande précédente rétractable ne peut donc jamais
+    // faire apparaître le bouton sur celle-ci, même pendant le vol de la
+    // requête.
+    //
+    // La requête reste volontairement NON bloquante : l'écran de
+    // confirmation ne doit pas attendre une information facultative
+    // pour s'afficher. Son échec laisse `null` (fermé au repos).
+    const confirmationGeneration = confirmationGenerationRef.current + 1;
+    confirmationGenerationRef.current = confirmationGeneration;
+    setWithdrawalEligibilityProof(null);
+    void fetchWithdrawalEligibility(order.orderId, order.publicToken).then(
+      (eligible) => {
+        // Garde de PÉREMPTION, lue à l'instant de la continuation : si
+        // l'écran a été fermé ou une commande plus récente confirmée,
+        // cette réponse n'appartient plus à rien d'affiché.
+        if (confirmationGenerationRef.current !== confirmationGeneration) return;
+        setWithdrawalEligibilityProof({
+          generation: confirmationGeneration,
+          orderId: order.orderId,
+          trackingPath: confirmedPath,
+          eligible: eligible === true,
+        });
+      }
+    );
     setIsCartOpen(false);
     setIsConfirmationOpen(true);
 
@@ -1584,10 +1719,46 @@ export default function MenuView({
     // commandes -- la prochaine commande reconstruira son propre
     // chemin depuis sa propre réponse create_order.
     setConfirmedTrackingPath(null);
+    // MERCHANT CUSTOMER COMMUNICATIONS v1.1 — INVALIDATION des preuves
+    // d'éligibilité EN VOL (ferme MCC-V1-WITHDRAWAL-ELIGIBILITY-RACE-01).
+    //
+    // Incrémenter la génération suffit à rendre orpheline toute réponse
+    // encore en vol : sa continuation verra une génération différente et
+    // n'écrira rien. L'effacement de la preuve et de l'identité de
+    // commande est l'autre moitié — sans lui, une preuve concordante
+    // d'une commande fermée resterait en mémoire et serait réutilisée si
+    // la même commande était réaffichée.
+    confirmationGenerationRef.current += 1;
+    setWithdrawalEligibilityProof(null);
+    setConfirmedOrderId(null);
   }
 
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(lang, key, params);
+
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1.1 — SEULE expression autorisée à
+   * décider de l'affichage du CTA de rétractation.
+   *
+   * La preuve doit concorder sur les TROIS composantes de son identité :
+   *   - `generation` : elle a été demandée par l'écran COURANT (ni par un
+   *     écran fermé depuis, ni par une commande antérieure) ;
+   *   - `orderId`    : elle parle de la commande réellement affichée ;
+   *   - `trackingPath` : elle parle de la cible EXACTE que le CTA va
+   *     rendre dans son `href` — c'est cette égalité-là qui garantit que
+   *     « le CTA appartient à la commande dont l'éligibilité a été
+   *     vérifiée », et non une simple cohérence d'identifiants.
+   *
+   * Toute discordance, toute preuve absente, tout `eligible` non
+   * strictement `true` : pas de CTA. Fermé au repos sur chacune des
+   * quatre conditions, indépendamment.
+   */
+  const withdrawalEligibleForDisplayedOrder =
+    withdrawalEligibilityProof !== null &&
+    withdrawalEligibilityProof.generation === confirmationGenerationRef.current &&
+    withdrawalEligibilityProof.orderId === confirmedOrderId &&
+    withdrawalEligibilityProof.trackingPath === confirmedTrackingPath &&
+    withdrawalEligibilityProof.eligible === true;
 
   // Surcharges de couleur établissement (V69) — voir
   // restaurant_configs.primary_color/secondary_color/accent_color et
@@ -1865,6 +2036,7 @@ export default function MenuView({
           cgvLegalHref={cgvInfo?.enforced ? `/legal/${restaurant.slug}` : null}
           onSendOrder={handleSendOrder}
           onClose={() => setIsCartOpen(false)}
+          communicationTexts={communicationTexts}
         />
       )}
 
@@ -1876,6 +2048,8 @@ export default function MenuView({
           trackingPath={confirmedTrackingPath}
           totalAmount={confirmedTotal}
           invoiceRequested={confirmedInvoiceRequested}
+          communicationTexts={communicationTexts}
+          withdrawalEligible={withdrawalEligibleForDisplayedOrder}
           onBackToMenu={closeConfirmation}
           onNewOrder={closeConfirmation}
         />

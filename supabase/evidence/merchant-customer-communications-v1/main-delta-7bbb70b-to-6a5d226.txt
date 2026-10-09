@@ -1,0 +1,38 @@
+APPORT DE origin/main DEPUIS LA BASE AUDITÉE
+base auditée  : 7bbb70b9f6f7f522b1b452a60b2092a69699ba95  arbre 8ad7238ffe4d5398f883072d63ee456e8ab4e713
+main courant  : 6a5d226ff7d6ecefd9277bb4f636fe91a80e43e8  arbre 96badf8c772e11a1cf4be6f5abc1baf04980629e
+
+--- commits ---
+6a5d226 Merge PR #132: Au Lait Cru delivery zone remediation v1
+da30eda fix(alc): parenthesize remediation CASE assertion and refresh audit evidence
+35bfa96 Prepare Au Lait Cru delivery zone config remediation v1 for CIO audit only
+
+--- fichiers (statut) ---
+A	supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1-ROLLBACK.sql
+A	supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/README.md
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-before-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-postflight-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/after-proposed.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/before.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/final-read.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/manifest.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/observed-resolver.txt
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/actual-after-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/npm-ci.log
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/regression-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/state-checks.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/targeted-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/test-results.log
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-results.json
+A	supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs
+A	supabase/tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs
+
+--- volumétrie ---
+ 22 files changed, 2905 insertions(+)
+
+--- recoupement avec les 44 fichiers de ce lot ---
+(aucune ligne ci-dessus = AUCUN fichier commun, donc aucun conflit possible)

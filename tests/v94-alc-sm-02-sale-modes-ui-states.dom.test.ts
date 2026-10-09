@@ -243,6 +243,12 @@ test("ALC-SM-02 (error) : message neutre dédié affiché, envoi impossible, jam
     if (name === "get_restaurant_public_sale_modes") {
       return { data: null, error: { message: "panne réseau simulée" } };
     }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 
@@ -278,6 +284,12 @@ test("ALC-SM-02 (loaded vide) : message dédié 'aucun mode disponible' affiché
     if (name === "get_restaurant_public_sale_modes") {
       return { data: [], error: null };
     }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 

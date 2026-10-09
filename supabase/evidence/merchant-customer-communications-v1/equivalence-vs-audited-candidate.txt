@@ -1,0 +1,108 @@
+ÉQUIVALENCE SÉMANTIQUE — candidat audité <-> candidat recomposé
+
+candidat audité     : bfcd3a0faf54bf409579c05099b067a5f2e521f8  arbre 4c1e8147a293e27569462f5428e6ae584d40627b
+candidat recomposé  : 197529defa0939fc316148edf40e2811e89400ed  arbre 6b3eeeae8c3a3347456b2e2b1908da1b45e33096
+base du recomposé   : 6a5d226ff7d6ecefd9277bb4f636fe91a80e43e8
+
+=== MÉTHODE 1 — identité de blob, fichier par fichier ===
+Les 44 fichiers d'implémentation du lot, avec leur empreinte d'objet git
+dans le candidat AUDITÉ puis dans le candidat RECOMPOSÉ :
+
+  IDENTIQUE  75479f72187157bdf98ae714aed349363b71e9d0  app/api/checkout/withdrawal-eligibility/route.ts
+  IDENTIQUE  4d40074408b8c033c93d553de2ff2225c0eb0254  app/dashboard/settings/page.tsx
+  IDENTIQUE  7899e795e69e583705663c45900f92082d79880c  components/CartPanel.tsx
+  IDENTIQUE  0d79c2fb2fea9b9d3ff3c82880ed37997628c85d  components/DeliveryTimingNoticeDialog.tsx
+  IDENTIQUE  523cb388e2f66525238439955a832ef42275ca0e  components/FulfillmentSelector.tsx
+  IDENTIQUE  e244835f99fc650cd86d776bca64bec1bf01cf83  components/MenuView.tsx
+  IDENTIQUE  5af570ce3db3d6c9c2530bb580a71c70b5d19626  components/OrderConfirmation.tsx
+  IDENTIQUE  51a262dc8755af1108fd9045064078972c523090  lib/communications/events.ts
+  IDENTIQUE  40a3de00c6c3661ed4b6b529b30f96c0913370eb  lib/communications/resolve.ts
+  IDENTIQUE  947c597f21f758e42937468cc698a208a93b66b7  lib/communications/template-variables.ts
+  IDENTIQUE  76ab0e432d12959ecb027c6cc351d0b68f1cee1f  lib/communications/text-keys.ts
+  IDENTIQUE  e8a1482c21870f4b141b3f29902afd39714052d2  lib/i18n.ts
+  IDENTIQUE  b04a8345cbd5538219ca11a4e7ae1ae69b4b25eb  lib/server/notifications/communication-event-template.ts
+  IDENTIQUE  8b856101140ee9e1efa1aec9ed1286cdc6e6ae49  lib/server/notifications/communication-template-values.ts
+  IDENTIQUE  92b3cc10bb30f77b3e1e5b1f57be4ba6b94ffa83  lib/server/notifications/notification-worker.ts
+  IDENTIQUE  0210c9bbe17be5e80cc0d1f68e435d32f40728b4  lib/server/notifications/order-received-template.ts
+  IDENTIQUE  940f40e7b6cc0fdcd1e307cd27cbd73c70532f84  lib/server/withdrawal-eligibility-service.ts
+  IDENTIQUE  2183b592855c16a4be995b17da7bca92303754c8  lib/services/merchant-communications.ts
+  IDENTIQUE  92c0fe5077bab38499916ad9198bd638d23f0430  supabase/DRAFT-lot-merchant-customer-communications-v1-rollback.sql
+  IDENTIQUE  f224823438ce4cab331366969536bb0bb00602c5  supabase/DRAFT-lot-merchant-customer-communications-v1.sql
+  IDENTIQUE  33758db511a14e212a02413605c40405d4001f21  supabase/tests/merchant-customer-communications-v1-check.sh
+  IDENTIQUE  b9bcead0fa8022f86609990a14f292af489f4c24  supabase/tests/merchant-customer-communications-v1-harness-safety-check.sh
+  IDENTIQUE  7c16f83b73a4e87d2a36df0c5aa8bce4046dba13  tests/cclt-v1-whatsapp-journey.dom.test.ts
+  IDENTIQUE  7721403fcc37b3a1acc12ba533d3d40153f76b53  tests/checkout-invoice-request-reliability.dom.test.ts
+  IDENTIQUE  cc2c32928acbefabeb9b16a500d845919df7fc70  tests/dashboard-restaurant-context-hardening-v1.dom.test.ts
+  IDENTIQUE  9cf33f060b5563673d7477e5718713e2eda4993d  tests/dashboard-restaurant-context-stale-response-v1-1.dom.test.ts
+  IDENTIQUE  0ae71dd1058342936f2778c6fb1feabb3288376d  tests/delivery-country-scope-v1-1.dom.test.ts
+  IDENTIQUE  892cfbb622104c948d9ff3a65d72efdce0204a38  tests/mcc-v1-communication-texts.test.ts
+  IDENTIQUE  19a00cff45e5a9ecbb7e7d76d5ccc421b0397c8a  tests/mcc-v1-email-events.test.ts
+  IDENTIQUE  99cb8428d20618e800381ce8aaea3572ca14b687  tests/mcc-v1-order-confirmation.dom.test.ts
+  IDENTIQUE  2e0a22946f18701b1decc7b177ec10a60514132f  tests/mcc-v1-sql-structural.test.ts
+  IDENTIQUE  5c5739fd2fadea9d1cafb8cc8e5224dc0e677f3e  tests/mcc-v1-withdrawal-eligibility-race.dom.test.ts
+  IDENTIQUE  b7a8668998db39122569c1eab2e148fd62077248  tests/product-service-modes-v1-customer-ui.dom.test.ts
+  IDENTIQUE  9cd655661b2d236abca3dedf587416459ee80c94  tests/settings-save-reliability-v1.dom.test.ts
+  IDENTIQUE  8ed946625588a050b557cc1204c0b26de9e8536d  tests/v101-fulfillment-routing-lot-c-menuview.dom.test.ts
+  IDENTIQUE  c7accb0b2754cb866e9b2c2e80f094b7457b18e1  tests/v110c-payment-p3a1-structural.test.ts
+  IDENTIQUE  9a186afc5c5f6a2227038fa9d8813a0a2ca5a5db  tests/v122h-tracking-order-confirmation.dom.test.ts
+  IDENTIQUE  963747a1c7fdde48c14c86964ff2585d680fb3a6  tests/v122i-tracking-menuview-wiring.dom.test.ts
+  IDENTIQUE  57c156403a5b2301b7bee59a4dcd869ab772c451  tests/v148-fulfillment-choice-popup-v1.dom.test.ts
+  IDENTIQUE  9643b27f117409d8ddf411e43e6a3ec5288a406a  tests/v149-fulfillment-choice-autoscroll-v1-1.dom.test.ts
+  IDENTIQUE  7a535f90f25dc5ead9b5c83e8a76c9028d512e90  tests/v171b-client-golden-path.dom.test.ts
+  IDENTIQUE  3ea88e2da62188eee3aed63df1d3e793ae4941a9  tests/v91-lot2b4a2-dynamic-form.dom.test.ts
+  IDENTIQUE  c29516d0342147a72c757b1b2e0db38bdb56692b  tests/v92-aulaitcru-sale-modes-runtime.dom.test.ts
+  IDENTIQUE  39afa9bbf58f52ab23e798d7a9cfe1580d4a4d5a  tests/v94-alc-sm-02-sale-modes-ui-states.dom.test.ts
+
+  divergents : 0 / 44
+
+=== diff complet entre les deux candidats ===
+A	supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1-ROLLBACK.sql
+A	supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/README.md
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-before-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-postflight-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/after-proposed.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/before.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/final-read.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/manifest.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/observed-resolver.txt
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/actual-after-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/npm-ci.log
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/regression-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/state-checks.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/targeted-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/test-results.log
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-results.json
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-read-only.sql
+A	supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-results.json
+D	supabase/evidence/merchant-customer-communications-v1/README.md
+D	supabase/evidence/merchant-customer-communications-v1/SHA256SUMS.txt
+D	supabase/evidence/merchant-customer-communications-v1/baseline-failures-sorted.txt
+D	supabase/evidence/merchant-customer-communications-v1/baseline.tap.gz
+D	supabase/evidence/merchant-customer-communications-v1/build-baseline.txt
+D	supabase/evidence/merchant-customer-communications-v1/build-candidate.txt
+D	supabase/evidence/merchant-customer-communications-v1/candidate-failures-sorted.txt
+D	supabase/evidence/merchant-customer-communications-v1/candidate-first-run-failures-sorted.txt
+D	supabase/evidence/merchant-customer-communications-v1/candidate.tap.gz
+D	supabase/evidence/merchant-customer-communications-v1/manifest.json
+D	supabase/evidence/merchant-customer-communications-v1/mcc-v1-modified-files.patch
+D	supabase/evidence/merchant-customer-communications-v1/sql-harness.txt
+D	supabase/evidence/merchant-customer-communications-v1/targeted.tap.gz
+A	supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs
+A	supabase/tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs
+
+Classement de ce diff :
+  - fichiers AJOUTÉS PAR MAIN courant (hors périmètre du lot) : 22
+  - paquet de preuves MCC, rafraîchi par ce commit            : 13
+  - TOUT LE RESTE                                             : 0
+
+=== MÉTHODE 2 — rebase RÉEL, à titre de contre-épreuve ===
+Un `git rebase --onto 6a5d226 7bbb70b bfcd3a0` exécuté dans un clone
+jetable se termine SANS AUCUN CONFLIT et produit :
+  commit bedcbf6bc93bc3c87786cbc8d23ed36353ad9ed1  arbre 88f7f29d76c65a50e782c73eeee3b1887f7ce7a3
+Comparé au candidat recomposé, hors paquet de preuves MCC :
+  0 fichier différent.
+
+Les deux méthodes concordent : la recomposition n'est pas une
+réécriture, c'est le MÊME code posé sur un contexte plus récent.

@@ -19,6 +19,7 @@ import FulfillmentSelector from "@/components/FulfillmentSelector";
 import type { DeliveryCountryOption } from "@/lib/delivery-country";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
 import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 import { DeliveryPostcodeResult } from "@/components/DeliveryConditions";
 import { isValidPostalCodeFor } from "@/lib/delivery-country";
 import type { ServiceMode } from "@/lib/restaurants-config";
@@ -67,6 +68,7 @@ export default function CartPanel({
   deliveryCountryScope = [],
   cityOptions = null,
   onSelectDeliveryCountry,
+  communicationTexts = null,
   onChangeNote,
   cgvEnforced,
   cgvAccepted,
@@ -161,6 +163,11 @@ export default function CartPanel({
    *  zéro ville connue). Passe-plat, aucune décision prise ici. */
   cityOptions?: { code: string; name: string }[] | null;
   onSelectDeliveryCountry?: (countryCode: string) => void;
+  /** MERCHANT CUSTOMER COMMUNICATIONS v1 -- passe-plat vers
+   *  FulfillmentSelector et DeliveryTimingNoticeDialog, jamais
+   *  réinterprété ici (même discipline que `deliveryCountry`).
+   *  `null`/absent : toutes les formulations restent celles d'avant. */
+  communicationTexts?: CommunicationTextOverrides | null;
   onChangeNote: (value: string) => void;
   /**
    * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1 (referme le
@@ -504,6 +511,7 @@ export default function CartPanel({
                 confirming={timingNoticeConfirming || isSubmitting}
                 onConfirm={() => void confirmTimingNotice()}
                 onDismiss={() => setTimingNoticeOpen(false)}
+                communicationTexts={communicationTexts}
               />
               <DeliveryPostcodeResult key={restaurant.id}
                 active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen}
@@ -545,6 +553,7 @@ export default function CartPanel({
                     deliveryCountryScope={deliveryCountryScope}
                     cityOptions={cityOptions}
                     onSelectDeliveryCountry={onSelectDeliveryCountry}
+                    communicationTexts={communicationTexts}
                   />
                 </div>
               )}

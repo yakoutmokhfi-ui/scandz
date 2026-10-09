@@ -193,6 +193,23 @@ const LEGAL_CGV_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   "app/api/dashboard/legal-cgv/publish/route.ts": /^@\/lib\/server\/legal-cgv-(publish|activate)-service$/,
   "app/api/dashboard/legal-cgv/activate/route.ts": /^@\/lib\/server\/legal-cgv-activate-service$/,
 };
+
+// MERCHANT CUSTOMER COMMUNICATIONS v1 — une SEULE route de plus, et son
+// motif est SCOPÉ à son unique module serveur (même discipline que les
+// entrées ci-dessus : jamais « sans restriction de module »).
+//
+// Pourquoi une route serveur plutôt qu'un appel anon direct : l'
+// éligibilité à la rétractation est, par ligne de commande, une
+// classification OPÉRATIONNELLE INTERNE du commerçant -- déjà retirée de
+// la carte publique par lib/services/restaurant.ts pour cette raison.
+// Elle ne doit donc pas devenir interrogeable par `anon` : seul un
+// AGRÉGAT booléen, pour une commande dont l'appelant prouve la
+// possession (order_id + public_token), traverse cette frontière. La RPC
+// sous-jacente est réservée à service_role.
+const MCC_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+  "app/api/checkout/withdrawal-eligibility/route.ts":
+    /^@\/lib\/server\/withdrawal-eligibility-service$/,
+};
 test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from \"...\"')", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
@@ -203,7 +220,10 @@ test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF
     const serverReferences = references.filter((r) => r.startsWith("@/lib/server/"));
 
     const allowedPattern =
-      TRACKING_ALLOWED_SERVER_IMPORTERS[file] ?? STUART_ALLOWED_SERVER_IMPORTERS[file] ?? LEGAL_CGV_ALLOWED_SERVER_IMPORTERS[file];
+      TRACKING_ALLOWED_SERVER_IMPORTERS[file] ??
+      STUART_ALLOWED_SERVER_IMPORTERS[file] ??
+      LEGAL_CGV_ALLOWED_SERVER_IMPORTERS[file] ??
+      MCC_ALLOWED_SERVER_IMPORTERS[file];
     if (!allowedPattern) {
       // Fichier NON allowlisté : AUCUNE référence lib/server/* n'est
       // tolérée, littérale OU non littérale (fail-closed explicite).
@@ -465,10 +485,23 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // au même endroit l'invalidation du cache ISR de la page légale
   // publique ; zéro SQL, aucun paiement/Stuart/suivi déclenché. Entrée
   // EXACTE unique ajoutée à cette liste FERMÉE, jamais une
-  // correspondance large).
+  // correspondance large)
+  // + 1 route MERCHANT CUSTOMER COMMUNICATIONS v1 (également ULTÉRIEURE
+  // et SANS RAPPORT avec PAYMENT P3-A1 -- LECTURE SEULE : « au moins
+  // une ligne de cette commande est-elle rétractable ? », sous la même
+  // preuve de possession anonyme (order_id + public_token) que
+  // /api/checkout/invoice-request. Elle LIT l'instantané existant
+  // order_items.withdrawal_eligible_at_order_time et ne modifie AUCUNE
+  // règle d'éligibilité ; aucune écriture, aucun paiement, aucun
+  // Stuart, aucun e-mail déclenché. Elle existe précisément pour que
+  // cette classification OPÉRATIONNELLE INTERNE du commerçant ne
+  // devienne pas interrogeable par `anon` : seul un AGRÉGAT booléen
+  // traverse. Entrée EXACTE unique ajoutée à cette liste FERMÉE, jamais
+  // une correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/admin/gap-01-ack-health-check/route.ts",
     "app/api/checkout/invoice-request/route.ts",
+    "app/api/checkout/withdrawal-eligibility/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",
     "app/api/dashboard/legal-cgv/activate/route.ts",

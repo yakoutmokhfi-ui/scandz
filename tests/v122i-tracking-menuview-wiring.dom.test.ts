@@ -256,6 +256,12 @@ function mockRpc(
     if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
     if (name === "create_order") return createOrderResult;
     if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
 }
@@ -292,6 +298,42 @@ async function renderFillPickupAndReachSubmit() {
   return { container, root, submitBtn: submitBtn! };
 }
 
+
+/**
+ * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
+ * mandat §B) ───
+ *
+ * L'écran de confirmation ne porte plus de bouton « Suivre ma
+ * commande ». Le chemin `/track/<order_id>#<public_token>` reste rendu,
+ * mais comme cible de l'UNIQUE appel à l'action désormais autorisé : la
+ * demande de rétractation, qui n'apparaît que si le SERVEUR prouve
+ * qu'au moins une ligne de la commande est rétractable
+ * (POST /api/checkout/withdrawal-eligibility).
+ *
+ * Ce que CE fichier prouve -- que le chemin affiché porte l'order_id et
+ * le public_token RÉELLEMENT renvoyés par create_order, en FRAGMENT,
+ * jamais un jeton régénéré -- est donc intégralement conservé : seule
+ * l'étiquette du lien change. On sert ici la preuve d'éligibilité
+ * OUVERTE pour que ce lien soit rendu, et la fonction vérifie que la
+ * route n'est appelée qu'avec l'order_id/public_token réels.
+ */
+function installWithdrawalEligibility(eligible: boolean): { calls: Array<{ orderId: string; publicToken: string }> } {
+  const calls: Array<{ orderId: string; publicToken: string }> = [];
+  (globalThis as any).fetch = async (input: unknown, init: any) => {
+    const url = String(input);
+    if (url.includes("/api/checkout/withdrawal-eligibility")) {
+      const body = JSON.parse(init.body);
+      calls.push({ orderId: body.orderId, publicToken: body.publicToken });
+      return new Response(JSON.stringify({ eligible }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`requête sortante inattendue : ${url}`);
+  };
+  return { calls };
+}
+
 function findTrackingAnchor(container: Element): HTMLAnchorElement | undefined {
   return [...container.querySelectorAll("a")].find((a) => a.getAttribute("href")?.startsWith("/track/"));
 }
@@ -317,6 +359,8 @@ test("mandat §20/§33 : create_order RÉUSSI -- le lien de suivi affiché porte
   // ici, et non fiable sous jsdom).
   const realOpen = window.open;
   (window as any).open = () => ({});
+  const realFetch = globalThis.fetch;
+  const eligibility = installWithdrawalEligibility(true);
 
   const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
   try {
@@ -326,15 +370,31 @@ test("mandat §20/§33 : create_order RÉUSSI -- le lien de suivi affiché porte
       "l'écran de confirmation doit apparaître après un create_order réussi"
     );
 
+    // MCC-V1-CONTRACT-CHANGE-01 : plus aucun bouton « Suivre ma
+    // commande ». Le chemin est désormais porté par l'appel à l'action
+    // de rétractation, rendu uniquement sur preuve serveur.
+    assert.equal(container.textContent?.includes("Suivre ma commande"), false);
+    await waitFor(
+      () => findTrackingAnchor(container) !== undefined,
+      "le lien de rétractation doit apparaître après la preuve d'éligibilité"
+    );
+
     const anchor = findTrackingAnchor(container);
-    assert.ok(anchor, "un lien de suivi (<a href=\"/track/...\">) doit être présent après succès");
-    assert.equal(anchor!.textContent, "Suivre ma commande");
+    assert.ok(anchor, "un lien (<a href=\"/track/...\">) doit être présent après succès");
+    assert.equal(anchor!.textContent, "Demander une rétractation");
     assertTrackingHrefIsSecure(anchor!.getAttribute("href")!);
+
+    // La preuve a été demandée avec l'order_id/public_token RÉELS
+    // renvoyés par create_order -- jamais une valeur reconstruite.
+    assert.equal(eligibility.calls.length, 1);
+    assert.equal(eligibility.calls[0]!.orderId, ORDER_ID);
+    assert.equal(eligibility.calls[0]!.publicToken, TOKEN);
 
     root.unmount();
     container.remove();
   } finally {
     (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
   }
 });
 
@@ -379,13 +439,15 @@ test("mandat §11 (écho MenuView) : \"Passer une autre commande\" efface l'éta
   });
   const realOpen = window.open;
   (window as any).open = () => ({});
+  const realFetch = globalThis.fetch;
+  installWithdrawalEligibility(true);
 
   const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
   try {
     click(submitBtn);
     await waitFor(
       () => findTrackingAnchor(container) !== undefined,
-      "le lien de suivi doit apparaître après succès"
+      "le lien de rétractation doit apparaître après succès"
     );
 
     const newOrderBtn = buttonWithText(container, "Passer une autre commande");
@@ -401,12 +463,13 @@ test("mandat §11 (écho MenuView) : \"Passer une autre commande\" efface l'éta
     assert.equal(
       findTrackingAnchor(container),
       undefined,
-      "aucun lien de suivi résiduel ne doit rester affiché après retour au menu"
+      "aucun lien résiduel ne doit rester affiché après retour au menu"
     );
 
     root.unmount();
     container.remove();
   } finally {
+    (globalThis as any).fetch = realFetch;
     (window as any).open = realOpen;
   }
 });

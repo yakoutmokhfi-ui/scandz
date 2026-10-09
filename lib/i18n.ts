@@ -419,6 +419,61 @@ const fr: Dict = {
   // marchande -- jamais d'un second texte spécifique à l'e-mail.
   emailOrderReceivedMerchantLabel: "Commerçant :",
   emailOrderReceivedDeliveryAddressLabel: "Adresse de livraison :",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — textes de BASE PLATEFORME,
+  // génériques et identiques pour tous les commerçants. Ils sont le
+  // repli exact lorsqu'aucune surcharge marchande n'existe
+  // (lib/communications/*) : aucune formulation propre à un commerçant
+  // n'est codée ici, ni ailleurs.
+  commCarrierPreparedDefault:
+    "Votre commande est préparée puis remise au transporteur pour acheminement.",
+  emailCarrierLabel: "Transporteur :",
+  emailCarrierHandoffSubject: "{merchant} — commande #{n} remise au transporteur",
+  emailCarrierHandoffHeading: "Commande remise au transporteur",
+  emailCarrierHandoffIntro:
+    "Votre commande n°{n} a été préparée et remise au transporteur.",
+  emailLocalDeliveryHandoffSubject: "{merchant} — commande #{n} en cours de livraison",
+  emailLocalDeliveryHandoffHeading: "Commande en cours de livraison",
+  emailLocalDeliveryHandoffIntro:
+    "Votre commande n°{n} est prête et part en livraison.",
+  emailWithdrawalRequestSubject: "{merchant} — demande de rétractation enregistrée (commande #{n})",
+  emailWithdrawalRequestHeading: "Demande de rétractation enregistrée",
+  emailWithdrawalRequestIntro:
+    "Nous avons enregistré votre demande de rétractation pour la commande n°{n}.",
+  confirmWithdrawalCta: "Demander une rétractation",
+  commFlagYes: "oui",
+  commFlagNo: "non",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — libellés du BACK-OFFICE
+  // (jamais customer-facing). Les textes clients eux-mêmes vivent dans
+  // merchant_communication_text ; ces clés ne nomment que le
+  // formulaire qui les édite.
+  stCommTextTitle: "Textes clients personnalisables",
+  stCommTextHint: "Formulations affichées à vos clients et dans vos e-mails. Laissez un champ vide pour conserver le texte générique de Scanym. Réservé à owner et manager.",
+  stCommVariablesHint: "Variables autorisées (entre accolades) : {merchant_name}, {order_reference}, {order_total}, {fulfillment_type}, {fulfillment_date}, {fulfillment_slot}, {merchant_address}, {merchant_email}, {merchant_phone}, {carrier_name}, {invoice_requested}, {withdrawal_link}, {withdrawal_eligible}. Toute autre variable est refusée à l'enregistrement.",
+  stCommTextTooLong: "Un texte client dépasse la longueur autorisée.",
+  stCommUnknownVariable: "Un texte client contient une variable non autorisée.",
+  stCommSaveError: "Échec d'enregistrement des textes clients.",
+  stCommEventTitle: "E-mails clients facultatifs",
+  stCommEventHint: "Désactivés par défaut. Un e-mail facultatif n'est envoyé que si vous l'activez ici ET que les e-mails de notification sont configurés. Réservé à owner et manager.",
+  stCommEventSaveError: "Échec d'enregistrement des e-mails facultatifs.",
+  stCommKey_checkout_info: "Information affichée au moment de la commande",
+  stCommKey_pickup_explanation: "Explication du retrait sur place",
+  stCommKey_delivery_local_explanation: "Explication de la livraison locale",
+  stCommKey_delivery_carrier_explanation: "Explication de la livraison par transporteur",
+  stCommKey_slot_warning: "Avertissement sur les créneaux et délais",
+  stCommKey_sanitary_warning: "Avertissement sanitaire ou de conservation",
+  stCommKey_order_success_title: "Titre de l'écran de confirmation",
+  stCommKey_order_success_body: "Message de l'écran de confirmation",
+  stCommKey_confirmation_pickup: "Confirmation — retrait sur place",
+  stCommKey_confirmation_delivery_local: "Confirmation — livraison locale",
+  stCommKey_confirmation_delivery_carrier: "Confirmation — remise au transporteur",
+  stCommKey_email_confirmation_subject: "E-mail de confirmation — objet",
+  stCommKey_email_confirmation_body: "E-mail de confirmation — message",
+  stCommKey_confirmation_withdrawal_request: "Accusé de demande de rétractation",
+  stCommEvent_carrier_handoff: "E-mail « commande remise au transporteur »",
+  stCommEvent_local_delivery_handoff: "E-mail « commande en cours de livraison »",
+  stCommEvent_withdrawal_request_received: "E-mail « demande de rétractation enregistrée »",
   backToMenu: "Retour au menu",
   newOrder: "Passer une autre commande",
 
@@ -1353,6 +1408,53 @@ const en: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "Merchant:",
   emailOrderReceivedDeliveryAddressLabel: "Delivery address:",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — platform BASE texts.
+  commCarrierPreparedDefault:
+    "Your order is prepared and then handed over to the carrier for shipping.",
+  emailCarrierLabel: "Carrier:",
+  emailCarrierHandoffSubject: "{merchant} — order #{n} handed to the carrier",
+  emailCarrierHandoffHeading: "Order handed to the carrier",
+  emailCarrierHandoffIntro:
+    "Your order #{n} has been prepared and handed over to the carrier.",
+  emailLocalDeliveryHandoffSubject: "{merchant} — order #{n} out for delivery",
+  emailLocalDeliveryHandoffHeading: "Order out for delivery",
+  emailLocalDeliveryHandoffIntro: "Your order #{n} is ready and out for delivery.",
+  emailWithdrawalRequestSubject: "{merchant} — withdrawal request recorded (order #{n})",
+  emailWithdrawalRequestHeading: "Withdrawal request recorded",
+  emailWithdrawalRequestIntro:
+    "We have recorded your withdrawal request for order #{n}.",
+  confirmWithdrawalCta: "Request a withdrawal",
+  commFlagYes: "yes",
+  commFlagNo: "no",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — back-office labels.
+  stCommTextTitle: "Customisable customer texts",
+  stCommTextHint: "Wording shown to your customers and in your emails. Leave a field empty to keep Scanym's generic text. Owner and manager only.",
+  stCommVariablesHint: "Allowed variables (in braces): {merchant_name}, {order_reference}, {order_total}, {fulfillment_type}, {fulfillment_date}, {fulfillment_slot}, {merchant_address}, {merchant_email}, {merchant_phone}, {carrier_name}, {invoice_requested}, {withdrawal_link}, {withdrawal_eligible}. Any other variable is rejected on save.",
+  stCommTextTooLong: "One customer text exceeds the allowed length.",
+  stCommUnknownVariable: "One customer text contains a variable that is not allowed.",
+  stCommSaveError: "Could not save the customer texts.",
+  stCommEventTitle: "Optional customer emails",
+  stCommEventHint: "Disabled by default. An optional email is only sent if you enable it here AND notification emails are configured. Owner and manager only.",
+  stCommEventSaveError: "Could not save the optional emails.",
+  stCommKey_checkout_info: "Information shown at checkout",
+  stCommKey_pickup_explanation: "In-store pickup explanation",
+  stCommKey_delivery_local_explanation: "Local delivery explanation",
+  stCommKey_delivery_carrier_explanation: "Carrier delivery explanation",
+  stCommKey_slot_warning: "Slot and lead-time warning",
+  stCommKey_sanitary_warning: "Food-safety or storage warning",
+  stCommKey_order_success_title: "Confirmation screen title",
+  stCommKey_order_success_body: "Confirmation screen message",
+  stCommKey_confirmation_pickup: "Confirmation — in-store pickup",
+  stCommKey_confirmation_delivery_local: "Confirmation — local delivery",
+  stCommKey_confirmation_delivery_carrier: "Confirmation — handed to carrier",
+  stCommKey_email_confirmation_subject: "Confirmation email — subject",
+  stCommKey_email_confirmation_body: "Confirmation email — message",
+  stCommKey_confirmation_withdrawal_request: "Withdrawal request acknowledgement",
+  stCommEvent_carrier_handoff: "\"Order handed to the carrier\" email",
+  stCommEvent_local_delivery_handoff: "\"Order out for delivery\" email",
+  stCommEvent_withdrawal_request_received: "\"Withdrawal request recorded\" email",
   confirmThanks: "Thank you for choosing {name}!",
   confirmEnjoy: "We are preparing your order with care. Enjoy!",
   backToMenu: "Back to menu",
@@ -2218,6 +2320,51 @@ const ar: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "التاجر:",
   emailOrderReceivedDeliveryAddressLabel: "عنوان التوصيل:",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — نصوص المنصة الأساسية.
+  commCarrierPreparedDefault:
+    "يتم تحضير طلبكم ثم تسليمه إلى الناقل للشحن.",
+  emailCarrierLabel: "الناقل:",
+  emailCarrierHandoffSubject: "{merchant} — تم تسليم الطلب #{n} إلى الناقل",
+  emailCarrierHandoffHeading: "تم تسليم الطلب إلى الناقل",
+  emailCarrierHandoffIntro: "تم تحضير طلبكم رقم {n} وتسليمه إلى الناقل.",
+  emailLocalDeliveryHandoffSubject: "{merchant} — الطلب #{n} في طريقه إليكم",
+  emailLocalDeliveryHandoffHeading: "الطلب في طريقه إليكم",
+  emailLocalDeliveryHandoffIntro: "طلبكم رقم {n} جاهز وفي طريقه إليكم.",
+  emailWithdrawalRequestSubject: "{merchant} — تم تسجيل طلب الانسحاب (الطلب #{n})",
+  emailWithdrawalRequestHeading: "تم تسجيل طلب الانسحاب",
+  emailWithdrawalRequestIntro: "لقد سجلنا طلب الانسحاب الخاص بالطلب رقم {n}.",
+  confirmWithdrawalCta: "طلب الانسحاب",
+  commFlagYes: "نعم",
+  commFlagNo: "لا",
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — تسميات لوحة التحكم.
+  stCommTextTitle: "نصوص العملاء القابلة للتخصيص",
+  stCommTextHint: "الصيغ المعروضة لعملائكم وفي رسائلكم. اتركوا الحقل فارغًا للإبقاء على النص العام لـ Scanym. مخصص للمالك والمدير.",
+  stCommVariablesHint: "المتغيرات المسموح بها (بين أقواس): {merchant_name}، {order_reference}، {order_total}، {fulfillment_type}، {fulfillment_date}، {fulfillment_slot}، {merchant_address}، {merchant_email}، {merchant_phone}، {carrier_name}، {invoice_requested}، {withdrawal_link}، {withdrawal_eligible}. أي متغير آخر يُرفض عند الحفظ.",
+  stCommTextTooLong: "أحد نصوص العملاء يتجاوز الطول المسموح.",
+  stCommUnknownVariable: "أحد نصوص العملاء يحتوي على متغير غير مسموح.",
+  stCommSaveError: "تعذّر حفظ نصوص العملاء.",
+  stCommEventTitle: "رسائل العملاء الاختيارية",
+  stCommEventHint: "معطّلة افتراضيًا. لا تُرسل الرسالة الاختيارية إلا إذا فعّلتموها هنا وكانت رسائل الإشعار مهيّأة. مخصص للمالك والمدير.",
+  stCommEventSaveError: "تعذّر حفظ الرسائل الاختيارية.",
+  stCommKey_checkout_info: "معلومة تُعرض عند الطلب",
+  stCommKey_pickup_explanation: "شرح الاستلام من المتجر",
+  stCommKey_delivery_local_explanation: "شرح التوصيل المحلي",
+  stCommKey_delivery_carrier_explanation: "شرح التوصيل عبر الناقل",
+  stCommKey_slot_warning: "تنبيه بشأن المواعيد والمدة",
+  stCommKey_sanitary_warning: "تنبيه صحي أو تنبيه حفظ",
+  stCommKey_order_success_title: "عنوان شاشة التأكيد",
+  stCommKey_order_success_body: "رسالة شاشة التأكيد",
+  stCommKey_confirmation_pickup: "التأكيد — الاستلام من المتجر",
+  stCommKey_confirmation_delivery_local: "التأكيد — التوصيل المحلي",
+  stCommKey_confirmation_delivery_carrier: "التأكيد — التسليم إلى الناقل",
+  stCommKey_email_confirmation_subject: "رسالة التأكيد — الموضوع",
+  stCommKey_email_confirmation_body: "رسالة التأكيد — النص",
+  stCommKey_confirmation_withdrawal_request: "إشعار استلام طلب الانسحاب",
+  stCommEvent_carrier_handoff: "رسالة «تم تسليم الطلب إلى الناقل»",
+  stCommEvent_local_delivery_handoff: "رسالة «الطلب في طريقه إليكم»",
+  stCommEvent_withdrawal_request_received: "رسالة «تم تسجيل طلب الانسحاب»",
   confirmThanks: "شكراً لاختيارك {name}!",
   confirmEnjoy: "نحضّر طلبك بعناية. بالهناء والشفاء!",
   backToMenu: "العودة إلى القائمة",

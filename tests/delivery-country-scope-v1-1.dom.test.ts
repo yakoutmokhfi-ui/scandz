@@ -292,6 +292,12 @@ function installBackend(
       case "upgrade_legacy_tracking_capability":
         return { data: [], error: null };
       default:
+        // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+        // textes clients du commercant, lue par MenuView au montage.
+        // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+        // tout etablissement avant configuration -- donc exactement les
+        // formulations plateforme que ces assertions verifiaient deja.
+        if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
         throw new Error(`RPC inattendue : ${name}`);
     }
   });

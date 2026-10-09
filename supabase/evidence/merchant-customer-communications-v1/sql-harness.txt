@@ -1,0 +1,119 @@
+[14:42:06] [sûreté] cluster jetable CRÉÉ par ce harnais (données /tmp/tmp.0LEh2EF2Cw/cluster, socket /tmp/tmp.0LEh2EF2Cw/sock, port 59977).
+[14:42:06] [sûreté] cible validée : serveur=unix-socket base=postgres utilisateur=postgres superuser=on propre_cluster=1
+[14:42:06] verrou de sûreté franchi : cluster créé par le harnais, bases nommées pour cette exécution uniquement.
+[14:42:06] === [0] Construction du schéma PRÉDÉCESSEUR (scanym_mcc_v1_base_10825_20261009144206) ===
+[14:42:10] chaîne prédécesseur appliquée (schema .. CFTE v1 + ONLINE WITHDRAWAL FOUNDATION v1).
+[14:42:10] fixtures posées (2 commerçants, 2 commandes, 1 ligne rétractable chez A).
+[14:42:10] === [1] Application du SQL aller ===
+[14:42:10] PASS: [1] le SQL aller s'applique sur le schéma prédécesseur réel
+[14:42:10] === [2] Atomicité : post-vol saboté ===
+[14:42:11] PASS: [2] un post-vol en échec interrompt la transaction
+[14:42:11] PASS: [2a] aucune table du lot ne subsiste après l'échec (=0)
+[14:42:11] PASS: [2b] aucune fonction du lot ne subsiste après l'échec (=0)
+[14:42:11] PASS: [2c] create_order_received_notification est restée celle du prédécesseur (=72451a7bbc2138c6c52d52b832fa56ae)
+[14:42:11] === [3] Structure et posture de sécurité ===
+[14:42:11] PASS: [3a] merchant_communication_text existe (=1)
+[14:42:11] PASS: [3b] merchant_communication_event existe (=1)
+[14:42:11] PASS: [3c] RLS active sur les deux tables (=2)
+[14:42:11] PASS: [3d] une policy SELECT par table, et AUCUNE policy d'écriture (=2|0)
+[14:42:11] PASS: [3e] les 11 fonctions du lot existent (=11)
+[14:42:11] PASS: [3f] anon n'a AUCUN SELECT direct sur la table de textes (gabarits d'e-mail) (=f)
+[14:42:11] PASS: [3g] authenticated a le SELECT (lecture back-office) (=t)
+[14:42:11] PASS: [3h] AUCUN privilège d'écriture de table pour anon/authenticated (=0)
+[14:42:11] PASS: [3i] la projection publique est exécutable par anon (=t)
+[14:42:11] PASS: [3j] la preuve d'éligibilité rétractation est réservée à service_role (=false|false|true)
+[14:42:11] PASS: [3k] l'enfilement est réservé à service_role (=false|false|true)
+[14:42:11] PASS: [3l] le CHECK de notification_type porte 12 valeurs, en UN exemplaire (=1)
+[14:42:11] === [4] Isolation multi-locataires ===
+[14:42:11] PASS: [4a] owner A écrit son propre texte (=OK)
+[14:42:11] PASS: [4b] manager A écrit aussi (=OK)
+[14:42:11] PASS: [4c] owner B écrit son propre texte (=OK)
+[14:42:11] PASS: [4d] owner B ne peut PAS écrire chez A (=Forbidden)
+[14:42:11] PASS: [4e] staff A (rôle insuffisant) ne peut PAS écrire (=Forbidden)
+[14:42:11] PASS: [4f] anon ne peut PAS écrire (=REFUSE)
+[14:42:11] PASS: [4g] owner A ne LIT que ses propres lignes (RLS) (=2)
+[14:42:12] PASS: [4h] owner B ne LIT que la sienne (RLS) (=1)
+[14:42:12] PASS: [4i] le texte de A n'a PAS été altéré par les tentatives de B et du staff (=MerciAlpha!)
+[14:42:12] PASS: [4j] la projection publique de A ne renvoie QUE les lignes de A (=2)
+[14:42:12] PASS: [4k] la projection publique de A ne contient JAMAIS le texte de B (=0)
+[14:42:12] PASS: [4l-bis] l'écriture du gabarit d'e-mail réussit (=OK)
+[14:42:12] PASS: [4l] le gabarit d'e-mail est bien stocké (=SUJETINTERNEALPHA)
+[14:42:12] PASS: [4m] la projection publique n'expose JAMAIS un gabarit d'e-mail (=0)
+[14:42:12] PASS: [4n] anon ne peut pas lire la table directement (seule la projection filtrée) (=REFUSE)
+[14:42:12] === [6][7][8] Liste blanche de variables, bornes, effacement ===
+[14:42:12] PASS: [6a] un gabarit à variable AUTORISÉE est accepté (=OK)
+[14:42:12] PASS: [6b] une variable HORS liste blanche est refusée à l'écriture
+[14:42:12] PASS: [6c] le gabarit refusé n'a RIEN écrasé (=1)
+[14:42:12] PASS: [6d] même service_role ne peut pas insérer un gabarit à jeton inconnu (contrainte de TABLE) (=REFUSE)
+[14:42:12] PASS: [6e] un emplacement hors catalogue est refusé
+[14:42:12] PASS: [7a] un SUJET de 161 caractères est refusé (borne 160)
+[14:42:12] PASS: [7b] la MÊME longueur est valide pour un CORPS (borne 500) (=OK)
+[14:42:12] PASS: [7c] un corps de 501 caractères est refusé (borne 500)
+[14:42:12] PASS: [8a-bis] l'effacement par corps BLANC est accepté (=OK)
+[14:42:12] PASS: [8a] un corps BLANC supprime la ligne (repli générique) (=0)
+[14:42:12] PASS: [8b-bis] l'effacement par corps NULL est accepté (=OK)
+[14:42:12] PASS: [8b] un corps NULL supprime aussi la ligne (=0)
+[14:42:12] === [9] Éligibilité à la rétractation ===
+[14:42:12] PASS: [9a] l'instantané par ligne existe bien (1 ligne rétractable chez A) (=1)
+[14:42:12] PASS: [9b] couple (commande, jeton) VALIDE => true (=t)
+[14:42:12] PASS: [9c] jeton ERRONÉ => false (fail-closed, et aucune erreur révélatrice) (=f)
+[14:42:12] PASS: [9d] commande INCONNUE => false (=f)
+[14:42:13] PASS: [9e] commande B (aucune ligne rétractable) => false (=f)
+[14:42:13] PASS: [9f] un instantané NULL ne vaut PAS éligible (=f)
+[14:42:13] PASS: [9g] la fonction n'écrit RIEN (elle est déclarée STABLE, pas VOLATILE) (=s)
+[14:42:13] === [5] Événements fermés au repos / [10] idempotence ===
+[14:42:13] PASS: [5a-bis] l'enfilement sans interrupteur réussit (=OK)
+[14:42:13] PASS: [5a] sans interrupteur, l'enfilement produit 'skipped_disabled' (=skipped_disabled)
+[14:42:13] PASS: [5b] un événement hors catalogue est refusé (=REFUSE)
+[14:42:13] PASS: [5c] substitution tenant croisée refusée (=REFUSE)
+[14:42:13] PASS: [5d] owner A active l'événement (=OK)
+[14:42:13] PASS: [5e-bis] l'enfilement de l'événement activé réussit (=OK)
+[14:42:13] PASS: [5e] événement ACTIVÉ => 'pending' (=pending)
+[14:42:13] PASS: [5f-bis] la désactivation est acceptée (=OK)
+[14:42:13] PASS: [5f] désactiver SUPPRIME la ligne (« absent » et « désactivé » sont un seul état) (=0)
+[14:42:13] PASS: [10a] un second enfilement du MÊME événement renvoie NULL (rejeu idempotent) (=)
+[14:42:13] PASS: [10b] et ne crée AUCUN doublon en file (=1)
+[14:42:13] PASS: [10c] l'unicité logique qui porte l'idempotence est toujours là (=1)
+[14:42:13] PASS: [10d] l'instantané porte le gabarit propre à l'événement (=1)
+[14:42:13] PASS: [10d-bis] et AUCUNE clé générique ni clé morte (=0|0|0)
+[14:42:14] PASS: [10e] l'éligibilité rétractation est figée dans l'instantané (true chez A) (=true)
+[14:42:14] PASS: [10f] les coordonnées PUBLIQUES du commerçant sont figées, jamais l'identité d'expédition (=contact@alpha.test)
+[14:42:14] === [11] create_order_received_notification : additive ===
+[14:42:14] PASS: [11a] l'enfilement order_received fonctionne toujours
+[14:42:14] PASS: [11b] le payload porte 17 clés (les 10 d'avant + les 7 de ce lot) (=17)
+[14:42:14] PASS: [11c] les 10 clés N1-A/CFTE sont TOUTES encore là (=10)
+[14:42:14] PASS: [11d] les 7 clés de CE lot sont là (=7)
+[14:42:14] PASS: [11e] le gabarit marchand FIGÉ est bien celui du commerçant A (=SUJET INTERNE ALPHA)
+[14:42:14] PASS: [11f] le rejeu renvoie NULL (rejeu idempotent) (=)
+[14:42:14] PASS: [11f-bis] et ne crée AUCUN doublon (=1)
+[14:42:14] PASS: [11g] la substitution tenant croisée reste refusée (=REFUSE)
+[14:42:14] PASS: [11h-bis] l'enfilement chez B (aucun gabarit configuré) réussit (=OK)
+[14:42:14] PASS: [11h] un commerçant SANS gabarit reçoit un instantané à gabarits NULS (repli générique) (=||false)
+[14:42:14] === [14] Cartographie événement -> gabarit / instantané figé ===
+[14:42:14] PASS: [14a] la cartographie est TOTALE sur les 3 événements (=3)
+[14:42:14] PASS: [14b] elle désigne les emplacements ATTENDUS, et eux seuls (=carrier_handoff=confirmation_delivery_carrier,local_delivery_handoff=confirmation_delivery_local,withdrawal_request_received=confirmation_withdrawal_request)
+[14:42:14] PASS: [14c] elle n'emprunte JAMAIS les clés de l'e-mail de confirmation de commande (=0)
+[14:42:14] PASS: [14d] un code hors catalogue n'a AUCUN gabarit (fermé au repos) (=0)
+[14:42:14] PASS: [14e] le commerçant enregistre son accusé de rétractation (=OK)
+[14:42:14] PASS: [14f] activer l'événement de rétractation (=OK)
+[14:42:15] PASS: [14g] l'enfilement réussit (=OK)
+[14:42:15] PASS: [14h] l'instantané porte l'accusé de rétractation DU COMMERÇANT (=ACCUSE ALPHA v1)
+[14:42:15] PASS: [14i] le commerçant change son accusé APRÈS l'enfilement (=OK)
+[14:42:15] PASS: [14j] la ligne EN FILE porte toujours l'ancien texte -- instantané FIGÉ (=ACCUSE ALPHA v1)
+[14:42:15] PASS: [14k] et la configuration courante, elle, a bien changé (=ACCUSE ALPHA MODIFIE APRES COUP)
+[14:42:15] PASS: [14l] carrier_handoff ne reçoit PAS l'accusé de rétractation (=1)
+[14:42:15] PASS: [14m] order_received ne porte AUCUN gabarit d'événement (=0)
+[14:42:15] === [13] Rollback bloqué par une ligne d'un type ajouté ===
+[14:42:15] PASS: [13] le rollback REFUSE explicitement, en nommant la cause
+[14:42:15] PASS: [13a] et il n'a RIEN retiré au passage (=1)
+[14:42:15] === [12] Rollback et réversibilité ===
+[14:42:15] PASS: [12] le rollback s'applique
+[14:42:15] PASS: [12a] create_order_received_notification est revenue à l'EMPREINTE CFTE v1 (=72451a7bbc2138c6c52d52b832fa56ae)
+[14:42:15] PASS: [12b] les comptes de schéma sont identiques au prédécesseur (=37|11|135|399)
+[14:42:15] PASS: [12c] le CHECK de notification_type refuse de nouveau les 3 types ajoutés (=0)
+[14:42:15] PASS: [12d] AUCUNE commande perdue (=2)
+[14:42:16] PASS: [12d-bis] la cartographie événement -> gabarit a disparu (=0)
+[14:42:16] PASS: [12e] merchant_tracking_status_text (préexistante) est intacte (=1)
+[14:42:16] PASS: [12f] withdrawal_requests (préexistante) est intacte (=1)
+[14:42:16] PASS: [12g] l'instantané d'éligibilité par ligne est intact (=1)
+[14:42:16] === BILAN : 101 preuve(s) produite(s), 0 échec(s) ===

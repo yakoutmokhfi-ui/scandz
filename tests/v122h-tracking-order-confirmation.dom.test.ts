@@ -128,7 +128,30 @@ const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "22222222-2222-4222-8222-222222222222";
 const TRACKING_PATH = `/track/${ORDER_ID}#${TOKEN}`;
 
-function render(props: { trackingPath: string | null; orderNumber?: number | null }) {
+/**
+ * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
+ * mandat §B, littéral : « Scanym must no longer REQUIRE a
+ * customer-facing "Track my order" CTA after purchase ») ───
+ *
+ * `trackingPath` reste le chemin que l'appelant transmet, et le
+ * composant continue de ne JAMAIS le reconstruire -- c'est ce que les
+ * assertions §20/§6/§7 ci-dessous vérifient. Ce qui change : il n'est
+ * plus rendu comme bouton « Suivre ma commande », mais comme cible de
+ * l'UNIQUE appel à l'action désormais autorisé sur cet écran, la demande
+ * de rétractation, qui n'apparaît QUE sur preuve serveur
+ * (`withdrawalEligible`).
+ *
+ * Les scénarios qui exerçaient le FORMAT du chemin passent donc
+ * `withdrawalEligible: true` : la couverture fragment-only, « jamais le
+ * format v1 », « aucune chaîne de requête » et i18n est intégralement
+ * conservée. Un scénario dédié vérifie en plus l'ABSENCE du bouton de
+ * suivi, qui est la nouveauté du mandat.
+ */
+function render(props: {
+  trackingPath: string | null;
+  orderNumber?: number | null;
+  withdrawalEligible?: boolean;
+}) {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
@@ -138,6 +161,7 @@ function render(props: { trackingPath: string | null; orderNumber?: number | nul
       context: null,
       orderNumber: props.orderNumber ?? 42,
       trackingPath: props.trackingPath,
+      withdrawalEligible: props.withdrawalEligible,
       onBackToMenu: () => {},
       onNewOrder: () => {},
     })
@@ -145,33 +169,47 @@ function render(props: { trackingPath: string | null; orderNumber?: number | nul
   return { container, root };
 }
 
-test("mandat §20 : trackingPath fourni -- un lien de suivi RÉEL (<a href>) est rendu, exactement égal au chemin transmis (jamais reconstruit ni régénéré par ce composant)", async () => {
-  const { container, root } = render({ trackingPath: TRACKING_PATH });
+test("mandat §20 : trackingPath fourni -- un lien RÉEL (<a href>) est rendu, exactement égal au chemin transmis (jamais reconstruit ni régénéré par ce composant)", async () => {
+  const { container, root } = render({ trackingPath: TRACKING_PATH, withdrawalEligible: true });
   await flush();
 
   const anchor = findTrackingAnchor(container);
   assert.ok(anchor, "un <a href=\"/track/...\"> doit être rendu");
   assert.equal(anchor!.getAttribute("href"), TRACKING_PATH, "le composant ne doit JAMAIS altérer/reconstruire le chemin reçu");
-  assert.equal(anchor!.textContent, "Suivre ma commande");
+  assert.equal(anchor!.textContent, "Demander une rétractation");
   assert.equal(anchor!.tagName, "A", "un lien HTML natif -- pas un bouton avec navigation JS");
 
   root.unmount();
   container.remove();
 });
 
-test("mandat §20 : trackingPath=null (create_order en échec, ou commande refermée) -- AUCUN lien de suivi rendu", async () => {
-  const { container, root } = render({ trackingPath: null });
+test("MCC-V1-CONTRACT-CHANGE-01 : trackingPath fourni MAIS aucune ligne rétractable -- AUCUN appel à l'action, et surtout plus aucun « Suivre ma commande »", async () => {
+  const { container, root } = render({ trackingPath: TRACKING_PATH });
   await flush();
 
-  assert.equal(findTrackingAnchor(container), undefined, "aucun lien de suivi ne doit apparaître sans trackingPath");
+  assert.equal(container.querySelector("[data-order-confirmation-tracking]"), null, "l'ancien point d'accroche a disparu");
   assert.equal(container.textContent?.includes("Suivre ma commande"), false);
+  assert.equal(findTrackingAnchor(container), undefined, "aucun lien vers /track/ n'est rendu sans preuve d'éligibilité");
+  assert.equal(container.innerHTML.includes(TOKEN), false, "le jeton n'apparaît nulle part dans le DOM");
+
+  root.unmount();
+  container.remove();
+});
+
+test("mandat §20 : trackingPath=null (create_order en échec, ou commande refermée) -- AUCUN lien rendu, même avec une éligibilité prouvée", async () => {
+  const { container, root } = render({ trackingPath: null, withdrawalEligible: true });
+  await flush();
+
+  assert.equal(findTrackingAnchor(container), undefined, "aucun lien ne doit apparaître sans trackingPath");
+  assert.equal(container.textContent?.includes("Suivre ma commande"), false);
+  assert.equal(container.textContent?.includes("Demander une rétractation"), false, "jamais un lien mort");
 
   root.unmount();
   container.remove();
 });
 
 test("mandat §6/§7 : le href rendu ne contient JAMAIS le format v1 <order_id>/<token> ni un paramètre de requête -- seulement ce qui a été transmis en FRAGMENT", async () => {
-  const { container, root } = render({ trackingPath: TRACKING_PATH });
+  const { container, root } = render({ trackingPath: TRACKING_PATH, withdrawalEligible: true });
   await flush();
 
   const href = findTrackingAnchor(container)!.getAttribute("href")!;
@@ -199,6 +237,7 @@ test("mandat §25 : langue anglaise (I18nProvider) -- le même composant, la mê
         context: null,
         orderNumber: 42,
         trackingPath: TRACKING_PATH,
+        withdrawalEligible: true,
         onBackToMenu: () => {},
         onNewOrder: () => {},
       })
@@ -207,8 +246,8 @@ test("mandat §25 : langue anglaise (I18nProvider) -- le même composant, la mê
   await flush();
 
   const anchor = findTrackingAnchor(container);
-  assert.ok(anchor, "le lien de suivi doit rester présent en anglais");
-  assert.equal(anchor!.textContent, "Track your order");
+  assert.ok(anchor, "le lien doit rester présent en anglais");
+  assert.equal(anchor!.textContent, "Request a withdrawal");
   assert.equal(anchor!.getAttribute("href"), TRACKING_PATH, "le chemin transmis reste inchangé, quelle que soit la langue");
 
   root.unmount();

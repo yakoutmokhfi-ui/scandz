@@ -31,6 +31,22 @@ import {
   MERCHANT_STATUS_TEXT_MAX_LENGTH,
   statusExplanationKey,
 } from "@/lib/tracking/status-text";
+import {
+  getMerchantCommunicationTexts,
+  getMerchantCommunicationEvents,
+  setMerchantCommunicationText,
+  setMerchantCommunicationEventEnabled,
+} from "@/lib/services/merchant-communications";
+import {
+  COMMUNICATION_TEXT_KEYS,
+  communicationTextMaxLength,
+  type CommunicationTextKey,
+} from "@/lib/communications/text-keys";
+import {
+  COMMUNICATION_EVENT_CODES,
+  type CommunicationEventCode,
+} from "@/lib/communications/events";
+import { findUnknownTemplateVariables } from "@/lib/communications/template-variables";
 import { getLegalTaxFieldLabels } from "@/lib/merchant-legal-tax-labels";
 import {
   addOrReplaceEstablishmentAsset,
@@ -83,6 +99,13 @@ type GeneralSettingsSnapshot = {
   publicPhone: string;
   publicEmail: string;
   statusTexts: Record<string, string>;
+  /** MERCHANT CUSTOMER COMMUNICATIONS v1 — un texte par emplacement du
+   *  catalogue, dans la MÊME normalisation que celle employée pour
+   *  construire l'appel RPC (chaîne brute telle que saisie ; c'est le
+   *  SQL qui traite le vide comme un effacement). */
+  communicationTexts: Record<string, string>;
+  /** MERCHANT CUSTOMER COMMUNICATIONS v1 — un booléen par événement. */
+  communicationEvents: Record<string, boolean>;
   primaryColor: string | null;
   secondaryColor: string | null;
   accentColor: string | null;
@@ -190,6 +213,26 @@ function restaurantSettingsSubDirty(a: GeneralSettingsSnapshot, b: GeneralSettin
 function trackingStatusDirty(a: Record<string, string>, b: Record<string, string>, status: string): boolean {
   return (a[status] ?? "") !== (b[status] ?? "");
 }
+// MERCHANT CUSTOMER COMMUNICATIONS v1 — un comparateur PAR
+// EMPLACEMENT et PAR ÉVÉNEMENT, exactement comme `trackingStatusDirty` :
+// chaque écriture a sa propre RPC, donc sa propre notion de « modifié »,
+// son propre succès/échec et son propre avancement d'instantané. Un
+// comparateur tout-ou-rien ferait réécrire 14 textes parce qu'un seul a
+// changé, et un échec sur l'un ferait perdre les 13 autres.
+function communicationTextDirty(
+  a: Record<string, string>,
+  b: Record<string, string>,
+  key: string
+): boolean {
+  return (a[key] ?? "") !== (b[key] ?? "");
+}
+function communicationEventDirty(
+  a: Record<string, boolean>,
+  b: Record<string, boolean>,
+  code: string
+): boolean {
+  return (a[code] === true) !== (b[code] === true);
+}
 function colorsGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.primaryColor !== b.primaryColor || a.secondaryColor !== b.secondaryColor || a.accentColor !== b.accentColor;
 }
@@ -250,6 +293,12 @@ export default function SettingsPage() {
   // la ligne. Aucune notion d'état/transition ici -- purement de
   // l'affichage.
   const [statusTexts, setStatusTexts] = useState<Record<string, string>>({});
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — grille des 14 textes et des 3
+  // interrupteurs d'événement. Vides au repos : un établissement sans
+  // configuration affiche des champs vides, ce qui signifie exactement
+  // « formulation générique Scanym » (le placeholder montre laquelle).
+  const [communicationTexts, setCommunicationTexts] = useState<Record<string, string>>({});
+  const [communicationEvents, setCommunicationEvents] = useState<Record<string, boolean>>({});
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   // Couleurs personnalisées + lien de localisation/itinéraire (V69).
@@ -476,6 +525,13 @@ export default function SettingsPage() {
     // disponible pour un Enregistrer, jamais hérité de l'état `saving`
     // d'un contexte qui n'est plus affiché.
     setSaving(false);
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- réinitialisation SYNCHRONE,
+    // dans le MÊME geste : sans elle, il existerait un rendu où l'entête
+    // affiche l'établissement B pendant que la grille de textes montre
+    // encore ceux de A. Les interrupteurs repartent tous FERMÉS, jamais
+    // hérités.
+    setCommunicationTexts({});
+    setCommunicationEvents({});
     setRestaurantId(id);
   }, [resetLegalProfileState, guard]);
 
@@ -547,6 +603,8 @@ export default function SettingsPage() {
         tiktokUrl: normStrOrNull(s.tiktok_url ?? ""),
         facebookUrl: normStrOrNull(s.facebook_url ?? ""),
         statusTexts: {},
+        communicationTexts: {},
+        communicationEvents: {},
         activeLanguageCodes: [],
       };
       // Commit ATOMIQUE de la provenance générale, dans la même passe
@@ -673,6 +731,65 @@ export default function SettingsPage() {
         setStatusTexts({});
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = { ...generalSnapshotRef.current, statusTexts: {} };
+        }
+      }
+
+      // MERCHANT CUSTOMER COMMUNICATIONS v1 — textes clients et
+      // interrupteurs d'événement. MÊME garde de provenance
+      // (`token.isCurrent()`) après CHAQUE await : une réponse périmée
+      // n'écrit jamais les textes d'un autre établissement -- c'est
+      // exactement l'incident que SETTINGS SAVE RELIABILITY v1.3 a
+      // fermé, et la même discipline s'applique ici dès le premier jour.
+      //
+      // Best-effort : un échec de lecture laisse la grille VIDE, donc
+      // « formulations génériques », qui est toujours un état affichable
+      // correct -- jamais les textes de l'établissement précédent.
+      // L'instantané est avancé en MÊME TEMPS que les champs, sinon un
+      // enregistrement immédiat verrait 14 textes « modifiés » et les
+      // réécrirait tous.
+      try {
+        const overrides = await getMerchantCommunicationTexts(id);
+        if (!token.isCurrent()) return;
+        const nextTexts: Record<string, string> = {};
+        for (const key of COMMUNICATION_TEXT_KEYS) {
+          nextTexts[key] = overrides[key] ?? "";
+        }
+        setCommunicationTexts(nextTexts);
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            communicationTexts: nextTexts,
+          };
+        }
+      } catch {
+        if (!token.isCurrent()) return;
+        setCommunicationTexts({});
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, communicationTexts: {} };
+        }
+      }
+
+      try {
+        const events = await getMerchantCommunicationEvents(id);
+        if (!token.isCurrent()) return;
+        const nextEvents: Record<string, boolean> = {};
+        for (const code of COMMUNICATION_EVENT_CODES) {
+          nextEvents[code] = events[code] === true;
+        }
+        setCommunicationEvents(nextEvents);
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            communicationEvents: nextEvents,
+          };
+        }
+      } catch {
+        if (!token.isCurrent()) return;
+        // FERMÉ AU REPOS : une lecture en échec laisse TOUS les
+        // interrupteurs à `false`. Jamais « activé par défaut ».
+        setCommunicationEvents({});
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, communicationEvents: {} };
         }
       }
 
@@ -949,6 +1066,34 @@ export default function SettingsPage() {
         setError(t("stTrackingStatusTooLong"));
         return;
       }
+
+      // MERCHANT CUSTOMER COMMUNICATIONS v1 — bornes de longueur PAR
+      // EMPLACEMENT (160 pour un sujet d'e-mail, 500 ailleurs) :
+      // MIROIR des contraintes SQL. Le serveur reste l'autorité ; ces
+      // deux contrôles évitent un aller-retour et donnent un message
+      // explicite plutôt que l'erreur brute de la RPC.
+      if (
+        COMMUNICATION_TEXT_KEYS.some(
+          (key) =>
+            (communicationTexts[key] ?? "").trim().length >
+            communicationTextMaxLength(key)
+        )
+      ) {
+        setError(t("stCommTextTooLong"));
+        return;
+      }
+      // MCC-V1-UNKNOWN-VARIABLE-RULE, moitié ÉCRITURE : un gabarit
+      // portant un jeton hors liste blanche est REFUSÉ, rien n'est
+      // enregistré. Le commerçant apprend sa faute de frappe tout de
+      // suite, plutôt que de découvrir un trou dans un e-mail parti.
+      if (
+        COMMUNICATION_TEXT_KEYS.some(
+          (key) => findUnknownTemplateVariables(communicationTexts[key] ?? "").length > 0
+        )
+      ) {
+        setError(t("stCommUnknownVariable"));
+        return;
+      }
     }
 
     setSaving(true);
@@ -1047,6 +1192,8 @@ export default function SettingsPage() {
       publicPhone: normStr(publicPhone),
       publicEmail: normStr(publicEmail),
       statusTexts,
+      communicationTexts,
+      communicationEvents,
       primaryColor: normStrOrNull(primaryColor),
       secondaryColor: normStrOrNull(secondaryColor),
       accentColor: normStrOrNull(accentColor),
@@ -1107,6 +1254,33 @@ export default function SettingsPage() {
       ? []
       : CANONICAL_ORDER_STATUSES.filter(
           (status) => !generalSnap || trackingStatusDirty(generalSnap.statusTexts, currentGeneral.statusTexts, status)
+        );
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 — MÊME discipline : la liste
+    // des emplacements RÉELLEMENT modifiés, dérivée du catalogue (jamais
+    // réécrite à la main). Un instantané NUL est traité comme DIRTY et
+    // jamais comme propre : mieux vaut réécrire une valeur identique que
+    // perdre une modification parce que la lecture initiale a échoué.
+    const communicationTextDirtyKeys: CommunicationTextKey[] = isOperatorOnlyMode
+      ? []
+      : COMMUNICATION_TEXT_KEYS.filter(
+          (key) =>
+            !generalSnap ||
+            communicationTextDirty(
+              generalSnap.communicationTexts,
+              currentGeneral.communicationTexts,
+              key
+            )
+        );
+    const communicationEventDirtyCodes: CommunicationEventCode[] = isOperatorOnlyMode
+      ? []
+      : COMMUNICATION_EVENT_CODES.filter(
+          (code) =>
+            !generalSnap ||
+            communicationEventDirty(
+              generalSnap.communicationEvents,
+              currentGeneral.communicationEvents,
+              code
+            )
         );
     const colorsDirty = !generalSnap || colorsGroupDirty(generalSnap, currentGeneral);
     const mapsUrlDirty = !generalSnap || mapsUrlGroupDirty(generalSnap, currentGeneral);
@@ -1353,6 +1527,66 @@ export default function SettingsPage() {
       } catch {
         if (!token.isCurrent()) return;
         failedKeys.push("stContactSaveError");
+      }
+    }
+
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 — une RPC PAR EMPLACEMENT, et
+    // un avancement d'instantané PAR EMPLACEMENT (jamais la grille
+    // entière). Politique CONTINUE, comme partout sur cette page :
+    // l'échec d'un texte n'interrompt JAMAIS la tentative des suivants,
+    // chacun a son propre succès/échec, et le bilan à trois issues plus
+    // bas dira « tout », « rien » ou « partiellement ».
+    //
+    // Un champ laissé VIDE efface la surcharge et rétablit la
+    // formulation générique -- c'est le SQL qui le décide (ligne
+    // supprimée), pas ce code : un seul état pour « pas de surcharge ».
+    for (const key of communicationTextDirtyKeys) {
+      attemptedCount++;
+      try {
+        await setMerchantCommunicationText(
+          restaurantId,
+          key,
+          currentGeneral.communicationTexts[key] ?? ""
+        );
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            communicationTexts: {
+              ...generalSnapshotRef.current.communicationTexts,
+              [key]: currentGeneral.communicationTexts[key] ?? "",
+            },
+          };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stCommSaveError");
+      }
+    }
+
+    for (const code of communicationEventDirtyCodes) {
+      attemptedCount++;
+      try {
+        await setMerchantCommunicationEventEnabled(
+          restaurantId,
+          code,
+          currentGeneral.communicationEvents[code] === true
+        );
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = {
+            ...generalSnapshotRef.current,
+            communicationEvents: {
+              ...generalSnapshotRef.current.communicationEvents,
+              [code]: currentGeneral.communicationEvents[code] === true,
+            },
+          };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stCommEventSaveError");
       }
     }
 
@@ -1849,6 +2083,92 @@ export default function SettingsPage() {
                 placeholder={t(statusExplanationKey(status))}
                 className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
               />
+            </div>
+          ))}
+        </section>
+        )}
+
+        {/* MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §F) — réglages
+            MINIMAUX des textes clients. Volontairement une section de
+            FORMULAIRE de plus sur cette page, construite sur le patron
+            déjà éprouvé juste au-dessus : aucune refonte visuelle,
+            aucun thème touché (mandat : « Do not mix with visual theme
+            redesign »).
+
+            Conventions reprises à l'identique de la section de suivi :
+            la liste est DÉRIVÉE du catalogue (jamais réénumérée ici),
+            `maxLength` est le miroir de la contrainte SQL, le
+            `placeholder` montre la formulation générique réellement
+            obtenue quand le champ reste vide, `disabled={!canEdit}`, un
+            attribut `data-settings-*` stable comme point d'accroche des
+            tests DOM, et la section entière est gardée par
+            `!isOperatorOnlyMode` (owner/manager seulement). */}
+        {!isOperatorOnlyMode && (
+        <section
+          className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
+          data-settings-communication-texts=""
+        >
+          <h3 className="font-bold text-stone-900">{t("stCommTextTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stCommTextHint")}</p>
+          <p
+            className="mt-2 whitespace-pre-wrap break-words text-xs text-stone-500"
+            data-settings-communication-variables=""
+          >
+            {t("stCommVariablesHint")}
+          </p>
+          {COMMUNICATION_TEXT_KEYS.map((key) => (
+            <div key={key} className="mt-3">
+              <label
+                htmlFor={`communication-text-${key}`}
+                className="block text-xs font-semibold text-stone-600"
+              >
+                {t(`stCommKey_${key}`)}
+              </label>
+              <textarea
+                id={`communication-text-${key}`}
+                value={communicationTexts[key] ?? ""}
+                onChange={(e) =>
+                  setCommunicationTexts((prev) => ({ ...prev, [key]: e.target.value }))
+                }
+                disabled={!canEdit}
+                rows={2}
+                maxLength={communicationTextMaxLength(key)}
+                className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+              />
+            </div>
+          ))}
+        </section>
+        )}
+
+        {/* MERCHANT CUSTOMER COMMUNICATIONS v1 — interrupteurs des
+            e-mails FACULTATIFS. MCC-V1-FAIL-CLOSED-EVENTS : une case
+            décochée (ou jamais cochée) signifie « aucun envoi », et
+            c'est l'état par défaut de tout établissement. */}
+        {!isOperatorOnlyMode && (
+        <section
+          className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
+          data-settings-communication-events=""
+        >
+          <h3 className="font-bold text-stone-900">{t("stCommEventTitle")}</h3>
+          <p className="mt-1 text-sm text-stone-500">{t("stCommEventHint")}</p>
+          {COMMUNICATION_EVENT_CODES.map((code) => (
+            <div key={code} className="mt-3 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id={`communication-event-${code}`}
+                checked={communicationEvents[code] === true}
+                onChange={(e) =>
+                  setCommunicationEvents((prev) => ({ ...prev, [code]: e.target.checked }))
+                }
+                disabled={!canEdit}
+                className="h-4 w-4"
+              />
+              <label
+                htmlFor={`communication-event-${code}`}
+                className="text-sm text-stone-700"
+              >
+                {t(`stCommEvent_${code}`)}
+              </label>
             </div>
           ))}
         </section>
