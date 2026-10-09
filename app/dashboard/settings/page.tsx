@@ -12,6 +12,8 @@ import {
   updateRestaurantMapsUrl,
   updateRestaurantIdentity,
   updateRestaurantBgColor,
+  getRestaurantThemeTokens,
+  updateRestaurantThemeTokens,
   updateRestaurantSocialLinks,
   updateRestaurantLanguages,
   getSupportedLanguages,
@@ -67,6 +69,8 @@ import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 import { translate, type Lang } from "@/lib/i18n";
 import { isValidWhatsappNumber, normalizeWhatsappNumber } from "@/lib/whatsapp";
 import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
+import ThemeTokensFields, { emptyThemeTokenInputs, type ThemeTokenInputs } from "@/components/dashboard/ThemeTokensFields";
+import { THEME_TOKEN_KEYS, canonicalThemeTokens, validateThemeTokens } from "@/lib/theme-tokens";
 import { isValidMapsUrl, normalizeMapsUrl, MAPS_URL_MAX_LENGTH } from "@/lib/maps-url";
 import { isValidInstagramUrl, isValidTiktokUrl, isValidFacebookUrl } from "@/lib/social-links";
 
@@ -115,6 +119,8 @@ type GeneralSettingsSnapshot = {
   announcementText: string | null;
   announcementActive: boolean;
   bgColor: string | null;
+  /** THEME & CONTENT SETTINGS v1 — forme canonique des jetons de surface (lib/theme-tokens.ts). */
+  themeTokens: string;
   instagramUrl: string | null;
   tiktokUrl: string | null;
   facebookUrl: string | null;
@@ -250,6 +256,9 @@ function identityGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapsh
 function bgColorGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.bgColor !== b.bgColor;
 }
+function themeTokensGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.themeTokens !== b.themeTokens;
+}
 function socialGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.instagramUrl !== b.instagramUrl || a.tiktokUrl !== b.tiktokUrl || a.facebookUrl !== b.facebookUrl;
 }
@@ -314,6 +323,12 @@ export default function SettingsPage() {
   const [announcementText, setAnnouncementText] = useState("");
   const [announcementActive, setAnnouncementActive] = useState(false);
   const [bgColor, setBgColor] = useState("");
+  // THEME & CONTENT SETTINGS v1 — jetons de surface. `themeTokensReadable`
+  // reste FAUX tant que la lecture dédiée n'a pas abouti pour
+  // l'établissement courant : la section est alors désactivée et le groupe
+  // n'est jamais écrit (aucune écrasement d'une valeur jamais lue).
+  const [themeTokenInputs, setThemeTokenInputs] = useState<ThemeTokenInputs>(emptyThemeTokenInputs());
+  const [themeTokensReadable, setThemeTokensReadable] = useState(false);
   const [instagramUrl, setInstagramUrl] = useState("");
   const [tiktokUrl, setTiktokUrl] = useState("");
   const [facebookUrl, setFacebookUrl] = useState("");
@@ -573,6 +588,10 @@ export default function SettingsPage() {
       setAnnouncementText(s.announcement_text ?? "");
       setAnnouncementActive(s.announcement_active ?? false);
       setBgColor(s.bg_color ?? "");
+      // Réinitialisation SYNCHRONE avant la lecture dédiée (plus bas) :
+      // jamais les jetons de l'établissement précédent.
+      setThemeTokenInputs(emptyThemeTokenInputs());
+      setThemeTokensReadable(false);
       setInstagramUrl(s.instagram_url ?? "");
       setTiktokUrl(s.tiktok_url ?? "");
       setFacebookUrl(s.facebook_url ?? "");
@@ -599,6 +618,7 @@ export default function SettingsPage() {
         announcementText: normStrOrNull(s.announcement_text ?? ""),
         announcementActive: s.announcement_active ?? false,
         bgColor: normStrOrNull(s.bg_color ?? ""),
+        themeTokens: canonicalThemeTokens({}),
         instagramUrl: normStrOrNull(s.instagram_url ?? ""),
         tiktokUrl: normStrOrNull(s.tiktok_url ?? ""),
         facebookUrl: normStrOrNull(s.facebook_url ?? ""),
@@ -767,6 +787,27 @@ export default function SettingsPage() {
         if (generalSnapshotRef.current) {
           generalSnapshotRef.current = { ...generalSnapshotRef.current, communicationTexts: {} };
         }
+      }
+
+      // THEME & CONTENT SETTINGS v1 — jetons de surface : lecture
+      // INDÉPENDANTE, même garde de provenance après l'await. Un échec
+      // (ex. colonne pas encore appliquée) laisse la section DÉSACTIVÉE
+      // et le groupe non écrit -- il ne fait jamais échouer le reste de
+      // la page, et ne laisse jamais croire à « aucune configuration ».
+      try {
+        const stored = await getRestaurantThemeTokens(id);
+        if (!token.isCurrent()) return;
+        const nextInputs = emptyThemeTokenInputs();
+        for (const key of THEME_TOKEN_KEYS) nextInputs[key] = stored[key] ?? "";
+        setThemeTokenInputs(nextInputs);
+        setThemeTokensReadable(true);
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, themeTokens: canonicalThemeTokens(stored) };
+        }
+      } catch {
+        if (!token.isCurrent()) return;
+        setThemeTokenInputs(emptyThemeTokenInputs());
+        setThemeTokensReadable(false);
       }
 
       try {
@@ -967,6 +1008,23 @@ export default function SettingsPage() {
     // ce contrôle frontend.
     if (bgColor.trim() !== "" && !isValidHexColor(bgColor.trim())) {
       setError(t("stColorInvalid"));
+      return;
+    }
+    // THEME & CONTENT SETTINGS v1 — MÊME fonction de validation que celle
+    // qui rend les messages du formulaire (validateThemeTokens) ; le RPC
+    // SQL la rejoue côté serveur.
+    const themeTokenCheck = validateThemeTokens(
+      Object.fromEntries(THEME_TOKEN_KEYS.map((k) => [k, themeTokenInputs[k].trim()]))
+    );
+    if (themeTokensReadable && !themeTokenCheck.ok) {
+      const first = themeTokenCheck.errors[0];
+      setError(
+        first.code === "PAIR_INCOMPLETE"
+          ? t("stThemeTokPairIncomplete")
+          : first.code === "LOW_CONTRAST"
+            ? t("stThemeTokLowContrast")
+            : t("stColorInvalid")
+      );
       return;
     }
     if (instagramUrl.trim() !== "" && !isValidInstagramUrl(instagramUrl.trim())) {
@@ -1203,6 +1261,12 @@ export default function SettingsPage() {
       announcementText: normStrOrNull(announcementText),
       announcementActive,
       bgColor: normStrOrNull(bgColor),
+      // Non lisible => la valeur de l'instantané est reportée telle
+      // quelle : le groupe n'est alors jamais « modifié ».
+      themeTokens:
+        themeTokensReadable && themeTokenCheck.ok
+          ? canonicalThemeTokens(themeTokenCheck.tokens)
+          : (generalSnapshotRef.current?.themeTokens ?? canonicalThemeTokens({})),
       instagramUrl: normStrOrNull(instagramUrl),
       tiktokUrl: normStrOrNull(tiktokUrl),
       facebookUrl: normStrOrNull(facebookUrl),
@@ -1286,6 +1350,8 @@ export default function SettingsPage() {
     const mapsUrlDirty = !generalSnap || mapsUrlGroupDirty(generalSnap, currentGeneral);
     const identityDirty = !generalSnap || identityGroupDirty(generalSnap, currentGeneral);
     const bgColorDirty = !generalSnap || bgColorGroupDirty(generalSnap, currentGeneral);
+    const themeTokensDirty =
+      themeTokensReadable && themeTokenCheck.ok && !!generalSnap && themeTokensGroupDirty(generalSnap, currentGeneral);
     const socialDirty = !generalSnap || socialGroupDirty(generalSnap, currentGeneral);
     const languagesDirty = !generalSnap || languagesGroupDirty(generalSnap, currentGeneral);
 
@@ -1687,6 +1753,21 @@ export default function SettingsPage() {
       } catch {
         if (!token.isCurrent()) return;
         failedKeys.push("stColorsSaveError");
+      }
+    }
+
+    if (themeTokensDirty && themeTokenCheck.ok) {
+      attemptedCount++;
+      try {
+        await updateRestaurantThemeTokens(restaurantId, themeTokenCheck.tokens);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, themeTokens: currentGeneral.themeTokens };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stThemeTokensSaveError");
       }
     }
 
@@ -2251,6 +2332,19 @@ export default function SettingsPage() {
               t={t}
             />
           </div>
+        </section>
+
+        {/* THEME & CONTENT SETTINGS v1 — couleurs des panneaux et
+            fenêtres de la vitrine (jeu fermé, voir lib/theme-tokens.ts).
+            Désactivée tant que la lecture dédiée n'a pas abouti. */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4" data-settings-theme-tokens-section="">
+          <h3 className="font-bold text-stone-900">{t("stThemeTokensTitle")}</h3>
+          <ThemeTokensFields
+            inputs={themeTokenInputs}
+            onChange={setThemeTokenInputs}
+            disabled={!canEdit || !themeTokensReadable}
+            t={t}
+          />
         </section>
 
         {/* LOT 1A — identité et présentation : nom affiché, texte

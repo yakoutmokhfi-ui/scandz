@@ -104,6 +104,7 @@ export default function ProductInfoButton({
       <dialog
         id={panelId}
         ref={dialogRef}
+        data-sc-surface="popup"
         aria-label={triggerLabel}
         onClose={() => {
           // Source UNIQUE de vérité pour "le dialogue est fermé", quel

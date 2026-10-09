@@ -302,6 +302,20 @@ export async function updateRestaurantSocialLinks(restaurantId, instagramUrl, ti
 export async function updateRestaurantLanguages(restaurantId, languageCodes) {
   return mutationCall("languages", restaurantId, undefined);
 }
+// THEME & CONTENT SETTINGS v1 -- jetons de surface. Lecture : fixture par
+// établissement ({} = aucune configuration) ou panne injectée ; écriture :
+// journalisée avec les jetons EXACTS soumis, comme toutes les autres
+// mutations de ce harnais (kind "themeTokens").
+export async function getRestaurantThemeTokens(restaurantId) {
+  const failure = (globalThis).__themeTokensLoadFailure && (globalThis).__themeTokensLoadFailure[restaurantId];
+  if (failure) return Promise.reject(failure);
+  const fallback = (globalThis).__themeTokensFallback && (globalThis).__themeTokensFallback[restaurantId];
+  return fallback ?? {};
+}
+export async function updateRestaurantThemeTokens(restaurantId, tokens) {
+  (globalThis).__themeTokensCallLog.push({ restaurantId, tokens });
+  return mutationCall("themeTokens", restaurantId, undefined);
+}
 export async function getSupportedLanguages() {
   return (globalThis).__supportedLanguages ?? [
     { code: "fr", label: "Français", dir: "ltr" },
@@ -604,6 +618,7 @@ const ALL_KINDS = [
   "social",
   "languages",
   "trackingText",
+  "themeTokens",
 ] as const;
 
 /** Tous les kinds SAUF "receipt" -- utilisé abondamment pour prouver
@@ -653,6 +668,10 @@ function resetCommonFixtures() {
   (globalThis as any).__communicationTextFallback = {};
   (globalThis as any).__communicationEventFallback = {};
   (globalThis as any).__communicationTextFailure = {};
+  // THEME & CONTENT SETTINGS v1 (TH-series) -- voir getRestaurantThemeTokens ci-dessus.
+  (globalThis as any).__themeTokensFallback = {};
+  (globalThis as any).__themeTokensLoadFailure = {};
+  (globalThis as any).__themeTokensCallLog = [];
 }
 
 /** MERCHANT CUSTOMER COMMUNICATIONS v1 — le champ d'UN emplacement du
@@ -2093,6 +2112,204 @@ test("MCC-S8 — activer un e-mail facultatif appelle EXACTEMENT sa RPC, et la d
 
 
 
+// ====================================================================
+// THEME & CONTENT SETTINGS v1 -- groupe « couleurs des panneaux et
+// fenêtres » de la page Réglages (série TH). Mêmes garanties que les
+// autres groupes : dirty par comparaison au snapshot, tentative
+// INDÉPENDANTE, issue sans ambiguïté, garde de provenance. L'ajout du
+// kind "themeTokens" à ALL_KINDS fait aussi vérifier, par TOUS les
+// scénarios S1-S10 existants, qu'une édition étrangère n'appelle jamais
+// updateRestaurantThemeTokens.
+// ====================================================================
+
+function themeTokenInput(container: HTMLElement, key: string): HTMLInputElement {
+  const el = container.querySelector(`#theme-token-${key}`) as HTMLInputElement | null;
+  assert.ok(el, `expected the theme token text input for "${key}"`);
+  return el!;
+}
+
+test("TH-1 — configured tokens are loaded into the fields; saving an UNRELATED edit never calls updateRestaurantThemeTokens (not dirty)", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__themeTokensFallback["resto-a"] = { popup_bg: "#FFFFFF", popup_text: "#000000" };
+  const { container, root } = render();
+  await waitSettled(container);
+
+  assert.equal(themeTokenInput(container, "popup_bg").value, "#FFFFFF");
+  assert.equal(themeTokenInput(container, "popup_text").value, "#000000");
+  assert.equal(themeTokenInput(container, "info_panel_bg").value, "", "non configuré = vide");
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, [], "groupe non modifié : aucune écriture");
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1);
+  root.unmount();
+  container.remove();
+});
+
+test("TH-2 — editing a pair writes ONLY the theme-token group, once, with the normalized (uppercase) tokens for the CURRENT restaurant", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(themeTokenInput(container, "popup_bg"), "#ffffff");
+  setFieldValue(themeTokenInput(container, "popup_text"), "#000000");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, [
+    { restaurantId: "resto-a", tokens: { popup_bg: "#FFFFFF", popup_text: "#000000" } },
+  ]);
+  assertZeroCalls(ALL_KINDS.filter((k) => k !== "themeTokens"), "TH-2 (theme tokens only)");
+  assert.deepEqual((globalThis as any).__callOrder, ["themeTokens"]);
+
+  // Deuxième enregistrement SANS modification : plus aucune écriture (snapshot mis à jour).
+  (globalThis as any).__callOrder.length = 0;
+  submitForm(container);
+  await flush(40);
+  assert.equal((globalThis as any).__themeTokensCallLog.length, 1, "pas de ré-écriture d'un état déjà enregistré");
+  root.unmount();
+  container.remove();
+});
+
+test("TH-3 — invalid color, incomplete pair and insufficient contrast are BLOCKED before any RPC (same validation as the field messages)", async () => {
+  const cases: Array<[string, Record<string, string>, string]> = [
+    ["invalid color", { popup_bg: "rouge", popup_text: "#000000" }, "stColorInvalid"],
+    ["css injection", { popup_bg: "#FFFFFF;background:url(x)", popup_text: "#000000" }, "stColorInvalid"],
+    ["short hex", { popup_bg: "#FFF", popup_text: "#000000" }, "stColorInvalid"],
+    ["incomplete pair", { popup_bg: "#FFFFFF" }, "stThemeTokPairIncomplete"],
+    ["low contrast", { popup_bg: "#777777", popup_text: "#7A7A7A" }, "stThemeTokLowContrast"],
+  ];
+  for (const [label, values, messageKey] of cases) {
+    setupSingleRestaurant();
+    const { container, root } = render();
+    await waitSettled(container);
+    for (const [k, v] of Object.entries(values)) setFieldValue(themeTokenInput(container, k), v);
+    submitForm(container);
+    await waitFor(() => hasText(container, t(messageKey)));
+    assert.equal((globalThis as any).__themeTokensCallLog.length, 0, `${label}: aucune écriture`);
+    assertZeroCalls(ALL_KINDS, `TH-3 ${label}`);
+    assert.ok(!hasText(container, t("stSaved")), `${label}: jamais « enregistré »`);
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("TH-4 — Reset empties every token and the next save writes an EMPTY token set (= back to the default look)", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__themeTokensFallback["resto-a"] = { popup_bg: "#FFFFFF", popup_text: "#000000", surface_border: "#C9A24B" };
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const reset = container.querySelector("[data-theme-tokens-reset]") as HTMLButtonElement;
+  assert.equal(reset.disabled, false);
+  reset.click();
+  await flush(20);
+  for (const k of ["popup_bg", "popup_text", "surface_border"]) assert.equal(themeTokenInput(container, k).value, "");
+
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, [{ restaurantId: "resto-a", tokens: {} }]);
+  root.unmount();
+  container.remove();
+});
+
+test("TH-5 — if the tokens cannot be READ (e.g. SQL not applied yet) the section is disabled, never written, and the rest of the page still saves", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__themeTokensLoadFailure["resto-a"] = new Error('column "theme_tokens" does not exist');
+  const { container, root } = render();
+  await waitSettled(container);
+
+  for (const k of ["popup_bg", "popup_text", "surface_border"]) assert.equal(themeTokenInput(container, k).disabled, true);
+  assert.equal((container.querySelector("[data-theme-tokens-reset]") as HTMLButtonElement).disabled, true);
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "le reste de la page s'enregistre");
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, [], "groupe illisible : jamais écrit");
+  root.unmount();
+  container.remove();
+});
+
+test("TH-6 — a theme-token write failure after another group succeeded is reported as an EXPLICIT mixed outcome naming the theme group (never a bare global failure)", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.themeTokens["resto-a"] = new Error("boom");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  setFieldValue(themeTokenInput(container, "popup_bg"), "#FFFFFF");
+  setFieldValue(themeTokenInput(container, "popup_text"), "#000000");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stThemeTokensSaveError")));
+  // « …des couleurs » est un PRÉFIXE du message du groupe thème (« …des couleurs
+  // des panneaux ») : on vérifie donc l'absence du message seul.
+  assert.ok(!/enregistrement des couleurs(?! des panneaux)/.test(container.textContent ?? ""), "colors a réussi : non listé comme échec");
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1);
+  assert.equal((globalThis as any).__themeTokensCallLog.length, 1);
+  root.unmount();
+  container.remove();
+});
+
+test("TH-7 — tenant isolation: tokens loaded for A are replaced by B's (not merged) on restaurant switch, and a save after the switch targets B", async () => {
+  resetCommonFixtures();
+  (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
+  (globalThis as any).__settingsFallback["resto-b"] = settingsRow({ display_name: "Resto B" });
+  (globalThis as any).__receiptFallback["resto-a"] = receiptRow("A");
+  (globalThis as any).__receiptFallback["resto-b"] = receiptRow("B");
+  (globalThis as any).__themeTokensFallback["resto-a"] = { popup_bg: "#FFFFFF", popup_text: "#000000", surface_border: "#C9A24B" };
+  (globalThis as any).__themeTokensFallback["resto-b"] = { delivery_card_bg: "#101010", delivery_card_text: "#F5F5F5" };
+
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(themeTokenInput(container, "popup_bg").value, "#FFFFFF");
+
+  switchTo(container, "resto-b");
+  await waitSettled(container);
+  assert.equal(themeTokenInput(container, "popup_bg").value, "", "rien de A ne subsiste chez B");
+  assert.equal(themeTokenInput(container, "surface_border").value, "");
+  assert.equal(themeTokenInput(container, "delivery_card_bg").value, "#101010");
+
+  setFieldValue(themeTokenInput(container, "delivery_card_bg"), "#000000");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, [
+    { restaurantId: "resto-b", tokens: { delivery_card_bg: "#000000", delivery_card_text: "#F5F5F5" } },
+  ]);
+  root.unmount();
+  container.remove();
+});
+
+test("TH-8 — the three order-help texts appear in the EXISTING communication-text section (no parallel CMS) with the 60/120/500 limits", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+
+  for (const key of ["order_help_button_label", "order_help_title", "order_help_body"]) {
+    assert.ok(communicationTextField(container, key), key);
+  }
+  setFieldValue(communicationTextField(container, "order_help_button_label"), "Comment passer commande ?");
+  setFieldValue(communicationTextField(container, "order_help_body"), "Choisissez, validez, payez.");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  await flush(30);
+  assert.deepEqual(
+    (globalThis as any).__communicationTextCallLog.map((c: { textKey: string; body: string }) => [c.textKey, c.body]).sort(),
+    [
+      ["order_help_body", "Choisissez, validez, payez."],
+      ["order_help_button_label", "Comment passer commande ?"],
+    ]
+  );
+  assert.deepEqual((globalThis as any).__themeTokensCallLog, []);
+  root.unmount();
+  container.remove();
+});
+
 // MERCHANT CUSTOMER COMMUNICATIONS v1 -- nettoyage des globales du lot.
 after(() => {
   delete (globalThis as any).__communicationTextCallLog;
@@ -2100,4 +2317,7 @@ after(() => {
   delete (globalThis as any).__communicationTextFallback;
   delete (globalThis as any).__communicationEventFallback;
   delete (globalThis as any).__communicationTextFailure;
+  delete (globalThis as any).__themeTokensFallback;
+  delete (globalThis as any).__themeTokensLoadFailure;
+  delete (globalThis as any).__themeTokensCallLog;
 });

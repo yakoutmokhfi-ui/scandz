@@ -1,3 +1,4 @@
+import { sanitizeThemeTokens, type ThemeTokens } from "@/lib/theme-tokens";
 import { supabase } from "@/lib/supabase";
 import { ORDER_PAGE_SIZE, validateOrderCursor, type OrderCursor } from "@/lib/dashboard-pagination";
 import type {
@@ -1132,6 +1133,38 @@ export async function updateRestaurantBgColor(
   const { error } = await supabase.rpc("update_restaurant_bg_color", {
     p_restaurant_id: restaurantId,
     p_bg_color: bgColor,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * THEME & CONTENT SETTINGS v1 — jetons de couleur des surfaces
+ * d'information (lib/theme-tokens.ts).
+ *
+ * LECTURE INDÉPENDANTE de getRestaurantSettings (volontairement) : tant
+ * que le DRAFT SQL du lot n'est pas appliqué, la colonne n'existe pas, et
+ * une colonne manquante dans le SELECT principal ferait échouer TOUTE la
+ * page Réglages. Ici, l'échec reste local : l'appelant désactive la
+ * section et n'écrit rien.
+ */
+export async function getRestaurantThemeTokens(restaurantId: string): Promise<ThemeTokens> {
+  const { data, error } = await supabase
+    .from("restaurant_configs")
+    .select("theme_tokens")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return sanitizeThemeTokens((data as { theme_tokens?: unknown } | null)?.theme_tokens);
+}
+
+/** Écriture par la SEULE voie RPC (validation fermée + contraste côté serveur). `{}` = réinitialisation. */
+export async function updateRestaurantThemeTokens(
+  restaurantId: string,
+  tokens: ThemeTokens
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_theme_tokens", {
+    p_restaurant_id: restaurantId,
+    p_tokens: tokens,
   });
   if (error) throw new Error(error.message);
 }

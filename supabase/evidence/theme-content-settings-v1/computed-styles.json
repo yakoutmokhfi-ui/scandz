@@ -1,0 +1,174 @@
+{
+  "default": {
+    "page_container": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(34, 21, 16)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel": {
+      "backgroundColor": "rgb(34, 21, 16)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_label": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(198, 161, 91)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_value": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_icon": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(198, 161, 91)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_divider": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "product_popup": {
+      "backgroundColor": "rgb(20, 16, 13)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "product_popup_text": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "product_popup_close": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(185, 183, 182)",
+      "borderTopColor": "rgb(214, 211, 209)",
+      "borderColor": "rgb(214, 211, 209)"
+    },
+    "order_help_popup": {
+      "backgroundColor": "rgb(20, 16, 13)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "order_help_title": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "delivery_dialog": {
+      "backgroundColor": "rgb(20, 16, 13)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "delivery_card": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "delivery_card_title": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    }
+  },
+  "configured": {
+    "page_container": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(34, 21, 16)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel": {
+      "backgroundColor": "rgb(255, 255, 255)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(201, 162, 75)",
+      "borderColor": "rgb(201, 162, 75)"
+    },
+    "info_panel_label": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(37, 25, 17)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_value": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(17, 17, 17)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_icon": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(37, 25, 17)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "info_panel_divider": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(201, 162, 75)",
+      "borderColor": "rgb(201, 162, 75)"
+    },
+    "product_popup": {
+      "backgroundColor": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(201, 162, 75)",
+      "borderColor": "rgb(201, 162, 75)"
+    },
+    "product_popup_text": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "product_popup_close": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(77, 77, 77)",
+      "borderTopColor": "rgb(214, 211, 209)",
+      "borderColor": "rgb(214, 211, 209)"
+    },
+    "order_help_popup": {
+      "backgroundColor": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(201, 162, 75)",
+      "borderColor": "rgb(201, 162, 75)"
+    },
+    "order_help_title": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "delivery_dialog": {
+      "backgroundColor": "rgb(20, 16, 13)",
+      "color": "rgb(255, 255, 255)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    },
+    "delivery_card": {
+      "backgroundColor": "rgb(255, 255, 255)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(201, 162, 75)",
+      "borderColor": "rgb(201, 162, 75)"
+    },
+    "delivery_card_title": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "color": "rgb(0, 0, 0)",
+      "borderTopColor": "rgb(229, 231, 235)",
+      "borderColor": "rgb(229, 231, 235)"
+    }
+  }
+}

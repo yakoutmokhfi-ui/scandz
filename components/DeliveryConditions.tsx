@@ -66,7 +66,7 @@ export function DeliveryConditionsButton({ rules, currency }: { rules: PublicDel
           rule.minItems != null && rule.minItems > 0 ? t("deliveryRuleMinItems", { count: rule.minItems }) : null,
           discountText(t, rule, currency),
         ].filter((x): x is string => !!x);
-        return <section key={rule.displayOrder} data-delivery-rule-card className="space-y-1 rounded-xl border border-espresso/10 px-3 py-2.5">
+        return <section key={rule.displayOrder} data-delivery-rule-card data-sc-surface="delivery-card" className="space-y-1 rounded-xl border border-espresso/10 px-3 py-2.5">
           <h3 className="font-semibold">{base === undefined ? area : `${area} — ${formatPrice(base, currency)}`}</h3>
           {base === undefined && <p className="text-sm">{t("deliveryPriceUnavailable")}</p>}
           {conditions.length > 0 && <p data-delivery-rule-conditions className="text-sm">{conditions.join(" · ")}</p>}

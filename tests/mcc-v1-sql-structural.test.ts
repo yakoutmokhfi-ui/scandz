@@ -69,14 +69,24 @@ function sqlArrayLiterals(functionName: string): string[] {
 // MIROIRS SQL <-> TypeScript.
 // ---------------------------------------------------------------------
 
-test("[MIRROR-1] communication_text_keys() est le MIROIR EXACT de COMMUNICATION_TEXT_KEYS", () => {
-  assert.deepEqual(sqlArrayLiterals("communication_text_keys"), [...COMMUNICATION_TEXT_KEYS]);
+// THEME & CONTENT SETTINGS v1 ajoute 3 emplacements (order_help_*) au
+// catalogue TS ; le DRAFT MCC v1 reste, lui, à 14 (le delta est porté par
+// DRAFT-lot-theme-content-settings-v1.sql, miroir vérifié dans
+// theme-content-settings-v1-tokens.test.ts [MIR-*]). Ce test prouve donc
+// que le DRAFT MCC est le miroir exact du catalogue TS PRIVÉ de ce delta.
+const THEME_LOT_ADDED_KEYS = ["order_help_button_label", "order_help_title", "order_help_body"];
+
+test("[MIRROR-1] communication_text_keys() est le MIROIR EXACT de COMMUNICATION_TEXT_KEYS (hors delta THEME & CONTENT SETTINGS v1)", () => {
+  assert.deepEqual(
+    sqlArrayLiterals("communication_text_keys"),
+    COMMUNICATION_TEXT_KEYS.filter((k) => !THEME_LOT_ADDED_KEYS.includes(k))
+  );
 });
 
 test("[MIRROR-2] public_communication_text_keys() est le MIROIR EXACT de PUBLIC_COMMUNICATION_TEXT_KEYS", () => {
   assert.deepEqual(
     sqlArrayLiterals("public_communication_text_keys"),
-    [...PUBLIC_COMMUNICATION_TEXT_KEYS]
+    PUBLIC_COMMUNICATION_TEXT_KEYS.filter((k) => !THEME_LOT_ADDED_KEYS.includes(k))
   );
 });
 

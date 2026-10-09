@@ -232,3 +232,59 @@ body {
     break-inside: avoid-page;
   }
 }
+
+/* ==================================================================
+   THEME & CONTENT SETTINGS v1 — jetons de surface du commerçant.
+   ==================================================================
+   Trois surfaces d'information (`data-sc-surface`) peuvent recevoir des
+   couleurs propres au commerçant. Mécanisme : à l'intérieur de la
+   surface, on RE-DÉFINIT localement les variables sémantiques que les
+   composants utilisent déjà (--sc-bg, --sc-ink-on-bg, ...). Les
+   descendants (bg-crema, text-ink-on-bg, text-accent-dark-on-bg...) les
+   suivent sans qu'aucune classe ne change, et leur lisibilité reste
+   calculée contre le fond RÉEL de la surface.
+
+   GARDE : chaque règle est conditionnée par `data-sc-themed~="<surface>"`,
+   attribut posé sur le conteneur de la vitrine UNIQUEMENT lorsque la
+   surface est configurée (voir lib/theme-tokens.ts). Sans configuration,
+   aucun attribut -> aucune de ces règles ne s'applique -> rendu
+   historique inchangé. Aucune valeur n'est lue d'ailleurs que de
+   variables posées par themeSurfaceStyle (couleurs #RRGGBB validées).
+   ------------------------------------------------------------------ */
+/* Panneau adresse/horaires (RestaurantInfoBar) : c'est une surface
+   « encre » -- fond = --sc-ink, texte = --sc-ink-text, libellés/icônes =
+   --sc-highlight-on-ink. On redéfinit donc CES trois variables, que ses
+   classes (bg-espresso, text-ink-text, text-highlight-on-ink) lisent déjà. */
+[data-sc-themed~="info-panel"] [data-sc-surface="info-panel"] {
+  --sc-ink: var(--sc-info-panel-bg);
+  --sc-ink-text: var(--sc-info-panel-text);
+  --sc-highlight-on-ink: var(--sc-info-panel-link);
+}
+[data-sc-themed~="popup"] [data-sc-surface="popup"] {
+  --sc-bg: var(--sc-popup-bg);
+  --sc-ink-on-bg: var(--sc-popup-text);
+  --sc-ink-on-bg-muted: var(--sc-popup-text-muted);
+  --sc-accent-dark-on-bg: var(--sc-popup-link);
+  --sc-accent-dark-on-bg-muted: var(--sc-popup-link);
+  background-color: var(--sc-popup-bg);
+  color: var(--sc-popup-text);
+}
+[data-sc-themed~="delivery-card"] [data-sc-surface="delivery-card"] {
+  --sc-bg: var(--sc-delivery-card-bg);
+  --sc-ink-on-bg: var(--sc-delivery-card-text);
+  --sc-ink-on-bg-muted: var(--sc-delivery-card-text-muted);
+  --sc-accent-dark-on-bg: var(--sc-delivery-card-link);
+  --sc-accent-dark-on-bg-muted: var(--sc-delivery-card-link);
+  background-color: var(--sc-delivery-card-bg);
+  color: var(--sc-delivery-card-text);
+}
+/* Bordure partagée. Le panneau d'infos porte sa propre bordure ET des
+   séparateurs de lignes (divide-y) sur les enfants de sa liste. */
+[data-sc-themed~="border"] [data-sc-surface="info-panel"],
+[data-sc-themed~="border"] [data-sc-surface="popup"],
+[data-sc-themed~="border"] [data-sc-surface="delivery-card"] {
+  border-color: var(--sc-surface-border);
+}
+[data-sc-themed~="border"] [data-sc-surface="info-panel"] > div > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--sc-surface-border);
+}
