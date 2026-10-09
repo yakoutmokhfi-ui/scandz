@@ -7,9 +7,40 @@ import { useI18n } from "@/lib/i18n-context";
 import type { Translator } from "@/lib/i18n";
 import Ltr from "@/components/Bidi";
 import { isWhatsappEnabled } from "@/lib/customer-contact";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
+import { resolveCommunicationText } from "@/lib/communications/resolve";
 
-function contextSummary(ctx: OrderContext | null, t: Translator): string[] {
+/**
+ * MERCHANT CUSTOMER COMMUNICATIONS v1 — récapitulatif de contexte.
+ *
+ * Les trois lignes de DÉLAI (« nous vous confirmons… ») deviennent
+ * configurables par le commerçant : ce sont elles qui portaient les
+ * seules promesses de temps faites au client, et elles étaient figées
+ * dans le dictionnaire plateforme.
+ *
+ * Les lignes FACTUELLES (table, téléphone, adresse) ne le sont PAS : ce
+ * sont des données de la commande, pas un discours commercial. Les
+ * rendre configurables permettrait à une surcharge de masquer l'adresse
+ * de livraison réellement enregistrée.
+ *
+ * `delivery` emploie `confirmation_delivery_local` et JAMAIS
+ * `confirmation_delivery_carrier` : la vitrine ignore DÉLIBÉRÉMENT le
+ * `provider` d'une règle de livraison (les projections publiques
+ * get_restaurant_public_* ne l'exposent pas), donc elle ne peut pas
+ * distinguer une livraison locale d'un acheminement transporteur. Ce lot
+ * ne relâche pas cette frontière pour un simple choix de formulation :
+ * la formulation transporteur vit dans l'e-mail carrier_handoff, où le
+ * serveur connaît `orders.provider_code`.
+ */
+function contextSummary(
+  ctx: OrderContext | null,
+  t: Translator,
+  texts: CommunicationTextOverrides | null | undefined
+): string[] {
   if (!ctx) return [];
+  const timing = (key: "confirmation_pickup" | "confirmation_delivery_local", base: string) =>
+    resolveCommunicationText(key, texts, (k) => t(k), null).text ?? base;
+
   switch (ctx.mode) {
     case "table":
       return [
@@ -20,14 +51,14 @@ function contextSummary(ctx: OrderContext | null, t: Translator): string[] {
       return [
         t("confirmPickup"),
         `📞 ${ctx.customer.phone}`,
-        t("confirmPickupTime"),
+        timing("confirmation_pickup", t("confirmPickupTime")),
       ];
     case "delivery":
       return [
         t("confirmDelivery", { zone: ctx.zoneLabel }),
         `📍 ${formatAddress(ctx.customer)}`,
         `📞 ${ctx.customer.phone}`,
-        t("confirmDeliveryTime"),
+        timing("confirmation_delivery_local", t("confirmDeliveryTime")),
       ];
   }
 }
@@ -39,6 +70,8 @@ export default function OrderConfirmation({
   trackingPath,
   totalAmount,
   invoiceRequested,
+  communicationTexts,
+  withdrawalEligible,
   onBackToMenu,
   onNewOrder,
 }: {
@@ -56,6 +89,17 @@ export default function OrderConfirmation({
    * ni en chaîne de requête -- mandat §6/§7). `null` si la commande
    * n'a pas été créée avec succès (mandat §20, "No tracking link if
    * order creation failed").
+   *
+   * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
+   * mandat §B, littéral : « Scanym must no longer REQUIRE a
+   * customer-facing "Track my order" CTA after purchase ») ───
+   *
+   * Ce chemin n'est PLUS rendu comme bouton « Suivre ma commande ». Il
+   * est CONSERVÉ comme prop parce qu'il reste la cible du seul appel à
+   * l'action désormais autorisé sur cet écran : la demande de
+   * rétractation, dont le formulaire vit sur la page de suivi. Le
+   * supprimer aurait obligé à publier un SECOND chemin vers la même
+   * page, avec deux jetons à garder cohérents.
    */
   trackingPath: string | null;
   /**
@@ -80,6 +124,36 @@ export default function OrderConfirmation({
    * "facture en cours".
    */
   invoiceRequested?: boolean;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharges de texte du
+   * commerçant, telles que renvoyées par la projection PUBLIQUE
+   * `get_restaurant_public_communication_texts` et déjà filtrées par
+   * `overridesFromPublicProjection`.
+   *
+   * `undefined`/`null`/objet vide : TOUTES les formulations restent
+   * exactement celles d'avant ce lot (mandat §G). Ce prop est optionnel
+   * pour que tout appelant existant continue de compiler et de rendre à
+   * l'identique.
+   */
+  communicationTexts?: CommunicationTextOverrides | null;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B, littéral :
+   * « withdrawal CTA only when at least one line is withdrawal-eligible »)
+   * — `true` UNIQUEMENT lorsque le serveur a PROUVÉ qu'au moins une
+   * ligne de cette commande porte
+   * `order_items.withdrawal_eligible_at_order_time is true` (RPC
+   * `order_has_withdrawal_eligible_line`, via
+   * app/api/checkout/withdrawal-eligibility).
+   *
+   * FERMÉ AU REPOS : `undefined`, `false`, une réponse d'API en échec ou
+   * un instantané NULL ne montrent AUCUN appel à l'action. L'absence de
+   * preuve ne vaut pas preuve -- proposer une rétractation sur une
+   * commande non rétractable serait une promesse juridique fausse.
+   *
+   * Ce lot NE CALCULE NI NE MODIFIE aucune règle d'éligibilité : il
+   * transporte un booléen déjà établi par l'instantané SQL existant.
+   */
+  withdrawalEligible?: boolean;
   onBackToMenu: () => void;
   onNewOrder: () => void;
 }) {
@@ -89,6 +163,60 @@ export default function OrderConfirmation({
   // mention WhatsApp si le commerçant ne l'utilise pas.
   const whatsappEnabled = isWhatsappEnabled(restaurant.config);
 
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — titre et corps de succès.
+  //
+  // Le CORPS passe par `explicitBase` et non par une clé du catalogue :
+  // sa base est CONDITIONNELLE (WhatsApp activé ou non) et la condition
+  // n'est connue qu'ici. Une clé unique effacerait silencieusement la
+  // variante sans WhatsApp -- voir MCC-V1-DEFAULT-ABSENT-01 (b).
+  const successTitle =
+    resolveCommunicationText("order_success_title", communicationTexts, (k) => t(k)).text ??
+    t("confirmTitle");
+  const successBody = resolveCommunicationText(
+    "order_success_body",
+    communicationTexts,
+    (k) => t(k),
+    whatsappEnabled
+      ? t("confirmSubtitle", { name: restaurant.name })
+      : t("confirmSubtitleNoWhatsapp", { name: restaurant.name })
+  ).text;
+
+  // Avertissements ADDITIFS sur CET écran : rendus UNIQUEMENT lorsque le
+  // commerçant les a saisis.
+  //
+  // `source === "merchant_override"` et non simplement `text !== null` :
+  // `slot_warning` POSSÈDE un texte de base plateforme
+  // (`deliveryTimingNoticeNotesHint`), mais ce texte a déjà sa place --
+  // la boîte de dialogue de délai AVANT validation
+  // (components/DeliveryTimingNoticeDialog.tsx). Le répéter ici
+  // ajouterait, pour TOUS les commerçants, un paragraphe que l'écran
+  // n'affichait pas avant ce lot : une régression de compatibilité
+  // arrière (mandat §G) déguisée en fonctionnalité. La base reste donc
+  // au seul endroit où elle existait, et cet écran ne montre que la
+  // surcharge.
+  const slotWarningResolved = resolveCommunicationText(
+    "slot_warning",
+    communicationTexts,
+    (k) => t(k)
+  );
+  const slotWarning =
+    slotWarningResolved.source === "merchant_override" ? slotWarningResolved.text : null;
+  const sanitaryWarningResolved = resolveCommunicationText(
+    "sanitary_warning",
+    communicationTexts,
+    (k) => t(k),
+    null
+  );
+  const sanitaryWarning =
+    sanitaryWarningResolved.source === "merchant_override"
+      ? sanitaryWarningResolved.text
+      : null;
+
+  // MCC-V1-CONTRACT-CHANGE-01 : plus aucun bouton « Suivre ma
+  // commande ». Le SEUL appel à l'action conservé est la rétractation,
+  // et uniquement sur preuve serveur.
+  const showWithdrawalCta = withdrawalEligible === true && trackingPath !== null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-crema px-6 py-10">
       <div className="w-full max-w-sm text-center">
@@ -96,14 +224,14 @@ export default function OrderConfirmation({
           <span className="text-4xl text-green-600">✓</span>
         </div>
 
-        <h1 className="mt-6 text-2xl font-bold">
-          {t("confirmTitle")}
+        <h1 className="mt-6 text-2xl font-bold" data-order-confirmation-title="">
+          {successTitle}
         </h1>
-        <p className="mt-2 text-sm text-ink-on-bg-muted">
-          {whatsappEnabled
-            ? t("confirmSubtitle", { name: restaurant.name })
-            : t("confirmSubtitleNoWhatsapp", { name: restaurant.name })}
-        </p>
+        {successBody !== null && (
+          <p className="mt-2 text-sm text-ink-on-bg-muted" data-order-confirmation-body="">
+            {successBody}
+          </p>
+        )}
 
         {orderNumber !== null && (
           <p className="mt-4 inline-block rounded-full bg-caramel px-4 py-1.5 text-sm font-bold text-caramel-ink">
@@ -125,27 +253,22 @@ export default function OrderConfirmation({
           </p>
         )}
 
-        {/* CUSTOMER TRACKING EXPERIENCE v2 (mandat §20) : le lien
-            porte le jeton en FRAGMENT (`#public_token`) -- un <a>
-            ordinaire le gère nativement comme n'importe quel lien avec
-            ancre : au clic, le navigateur navigue vers l'URL complète
-            SANS jamais envoyer le fragment au serveur. Aucun
-            changement de mécanique de rendu n'est nécessaire ici par
-            rapport à un lien classique. PAS `next/link` : ce composant
-            "use client" est bundlé isolément par les tests DOM esbuild
-            de ce dépôt, qui n'externalisent QUE react/react-dom --
-            jamais next/link ni ses dépendances internes. */}
-        {/* CUSTOMER CONTACT + LIVE TRACKING v1 : le suivi devient
-            l'ACTION PRINCIPALE post-commande (bouton plein, cible
-            tactile >= 44px, placé avant tout autre contenu actionnable),
-            visible sans défilement et indépendant de WhatsApp. */}
-        {trackingPath !== null && (
+        {/* MERCHANT CUSTOMER COMMUNICATIONS v1 — appel à l'action
+            RÉTRACTATION, et lui seul (MCC-V1-CONTRACT-CHANGE-01 :
+            l'écran ne porte plus de bouton « Suivre ma commande »).
+            Rendu UNIQUEMENT sur preuve serveur d'au moins une ligne
+            rétractable. Comme l'ancien lien de suivi : un <a> ordinaire
+            (le fragment n'est jamais envoyé au serveur), jamais
+            `next/link` -- ce composant "use client" est bundlé isolément
+            par les tests DOM esbuild de ce dépôt, qui n'externalisent
+            QUE react/react-dom. */}
+        {showWithdrawalCta && (
           <a
             href={trackingPath}
-            data-order-confirmation-tracking=""
+            data-order-confirmation-withdrawal=""
             className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-caramel py-3.5 text-center font-bold text-caramel-ink shadow-sm"
           >
-            {t("trackYourOrder")}
+            {t("confirmWithdrawalCta")}
           </a>
         )}
 
@@ -154,8 +277,11 @@ export default function OrderConfirmation({
             text-ink-on-bg-muted) calculés contre --sc-bg, alors qu'il
             restait sur un fond littéral figé. bg-crema (= var(--sc-bg)) réaligne
             le fond réellement affiché sur la même source. */}
-        <div className="mt-6 space-y-2 rounded-2xl bg-crema p-4 text-left text-sm shadow-sm">
-          {contextSummary(context, t).map((line) => (
+        <div
+          className="mt-6 space-y-2 rounded-2xl bg-crema p-4 text-left text-sm shadow-sm"
+          data-order-confirmation-recap=""
+        >
+          {contextSummary(context, t, communicationTexts).map((line) => (
             <p key={line} className="text-ink-on-bg">
               {line}
             </p>
@@ -179,6 +305,30 @@ export default function OrderConfirmation({
               {t("confirmInvoiceRequested")}
             </p>
           )}
+          {/* MERCHANT CUSTOMER COMMUNICATIONS v1 — avertissements du
+              commerçant. Rendus en NŒUD TEXTE React (jamais
+              dangerouslySetInnerHTML) : un `<script>` saisi par un
+              commerçant s'affiche donc comme du texte, il ne devient
+              jamais du balisage. `whitespace-pre-wrap break-words`
+              préserve les retours à la ligne saisis sans jamais
+              permettre de mise en forme -- même convention que
+              components/DeliveryTimingNoticeDialog.tsx. */}
+          {slotWarning !== null && (
+            <p
+              className="whitespace-pre-wrap break-words text-ink-on-bg-muted"
+              data-order-confirmation-slot-warning=""
+            >
+              {slotWarning}
+            </p>
+          )}
+          {sanitaryWarning !== null && (
+            <p
+              className="whitespace-pre-wrap break-words text-ink-on-bg-muted"
+              data-order-confirmation-sanitary-warning=""
+            >
+              {sanitaryWarning}
+            </p>
+          )}
         </div>
 
         <p className="mt-6 text-sm italic text-accent-dark-on-bg">
@@ -188,10 +338,15 @@ export default function OrderConfirmation({
         </p>
 
         <div className="mt-8 space-y-3">
+          {/* « Retour au menu » est l'action PRINCIPALE (bouton plein)
+              dès qu'aucun appel à l'action de rétractation ne la précède
+              -- ce qui est désormais le cas général, puisque le bouton
+              de suivi a disparu (MCC-V1-CONTRACT-CHANGE-01). */}
           <button
             onClick={onBackToMenu}
+            data-order-confirmation-back-to-menu=""
             className={
-              trackingPath !== null
+              showWithdrawalCta
                 ? "w-full rounded-xl border border-caramel py-3.5 font-bold text-accent-dark-on-bg"
                 : "w-full rounded-xl bg-caramel py-3.5 font-bold text-caramel-ink"
             }

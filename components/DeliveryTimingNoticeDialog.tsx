@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef } from "react";
 import type { DeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
+import { resolveCommunicationText } from "@/lib/communications/resolve";
 import { useI18n } from "@/lib/i18n-context";
 
 function closeDialog(dialog: HTMLDialogElement) {
@@ -18,14 +20,34 @@ export default function DeliveryTimingNoticeDialog({
   confirming,
   onConfirm,
   onDismiss,
+  communicationTexts = null,
 }: {
   open: boolean;
   notice: DeliveryCustomerNotice | null;
   confirming: boolean;
   onConfirm: () => void;
   onDismiss: () => void;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharges de texte du
+   * commerçant. `null`/absent : l'avertissement de créneau reste
+   * EXACTEMENT celui d'avant ce lot (`deliveryTimingNoticeNotesHint`).
+   */
+  communicationTexts?: CommunicationTextOverrides | null;
 }) {
   const { t } = useI18n();
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — l'avertissement « c'est une
+  // demande, pas un créneau garanti » devient configurable : c'est lui
+  // qui porte la seule réserve faite au client sur l'horaire, et il
+  // était figé dans le dictionnaire plateforme.
+  //
+  // Il reste DISTINCT de `notice.message` juste au-dessus, qui est le
+  // `customer_text` de la règle appariée : deux sources, deux rôles, et
+  // ce lot ne les confond pas (sans quoi une surcharge d'avertissement
+  // pourrait masquer les conditions réelles de la règle).
+  const slotWarning =
+    resolveCommunicationText("slot_warning", communicationTexts, (k) => t(k)).text ??
+    t("deliveryTimingNoticeNotesHint");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -75,8 +97,11 @@ export default function DeliveryTimingNoticeDialog({
           <p className="whitespace-pre-wrap break-words rounded-xl bg-espresso/5 p-3 text-sm leading-relaxed">
             {notice.message}
           </p>
-          <p className="text-sm text-ink-on-bg-muted">
-            {t("deliveryTimingNoticeNotesHint")}
+          <p
+            className="whitespace-pre-wrap break-words text-sm text-ink-on-bg-muted"
+            data-delivery-slot-warning=""
+          >
+            {slotWarning}
           </p>
         </div>
       )}

@@ -183,6 +183,19 @@ const MOCK_LEGAL_CGV = buildServiceMock("lib/services/legal-cgv.ts", {
 });
 
 const mocks: Record<string, string> = {
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 -- lectures de configuration
+  // servies VIDES (« aucun texte personnalisé, aucun e-mail facultatif
+  // activé », l'état de tout établissement avant configuration) et
+  // écritures inertes. Sans ce talon, le module réel tirerait le vrai
+  // client Supabase dans le bundle de ce harnais et y introduirait une
+  // attente réseau que ces scénarios d'ordonnancement ne contrôlent pas.
+  // Même motif que les talons ci-dessus ; aucune assertion modifiée.
+  "@/lib/services/merchant-communications": `
+export async function getMerchantCommunicationTexts() { return {}; }
+export async function getMerchantCommunicationEvents() { return {}; }
+export async function setMerchantCommunicationText() {}
+export async function setMerchantCommunicationEventEnabled() {}
+`,
   "next/navigation": `export function usePathname() { return (globalThis).__navPathname ?? "/dashboard"; }
 const r = { replace: () => {}, push: () => {} };
 export function useRouter() { return r; }`,

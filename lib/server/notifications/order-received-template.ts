@@ -71,6 +71,36 @@ export interface OrderReceivedTemplateInput {
    * reconstruite à partir d'autre chose.
    */
   deliveryAddress: string | null;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — SUJET marchand DÉJÀ RÉSOLU ET
+   * DÉJÀ SUBSTITUÉ (surcharge `email_confirmation_subject` passée par
+   * `resolveAndRenderCommunicationText`). Ce gabarit ne connaît ni la
+   * liste blanche de variables ni le catalogue d'emplacements : il
+   * reçoit une chaîne, l'échappe et l'affiche -- exactement le même
+   * contrat que `statusText`.
+   *
+   * `null`/`undefined`/vide : le sujet PLATEFORME `emailOrderReceivedSubject`
+   * est employé, inchangé. C'est la compatibilité arrière exacte
+   * (mandat §G) : aucune configuration => formulation actuelle.
+   */
+  merchantSubject?: string | null;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — CORPS marchand déjà résolu et
+   * substitué (surcharge `email_confirmation_body`).
+   *
+   * Il REMPLACE le seul paragraphe d'INTRODUCTION
+   * (`emailOrderReceivedIntro`), et RIEN d'autre : le récapitulatif
+   * (nom du commerçant, numéro, mode, montant, adresse), le lien de
+   * suivi et le pied de page restent DÉTENUS PAR LA PLATEFORME.
+   *
+   * C'est le modèle de rendu sûr déjà en place dans ce dépôt
+   * (lib/legal/render.ts) : une valeur marchande est glissée dans une
+   * structure plateforme, jamais substituée à la structure. Laisser un
+   * commerçant remplacer tout le corps lui permettrait de supprimer le
+   * montant ou le lien de suivi d'un e-mail transactionnel -- ce que ce
+   * lot refuse.
+   */
+  merchantBody?: string | null;
 }
 
 export interface RenderedEmail {
@@ -94,9 +124,19 @@ function fulfillmentKey(serviceMode: string): string {
 export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): RenderedEmail {
   const t = (key: string, vars?: Record<string, string | number>) => translate(input.locale, key, vars);
 
-  const subject = t("emailOrderReceivedSubject", { merchant: input.merchantSenderName, n: input.orderNumber });
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharge marchande d'abord,
+  // texte plateforme ensuite ; aucun troisième repli. `trim()` : une
+  // surcharge réduite à des blancs n'est PAS une surcharge (même règle
+  // que `normalizeCommunicationText`), elle ne doit pas produire un
+  // sujet vide.
+  const merchantSubject = input.merchantSubject?.trim() || null;
+  const merchantBody = input.merchantBody?.trim() || null;
+
+  const subject =
+    merchantSubject ??
+    t("emailOrderReceivedSubject", { merchant: input.merchantSenderName, n: input.orderNumber });
   const heading = t("emailOrderReceivedHeading");
-  const intro = t("emailOrderReceivedIntro", { n: input.orderNumber });
+  const intro = merchantBody ?? t("emailOrderReceivedIntro", { n: input.orderNumber });
   const fulfillment = t(fulfillmentKey(input.serviceMode));
   const orderNumberLine = t("orderNumber", { n: input.orderNumber });
   const totalLabel = t("confirmTotalLabel");

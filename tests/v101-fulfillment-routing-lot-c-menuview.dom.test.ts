@@ -262,6 +262,12 @@ function mockRpc(t: { mock: { method: Function } }, fulfillmentRules: unknown[])
             address_line_order: "number_first",
           }], error: null };
     }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
 }
@@ -389,6 +395,12 @@ test("LOT C (mission §17/§30, pickup non-régression, DOM réel) : le mode pic
     if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
     // Ne se résout JAMAIS -- simule une RPC qui ne répond jamais.
     if (name === "get_restaurant_public_delivery_fulfillments") return new Promise(() => {});
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 

@@ -279,6 +279,12 @@ function mockRpc(
     if (name === "get_restaurant_public_cgv") {
       return { data: [], error: null };
     }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
   return { calledRpcNames };
@@ -574,6 +580,11 @@ test("11/12/13 -- trace exhaustive des RPC pendant sélection + bascule : jamais
       // une fois par montage de MenuView.
       "get_restaurant_public_delivery_countries",
       // SELLER LEGAL PROFILE + CGV ENGINE v1 (Phase 1).
+      // MERCHANT CUSTOMER COMMUNICATIONS v1 : lecture publique,
+      // tenant-safe (filtrée sur le p_restaurant_id reçu), faite une
+      // fois par montage de MenuView -- jamais liée à create_order, à
+      // Stuart ni au paiement. Même nature que les lectures ci-dessus.
+      "get_restaurant_public_communication_texts",
       "get_restaurant_public_cgv",
     ]);
     const unexpected = calledRpcNames.filter((n) => !KNOWN_SAFE_RPCS.has(n));

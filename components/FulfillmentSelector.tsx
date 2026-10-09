@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { ServiceMode } from "@/lib/restaurants-config";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
+import { resolveCommunicationText } from "@/lib/communications/resolve";
 import type { DeliveryStatus } from "@/lib/delivery";
 import { type CustomerInfo } from "@/lib/customer";
 // DELIVERY COUNTRY SCOPE v1 -- la validation du code postal et le choix
@@ -185,6 +187,13 @@ function fieldKind(field: string): KnownFieldKind {
  * appliquée cette fois au message d'éligibilité livraison plutôt qu'aux
  * champs client.
  */
+/**
+ * MERCHANT CUSTOMER COMMUNICATIONS v1 — ce composant ne RÉSOUT aucun
+ * texte : il reçoit les surcharges déjà assainies et délègue l'arbitrage
+ * surcharge/base à l'unique autorité `resolveCommunicationText`. Aucun
+ * texte propre à un commerçant n'est écrit ici, ni ailleurs dans
+ * l'application : la base vient toujours de lib/i18n.ts.
+ */
 export default function FulfillmentSelector({
   status,
   type,
@@ -202,6 +211,7 @@ export default function FulfillmentSelector({
   deliveryCountryScope = [],
   cityOptions = null,
   onSelectDeliveryCountry,
+  communicationTexts = null,
 }: {
   status: DeliveryStatus;
   type: ServiceMode | null;
@@ -243,8 +253,44 @@ export default function FulfillmentSelector({
    *  fail-soft sur la saisie libre). */
   cityOptions?: { code: string; name: string }[] | null;
   onSelectDeliveryCountry?: (countryCode: string) => void;
+  /**
+   * MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharges de texte du
+   * commerçant (projection PUBLIQUE, déjà assainie par
+   * `overridesFromPublicProjection`). `null`/absent/objet vide : TOUTES
+   * les formulations restent celles d'avant ce lot.
+   */
+  communicationTexts?: CommunicationTextOverrides | null;
 }) {
   const { t, lang } = useI18n();
+
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 — quatre emplacements résolus
+  // UNE fois, par l'unique autorité. `null` signifie « ne rien rendre »
+  // (emplacement additif sans surcharge) et non « rendre du vide ».
+  const comm = (
+    key:
+      | "checkout_info"
+      | "sanitary_warning"
+      | "pickup_explanation"
+      | "delivery_local_explanation",
+    additive: boolean
+  ) =>
+    resolveCommunicationText(
+      key,
+      communicationTexts,
+      (k) => t(k),
+      // Un emplacement ADDITIF n'a pas de base : `explicitBase` vaut
+      // alors `null`, et l'absence de surcharge donne `source:"absent"`.
+      additive ? null : undefined
+    ).text;
+  const checkoutInfo = comm("checkout_info", true);
+  const sanitaryWarning = comm("sanitary_warning", true);
+  // Ces deux-là ONT une base plateforme (pickupNote / deliveryNote) :
+  // sans surcharge, le texte affiché est EXACTEMENT celui d'avant ce
+  // lot. Le `?? t(...)` final est une garde défensive -- le catalogue
+  // déclare bien une clé par défaut pour ces deux emplacements.
+  const pickupExplanation = comm("pickup_explanation", false) ?? t("pickupNote");
+  const deliveryExplanation =
+    comm("delivery_local_explanation", false) ?? t("deliveryNote");
   const err = (k: keyof CustomerInfo) =>
     showErrors && errors[k] ? t(errors[k]!) : undefined;
 
@@ -300,7 +346,23 @@ export default function FulfillmentSelector({
       // ici.
       return {
         tone: "good",
-        text: status.zone?.label ?? t("deliveryEligibleDefault"),
+        // MERCHANT CUSTOMER COMMUNICATIONS v1 — précédence INCHANGÉE
+        // en tête : `status.zone?.label` (= `customer_text` de la règle
+        // de livraison réellement appariée) reste l'autorité, car il est
+        // SPÉCIFIQUE À LA RÈGLE. La surcharge
+        // `delivery_carrier_explanation` ne remplace que le message
+        // NEUTRE de repli -- celui qui s'affiche quand la règle n'a pas
+        // de texte, typiquement une remise à transporteur. Inverser cet
+        // ordre ferait disparaître le texte le plus précis au profit du
+        // plus général.
+        text:
+          status.zone?.label ??
+          resolveCommunicationText(
+            "delivery_carrier_explanation",
+            communicationTexts,
+            (k) => t(k)
+          ).text ??
+          t("deliveryEligibleDefault"),
       };
     }
     switch (status.block) {
@@ -840,14 +902,44 @@ export default function FulfillmentSelector({
         {whatsappEnabled ? t("privacyNote") : t("privacyNoteNoWhatsapp")}
       </p>
 
+      {/* MERCHANT CUSTOMER COMMUNICATIONS v1 — information de checkout
+          et avertissement sanitaire : emplacements ADDITIFS. La
+          plateforme n'affiche aucun équivalent aujourd'hui, donc leur
+          défaut est l'ABSENCE : rien n'est rendu tant que le commerçant
+          n'a rien saisi (jamais un bloc vide, jamais un propos tenu au
+          nom du commerçant). Rendus en NŒUD TEXTE React -- un `<script>`
+          saisi s'affiche comme du texte, il ne devient jamais du
+          balisage. */}
+      {checkoutInfo !== null && (
+        <p
+          className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-on-bg-muted"
+          data-checkout-merchant-info=""
+        >
+          {checkoutInfo}
+        </p>
+      )}
+      {sanitaryWarning !== null && (
+        <p
+          className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-on-bg-muted"
+          data-checkout-sanitary-warning=""
+        >
+          {sanitaryWarning}
+        </p>
+      )}
       {type === "pickup" && (
-        <p className="mt-3 text-sm text-ink-on-bg-muted">
-          {t("pickupNote")}
+        <p
+          className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-on-bg-muted"
+          data-checkout-pickup-note=""
+        >
+          {pickupExplanation}
         </p>
       )}
       {type === "delivery" && status.eligible && (
-        <p className="mt-3 text-sm text-ink-on-bg-muted">
-          {t("deliveryNote")}
+        <p
+          className="mt-3 whitespace-pre-wrap break-words text-sm text-ink-on-bg-muted"
+          data-checkout-delivery-note=""
+        >
+          {deliveryExplanation}
         </p>
       )}
     </div>

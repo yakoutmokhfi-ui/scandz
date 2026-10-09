@@ -54,6 +54,12 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // @/lib/i18n).
 // ====================================================================
 
+// MERCHANT CUSTOMER COMMUNICATIONS v1 -- les catalogues sont importés,
+// jamais recopiés : un ajout au catalogue doit faire échouer MCC-S7 si
+// le formulaire ne le rend pas.
+const { COMMUNICATION_TEXT_KEYS: MCC_TEXT_KEYS } = await import("../lib/communications/text-keys.ts");
+const { COMMUNICATION_EVENT_CODES: MCC_EVENT_CODES } = await import("../lib/communications/events.ts");
+
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "http://localhost/dashboard/settings?r=resto-a",
   pretendToBeVisual: true,
@@ -344,11 +350,53 @@ export async function setMerchantTrackingStatusText(restaurantId, status, body) 
 }
 `;
 
+
+/**
+ * MERCHANT CUSTOMER COMMUNICATIONS v1 — ce harnais doit fournir la même
+ * configuration que la PRODUCTION fournit, pour la MÊME raison que
+ * MOCK_TRACKING_STATUS_TEXT ci-dessus : sans lui, le module réel tire
+ * le vrai client Supabase dans le bundle, et l'attente réseau qui en
+ * résulte décale l'ORDRE des lectures de `load()` -- ce que les
+ * scénarios d'ordonnancement de ce fichier mesurent précisément.
+ *
+ * Lectures servies VIDES : « aucun texte personnalisé, aucun e-mail
+ * facultatif activé », qui est l'état de tout établissement avant
+ * configuration -- donc exactement le comportement que ces assertions
+ * vérifiaient déjà. Les écritures sont JOURNALISÉES comme toutes les
+ * autres mutations de ce harnais, afin que les scénarios « ZÉRO RPC
+ * mutante quand rien n'a changé » restent vérifiables sur ce lot aussi.
+ */
+const MOCK_MERCHANT_COMMUNICATIONS = `
+export async function getMerchantCommunicationTexts(restaurantId) {
+  const fallback = (globalThis).__communicationTextFallback && (globalThis).__communicationTextFallback[restaurantId];
+  return fallback ?? {};
+}
+export async function getMerchantCommunicationEvents(restaurantId) {
+  const fallback = (globalThis).__communicationEventFallback && (globalThis).__communicationEventFallback[restaurantId];
+  return fallback ?? {};
+}
+export async function setMerchantCommunicationText(restaurantId, textKey, body) {
+  (globalThis).__callOrder.push("communicationText");
+  (globalThis).__communicationTextCallLog = (globalThis).__communicationTextCallLog || [];
+  (globalThis).__communicationTextCallLog.push({ restaurantId, textKey, body });
+  const failure = (globalThis).__communicationTextFailure && (globalThis).__communicationTextFailure[restaurantId];
+  if (failure) return Promise.reject(failure);
+  return Promise.resolve(undefined);
+}
+export async function setMerchantCommunicationEventEnabled(restaurantId, eventCode, enabled) {
+  (globalThis).__callOrder.push("communicationEvent");
+  (globalThis).__communicationEventCallLog = (globalThis).__communicationEventCallLog || [];
+  (globalThis).__communicationEventCallLog.push({ restaurantId, eventCode, enabled });
+  return Promise.resolve(undefined);
+}
+`;
+
 const mocks: Record<string, string> = {
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/tracking-status-text": MOCK_TRACKING_STATUS_TEXT,
+  "@/lib/services/merchant-communications": MOCK_MERCHANT_COMMUNICATIONS,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
   "@/lib/services/establishment-assets": MOCK_ASSETS,
 };
@@ -598,6 +646,28 @@ function resetCommonFixtures() {
   // SETTINGS SAVE RELIABILITY v1.3 (W5) -- voir le commentaire sur
   // updateRestaurantWhatsapp ci-dessus.
   (globalThis as any).__whatsappNumberCallLog = [];
+  // MERCHANT CUSTOMER COMMUNICATIONS v1 (MCC-S1..S5) -- voir le
+  // commentaire sur MOCK_MERCHANT_COMMUNICATIONS ci-dessus.
+  (globalThis as any).__communicationTextCallLog = [];
+  (globalThis as any).__communicationEventCallLog = [];
+  (globalThis as any).__communicationTextFallback = {};
+  (globalThis as any).__communicationEventFallback = {};
+  (globalThis as any).__communicationTextFailure = {};
+}
+
+/** MERCHANT CUSTOMER COMMUNICATIONS v1 — le champ d'UN emplacement du
+ *  catalogue. L'identifiant est dérivé de la clé, exactement comme la
+ *  page le construit : aucune liste réécrite ici. */
+function communicationTextField(container: HTMLElement, key: string): HTMLTextAreaElement {
+  const field = container.querySelector(`#communication-text-${key}`) as HTMLTextAreaElement | null;
+  assert.ok(field, `expected a communication-text textarea for key "${key}"`);
+  return field!;
+}
+
+function communicationEventCheckbox(container: HTMLElement, code: string): HTMLInputElement {
+  const box = container.querySelector(`#communication-event-${code}`) as HTMLInputElement | null;
+  assert.ok(box, `expected a communication-event checkbox for code "${code}"`);
+  return box!;
 }
 
 function setupSingleRestaurant(id = "resto-a", marker = "A") {
@@ -1807,5 +1877,227 @@ after(async () => {
   delete (globalThis as any).__mapsUrlCallLog;
   delete (globalThis as any).__trackingTextCallLog;
   delete (globalThis as any).__trackingStatusFailure;
+
   delete (globalThis as any).__whatsappNumberCallLog;
+});
+
+// ====================================================================
+// MERCHANT CUSTOMER COMMUNICATIONS v1 (MCC-S1..S6)
+//
+// Le lot ajoute 14 textes clients et 3 interrupteurs d'e-mail, chacun
+// avec SA PROPRE RPC. Les scénarios ci-dessous vérifient qu'ils suivent
+// la MÊME discipline que tout le reste de cette page -- comparateur par
+// écriture, politique CONTINUE, garde de péremption, bilan à trois
+// issues -- et pas une discipline inventée pour eux.
+// ====================================================================
+
+test("MCC-S1 — un seul texte client modifié : EXACTEMENT une RPC, pour CETTE clé, avec le bon restaurantId, et ZÉRO autre mutation", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(communicationTextField(container, "order_success_title"), "Merci, c'est noté !");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__communicationTextCallLog.length > 0);
+  await flush(30);
+
+  const log = (globalThis as any).__communicationTextCallLog as Array<{ restaurantId: string; textKey: string; body: string }>;
+  assert.deepEqual(log, [
+    { restaurantId: "resto-a", textKey: "order_success_title", body: "Merci, c'est noté !" },
+  ]);
+  assertZeroCalls(ALL_KINDS, "MCC-S1 (un texte client)");
+  assert.deepEqual((globalThis as any).__communicationEventCallLog, []);
+  assert.ok(hasText(container, t("stSaved")) || !hasText(container, t("stPartialSaveError")));
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S2 (CRITIQUE) — formulaire inchangé : ZÉRO RPC de communication, preuve que l'instantané reflète bien l'état chargé", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  (globalThis as any).__communicationTextFallback["resto-a"] = {
+    order_success_title: "Déjà configuré",
+    slot_warning: "Créneaux confirmés la veille.",
+  };
+  (globalThis as any).__communicationEventFallback["resto-a"] = { carrier_handoff: true };
+
+  const { container, root } = render();
+  await waitSettled(container);
+  // Les valeurs chargées sont bien affichées...
+  await waitFor(() => communicationTextField(container, "order_success_title").value === "Déjà configuré");
+  assert.equal(communicationEventCheckbox(container, "carrier_handoff").checked, true);
+
+  // ...et un Enregistrer sans aucune édition n'écrit RIEN.
+  submitForm(container);
+  await flush(60);
+  assert.deepEqual((globalThis as any).__communicationTextCallLog, []);
+  assert.deepEqual((globalThis as any).__communicationEventCallLog, []);
+  assertZeroCalls(ALL_KINDS, "MCC-S2 (rien modifié)");
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S3 — politique CONTINUE : l'échec d'un texte n'interrompt PAS les suivants, et le bilan est un partiel EXPLICITE", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  (globalThis as any).__communicationTextFailure["resto-a"] = new Error("boom");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(communicationTextField(container, "order_success_title"), "Titre A");
+  setFieldValue(communicationTextField(container, "slot_warning"), "Créneau confirmé la veille.");
+  setFieldValue(communicationTextField(container, "sanitary_warning"), "À conserver entre 0 et 4 °C.");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__communicationTextCallLog.length === 3);
+  await flush(30);
+
+  const keys = ((globalThis as any).__communicationTextCallLog as Array<{ textKey: string }>).map((c) => c.textKey);
+  assert.deepEqual(keys.sort(), ["order_success_title", "sanitary_warning", "slot_warning"]);
+  // Les TROIS ont échoué : aucune n'a réussi, donc l'issue n'est PAS un
+  // partiel mensonger mais un échec franc.
+  assert.ok(hasText(container, t("stCommSaveError")), "le message d'échec dédié doit apparaître");
+  assert.equal(hasText(container, t("stSaved")), false, "jamais un faux succès");
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S4 — un texte en échec et une couleur réussie : partiel EXPLICITE, jamais un échec global qui masquerait le succès", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  (globalThis as any).__communicationTextFailure["resto-a"] = new Error("boom");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(communicationTextField(container, "order_success_title"), "Titre A");
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#123456");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__mutationCallLog.colors.length === 1);
+  await flush(30);
+
+  assert.deepEqual((globalThis as any).__mutationCallLog.colors, ["resto-a"]);
+  assert.equal((globalThis as any).__communicationTextCallLog.length, 1);
+  assert.ok(hasText(container, t("stPartialSaveError")), "issue PARTIELLE explicite");
+  assert.ok(hasText(container, t("stCommSaveError")), "et la section fautive est nommée");
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S5 — une variable hors liste blanche BLOQUE l'enregistrement entier : aucune RPC, message dédié", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(communicationTextField(container, "email_confirmation_body"), "Bonjour {pirate}.");
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#123456");
+  submitForm(container);
+  await flush(60);
+
+  assert.ok(hasText(container, t("stCommUnknownVariable")), "le message dédié doit apparaître");
+  assert.deepEqual((globalThis as any).__communicationTextCallLog, []);
+  // La validation est un RETOUR IMMÉDIAT : rien d'autre n'est tenté non
+  // plus, exactement comme pour les autres validations de cette page.
+  assertZeroCalls(ALL_KINDS, "MCC-S5 (variable inconnue)");
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S6 — bascule d'établissement pendant un enregistrement : le texte de A ne peut JAMAIS être écrit sur B", async () => {
+  resetCommonFixtures();
+  (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
+  (globalThis as any).__settingsFallback["resto-b"] = settingsRow({ display_name: "Resto B" });
+  (globalThis as any).__receiptFallback["resto-a"] = receiptRow("A");
+  (globalThis as any).__receiptFallback["resto-b"] = receiptRow("B");
+
+  const { container, root } = render();
+  await waitSettled(container);
+
+  // Édition sur A, enregistrement lancé, puis bascule immédiate vers B.
+  setFieldValue(communicationTextField(container, "order_success_title"), "Titre de A");
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__communicationTextCallLog.length === 1);
+  switchTo(container, "resto-b");
+  await waitSettled(container);
+  await flush(60);
+
+  const log = (globalThis as any).__communicationTextCallLog as Array<{ restaurantId: string }>;
+  assert.deepEqual(
+    log.map((c) => c.restaurantId),
+    ["resto-a"],
+    "le seul écrit visé reste A -- jamais B"
+  );
+  assert.equal(
+    log.some((c) => c.restaurantId === "resto-b"),
+    false
+  );
+  // Et le champ affiché appartient bien à B (vide : B n'a rien configuré).
+  assert.equal(communicationTextField(container, "order_success_title").value, "");
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S7 — les 14 emplacements et les 3 interrupteurs sont tous rendus, dans l'ordre DÉRIVÉ du catalogue", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  const section = container.querySelector("[data-settings-communication-texts]");
+  assert.ok(section, "la section des textes clients doit être rendue");
+  const rendered = [...section!.querySelectorAll("textarea")].map((el) => el.id.replace("communication-text-", ""));
+  assert.deepEqual(rendered, [...MCC_TEXT_KEYS], "ordre et contenu DÉRIVÉS du catalogue");
+
+  const eventSection = container.querySelector("[data-settings-communication-events]");
+  assert.ok(eventSection, "la section des e-mails facultatifs doit être rendue");
+  const events = [...eventSection!.querySelectorAll("input[type=checkbox]")].map((el) =>
+    (el as HTMLInputElement).id.replace("communication-event-", "")
+  );
+  assert.deepEqual(events, [...MCC_EVENT_CODES]);
+  // FERMÉ AU REPOS : aucun interrupteur coché par défaut.
+  assert.deepEqual(
+    [...eventSection!.querySelectorAll("input[type=checkbox]")].map((el) => (el as HTMLInputElement).checked),
+    MCC_EVENT_CODES.map(() => false)
+  );
+
+  root.unmount();
+  container.remove();
+});
+
+test("MCC-S8 — activer un e-mail facultatif appelle EXACTEMENT sa RPC, et la désactiver aussi", async () => {
+  setupSingleRestaurant("resto-a", "A");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  // `.click()` natif, comme pour la case WhatsApp de ce fichier : il
+  // bascule `checked` ET émet l'évènement que le onChange contrôlé de
+  // React observe. Écrire `.checked = true` à la main ne le ferait pas.
+  communicationEventCheckbox(container, "carrier_handoff").click();
+  await flush();
+  assert.equal(communicationEventCheckbox(container, "carrier_handoff").checked, true);
+  submitForm(container);
+  await waitFor(() => (globalThis as any).__communicationEventCallLog.length === 1);
+  await flush(30);
+
+  assert.deepEqual((globalThis as any).__communicationEventCallLog, [
+    { restaurantId: "resto-a", eventCode: "carrier_handoff", enabled: true },
+  ]);
+  assert.deepEqual((globalThis as any).__communicationTextCallLog, []);
+
+  root.unmount();
+  container.remove();
+});
+
+
+
+// MERCHANT CUSTOMER COMMUNICATIONS v1 -- nettoyage des globales du lot.
+after(() => {
+  delete (globalThis as any).__communicationTextCallLog;
+  delete (globalThis as any).__communicationEventCallLog;
+  delete (globalThis as any).__communicationTextFallback;
+  delete (globalThis as any).__communicationEventFallback;
+  delete (globalThis as any).__communicationTextFailure;
 });

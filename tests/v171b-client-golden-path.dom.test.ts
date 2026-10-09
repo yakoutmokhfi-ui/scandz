@@ -395,6 +395,15 @@ function installBackend(
           error: null,
         };
       }
+      // MERCHANT CUSTOMER COMMUNICATIONS v1 — projection PUBLIQUE des
+      // textes clients du commerçant, lue par MenuView au montage.
+      // Servie VIDE : « aucun texte personnalisé », qui est l'état de
+      // tout établissement avant configuration -- donc exactement les
+      // formulations plateforme que ces assertions vérifiaient déjà.
+      // Elle fait partie du CONTRAT du parcours (lecture publique,
+      // tenant-safe, une fois par montage), pas des appels inattendus.
+      case "get_restaurant_public_communication_texts":
+        return { data: [], error: null };
       default:
         backend.unexpected.push(`rpc:${name}`);
         throw new Error(`RPC inattendue : ${name}`);
@@ -435,6 +444,21 @@ function installBackend(
     }
     if (url.startsWith("https://geo.api.gouv.fr/communes")) {
       return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B) -- l'écran de
+    // confirmation interroge le serveur pour savoir si au moins une
+    // ligne de la commande est rétractable
+    // (POST /api/checkout/withdrawal-eligibility). Ce harnais fournit
+    // la configuration que la PRODUCTION fournit, et il la fournit
+    // FERMÉE (`eligible:false`) : aucun appel à l'action de rétractation
+    // n'apparaît, le parcours observé par les assertions ci-dessous est
+    // donc exactement celui d'avant le lot. Toute AUTRE requête sortante
+    // continue de lever, exactement comme avant.
+    if (String(input).includes("/api/checkout/withdrawal-eligibility")) {
+      return new Response(JSON.stringify({ eligible: false }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -545,15 +569,44 @@ async function submitAndConfirm(container: Element) {
 }
 
 /**
- * Confirmation -> Tracking v3.1 : relit le lien affiché, vérifie qu'il
- * ne porte le jeton qu'en fragment, puis rejoue l'échange POST réel
- * (route.ts) avec ce que TrackingEntryGate enverrait.
+ * Confirmation -> Tracking v3.1 : rejoue l'échange POST réel (route.ts)
+ * avec ce que TrackingEntryGate enverrait.
+ *
+ * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
+ * mandat §B, littéral : « Scanym must no longer REQUIRE a
+ * customer-facing "Track my order" CTA after purchase ») ───
+ *
+ * L'écran de confirmation ne rend PLUS de bouton « Suivre ma
+ * commande ». Cette fonction vérifie donc désormais son ABSENCE, puis
+ * reprend le parcours à partir de l'order_id/public_token que
+ * `create_order` a RÉELLEMENT renvoyés (ce que le composant recevait lui
+ * aussi) -- la couverture de l'échange POST, du format fragment-only et
+ * du cookie reste intégralement en place.
+ *
+ * Ce qui est GAGNÉ en même temps : on prouve maintenant que le jeton
+ * n'apparaît NULLE PART dans le DOM de cet écran, ce que l'ancienne
+ * version ne pouvait pas affirmer puisqu'elle l'y lisait.
  */
 async function followTrackingLink(container: Element, tenant: TenantFixture) {
-  const anchor = findTrackingAnchor(container);
-  assert.ok(anchor, "le lien de suivi doit être affiché après confirmation");
-  assert.equal(anchor!.textContent, "Suivre ma commande");
-  const href = anchor!.getAttribute("href")!;
+  assert.equal(
+    findTrackingAnchor(container),
+    undefined,
+    "MCC-V1-CONTRACT-CHANGE-01 : aucun lien de suivi ne doit plus être rendu sur la confirmation"
+  );
+  assert.equal(
+    container.textContent?.includes("Suivre ma commande") ?? false,
+    false,
+    "le libellé « Suivre ma commande » ne doit plus apparaître"
+  );
+  assert.equal(
+    container.innerHTML.includes(tenant.publicToken),
+    false,
+    "le jeton de possession ne doit apparaître NULLE PART dans l'écran de confirmation"
+  );
+
+  // Le parcours continue depuis ce que le SERVEUR a renvoyé -- jamais un
+  // jeton régénéré, exactement comme le faisait le composant.
+  const href = `/track/${tenant.orderId}#${encodeURIComponent(tenant.publicToken)}`;
   const url = new URL(href, "http://localhost");
   assert.equal(url.pathname, `/track/${tenant.orderId}`, "le chemin ne porte QUE l'order_id renvoyé par le serveur");
   assert.equal(url.search, "", "aucun jeton en chaîne de requête");
@@ -618,7 +671,17 @@ function assertNoExternalEffects(backend: Backend) {
       // ADDRESS UX v1 -- geo.api.gouv.fr (résolution code postal ->
       // ville, France) est un fournisseur légitime de ce parcours au
       // même titre que l'autocomplétion IGN ci-dessus.
-      !u.startsWith("https://geo.api.gouv.fr/communes")
+      !u.startsWith("https://geo.api.gouv.fr/communes") &&
+      // MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B) -- route INTERNE
+      // de Scanym, pas un fournisseur externe : elle demande au serveur
+      // si au moins une ligne de la commande est rétractable
+      // (app/api/checkout/withdrawal-eligibility). Même nature que
+      // /api/checkout/invoice-request et /api/track/exchange, déjà
+      // internes. L'assertion qui compte ici -- AUCUN appel vers un
+      // paiement, un transporteur ou un fournisseur d'e-mail -- reste
+      // intégralement vérifiée : tout autre hôte ou chemin ferait
+      // encore échouer ce test.
+      !u.startsWith("/api/checkout/withdrawal-eligibility")
   );
   assert.deepEqual(outbound, [], "aucune requête vers un fournisseur externe (paiement, livraison, e-mail)");
   for (const url of backend.openedUrls) {
@@ -996,9 +1059,16 @@ test("GP-DOM-08 isolation tenant : le menu d'un autre établissement ne voit, ne
     assert.deepEqual(calls[0].p_items, [
       { menu_item_id: TENANT_B.items[0].id, quantity: 1, option_item_id: null },
     ]);
-    const anchor = findTrackingAnchor(container);
-    assert.ok(anchor);
-    assert.equal(new URL(anchor!.getAttribute("href")!, "http://localhost").pathname, `/track/${TENANT_B.orderId}`);
+    // MCC-V1-CONTRACT-CHANGE-01 : plus aucun lien de suivi sur la
+    // confirmation. L'isolation tenant que CE test prouve reste
+    // intégralement vérifiée par `assertTenantScopedCalls` et par
+    // l'absence de toute donnée du tenant A ci-dessous.
+    assert.equal(findTrackingAnchor(container), undefined);
+    assert.equal(
+      container.innerHTML.includes(TENANT_B.publicToken),
+      false,
+      "aucun jeton de possession dans le DOM de confirmation"
+    );
 
     assertTenantScopedCalls(backend, TENANT_B);
     assert.equal(

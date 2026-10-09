@@ -313,6 +313,12 @@ function mockRpc(
             address_line_order: "number_first",
           }], error: null };
     }
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
 }
@@ -502,6 +508,12 @@ test("LOT 2B.4a.2 (fail-closed, DOM réel) : pendant le chargement des exigences
     if (name === "get_restaurant_public_field_requirements") return pending;
     if (name === "get_restaurant_public_delivery_info")
       return { data: [{ delivery_zone_prefixes: ["75"], delivery_min_items: 1, delivery_area_label: "Paris" }], error: null };
+    // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
+    // textes clients du commercant, lue par MenuView au montage.
+    // Servie VIDE : « aucun texte personnalise », qui est l'etat de
+    // tout etablissement avant configuration -- donc exactement les
+    // formulations plateforme que ces assertions verifiaient deja.
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
 
