@@ -242,6 +242,41 @@ function compareNormalizedNames(a: string | null | undefined, b: string | null |
 }
 
 /**
+ * CATALOGUE PRODUCT REORDER v1 -- clé d'ordre MINIMALE d'un produit à
+ * l'intérieur d'un même groupe d'affichage (les produits directs d'une
+ * catégorie, ou UNE sous-catégorie).
+ */
+export interface ProductDisplayOrderKey {
+  id: string;
+  name: string;
+  display_order: number;
+}
+
+/**
+ * CATALOGUE PRODUCT REORDER v1 -- ordre de deux produits du MÊME groupe
+ * d'affichage : display_order, puis nom normalisé, puis id.
+ *
+ * Extraction À L'IDENTIQUE des trois dernières comparaisons de
+ * compareMenuItemsForPublicDisplay ci-dessous (qui l'appelle
+ * désormais) : aucune règle n'est modifiée. Elle est exportée pour que
+ * le back-office (lib/catalogue-product-order.ts) affiche et
+ * transmette au serveur EXACTEMENT l'ordre que la carte client
+ * applique -- un seul comparateur, donc aucune divergence possible
+ * entre ce que le marchand réordonne et ce que son client voit, y
+ * compris pour un catalogue historique dont plusieurs produits
+ * partagent le même display_order.
+ */
+export function compareProductsWithinDisplayGroup(
+  a: ProductDisplayOrderKey,
+  b: ProductDisplayOrderKey
+): number {
+  if (a.display_order !== b.display_order) return a.display_order - b.display_order;
+  const nameCmp = compareNormalizedNames(a.name, b.name);
+  if (nameCmp !== 0) return nameCmp;
+  return compareOrdinal(a.id, b.id);
+}
+
+/**
  * Ordre total déterministe pour l'affichage catalogue PUBLIC (utilisé
  * par lib/services/restaurant.ts comme comparateur de tri, en
  * remplacement de l'ancien comparateur ad hoc). Voir le commentaire de
@@ -265,8 +300,5 @@ export function compareMenuItemsForPublicDisplay(a: MenuItem, b: MenuItem): numb
 
   // Même sous-catégorie (ou 2 produits directs) : départage par le
   // produit lui-même.
-  if (a.display_order !== b.display_order) return a.display_order - b.display_order;
-  const nameCmp = compareNormalizedNames(a.name, b.name);
-  if (nameCmp !== 0) return nameCmp;
-  return compareOrdinal(a.id, b.id);
+  return compareProductsWithinDisplayGroup(a, b);
 }

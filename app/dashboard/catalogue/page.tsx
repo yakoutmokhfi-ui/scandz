@@ -70,10 +70,26 @@ import {
   applyCatalogueFilters,
   availableFilterOptions,
   isDefaultFilters,
+  sortProducts,
+  CATALOGUE_ORDER_SORT,
   EMPTY_FILTERS,
   type CatalogueFilters,
   type SortKey,
 } from "@/lib/catalogue-management/filtering";
+// CATALOGUE PRODUCT REORDER v1 -- Monter / Descendre. Logique pure
+// (périmètre, bornes, application locale) d'un côté, unique appel RPC
+// de l'autre : lib/services/dashboard.ts n'est pas modifié par ce lot.
+import {
+  applyProductMove,
+  findProductOrderScope,
+  isReorderableView,
+  productOrderPositions,
+  type ProductMoveDirection,
+} from "@/lib/catalogue-product-order";
+import {
+  moveProductOrder,
+  ProductOrderStaleError,
+} from "@/lib/services/catalogue-product-order";
 import {
   buildCatalogueExport,
   catalogueExportFileName,
@@ -278,6 +294,31 @@ export default function CataloguePage() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  /* ================================================================
+   * CATALOGUE PRODUCT REORDER v1 -- état du déplacement en cours.
+   *
+   * `movingProductId` : produit dont le déplacement est en vol (un
+   * seul à la fois, voir handleMoveProduct). `movingProductRef` double
+   * cet état d'une valeur LUE DE FAÇON SYNCHRONE : deux clics dans le
+   * même tick ne doivent jamais envoyer deux déplacements calculés sur
+   * le même ordre affiché (le second serait refusé comme périmé).
+   *
+   * `reorderAnnouncement` : texte de la zone `aria-live`, annoncé par
+   * un lecteur d'écran après chaque déplacement (le mouvement visuel
+   * de la ligne n'existe pas pour lui).
+   *
+   * `pendingReorderFocusRef` : bouton à refocaliser une fois la liste
+   * réordonnée -- React déplace des nœuds du DOM pour réordonner, ce
+   * qui peut retirer le focus du bouton qui vient d'être actionné.
+   * ================================================================ */
+  const [movingProductId, setMovingProductId] = useState<string | null>(null);
+  const movingProductRef = useRef(false);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const pendingReorderFocusRef = useRef<{
+    productId: string;
+    direction: ProductMoveDirection;
+  } | null>(null);
+
   // BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry, Cat Stevens :
   // "console-only warning is not enough") -- statut VISIBLE, retriable,
   // par produit. `outcome === "failed"` : un `cleanupId` OPAQUE est
@@ -470,6 +511,30 @@ export default function CataloguePage() {
   const filtersActive = !isDefaultFilters(filters);
 
   /* ================================================================
+   * CATALOGUE PRODUCT REORDER v1 -- quand proposer Monter / Descendre.
+   *
+   * Uniquement quand l'écran affiche chaque périmètre EN ENTIER et
+   * dans l'ordre PERSISTÉ (tri « Ordre de la carte », aucun critère
+   * masquant des produits à l'intérieur d'un périmètre -- voir
+   * isReorderableView) : le voisin avec lequel un produit s'échange
+   * est alors exactement celui que le marchand voit au-dessus ou en
+   * dessous. Jamais dans la vue des archives (un produit archivé n'a
+   * pas de position sur la carte), jamais sans droit d'édition.
+   *
+   * Ceci n'est qu'un confort d'affichage : l'autorité est la RPC
+   * (assert_product_role + contrôle de l'ordre attendu, côté serveur).
+   * ================================================================ */
+  const reorderView = isReorderableView(filters);
+  const reorderEnabled = canEdit && !showArchived && reorderView;
+  /** Position de chaque produit dans SON périmètre (sous-catégorie,
+   *  sinon produits directs de la catégorie). Vide hors vue de
+   *  réordonnancement : rien n'est calculé pour rien. */
+  const reorderPositions = useMemo(
+    () => (reorderEnabled ? productOrderPositions(categoriesInContext) : new Map()),
+    [reorderEnabled, categoriesInContext]
+  );
+
+  /* ================================================================
    * CATALOGUE MANAGEMENT UX v1.1 -- GARDE ANTI-RÉPONSE PÉRIMÉE
    * (remédiation ciblée CMUX-V1-TAG-CONTEXT-RACE-01, HIGH).
    *
@@ -576,7 +641,15 @@ export default function CataloguePage() {
   /** Télécharge un classeur .xlsx. Best-effort : un environnement sans
    *  API de téléchargement n'interrompt jamais l'écran. */
   function downloadXlsx(scope: "complet" | "filtre") {
-    const rows = scope === "complet" ? flatProducts : filteredProducts;
+    // CATALOGUE PRODUCT REORDER v1 -- l'export COMPLET est émis dans
+    // l'ordre PERSISTÉ de la carte (celui que le client voit). L'ordre
+    // n'est pas une colonne du classeur : il est porté par l'ordre des
+    // lignes, et l'import crée les produits dans l'ordre du fichier
+    // (create_product : fin de groupe). Exporter puis réimporter dans
+    // un catalogue vide redonne donc le même ordre. L'export des
+    // résultats reste, lui, exactement la liste affichée (tri courant).
+    const rows =
+      scope === "complet" ? sortProducts(flatProducts, CATALOGUE_ORDER_SORT) : filteredProducts;
     const bytes = buildCatalogueExport(rows);
     try {
       // `bytes.buffer` est typé ArrayBufferLike ; on en extrait la
@@ -792,6 +865,10 @@ export default function CataloguePage() {
     setCategoryDraft({ name: "", displayOrder: "", description: "" });
     setSubcategoryDraft(EMPTY_SUBCATEGORY_DRAFT);
     setError(null);
+    // CATALOGUE PRODUCT REORDER v1 -- l'annonce et le focus en attente
+    // portent sur un produit de l'établissement PRÉCÉDENT.
+    setReorderAnnouncement("");
+    pendingReorderFocusRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
 
@@ -916,6 +993,118 @@ export default function CataloguePage() {
       setBusyId(null);
     }
   }
+
+  /**
+   * CATALOGUE PRODUCT REORDER v1 -- déplace un produit d'UNE position
+   * dans son périmètre (sa sous-catégorie, sinon les produits directs
+   * de sa catégorie). Ne change jamais de catégorie ni de
+   * sous-catégorie : la RPC n'écrit que l'ordre.
+   *
+   * POURQUOI PAS run() : run() recharge tout le catalogue après chaque
+   * action, et reload() invalide d'abord la provenance -- la liste
+   * disparaît puis réapparaît. Pour un geste répété (monter de trois
+   * crans), cela ferait perdre à chaque fois la position de défilement
+   * et le focus clavier. Ici, un déplacement ACCEPTÉ par le serveur est
+   * appliqué localement, à l'identique de ce que la RPC a écrit
+   * (applyProductMove) ; tout REFUS recharge le catalogue, de sorte que
+   * l'écran ne reste jamais sur un ordre que la base n'a pas.
+   *
+   * GARDES :
+   *   - un seul déplacement à la fois (movingProductRef, synchrone) ;
+   *   - l'ordre transmis est celui AFFICHÉ (scope.orderedIds) : le
+   *     serveur refuse toute vue périmée (ProductOrderStaleError) ;
+   *   - même contrat anti-réponse-périmée que le reste de l'écran : si
+   *     l'établissement a changé, ou si le catalogue a été rechargé
+   *     pendant l'appel, rien n'est appliqué localement.
+   */
+  async function handleMoveProduct(p: CatalogueProduct, direction: ProductMoveDirection) {
+    if (!reorderEnabled || movingProductRef.current || busyId !== null) return;
+    const scope = findProductOrderScope(categoriesInContext, p.product_id);
+    if (!scope) return;
+    // Borne (premier vers le haut, dernier vers le bas) : aucun appel.
+    const local = applyProductMove(categoriesInContext, p.product_id, direction);
+    if (!local) return;
+
+    const id = restaurantId;
+    const generation = catalogueGenerationRef.current;
+    const sameRestaurant = () => currentRestaurantRef.current === id;
+    const sameCatalogue = () => sameRestaurant() && catalogueGenerationRef.current === generation;
+
+    movingProductRef.current = true;
+    setMovingProductId(p.product_id);
+    setError(null);
+    try {
+      await moveProductOrder(p.product_id, direction, scope.orderedIds);
+      if (!sameRestaurant()) return;
+      if (!sameCatalogue()) {
+        // Le catalogue a été rechargé pendant l'appel : sa copie en
+        // mémoire peut dater d'avant le déplacement. On relit la base
+        // plutôt que d'appliquer un échange sur un état inconnu.
+        await reload(id, showArchived);
+        return;
+      }
+      pendingReorderFocusRef.current = { productId: p.product_id, direction };
+      setCategories((prev) => applyProductMove(prev, p.product_id, direction)?.categories ?? prev);
+      setReorderAnnouncement(
+        t("mcReorderMoved", {
+          name: shown(p.name, p.translations, "name") ?? p.name,
+          position: local.position,
+          total: local.total,
+        })
+      );
+    } catch (e) {
+      // Une erreur portant sur un établissement que l'utilisateur ne
+      // regarde plus ne s'affiche pas et ne recharge rien.
+      if (!sameRestaurant()) return;
+      // Le rechargement démonte puis remonte la liste : le focus sera
+      // rendu au même produit une fois celle-ci de retour (voir l'effet
+      // ci-dessous), pour qu'un utilisateur clavier puisse réessayer
+      // sans retraverser la page.
+      pendingReorderFocusRef.current = { productId: p.product_id, direction };
+      await reload(id, showArchived);
+      if (!sameRestaurant()) return;
+      if (!(e instanceof ProductOrderStaleError)) {
+        // Le message technique (RPC) n'est jamais affiché au marchand.
+        console.error("Product reorder failed:", e);
+      }
+      const message = e instanceof ProductOrderStaleError ? t("mcReorderStale") : t("mcReorderFailed");
+      setError(message);
+      // Le même texte est ANNONCÉ : le bandeau d'erreur de l'écran
+      // n'est pas une zone live.
+      setReorderAnnouncement(message);
+    } finally {
+      movingProductRef.current = false;
+      setMovingProductId(null);
+    }
+  }
+
+  /**
+   * CATALOGUE PRODUCT REORDER v1 -- rend le focus au bouton actionné,
+   * une fois la liste réordonnée. Si ce bouton est devenu inactif (le
+   * produit vient d'atteindre le début ou la fin de son périmètre), le
+   * focus passe au bouton opposé du MÊME produit : un utilisateur
+   * clavier reste sur la ligne qu'il déplace, jamais renvoyé en haut de
+   * page. Aucune dépendance : l'effet ne fait rien tant qu'aucun
+   * déplacement n'a demandé de focus.
+   *
+   * Pendant un rechargement (après un refus), la liste n'est pas
+   * rendue : la demande est CONSERVÉE jusqu'au retour du catalogue de
+   * l'établissement courant, puis consommée une seule fois -- que le
+   * produit soit encore là ou non.
+   */
+  useEffect(() => {
+    const pending = pendingReorderFocusRef.current;
+    if (!pending) return;
+    if (!restaurantId || catalogueLoadedRestaurantId !== restaurantId) return;
+    pendingReorderFocusRef.current = null;
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button[data-reorder-product]")
+    ).filter((b) => b.dataset.reorderProduct === pending.productId);
+    const same = buttons.find((b) => b.dataset.reorderDirection === pending.direction);
+    const opposite = buttons.find((b) => b.dataset.reorderDirection !== pending.direction);
+    const target = same && !same.disabled ? same : opposite && !opposite.disabled ? opposite : null;
+    target?.focus();
+  });
 
   /**
    * BULK PRODUCT PHOTOS v1.6 (MEDIUM cleanup retry) -- enregistre/efface
@@ -1303,16 +1492,33 @@ export default function CataloguePage() {
                     >
                       {t("mcArchive")}
                     </button>
-                    <OrderField
-                      label={t("mcProductOrder")}
-                      value={p.display_order}
-                      disabled={busy}
-                      onSave={(order) =>
-                        run(p.product_id, () =>
-                          setProductOrder(p.product_id, order)
-                        )
-                      }
-                    />
+                    {reorderEnabled ? (
+                      /* CATALOGUE PRODUCT REORDER v1 -- dans la vue
+                         « Ordre de la carte », Monter / Descendre
+                         remplacent le champ numérique : la position
+                         se lit directement dans la liste. */
+                      <ProductReorderControls
+                        productId={p.product_id}
+                        productName={shown(p.name, p.translations, "name") ?? p.name}
+                        position={reorderPositions.get(p.product_id)?.position ?? 0}
+                        total={reorderPositions.get(p.product_id)?.total ?? 0}
+                        pending={movingProductId !== null || busyId !== null}
+                        moving={movingProductId === p.product_id}
+                        onMove={(direction) => void handleMoveProduct(p, direction)}
+                        t={t}
+                      />
+                    ) : (
+                      <OrderField
+                        label={t("mcProductOrder")}
+                        value={p.display_order}
+                        disabled={busy}
+                        onSave={(order) =>
+                          run(p.product_id, () =>
+                            setProductOrder(p.product_id, order)
+                          )
+                        }
+                      />
+                    )}
                   </>
                 ) : (
                   <button
@@ -1411,6 +1617,14 @@ export default function CataloguePage() {
             {error}
           </p>
         )}
+
+        {/* CATALOGUE PRODUCT REORDER v1 -- annonce de chaque déplacement
+            aux technologies d'assistance. Toujours présente dans le DOM
+            (une zone live créée en même temps que son texte n'est pas
+            annoncée), invisible à l'écran. */}
+        <p role="status" aria-live="polite" className="sr-only" data-testid="catalogue-reorder-status">
+          {reorderAnnouncement}
+        </p>
 
         {/* BULK PRODUCT PHOTOS v1 -- même garde canEdit/!showArchived
             que le bouton qui l'ouvre : un rôle sans droit d'édition,
@@ -1610,9 +1824,27 @@ export default function CataloguePage() {
                   <option value="name-desc">{t("mcSortNameDesc")}</option>
                   <option value="price-asc">{t("mcSortPriceAsc")}</option>
                   <option value="price-desc">{t("mcSortPriceDesc")}</option>
+                  {/* CATALOGUE PRODUCT REORDER v1 -- ordre PERSISTÉ,
+                      celui de la carte client. Ajouté en DERNIER : les
+                      options existantes et le tri par défaut ne
+                      changent pas. */}
+                  <option value={CATALOGUE_ORDER_SORT}>{t("mcSortCatalogueOrder")}</option>
                 </select>
               </div>
             </div>
+
+            {/* CATALOGUE PRODUCT REORDER v1 -- dit au marchand OÙ se
+                trouve le réordonnancement et, s'il n'est pas proposé,
+                POURQUOI. Affiché seulement à qui peut réordonner. */}
+            {canEdit && !showArchived && (
+              <p className="text-xs text-stone-500" data-testid="catalogue-reorder-hint">
+                {filters.sort !== CATALOGUE_ORDER_SORT
+                  ? t("mcReorderHint")
+                  : reorderView
+                    ? t("mcReorderActiveHint")
+                    : t("mcReorderFiltersHint")}
+              </p>
+            )}
 
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-semibold text-stone-700" data-testid="catalogue-result-count" aria-live="polite">
@@ -2937,6 +3169,100 @@ function ProductForm({
           {labels.cancel}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * CATALOGUE PRODUCT REORDER v1 -- Monter / Descendre pour UN produit.
+ *
+ * Deux vrais <button> (activables au clavier, sans glisser-déposer).
+ *
+ *   - BORNES : le premier produit de son périmètre ne monte pas, le
+ *     dernier ne descend pas -> attribut `disabled` natif.
+ *   - EN ATTENTE (un déplacement est en vol) : `aria-disabled`, et non
+ *     `disabled`. Un bouton désactivé nativement PERD le focus ; or le
+ *     bouton que l'utilisateur vient d'actionner doit le garder pour
+ *     pouvoir enchaîner un second déplacement. Le clic est alors ignoré
+ *     ici ET dans handleMoveProduct.
+ *   - NOM ACCESSIBLE : « Monter {produit} » -- il contient le libellé
+ *     visible (« Monter ») et distingue chaque ligne pour un lecteur
+ *     d'écran, là où vingt boutons « Monter » identiques seraient
+ *     inutilisables.
+ *   - La position visible (« 2 / 5 ») est décorative pour un lecteur
+ *     d'écran (aria-hidden) : c'est la zone `aria-live` de l'écran qui
+ *     annonce la nouvelle position après chaque déplacement.
+ */
+function ProductReorderControls({
+  productId,
+  productName,
+  position,
+  total,
+  pending,
+  moving,
+  onMove,
+  t,
+}: {
+  productId: string;
+  productName: string;
+  /** 1 = premier du périmètre ; 0 = position inconnue (aucun geste). */
+  position: number;
+  total: number;
+  /** Un déplacement (ou une autre action) est en cours sur l'écran. */
+  pending: boolean;
+  /** C'est CE produit qui est en cours de déplacement. */
+  moving: boolean;
+  onMove: (direction: ProductMoveDirection) => void;
+  t: (k: string, p?: Record<string, string | number>) => string;
+}) {
+  const canMoveUp = position > 1;
+  const canMoveDown = position >= 1 && position < total;
+  const buttonClass =
+    "rounded-xl border border-stone-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-40 aria-disabled:opacity-60";
+
+  return (
+    <div
+      className="flex items-center gap-1.5"
+      role="group"
+      aria-label={t("mcProductOrder")}
+      aria-busy={moving || undefined}
+      data-testid="product-reorder"
+    >
+      <button
+        type="button"
+        data-testid="product-move-up"
+        data-reorder-product={productId}
+        data-reorder-direction="up"
+        disabled={!canMoveUp}
+        aria-disabled={canMoveUp && pending ? true : undefined}
+        aria-label={t("mcMoveUpAria", { name: productName })}
+        onClick={() => {
+          if (!pending) onMove("up");
+        }}
+        className={buttonClass}
+      >
+        {t("mcMoveUp")}
+      </button>
+      <button
+        type="button"
+        data-testid="product-move-down"
+        data-reorder-product={productId}
+        data-reorder-direction="down"
+        disabled={!canMoveDown}
+        aria-disabled={canMoveDown && pending ? true : undefined}
+        aria-label={t("mcMoveDownAria", { name: productName })}
+        onClick={() => {
+          if (!pending) onMove("down");
+        }}
+        className={buttonClass}
+      >
+        {t("mcMoveDown")}
+      </button>
+      {position > 0 && (
+        <span className="text-xs font-medium text-stone-500" aria-hidden="true" data-testid="product-order-position">
+          {position} / {total}
+        </span>
+      )}
     </div>
   );
 }
