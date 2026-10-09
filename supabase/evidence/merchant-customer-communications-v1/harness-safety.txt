@@ -1,0 +1,57 @@
+[14:42:17] === [A] PGPORT hérité ===
+[14:42:17] PASS: [A] PGPORT hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [A] PGPORT hérité — le refus précède toute opération destructive
+[14:42:17] === [B] identifiants et URLs hérités ===
+[14:42:17] PASS: [B] PGPASSWORD hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGPASSWORD hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGPASSFILE hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGPASSFILE hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] DATABASE_URL hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] DATABASE_URL hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] POSTGRES_URL hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] POSTGRES_URL hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] SUPABASE_DB_URL hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] SUPABASE_DB_URL hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGHOST hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGHOST hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGUSER hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGUSER hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGDATABASE hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGDATABASE hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGSERVICE hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGSERVICE hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGSERVICEFILE hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGSERVICEFILE hérité — le refus précède toute opération destructive
+[14:42:17] PASS: [B] PGHOSTADDR hérité — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [B] PGHOSTADDR hérité — le refus précède toute opération destructive
+[14:42:17] === [C] consentement explicite ===
+[14:42:17] PASS: [C] sans SCANYM_DISPOSABLE_CLUSTER=1 — refusé, et le message dit quoi faire
+[14:42:17] PASS: [C] SCANYM_DISPOSABLE_CLUSTER=0 — refusé aussi
+[14:42:17] PASS: [C] une valeur autre que « 1 » — refusée (égalité STRICTE)
+[14:42:17] === [I] socket désignée invalide ===
+[14:42:17] PASS: [I] socket désignée inexistante — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [I] socket désignée inexistante — le refus précède toute opération destructive
+[14:42:17] PASS: [I] hôte TCP au lieu d'une socket — refusé (code 2), avec un message explicite
+[14:42:17] PASS: [I] hôte TCP au lieu d'une socket — le refus précède toute opération destructive
+[14:42:17] === démarrage du cluster témoin (créé et détruit par CE fichier) ===
+[14:42:18] PASS: cluster témoin démarré (socket /tmp/tmp.IaYtWk3Wyz/witness/sock)
+[14:42:18] === [D] collision de nom : refus, pas destruction ===
+[14:42:18] PASS: [D] collision de nom — refusée, en nommant la cause
+[14:42:19] PASS: [D] la base préexistante EXISTE TOUJOURS — aucun DROP
+[14:42:19] PASS: [D] son CONTENU est intact (ni recréée, ni vidée)
+[14:42:19] === [E] exécution réussie / [F] nettoyage limité ===
+[14:42:29] PASS: [E] sur un cluster jetable désigné — le harnais PASSE (code 0, 0 échec)
+[14:42:29] PASS: [E] le verrou de sûreté a bien été FRANCHI (et non contourné)
+[14:42:29] PASS: [F] la base témoin voisine a SURVÉCU au nettoyage
+[14:42:29] PASS: [F] la base de collision de [D] a survécu elle aussi
+[14:42:29] PASS: [F] aucune base du harnais ne subsiste (seule la base de collision de ce fichier reste)
+[14:42:29] PASS: [F] le nombre de bases du cluster est INCHANGÉ (5)
+[14:42:29] === [G] aucune valeur sensible journalisée ===
+[14:42:29] PASS: [G] PGPASSWORD — le NOM est signalé, la valeur jamais
+[14:42:29] PASS: [G] DATABASE_URL — le NOM est signalé, la valeur jamais
+[14:42:29] PASS: [G] SUPABASE_DB_URL — le NOM est signalé, la valeur jamais
+[14:42:29] PASS: [G] PGPASSFILE — le NOM est signalé, la valeur jamais
+[14:42:29] === [H] nom d'environnement protégé ===
+[14:42:30] PASS: [H] cluster portant une base « production » — refusé, fermé
+[14:42:30] PASS: [H] et la base protégée n'a PAS été touchée
+[14:42:30] === BILAN SÛRETÉ : 47 preuve(s), 0 échec(s) ===

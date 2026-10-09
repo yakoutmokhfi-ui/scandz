@@ -1,0 +1,2 @@
+[14:42:30] REFUS DE SÛRETÉ : SCANYM_DISPOSABLE_CLUSTER=1 est requis. Ce harnais crée/supprime des bases et modifie des rôles de cluster : il exige une déclaration EXPLICITE que la cible est jetable.
+[14:42:30] Aucune opération destructive n'a été tentée.

@@ -1,0 +1,44 @@
+MERCHANT CUSTOMER COMMUNICATIONS v1.1 — CANDIDAT RECOMPOSÉ SUR MAIN COURANT
+===========================================================================
+
+branche                      feature/merchant-customer-communications-v1-1-recomposed
+
+CANDIDAT (implémentation)    197529defa0939fc316148edf40e2811e89400ed
+arbre du candidat            6b3eeeae8c3a3347456b2e2b1908da1b45e33096
+base (origin/main courant)   6a5d226ff7d6ecefd9277bb4f636fe91a80e43e8
+arbre de la base             96badf8c772e11a1cf4be6f5abc1baf04980629e
+
+candidat AUDITÉ (PASS)       bfcd3a0faf54bf409579c05099b067a5f2e521f8
+arbre audité                 4c1e8147a293e27569462f5428e6ae584d40627b
+base auditée                 7bbb70b9f6f7f522b1b452a60b2092a69699ba95
+
+STRUCTURE DE LA BRANCHE
+-----------------------
+  HEAD      scellement du paquet de preuves — touche UNIQUEMENT
+            supabase/evidence/merchant-customer-communications-v1/
+  HEAD~1    197529defa0939fc316148edf40e2811e89400ed
+            LE CANDIDAT : les 44 fichiers du lot, repris octet pour octet
+            depuis le candidat audité bfcd3a0
+  HEAD~2    6a5d226 = origin/main courant
+
+TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
+-----------------------------------------
+  1. manifest.candidate.sha == HEAD~1
+  2. git diff --name-only HEAD~1 HEAD  ne renvoie que des chemins sous
+     supabase/evidence/merchant-customer-communications-v1/
+  3. sha256sum -c SHA256SUMS.txt
+
+ÉQUIVALENCE AVEC LE CANDIDAT AUDITÉ
+-----------------------------------
+  Les 44 fichiers d'implémentation ont la MÊME empreinte de blob git dans
+  bfcd3a0 et dans 197529defa0939fc316148edf40e2811e89400ed : 0 divergence sur 44.
+  Contre-épreuve : un `git rebase --onto 6a5d226 7bbb70b bfcd3a0` réel se
+  termine sans conflit et produit un arbre qui ne diffère de celui-ci par
+  aucun fichier hors paquet de preuves.
+  Détail : equivalence-vs-audited-candidate.txt
+
+PAS POUSSÉ
+----------
+  Le proxy git de la session refuse l'écriture sur yakoutmokhfi-ui/scandz
+  (403 ; GH_TOKEN invalide). La lecture fonctionne — le fetch de main
+  ci-dessus en est la preuve. Transfert par bundle git autonome.
