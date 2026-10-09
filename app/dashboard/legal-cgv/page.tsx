@@ -28,6 +28,34 @@ import {
   ActualWeightPriceUnsupportedError,
 } from "@/lib/legal/render";
 import CommercialTermsField, { isCustomCommercialTerms } from "@/components/dashboard/CommercialTermsField";
+import { parseCgvDocumentModel } from "@/lib/legal/cgv-document-model";
+import { buildCgvDocx } from "@/lib/docx/docx-writer";
+import { readDocxDocument, DocxReadError } from "@/lib/docx/docx-reader";
+import { diffCgvDocxImport, CgvDocxDiffError, type CgvDocxDiffResult } from "@/lib/legal/cgv-docx-diff";
+
+/**
+ * CGV W1 — DOCX EXPORT / IMPORT ROUND-TRIP.
+ *
+ * Entirely CLIENT-SIDE, deliberately: this page ALREADY builds a
+ * `RenderCgvInput` and calls `renderCgv()` directly in the browser
+ * for the advisory preview (section 6, `buildPreviewResult()` above),
+ * from browser-accessible sources only (`getMerchantLegalProfile`,
+ * `getMerchantCgvProfile`, the read-only RPC
+ * `get_applicable_cgv_template`) — never the service-role-gated
+ * `resolve_cgv_publication_context` used only at actual publish time
+ * (lib/server/legal-cgv-publish-service.ts). W1 reuses EXACTLY that
+ * same already-rendered HTML (`previewResult.html`) as its one and
+ * only content source: no new API route, no new SQL, no new
+ * persistence. This trivially satisfies several of the mandate's
+ * hardest constraints at once — "NOT automatic publication" (nothing
+ * here calls publishMerchantCgvVersion/activateMerchantCgv), "never
+ * mutate an existing published legal document" (nothing here reads or
+ * writes a published version row), and "avoid schema changes" (SQL
+ * REQUIRED: NO). The mandate's "merchant isolation if persisted data
+ * involved" test is consequently N/A: nothing produced by this
+ * feature is ever persisted anywhere.
+ */
+
 
 /**
  * CGV W2 — PUBLICATION BOUNDARY FIXES (Noether, scanym-orchestrator#23).
@@ -132,6 +160,17 @@ export default function LegalCgvPage() {
     substitution: false,
   });
   const [confirmRestore, setConfirmRestore] = useState<"cancellation" | "substitution" | null>(null);
+
+  // CGV W1 -- DOCX EXPORT / IMPORT ROUND-TRIP. Purely client-side,
+  // purely in-memory review state -- nothing here is ever persisted
+  // (see the file-header comment above this component for why). A
+  // fresh import attempt always replaces the previous result/error in
+  // one go, so the panel never shows a stale diff next to a new error
+  // or vice versa.
+  const [docxImportBusy, setDocxImportBusy] = useState(false);
+  const [docxImportErrorMessage, setDocxImportErrorMessage] = useState<string | null>(null);
+  const [docxDiffResult, setDocxDiffResult] = useState<CgvDocxDiffResult | null>(null);
+  const docxFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
   const mapping = mappings.find((m) => m.restaurant_id === restaurantId);
@@ -489,6 +528,76 @@ export default function LegalCgvPage() {
       case "render_error":
       default:
         return t("legalCgvIncomplete");
+    }
+  }
+
+  /**
+   * CGV W1 -- builds a .docx from the CURRENTLY PREVIEWED CGV
+   * (`previewResult.html`, the same already-rendered content section
+   * 6 displays) and triggers a browser download. Disabled from the
+   * JSX whenever `previewResult.reason !== null` (nothing coherent to
+   * export). Purely client-side: `Blob` + a transient object URL,
+   * revoked immediately after the synthetic click -- no network call,
+   * no Storage upload, no server involvement whatsoever.
+   */
+  function exportCgvDocx(html: string) {
+    const model = parseCgvDocumentModel(html);
+    const bytes = buildCgvDocx(model);
+    // Même conversion que app/dashboard/translations/page.tsx
+    // (downloadXlsx) -- un `Uint8Array<ArrayBufferLike>` n'est pas
+    // directement assignable à `BlobPart` sous ce lib/TS ; `.slice()`
+    // produit un `ArrayBuffer` concret, sans copie de données utile
+    // au-delà de la vue déjà matérialisée par `buildCgvDocx`.
+    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const blob = new Blob([ab], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cgv-${restaurantId || "export"}.docx`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * CGV W1 -- reads a merchant-edited .docx chosen via the file input
+   * below, entirely in the browser (`File.arrayBuffer()`), and builds
+   * the structured review diff against the CURRENT CGV content. Every
+   * failure mode of `readDocxDocument`/`diffCgvDocxImport` (malformed
+   * file, foreign/unsupported format, unsafe ZIP shape, unrecognized
+   * or duplicated bookmark) ends up here as a plain, translated
+   * message -- NEVER a raw `e.message` (same discipline as
+   * `saveCgvProfile`'s W2-5 comment above). No publication side
+   * effect: this function never calls publishMerchantCgvVersion /
+   * activateMerchantCgv, and never writes anywhere.
+   */
+  async function importCgvDocxFile(file: File) {
+    setDocxImportBusy(true);
+    setDocxImportErrorMessage(null);
+    setDocxDiffResult(null);
+    try {
+      const previewForDiff = buildPreviewResult();
+      if (previewForDiff.reason !== null) {
+        setDocxImportErrorMessage(previewFailureMessage(previewForDiff.reason));
+        return;
+      }
+      const buffer = await file.arrayBuffer();
+      const imported = readDocxDocument(buffer);
+      const currentModel = parseCgvDocumentModel(previewForDiff.html);
+      const diff = diffCgvDocxImport(currentModel, imported);
+      setDocxDiffResult(diff);
+    } catch (e) {
+      // DocxReadError (fichier malformé / format étranger / ZIP non
+      // sûr) et CgvDocxDiffError (repère non reconnu ou dupliqué) sont
+      // toutes deux des échecs FERMÉS attendus -- jamais une
+      // exception brute affichée au marchand.
+      if (e instanceof DocxReadError || e instanceof CgvDocxDiffError) {
+        setDocxImportErrorMessage(`${t("legalCgvDocxImportFailed")} (${e.code})`);
+      } else {
+        setDocxImportErrorMessage(t("legalCgvDocxImportFailed"));
+      }
+    } finally {
+      setDocxImportBusy(false);
+      if (docxFileInputRef.current) docxFileInputRef.current.value = "";
     }
   }
 
@@ -881,6 +990,116 @@ export default function LegalCgvPage() {
                 <p data-testid="legal-cgv-preview-message" className="text-sm text-stone-500">
                   {previewFailureMessage(previewResult.reason)}
                 </p>
+              )}
+            </section>
+
+            <section className="space-y-2 rounded-2xl border border-stone-200 bg-white p-4" data-testid="legal-cgv-docx-roundtrip">
+              {/*
+                CGV W1 -- DOCX EXPORT / IMPORT ROUND-TRIP. Deliberately
+                placed AFTER the preview (section 6, whose rendered
+                content this feeds on) and BEFORE publish/activate
+                (section 7): this is a review aid for what WILL be
+                published, never a publication path of its own. See
+                the file-header comment near the top of this component
+                for the full client-side-only architecture rationale.
+              */}
+              <h2 className="font-bold text-stone-900">{t("legalCgvSectionDocxRoundtrip")}</h2>
+              <p className="text-xs text-stone-500">{t("legalCgvDocxImportHint")}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-testid="legal-cgv-docx-export"
+                  disabled={previewResult.reason !== null}
+                  onClick={() => previewResult.reason === null && exportCgvDocx(previewResult.html)}
+                  className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {t("legalCgvDocxExport")}
+                </button>
+                {canEdit && (
+                  <label className="cursor-pointer rounded-xl border border-stone-300 px-4 py-2 text-sm font-bold text-stone-700">
+                    {t("legalCgvDocxImport")}
+                    <input
+                      ref={docxFileInputRef}
+                      type="file"
+                      accept=".docx"
+                      data-testid="legal-cgv-docx-import-input"
+                      className="hidden"
+                      disabled={docxImportBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void importCgvDocxFile(file);
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {previewResult.reason !== null && (
+                <p className="text-xs text-stone-500">{t("legalCgvDocxExportUnavailable")}</p>
+              )}
+              {docxImportBusy && (
+                <p data-testid="legal-cgv-docx-import-busy" className="text-sm text-stone-500">
+                  {t("legalCgvDocxImportReading")}
+                </p>
+              )}
+              {docxImportErrorMessage && (
+                <p data-testid="legal-cgv-docx-import-error" className="text-sm text-red-700">
+                  {docxImportErrorMessage}
+                </p>
+              )}
+              {docxDiffResult && (
+                <div data-testid="legal-cgv-docx-diff" className="space-y-3 text-sm">
+                  {docxDiffResult.hasNoMeaningfulChanges ? (
+                    <p data-testid="legal-cgv-docx-diff-no-changes" className="text-stone-600">
+                      {t("legalCgvDocxDiffNoChanges")}
+                    </p>
+                  ) : (
+                    <>
+                      {docxDiffResult.removedChapters.map((removed) => (
+                        <div key={removed.bookmarkName} className="rounded-lg bg-red-50 p-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                            {t("legalCgvDocxDiffRemovedChapter")}
+                          </p>
+                          <p className="font-semibold text-stone-900">{removed.heading}</p>
+                        </div>
+                      ))}
+                      {docxDiffResult.chapters
+                        .filter((chapter) => chapter.entries.some((entry) => entry.kind !== "unchanged"))
+                        .map((chapter) => (
+                          <div key={chapter.bookmarkName} className="rounded-lg border border-stone-200 p-2">
+                            <p className="font-semibold text-stone-900">{chapter.heading}</p>
+                            <ul className="space-y-1">
+                              {chapter.entries
+                                .filter((entry) => entry.kind !== "unchanged")
+                                .map((entry, idx) => (
+                                  <li key={idx}>
+                                    {entry.kind === "modified" ? (
+                                      <>
+                                        <span className="block text-red-700 line-through">{entry.before}</span>
+                                        <span className="block text-green-700">{entry.after}</span>
+                                      </>
+                                    ) : entry.kind === "added" ? (
+                                      <span className="block text-green-700">{entry.text}</span>
+                                    ) : (
+                                      <span className="block text-red-700 line-through">{entry.text}</span>
+                                    )}
+                                  </li>
+                                ))}
+                            </ul>
+                          </div>
+                        ))}
+                    </>
+                  )}
+                  {docxDiffResult.leadingContent.length > 0 && (
+                    <div className="rounded-lg bg-stone-50 p-2" data-testid="legal-cgv-docx-diff-leading">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+                        {t("legalCgvDocxDiffLeadingContent")}
+                      </p>
+                      {docxDiffResult.leadingContent.map((line, idx) => (
+                        <p key={idx} className="text-stone-700">{line}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </section>
 
