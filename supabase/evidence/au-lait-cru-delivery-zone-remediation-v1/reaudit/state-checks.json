@@ -1,0 +1,14 @@
+{
+  "environment": "isolated PGlite; saved fixture only",
+  "observedAt": "2026-10-09T12:07:54.712Z",
+  "node": "v24.14.1",
+  "postgres": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+  "beforeHash": "4f055edce98ab555e342969fc486d43a",
+  "afterHash": "541b7e5773748b930f0edbe3224f2fc7",
+  "restoredHash": "4f055edce98ab555e342969fc486d43a",
+  "discountsPreserved": true,
+  "targetedPassed": 28,
+  "actualAfterPassed": 28,
+  "productionAccess": false,
+  "preprodAccess": false
+}

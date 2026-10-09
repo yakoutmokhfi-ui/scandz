@@ -1,0 +1,241 @@
+[
+  {
+    "rows": [],
+    "fields": [],
+    "command": "BEGIN",
+    "affectedRows": 0
+  },
+  {
+    "rows": [],
+    "fields": [],
+    "command": "SET",
+    "affectedRows": 0
+  },
+  {
+    "rows": [
+      {
+        "evidence": {
+          "after_hash": "541b7e5773748b930f0edbe3224f2fc7",
+          "before_hash": "4f055edce98ab555e342969fc486d43a",
+          "observed_at": "2026-10-09T12:07:50.4+00:00",
+          "changed_rows": [
+            {
+              "id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+              "after": {
+                "provider": "stuart",
+                "zone_prefixes": [
+                  "75008",
+                  "75009",
+                  "75010",
+                  "75017",
+                  "75019",
+                  "93400",
+                  "93000"
+                ]
+              },
+              "before": {
+                "provider": "stuart",
+                "zone_prefixes": [
+                  "75008",
+                  "75009",
+                  "75010",
+                  "75017",
+                  "75019",
+                  "93400",
+                  "93008"
+                ]
+              }
+            },
+            {
+              "id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+              "after": {
+                "provider": "stuart",
+                "zone_prefixes": [
+                  "75005",
+                  "75006",
+                  "75007",
+                  "75011",
+                  "75012",
+                  "75015",
+                  "92200",
+                  "92270",
+                  "92600",
+                  "93500",
+                  "93260",
+                  "93170"
+                ]
+              },
+              "before": {
+                "provider": "internal",
+                "zone_prefixes": [
+                  "75005",
+                  "75006",
+                  "75007",
+                  "75011",
+                  "75012",
+                  "75015",
+                  "92051",
+                  "92009",
+                  "92004",
+                  "93500",
+                  "93045",
+                  "93170"
+                ]
+              }
+            }
+          ],
+          "overlap_count": 0,
+          "rollback_exact": true,
+          "routing_changes": [
+            {
+              "postcode": "75005",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "75006",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "75007",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "75011",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "75012",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "75015",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "92004",
+              "after_fee": 18.9,
+              "before_fee": 15.9,
+              "after_provider": "chronofresh",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "92009",
+              "after_fee": 18.9,
+              "before_fee": 15.9,
+              "after_provider": "chronofresh",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "92051",
+              "after_fee": 18.9,
+              "before_fee": 15.9,
+              "after_provider": "chronofresh",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "92200",
+              "after_fee": 15.9,
+              "before_fee": 18.9,
+              "after_provider": "stuart",
+              "before_provider": "chronofresh"
+            },
+            {
+              "postcode": "92270",
+              "after_fee": 15.9,
+              "before_fee": 18.9,
+              "after_provider": "stuart",
+              "before_provider": "chronofresh"
+            },
+            {
+              "postcode": "92600",
+              "after_fee": 15.9,
+              "before_fee": 18.9,
+              "after_provider": "stuart",
+              "before_provider": "chronofresh"
+            },
+            {
+              "postcode": "93000",
+              "after_fee": 10.9,
+              "before_fee": 18.9,
+              "after_provider": "stuart",
+              "before_provider": "chronofresh"
+            },
+            {
+              "postcode": "93008",
+              "after_fee": 18.9,
+              "before_fee": 10.9,
+              "after_provider": "chronofresh",
+              "before_provider": "stuart"
+            },
+            {
+              "postcode": "93045",
+              "after_fee": 18.9,
+              "before_fee": 15.9,
+              "after_provider": "chronofresh",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "93170",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            },
+            {
+              "postcode": "93260",
+              "after_fee": 15.9,
+              "before_fee": 18.9,
+              "after_provider": "stuart",
+              "before_provider": "chronofresh"
+            },
+            {
+              "postcode": "93500",
+              "after_fee": 15.9,
+              "before_fee": 15.9,
+              "after_provider": "stuart",
+              "before_provider": "internal"
+            }
+          ],
+          "postcodes_checked": 100000,
+          "fallback_count_after": 1,
+          "fallback_count_before": 1,
+          "other_fields_unchanged": true,
+          "unrelated_rows_unchanged": true
+        }
+      }
+    ],
+    "fields": [
+      {
+        "name": "evidence",
+        "dataTypeID": 3802
+      }
+    ],
+    "command": "SELECT",
+    "affectedRows": 0,
+    "rowCount": 1
+  },
+  {
+    "rows": [],
+    "fields": [],
+    "command": "COMMIT",
+    "affectedRows": 0
+  }
+]

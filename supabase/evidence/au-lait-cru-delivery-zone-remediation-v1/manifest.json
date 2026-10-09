@@ -1,0 +1,131 @@
+{
+  "lot": "AU LAIT CRU DELIVERY ZONE REMEDIATION v1",
+  "base": "7bbb70b9f6f7f522b1b452a60b2092a69699ba95",
+  "baseTree": "8ad7238ffe4d5398f883072d63ee456e8ab4e713",
+  "preparationOnly": true,
+  "productionMutations": 0,
+  "engineChangeRequired": false,
+  "affectedRuleIds": [
+    "1d222236-2958-4ada-a5e5-7ce52a52b438",
+    "6434ba6a-707f-41ff-8995-1476dc3c8f10"
+  ],
+  "resolver": {
+    "bodyEqualsMain": true,
+    "mainSourceGitBlob": "af374c24f883dc220cac293b8cba17ff5d1dcb64",
+    "observedDefinitionMd5": "91531a809117e3dc882b005c6e372774"
+  },
+  "checks": {
+    "targetedCteSimulation": {
+      "passed": 28,
+      "total": 28
+    },
+    "realResolverBefore": {
+      "expectedMisrouteFailures": 20,
+      "unchangedControlPasses": 8
+    },
+    "fiveDigitStringRouting": {
+      "total": 100000,
+      "expectedChanges": 18,
+      "unchanged": 99982,
+      "overlaps": 0
+    },
+    "inverseCteRestoresExactRows": true,
+    "dmlHarness": {
+      "passed": 4,
+      "total": 4,
+      "failed": 0,
+      "environment": "isolated PGlite 0.5.8 / PostgreSQL 18.3 / Node v24.14.1",
+      "evidence": "reaudit/test-results.log"
+    },
+    "productionApplication": "NOT RUN — not authorized",
+    "actualResolverAfter": {
+      "passed": 28,
+      "total": 28,
+      "evidence": "reaudit/actual-after-results.json",
+      "environment": "isolated PGlite; saved fixture"
+    }
+  },
+  "files": [
+    "supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1.sql",
+    "supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1-ROLLBACK.sql",
+    "supabase/tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/README.md",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/before.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/after-proposed.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-read-only.sql",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-postflight-read-only.sql",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-before-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-read-only.sql",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/final-read.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/observed-resolver.txt",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/manifest.json",
+    "supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/actual-after-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/npm-ci.log",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/regression-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/state-checks.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/targeted-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/test-results.log"
+  ],
+  "previousCandidate": "35bfa96271a1956c33f4d827b261be174a5cbdc6",
+  "reaudit": {
+    "date": "2026-10-09",
+    "productionAccess": false,
+    "preprodAccess": false,
+    "merge": false,
+    "deployment": false,
+    "onlyFunctionalChange": "Parenthesize CASE expression in forward resolver assertion",
+    "whole1590RuleStuartApproved": true,
+    "stateChecks": {
+      "environment": "isolated PGlite; saved fixture only",
+      "observedAt": "2026-10-09T12:07:54.712Z",
+      "node": "v24.14.1",
+      "postgres": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+      "beforeHash": "4f055edce98ab555e342969fc486d43a",
+      "afterHash": "541b7e5773748b930f0edbe3224f2fc7",
+      "restoredHash": "4f055edce98ab555e342969fc486d43a",
+      "discountsPreserved": true,
+      "targetedPassed": 28,
+      "actualAfterPassed": 28,
+      "productionAccess": false,
+      "preprodAccess": false
+    }
+  },
+  "changedFilesFromPreviousCandidate": [
+    "supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1.sql",
+    "supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/README.md",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/actual-after-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/npm-ci.log",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/regression-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/state-checks.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/targeted-results.json",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/test-results.log",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/manifest.json"
+  ],
+  "sha256": {
+    "supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1.sql": "8d23327fee899587c8db9d4f7c2caf93f0e392de87bc9ea48890e7e7e1784cb4",
+    "supabase/DRAFT-lot-au-lait-cru-delivery-zone-remediation-v1-ROLLBACK.sql": "d8b7d6e10d9b32313c8b3a0d1593c2ac4670a1f122375ab187c4c12c905dc268",
+    "supabase/tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs": "404585bfc67094707a1652ce66bf32c7986e3fd2cb3622f367a478c9081dcfe5",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/README.md": "02e5b46f8c990e864b76aa55e66400fc76b307f8ae8554162a9506378ae27576",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/before.json": "2912da876142c60477968a71207e8178d2a774d3e613d7fa3b37eb5c1d5485e7",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/after-proposed.json": "3e97d950e12207d8b74142da4628630379dd281d2d56e430be1dd8c032bda4c0",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-read-only.sql": "68406e3992dd3b73aa12d83ec009bff78c668ff3fd47b176929132a52d0e75ee",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/targeted-results.json": "56c12d8134c0b36b131c17854ca7a2023e9b42922ea1f76fb6a1c86f11d492cf",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-postflight-read-only.sql": "7f7f4d4980e35a903c7ed8c9e6c0fcedc8349b364f77bc15bb12a4679bdb3450",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/actual-before-results.json": "c1462e0b2b1d16c99027f9556a9390b219e9a39652bd88134de67ff953eacbfc",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-read-only.sql": "8c3abe173a03e13a500c4645d9a88fa66d55115020168f6b5cc7a63b8c633e99",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/regression-results.json": "77ae3c0f23f7d63348995951cc0f9325cdda33b3ba3e859c379c35624b63c6ea",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/final-read.json": "2fb6015b1079dfeaa8b70094c1cf73589cfdcb96243851063879371488d4860a",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/observed-resolver.txt": "5767431b93eaaff658b239ff2dffd554754950e534bc7c83bfe6359103da9a37",
+    "supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs": "4b33e86abb3a62589d07df7d4893e68b3b5c0fabd4c41b02b87c8ca498e9924a",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/actual-after-results.json": "580dc396616635837ad278263fb9e70d403270fddb93297ed07cceb8e81de8a7",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/npm-ci.log": "6737f7dec7268ecbefa6bbd7dc609c5ef1d8cd9ebd8fd0a9fdac4594978b4684",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/regression-results.json": "ca98e3de1558c996deb2854fe92a4cb93928c174d4c6c9b0b7db242e2e80db5e",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/state-checks.json": "2816ba8a55217b44dfd0d94f7aa53cde8af0c88bb49ec275b96c0b08ae89c7dd",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/targeted-results.json": "56c12d8134c0b36b131c17854ca7a2023e9b42922ea1f76fb6a1c86f11d492cf",
+    "supabase/evidence/au-lait-cru-delivery-zone-remediation-v1/reaudit/test-results.log": "6b021608d33d9256c96418dc121cd9f043cc28578d84c30b4d60db9e646a4a4d"
+  }
+}
