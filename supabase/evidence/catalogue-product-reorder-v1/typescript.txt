@@ -1,0 +1,5 @@
+# tsc --noEmit -p tsconfig.json
+## base 412dbb53c5f180983860852b79425209c04b9c42
+TSC_EXIT 0
+## candidat a1185224f2bfe24fefd81f4057c6cdbd205939f1
+TSC_EXIT 0

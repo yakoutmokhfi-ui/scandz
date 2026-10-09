@@ -1,0 +1,63 @@
+   ▲ Next.js 15.5.21
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 17.8s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/33) ...
+   Generating static pages (8/33) 
+   Generating static pages (16/33) 
+   Generating static pages (24/33) 
+ ✓ Generating static pages (33/33)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                  Size  First Load JS
+┌ ○ /                                                       177 B         102 kB
+├ ○ /_not-found                                             994 B         103 kB
+├ ○ /admin/establishments                                 3.01 kB         171 kB
+├ ○ /admin/establishments/catalogue-reset                 7.53 kB         171 kB
+├ ○ /admin/establishments/cockpit                          2.3 kB         177 kB
+├ ○ /admin/establishments/new                                7 kB         178 kB
+├ ƒ /api/admin/gap-01-ack-health-check                      177 B         102 kB
+├ ƒ /api/checkout/invoice-request                           177 B         102 kB
+├ ƒ /api/checkout/withdrawal-eligibility                    177 B         102 kB
+├ ƒ /api/dashboard/catalogue/product-photo                  177 B         102 kB
+├ ƒ /api/dashboard/catalogue/product-photo/retry-cleanup    177 B         102 kB
+├ ƒ /api/dashboard/legal-cgv/activate                       177 B         102 kB
+├ ƒ /api/dashboard/legal-cgv/publish                        177 B         102 kB
+├ ƒ /api/internal/payments/monetico/recover                 177 B         102 kB
+├ ƒ /api/internal/stuart/sandbox-readiness                  177 B         102 kB
+├ ƒ /api/internal/stuart/sandbox-trigger                    177 B         102 kB
+├ ƒ /api/internal/stuart/webhook                            177 B         102 kB
+├ ƒ /api/payments/monetico/callback                         177 B         102 kB
+├ ƒ /api/payments/monetico/checkout                         177 B         102 kB
+├ ƒ /api/track/exchange                                     177 B         102 kB
+├ ƒ /checkout/return/err                                    167 B         106 kB
+├ ƒ /checkout/return/ok                                     167 B         106 kB
+├ ○ /dashboard                                            9.31 kB         228 kB
+├ ○ /dashboard/catalogue                                  14.9 kB         246 kB
+├ ○ /dashboard/catalogue-import                           12.1 kB         193 kB
+├ ○ /dashboard/delivery-pricing                           7.26 kB         223 kB
+├ ○ /dashboard/forgot-password                            1.42 kB         211 kB
+├ ○ /dashboard/legal-cgv                                  9.94 kB         226 kB
+├ ○ /dashboard/login                                      1.56 kB         211 kB
+├ ○ /dashboard/payment                                    3.24 kB         219 kB
+├ ○ /dashboard/reset-password                             1.92 kB         211 kB
+├ ○ /dashboard/settings                                   11.8 kB         233 kB
+├ ○ /dashboard/translations                               10.4 kB         241 kB
+├ ○ /dashboard/withdrawal-requests                        3.25 kB         219 kB
+├ ƒ /legal/[slug]                                           177 B         102 kB
+├ ƒ /r/[slug]                                             33.5 kB         248 kB
+├ ƒ /track/[orderId]                                      3.82 kB         155 kB
+└ ƒ /track/[orderId]/withdrawal                             177 B         102 kB
++ First Load JS shared by all                              102 kB
+  ├ chunks/3ce79f51-fc412afe01ee6bca.js                   54.2 kB
+  ├ chunks/611-024f48189d67824b.js                        46.1 kB
+  └ other shared chunks (total)                           1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+BUILD_EXIT 0

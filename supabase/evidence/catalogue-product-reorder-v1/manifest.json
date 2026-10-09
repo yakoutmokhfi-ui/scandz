@@ -1,0 +1,102 @@
+{
+  "lot": "CATALOGUE PRODUCT REORDER v1",
+  "mandate": "VIVALDI — IMPLEMENTATION MANDATE — LOT: CATALOGUE PRODUCT REORDER v1",
+  "status": "READY FOR INDEPENDENT AUDIT",
+  "merged": false,
+  "deployed": false,
+  "hostedSqlExecuted": false,
+  "base": {
+    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873",
+    "branch": "origin/main"
+  },
+  "candidate": {
+    "sha": "a1185224f2bfe24fefd81f4057c6cdbd205939f1",
+    "tree": "73d2614a27108efac6619cf2a4f050bc05f93779",
+    "parent": "412dbb53c5f180983860852b79425209c04b9c42",
+    "branch": "feature/catalogue-product-reorder-v1",
+    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION (HEAD~1 de la branche). HEAD est le commit de scellement de ce paquet et ne touche QUE supabase/evidence/catalogue-product-reorder-v1/."
+  },
+  "sqlRequired": true,
+  "sql": {
+    "draft": "supabase/DRAFT-lot-catalogue-product-reorder-v1.sql",
+    "rollback": "supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql",
+    "harness": "supabase/tests/catalogue-product-reorder-v1-check.sh",
+    "objectsCreated": [
+      "function public.move_product_order(uuid, text, uuid[]) returns integer"
+    ],
+    "objectsModified": [],
+    "dataBackfill": false,
+    "xlsxContractChanged": false
+  },
+  "orderingModel": "Colonne existante menu_items.display_order (integer). Périmètre = sous-catégorie du produit, sinon produits directs de sa catégorie (non archivés). Un déplacement échange deux voisins et renumérote le périmètre en positions entières denses 1..N.",
+  "concurrencyStrategy": "pg_advisory_xact_lock par établissement + FOR NO KEY UPDATE sur le produit et tout le périmètre + contrôle optimiste de l'ordre affiché (SCANYM_PRODUCT_ORDER_STALE) validé sous verrou.",
+  "backwardCompatibilityStrategy": "Aucun backfill ; matérialisation au premier usage. L'appelant transmet l'ordre affiché, calculé par le comparateur de la carte client ; le serveur ne lui laisse que le choix de l'ordre entre ex æquo.",
+  "environment": {
+    "node": "v22.22.0",
+    "npm": "10.9.4",
+    "postgres": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+    "pglite": "0.5.8",
+    "os": "Linux x86_64"
+  },
+  "results": {
+    "targetedTests": {
+      "tests": 95,
+      "pass": 95,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "files": {
+        "tests/catalogue-product-reorder-v1.test.ts": 45,
+        "tests/catalogue-product-reorder-v1-sql.test.ts": 24,
+        "tests/catalogue-product-reorder-v1.dom.test.ts": 26
+      }
+    },
+    "sqlHarness": {
+      "pass": 174,
+      "fail": 0,
+      "summaryLine": "RÉSUMÉ : PASS=174 FAIL=0",
+      "filteredLines": "Deux lignes d'environnement retirées de sql-harness.txt (WARNING wal_level / HINT émises par `create publication` du bootstrap) ; aucune ligne PASS/FAIL retirée."
+    },
+    "typescript": {
+      "baseline": 0,
+      "candidate": 0
+    },
+    "build": {
+      "baseline": 0,
+      "candidate": 0,
+      "routesAdded": 0,
+      "routesRemoved": 0,
+      "dashboardCatalogueKb": {
+        "baseline": 14.9,
+        "candidate": 16.5
+      }
+    },
+    "fullSuite": {
+      "baseline": {
+        "tests": 4778,
+        "pass": 4768,
+        "fail": 10,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "candidate": {
+        "tests": 4873,
+        "pass": 4863,
+        "fail": 10,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "failureIdentitiesAppeared": 0,
+      "failureIdentitiesDisappeared": 0,
+      "passingAtBaselineNotPassingAtCandidate": 0
+    }
+  },
+  "filesChanged": {
+    "total": 25,
+    "added": 9,
+    "modified": 16,
+    "existingTestsTouched": 12,
+    "existingTestsTouchedReason": "Une entrée de mock du nouveau service par test DOM empaquetant l'écran catalogue (patron du commit d4c1d31 pour sale-modes-public). Aucune assertion existante modifiée."
+  }
+}
