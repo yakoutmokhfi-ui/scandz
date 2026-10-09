@@ -59,7 +59,13 @@ begin
       select * into strict v_result from public.resolve_delivery_fulfillment(v_restaurant,'delivery',v_case.postcode,1,v_subtotal);
       if v_result.eligible is distinct from true or v_result.provider is distinct from v_case.provider
          or v_result.fixed_fee is distinct from v_case.base_fee
-         or v_result.delivery_fee is distinct from case when v_subtotal>=100 then round(v_case.base_fee/2,2) else v_case.base_fee end
+         or v_result.delivery_fee is distinct from (
+           case
+             when v_subtotal >= 100
+               then round(v_case.base_fee / 2, 2)
+             else v_case.base_fee
+           end
+         )
          or v_result.is_fallback is distinct from (v_case.postcode='69001') then
         raise exception 'ALC_ZONE_REMEDIATION_RESOLVER: postcode %, subtotal %',v_case.postcode,v_subtotal;
       end if;

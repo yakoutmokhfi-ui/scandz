@@ -1,0 +1,12 @@
+✔ Exact observed BEFORE fixture and five incident reproductions (24.914569ms)
+✔ Actual forward DML, B0 triggers, 28 resolver outcomes and exact two-row delta (50.418374ms)
+✔ Forward replay and stale rollback both fail closed without changing data (19.576302ms)
+✔ Actual rollback restores ALL original fields; stale forward refuses any unrelated edit (21.508127ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4481.474387

@@ -45,7 +45,7 @@ Both are explicit transactions, using B234's tenant advisory lock and row locks,
 
 Rollback deliberately restores the ORIGINAL defective configuration. It is for an explicitly approved reversal, not a tariff reset; it refuses later edits to any tenant rule. Re-read and review if any fingerprint differs. These scripts have NOT been executed on Production or any remote writeable database in this task.
 
-## Executed read-only evidence
+## Historical read-only evidence — 2026-10-08
 
 1. actual-postflight-read-only.sql calls the real deployed resolver for seven postcodes × four subtotals (50,99.99,100,100.01). actual-before-results.json records 20 expected failures for the five misroutes and 8 passes for the two unchanged controls. The same SELECT-only script is supplied for verification after an independently approved remediation.
 2. targeted-read-only.sql calls the actual resolver for BEFORE, then executes its exact SQL body against a CTE-only proposed relation for AFTER. No function replacement or table mutation. targeted-results.json: **28/28 proposed outcomes pass**, including inclusive discount boundaries.
@@ -53,19 +53,31 @@ Rollback deliberately restores the ORIGINAL defective configuration. It is for a
 4. The same query proves all non-provider/non-prefix columns are identical, all five unrelated rows are identical, and the inverse transformation restores all seven original full rows exactly. regression-results.json contains the complete changed-route list and booleans.
 5. final-read.json confirms Production still has the exact BEFORE fingerprint and seven rules at the end of inspection.
 
-## Independent execution and limitations
+## Claude re-audit correction — 2026-10-09
 
-The local terminal failed before process creation (helper_unknown_error: setup refresh had errors); apply_patch could not write local artifacts either. GitHub and SQL read-only connectors remained available. Therefore the **actual DML scripts, deferred triggers and rollback transaction have not been executed** in this session; the AFTER and inverse proofs are read-only relational simulations. No claim of full-suite pass or native application end-to-end verification is made.
+Previous candidate: `35bfa96271a1956c33f4d827b261be174a5cbdc6`. The only functional SQL change wraps the CASE expression in parentheses within the delivery_fee IF comparison. No resolver, business rule, rollback or existing test code changed. CIO/CTO explicitly confirmed that provider=stuart applies to the entire 15.90 rule, including its eight already-correct tokens; this remains intact.
 
-An isolated PGlite test is prepared at ../../tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs. It imports the existing repository B5 bootstrap, seeds the observed fixture, executes the real patch, asserts exact AFTER and all resolver outcomes, verifies replay/drift rejection, then executes rollback and asserts exact BEFORE. It is explicitly **NOT RUN** here. Auditor command from repository root:
+The earlier execution limitation is resolved: the actual forward SQL and rollback now execute successfully against the saved seven-row fixture in isolated PGlite 0.5.8 (PostgreSQL 18.3), Node v24.14.1. No Production or PREPROD access occurred during this re-audit. The October 8 files above remain historical observations, not a fresh Production check. The AFTER state below is validated in memory, not applied to Production.
+
+Executed from repository root:
 
 ```sh
 npm ci --prefix supabase/tests/b5 --no-audit --no-fund
 node --test supabase/tests/au-lait-cru-delivery-zone-remediation-v1.test.mjs
+node supabase/tests/au-lait-cru-delivery-zone-remediation-v1-evidence.mjs
 ```
 
-Independent audit should execute this isolated harness (or equivalent native PostgreSQL rehearsal) before CIO considers execution approval. Preparation does not authorize Production application.
+- npm ci completed successfully; the unchanged four-test harness passed 4/4, with zero failures, skips or cancellations.
+- Forward DML, B0 triggers, all 28 resolver assertions, exact two-row delta, replay/stale-state refusal, and complete rollback restoration passed.
+- The evidence runner reran the SELECT-only targeted simulation (28/28), then executed the real forward script and the SELECT-only postflight against the updated in-memory database (28/28).
+- Exhaustive selection regression was rerun: 100000 strings, 18 expected changes, 99982 unchanged, no overlaps, one fallback, all unrelated rows and other fields preserved.
+- All seven rows' discount fields are unchanged. Active rules retain the inclusive 100 EUR threshold and 50% discount; the disabled legacy rule is preserved.
+- Full-row BEFORE, AFTER and restored fingerprints match the original guards exactly. SQL syntax correction does not change data fingerprints.
+
+Raw outputs are under `reaudit/`: npm-ci.log, test-results.log, targeted-results.json, actual-after-results.json, regression-results.json and state-checks.json. The reproducible evidence runner is under ../../tests/. manifest.json records refreshed SHA-256 hashes for all evidence and script files except itself (avoiding circular hashing). The original test source's "not run" comment describes its preparation date; the execution logs in this revision supersede that historical comment.
+
+Validation uses an ephemeral isolated Vercel Sandbox solely as a Node/PGlite process host because the local Windows process helper remains unavailable. No application deployment or remote database connection was made. This is not native hosted-PostgreSQL or application end-to-end validation. Preparation still does not authorize Production application.
 
 AU LAIT CRU DELIVERY ZONE REMEDIATION v1
-IMPLEMENTATION PREPARED
-READY FOR INDEPENDENT AUDIT
+REMEDIATION COMPLETE
+READY FOR INDEPENDENT CLAUDE RE-AUDIT

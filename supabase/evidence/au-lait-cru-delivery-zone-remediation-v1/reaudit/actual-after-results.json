@@ -1,0 +1,254 @@
+[
+  {
+    "postcode": "69001",
+    "subtotal": "50",
+    "provider": "chronofresh",
+    "delivery_fee": "18.90",
+    "fulfillment_rule_id": "7961d76a-b4e1-411b-abb3-4c84ff67769f",
+    "is_fallback": true,
+    "pass": true
+  },
+  {
+    "postcode": "69001",
+    "subtotal": "99.99",
+    "provider": "chronofresh",
+    "delivery_fee": "18.90",
+    "fulfillment_rule_id": "7961d76a-b4e1-411b-abb3-4c84ff67769f",
+    "is_fallback": true,
+    "pass": true
+  },
+  {
+    "postcode": "69001",
+    "subtotal": "100",
+    "provider": "chronofresh",
+    "delivery_fee": "9.45",
+    "fulfillment_rule_id": "7961d76a-b4e1-411b-abb3-4c84ff67769f",
+    "is_fallback": true,
+    "pass": true
+  },
+  {
+    "postcode": "69001",
+    "subtotal": "100.01",
+    "provider": "chronofresh",
+    "delivery_fee": "9.45",
+    "fulfillment_rule_id": "7961d76a-b4e1-411b-abb3-4c84ff67769f",
+    "is_fallback": true,
+    "pass": true
+  },
+  {
+    "postcode": "75018",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "6.90",
+    "fulfillment_rule_id": "139ed2b5-a14b-4d3c-a12e-cbe19b184691",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "75018",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "6.90",
+    "fulfillment_rule_id": "139ed2b5-a14b-4d3c-a12e-cbe19b184691",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "75018",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "3.45",
+    "fulfillment_rule_id": "139ed2b5-a14b-4d3c-a12e-cbe19b184691",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "75018",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "3.45",
+    "fulfillment_rule_id": "139ed2b5-a14b-4d3c-a12e-cbe19b184691",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92200",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92200",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92200",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92200",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92270",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92270",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92270",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92270",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92600",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92600",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92600",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "92600",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93000",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "10.90",
+    "fulfillment_rule_id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93000",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "10.90",
+    "fulfillment_rule_id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93000",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "5.45",
+    "fulfillment_rule_id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93000",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "5.45",
+    "fulfillment_rule_id": "1d222236-2958-4ada-a5e5-7ce52a52b438",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93260",
+    "subtotal": "50",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93260",
+    "subtotal": "99.99",
+    "provider": "stuart",
+    "delivery_fee": "15.90",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93260",
+    "subtotal": "100",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  },
+  {
+    "postcode": "93260",
+    "subtotal": "100.01",
+    "provider": "stuart",
+    "delivery_fee": "7.95",
+    "fulfillment_rule_id": "6434ba6a-707f-41ff-8995-1476dc3c8f10",
+    "is_fallback": false,
+    "pass": true
+  }
+]
