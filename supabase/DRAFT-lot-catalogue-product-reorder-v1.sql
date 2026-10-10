@@ -7,6 +7,15 @@
 --
 -- Baseline requis : 412dbb53c5f180983860852b79425209c04b9c42 (main).
 --
+-- RÉVISION v1.1 -- remédiation de l'audit indépendant (CPR-AUDIT-01) :
+-- le contrat de fraîcheur de la vue est renforcé (section « FRAÎCHEUR
+-- DE LA VUE » ci-dessous). Le troisième paramètre de la fonction
+-- devient p_expected_scope jsonb. La première version de ce DRAFT
+-- (p_expected_order uuid[]) n'a JAMAIS été appliquée sur une base
+-- hébergée : il n'existe aucune installation à migrer. Rien d'autre
+-- ne change (modèle d'ordre, périmètre, autorisation, verrous, colonne
+-- écrite).
+--
 -- ------------------------------------------------------------------
 -- OBJECTIF
 -- ------------------------------------------------------------------
@@ -71,19 +80,74 @@
 -- Un catalogue historique peut porter des EX ÆQUO (plusieurs produits
 -- au même display_order, typiquement 0). L'ordre RÉELLEMENT affiché
 -- au client est alors celui du départage JavaScript de la carte
--- client. Plutôt que de faire recalculer ce départage par SQL (dont
--- la collation et lower() ne sont pas garantis identiques à
--- JavaScript sur tous les caractères), l'appelant transmet l'ordre
--- qu'il AFFICHE (p_expected_order), calculé par le MÊME comparateur
--- que la carte client, et le serveur le VALIDE contre l'état stocké :
---   - même ensemble exact que le périmètre non archivé courant ;
---   - display_order stocké NON DÉCROISSANT le long de cet ordre.
--- Autrement dit : le serveur n'accepte de l'appelant que le choix de
--- l'ordre entre EX ÆQUO ; partout où les valeurs stockées sont
--- distinctes, c'est l'état stocké qui fait autorité. Au premier
--- déplacement, le groupe est matérialisé dans l'ordre exact que le
--- client voyait déjà, plus le seul échange demandé -- aucun autre
--- produit ne change de position relative.
+-- client (nom normalisé, puis id). Ce départage n'est PAS recalculé
+-- en SQL (la collation et lower() ne sont pas garantis identiques à
+-- JavaScript sur tous les caractères) : l'appelant transmet la vue
+-- qu'il AFFICHE, calculée par le MÊME comparateur que la carte client,
+-- et le serveur PROUVE SOUS VERROU que cette vue est bien celle de
+-- l'état stocké (section suivante). Au premier déplacement, le groupe
+-- est matérialisé dans l'ordre exact que le client voyait déjà, plus
+-- le seul échange demandé -- aucun autre produit ne change de position
+-- relative.
+--
+-- ------------------------------------------------------------------
+-- FRAÎCHEUR DE LA VUE -- remédiation CPR-AUDIT-01
+-- ------------------------------------------------------------------
+-- CONSTAT D'AUDIT. La première version ne validait que les
+-- identifiants et la monotonie de display_order. Lorsqu'un autre
+-- utilisateur créait un ex æquo après le chargement de l'écran
+-- (Comté 1 -> 2 : l'ordre réel devient Beaufort, Comté, Abondance), la
+-- vue périmée (Comté, Beaufort, Abondance) restait « non décroissante »
+-- et était ACCEPTÉE : un changement d'ordre déjà validé était écrasé
+-- en silence.
+--
+-- CONTRAT CORRIGÉ. p_expected_scope est la REPRÉSENTATION CANONIQUE du
+-- périmètre, telle que le serveur l'a fournie à l'appelant avec le
+-- catalogue (get_merchant_catalogue : product_id, display_order, name)
+-- et que l'appelant renvoie INCHANGÉE -- un tableau JSON, dans l'ordre
+-- affiché, d'objets :
+--
+--     { "id": "<uuid>", "display_order": <entier>, "name": "<texte>" }
+--
+-- Ce sont TOUS les champs qui déterminent l'ordre visible d'un
+-- périmètre : l'appartenance (l'ensemble des id), display_order, et
+-- les deux champs de départage du comparateur de la carte client
+-- (compareProductsWithinDisplayGroup : nom, puis id). Aucun autre
+-- champ n'entre dans ce comparateur.
+--
+-- Sous verrou, le serveur relit le périmètre et exige :
+--   (a) le même ENSEMBLE exact d'identifiants : ni manquant, ni en
+--       trop, ni doublon, ni identifiant étranger au périmètre ;
+--   (b) pour CHAQUE produit : display_order reçu = display_order
+--       stocké ;
+--   (c) pour CHAQUE produit : name reçu = name stocké, OCTET POUR
+--       OCTET (collation "C" : aucune dépendance à une locale, aucune
+--       normalisation, aucun repli de casse) ;
+--   (d) display_order non décroissant le long de la liste reçue.
+-- Le moindre écart => SCANYM_PRODUCT_ORDER_STALE, AUCUNE écriture.
+-- Aucune valeur reçue n'est convertie (ni ::uuid, ni ::integer) : une
+-- charge mal formée est refusée comme périmée, jamais par une erreur
+-- de conversion.
+--
+-- ÉQUIVALENCE AVEC UNE EMPREINTE DE PÉRIMÈTRE (« scope fingerprint »).
+-- Soit S l'état stocké du périmètre sous verrou et E l'état reçu, vus
+-- comme ensembles de triplets (id, display_order, name). Une empreinte
+-- H(canon(E)) comparée à H(canon(S)) accepte si et seulement si
+-- canon(E) = canon(S), aux collisions de H près. (a) + (b) + (c)
+-- décident directement E = S, triplet par triplet : c'est la MÊME
+-- décision, sans collision possible et sans aucune sérialisation à
+-- faire coïncider entre le client et le serveur -- le client ne hache
+-- rien, ne normalise rien et ne recalcule rien pour cette preuve, il
+-- renvoie les valeurs reçues. L'empreinte retenue est donc l'identité
+-- sur la représentation canonique (la pré-image elle-même).
+--
+-- L'ordre visible est une fonction DÉTERMINISTE de cet état
+-- (display_order, nom normalisé, id). État identique => ordre visible
+-- identique : une vue périmée ne peut donc plus imposer son ordre,
+-- ni entre produits de display_order distincts, ni entre ex æquo.
+-- (d) reste exigé en défense en profondeur : même pour un état frais,
+-- l'appelant ne peut jamais inverser deux produits dont les
+-- display_order stockés sont distincts.
 --
 -- ------------------------------------------------------------------
 -- STRATÉGIE DE CONCURRENCE
@@ -98,14 +162,16 @@
 --      sérialisée avec le déplacement. NO KEY : ne bloque jamais le
 --      FOR KEY SHARE pris par une commande en cours d'insertion
 --      (order_items -> menu_items).
---   3. Contrôle optimiste : p_expected_order est validé APRÈS prise
+--   3. Contrôle optimiste : p_expected_scope est validé APRÈS prise
 --      des verrous. Une vue périmée (autre onglet, autre utilisateur,
---      produit créé/archivé/déplacé entre-temps) est REFUSÉE par
---      SCANYM_PRODUCT_ORDER_STALE (P0001, même code SQLSTATE que le
---      précédent STALE_CONTEXT du dépôt) : aucune écriture, le client
---      recharge. Deux déplacements concurrents ne peuvent donc ni se
---      perdre silencieusement, ni produire de positions dupliquées :
---      le résultat de chaque déplacement accepté est toujours 1..N.
+--      produit créé / archivé / déplacé / renommé / renuméroté
+--      entre-temps) est REFUSÉE par SCANYM_PRODUCT_ORDER_STALE (P0001,
+--      même code SQLSTATE que le précédent STALE_CONTEXT du dépôt) :
+--      aucune écriture, le client recharge. Deux déplacements
+--      concurrents ne peuvent donc ni se perdre silencieusement, ni
+--      produire de positions dupliquées : le premier validé gagne, le
+--      second -- calculé sur un état qui n'existe plus -- est refusé,
+--      et le résultat de chaque déplacement accepté est toujours 1..N.
 --
 -- ------------------------------------------------------------------
 -- MULTI-TENANT
@@ -113,9 +179,11 @@
 -- Le tenant est DÉRIVÉ du produit ciblé par assert_product_role
 -- (owner/manager de l'établissement, ou opérateur Scanym selon la
 -- version installée -- jamais staff), jamais fourni par l'appelant.
--- Tout identifiant de p_expected_order qui n'appartient pas au
+-- Tout identifiant de p_expected_scope qui n'appartient pas au
 -- périmètre du produit ciblé fait échouer l'appel : un identifiant
--- d'un autre établissement ne peut ni être lu, ni être écrit.
+-- d'un autre établissement ne peut ni être lu, ni être écrit, et le
+-- refus (SCANYM_PRODUCT_ORDER_STALE) est le même qu'il existe ou non
+-- -- aucun oracle sur le catalogue d'un autre marchand.
 --
 -- ------------------------------------------------------------------
 -- CE QUE CE LOT NE FAIT PAS
@@ -162,10 +230,13 @@ begin
       or (c.column_name = 'category_id'    and c.data_type = 'uuid'    and c.is_nullable = 'NO')
       or (c.column_name = 'subcategory_id' and c.data_type = 'uuid'    and c.is_nullable = 'YES')
       or (c.column_name = 'archived_at'    and c.data_type = 'timestamp with time zone' and c.is_nullable = 'YES')
+      -- name : champ de départage de la carte client, comparé octet
+      -- pour octet par le contrôle de fraîcheur (CPR-AUDIT-01).
+      or (c.column_name = 'name' and c.data_type in ('character varying', 'text') and c.is_nullable = 'NO')
     );
-  if v_count <> 4 then
+  if v_count <> 5 then
     raise exception
-      'SCANYM_SCHEMA_DRIFT: menu_items.(display_order integer NOT NULL, category_id uuid NOT NULL, subcategory_id uuid NULL, archived_at timestamptz NULL) attendues, % trouvée(s) conforme(s) -- CATALOGUE PRODUCT REORDER v1 annulé.',
+      'SCANYM_SCHEMA_DRIFT: menu_items.(display_order integer NOT NULL, category_id uuid NOT NULL, subcategory_id uuid NULL, archived_at timestamptz NULL, name varchar/text NOT NULL) attendues, % trouvée(s) conforme(s) -- CATALOGUE PRODUCT REORDER v1 annulé.',
       v_count;
   end if;
 
@@ -259,9 +330,13 @@ end $$;
 --
 --    p_product_id     : produit à déplacer.
 --    p_direction      : 'up' (vers le début) ou 'down' (vers la fin).
---    p_expected_order : identifiants de TOUS les produits non
---                       archivés du périmètre, dans l'ordre AFFICHÉ
---                       par l'appelant AVANT le déplacement.
+--    p_expected_scope : représentation canonique du périmètre AFFICHÉ
+--                       par l'appelant AVANT le déplacement -- tableau
+--                       JSON, dans l'ordre affiché, d'un objet par
+--                       produit non archivé du périmètre :
+--                         { "id", "display_order", "name" }
+--                       valeurs reçues du serveur et renvoyées
+--                       inchangées (voir « FRAÎCHEUR DE LA VUE »).
 --
 --    Retour : nouvelle position du produit (1 = premier).
 --
@@ -272,7 +347,7 @@ end $$;
 --      22023 SCANYM_PRODUCT_ORDER_INVALID_DIRECTION
 --      P0002 Product not found or archived      (même message que
 --                                                set_product_order)
---      P0001 SCANYM_PRODUCT_ORDER_STALE         (vue périmée / liste
+--      P0001 SCANYM_PRODUCT_ORDER_STALE         (vue périmée / charge
 --                                                invalide : recharger)
 --      22023 SCANYM_PRODUCT_ORDER_BOUNDARY      (premier vers le haut,
 --                                                dernier vers le bas)
@@ -280,7 +355,7 @@ end $$;
 create function public.move_product_order(
   p_product_id     uuid,
   p_direction      text,
-  p_expected_order uuid[]
+  p_expected_scope jsonb
 )
 returns integer
 language plpgsql
@@ -295,7 +370,7 @@ declare
   v_scope_count    integer;
   v_expected_count integer;
   v_distinct_count integer;
-  v_matched_count  integer;
+  v_fresh_count    integer;
   v_out_of_order   boolean;
   v_position       integer;
   v_target         integer;
@@ -338,7 +413,11 @@ begin
   end if;
 
   -- 4. Verrouillage de TOUT le périmètre (ordre de verrouillage
-  --    déterministe), puis comptage sur un instantané postérieur.
+  --    déterministe), puis comptage sur un instantané postérieur. À
+  --    partir d'ici, ni l'appartenance au périmètre, ni display_order,
+  --    ni name d'aucune de ses lignes ne peut changer avant la fin de
+  --    la transaction : tout ce qui est comparé ci-dessous est l'état
+  --    qui fait autorité.
   perform mi.id
   from public.menu_items mi
   where mi.category_id = v_category_id
@@ -353,40 +432,66 @@ begin
     and mi.subcategory_id is not distinct from v_subcategory_id
     and mi.archived_at is null;
 
-  -- Garde de taille, AVANT tout dépliage du tableau reçu : une liste
-  -- qui n'a pas exactement la taille du périmètre ne peut pas être la
-  -- vue courante (et un tableau démesuré n'est jamais parcouru).
-  if coalesce(cardinality(p_expected_order), 0) <> v_scope_count then
+  -- Gardes de forme et de taille, AVANT tout dépliage de la charge
+  -- reçue (deux instructions distinctes : la longueur n'est demandée
+  -- que pour un tableau). Une charge qui n'a pas exactement la taille
+  -- du périmètre ne peut pas être la vue courante, et une charge
+  -- démesurée n'est jamais parcourue.
+  if p_expected_scope is null
+     or jsonb_typeof(p_expected_scope) is distinct from 'array' then
+    raise exception using errcode = 'P0001',
+      message = 'SCANYM_PRODUCT_ORDER_STALE';
+  end if;
+  if jsonb_array_length(p_expected_scope) <> v_scope_count then
     raise exception using errcode = 'P0001',
       message = 'SCANYM_PRODUCT_ORDER_STALE';
   end if;
 
-  -- 5. CONTRÔLE OPTIMISTE de l'ordre affiché par l'appelant.
-  --      - aucun élément nul, aucun doublon ;
-  --      - chaque élément appartient au périmètre (donc au même
-  --        établissement, à la même catégorie, à la même
-  --        sous-catégorie, et n'est pas archivé) ;
-  --      - même cardinalité que le périmètre => même ENSEMBLE exact ;
-  --      - display_order stocké non décroissant le long de la liste :
-  --        l'appelant ne choisit que l'ordre entre ex æquo.
-  --    La position est lue sur l'ORDINALITÉ (toujours 1..N), jamais
-  --    sur les indices du tableau reçu (dont la borne inférieure peut
-  --    être arbitraire pour un appel SQL direct).
+  -- 5. CONTRÔLE DE FRAÎCHEUR (CPR-AUDIT-01) -- la vue reçue est-elle,
+  --    champ pour champ, l'état stocké du périmètre ?
+  --
+  --    Chaque élément reçu est rapproché de LA ligne du périmètre de
+  --    même identifiant (donc du même établissement, de la même
+  --    catégorie, de la même sous-catégorie, non archivée). Sont
+  --    exigés :
+  --      (a) v_distinct_count = v_expected_count = v_scope_count :
+  --          chaque élément désigne une ligne du périmètre, aucune
+  --          deux fois, et il y en a autant que de lignes -- donc le
+  --          même ENSEMBLE exact, ni plus ni moins ;
+  --      (b) display_order reçu = display_order stocké, pour chaque
+  --          ligne ;
+  --      (c) name reçu = name stocké, octet pour octet, pour chaque
+  --          ligne ;
+  --      (d) display_order stocké non décroissant le long de la liste.
+  --    (b) et (c) comparent des TEXTES : rien de ce que l'appelant
+  --    envoie n'est converti, donc rien ne peut lever d'erreur de
+  --    conversion. Un élément qui n'est pas un objet, ou dont un champ
+  --    n'a pas le type JSON attendu, n'est simplement pas « frais ».
+  --    La position est lue sur l'ORDINALITÉ (toujours 1..N).
   select count(*)::integer,
          count(distinct j.id)::integer,
-         count(j.display_order)::integer,
+         (count(*) filter (where j.fresh))::integer,
          coalesce(bool_or(j.previous_display_order is not null
                           and j.display_order < j.previous_display_order), false),
          (max(j.ord) filter (where j.id = p_product_id))::integer
-    into v_expected_count, v_distinct_count, v_matched_count, v_out_of_order, v_position
+    into v_expected_count, v_distinct_count, v_fresh_count, v_out_of_order, v_position
   from (
-    select e.id,
+    select mi.id,
            e.ord,
            mi.display_order,
+           coalesce(
+             mi.id is not null
+             and jsonb_typeof(e.item -> 'display_order') = 'number'
+             and jsonb_typeof(e.item -> 'name') = 'string'
+             and (e.item ->> 'display_order') = mi.display_order::text
+             and (e.item ->> 'name') collate "C" = mi.name::text collate "C",
+             false
+           ) as fresh,
            lag(mi.display_order) over (order by e.ord) as previous_display_order
-    from unnest(p_expected_order) with ordinality as e(id, ord)
+    from jsonb_array_elements(p_expected_scope) with ordinality as e(item, ord)
     left join public.menu_items mi
-      on mi.id = e.id
+      on jsonb_typeof(e.item -> 'id') = 'string'
+     and mi.id::text = (e.item ->> 'id')
      and mi.category_id = v_category_id
      and mi.subcategory_id is not distinct from v_subcategory_id
      and mi.archived_at is null
@@ -395,7 +500,7 @@ begin
   if v_expected_count = 0
      or v_expected_count <> v_scope_count
      or v_distinct_count <> v_expected_count
-     or v_matched_count <> v_expected_count
+     or v_fresh_count <> v_expected_count
      or v_out_of_order
      or v_position is null then
     raise exception using errcode = 'P0001',
@@ -419,18 +524,20 @@ begin
 
   -- 7. ÉCRITURE -- échange des deux voisins, périmètre renuméroté en
   --    positions denses 1..N. SEULE colonne écrite : display_order.
-  --    Seules les lignes dont la valeur change sont touchées.
+  --    Seules les lignes dont la valeur change sont touchées. Les
+  --    identifiants viennent de la liste que l'étape 5 vient de
+  --    prouver égale au périmètre verrouillé.
   update public.menu_items mi
   set display_order = n.new_display_order
   from (
-    select e.id,
+    select (e.item ->> 'id') as id_text,
            (case when e.ord = v_position then v_target
                  when e.ord = v_target   then v_position
                  else e.ord
             end)::integer as new_display_order
-    from unnest(p_expected_order) with ordinality as e(id, ord)
+    from jsonb_array_elements(p_expected_scope) with ordinality as e(item, ord)
   ) n
-  where mi.id = n.id
+  where mi.id::text = n.id_text
     and mi.category_id = v_category_id
     and mi.subcategory_id is not distinct from v_subcategory_id
     and mi.archived_at is null
@@ -439,14 +546,14 @@ begin
   return v_target;
 end $$;
 
-comment on function public.move_product_order(uuid, text, uuid[]) is
-  'CATALOGUE PRODUCT REORDER v1 -- déplace un produit d''UNE position (up/down) dans son périmètre (sa sous-catégorie, sinon les produits directs de sa catégorie) et renumérote ce périmètre en positions denses 1..N. N''écrit QUE menu_items.display_order (jamais category_id/subcategory_id). owner/manager (ou opérateur via assert_product_role), jamais staff. p_expected_order = ordre affiché par l''appelant avant le déplacement, validé sous verrou : toute vue périmée est refusée (SCANYM_PRODUCT_ORDER_STALE).';
+comment on function public.move_product_order(uuid, text, jsonb) is
+  'CATALOGUE PRODUCT REORDER v1 -- déplace un produit d''UNE position (up/down) dans son périmètre (sa sous-catégorie, sinon les produits directs de sa catégorie) et renumérote ce périmètre en positions denses 1..N. N''écrit QUE menu_items.display_order (jamais category_id/subcategory_id). owner/manager (ou opérateur via assert_product_role), jamais staff. p_expected_scope = représentation canonique du périmètre affiché par l''appelant avant le déplacement ([{id, display_order, name}] dans l''ordre affiché, valeurs reçues du serveur et renvoyées inchangées), comparée sous verrou à l''état stocké : appartenance, display_order et name de chaque produit. Tout écart est refusé sans écriture (SCANYM_PRODUCT_ORDER_STALE).';
 
 -- ------------------------------------------------------------------
 -- 2. DROITS -- contrat BACK-OFFICE authentifié uniquement.
 -- ------------------------------------------------------------------
-revoke all on function public.move_product_order(uuid, text, uuid[]) from public, anon, service_role;
-grant execute on function public.move_product_order(uuid, text, uuid[]) to authenticated;
+revoke all on function public.move_product_order(uuid, text, jsonb) from public, anon, service_role;
+grant execute on function public.move_product_order(uuid, text, jsonb) to authenticated;
 
 -- ------------------------------------------------------------------
 -- 3. VÉRIFICATION POST-APPLICATION -- toujours AVANT commit ; un
@@ -469,10 +576,10 @@ begin
          pg_get_functiondef(p.oid)       as def
     into v_fn
   from pg_proc p
-  where p.oid = to_regprocedure('public.move_product_order(uuid, text, uuid[])');
+  where p.oid = to_regprocedure('public.move_product_order(uuid, text, jsonb)');
 
   if not found then
-    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: public.move_product_order(uuid, text, uuid[]) absente.';
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: public.move_product_order(uuid, text, jsonb) absente.';
   end if;
   if v_fn.result is distinct from 'integer'
      or v_fn.secdef is not true
@@ -506,6 +613,15 @@ begin
   if v_def not like '%SCANYM_PRODUCT_ORDER_STALE%' or v_def not like '%SCANYM_PRODUCT_ORDER_BOUNDARY%' then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: move_product_order sans contrôle optimiste ou sans bornes.';
   end if;
+  -- CPR-AUDIT-01 : le corps installé compare bien, pour chaque ligne,
+  -- display_order ET name à l'état stocké, et refuse toute ligne non
+  -- fraîche.
+  if v_def not like '%(e.item ->> ''display_order'') = mi.display_order::text%'
+     or v_def not like '%(e.item ->> ''name'') collate "C" = mi.name::text collate "C"%'
+     or v_def not like '%v_fresh_count <> v_expected_count%'
+     or v_def not like '%v_distinct_count <> v_expected_count%' then
+    raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: move_product_order sans contrôle de fraîcheur complet (appartenance, display_order, name).';
+  end if;
 
   -- 3c. ORDRE, PAS TAXONOMIE : le corps installé contient UNE seule
   --     écriture, sur menu_items, dont la clause SET n'affecte que
@@ -517,13 +633,13 @@ begin
   end if;
 
   -- 3d. Droits effectifs : authenticated seulement.
-  if has_function_privilege('anon', 'public.move_product_order(uuid, text, uuid[])', 'EXECUTE')
-     or has_function_privilege('service_role', 'public.move_product_order(uuid, text, uuid[])', 'EXECUTE')
-     or not has_function_privilege('authenticated', 'public.move_product_order(uuid, text, uuid[])', 'EXECUTE')
+  if has_function_privilege('anon', 'public.move_product_order(uuid, text, jsonb)', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.move_product_order(uuid, text, jsonb)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.move_product_order(uuid, text, jsonb)', 'EXECUTE')
      or exists (
        select 1
        from pg_proc p, aclexplode(p.proacl) a
-       where p.oid = to_regprocedure('public.move_product_order(uuid, text, uuid[])')
+       where p.oid = to_regprocedure('public.move_product_order(uuid, text, jsonb)')
          and a.grantee = 0 and a.privilege_type = 'EXECUTE'
      ) then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: droits EXECUTE inattendus sur move_product_order (attendu : authenticated uniquement).';

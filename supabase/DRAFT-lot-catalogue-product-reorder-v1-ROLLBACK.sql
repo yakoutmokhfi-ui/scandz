@@ -4,7 +4,7 @@
 -- CE QUE CE FICHIER FAIT EXACTEMENT : il supprime l'UNIQUE fonction
 -- ajoutée par ce lot, et rien d'autre.
 --
---   drop function public.move_product_order(uuid, text, uuid[])
+--   drop function public.move_product_order(uuid, text, jsonb)
 --
 -- AUCUNE donnée n'est perdue ni réécrite : ce lot ne crée aucune
 -- table, aucune colonne, aucun index, et n'exécute aucun backfill.
@@ -42,9 +42,9 @@ begin;
 
 do $$
 begin
-  if to_regprocedure('public.move_product_order(uuid, text, uuid[])') is null then
+  if to_regprocedure('public.move_product_order(uuid, text, jsonb)') is null then
     raise exception
-      'SCANYM_ROLLBACK_DRIFT: public.move_product_order(uuid, text, uuid[]) introuvable -- cette base ne semble pas avoir reçu CATALOGUE PRODUCT REORDER v1, rollback annulé (aucune mutation).';
+      'SCANYM_ROLLBACK_DRIFT: public.move_product_order(uuid, text, jsonb) introuvable -- cette base ne semble pas avoir reçu CATALOGUE PRODUCT REORDER v1, rollback annulé (aucune mutation).';
   end if;
 
   if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -73,7 +73,7 @@ begin
   );
 end $$;
 
-drop function public.move_product_order(uuid, text, uuid[]);
+drop function public.move_product_order(uuid, text, jsonb);
 
 do $$
 declare

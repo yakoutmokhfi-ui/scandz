@@ -23,12 +23,26 @@
  * L'ordre « persisté » d'un périmètre est celui de la carte client :
  * `compareProductsWithinDisplayGroup` (display_order, nom normalisé,
  * id), le comparateur que `compareMenuItemsForPublicDisplay` applique
- * lui-même. Le back-office affiche cet ordre, et c'est CET ordre
- * affiché qu'il transmet au serveur (`p_expected_order` de
+ * lui-même. Le back-office affiche cet ordre, et c'est CETTE vue
+ * affichée qu'il transmet au serveur (`p_expected_scope` de
  * `move_product_order`). Pour un catalogue historique dont plusieurs
  * produits partagent le même display_order, le premier déplacement
  * matérialise donc exactement l'ordre que le client voyait déjà, plus
  * le seul échange demandé.
+ *
+ * ------------------------------------------------------------------
+ * FRAÎCHEUR DE LA VUE (remédiation CPR-AUDIT-01)
+ * ------------------------------------------------------------------
+ * La vue transmise n'est pas une simple liste d'identifiants : c'est,
+ * pour chaque produit du périmètre et dans l'ordre affiché, le triplet
+ * `{ id, display_order, name }` -- TOUS les champs dont dépend l'ordre
+ * visible (appartenance, display_order, et les deux champs de
+ * départage du comparateur : nom, id). Ces valeurs sont celles que le
+ * serveur a fournies avec le catalogue ; ce module les recopie telles
+ * quelles, sans les normaliser, les hacher ni les recalculer. Le
+ * serveur les compare sous verrou à l'état stocké et refuse le
+ * moindre écart (`SCANYM_PRODUCT_ORDER_STALE`) : une vue périmée ne
+ * peut plus imposer son ordre, même entre ex æquo.
  *
  * ------------------------------------------------------------------
  * MÊME RÉSULTAT QUE LE SERVEUR
@@ -62,19 +76,48 @@ export function orderProductsForCatalogue<T extends OrderedProduct>(products: Re
   );
 }
 
+/**
+ * Un produit du périmètre tel que le serveur l'a fourni : les TROIS
+ * champs dont dépend l'ordre visible. Mêmes noms de clés que ceux lus
+ * par `move_product_order` dans `p_expected_scope`.
+ */
+export interface ProductOrderScopeEntry {
+  id: string;
+  display_order: number;
+  name: string;
+}
+
 /** Périmètre d'ordre d'un produit, et son contenu dans l'ordre persisté. */
 export interface ProductOrderScope {
   categoryId: string;
   /** `null` = produits rattachés directement à la catégorie. */
   subcategoryId: string | null;
   /** Identifiants des produits NON ARCHIVÉS du périmètre, dans l'ordre
-   *  persisté. C'est la valeur à transmettre telle quelle comme
-   *  `p_expected_order`. */
+   *  persisté. */
   orderedIds: string[];
+  /** La même liste, dans le même ordre, avec pour chaque produit les
+   *  valeurs reçues du serveur (`display_order`, `name`). C'est la
+   *  valeur à transmettre telle quelle comme `p_expected_scope` : la
+   *  preuve de fraîcheur de la vue. */
+  expected: ProductOrderScopeEntry[];
+}
+
+function scopeProducts(products: ReadonlyArray<CatalogueProduct>): CatalogueProduct[] {
+  return orderProductsForCatalogue(products.filter((p) => !p.archived_at));
 }
 
 function scopeIds(products: ReadonlyArray<CatalogueProduct>): string[] {
-  return orderProductsForCatalogue(products.filter((p) => !p.archived_at)).map((p) => p.product_id);
+  return scopeProducts(products).map((p) => p.product_id);
+}
+
+/** Recopie STRICTE des valeurs reçues du serveur : aucune
+ *  normalisation, aucun recalcul. */
+function scopeEntries(products: ReadonlyArray<CatalogueProduct>): ProductOrderScopeEntry[] {
+  return scopeProducts(products).map((p) => ({
+    id: p.product_id,
+    display_order: p.display_order,
+    name: p.name,
+  }));
 }
 
 /**
@@ -92,6 +135,7 @@ export function findProductOrderScope(
         categoryId: category.category_id,
         subcategoryId: null,
         orderedIds: scopeIds(category.products ?? []),
+        expected: scopeEntries(category.products ?? []),
       };
     }
     for (const sub of category.subcategories ?? []) {
@@ -100,6 +144,7 @@ export function findProductOrderScope(
           categoryId: category.category_id,
           subcategoryId: sub.subcategory_id,
           orderedIds: scopeIds(sub.products ?? []),
+          expected: scopeEntries(sub.products ?? []),
         };
       }
     }

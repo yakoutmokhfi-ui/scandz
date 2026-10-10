@@ -1011,8 +1011,10 @@ export default function CataloguePage() {
    *
    * GARDES :
    *   - un seul déplacement à la fois (movingProductRef, synchrone) ;
-   *   - l'ordre transmis est celui AFFICHÉ (scope.orderedIds) : le
-   *     serveur refuse toute vue périmée (ProductOrderStaleError) ;
+   *   - la vue transmise est celle AFFICHÉE (scope.expected : id,
+   *     display_order et name de chaque produit du périmètre, tels que
+   *     reçus du serveur) : le serveur la compare sous verrou à l'état
+   *     stocké et refuse toute vue périmée (ProductOrderStaleError) ;
    *   - même contrat anti-réponse-périmée que le reste de l'écran : si
    *     l'établissement a changé, ou si le catalogue a été rechargé
    *     pendant l'appel, rien n'est appliqué localement.
@@ -1034,7 +1036,7 @@ export default function CataloguePage() {
     setMovingProductId(p.product_id);
     setError(null);
     try {
-      await moveProductOrder(p.product_id, direction, scope.orderedIds);
+      await moveProductOrder(p.product_id, direction, scope.expected);
       if (!sameRestaurant()) return;
       if (!sameCatalogue()) {
         // Le catalogue a été rechargé pendant l'appel : sa copie en

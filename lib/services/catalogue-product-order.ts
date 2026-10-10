@@ -11,14 +11,21 @@
  * du produit ciblé (assert_product_role : owner/manager, ou opérateur
  * Scanym) -- aucun identifiant d'établissement n'est transmis, et rien
  * de ce que ce module envoie ne permet de viser le produit d'un autre
- * marchand : un identifiant étranger dans `expectedOrder` fait échouer
+ * marchand : un identifiant étranger dans `expectedScope` fait échouer
  * l'appel entier (SCANYM_PRODUCT_ORDER_STALE), sans aucune écriture.
+ *
+ * FRAÎCHEUR (remédiation CPR-AUDIT-01) : ce module transmet la vue
+ * affichée SANS LA TRANSFORMER -- pour chaque produit du périmètre,
+ * les valeurs `{ id, display_order, name }` reçues du serveur. C'est
+ * le serveur, sous verrou, qui décide si cette vue est encore l'état
+ * stocké. Aucune empreinte n'est calculée ici : rien, côté client, ne
+ * peut donc diverger de la sérialisation du serveur.
  *
  * Aucune écriture directe sur `menu_items` : le client n'en a pas le
  * droit (RLS, aucun GRANT) et ce module ne s'y essaie pas.
  */
 import { supabase } from "@/lib/supabase";
-import type { ProductMoveDirection } from "@/lib/catalogue-product-order";
+import type { ProductMoveDirection, ProductOrderScopeEntry } from "@/lib/catalogue-product-order";
 
 /** Mêmes constantes EXACTES que les `raise exception ... message = '...'`
  *  de move_product_order. Classification stricte sur le COUPLE
@@ -30,10 +37,10 @@ export const PRODUCT_ORDER_BOUNDARY_CODE = "SCANYM_PRODUCT_ORDER_BOUNDARY";
 export const PRODUCT_ORDER_BOUNDARY_SQLSTATE = "22023";
 
 /**
- * L'ordre affiché n'est plus celui de la base (autre onglet, autre
- * utilisateur, produit créé, archivé ou déplacé entre-temps). Rien n'a
- * été écrit : l'écran doit recharger le catalogue avant tout nouvel
- * essai.
+ * La vue affichée n'est plus l'état de la base (autre onglet, autre
+ * utilisateur, produit créé, archivé, déplacé, renommé ou renuméroté
+ * entre-temps). Rien n'a été écrit : l'écran doit recharger le
+ * catalogue avant tout nouvel essai.
  */
 export class ProductOrderStaleError extends Error {
   constructor() {
@@ -73,20 +80,27 @@ export function classifyProductOrderError(error: {
  *
  * @param productId     produit à déplacer
  * @param direction     "up" (vers le début) ou "down" (vers la fin)
- * @param expectedOrder identifiants de tous les produits non archivés
- *                      du périmètre, dans l'ordre AFFICHÉ avant le
- *                      déplacement (`ProductOrderScope.orderedIds`)
+ * @param expectedScope vue AFFICHÉE avant le déplacement : tous les
+ *                      produits non archivés du périmètre, dans l'ordre
+ *                      affiché, avec les valeurs reçues du serveur
+ *                      (`ProductOrderScope.expected`)
  * @returns la nouvelle position du produit (1 = premier)
  */
 export async function moveProductOrder(
   productId: string,
   direction: ProductMoveDirection,
-  expectedOrder: ReadonlyArray<string>
+  expectedScope: ReadonlyArray<ProductOrderScopeEntry>
 ): Promise<number> {
   const { data, error } = await supabase.rpc("move_product_order", {
     p_product_id: productId,
     p_direction: direction,
-    p_expected_order: [...expectedOrder],
+    // Recopie des TROIS champs du contrat, dans l'ordre reçu : aucune
+    // autre propriété de l'objet appelant ne part sur le réseau.
+    p_expected_scope: expectedScope.map((entry) => ({
+      id: entry.id,
+      display_order: entry.display_order,
+      name: entry.name,
+    })),
   });
   if (error) throw classifyProductOrderError(error);
   return Number(data);

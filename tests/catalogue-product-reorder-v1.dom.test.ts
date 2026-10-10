@@ -8,6 +8,7 @@ import * as esbuild from "esbuild";
 import { applyProductMove, findProductOrderScope } from "../lib/catalogue-product-order.ts";
 import { compareMenuItemsForPublicDisplay } from "../lib/catalogue-subcategory-grouping.ts";
 import { readXlsxWorkbook } from "../lib/catalogue-import/xlsx-reader.ts";
+import { moveProductOrderModel, type RpcModelRow } from "./helpers/catalogue-product-reorder-rpc-model.ts";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
@@ -17,11 +18,25 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // app/dashboard/catalogue/page.tsx (esbuild + jsdom).
 //
 // Seuls les services réseau sont remplacés : l'écran, son état, ses
-// gardes et son rendu sont les vrais. Le « serveur » simulé applique
-// un déplacement accepté avec la logique de production
-// (applyProductMove, prouvée identique à la RPC par
-// tests/catalogue-product-reorder-v1-sql.test.ts) : un rechargement
-// renvoie donc ce que la base renverrait.
+// gardes et son rendu sont les vrais.
+//
+// LE « SERVEUR » SIMULÉ EXÉCUTE LE VRAI CONTRAT DE LA RPC (audit,
+// CPR-AUDIT-01). Dans la première version, il comparait la liste
+// d'identifiants reçue à l'ordre courant : il était PLUS STRICT que le
+// SQL de production et masquait donc la vue périmée que celui-ci
+// acceptait. Il exécute désormais moveProductOrderModel
+// (tests/helpers/catalogue-product-reorder-rpc-model.ts), dont
+// tests/catalogue-product-reorder-v1-sql.test.ts (« [MODÈLE] ») prouve
+// qu'il rend la même décision et les mêmes écritures que le SQL réel,
+// scénario par scénario. Ce que ce faux serveur accepte ou refuse est
+// donc ce que la base accepterait ou refuserait -- ni plus, ni moins.
+//
+// AUCUNE RÉSOLUTION DE PAQUET PAR ESBUILD. Tout spécificateur « nu »
+// (react, fflate…) est EXTERNALISÉ et chargé par Node, comme n'importe
+// quel import du reste de la suite ; esbuild ne lit rien dans
+// node_modules. La première version laissait esbuild résoudre
+// `fflate` : sur un poste où le résolveur d'esbuild n'y parvient pas,
+// ce fichier ne se chargeait pas avec la commande standard.
 // ====================================================================
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -46,13 +61,20 @@ const REPO_ROOT = process.cwd();
 const RESTO_A = "resto-a";
 const RESTO_B = "resto-b";
 
+type ScopeEntry = { id: string; display_order: number; name: string };
+
 const G = globalThis as any;
 G.__cpr = {
   catalogue: {} as Record<string, unknown[]>,
   role: "owner",
   catalogueLoads: [] as Array<{ id: string; archived: boolean }>,
-  moveCalls: [] as Array<{ productId: string; direction: string; expectedOrder: string[] }>,
-  moveImpl: null as null | ((productId: string, direction: string, expectedOrder: string[]) => Promise<number>),
+  /** Appels reçus par le service : `expectedScope` est la vue telle
+   *  qu'elle part sur le réseau ; `expectedOrder` en est la simple
+   *  liste d'identifiants (commodité de lecture des assertions). */
+  moveCalls: [] as Array<{ productId: string; direction: string; expectedScope: ScopeEntry[]; expectedOrder: string[] }>,
+  moveImpl: null as null | ((productId: string, direction: string, expectedScope: unknown) => Promise<number>),
+  /** Décision rendue par le « serveur » pour chaque appel qu'il traite. */
+  serverOutcomes: [] as string[],
   availabilityCalls: [] as unknown[][],
   updateCalls: [] as unknown[][],
   orderCalls: [] as unknown[][],
@@ -75,8 +97,14 @@ export async function getMerchantCatalogue(id, archived) {
   S().catalogueLoads.push({ id, archived });
   if (archived) return [];
   // Copie profonde : comme une vraie réponse réseau, jamais la
-  // référence de l'état « serveur ».
-  return JSON.parse(JSON.stringify(S().catalogue[id] ?? []));
+  // référence de l'état « serveur ». Comme get_merchant_catalogue
+  // (p_archived = false), la vue courante ne rend pas les archivés.
+  const live = (products) => (products ?? []).filter((p) => !p.archived_at);
+  return JSON.parse(JSON.stringify(S().catalogue[id] ?? [])).map((c) => ({
+    ...c,
+    products: live(c.products),
+    subcategories: (c.subcategories ?? []).map((s) => ({ ...s, products: live(s.products) })),
+  }));
 }
 export async function getMerchantRestaurants() {
   return [
@@ -112,9 +140,13 @@ export class ProductOrderBoundaryError extends Error {
   constructor() { super("SCANYM_PRODUCT_ORDER_BOUNDARY"); this.name = "ProductOrderBoundaryError"; }
 }
 globalThis.__cprStaleError = ProductOrderStaleError;
-export async function moveProductOrder(productId, direction, expectedOrder) {
-  globalThis.__cpr.moveCalls.push({ productId, direction, expectedOrder: [...expectedOrder] });
-  return globalThis.__cpr.moveImpl(productId, direction, [...expectedOrder]);
+globalThis.__cprBoundaryError = ProductOrderBoundaryError;
+export async function moveProductOrder(productId, direction, expectedScope) {
+  // Aller-retour JSON : ce que le « serveur » reçoit est ce qui
+  // traverserait le réseau, jamais une référence à l'état de l'écran.
+  const wire = JSON.parse(JSON.stringify(expectedScope));
+  globalThis.__cpr.moveCalls.push({ productId, direction, expectedScope: wire, expectedOrder: wire.map((e) => e.id) });
+  return globalThis.__cpr.moveImpl(productId, direction, JSON.parse(JSON.stringify(wire)));
 }
 `;
 const MOCK_TAGS = `
@@ -140,6 +172,21 @@ const mocks: Record<string, string> = {
   "@/lib/sale-modes-public": `export async function getPublicSaleModes() { return []; }`,
 };
 
+/**
+ * Paquets que le code de l'écran importe par un spécificateur « nu ».
+ * Ils sont EXTERNALISÉS : le bundle garde l'import tel quel et c'est
+ * Node qui le résout au chargement, depuis node_modules du dépôt --
+ * exactement comme les imports de ce fichier de test lui-même.
+ *
+ * `fflate` (lib/catalogue-management/export.ts) en fait partie : la
+ * fonction d'export RÉELLE s'exécute toujours, avec la bibliothèque
+ * réelle, et le classeur produit est relu plus bas octet par octet.
+ * Rien n'est remplacé par un double.
+ */
+const EXTERNAL_PACKAGES = new Set(["react", "react/jsx-runtime", "react-dom", "react-dom/client", "fflate"]);
+/** Spécificateurs nus effectivement rencontrés pendant le bundling. */
+const bareSpecifiersSeen = new Set<string>();
+
 const mockPlugin: esbuild.Plugin = {
   name: "scanym-mocks",
   setup(build) {
@@ -151,7 +198,19 @@ const mockPlugin: esbuild.Plugin = {
         const candidate = ["", ".tsx", ".ts"].map((ext) => base + ext).find((p) => existsSync(p));
         return { path: candidate ?? base };
       }
-      return undefined;
+      // Import relatif ou chemin absolu : fichier du dépôt, résolution
+      // de fichier ordinaire.
+      if (args.path.startsWith(".") || path.isAbsolute(args.path)) return undefined;
+      // Spécificateur NU : jamais confié au résolveur de paquets
+      // d'esbuild. Connu -> externalisé ; inconnu -> échec explicite
+      // (plutôt qu'une résolution silencieuse dans node_modules).
+      bareSpecifiersSeen.add(args.path);
+      if (EXTERNAL_PACKAGES.has(args.path)) return { path: args.path, external: true };
+      return {
+        errors: [{
+          text: `paquet « ${args.path} » importé par ${args.importer} : il doit être ajouté à EXTERNAL_PACKAGES (chargé par Node) ou remplacé par un double dans \`mocks\`. esbuild ne résout aucun paquet dans ce test.`,
+        }],
+      };
     });
     build.onLoad({ filter: /.*/, namespace: "mock" }, (args) => ({ contents: mocks[args.path], loader: "ts" }));
   },
@@ -168,8 +227,8 @@ const buildResult = await esbuild.build({
   format: "esm",
   jsx: "automatic",
   target: "es2022",
+  metafile: true,
   plugins: [mockPlugin],
-  external: ["react", "react-dom", "react-dom/client"],
 });
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-"));
 const tmpFile = path.join(tmpDir, "CataloguePage.mjs");
@@ -267,19 +326,69 @@ const NAMES: Record<string, string> = {
   eau: "Eau", jus: "Jus", cidre: "Cidre", "b-un": "B-Un", "b-deux": "B-Deux", "b-trois": "B-Trois",
 };
 
-/** « Serveur » : accepte le déplacement si la vue transmise est
- *  l'ordre courant, l'applique comme la RPC, sinon le refuse. */
-function serverAccepts(restaurantId = RESTO_A) {
-  return async (productId: string, direction: string, expectedOrder: string[]) => {
-    const current = G.__cpr.catalogue[restaurantId];
-    const scope = findProductOrderScope(current, productId);
-    if (!scope || JSON.stringify(scope.orderedIds) !== JSON.stringify(expectedOrder)) {
-      throw new G.__cprStaleError();
+/** Lignes « menu_items » de l'état serveur d'un établissement, telles
+ *  que la RPC les verrait (périmètre = le panier qui porte le produit). */
+function serverRows(restaurantId = RESTO_A): RpcModelRow[] {
+  const rows: RpcModelRow[] = [];
+  for (const category of G.__cpr.catalogue[restaurantId] ?? []) {
+    for (const p of category.products ?? []) {
+      rows.push({ id: p.product_id, category_id: category.category_id, subcategory_id: null, name: p.name, display_order: p.display_order, archived_at: p.archived_at ?? null });
     }
-    const result = applyProductMove(current, productId, direction as "up" | "down");
-    assert.ok(result, "le serveur simulé n'est jamais appelé pour un déplacement impossible");
-    G.__cpr.catalogue[restaurantId] = result!.categories;
-    return result!.position;
+    for (const subcategory of category.subcategories ?? []) {
+      for (const p of subcategory.products ?? []) {
+        rows.push({ id: p.product_id, category_id: category.category_id, subcategory_id: subcategory.subcategory_id, name: p.name, display_order: p.display_order, archived_at: p.archived_at ?? null });
+      }
+    }
+  }
+  return rows;
+}
+/** Produit de l'état serveur, par identifiant (pour qu'un « autre
+ *  utilisateur » le modifie pendant que l'écran est ouvert). */
+function serverProduct(id: string, restaurantId = RESTO_A): any {
+  for (const category of G.__cpr.catalogue[restaurantId] ?? []) {
+    for (const p of [...(category.products ?? []), ...(category.subcategories ?? []).flatMap((s: any) => s.products ?? [])]) {
+      if (p.product_id === id) return p;
+    }
+  }
+  throw new Error(`produit serveur introuvable : ${id}`);
+}
+/** Instantané OCTET POUR OCTET de l'état serveur (toutes les colonnes
+ *  lues par la RPC, de tous les produits). */
+function serverSnapshot(restaurantId = RESTO_A): string {
+  return JSON.stringify([...serverRows(restaurantId)].sort((a, b) => (a.id < b.id ? -1 : 1)));
+}
+/** « nom=valeur|… » d'un périmètre serveur, par valeur puis nom. */
+function serverState(categoryId: string, subcategoryId: string | null, restaurantId = RESTO_A): string {
+  return serverRows(restaurantId)
+    .filter((r) => r.category_id === categoryId && r.subcategory_id === subcategoryId && r.archived_at === null)
+    .sort((a, b) => a.display_order - b.display_order || (a.name < b.name ? -1 : 1))
+    .map((r) => `${r.name}=${r.display_order}`)
+    .join("|");
+}
+
+/**
+ * « Serveur » : exécute le CONTRAT RÉEL de move_product_order
+ * (moveProductOrderModel, prouvé équivalent au SQL) sur l'état serveur
+ * courant, applique les écritures qu'il rend, ou lève l'erreur typée
+ * que le vrai service lèverait.
+ */
+function serverAccepts(restaurantId = RESTO_A) {
+  return async (productId: string, direction: string, expectedScope: unknown) => {
+    const outcome = moveProductOrderModel(serverRows(restaurantId), productId, direction, expectedScope);
+    G.__cpr.serverOutcomes.push(outcome.kind);
+    switch (outcome.kind) {
+      case "moved":
+        for (const [id, displayOrder] of Object.entries(outcome.writes)) serverProduct(id, restaurantId).display_order = displayOrder;
+        return outcome.position;
+      case "stale":
+        throw new G.__cprStaleError();
+      case "boundary":
+        throw new G.__cprBoundaryError();
+      case "not_found":
+        throw new Error("Product not found or archived");
+      default:
+        throw new Error("SCANYM_PRODUCT_ORDER_INVALID_DIRECTION");
+    }
   };
 }
 
@@ -390,6 +499,7 @@ beforeEach(() => {
   G.__cpr.role = "owner";
   G.__cpr.catalogueLoads = [];
   G.__cpr.moveCalls = [];
+  G.__cpr.serverOutcomes = [];
   G.__cpr.moveImpl = serverAccepts();
   G.__cpr.availabilityCalls = [];
   G.__cpr.updateCalls = [];
@@ -497,7 +607,17 @@ test("[C] MILIEU vers le HAUT : la ligne remonte immédiatement, la RPC reçoit 
   click(moveButton(container, "beaufort", "up"));
   await flush();
 
-  assert.deepEqual(G.__cpr.moveCalls, [{ productId: "beaufort", direction: "up", expectedOrder: ["comte", "beaufort", "abondance"] }]);
+  assert.deepEqual(G.__cpr.moveCalls, [{
+    productId: "beaufort", direction: "up", expectedOrder: ["comte", "beaufort", "abondance"],
+    // La vue transmise : pour chaque produit du périmètre, dans
+    // l'ordre affiché, les trois champs reçus du serveur -- et eux seuls.
+    expectedScope: [
+      { id: "comte", display_order: 1, name: "Comté" },
+      { id: "beaufort", display_order: 2, name: "Beaufort" },
+      { id: "abondance", display_order: 3, name: "Abondance" },
+    ],
+  }]);
+  assert.deepEqual(G.__cpr.serverOutcomes, ["moved"]);
   assert.deepEqual(directNames(container, "Fromages"), ["Beaufort", "Comté", "Abondance"]);
   assert.equal(nonArchivedLoads(), loads, "un déplacement accepté ne recharge pas le catalogue (la liste ne disparaît pas)");
   assert.equal(statusText(container), "Beaufort : position 1 sur 3.");
@@ -511,7 +631,10 @@ test("[C] MILIEU vers le BAS : la ligne descend immédiatement", async () => {
   const container = await reorderView();
   click(moveButton(container, "beaufort", "down"));
   await flush();
-  assert.deepEqual(G.__cpr.moveCalls, [{ productId: "beaufort", direction: "down", expectedOrder: ["comte", "beaufort", "abondance"] }]);
+  assert.deepEqual(
+    G.__cpr.moveCalls.map(({ productId, direction, expectedOrder }: any) => ({ productId, direction, expectedOrder })),
+    [{ productId: "beaufort", direction: "down", expectedOrder: ["comte", "beaufort", "abondance"] }]
+  );
   assert.deepEqual(directNames(container, "Fromages"), ["Comté", "Abondance", "Beaufort"]);
   assert.equal(statusText(container), "Beaufort : position 3 sur 3.");
 });
@@ -552,6 +675,15 @@ test("[C] déplacements ENCHAÎNÉS : chaque appel transmet l'ordre résultant d
     ["eau", "cidre", "jus"],
     ["cidre", "eau", "jus"],
   ]);
+  // Chaque vue transmise porte les display_order que le déplacement
+  // précédent a écrits (5/9/14 d'origine, puis 1..3 denses) : enchaîner
+  // sans recharger n'envoie jamais une vue périmée.
+  assert.deepEqual(G.__cpr.moveCalls.map((c: any) => c.expectedScope.map((e: ScopeEntry) => e.display_order)), [
+    [5, 9, 14],
+    [1, 2, 3],
+    [1, 2, 3],
+  ]);
+  assert.deepEqual(G.__cpr.serverOutcomes, ["moved", "moved", "moved"]);
   assert.deepEqual(directNames(container, "Boissons"), ["Cidre", "Jus", "Eau"]);
   assert.deepEqual(findProductOrderScope(G.__cpr.catalogue[RESTO_A], "eau")!.orderedIds, ["cidre", "jus", "eau"]);
 });
@@ -940,6 +1072,321 @@ test("[G] MARCHAND HISTORIQUE : ouvrir la vue « Ordre de la carte » sans rien 
   assert.equal(G.__cpr.orderCalls.length, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(G.__cpr.catalogue[RESTO_A])), catalogueA());
   assert.deepEqual(subNames(container, "Chèvres"), ["Banon", "crottin", "Zeste de chèvre", "éclat cendré"]);
+});
+
+// ==================================================================
+// H. FRAÎCHEUR DE LA VUE -- remédiation CPR-AUDIT-01, sur l'écran réel
+//
+// Les dix cas du mandat. Patron : l'écran est ouvert sur une vue ; un
+// AUTRE utilisateur modifie l'état « serveur » ; le marchand clique.
+// L'écran envoie SA vue (périmée) ; le serveur -- qui exécute le
+// contrat réel -- la refuse ; rien n'est écrit ; l'écran recharge et
+// affiche l'ordre qui fait autorité.
+// ==================================================================
+
+const STALE_MESSAGE = /L'ordre des produits a changé entre-temps/;
+
+/**
+ * Clique un bouton de déplacement alors que la vue de l'écran est
+ * PÉRIMÉE, et vérifie tout ce que le mandat exige :
+ *   - la vue partie sur le réseau est EXACTEMENT celle que l'écran
+ *     affichait (`staleView`), et non l'état serveur ;
+ *   - le serveur la refuse comme périmée ;
+ *   - l'état serveur est identique OCTET POUR OCTET ;
+ *   - l'écran recharge, l'explique, et n'applique aucun échange local.
+ */
+async function clickWithStaleView(
+  container: HTMLElement,
+  productId: string,
+  direction: "up" | "down",
+  staleView: ScopeEntry[]
+): Promise<void> {
+  const before = serverSnapshot();
+  const loads = nonArchivedLoads();
+  const calls = G.__cpr.moveCalls.length;
+
+  click(moveButton(container, productId, direction));
+  await waitFor(() => nonArchivedLoads() > loads);
+  await flush(120);
+
+  assert.equal(G.__cpr.moveCalls.length, calls + 1, "un appel RPC, un seul");
+  const call = G.__cpr.moveCalls[calls];
+  assert.equal(call.productId, productId);
+  assert.equal(call.direction, direction);
+  assert.deepEqual(call.expectedScope, staleView, "la vue transmise est celle que l'écran affichait");
+  assert.equal(G.__cpr.serverOutcomes.at(-1), "stale", "VUE PÉRIMÉE REFUSÉE par le contrat réel");
+  assert.equal(serverSnapshot(), before, "AUCUNE ÉCRITURE : état serveur identique octet pour octet");
+  assert.equal(nonArchivedLoads(), loads + 1, "le catalogue est rechargé après le refus");
+  assert.match(container.textContent ?? "", STALE_MESSAGE);
+  assert.match(statusText(container), STALE_MESSAGE, "le refus est annoncé, jamais un déplacement réussi");
+  assert.ok(!(container.textContent ?? "").includes("SCANYM_PRODUCT_ORDER_STALE"));
+}
+
+test("[H] CPR-01 / 1. REPRODUCTION EXACTE DE L'AUDIT : Comté=1 Beaufort=2 Abondance=3 ; un autre utilisateur passe Comté à 2 ; l'écran périmé [Comté, Beaufort, Abondance] demande « Abondance UP » -> VUE PÉRIMÉE REFUSÉE, AUCUNE ÉCRITURE", async () => {
+  const container = await reorderView();
+  assert.deepEqual(directNames(container, "Fromages"), ["Comté", "Beaufort", "Abondance"]);
+  assert.equal(serverState("c1", null), "Comté=1|Beaufort=2|Abondance=3");
+
+  // Un autre utilisateur : Comté -> display_order 2.
+  serverProduct("comte").display_order = 2;
+  assert.equal(serverState("c1", null), "Beaufort=2|Comté=2|Abondance=3", "l'ordre qui fait autorité : Beaufort, Comté, Abondance");
+  assert.deepEqual(directNames(container, "Fromages"), ["Comté", "Beaufort", "Abondance"], "l'écran, lui, affiche encore l'ancienne vue");
+
+  await clickWithStaleView(container, "abondance", "up", [
+    { id: "comte", display_order: 1, name: "Comté" },
+    { id: "beaufort", display_order: 2, name: "Beaufort" },
+    { id: "abondance", display_order: 3, name: "Abondance" },
+  ]);
+  assert.equal(serverState("c1", null), "Beaufort=2|Comté=2|Abondance=3", "le changement validé par l'autre utilisateur n'est pas écrasé");
+  assert.deepEqual(directNames(container, "Fromages"), ["Beaufort", "Comté", "Abondance"], "après rechargement : l'ordre qui fait autorité");
+
+  // Le marchand refait son geste sur la vue à jour : il s'applique à
+  // l'ordre RÉEL (Abondance passe devant Comté, pas devant Beaufort).
+  click(moveButton(container, "abondance", "up"));
+  await flush();
+  assert.equal(G.__cpr.serverOutcomes.at(-1), "moved");
+  assert.deepEqual(G.__cpr.moveCalls.at(-1).expectedScope, [
+    { id: "beaufort", display_order: 2, name: "Beaufort" },
+    { id: "comte", display_order: 2, name: "Comté" },
+    { id: "abondance", display_order: 3, name: "Abondance" },
+  ]);
+  assert.deepEqual(directNames(container, "Fromages"), ["Beaufort", "Abondance", "Comté"]);
+  assert.equal(serverState("c1", null), "Beaufort=1|Abondance=2|Comté=3");
+});
+
+test("[H] CPR-01 / 2. EX ÆQUO INTRODUIT par un autre utilisateur après le chargement -> refusé, aucune écriture", async () => {
+  const container = await reorderView();
+  serverProduct("cidre").display_order = 9; // rejoint Jus : l'ordre visible devient Eau, Cidre, Jus
+  await clickWithStaleView(container, "jus", "up", [
+    { id: "eau", display_order: 5, name: "Eau" },
+    { id: "jus", display_order: 9, name: "Jus" },
+    { id: "cidre", display_order: 14, name: "Cidre" },
+  ]);
+  assert.deepEqual(directNames(container, "Boissons"), ["Eau", "Cidre", "Jus"]);
+});
+
+test("[H] CPR-01 / 3. EX ÆQUO SUPPRIMÉ par un autre utilisateur après le chargement -> refusé, aucune écriture, même quand l'ordre visible ne change pas", async () => {
+  const container = await reorderView();
+  const shown = subNames(container, "Chèvres");
+  assert.deepEqual(shown, ["Banon", "crottin", "Zeste de chèvre", "éclat cendré"]);
+  serverProduct("banon").display_order = -1; // quitte l'ex æquo, reste premier
+  await clickWithStaleView(container, "zeste", "up", [
+    { id: "banon", display_order: 0, name: "Banon" },
+    { id: "crottin", display_order: 0, name: "crottin" },
+    { id: "zeste", display_order: 0, name: "Zeste de chèvre" },
+    { id: "eclat", display_order: 0, name: "éclat cendré" },
+  ]);
+  assert.deepEqual(subNames(container, "Chèvres"), shown, "même ordre visible -- la vue n'en était pas moins périmée");
+});
+
+test("[H] CPR-01 / 4. CHAMP DE DÉPARTAGE modifié alors que tous les display_order sont identiques -> refusé, aucune écriture", async () => {
+  const container = await reorderView();
+  const orders = () => serverRows().map((r) => `${r.id}=${r.display_order}`).sort().join(",");
+  const ordersBefore = orders();
+  // Renommage : aucun display_order ne bouge, mais le départage par
+  // nom fait passer le produit de premier à deuxième.
+  serverProduct("banon").name = "Tomme de Banon";
+  NAMES.banon = "Tomme de Banon";
+  try {
+    assert.equal(orders(), ordersBefore, "aucun display_order modifié par l'autre utilisateur");
+    await clickWithStaleView(container, "crottin", "up", [
+      { id: "banon", display_order: 0, name: "Banon" },
+      { id: "crottin", display_order: 0, name: "crottin" },
+      { id: "zeste", display_order: 0, name: "Zeste de chèvre" },
+      { id: "eclat", display_order: 0, name: "éclat cendré" },
+    ]);
+    assert.deepEqual(subNames(container, "Chèvres"), ["crottin", "Tomme de Banon", "Zeste de chèvre", "éclat cendré"], "l'ordre visible avait changé");
+  } finally {
+    NAMES.banon = "Banon";
+  }
+});
+
+test("[H] CPR-01 / 5. PRODUIT INSÉRÉ dans le périmètre après le chargement -> refusé, aucune écriture", async () => {
+  const container = await reorderView();
+  G.__cpr.catalogue[RESTO_A][1].products.push(
+    prod({ product_id: "limonade", name: "Limonade", category_id: "c2", category_name: "Boissons", display_order: 15 })
+  );
+  await clickWithStaleView(container, "jus", "up", [
+    { id: "eau", display_order: 5, name: "Eau" },
+    { id: "jus", display_order: 9, name: "Jus" },
+    { id: "cidre", display_order: 14, name: "Cidre" },
+  ]);
+  assert.deepEqual(directNames(container, "Boissons"), ["Eau", "Jus", "Cidre", "Limonade"]);
+});
+
+test("[H] CPR-01 / 6. PRODUIT ARCHIVÉ (retiré du périmètre) après le chargement -> refusé, aucune écriture", async () => {
+  const container = await reorderView();
+  serverProduct("cidre").archived_at = "2026-10-10T08:00:00Z";
+  await clickWithStaleView(container, "jus", "up", [
+    { id: "eau", display_order: 5, name: "Eau" },
+    { id: "jus", display_order: 9, name: "Jus" },
+    { id: "cidre", display_order: 14, name: "Cidre" },
+  ]);
+  assert.deepEqual(directNames(container, "Boissons"), ["Eau", "Jus"], "l'archivé a quitté la carte");
+  // À cardinalité ÉGALE : un produit sort, un autre entre.
+  const stale: ScopeEntry[] = [
+    { id: "eau", display_order: 5, name: "Eau" },
+    { id: "jus", display_order: 9, name: "Jus" },
+  ];
+  serverProduct("eau").archived_at = "2026-10-10T08:05:00Z";
+  G.__cpr.catalogue[RESTO_A][1].products.push(
+    prod({ product_id: "limonade", name: "Limonade", category_id: "c2", category_name: "Boissons", display_order: 5 })
+  );
+  await clickWithStaleView(container, "jus", "up", stale);
+  assert.deepEqual(directNames(container, "Boissons"), ["Limonade", "Jus"]);
+});
+
+test("[H] CPR-01 / 7. PRODUIT RENOMMÉ après le chargement (le nom participe au départage) -> refusé, aucune écriture, même sans ex æquo", async () => {
+  const container = await reorderView();
+  serverProduct("beaufort").name = "Beaufort d'alpage";
+  NAMES.beaufort = "Beaufort d'alpage";
+  try {
+    await clickWithStaleView(container, "abondance", "up", [
+      { id: "comte", display_order: 1, name: "Comté" },
+      { id: "beaufort", display_order: 2, name: "Beaufort" },
+      { id: "abondance", display_order: 3, name: "Abondance" },
+    ]);
+    assert.deepEqual(directNames(container, "Fromages"), ["Comté", "Beaufort d'alpage", "Abondance"]);
+    // Vue rechargée, nom à jour : accepté.
+    click(moveButton(container, "abondance", "up"));
+    await flush();
+    assert.equal(G.__cpr.serverOutcomes.at(-1), "moved");
+    assert.deepEqual(directNames(container, "Fromages"), ["Comté", "Abondance", "Beaufort d'alpage"]);
+  } finally {
+    NAMES.beaufort = "Beaufort";
+  }
+});
+
+test("[H] CPR-01 / 8. LA VUE FRAÎCHE AUTORISE LE DÉPLACEMENT : périmètre dense, ex æquo historiques, et état modifié par un autre utilisateur AVANT l'ouverture de l'écran", async () => {
+  // L'autre utilisateur a créé un ex æquo AVANT que l'écran ne charge :
+  // la vue chargée est fraîche, donc acceptée.
+  serverProduct("comte").display_order = 2;
+  const container = await reorderView();
+  assert.deepEqual(directNames(container, "Fromages"), ["Beaufort", "Comté", "Abondance"]);
+
+  click(moveButton(container, "abondance", "up"));
+  await flush();
+  click(moveButton(container, "crottin", "up"));
+  await flush();
+  click(moveButton(container, "jus", "down"));
+  await flush();
+
+  assert.deepEqual(G.__cpr.serverOutcomes, ["moved", "moved", "moved"], "trois vues fraîches, trois déplacements acceptés");
+  assert.deepEqual(G.__cpr.moveCalls.map((c: any) => c.expectedScope), [
+    [{ id: "beaufort", display_order: 2, name: "Beaufort" }, { id: "comte", display_order: 2, name: "Comté" }, { id: "abondance", display_order: 3, name: "Abondance" }],
+    [{ id: "banon", display_order: 0, name: "Banon" }, { id: "crottin", display_order: 0, name: "crottin" }, { id: "zeste", display_order: 0, name: "Zeste de chèvre" }, { id: "eclat", display_order: 0, name: "éclat cendré" }],
+    [{ id: "eau", display_order: 5, name: "Eau" }, { id: "jus", display_order: 9, name: "Jus" }, { id: "cidre", display_order: 14, name: "Cidre" }],
+  ]);
+  assert.equal(nonArchivedLoads(), 1, "aucun rechargement : aucun refus");
+  assert.equal(serverState("c1", null), "Beaufort=1|Abondance=2|Comté=3");
+  assert.equal(serverState("c1", "s1"), "crottin=1|Banon=2|Zeste de chèvre=3|éclat cendré=4");
+  assert.equal(serverState("c2", null), "Eau=1|Cidre=2|Jus=3");
+  assert.ok(!STALE_MESSAGE.test(container.textContent ?? ""));
+});
+
+test("[H] CPR-01 / 9. UN REFUS NE CHANGE AUCUN display_order, octet pour octet : trois périmètres rendus périmés, trois clics, trois refus, état serveur intact", async () => {
+  const container = await reorderView();
+  serverProduct("comte").display_order = 2;
+  serverProduct("cidre").display_order = 9;
+  serverProduct("banon").display_order = -1;
+  const before = serverSnapshot();
+  const values = () => serverRows().map((r) => `${r.id}=${r.display_order}`).sort().join(",");
+  const valuesBefore = values();
+
+  // Chaque refus recharge TOUT le catalogue : seul le premier clic part
+  // d'une vue périmée. On remet donc l'écran dans une vue périmée entre
+  // deux clics, par un nouveau changement d'un autre utilisateur.
+  click(moveButton(container, "abondance", "up"));
+  await waitFor(() => G.__cpr.serverOutcomes.length === 1);
+  await flush(120);
+  serverProduct("jus").display_order = 9; // (déjà 9 : aucun changement d'état)
+  serverProduct("eau").display_order = 9; // nouvel ex æquo à trois
+  const mid = serverSnapshot();
+  click(moveButton(container, "cidre", "up"));
+  await waitFor(() => G.__cpr.serverOutcomes.length === 2);
+  await flush(120);
+  serverProduct("zeste").name = "Zeste";
+  NAMES.zeste = "Zeste";
+  const last = serverSnapshot();
+  try {
+    click(moveButton(container, "crottin", "down"));
+    await waitFor(() => G.__cpr.serverOutcomes.length === 3);
+    await flush(120);
+  } finally {
+    NAMES.zeste = "Zeste de chèvre";
+  }
+
+  assert.deepEqual(G.__cpr.serverOutcomes, ["stale", "stale", "stale"]);
+  assert.notEqual(mid, before);
+  assert.equal(serverSnapshot(), last, "le dernier refus n'a rien écrit");
+  // Les SEULS changements de l'état serveur sont ceux de l'autre
+  // utilisateur : aucun display_order n'a été écrit par un refus.
+  assert.equal(
+    values(),
+    valuesBefore.replace("eau=5", "eau=9"),
+    "chaque display_order est celui posé par l'autre utilisateur, octet pour octet"
+  );
+});
+
+test("[H] CPR-01 / 10. DEUX DÉPLACEURS CONCURRENTS partis de la même vue : le premier est ACCEPTÉ, le second -- cet écran -- est REFUSÉ comme périmé", async () => {
+  const container = await reorderView();
+  const sharedView: ScopeEntry[] = [
+    { id: "comte", display_order: 1, name: "Comté" },
+    { id: "beaufort", display_order: 2, name: "Beaufort" },
+    { id: "abondance", display_order: 3, name: "Abondance" },
+  ];
+
+  // Cet écran envoie son déplacement ; pendant qu'il est EN VOL, un
+  // autre client, parti de la même vue, est servi le premier.
+  const server = serverAccepts();
+  let serve!: () => void;
+  const gate = new Promise<void>((resolve) => { serve = resolve; });
+  G.__cpr.moveImpl = async (productId: string, direction: string, expectedScope: unknown) => {
+    await gate;
+    return server(productId, direction, expectedScope);
+  };
+  const loads = nonArchivedLoads();
+  click(moveButton(container, "abondance", "up"));
+  await flush();
+  assert.deepEqual(G.__cpr.moveCalls.at(-1).expectedScope, sharedView);
+
+  assert.equal(await server("beaufort", "up", JSON.parse(JSON.stringify(sharedView))), 1, "premier déplaceur : ACCEPTÉ");
+  assert.equal(serverState("c1", null), "Beaufort=1|Comté=2|Abondance=3");
+  const afterFirst = serverSnapshot();
+
+  serve();
+  await waitFor(() => nonArchivedLoads() > loads);
+  await flush(120);
+
+  assert.deepEqual(G.__cpr.serverOutcomes, ["moved", "stale"], "second déplaceur : REFUSÉ comme périmé");
+  assert.equal(serverSnapshot(), afterFirst, "seul le déplacement du premier est enregistré");
+  assert.deepEqual(directNames(container, "Fromages"), ["Beaufort", "Comté", "Abondance"], "l'écran affiche l'ordre validé par le premier");
+  assert.match(statusText(container), STALE_MESSAGE);
+});
+
+// ==================================================================
+// I. Chargement avec la commande standard : aucun paquet résolu par
+//    esbuild
+// ==================================================================
+
+test("[I] le bundle de l'écran ne contient AUCUN fichier de node_modules : chaque paquet importé (react, fflate) est externalisé et chargé par Node, esbuild ne résout aucun paquet", () => {
+  const inputs = Object.keys(buildResult.metafile!.inputs);
+  assert.ok(inputs.length > 20, "le vrai écran et ses dépendances du dépôt ont bien été bundlés");
+  assert.ok(inputs.some((file) => file.replaceAll("\\", "/").endsWith("app/dashboard/catalogue/page.tsx")));
+  assert.ok(inputs.some((file) => file.replaceAll("\\", "/").endsWith("lib/catalogue-management/export.ts")), "la fonction d'export RÉELLE est dans le bundle");
+  assert.deepEqual(inputs.filter((file) => file.replaceAll("\\", "/").includes("node_modules/")), []);
+
+  // Les spécificateurs nus rencontrés sont exactement ceux déclarés.
+  for (const specifier of bareSpecifiersSeen) assert.ok(EXTERNAL_PACKAGES.has(specifier), specifier);
+  assert.ok(bareSpecifiersSeen.has("fflate"), "l'écran importe bien fflate (export XLSX)");
+  assert.ok(bareSpecifiersSeen.has("react"));
+
+  // Le bundle garde ces imports tels quels : c'est Node qui les résout.
+  const externalImports = Object.values(buildResult.metafile!.outputs)
+    .flatMap((output) => output.imports)
+    .filter((entry) => entry.external)
+    .map((entry) => entry.path);
+  assert.deepEqual([...new Set(externalImports)].sort(), [...bareSpecifiersSeen].sort());
 });
 
 after(async () => {

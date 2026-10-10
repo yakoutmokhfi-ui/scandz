@@ -32,13 +32,36 @@
 # CE QUI EST PROUVÉ ICI (au niveau base) : application sans aucune
 # modification de données, droits, périmètres (sous-catégorie /
 # produits directs), bornes, isolation entre établissements, rôles,
-# contrôle optimiste, VRAIE concurrence (sessions psql parallèles),
-# cohabitation avec set_product_order / create_product /
-# update_product / archive / restore, non-régression disponibilité et
-# modes de vente, lecture publique, anti-dérive, rollback.
+# FRAÎCHEUR DE LA VUE (remédiation CPR-AUDIT-01, section 8F), VRAIE
+# concurrence (sessions psql parallèles), cohabitation avec
+# set_product_order / create_product / update_product / archive /
+# restore, non-régression disponibilité et modes de vente, lecture
+# publique, anti-dérive, rollback.
 #
-# Usage, depuis la racine du dépôt :
-#   su postgres -c "bash supabase/tests/catalogue-product-reorder-v1-check.sh"
+# ------------------------------------------------------------------
+# SÛRETÉ DE LA CIBLE (remédiation CPR-AUDIT-02)
+# ------------------------------------------------------------------
+# Ce harnais ne se connecte à AUCUN serveur préexistant. Il crée son
+# propre cluster PostgreSQL jetable (mktemp + initdb, socket UNIX
+# privé, aucune écoute réseau), prouve avant chaque création ou
+# suppression de base que le serveur joint est bien celui-là, et ne
+# supprime que ce qu'il a créé. Toute la logique est dans
+# catalogue-product-reorder-v1-harness-lib.sh (lire son en-tête) et
+# elle est prouvée par
+# catalogue-product-reorder-v1-harness-safety-check.sh (HARNESS-01..08).
+#
+#   - sans SCANYM_DISPOSABLE_CLUSTER=1                     -> refus (2)
+#   - PGHOST, PGPORT, PGSERVICE, PGPASSWORD… hérités       -> refus (2)
+#   - exécution en root                                    -> refus (2)
+# Un refus intervient AVANT toute commande PostgreSQL.
+#
+# Usage, depuis la racine du dépôt, sous un utilisateur ordinaire :
+#   SCANYM_DISPOSABLE_CLUSTER=1 \
+#     bash supabase/tests/catalogue-product-reorder-v1-check.sh
+# (depuis root : su postgres -c "SCANYM_DISPOSABLE_CLUSTER=1 bash …")
+#
+# Prérequis : les binaires PostgreSQL (initdb, pg_ctl, postgres, psql).
+# S'ils ne sont pas trouvés : SCANYM_PG_BINDIR=/chemin/vers/bin.
 # ============================================================
 set -uo pipefail
 
@@ -46,19 +69,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUPABASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOT_SQL="$SUPABASE_DIR/DRAFT-lot-catalogue-product-reorder-v1.sql"
 ROLLBACK_SQL="$SUPABASE_DIR/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql"
-
-# Base MODÈLE (chaîne + jeu d'essai, SANS le lot), clonée pour chaque
-# scénario destructif : anti-dérive et rollback ne peuvent pas partager
-# la base des assertions fonctionnelles sans les invalider.
-DB_TEMPLATE="scanym_cpr1_tpl_$$"
-DB="scanym_cpr1_$$"
-DB_SCRATCH="scanym_cpr1_scratch_$$"
-
-TMP="/tmp/scanym-cpr1-$$"
-mkdir -p "$TMP"
-OUT="$TMP/out.txt"
-ERR="$TMP/err.txt"
-: > "$OUT"; : > "$ERR"
 
 PASS=0
 FAIL=0
@@ -68,13 +78,41 @@ pass() { PASS=$((PASS+1)); log "PASS: $1"; }
 fail() { FAIL=$((FAIL+1)); log "FAIL: $1"; }
 fatal() { log "FATAL: $*"; exit 1; }
 
-cleanup() {
-  psql -X -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true
-  psql -X -c "drop database if exists \"$DB_SCRATCH\";" >/dev/null 2>&1 || true
-  psql -X -c "drop database if exists \"$DB_TEMPLATE\";" >/dev/null 2>&1 || true
-  rm -rf "$TMP" 2>/dev/null || true
-}
-trap cleanup EXIT
+# ============================================================
+# VERROU DE SÛRETÉ -- rien de ce qui suit ne parle à PostgreSQL avant
+# que harness_safety_gate ait rendu la main.
+# ============================================================
+# shellcheck source=catalogue-product-reorder-v1-harness-lib.sh
+. "$SCRIPT_DIR/catalogue-product-reorder-v1-harness-lib.sh"
+
+harness_safety_gate
+
+# Nettoyage garanti, y compris après un échec partiel ou un signal :
+# il n'arrête que le postmaster de CETTE exécution et ne supprime que
+# SON répertoire (voir harness_cleanup).
+trap harness_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+harness_start_cluster || fatal "création du cluster jetable impossible."
+harness_prove_identity || fatal "identité du cluster jetable non prouvée."
+
+# Base MODÈLE (chaîne + jeu d'essai, SANS le lot), clonée pour chaque
+# scénario destructif : anti-dérive et rollback ne peuvent pas partager
+# la base des assertions fonctionnelles sans les invalider. Les noms
+# portent l'étiquette ALÉATOIRE de cette exécution.
+DB_TEMPLATE="scanym_cpr1_tpl_$H_TAG"
+DB_MAIN="scanym_cpr1_main_$H_TAG"
+DB_SCRATCH="scanym_cpr1_scratch_$H_TAG"
+DB_LOT_TEMPLATE="scanym_cpr1_lot_$H_TAG"
+DB_CASE="scanym_cpr1_case_$H_TAG"
+DB="$DB_MAIN"
+
+TMP="$H_RUN_DIR/tmp"
+OUT="$TMP/out.txt"
+ERR="$TMP/err.txt"
+: > "$OUT"; : > "$ERR"
 
 assert_eq() {
   local d="$1" e="$2" a="$3"
@@ -83,6 +121,17 @@ assert_eq() {
 assert_ne() {
   local d="$1" e="$2" a="$3"
   if [ "$e" != "$a" ]; then pass "$d"; else fail "$d — valeur inchangée '$a' alors qu'un changement était attendu"; fi
+}
+# Égalité OCTET POUR OCTET de deux instantanés volumineux : la
+# comparaison porte sur les chaînes entières ; seul un condensé est
+# journalisé.
+assert_same() {
+  local d="$1" e="$2" a="$3"
+  if [ -n "$e" ] && [ "$e" = "$a" ]; then
+    pass "$d (identique : ${#a} caractères, cksum $(printf '%s' "$a" | cksum | cut -d' ' -f1))"
+  else
+    fail "$d — instantanés différents (attendu ${#e} caractères / cksum $(printf '%s' "$e" | cksum | cut -d' ' -f1), obtenu ${#a} caractères / cksum $(printf '%s' "$a" | cksum | cut -d' ' -f1))"
+  fi
 }
 assert_ok() { if [ "$2" -eq 0 ]; then pass "$1 (rc=0)"; else fail "$1 — attendu rc=0, obtenu rc=$2 : $(tr '\n' ' ' < "$ERR" | cut -c1-300)"; fi; }
 assert_refused() {
@@ -96,42 +145,63 @@ assert_refused() {
 }
 
 # --- accès superutilisateur (jeu d'essai et lectures de vérification) ---
-q()     { psql -X -A -q -t -d "$DB" -c "$1" 2>"$ERR"; }
-q_in()  { psql -X -A -q -t -d "$1" -c "$2" 2>"$ERR"; }
+q()     { hpsql "$DB" -A -q -t -c "$1" 2>"$ERR"; }
+q_in()  { hpsql "$1" -A -q -t -c "$2" 2>"$ERR"; }
 
 # --- appels en tant qu'utilisateur applicatif (rôle authenticated) ---
 as_user() {
-  PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
+  hpsql_as authenticated "$DB" -A -q -t \
     -c "set local test.uid = '$1'; $2" >"$OUT" 2>"$ERR"
 }
-as_anon() { PGOPTIONS="-c role=anon" psql -X -A -q -t -d "$DB" -c "$1" >"$OUT" 2>"$ERR"; }
-as_service() { PGOPTIONS="-c role=service_role" psql -X -A -q -t -d "$DB" -c "$1" >"$OUT" 2>"$ERR"; }
+as_anon() { hpsql_as anon "$DB" -A -q -t -c "$1" >"$OUT" 2>"$ERR"; }
+as_service() { hpsql_as service_role "$DB" -A -q -t -c "$1" >"$OUT" 2>"$ERR"; }
 last_out() { tail -1 "$OUT" 2>/dev/null; }
 
 # --- résolution des produits du jeu d'essai par leur nom (unique) ---
-pid() { q "select id from public.menu_items where name = '$1';"; }
-# liste de noms séparés par '|' -> littéral uuid[] dans CET ordre
-ids() {
-  q "select '{' || coalesce(string_agg(mi.id::text, ',' order by n.ord), '') || '}'
-     from unnest(string_to_array('$1', '|')) with ordinality as n(name, ord)
+# (guillemets dollar : un nom peut contenir une apostrophe.)
+pid() { q "select id from public.menu_items where name = \$n\$$1\$n\$;"; }
+
+# view <noms séparés par '|'>
+#   -> la VUE que le back-office transmettrait pour ces produits, dans
+#      CET ordre : le tableau JSON [{id, display_order, name}] des
+#      valeurs STOCKÉES à l'instant de l'appel. Capturée dans une
+#      variable AVANT un changement concurrent, c'est une vue PÉRIMÉE.
+view() {
+  q "select coalesce(jsonb_agg(jsonb_build_object('id', mi.id, 'display_order', mi.display_order, 'name', mi.name) order by n.ord), '[]'::jsonb)::text
+     from unnest(string_to_array(\$n\$$1\$n\$, '|')) with ordinality as n(name, ord)
      join public.menu_items mi on mi.name = n.name;"
 }
+# jl <json> -> littéral SQL jsonb (guillemets dollar : aucun caractère
+# du JSON ne peut refermer le littéral).
+jl() { printf '%s' "\$cpr\$$1\$cpr\$::jsonb"; }
 
-# move <uid> <produit> <up|down> <ordre attendu : noms séparés par |>
+# move <uid> <produit> <up|down> <ordre affiché : noms séparés par |>
+#   La vue est construite à l'instant (valeurs stockées courantes),
+#   dans l'ordre donné.
+# move_view <uid> <produit> <up|down> <vue JSON capturée>
+#   Envoie une vue DÉJÀ capturée (éventuellement périmée ou forgée).
 # Résultat dans $OUT / $ERR, code retour dans MOVE_RC.
 MOVE_RC=0
-move() {
-  local p arr
+move_view() {
+  local p
   p="$(pid "$2")"
-  arr="$(ids "$4")"
-  as_user "$1" "select public.move_product_order('$p'::uuid, '$3', '$arr'::uuid[]);"
+  as_user "$1" "select public.move_product_order('$p'::uuid, '$3', $(jl "$4"));"
   MOVE_RC=$?
+}
+move() { move_view "$1" "$2" "$3" "$(view "$4")"; }
+
+# Instantané OCTET POUR OCTET de l'ordre de TOUTE la base : pour chaque
+# produit, id, display_order et xmin (version de ligne). Deux
+# instantanés égaux = aucune valeur changée ET aucune ligne réécrite,
+# pas même avec la même valeur.
+order_snapshot() {
+  q "select string_agg(mi.id::text || '=' || mi.display_order::text || '@' || mi.xmin::text, ',' order by mi.id) from public.menu_items mi;"
 }
 
 # Ordre STOCKÉ d'un périmètre non archivé : « nom=valeur|nom=valeur ».
 # $1 = catégorie, $2 = sous-catégorie ou NULL.
 scope_state() {
-  q "select coalesce(string_agg(mi.name || '=' || mi.display_order, '|' order by mi.display_order, mi.name), '')
+  q "select coalesce(string_agg(mi.name || '=' || mi.display_order, '|' order by mi.display_order, mi.name collate \"C\"), '')
      from public.menu_items mi
      where mi.category_id = '$1' and mi.subcategory_id is not distinct from $2 and mi.archived_at is null;"
 }
@@ -172,7 +242,7 @@ fn_count_in() {
 # Bootstrap Supabase minimal + chaîne.
 # ------------------------------------------------------------------
 build_common_bootstrap() {
-  psql -X -d "$1" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<'SQL'
+  hpsql "$1" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<'SQL'
 create schema if not exists auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);
 create or replace function auth.uid() returns uuid language sql stable as $$
@@ -204,7 +274,7 @@ TRACKING_CHAIN="DRAFT-lot-tracking-final-fiscal-summary-v1-1.sql DRAFT-lot-custo
 CATALOGUE_CHAIN="DRAFT-lot-catalogue-operator-authorization-v1.sql DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql DRAFT-lot-catalogue-vat-completeness-guard-v1.sql DRAFT-lot-operator-catalogue-reset-v1.sql DRAFT-lot-catalogue-collections-tags-foundation-v1.sql DRAFT-lot-catalogue-management-ux-v1.sql DRAFT-lot-translations-management-v2.sql"
 TAIL_CHAIN="DRAFT-lot-online-withdrawal-foundation-v1.sql DRAFT-lot-online-withdrawal-v1-1-cgv-mixed-regime.sql DRAFT-lot-delivery-country-scope-v1.sql DRAFT-lot-product-service-modes-v1.sql DRAFT-lot-merchant-customer-communications-v1.sql"
 
-apply_to() { psql -X -d "$1" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$2" >/dev/null 2>"$ERR"; }
+apply_to() { hpsql "$1" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$2" >/dev/null 2>"$ERR"; }
 
 build_chain() {
   local db="$1" f
@@ -213,17 +283,17 @@ build_chain() {
   done
   for f in $MINIMAL_CHAIN; do
     apply_to "$db" "$f" || fatal "chaîne, $f : $(grep -m2 ERROR "$ERR" | tr '\n' ' ')"
-    psql -X -d "$db" -c "grant select on all tables in schema public to anon, authenticated;" >/dev/null 2>&1
+    hpsql "$db" -c "grant select on all tables in schema public to anon, authenticated;" >/dev/null 2>&1
   done
   for f in $REST_CHAIN $CGV_CHAIN; do
     apply_to "$db" "$f" || fatal "chaîne, $f : $(grep -m2 ERROR "$ERR" | tr '\n' ' ')"
   done
-  psql -X -d "$db" -c "grant select on all tables in schema public to anon, authenticated;" >/dev/null 2>&1
+  hpsql "$db" -c "grant select on all tables in schema public to anon, authenticated;" >/dev/null 2>&1
   for f in $ORDER_CHAIN; do
     apply_to "$db" "$f" || fatal "chaîne, $f : $(grep -m2 ERROR "$ERR" | tr '\n' ' ')"
   done
   # Talon repris VERBATIM de product-service-modes-v1-check.sh.
-  psql -X -d "$db" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<'SQL' || fatal "talon order_invoice_request"
+  hpsql "$db" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<'SQL' || fatal "talon order_invoice_request"
 create table public.order_invoice_request (
   order_id uuid primary key references public.orders(id) on delete cascade
 );
@@ -244,7 +314,7 @@ OPERATOR="c0000000-0000-0000-0000-0000000000c1"
 STRANGER="d0000000-0000-0000-0000-0000000000d1"
 
 load_fixtures() {
-  psql -X -d "$1" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL
+  hpsql "$1" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL
 insert into auth.users (id, email) values
   ('$OWNER_A','owner@a.test'), ('$MANAGER_A','manager@a.test'), ('$STAFF_A','staff@a.test'),
   ('$OWNER_B','owner@b.test'), ('$OPERATOR','operator@scanym.test'), ('$STRANGER','stranger@x.test');
@@ -311,15 +381,21 @@ CAT_B="bbbbbbbb-0000-0000-0000-0000000000c1"
 SUB_CHE="'aaaaaaaa-0000-0000-0000-0000000000d1'"
 SUB_BRE="'aaaaaaaa-0000-0000-0000-0000000000d2'"
 
-clone_template() {
-  psql -X -c "drop database if exists \"$1\";" >/dev/null 2>&1
-  createdb -T "$DB_TEMPLATE" "$1" 2>"$ERR" || fatal "clonage du modèle vers $1 : $(cat "$ERR")"
+# clone_template <base> -- (re)crée <base> à partir du modèle. Une
+# base n'est supprimée que si CETTE exécution l'a créée, et seulement
+# après preuve d'identité du serveur (harness_drop_db).
+clone_from() {
+  local tpl="$1" name="$2"
+  if h_is_tracked "$name"; then
+    harness_drop_db "$name" || fatal "suppression de la base jetable $name impossible."
+  fi
+  harness_create_db "$name" "$tpl" || fatal "clonage de $tpl vers $name impossible."
 }
+clone_template() { clone_from "$DB_TEMPLATE" "$1"; }
 
 # ============================================================
 log "=== [0] Base modèle : chaîne complète + jeu d'essai (SANS le lot) ==="
-psql -X -c "drop database if exists \"$DB_TEMPLATE\";" >/dev/null 2>&1 || true
-createdb "$DB_TEMPLATE" || fatal "createdb"
+harness_create_db "$DB_TEMPLATE" || fatal "création de la base modèle impossible."
 build_common_bootstrap "$DB_TEMPLATE" || fatal "bootstrap : $(cat "$ERR")"
 build_chain "$DB_TEMPLATE"
 load_fixtures "$DB_TEMPLATE" || fatal "jeu d'essai : $(cat "$ERR")"
@@ -336,17 +412,17 @@ FP_ORDER_BEFORE="$(order_fp_in "$DB")"
 FP_NON_ORDER_BEFORE="$(non_order_fp)"
 FN_FP_BEFORE="$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';")"
 
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
 assert_ok "1a. le lot s'applique intégralement (contrôles préalables et post-application passés)" $?
 assert_eq "1b. move_product_order installée, une seule signature" "1" "$(fn_count_in "$DB")"
-assert_eq "1c. signature exacte" "p_product_id uuid, p_direction text, p_expected_order uuid[]" \
-  "$(q "select pg_get_function_identity_arguments('public.move_product_order(uuid, text, uuid[])'::regprocedure);")"
+assert_eq "1c. signature exacte" "p_product_id uuid, p_direction text, p_expected_scope jsonb" \
+  "$(q "select pg_get_function_identity_arguments('public.move_product_order(uuid, text, jsonb)'::regprocedure);")"
 assert_eq "1d. AUCUN BACKFILL : (id, display_order) de tous les produits inchangé par l'installation" "$FP_ORDER_BEFORE" "$(order_fp_in "$DB")"
 assert_eq "1e. aucune autre colonne produit / mode de vente modifiée par l'installation" "$FP_NON_ORDER_BEFORE" "$(non_order_fp)"
 assert_eq "1f. aucune fonction préexistante modifiée (empreinte nom+signature+corps hors move_product_order)" "$FN_FP_BEFORE" \
   "$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'move_product_order';")"
 assert_eq "1g. SECURITY DEFINER, search_path vide, propriétaire postgres" "true|search_path=\"\"|postgres" \
-  "$(q "select p.prosecdef::text || '|' || array_to_string(p.proconfig, ',') || '|' || pg_get_userbyid(p.proowner) from pg_proc p where p.oid = 'public.move_product_order(uuid, text, uuid[])'::regprocedure;")"
+  "$(q "select p.prosecdef::text || '|' || array_to_string(p.proconfig, ',') || '|' || pg_get_userbyid(p.proowner) from pg_proc p where p.oid = 'public.move_product_order(uuid, text, jsonb)'::regprocedure;")"
 
 # Références figées pour tout le reste du harnais.
 FP_B_ORDER="$(scope_fp "$CAT_B" NULL)"
@@ -356,16 +432,16 @@ FP_NON_ORDER="$(non_order_fp)"
 # ============================================================
 log "=== [2] Droits ==="
 P_BEAUFORT="$(pid 'Beaufort')"
-as_anon "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '{}'::uuid[]);"
+as_anon "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '[]'::jsonb);"
 assert_refused "2a. anon ne peut pas exécuter la RPC" $? "permission denied"
-as_service "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '{}'::uuid[]);"
+as_service "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '[]'::jsonb);"
 assert_refused "2b. service_role ne peut pas exécuter la RPC" $? "permission denied"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
-  -c "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '{}'::uuid[]);" >"$OUT" 2>"$ERR"
+hpsql_as authenticated "$DB" -A -q -t \
+  -c "select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '[]'::jsonb);" >"$OUT" 2>"$ERR"
 assert_refused "2c. authenticated SANS identité (auth.uid() nul) est refusé" $? "Authentication required"
 assert_eq "2d. aucun droit d'écriture direct sur menu_items pour authenticated / anon" "f|f|f|f" \
   "$(q "select has_table_privilege('authenticated','public.menu_items','UPDATE')::text || '|' || has_table_privilege('authenticated','public.menu_items','INSERT')::text || '|' || has_table_privilege('anon','public.menu_items','UPDATE')::text || '|' || has_table_privilege('anon','public.menu_items','INSERT')::text;" | sed 's/false/f/g')"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
+hpsql_as authenticated "$DB" -A -q -t \
   -c "set local test.uid = '$OWNER_A'; update public.menu_items set display_order = 99 where id = '$P_BEAUFORT';" >"$OUT" 2>"$ERR"
 assert_refused "2e. écriture DIRECTE de display_order par le propriétaire refusée (seule la RPC écrit)" $? "permission denied"
 
@@ -484,7 +560,7 @@ assert_refused "6f. le propriétaire de A ne peut pas viser un produit de B" "$M
 assert_eq "6g. l'établissement B est strictement intact" "$FP_B_ORDER" "$(scope_fp "$CAT_B" NULL)"
 assert_eq "6g-bis. … et le périmètre de A visé par ces tentatives aussi" "$STATE_DIRECT" "$(scope_state "$CAT_FRO" NULL)"
 
-as_user "$OWNER_A" "select public.move_product_order('00000000-0000-0000-0000-00000000dead'::uuid, 'up', '{}'::uuid[]);"
+as_user "$OWNER_A" "select public.move_product_order('00000000-0000-0000-0000-00000000dead'::uuid, 'up', '[]'::jsonb);"
 assert_refused "6h. produit inexistant" $? "Product not found"
 
 move "$MANAGER_A" 'Abondance' up 'Beaufort|Abondance|Comté'
@@ -497,48 +573,322 @@ assert_eq "6l. ordre après le déplacement de l'opérateur" "Beaufort=1|Abondan
 # ============================================================
 log "=== [7] Entrées invalides ==="
 P_ABONDANCE="$(pid 'Abondance')"
-ARR_DIRECT="$(ids 'Beaufort|Abondance|Comté')"
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'left', '$ARR_DIRECT'::uuid[]);"
+P_BEAUFORT="$(pid 'Beaufort')"
+P_COMTE="$(pid 'Comté')"
+VIEW_DIRECT="$(view 'Beaufort|Abondance|Comté')"
+SNAP_7="$(order_snapshot)"
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'left', $(jl "$VIEW_DIRECT"));"
 assert_refused "7a. direction inconnue" $? "SCANYM_PRODUCT_ORDER_INVALID_DIRECTION"
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, null, '$ARR_DIRECT'::uuid[]);"
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, null, $(jl "$VIEW_DIRECT"));"
 assert_refused "7b. direction nulle" $? "SCANYM_PRODUCT_ORDER_INVALID_DIRECTION"
 as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', null);"
-assert_refused "7c. liste nulle" $? "SCANYM_PRODUCT_ORDER_STALE"
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', '{}'::uuid[]);"
-assert_refused "7d. liste vide" $? "SCANYM_PRODUCT_ORDER_STALE"
+assert_refused "7c. vue SQL NULL" $? "SCANYM_PRODUCT_ORDER_STALE"
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', '[]'::jsonb);"
+assert_refused "7d. vue vide" $? "SCANYM_PRODUCT_ORDER_STALE"
 move "$OWNER_A" 'Abondance' up 'Beaufort|Abondance'
-assert_refused "7e. liste INCOMPLÈTE (un produit du périmètre manque)" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', array['$(pid 'Beaufort')','$P_ABONDANCE','$P_ABONDANCE']::uuid[]);"
-assert_refused "7f. liste avec DOUBLON (même cardinalité que le périmètre)" $? "SCANYM_PRODUCT_ORDER_STALE"
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', array['$(pid 'Beaufort')'::uuid,'$P_ABONDANCE'::uuid,null]);"
-assert_refused "7g. liste avec élément NUL" $? "SCANYM_PRODUCT_ORDER_STALE"
+assert_refused "7e. vue INCOMPLÈTE (un produit du périmètre manque)" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
+move "$OWNER_A" 'Abondance' up 'Beaufort|Abondance|Abondance'
+assert_refused "7f. vue avec DOUBLON (même cardinalité que le périmètre)" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
 move "$OWNER_A" 'Abondance' up 'Comté|Abondance|Beaufort'
-assert_refused "7h. valeurs stockées DISTINCTES : un ordre qui les contredit est refusé (la base fait autorité)" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
-assert_eq "7i. aucun de ces refus n'a écrit" "Beaufort=1|Abondance=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
+assert_refused "7g. valeurs stockées DISTINCTES : un ordre qui les contredit est refusé (la base fait autorité)" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
 
-# Tableau à borne inférieure arbitraire (appel SQL direct) : la position
-# est lue sur l'ordinalité, l'échange reste exact.
-as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', ('[5:7]=' || '$ARR_DIRECT')::uuid[]);"
-assert_ok "7j. tableau à borne inférieure 5 accepté" $?
-assert_eq "7k. … et l'échange est exact" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
-assert_eq "7l. … et la position retournée est correcte" "1" "$(last_out)"
+# CHARGES MAL FORMÉES. Aucune ne doit lever une erreur de conversion
+# (22P02, 22023…) : rien de ce que l'appelant envoie n'est converti.
+# Chacune est refusée comme périmée, sans écriture.
+malformed() {
+  # $1 libellé, $2 charge JSON
+  as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', $(jl "$2"));"
+  assert_refused "$1" $? "SCANYM_PRODUCT_ORDER_STALE"
+}
+E_BEAUFORT="{\"id\":\"$P_BEAUFORT\",\"display_order\":1,\"name\":\"Beaufort\"}"
+E_ABONDANCE="{\"id\":\"$P_ABONDANCE\",\"display_order\":2,\"name\":\"Abondance\"}"
+E_COMTE="{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":\"Comté\"}"
+assert_eq "7h. (contrôle du jeu d'essai) la vue construite à la main est bien la vue courante" \
+  "$(q "select $(jl "$VIEW_DIRECT")::text;")" "$(q "select $(jl "[$E_BEAUFORT,$E_ABONDANCE,$E_COMTE]")::text;")"
+malformed "7i. charge JSON null"                       'null'
+malformed "7j. charge = objet, pas un tableau"         "{\"0\":$E_BEAUFORT,\"1\":$E_ABONDANCE,\"2\":$E_COMTE}"
+malformed "7k. charge = chaîne"                        '"Beaufort,Abondance,Comté"'
+malformed "7l. charge = nombre"                        '3'
+malformed "7m. éléments = identifiants nus (ancien contrat uuid[]), pas des objets" "[\"$P_BEAUFORT\",\"$P_ABONDANCE\",\"$P_COMTE\"]"
+malformed "7n. un élément JSON null"                   "[$E_BEAUFORT,$E_ABONDANCE,null]"
+malformed "7o. un élément tableau"                     "[$E_BEAUFORT,$E_ABONDANCE,[\"$P_COMTE\",3,\"Comté\"]]"
+malformed "7p. display_order absent"                   "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"name\":\"Comté\"}]"
+malformed "7q. name absent"                            "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3}]"
+malformed "7r. id absent"                              "[$E_BEAUFORT,$E_ABONDANCE,{\"display_order\":3,\"name\":\"Comté\"}]"
+malformed "7s. display_order en CHAÎNE (\"3\")"         "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":\"3\",\"name\":\"Comté\"}]"
+malformed "7t. display_order non entier (3.5)"         "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3.5,\"name\":\"Comté\"}]"
+malformed "7t-bis. display_order 3.0 (même valeur, mais pas l'écriture reçue du serveur)" "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3.0,\"name\":\"Comté\"}]"
+malformed "7u. display_order hors int4 (1e30)"         "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":1e30,\"name\":\"Comté\"}]"
+malformed "7v. display_order booléen"                  "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":true,\"name\":\"Comté\"}]"
+malformed "7w. name en nombre"                         "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":3}]"
+malformed "7x. name JSON null"                         "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":null}]"
+malformed "7y. id qui n'est pas un uuid"               "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"pas-un-uuid\",\"display_order\":3,\"name\":\"Comté\"}]"
+malformed "7z. id en nombre"                           "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":3,\"display_order\":3,\"name\":\"Comté\"}]"
+malformed "7aa. id en MAJUSCULES (pas la valeur reçue du serveur)" "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$(printf '%s' "$P_COMTE" | tr 'a-f' 'A-F')\",\"display_order\":3,\"name\":\"Comté\"}]"
+malformed "7ab. name qui ne diffère que par la CASSE (comté)" "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":\"comté\"}]"
+malformed "7ac. name qui ne diffère que par une espace finale" "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":\"Comté \"}]"
+malformed "7ad. name en forme Unicode DÉCOMPOSÉE (e + accent combinant) : même rendu, autres octets" "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":\"Comte\\u0301\"}]"
+# Charge démesurée : refusée par la garde de taille, avant tout
+# dépliage (la charge est fabriquée côté serveur, dans l'instruction).
+T0=$(date +%s%N)
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', (select jsonb_agg(jsonb_build_object('id', gen_random_uuid(), 'display_order', g, 'name', 'x')) from generate_series(1, 200000) g));"
+assert_refused "7ae. charge de 200 000 éléments" $? "SCANYM_PRODUCT_ORDER_STALE"
+T1=$(date +%s%N)
+if [ $(( (T1 - T0) / 1000000 )) -lt 8000 ]; then pass "7af. … refusée par la garde de taille ($(( (T1 - T0) / 1000000 )) ms, fabrication de la charge comprise)"; else fail "7af. charge démesurée trop lente ($(( (T1 - T0) / 1000000 )) ms)"; fi
+assert_same "7ag. AUCUN de ces refus n'a écrit : toute la base est identique octet pour octet (valeurs et versions de ligne)" "$SNAP_7" "$(order_snapshot)"
+
+# Un nom qui est le TEXTE d'un nombre : le nombre JSON 7 n'est pas la
+# chaîne « 7 » (le type JSON fait partie de la vue).
+q "update public.menu_items set name = '7' where id = '$P_COMTE';" >/dev/null
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', $(jl "[$E_BEAUFORT,$E_ABONDANCE,{\"id\":\"$P_COMTE\",\"display_order\":3,\"name\":7}]"));"
+assert_refused "7ag-bis. name = nombre 7 alors que le nom stocké est la chaîne « 7 »" $? "SCANYM_PRODUCT_ORDER_STALE"
+q "update public.menu_items set name = 'Comté' where id = '$P_COMTE';" >/dev/null
+
+# Clés supplémentaires : ignorées (seuls id, display_order et name font
+# partie du contrat) ; la vue fraîche reste acceptée.
+as_user "$OWNER_A" "select public.move_product_order('$P_ABONDANCE'::uuid, 'up', $(jl "[{\"id\":\"$P_BEAUFORT\",\"display_order\":1,\"name\":\"Beaufort\",\"price\":14},$E_ABONDANCE,$E_COMTE]"));"
+assert_ok "7ah. vue fraîche avec une clé supplémentaire : acceptée" $?
+assert_eq "7ai. … et l'échange est exact" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
+assert_eq "7aj. … et la position retournée est correcte" "1" "$(last_out)"
 
 # ============================================================
 log "=== [8] Contrôle optimiste — vue périmée (séquentiel) ==="
-# Deux onglets ont chargé le même ordre ; le premier déplace, le second
-# rejoue SA vue d'avant.
-move "$OWNER_A" 'Comté' up 'Abondance|Beaufort|Comté'
+# Deux onglets ont chargé la même vue ; le premier déplace, le second
+# rejoue SA vue d'avant (capturée, donc réellement périmée).
+VIEW_TABS="$(view 'Abondance|Beaufort|Comté')"
+move_view "$OWNER_A" 'Comté' up "$VIEW_TABS"
 assert_ok "8a. onglet 1 : déplacement accepté" "$MOVE_RC"
-move "$MANAGER_A" 'Beaufort' up 'Abondance|Beaufort|Comté'
-assert_refused "8b. onglet 2 (vue périmée) : refusé, rien n'est écrit par-dessus" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
-assert_eq "8c. le déplacement de l'onglet 1 est intact" "Abondance=1|Comté=2|Beaufort=3" "$(scope_state "$CAT_FRO" NULL)"
+SNAP_8="$(order_snapshot)"
+move_view "$MANAGER_A" 'Beaufort' up "$VIEW_TABS"
+assert_refused "8b. onglet 2 (vue périmée) : refusé" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
+assert_eq "8c. … rien n'est écrit par-dessus : le déplacement de l'onglet 1 est intact" "Abondance=1|Comté=2|Beaufort=3" "$(scope_state "$CAT_FRO" NULL)"
+assert_same "8c-bis. … octet pour octet (valeurs et versions de ligne de toute la base)" "$SNAP_8" "$(order_snapshot)"
 move "$MANAGER_A" 'Beaufort' up 'Abondance|Comté|Beaufort'
 assert_ok "8d. onglet 2, après rechargement : accepté" "$MOVE_RC"
 assert_eq "8e. ordre final" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
 # Rejeu réseau d'une requête déjà appliquée : refusée, jamais appliquée deux fois.
+VIEW_REPLAY="$(view 'Abondance|Beaufort|Comté')"
+move_view "$MANAGER_A" 'Comté' up "$VIEW_REPLAY"
+assert_ok "8f. requête appliquée une première fois" "$MOVE_RC"
+move_view "$MANAGER_A" 'Comté' up "$VIEW_REPLAY"
+assert_refused "8g. rejeu de la MÊME requête : refusé" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
+assert_eq "8h. … sans double application" "Abondance=1|Comté=2|Beaufort=3" "$(scope_state "$CAT_FRO" NULL)"
 move "$MANAGER_A" 'Beaufort' up 'Abondance|Comté|Beaufort'
-assert_refused "8f. rejeu d'une requête déjà appliquée : refusé" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
-assert_eq "8g. … sans double application" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
+assert_eq "8i. remise en ordre pour la suite" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
+
+# ============================================================
+log "=== [8F] FRAÎCHEUR DE LA VUE — remédiation CPR-AUDIT-01 (les dix cas du mandat) ==="
+# Chaque cas part d'une base NEUVE (modèle + lot), donc de l'état exact
+# de l'audit : Fromages / directs = Comté=1 | Beaufort=2 | Abondance=3,
+# Chèvres = quatre ex æquo à 0.
+#
+# Patron de chaque cas :
+#   1. le client charge sa vue (capturée) ;
+#   2. un AUTRE utilisateur modifie l'état ;
+#   3. instantané octet pour octet de TOUTE la base ;
+#   4. le client périmé demande un déplacement avec SA vue ;
+#   5. attendu : SCANYM_PRODUCT_ORDER_STALE, instantané identique.
+clone_template "$DB_LOT_TEMPLATE"
+hpsql "$DB_LOT_TEMPLATE" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR" || fatal "application du lot sur la base de cas : $(grep -m2 ERROR "$ERR" | tr '\n' ' ')"
+DB_SAVED="$DB"
+fresh_case() { clone_from "$DB_LOT_TEMPLATE" "$DB_CASE"; DB="$DB_CASE"; }
+# stale_case <libellé> <uid> <produit> <direction> <vue capturée>
+stale_case() {
+  local snap; snap="$(order_snapshot)"
+  move_view "$2" "$3" "$4" "$5"
+  assert_refused "$1 : VUE PÉRIMÉE REFUSÉE" "$MOVE_RC" "SCANYM_PRODUCT_ORDER_STALE"
+  assert_same "$1 : AUCUNE ÉCRITURE (toute la base identique octet pour octet, valeurs et versions de ligne)" "$snap" "$(order_snapshot)"
+}
+
+# --- Cas 1 : reproduction EXACTE de l'audit ------------------------
+fresh_case
+assert_eq "8F-1a. état initial de l'audit" "Comté=1|Beaufort=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
+VIEW_STALE="$(view 'Comté|Beaufort|Abondance')"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Comté')'::uuid, 2);"
+assert_ok "8F-1b. un autre utilisateur passe Comté à display_order 2" $?
+assert_eq "8F-1c. état stocké : Comté et Beaufort ex æquo (l'ordre visible devient Beaufort, Comté, Abondance)" "Beaufort=2|Comté=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
+stale_case "8F-1d. le client périmé [Comté, Beaufort, Abondance] demande Abondance UP" "$OWNER_A" 'Abondance' up "$VIEW_STALE"
+assert_eq "8F-1e. l'ordre validé par l'autre utilisateur n'a pas été écrasé" "Beaufort=2|Comté=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
+# Ce que la première version vérifiait PASSE toujours sur cette vue
+# périmée : mêmes identifiants, display_order STOCKÉS non décroissants
+# le long de la liste (2, 2, 3). C'est pourquoi elle l'acceptait ; seule
+# la comparaison des display_order REÇUS (1, 2, 3) aux valeurs stockées
+# la refuse.
+assert_eq "8F-1e-bis. (ce que vérifiait la première version) display_order stockés le long de la liste périmée : non décroissants" "2,2,3" \
+  "$(q "select string_agg(mi.display_order::text, ',' order by n.ord) from unnest(string_to_array('Comté|Beaufort|Abondance', '|')) with ordinality as n(name, ord) join public.menu_items mi on mi.name = n.name;")"
+# Après rechargement, le marchand voit l'ordre qui fait autorité
+# (Beaufort, Comté, Abondance) et refait son geste.
+move "$OWNER_A" 'Abondance' up 'Beaufort|Comté|Abondance'
+assert_ok "8F-1f. après rechargement (vue fraîche, ordre de la carte : Beaufort, Comté, Abondance), le même geste est accepté" "$MOVE_RC"
+assert_eq "8F-1g. … et s'applique à l'ordre RÉEL : Beaufort, Abondance, Comté" "Beaufort=1|Abondance=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
+
+# --- Cas 2 : ex æquo INTRODUIT par un autre utilisateur ------------
+fresh_case
+VIEW_STALE="$(view 'Eau|Jus|Cidre')"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Cidre')'::uuid, 9);"
+assert_eq "8F-2a. Boissons : Cidre rejoint Jus à 9 (ex æquo ; ordre visible Eau, Cidre, Jus)" "Eau=5|Cidre=9|Jus=9" "$(scope_state "$CAT_BOI" NULL)"
+stale_case "8F-2b. ex æquo introduit après le chargement" "$OWNER_A" 'Jus' up "$VIEW_STALE"
+
+# --- Cas 3 : ex æquo SUPPRIMÉ par un autre utilisateur -------------
+fresh_case
+VIEW_STALE="$(view "$CHE_JS")"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Banon')'::uuid, 7);"
+assert_eq "8F-3a. Chèvres : Banon quitte l'ex æquo (0 -> 7 ; il passe de premier à dernier)" "Zeste de chèvre=0|crottin=0|éclat cendré=0|Banon=7" "$(scope_state "$CAT_FRO" "$SUB_CHE")"
+stale_case "8F-3b. ex æquo supprimé après le chargement" "$OWNER_A" 'crottin' up "$VIEW_STALE"
+# Variante qui CONSERVE l'ordre visible (Banon 0 -> -1 reste premier) :
+# la première version l'acceptait ; l'état a pourtant changé.
+fresh_case
+VIEW_STALE="$(view "$CHE_JS")"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Banon')'::uuid, -1);"
+stale_case "8F-3c. ex æquo supprimé SANS changer l'ordre visible (la vue reste monotone)" "$OWNER_A" 'Zeste de chèvre' up "$VIEW_STALE"
+
+# --- Cas 4 : champ de départage modifié, display_order IDENTIQUE ---
+fresh_case
+VIEW_STALE="$(view "$CHE_JS")"
+FP_ORDER_4="$(order_fp_in "$DB")"
+as_user "$MANAGER_A" "select public.update_product(p_product_id => '$(pid 'Banon')'::uuid, p_name => 'Tomme de Banon', p_description => null, p_price => 8.00, p_tax_rate => 5.5, p_subcategory_id => 'aaaaaaaa-0000-0000-0000-0000000000d1'::uuid);"
+assert_ok "8F-4a. un autre utilisateur renomme Banon en « Tomme de Banon » (départage par nom : il passe de premier à troisième)" $?
+assert_eq "8F-4b. AUCUN display_order n'a changé" "$FP_ORDER_4" "$(order_fp_in "$DB")"
+assert_eq "8F-4c. … mais l'ordre visible, lui, a changé" "Tomme de Banon=0|Zeste de chèvre=0|crottin=0|éclat cendré=0" "$(scope_state "$CAT_FRO" "$SUB_CHE")"
+stale_case "8F-4d. champ de départage (name) changé, display_order identiques" "$OWNER_A" 'crottin' up "$VIEW_STALE"
+
+# --- Cas 5 : produit INSÉRÉ dans le périmètre ----------------------
+fresh_case
+VIEW_STALE="$(view 'Eau|Jus|Cidre')"
+as_user "$MANAGER_A" "select public.create_product(p_category_id => '$CAT_BOI'::uuid, p_name => 'Limonade', p_description => null, p_price => 3.50, p_tax_rate => 5.5);"
+assert_ok "8F-5a. un autre utilisateur crée un produit dans le périmètre" $?
+stale_case "8F-5b. produit inséré après le chargement" "$OWNER_A" 'Jus' up "$VIEW_STALE"
+# À CARDINALITÉ ÉGALE : un produit sort du périmètre, un autre y entre.
+fresh_case
+VIEW_STALE="$(view 'Eau|Jus|Cidre')"
+as_user "$MANAGER_A" "select public.archive_product('$(pid 'Cidre')'::uuid);"
+as_user "$MANAGER_A" "select public.create_product(p_category_id => '$CAT_BOI'::uuid, p_name => 'Limonade', p_description => null, p_price => 3.50, p_tax_rate => 5.5);"
+assert_eq "8F-5c. périmètre de même TAILLE, contenu différent" "3" "$(q "select count(*) from public.menu_items where category_id = '$CAT_BOI' and archived_at is null;")"
+stale_case "8F-5d. un produit remplacé par un autre (même cardinalité)" "$OWNER_A" 'Jus' up "$VIEW_STALE"
+
+# --- Cas 6 : produit ARCHIVÉ / RETIRÉ du périmètre ------------------
+fresh_case
+VIEW_STALE="$(view 'Eau|Jus|Cidre')"
+as_user "$MANAGER_A" "select public.archive_product('$(pid 'Cidre')'::uuid);"
+assert_ok "8F-6a. un autre utilisateur archive un produit du périmètre" $?
+stale_case "8F-6b. produit archivé après le chargement" "$OWNER_A" 'Jus' up "$VIEW_STALE"
+fresh_case
+VIEW_STALE="$(view 'Ossau|Roquefort')"
+as_user "$MANAGER_A" "select public.update_product(p_product_id => '$(pid 'Ossau')'::uuid, p_name => 'Ossau', p_description => null, p_price => 9.00, p_tax_rate => 5.5, p_subcategory_id => 'aaaaaaaa-0000-0000-0000-0000000000d1'::uuid);"
+assert_ok "8F-6c. un autre utilisateur déplace Ossau vers une autre sous-catégorie" $?
+stale_case "8F-6d. produit sorti du périmètre (changement de sous-catégorie) : le produit resté seul" "$OWNER_A" 'Roquefort' up "$VIEW_STALE"
+stale_case "8F-6e. … et le produit parti, avec la vue de son ancien périmètre" "$OWNER_A" 'Ossau' down "$VIEW_STALE"
+
+# --- Cas 7 : produit RENOMMÉ (le nom participe au départage) --------
+fresh_case
+VIEW_STALE="$(view 'Comté|Beaufort|Abondance')"
+as_user "$MANAGER_A" "select public.update_product(p_product_id => '$(pid 'Beaufort')'::uuid, p_name => 'Beaufort d''alpage', p_description => null, p_price => 14.00, p_tax_rate => 5.5);"
+assert_ok "8F-7a. un autre utilisateur renomme un produit (valeurs denses : l'ordre visible ne change pas)" $?
+stale_case "8F-7b. produit renommé après le chargement (même sans ex æquo : l'état n'est plus celui de la vue)" "$OWNER_A" 'Abondance' up "$VIEW_STALE"
+move "$OWNER_A" 'Abondance' up "Comté|Beaufort d'alpage|Abondance"
+assert_ok "8F-7c. après rechargement (nom à jour, apostrophe comprise), le déplacement est accepté" "$MOVE_RC"
+
+# --- Cas 8 : la vue FRAÎCHE autorise le déplacement ------------------
+fresh_case
+VIEW_FRESH="$(view 'Comté|Beaufort|Abondance')"
+move_view "$OWNER_A" 'Abondance' up "$VIEW_FRESH"
+assert_ok "8F-8a. vue fraîche (périmètre dense) : déplacement accepté" "$MOVE_RC"
+assert_eq "8F-8b. … appliqué" "Comté=1|Abondance=2|Beaufort=3" "$(scope_state "$CAT_FRO" NULL)"
+VIEW_FRESH="$(view "$CHE_JS")"
+move_view "$OWNER_A" 'crottin' up "$VIEW_FRESH"
+assert_ok "8F-8c. vue fraîche (quatre ex æquo, ordre de la carte client) : déplacement accepté" "$MOVE_RC"
+assert_eq "8F-8d. … matérialisé" "crottin=1|Banon=2|Zeste de chèvre=3|éclat cendré=4" "$(scope_state "$CAT_FRO" "$SUB_CHE")"
+# Un ex æquo créé par un autre utilisateur n'empêche pas de travailler :
+# après rechargement, la vue fraîche est acceptée.
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Jus')'::uuid, 5);"
+VIEW_FRESH="$(view 'Eau|Jus|Cidre')"
+move_view "$OWNER_A" 'Cidre' up "$VIEW_FRESH"
+assert_ok "8F-8e. vue fraîche d'un état contenant un ex æquo créé par un autre : déplacement accepté" "$MOVE_RC"
+assert_eq "8F-8f. … appliqué et redensifié" "Eau=1|Cidre=2|Jus=3" "$(scope_state "$CAT_BOI" NULL)"
+
+# --- Cas 9 : un refus ne change AUCUN display_order -----------------
+# (affirmé dans CHAQUE cas ci-dessus par stale_case ; ici, en plus, sur
+# une rafale de vues périmées différentes contre le même état.)
+fresh_case
+V1="$(view 'Comté|Beaufort|Abondance')"; V2="$(view 'Eau|Jus|Cidre')"; V3="$(view "$CHE_JS")"; V4="$(view 'Ossau|Roquefort')"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Comté')'::uuid, 2);"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Cidre')'::uuid, 9);"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Banon')'::uuid, -1);"
+as_user "$MANAGER_A" "select public.set_product_order('$(pid 'Roquefort')'::uuid, 4);"
+SNAP_9="$(order_snapshot)"
+RAW_9="$(q "select string_agg(id::text || '=' || display_order::text, ',' order by id) from public.menu_items;")"
+REFUSED_9=0
+for attempt in "Abondance|up|$V1" "Beaufort|up|$V1" "Comté|down|$V1" "Jus|up|$V2" "Cidre|up|$V2" "Eau|down|$V2" \
+               "crottin|up|$V3" "Zeste de chèvre|down|$V3" "éclat cendré|up|$V3" "Roquefort|up|$V4" "Ossau|down|$V4"; do
+  move_view "$OWNER_A" "${attempt%%|*}" "$(printf '%s' "$attempt" | cut -d'|' -f2)" "$(printf '%s' "$attempt" | cut -d'|' -f3-)"
+  if [ "$MOVE_RC" -ne 0 ] && grep -qF "SCANYM_PRODUCT_ORDER_STALE" "$ERR"; then REFUSED_9=$((REFUSED_9+1)); fi
+done
+assert_eq "8F-9a. onze déplacements périmés, dans quatre périmètres : tous refusés" "11" "$REFUSED_9"
+assert_same "8F-9b. chaque display_order de la base est inchangé, octet pour octet" "$RAW_9" "$(q "select string_agg(id::text || '=' || display_order::text, ',' order by id) from public.menu_items;")"
+assert_same "8F-9c. … et aucune ligne n'a été réécrite (versions de ligne identiques)" "$SNAP_9" "$(order_snapshot)"
+
+# --- Cas 10 : deux déplaceurs CONCURRENTS (sessions parallèles) -----
+# Même vue de départ, celle de l'audit. La session 1 garde sa
+# transaction ouverte ; la session 2 attend le verrou d'établissement,
+# puis est refusée : elle a été calculée sur un état qui n'existe plus.
+fresh_case
+VIEW_BOTH="$(view 'Comté|Beaufort|Abondance')"
+P_ABONDANCE_C="$(pid 'Abondance')"; P_BEAUFORT_C="$(pid 'Beaufort')"
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/c1.out" 2>"$TMP/c1.err" <<SQL &
+begin;
+set local test.uid = '$OWNER_A';
+select public.move_product_order('$P_ABONDANCE_C'::uuid, 'up', $(jl "$VIEW_BOTH"));
+select pg_sleep(2);
+commit;
+SQL
+C1_PID=$!
+sleep 0.7
+T0=$(date +%s%N)
+hpsql_as authenticated "$DB" -A -q -t \
+  -c "set local test.uid = '$MANAGER_A'; select public.move_product_order('$P_BEAUFORT_C'::uuid, 'up', $(jl "$VIEW_BOTH"));" \
+  >"$TMP/c2.out" 2>"$TMP/c2.err"
+C2_RC=$?
+T1=$(date +%s%N)
+wait $C1_PID; C1_RC=$?
+C2_MS=$(( (T1 - T0) / 1000000 ))
+assert_eq "8F-10a. premier déplaceur : ACCEPTÉ" "0" "$C1_RC"
+if [ "$C2_RC" -ne 0 ] && grep -qF "SCANYM_PRODUCT_ORDER_STALE" "$TMP/c2.err"; then
+  pass "8F-10b. second déplaceur (même vue de départ) : REFUSÉ comme périmé"
+else
+  fail "8F-10b. second déplaceur : attendu SCANYM_PRODUCT_ORDER_STALE, obtenu rc=$C2_RC $(tr '\n' ' ' < "$TMP/c2.err" | cut -c1-200)"
+fi
+if [ "$C2_MS" -ge 800 ]; then pass "8F-10c. … après avoir ATTENDU la fin du premier (${C2_MS} ms) : la décision porte sur l'état validé"; else fail "8F-10c. second déplaceur non sérialisé (${C2_MS} ms)"; fi
+assert_eq "8F-10d. état final = le seul déplacement du premier" "Comté=1|Abondance=2|Beaufort=3" "$(scope_state "$CAT_FRO" NULL)"
+assert_eq "8F-10e. positions distinctes et denses" "true" "$(scope_dense "$CAT_FRO" NULL)"
+# Symétrique : l'« autre utilisateur » de l'audit (set_product_order)
+# valide PENDANT que le déplaceur attend le verrou de ligne.
+fresh_case
+VIEW_BOTH="$(view 'Comté|Beaufort|Abondance')"
+P_COMTE_C="$(pid 'Comté')"; P_ABONDANCE_C="$(pid 'Abondance')"
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/c1.out" 2>"$TMP/c1.err" <<SQL &
+begin;
+set local test.uid = '$MANAGER_A';
+select public.set_product_order('$P_COMTE_C'::uuid, 2);
+select pg_sleep(2);
+commit;
+SQL
+C1_PID=$!
+sleep 0.7
+hpsql_as authenticated "$DB" -A -q -t \
+  -c "set local test.uid = '$OWNER_A'; select public.move_product_order('$P_ABONDANCE_C'::uuid, 'up', $(jl "$VIEW_BOTH"));" \
+  >"$TMP/c2.out" 2>"$TMP/c2.err"
+C2_RC=$?
+wait $C1_PID; C1_RC=$?
+assert_eq "8F-10f. l'autre utilisateur valide Comté=2 pendant que le déplaceur attend" "0" "$C1_RC"
+if [ "$C2_RC" -ne 0 ] && grep -qF "SCANYM_PRODUCT_ORDER_STALE" "$TMP/c2.err"; then
+  pass "8F-10g. le déplaceur, qui a lu l'état APRÈS le verrou, est refusé comme périmé (reproduction de l'audit en vraie concurrence)"
+else
+  fail "8F-10g. attendu SCANYM_PRODUCT_ORDER_STALE, obtenu rc=$C2_RC $(tr '\n' ' ' < "$TMP/c2.err" | cut -c1-200)"
+fi
+assert_eq "8F-10h. l'ordre validé par l'autre utilisateur est intact" "Beaufort=2|Comté=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
+
+DB="$DB_SAVED"
+assert_eq "8F-z. la base principale du harnais n'a pas été touchée par ces cas" "Abondance=1|Beaufort=2|Comté=3" "$(scope_state "$CAT_FRO" NULL)"
 
 # ============================================================
 log "=== [9] VRAIE concurrence — sessions psql parallèles ==="
@@ -546,11 +896,11 @@ log "=== [9] VRAIE concurrence — sessions psql parallèles ==="
 #     La session 1 garde sa transaction ouverte ; la session 2 doit
 #     ATTENDRE le verrou d'établissement, puis être refusée (périmée).
 P_COMTE="$(pid 'Comté')"; P_BEAUFORT="$(pid 'Beaufort')"
-ARR="$(ids 'Abondance|Beaufort|Comté')"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
+ARR="$(view 'Abondance|Beaufort|Comté')"
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
 begin;
 set local test.uid = '$OWNER_A';
-select public.move_product_order('$P_COMTE'::uuid, 'up', '$ARR'::uuid[]);
+select public.move_product_order('$P_COMTE'::uuid, 'up', $(jl "$ARR"));
 select pg_sleep(2.5);
 commit;
 SQL
@@ -558,8 +908,8 @@ S1_PID=$!
 sleep 0.8
 WAITERS_BEFORE="$(q "select count(*) from pg_locks where locktype = 'advisory' and not granted;")"
 T0=$(date +%s%N)
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
-  -c "set local test.uid = '$MANAGER_A'; select public.move_product_order('$P_BEAUFORT'::uuid, 'up', '$ARR'::uuid[]);" \
+hpsql_as authenticated "$DB" -A -q -t \
+  -c "set local test.uid = '$MANAGER_A'; select public.move_product_order('$P_BEAUFORT'::uuid, 'up', $(jl "$ARR"));" \
   >"$TMP/s2.out" 2>"$TMP/s2.err" &
 S2_PID=$!
 sleep 0.6
@@ -582,19 +932,19 @@ assert_eq "9A-g. positions distinctes et denses" "true" "$(scope_dense "$CAT_FRO
 
 # 9B. Deux périmètres DIFFÉRENTS du même établissement, en parallèle :
 #     sérialisés par le verrou, tous deux acceptés.
-P_EAU="$(pid 'Eau')"; ARR_BOI="$(ids 'Eau|Jus|Cidre')"
-P_BANON="$(pid 'Banon')"; ARR_CHE="$(ids 'Banon|Zeste de chèvre|éclat cendré|crottin')"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
+P_EAU="$(pid 'Eau')"; ARR_BOI="$(view 'Eau|Jus|Cidre')"
+P_BANON="$(pid 'Banon')"; ARR_CHE="$(view 'Banon|Zeste de chèvre|éclat cendré|crottin')"
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
 begin;
 set local test.uid = '$OWNER_A';
-select public.move_product_order('$P_EAU'::uuid, 'down', '$ARR_BOI'::uuid[]);
+select public.move_product_order('$P_EAU'::uuid, 'down', $(jl "$ARR_BOI"));
 select pg_sleep(1.2);
 commit;
 SQL
 S1_PID=$!
 sleep 0.4
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
-  -c "set local test.uid = '$MANAGER_A'; select public.move_product_order('$P_BANON'::uuid, 'down', '$ARR_CHE'::uuid[]);" \
+hpsql_as authenticated "$DB" -A -q -t \
+  -c "set local test.uid = '$MANAGER_A'; select public.move_product_order('$P_BANON'::uuid, 'down', $(jl "$ARR_CHE"));" \
   >"$TMP/s2.out" 2>"$TMP/s2.err" &
 S2_PID=$!
 wait $S1_PID; S1_RC=$?
@@ -608,18 +958,18 @@ assert_eq "9B-d. Chèvres" "Zeste de chèvre=1|Banon=2|éclat cendré=3|crottin=
 #     d'établissement) contre un déplacement en cours sur la même
 #     ligne : il attend le verrou de ligne, puis s'applique -- jamais
 #     d'écriture perdue en silence, jamais d'erreur.
-P_JUS="$(pid 'Jus')"; ARR_BOI="$(ids 'Jus|Eau|Cidre')"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
+P_JUS="$(pid 'Jus')"; ARR_BOI="$(view 'Jus|Eau|Cidre')"
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
 begin;
 set local test.uid = '$OWNER_A';
-select public.move_product_order('$P_JUS'::uuid, 'down', '$ARR_BOI'::uuid[]);
+select public.move_product_order('$P_JUS'::uuid, 'down', $(jl "$ARR_BOI"));
 select pg_sleep(1.5);
 commit;
 SQL
 S1_PID=$!
 sleep 0.5
 T0=$(date +%s%N)
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
+hpsql_as authenticated "$DB" -A -q -t \
   -c "set local test.uid = '$MANAGER_A'; select public.set_product_order('$P_JUS'::uuid, 40);" >"$TMP/s2.out" 2>"$TMP/s2.err"
 S2_RC=$?
 T1=$(date +%s%N)
@@ -639,12 +989,12 @@ assert_eq "9C-f. … et redensifie le périmètre" "Eau=1|Jus=2|Cidre=3" "$(scop
 #     écriture concurrente sur Cidre doit attendre la fin du déplacement
 #     (le contrôle de l'ordre attendu et l'écriture portent ainsi sur le
 #     même état du périmètre).
-P_EAU="$(pid 'Eau')"; P_CIDRE="$(pid 'Cidre')"; ARR_BOI="$(ids 'Eau|Jus|Cidre')"
+P_EAU="$(pid 'Eau')"; P_CIDRE="$(pid 'Cidre')"; ARR_BOI="$(view 'Eau|Jus|Cidre')"
 XMIN_CIDRE="$(q "select xmin::text from public.menu_items where name='Cidre';")"
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
+hpsql_as authenticated "$DB" -A -q -t >"$TMP/s1.out" 2>"$TMP/s1.err" <<SQL &
 begin;
 set local test.uid = '$OWNER_A';
-select public.move_product_order('$P_EAU'::uuid, 'down', '$ARR_BOI'::uuid[]);
+select public.move_product_order('$P_EAU'::uuid, 'down', $(jl "$ARR_BOI"));
 select pg_sleep(1.5);
 commit;
 SQL
@@ -652,7 +1002,7 @@ S1_PID=$!
 sleep 0.5
 XMIN_CIDRE_DURING="$(q "select xmin::text from public.menu_items where name='Cidre';")"
 T0=$(date +%s%N)
-PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
+hpsql_as authenticated "$DB" -A -q -t \
   -c "set local test.uid = '$MANAGER_A'; select public.set_product_order('$P_CIDRE'::uuid, 40);" >"$TMP/s2.out" 2>"$TMP/s2.err"
 S2_RC=$?
 T1=$(date +%s%N)
@@ -669,12 +1019,12 @@ assert_eq "9C-bis-g. périmètre redensifié" "Eau=1|Jus=2|Cidre=3" "$(scope_sta
 
 # 9D. Rafale : 8 sessions simultanées, même périmètre, même vue de
 #     départ. Exactement UNE gagne ; les sept autres sont périmées.
-ARR_CHE="$(ids 'Zeste de chèvre|Banon|éclat cendré|crottin')"
+ARR_CHE="$(view 'Zeste de chèvre|Banon|éclat cendré|crottin')"
 P_CROTTIN="$(pid 'crottin')"
 BURST_PIDS=""
 for i in 1 2 3 4 5 6 7 8; do
-  PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
-    -c "set local test.uid = '$OWNER_A'; select public.move_product_order('$P_CROTTIN'::uuid, 'up', '$ARR_CHE'::uuid[]);" \
+  hpsql_as authenticated "$DB" -A -q -t \
+    -c "set local test.uid = '$OWNER_A'; select public.move_product_order('$P_CROTTIN'::uuid, 'up', $(jl "$ARR_CHE"));" \
     >"$TMP/burst-$i.out" 2>"$TMP/burst-$i.err" &
   BURST_PIDS="$BURST_PIDS $!"
 done
@@ -691,28 +1041,36 @@ assert_eq "9D-b. rafale de 8 : 7 refusés comme périmés" "7" "$BURST_STALE"
 assert_eq "9D-c. rafale de 8 : aucune autre erreur (ni interblocage, ni violation)" "0" "$BURST_OTHER"
 assert_eq "9D-d. un seul échange appliqué" "Zeste de chèvre=1|Banon=2|crottin=3|éclat cendré=4" "$(scope_state "$CAT_FRO" "$SUB_CHE")"
 
-# 9E. Charge : 6 ouvriers, chacun relit l'ordre courant puis déplace un
-#     produit, 8 fois, en parallèle sur le même périmètre. Chaque
+# 9E. Charge : 6 ouvriers, chacun relit la vue courante puis déplace un
+#     produit, 8 fois, en parallèle sur le même périmètre. La vue ET le
+#     produit choisi sont lus dans UN SEUL instantané (une requête) :
+#     si la vue est encore fraîche à l'arrivée, le produit y occupe
+#     bien la position lue, donc une borne est impossible. Chaque
 #     tentative est soit acceptée, soit périmée ; l'invariant final est
 #     un périmètre dense, sans doublon, de même contenu.
 worker() {
-  local n="$1" ok=0 stale=0 other=0 k arr prod dir
+  local n="$1" ok=0 stale=0 other=0 k rn dir both prod arr
   for k in 1 2 3 4 5 6 7 8; do
-    arr="$(psql -X -A -q -t -d "$DB" -c "select '{' || string_agg(id::text, ',' order by display_order, id) || '}' from public.menu_items where subcategory_id = $SUB_CHE and archived_at is null;")"
-    if [ $(( (n + k) % 2 )) -eq 0 ]; then
-      prod="$(psql -X -A -q -t -d "$DB" -c "select id from public.menu_items where subcategory_id = $SUB_CHE and archived_at is null order by display_order, id offset 1 limit 1;")"; dir="up"
-    else
-      prod="$(psql -X -A -q -t -d "$DB" -c "select id from public.menu_items where subcategory_id = $SUB_CHE and archived_at is null order by display_order, id offset 2 limit 1;")"; dir="down"
-    fi
-    if PGOPTIONS="-c role=authenticated" psql -X -A -q -t -d "$DB" \
-         -c "set local test.uid = '$OWNER_A'; select public.move_product_order('$prod'::uuid, '$dir', '$arr'::uuid[]);" \
+    if [ $(( (n + k) % 2 )) -eq 0 ]; then rn=2; dir="up"; else rn=3; dir="down"; fi
+    both="$(hpsql "$DB" -A -q -t -c "
+      with s as (
+        select id, display_order, name, row_number() over (order by display_order, id) as rn
+        from public.menu_items where subcategory_id = $SUB_CHE and archived_at is null
+      )
+      select (select id::text from s where rn = $rn) || '|' ||
+             (select jsonb_agg(jsonb_build_object('id', id, 'display_order', display_order, 'name', name) order by rn)::text from s);")"
+    prod="${both%%|*}"
+    arr="${both#*|}"
+    if hpsql_as authenticated "$DB" -A -q -t \
+         -c "set local test.uid = '$OWNER_A'; select public.move_product_order('$prod'::uuid, '$dir', $(jl "$arr"));" \
          >/dev/null 2>"$TMP/w-$n-$k.err"; then
       ok=$((ok+1))
     elif grep -qF "SCANYM_PRODUCT_ORDER_STALE" "$TMP/w-$n-$k.err"; then stale=$((stale+1))
-    else other=$((other+1)); fi
+    else other=$((other+1)); head -2 "$TMP/w-$n-$k.err" | tr '\n' ' ' >> "$TMP/w-other.txt"; fi
   done
   echo "$ok $stale $other" > "$TMP/w-$n.res"
 }
+: > "$TMP/w-other.txt"
 W_PIDS=""
 for n in 1 2 3 4 5 6; do worker "$n" & W_PIDS="$W_PIDS $!"; done
 for p in $W_PIDS; do wait "$p"; done
@@ -722,7 +1080,7 @@ for n in 1 2 3 4 5 6; do
   W_OK=$((W_OK+a)); W_STALE=$((W_STALE+b)); W_OTHER=$((W_OTHER+c))
 done
 assert_eq "9E-a. charge (48 tentatives) : chacune acceptée ou périmée" "48" "$((W_OK + W_STALE))"
-assert_eq "9E-b. charge : aucune autre erreur" "0" "$W_OTHER"
+assert_eq "9E-b. charge : aucune autre erreur (ni borne, ni interblocage, ni violation)$( [ "$W_OTHER" -eq 0 ] || printf ' -- %s' "$(cut -c1-300 "$TMP/w-other.txt")" )" "0" "$W_OTHER"
 if [ "$W_OK" -ge 1 ]; then pass "9E-c. charge : des déplacements ont bien été acceptés ($W_OK acceptés, $W_STALE périmés)"; else fail "9E-c. charge : aucun déplacement accepté"; fi
 assert_eq "9E-d. charge : positions denses 1..N, aucun doublon" "true" "$(scope_dense "$CAT_FRO" "$SUB_CHE")"
 assert_eq "9E-e. charge : même contenu de périmètre (4 produits)" "Banon|Zeste de chèvre|crottin|éclat cendré" \
@@ -848,21 +1206,21 @@ assert_eq "14c. taxonomie de tous les produits d'origine inchangée de bout en b
 
 # ============================================================
 log "=== [15] Anti-dérive — refus sans aucune modification ==="
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
 assert_refused "15a. double application refusée" $? "SCANYM_SCHEMA_DRIFT"
 assert_eq "15b. … la fonction installée est toujours unique" "1" "$(fn_count_in "$DB")"
 
 lot_fn_count_in() {
-  q_in "$1" "select count(*) from pg_proc p where p.oid = to_regprocedure('public.move_product_order(uuid, text, uuid[])');"
+  q_in "$1" "select count(*) from pg_proc p where p.oid = to_regprocedure('public.move_product_order(uuid, text, jsonb)');"
 }
 drift_case() {
   # $1 libellé, $2 SQL de dérive, $3 motif attendu
   clone_template "$DB_SCRATCH"
-  psql -X -d "$DB_SCRATCH" -v ON_ERROR_STOP=1 -c "$2" >/dev/null 2>"$ERR" || { fail "$1 — préparation de la dérive impossible : $(cat "$ERR")"; return; }
+  hpsql "$DB_SCRATCH" -v ON_ERROR_STOP=1 -c "$2" >/dev/null 2>"$ERR" || { fail "$1 — préparation de la dérive impossible : $(cat "$ERR")"; return; }
   local fp_before; fp_before="$(order_fp_in "$DB_SCRATCH")"
   # SANS ON_ERROR_STOP : le contrôle est DANS la transaction, le commit
   # final d'une transaction avortée est un rollback.
-  psql -X -d "$DB_SCRATCH" -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+  hpsql "$DB_SCRATCH" -f "$LOT_SQL" >"$OUT" 2>"$ERR"
   if grep -qF -- "$3" "$ERR" && [ "$(lot_fn_count_in "$DB_SCRATCH")" = "0" ] && [ "$(order_fp_in "$DB_SCRATCH")" = "$fp_before" ]; then
     pass "$1 (refusé : $3 ; RPC du lot non créée, données intactes, même sans ON_ERROR_STOP)"
   else
@@ -883,12 +1241,16 @@ drift_case "15h. dérive : RLS désactivée sur menu_items" \
   "alter table public.menu_items disable row level security;" "SCANYM_SCHEMA_DRIFT"
 drift_case "15i. dérive : une fonction move_product_order d'une autre signature existe déjà" \
   "create function public.move_product_order(p uuid) returns integer language sql as 'select 1';" "SCANYM_SCHEMA_DRIFT"
+drift_case "15j. dérive : menu_items.name (champ de départage comparé par le contrôle de fraîcheur) n'est plus NOT NULL" \
+  "alter table public.menu_items alter column name drop not null;" "SCANYM_SCHEMA_DRIFT"
+drift_case "15k. dérive : l'ANCIENNE signature du lot (uuid, text, uuid[]) est installée -- refus, pas de cohabitation de deux contrats" \
+  "create function public.move_product_order(p_product_id uuid, p_direction text, p_expected_order uuid[]) returns integer language sql as 'select 1';" "SCANYM_SCHEMA_DRIFT"
 
 # ============================================================
 log "=== [16] Rollback ==="
 FP_ORDER_BEFORE_RB="$(order_fp_in "$DB")"
 FP_NON_ORDER_BEFORE_RB="$(non_order_fp)"
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
 assert_ok "16a. le rollback s'exécute intégralement" $?
 assert_eq "16b. move_product_order supprimée" "0" "$(fn_count_in "$DB")"
 assert_eq "16c. les ordres enregistrés par les marchands sont CONSERVÉS (aucune donnée réécrite)" "$FP_ORDER_BEFORE_RB" "$(order_fp_in "$DB")"
@@ -897,16 +1259,16 @@ assert_eq "16e. set_product_order et assert_product_role intactes" "2" \
   "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('set_product_order','assert_product_role');")"
 as_user "$OWNER_A" "select public.set_product_order('$(pid 'Eau')'::uuid, 1);"
 assert_ok "16f. le champ numérique historique fonctionne après rollback" $?
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
 assert_refused "16g. relancer le rollback sur une base déjà rétrogradée est refusé" $? "SCANYM_ROLLBACK_DRIFT"
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
 assert_ok "16h. le lot se réinstalle après rollback" $?
 move "$OWNER_A" 'Roquefort' down 'Roquefort|Ossau'
 assert_ok "16i. … et la RPC réinstallée fonctionne sur les ordres conservés" "$MOVE_RC"
 
 clone_template "$DB_SCRATCH"
 FP_SCRATCH="$(order_fp_in "$DB_SCRATCH")"
-psql -X -d "$DB_SCRATCH" -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+hpsql "$DB_SCRATCH" -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
 if grep -qF "SCANYM_ROLLBACK_DRIFT" "$ERR" && [ "$(order_fp_in "$DB_SCRATCH")" = "$FP_SCRATCH" ]; then
   pass "16j. rollback sur une base qui n'a jamais reçu le lot : refusé, aucune mutation (même sans ON_ERROR_STOP)"
 else
@@ -914,5 +1276,7 @@ else
 fi
 
 # ============================================================
+harness_prove_identity || fail "le serveur joint en fin d'exécution n'est plus prouvé comme le cluster jetable de cette exécution"
+log "[sûreté] toutes les commandes de cette exécution ont visé le cluster jetable $H_RUN_DIR (étiquette $H_TAG) ; il est arrêté et supprimé en sortie."
 log "=== RÉSUMÉ : PASS=$PASS FAIL=$FAIL ==="
 [ "$FAIL" -eq 0 ]
