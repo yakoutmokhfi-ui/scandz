@@ -63,9 +63,14 @@ const translate = (key: string) => FR[key] ?? key;
 // [CATALOGUE] Le catalogue est FERMÉ et cohérent avec lui-même.
 // ---------------------------------------------------------------------
 
-test("[CAT-1] le catalogue porte 14 emplacements distincts, tous spécifiés", () => {
-  assert.equal(COMMUNICATION_TEXT_KEYS.length, 14);
-  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, 14);
+// THEME & CONTENT SETTINGS v1 : le catalogue effectif = les 14 emplacements
+// MCC v1 + 3 emplacements « aide à la commande » (order_help_*). Le test
+// garde la même intention (fermé, distinct, spécifié) ; seuls les effectifs
+// passent de 14 à 17 (et de 11 à 14 publics). Les 14 emplacements MCC
+// d'origine restent vérifiés un à un par [MIRROR-1/2] (mcc-v1-sql-structural).
+test("[CAT-1] le catalogue porte 17 emplacements distincts (14 MCC + 3 aide à la commande), tous spécifiés", () => {
+  assert.equal(COMMUNICATION_TEXT_KEYS.length, 17);
+  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, 17);
   for (const key of COMMUNICATION_TEXT_KEYS) {
     const spec = COMMUNICATION_TEXT_SPEC[key];
     assert.ok(spec, `spec manquante pour ${key}`);
@@ -75,7 +80,7 @@ test("[CAT-1] le catalogue porte 14 emplacements distincts, tous spécifiés", (
 });
 
 test("[CAT-2] les 3 gabarits d'e-mail ne sont JAMAIS exposés publiquement", () => {
-  assert.equal(PUBLIC_COMMUNICATION_TEXT_KEYS.length, 11);
+  assert.equal(PUBLIC_COMMUNICATION_TEXT_KEYS.length, 14); // 11 MCC + 3 order_help_*
   for (const key of [
     "email_confirmation_subject",
     "email_confirmation_body",

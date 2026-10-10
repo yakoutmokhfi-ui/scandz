@@ -111,7 +111,7 @@ export default function RestaurantInfoBar({
           La lisibilité ne doit pas dépendre de la luminosité de la
           photo téléchargée — voir LanguageSelector.tsx pour le même
           raisonnement. */}
-      <div className="rounded-xl border border-gold/25 bg-espresso p-1">
+      <div data-sc-surface="info-panel" className="rounded-xl border border-gold/25 bg-espresso p-1">
         {/* CUSTOMER INFO CARD / ADDRESS-HOURS REMEDIATION v1.1 --
             empilement vertical `flex flex-col` (jamais une grille CSS
             à colonnes) : chaque champ occupe systématiquement 100% de

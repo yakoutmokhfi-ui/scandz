@@ -59,6 +59,8 @@ import {
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import { DeliveryConditionsButton } from "@/components/DeliveryConditions";
+import OrderHelpButton from "@/components/OrderHelpButton";
+import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
 import CollectionNav from "@/components/CollectionNav";
@@ -1777,6 +1779,14 @@ export default function MenuView({
     bg: restaurant.config.bg_color ?? null,
   };
 
+  // THEME & CONTENT SETTINGS v1 — jetons de surface du commerçant.
+  // Toujours repassés par sanitizeThemeTokens (jamais lus bruts). Vide
+  // pour tout établissement sans configuration : aucune variable, aucun
+  // attribut -> rendu strictement historique.
+  const surfaceTokens = sanitizeThemeTokens(restaurant.config.theme_tokens);
+  const baseThemeVars = themeStyle(settings.theme, colorOverrides);
+  const surfaceVars = themeSurfaceStyle(surfaceTokens, baseThemeVars["--sc-accent-dark"], baseThemeVars["--sc-highlight"]);
+
   /**
    * Les variables sont aussi posées sur <html> : sans cela, le fond
    * du body resterait celui du thème par défaut au-delà du
@@ -1802,9 +1812,11 @@ export default function MenuView({
         menuVariant === "editorial" ? "sc-template-editorial" : ""
       }`}
       dir={dirOf(lang, restaurant.activeLanguages)}
+      data-sc-themed={themedAttribute(surfaceTokens)}
       style={
         {
           ...themeStyle(settings.theme, colorOverrides),
+          ...surfaceVars,
           // Motif sous les cartes, jamais derrière du texte.
           backgroundImage: patternUrl(
             settings.pattern,
@@ -1822,6 +1834,7 @@ export default function MenuView({
         banner={variant?.banner ?? settings.banner}
       />
       {fulfillmentRulesState.status === "loaded" && <DeliveryConditionsButton key={restaurant.id} rules={fulfillmentRulesState.rules} currency={restaurant.config.currency} />}
+      <OrderHelpButton communicationTexts={communicationTexts} />
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
           issuecomment-5875680103) : Tags/Collections transversaux

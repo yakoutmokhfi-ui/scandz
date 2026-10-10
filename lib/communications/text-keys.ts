@@ -33,7 +33,7 @@
  */
 
 /**
- * Les 14 emplacements configurables. Ordre = ordre d'apparition dans le
+ * Les 17 emplacements configurables. Ordre = ordre d'apparition dans le
  * parcours client (checkout -> confirmation -> e-mail), qui est aussi
  * l'ordre du formulaire back-office : une seule source pour les deux.
  *
@@ -41,6 +41,12 @@
  * cette liste, jamais écrit à la main deux fois.
  */
 export const COMMUNICATION_TEXT_KEYS = [
+  // THEME & CONTENT SETTINGS v1 -- aide « comment commander » de la
+  // vitrine (bouton + popup). Placées EN TÊTE : elles précèdent le
+  // checkout dans le parcours client.
+  "order_help_button_label",
+  "order_help_title",
+  "order_help_body",
   "checkout_info",
   "pickup_explanation",
   "delivery_local_explanation",
@@ -76,6 +82,18 @@ export const COMMUNICATION_TEXT_MAX_LENGTH = 500;
  * tronqué par le destinataire est pire qu'un sujet refusé à la saisie.
  */
 export const COMMUNICATION_SUBJECT_MAX_LENGTH = 160;
+
+/**
+ * THEME & CONTENT SETTINGS v1 -- bornes dédiées à l'aide « comment
+ * commander ». Le libellé d'un bouton et le titre d'un popup sont des
+ * LIGNES, pas des paragraphes : au-delà, ils casseraient la mise en page
+ * (bouton qui déborde, titre sur cinq lignes) -- c'est le garde-fou
+ * « layout-breaking » du mandat. MIROIR EXACT de
+ * `communication_text_max_length` (DRAFT-lot-theme-content-settings-v1.sql).
+ * Le corps reste à la borne générale de 500 (contrainte de table inchangée).
+ */
+export const COMMUNICATION_ORDER_HELP_LABEL_MAX_LENGTH = 60;
+export const COMMUNICATION_ORDER_HELP_TITLE_MAX_LENGTH = 120;
 
 export interface CommunicationTextSpec {
   /** Longueur maximale propre à cet emplacement (<= MAX_LENGTH). */
@@ -123,6 +141,27 @@ export const COMMUNICATION_TEXT_SPEC: Record<
   CommunicationTextKey,
   CommunicationTextSpec
 > = {
+  // THEME & CONTENT SETTINGS v1 -- ADDITIFS (défaut = absence) : la
+  // plateforme n'affiche aujourd'hui AUCUNE aide « comment commander ».
+  // Inventer un texte par défaut reviendrait à faire tenir à Scanym un
+  // propos de parcours au nom du commerçant -- et Scanym ne code pas en
+  // dur le texte d'un commerçant (« NO HARDCODED AU LAIT CRU TEXT »).
+  // Bouton ABSENT tant que son libellé ET son contenu ne sont pas saisis.
+  order_help_button_label: {
+    maxLength: COMMUNICATION_ORDER_HELP_LABEL_MAX_LENGTH,
+    publicProjection: true,
+    defaultI18nKey: null,
+  },
+  order_help_title: {
+    maxLength: COMMUNICATION_ORDER_HELP_TITLE_MAX_LENGTH,
+    publicProjection: true,
+    defaultI18nKey: null,
+  },
+  order_help_body: {
+    maxLength: COMMUNICATION_TEXT_MAX_LENGTH,
+    publicProjection: true,
+    defaultI18nKey: null,
+  },
   checkout_info: {
     maxLength: COMMUNICATION_TEXT_MAX_LENGTH,
     publicProjection: true,

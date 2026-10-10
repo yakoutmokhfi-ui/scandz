@@ -61,6 +61,12 @@ export interface RestaurantConfig {
   /** LOT 1A — couleur de fond personnalisée, #RRGGBB. NULL = fond du
    *  thème par défaut (lib/themes.ts), rendu V79 strictement inchangé. */
   bg_color?: string | null;
+  /** THEME & CONTENT SETTINGS v1 — jetons de couleur des surfaces
+   *  d'information (jsonb, jeu fermé, voir lib/theme-tokens.ts). NULL/
+   *  absent = aucune configuration, rendu historique inchangé. Typé
+   *  `unknown` volontairement : la valeur est TOUJOURS repassée par
+   *  sanitizeThemeTokens avant usage, jamais lue telle quelle. */
+  theme_tokens?: unknown;
   /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
    *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
    *  NULL = icône non affichée sur la carte publique. */
