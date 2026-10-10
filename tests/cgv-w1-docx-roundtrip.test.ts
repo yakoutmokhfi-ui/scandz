@@ -1349,3 +1349,373 @@ test("W1-T-97 | mandatory test 11 -- comments.xml present with an alternate-pref
   assert.equal(diff.hasNoMeaningfulChanges, true, "an entirely empty, alternate-prefix comment carries no visible text under the documented policy");
 });
 
+// ====================================================================
+// W1 FOURTH REMEDIATION -- W1-PREFIX-BODY-01 -- NAMESPACE-AWARE BODY
+// TEXT + BOOKMARK RECOGNITION (BOULEZ third delta re-audit, candidate
+// 1dac99a4, FAIL). Exact reproduction: `word/document.xml` binds the
+// WordprocessingML namespace to a prefix OTHER than `w` for an
+// ordinary BODY paragraph (e.g. `<x:t>14 jours</x:t>`) -- the OLD
+// literal `w:` regex scanning (`extractParagraphText`,
+// `splitBodyIntoParagraphs`, `validateAndCollectCgvBookmarks`) found
+// nothing, so the paragraph's text silently extracted to "", was
+// normalized away as a cosmetic blank paragraph, and the import
+// reported `hasNoMeaningfulChanges: true` for a real contractual
+// addition. Fixed by `normalizeToStandardWordprocessingPrefix` (see
+// that function's own doc comment in docx-reader.ts for the full
+// write-up) -- every function below is reused completely unchanged.
+// ====================================================================
+
+/** Same shape as `wordDocumentXml`, but lets a test declare additional
+ *  `xmlns:*` bindings on the root `<w:document>` element -- needed to
+ *  bring an alternate/arbitrary/wrong-namespace prefix into scope for
+ *  the body-text and bookmark namespace tests below, without
+ *  disturbing the standard `xmlns:w` binding every fixture still
+ *  needs. */
+function wordDocumentXmlWithDeclarations(extraXmlnsDeclarations: string, bodyInnerXml: string): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:document xmlns:w="${WP_NS}"${extraXmlnsDeclarations}>` +
+    `<w:body>${bodyInnerXml}<w:sectPr/></w:body>` +
+    `</w:document>`
+  );
+}
+
+// --------------------------------------------------------------------
+// Mandatory body-text tests (9) -- see mandate's "MANDATORY
+// REPRODUCTION TESTS" section.
+// --------------------------------------------------------------------
+
+test("W1-T-98 | mandatory body test 1 -- standard <w:t>14 jours</w:t> is detected as an added body change (baseline, unchanged behavior)", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const anchor = "Toute commande peut être annulée avant sa préparation.</w:t></w:r></w:p>";
+  assert.ok(documentXml.includes(anchor));
+  documentXml = documentXml.replace(anchor, `${anchor}${plainParagraphXml("14 jours")}`);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "added" && e.text === "14 jours"));
+  assert.ok(chapter, "expected the standard-prefix addition to surface as an 'added' entry");
+});
+
+test("W1-T-99 | mandatory body test 2 -- the EXACT auditor reproduction shape: alternate prefix <x:t xmlns:x=WordprocessingML>14 jours</x:t> is detected as an added body change (previously silently dropped)", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">`
+  );
+  const anchor = "Toute commande peut être annulée avant sa préparation.</w:t></w:r></w:p>";
+  assert.ok(documentXml.includes(anchor));
+  documentXml = documentXml.replace(
+    anchor,
+    `${anchor}<w:p><w:r><x:t xml:space="preserve">14 jours</x:t></w:r></w:p>`
+  );
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false, "AUDITOR REPRODUCTION: an alternate-prefix body addition must never be silently zero-diffed");
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "added" && e.text === "14 jours"));
+  assert.ok(chapter, "expected the alternate-prefix addition to surface as an 'added' entry, exactly like the standard-prefix form");
+});
+
+test("W1-T-100 | mandatory body test 3 -- another arbitrary prefix <foo:t> bound to the WordprocessingML namespace is detected as an added body change", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:foo="${WP_NS}">`
+  );
+  const anchor = "Toute commande peut être annulée avant sa préparation.</w:t></w:r></w:p>";
+  documentXml = documentXml.replace(
+    anchor,
+    `${anchor}<w:p><w:r><foo:t xml:space="preserve">14 jours</foo:t></w:r></w:p>`
+  );
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "added" && e.text === "14 jours"));
+  assert.ok(chapter, "expected an arbitrary-prefix addition to surface as an 'added' entry");
+});
+
+test("W1-T-101 | mandatory body test 4 -- default-namespace form (no prefix, WordprocessingML as the element's own default xmlns) is detected as an added body change", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const anchor = "Toute commande peut être annulée avant sa préparation.</w:t></w:r></w:p>";
+  documentXml = documentXml.replace(
+    anchor,
+    `${anchor}<w:p><w:r><t xmlns="${WP_NS}" xml:space="preserve">14 jours</t></w:r></w:p>`
+  );
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "added" && e.text === "14 jours"));
+  assert.ok(chapter, "expected a default-namespace addition to surface as an 'added' entry");
+});
+
+test("W1-T-102 | mandatory body test 5 -- wrong namespace (<x:t xmlns:x='urn:not-word'>14 jours</x:t>) must NOT be treated as WordprocessingML body text", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const anchor = "Toute commande peut être annulée avant sa préparation.</w:t></w:r></w:p>";
+  documentXml = documentXml.replace(
+    anchor,
+    `${anchor}<w:p><w:r><x:t xmlns:x="urn:not-word" xml:space="preserve">14 jours</x:t></w:r></w:p>`
+  );
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  // The wrong-namespace paragraph's extracted text is empty -- exactly
+  // like any other cosmetic blank paragraph (file header, "BLANK
+  // PARAGRAPH NORMALIZATION"), so the rest of the otherwise-unchanged
+  // export still reports zero meaningful changes, and "14 jours" must
+  // never appear anywhere in the diff.
+  assert.equal(diff.hasNoMeaningfulChanges, true, "text in an unrelated namespace sharing the local name 't' must never surface as a body change");
+  for (const chapter of diff.chapters) {
+    assert.ok(
+      chapter.entries.every((e) => !("text" in e && e.text === "14 jours") && !("after" in e && e.after === "14 jours")),
+      "wrong-namespace text must never leak into the diff"
+    );
+  }
+});
+
+test("W1-T-103 | mandatory body test 6 -- an alternate-prefix tab (<x:tab/>) changes the diff, never silently dropped", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">`
+  );
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withAltTab =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée</w:t></w:r>` +
+    `<w:r><x:tab/></w:r><w:r><w:t xml:space="preserve">avant sa préparation.</w:t></w:r></w:p>`;
+  assert.ok(documentXml.includes(plainParagraphXml(original)));
+  documentXml = documentXml.replace(plainParagraphXml(original), withAltTab);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "modified" && e.after.includes("\t")));
+  assert.ok(chapter, "expected the alternate-prefix tab to surface as part of a modified entry, never silently dropped");
+});
+
+test("W1-T-104 | mandatory body test 7 -- an alternate-prefix line break (<x:br/>) changes the diff, never silently dropped", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">`
+  );
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withAltBr =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée</w:t></w:r>` +
+    `<w:r><x:br/></w:r><w:r><w:t xml:space="preserve">avant sa préparation.</w:t></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withAltBr);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "modified" && e.after.includes("\n")));
+  assert.ok(chapter, "expected the alternate-prefix line break to surface as part of a modified entry, never silently dropped");
+});
+
+test("W1-T-105 | mandatory body test 8 -- mixed prefixes across runs within ONE paragraph reconstruct to the exact same text (no silent loss, same semantic result)", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">`
+  );
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const mixedPrefixSplit =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut </w:t></w:r>` +
+    `<w:r><x:t xml:space="preserve">être annulée avant sa préparation.</x:t></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), mixedPrefixSplit);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(
+    chapter!.entries.every((e) => e.kind === "unchanged"),
+    "mixed-prefix run split must reconstruct to the exact same string as the single-prefix form"
+  );
+});
+
+test("W1-T-106 | mandatory body test 9 -- the EXACT auditor reproduction: a chapter whose body is entirely replaced by a NEW alternate-prefix paragraph ('14 jours') must NOT return hasNoMeaningfulChanges=true", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="${WP_NS}">`,
+    `<w:document xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">`
+  );
+  // "Annulation de commande" has exactly ONE body paragraph in the
+  // current model -- removing it and replacing it with a single new
+  // alternate-prefix paragraph leaves that chapter's IMPORTED body
+  // with nothing carried over from before, gaining only "14 jours" via
+  // an alternate WordprocessingML prefix (the mandate's exact
+  // reproduction shape: "current chapter has no body, imported DOCX
+  // adds '14 jours' via alternate prefix").
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const replacement = `<w:p><w:r><x:t xml:space="preserve">14 jours</x:t></w:r></w:p>`;
+  assert.ok(documentXml.includes(plainParagraphXml(original)));
+  documentXml = documentXml.replace(plainParagraphXml(original), replacement);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(
+    diff.hasNoMeaningfulChanges,
+    false,
+    "AUDITOR REPRODUCTION: a chapter whose body content is entirely replaced via an alternate prefix must never be reported as having no meaningful changes"
+  );
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(
+    chapter!.entries.some((e) => e.kind === "modified" && e.after === "14 jours"),
+    "expected the alternate-prefix replacement text to surface explicitly in the diff, never silently disappear"
+  );
+});
+
+// --------------------------------------------------------------------
+// Mandatory bookmark tests (11) -- see mandate's "MANDATORY BOOKMARK
+// TESTS" section.
+// --------------------------------------------------------------------
+
+test("W1-T-107 | mandatory bookmark test 1 -- standard <w:bookmarkStart>/<w:bookmarkEnd> is recognized (baseline, unchanged behavior)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body = bookmarkedParagraphXml(0, name, model.chapters[0].heading);
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-108 | mandatory bookmark test 2 -- an alternate prefix <x:bookmarkStart>/<x:bookmarkEnd> bound to the SAME WordprocessingML namespace is recognized identically to <w:bookmarkStart>/<w:bookmarkEnd>", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart x:id="0" x:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<x:bookmarkEnd x:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-109 | mandatory bookmark test 3 -- an arbitrary prefix <foo:bookmarkStart>/<foo:bookmarkEnd> bound to the SAME namespace is recognized", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><foo:bookmarkStart foo:id="0" foo:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<foo:bookmarkEnd foo:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:foo="${WP_NS}"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-110 | mandatory bookmark test 4 -- default-namespace bookmark form (no prefix, unprefixed id/name attributes) is recognized, per the documented default-namespace attribute policy", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><bookmarkStart xmlns="${WP_NS}" id="0" name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<bookmarkEnd xmlns="${WP_NS}" id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-111 | mandatory bookmark test 5 -- a WRONG namespace sharing the local names 'bookmarkStart'/'bookmarkEnd' must NOT be recognized as a CGV bookmark (fails closed, never guessed)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart xmlns:x="urn:not-word" x:id="0" x:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<x:bookmarkEnd xmlns:x="urn:not-word" x:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  // With no WordprocessingML-namespaced bookmark anywhere in the
+  // document, this is structurally unmappable -- exactly W1-T-11's
+  // existing "zero recognized bookmarks" contract, never a crash and
+  // never a silent accept of the wrong-namespace element.
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "NO_RECOGNIZED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-112 | mandatory bookmark test 6 -- two identical cgv_* bookmarks inside the SAME paragraph, using an alternate prefix, are rejected (ambiguous), never 'first wins'", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart x:id="0" x:name="${name}"/><x:bookmarkStart x:id="1" x:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<x:bookmarkEnd x:id="0"/><x:bookmarkEnd x:id="1"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "AMBIGUOUS_BOOKMARK_PARAGRAPH");
+    return true;
+  });
+});
+
+test("W1-T-113 | mandatory bookmark test 7 -- the same cgv_* bookmark name appearing in two DIFFERENT paragraphs, using an alternate prefix, is rejected (duplicate identity)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart x:id="0" x:name="${name}"/><w:r><w:t xml:space="preserve">Un</w:t></w:r><x:bookmarkEnd x:id="0"/></w:p>` +
+    `<w:p><x:bookmarkStart x:id="1" x:name="${name}"/><w:r><w:t xml:space="preserve">Deux</w:t></w:r><x:bookmarkEnd x:id="1"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "DUPLICATE_BOOKMARK_IDENTITY");
+    return true;
+  });
+});
+
+test("W1-T-114 | mandatory bookmark test 8 -- an alternate-prefix bookmark start with no matching end is rejected (unbalanced)", () => {
+  const body = `<w:p><x:bookmarkStart x:id="0" x:name="cgv_identite-du-vendeur"/><w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNBALANCED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-115 | mandatory bookmark test 9 -- an alternate-prefix bookmark end with no matching start is rejected (unbalanced)", () => {
+  const body = `<w:p><w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r><x:bookmarkEnd x:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNBALANCED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-116 | mandatory bookmark test 10 -- an alternate-prefix cgv_* bookmark whose start and end land in DIFFERENT paragraphs is rejected (malformed span / overlapping nesting)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart x:id="0" x:name="${name}"/><w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r></w:p>` +
+    `<w:p><x:bookmarkEnd x:id="0"/><w:r><w:t xml:space="preserve">Suite.</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_BOOKMARK_NESTING");
+    return true;
+  });
+});
+
+test("W1-T-117 | mandatory bookmark test 11 -- Word's own '_GoBack' housekeeping bookmark, using an alternate prefix, remains harmless even spanning multiple paragraphs", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><x:bookmarkStart x:id="9" x:name="_GoBack"/><w:r><w:t xml:space="preserve">Début de sélection.</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:t xml:space="preserve">Fin de sélection.</w:t></w:r><x:bookmarkEnd x:id="9"/></w:p>` +
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading);
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.deepEqual(imported.leadingContent, ["Début de sélection.", "Fin de sélection."]);
+});
+

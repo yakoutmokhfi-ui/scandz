@@ -305,6 +305,102 @@
  * UNSUPPORTED_WORD_COMMENTS. A document with no comments, or whose
  * comments are all empty, imports exactly as before this
  * remediation."
+ *
+ * ====================================================================
+ * W1 FOURTH TARGETED REMEDIATION (BOULEZ third delta re-audit,
+ * candidate 1dac99a4, FAIL) — W1-PREFIX-BODY-01 — this section
+ * documents the fix added on top of the THIRD remediation above, which
+ * the third delta re-audit confirmed PASS for W1-01, W1-02 (comments),
+ * W1-03, W1-04, and the Windows DOM harness (left entirely unchanged
+ * by this fourth pass).
+ * ====================================================================
+ *
+ * W1-PREFIX-BODY-01 — BODY TEXT / BOOKMARKS, NAMESPACE-AWARE (never
+ * prefix-literal). The audit's exact reproduction: a valid OOXML
+ * `word/document.xml` binds the WordprocessingML namespace to an
+ * alternate prefix (`<x:t>14 jours</x:t>`) for an ordinary BODY
+ * paragraph — accepted (correctly: namespace prefixes are always
+ * arbitrary), but `extractParagraphText`, `splitBodyIntoParagraphs`
+ * (via its `<w:p>` token regex), and `validateAndCollectCgvBookmarks`
+ * (via its `<w:bookmarkStart>`/`<w:bookmarkEnd>`/`w:id`/`w:name` regex)
+ * all still matched the LITERAL substring `w:`, exactly the same class
+ * of defect the THIRD remediation already fixed for comment text only
+ * (`extractAllWordprocessingTextContent`). The result: an alternate-
+ * prefix body paragraph extracted as empty text, silently normalized
+ * away as if it were a cosmetic blank paragraph (file header, "BLANK
+ * PARAGRAPH NORMALIZATION") — `hasNoMeaningfulChanges: true` for a
+ * real contractual edit. The same defect made an alternate-prefix
+ * `<x:bookmarkStart>`/`<x:bookmarkEnd>` pair invisible to bookmark
+ * validation entirely, which could starve a document of every
+ * recognized `cgv_` bookmark (`NO_RECOGNIZED_BOOKMARK`) even though a
+ * conforming OOXML consumer must recognize it identically to `w:`.
+ *
+ * FIX — SHARED NAMESPACE-NORMALIZATION PRIMITIVE (never three separate
+ * semantic parsers with different prefix assumptions, per the
+ * mandate's own implementation guidance): `extractRawParagraphs` below
+ * now runs the WHOLE `word/document.xml` string through
+ * `normalizeToStandardWordprocessingPrefix` (see that function's own
+ * doc comment for the full algorithm) IMMEDIATELY after
+ * `assertWellFormedXml`, BEFORE any of the existing, already-tested
+ * regex-based extraction (`<w:body>` matching, `assertNoUnsupportedStructure`,
+ * `splitBodyIntoParagraphs`, `extractParagraphText`, `isListParagraph`,
+ * `validateAndCollectCgvBookmarks`) ever runs. That normalizer walks
+ * the document with the SAME `saxes` namespace-URI-resolved event
+ * stream the THIRD remediation already proved safe for this exact
+ * class of defect, and re-serializes it with every element/attribute
+ * bound to the WordprocessingML namespace rewritten to the CANONICAL
+ * `w:` prefix (any other namespace aliased to its own non-colliding
+ * `nsN:` prefix, so a foreign element that merely shares a local name
+ * with a WordprocessingML one — e.g. a `<x:t xmlns:x="urn:not-word">`
+ * — can never collide with the canonical `w:` form). Every one of the
+ * five downstream functions listed above is REUSED COMPLETELY
+ * UNCHANGED: they always only ever see `w:`-prefixed input now,
+ * exactly the one shape they were already written, tested, and
+ * audited against — "Keep the change limited to W1 semantic
+ * extraction… do NOT perform a broad DOCX architecture rewrite"
+ * (mandate) is satisfied by construction, not by restraint alone.
+ *
+ * `assertNoUnsupportedStructure` (tables / unaccepted tracked changes)
+ * and `isListParagraph` (`w:numPr`) gain the SAME namespace-aware
+ * behavior as a direct, free side effect of running on the same
+ * normalized string — a documented bonus, not a scope expansion: no
+ * line of either function changed, and this was already flagged as an
+ * open observation in the THIRD remediation's own deliverable.
+ *
+ * COMMENT TEXT (`extractAllWordprocessingTextContent`) is DELIBERATELY
+ * LEFT UNCHANGED, not refactored onto the new shared primitive, even
+ * though the mandate's implementation guidance prefers one primitive
+ * "if this can be done narrowly": that function is CLOSED/PRESERVE
+ * (W1-02 comments, third delta re-audit PASS) and already implements
+ * the identical namespace-URI-identity principle (same `saxes`
+ * library, same `{ xmlns: true }` option, same
+ * `WORDPROCESSINGML_NAMESPACE_URI` constant) independently — sharing
+ * code with a brand-new primitive would put a CLOSED, audited item at
+ * risk for zero behavioral gain, which this mandate's own "Preserve…
+ * No regression" / "do NOT disturb unless strictly necessary" doctrine
+ * (applied elsewhere in this same mandate to the Windows harness)
+ * argues against. All 11 comment-namespace tests (W1-T-87..97) are
+ * re-run, unchanged, as part of this remediation's regression to prove
+ * this decision cost nothing.
+ *
+ * SUPPORTED DEFAULT-NAMESPACE ATTRIBUTE POLICY (documented, deliberate
+ * departure from strict XML Namespaces semantics): per the XML
+ * Namespaces spec, an UNPREFIXED attribute carries NO namespace at
+ * all, even when its owning element sits inside a default
+ * `xmlns="…"` binding — so, taken strictly, `<bookmarkStart
+ * xmlns="…wordprocessingml…" id="1" name="cgv_x"/>` would leave `id`
+ * and `name` outside the WordprocessingML namespace entirely, unusable
+ * for bookmark identity. This reader instead treats an UNPREFIXED
+ * attribute as inheriting its OWNING ELEMENT's resolved namespace
+ * whenever that element itself resolves to WordprocessingML — see
+ * `normalizeToStandardWordprocessingPrefix` below — so the
+ * default-namespace bookmark form is recognized exactly like the
+ * explicit-prefix form. This is this reader's own supported policy
+ * for deciding which canonical prefix an attribute is rewritten to; it
+ * is NEVER used to accept a WRONG namespace (an attribute explicitly
+ * bound to a different prefix/namespace is never reinterpreted this
+ * way, and an attribute on a NON-WordprocessingML element is never
+ * promoted into the WordprocessingML namespace by this rule).
  */
 
 import {
@@ -699,6 +795,173 @@ function assertNoWordComments(commentsXml: string): void {
   }
 }
 
+// ====================================================================
+// W1 FOURTH REMEDIATION (W1-PREFIX-BODY-01) -- shared namespace
+// normalization primitive for body text + bookmarks.
+// ====================================================================
+
+/**
+ * W1 FOURTH REMEDIATION (W1-PREFIX-BODY-01) — walks the WHOLE of `xml`
+ * with `saxes` (`{ xmlns: true }`, the same namespace-resolving option
+ * this module already always passes) and re-serializes it with every
+ * element and attribute bound to `WORDPROCESSINGML_NAMESPACE_URI`
+ * rewritten to the canonical `w:` prefix, and every OTHER distinct
+ * namespace URI aliased to its own non-colliding `nsN:` prefix
+ * (allocated in first-encountered order, scoped to THIS call only —
+ * never shared across invocations). An element/attribute with NO
+ * namespace at all (no prefix, no enclosing default `xmlns`) is
+ * emitted with no prefix, unchanged.
+ *
+ * WHY NAMESPACE URI, NEVER PREFIX (file header doctrine, extended from
+ * comments to body/bookmarks): `node.local`/`node.uri` (elements) and
+ * `attr.local`/`attr.uri` (attributes, via `attr.prefix !== ""`) are
+ * the SAME namespace-resolved fields `extractAllWordprocessingTextContent`
+ * already relies on for comments — this function applies the
+ * identical identity test to every element/attribute in the document,
+ * not just `t`.
+ *
+ * SELF-CLOSING FORM IS PRESERVED EXACTLY, never re-derived from
+ * content: `saxes` tells us directly, per tag, whether the ORIGINAL
+ * markup used a self-closing `<tag/>` (`node.isSelfClosing`) — for a
+ * self-closing tag `saxes` fires BOTH `opentag` and `closetag`
+ * immediately, with `isSelfClosing: true` on the SAME tag object
+ * (verified against the installed `saxes` source: `openSelfClosingTag()`
+ * calls both handlers before returning), so this function simply
+ * writes the whole tag once on `opentag` and emits NOTHING on the
+ * matching `closetag`. This is deliberately simpler than inferring
+ * self-closing-ness from "did this element ever receive text/children"
+ * — it can never disagree with what the original document actually
+ * said, which matters because the five downstream regex-based
+ * functions this normalizer feeds (`<w:body>` matching,
+ * `assertNoUnsupportedStructure`, `splitBodyIntoParagraphs`,
+ * `extractParagraphText`, `validateAndCollectCgvBookmarks`) are
+ * already written, and already tested, against the EXACT self-closing
+ * vs. open/close shapes real Word output and this test suite's
+ * fixtures use (e.g. `PARAGRAPH_TOKEN_RE`'s own comment on why
+ * self-closing detection must come first) — changing that shape here
+ * would be exactly the kind of incidental behavior change this
+ * targeted remediation must not introduce.
+ *
+ * TEXT / ATTRIBUTE-VALUE RE-ESCAPING: `saxes` hands this function
+ * already-DECODED text (`&amp;` -> `&`) and attribute values, but
+ * every downstream caller (`extractParagraphText` via
+ * `unescapeXmlEntities`, `extractXmlAttribute`'s raw regex capture)
+ * expects to do ITS OWN decoding on what looks like ordinary escaped
+ * XML -- exactly as before this remediation, when the input was the
+ * untouched original document string. This function therefore
+ * RE-ESCAPES `&`/`<`/`>` in text content and `&`/`<`/`"` in attribute
+ * values before writing them out, so the existing, unchanged
+ * downstream decoding step produces the identical string it always
+ * did. `xmlns:*` declaration attributes are DROPPED entirely from the
+ * output (local name `xmlns`, or prefix `xmlns`) -- canonical prefixes
+ * make them unnecessary, and no downstream function in this file ever
+ * reads one. Comments and processing instructions are dropped too
+ * (neither carries CGV-relevant content, and dropping them removes --
+ * as a side benefit, not a goal of this remediation -- any chance of a
+ * regex elsewhere in this file incidentally matching text that was
+ * only ever inside a comment).
+ *
+ * Assumes `xml` has ALREADY been proven well-formed by
+ * `assertWellFormedXml` (the sole caller, `extractRawParagraphs`,
+ * always calls that first) -- this function never itself needs to
+ * handle a parse error.
+ */
+function normalizeToStandardWordprocessingPrefix(xml: string): string {
+  const namespacePrefixByUri = new Map<string, string>([[WORDPROCESSINGML_NAMESPACE_URI, "w"]]);
+  let nextForeignPrefixIndex = 1;
+
+  function canonicalPrefixForUri(uri: string): string {
+    if (uri === "") return "";
+    if (uri === WORDPROCESSINGML_NAMESPACE_URI) return "w";
+    let alias = namespacePrefixByUri.get(uri);
+    if (alias === undefined) {
+      alias = `ns${nextForeignPrefixIndex}`;
+      nextForeignPrefixIndex += 1;
+      namespacePrefixByUri.set(uri, alias);
+    }
+    return alias;
+  }
+
+  function canonicalName(local: string, uri: string): string {
+    const prefix = canonicalPrefixForUri(uri);
+    return prefix ? `${prefix}:${local}` : local;
+  }
+
+  function escapeText(value: string): string {
+    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function escapeAttributeValue(value: string): string {
+    return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  }
+
+  let output = "";
+  const parser = new SaxesParser({ xmlns: true });
+
+  parser.on("opentag", (node) => {
+    const elementUri = node.uri ?? "";
+    const elementIsWordprocessing = elementUri === WORDPROCESSINGML_NAMESPACE_URI;
+    const localName = node.local ?? node.name;
+    let attributesOut = "";
+
+    const attributes = node.attributes as Record<
+      string,
+      { prefix: string; local: string; uri: string; value: string }
+    >;
+    for (const key of Object.keys(attributes)) {
+      const attribute = attributes[key];
+      // `xmlns="…"` / `xmlns:foo="…"` -- dropped entirely, see doc
+      // comment above; never a semantic attribute downstream reads.
+      if (attribute.local === "xmlns" || attribute.prefix === "xmlns") continue;
+
+      let attributeUri: string;
+      if (attribute.prefix !== "") {
+        // Explicitly prefixed -- `saxes` already resolved this
+        // correctly via standard namespace scoping.
+        attributeUri = attribute.uri;
+      } else if (elementIsWordprocessing) {
+        // SUPPORTED DEFAULT-NAMESPACE ATTRIBUTE POLICY -- see the file
+        // header's "W1 FOURTH TARGETED REMEDIATION" section for the
+        // full rationale: an unprefixed attribute on a
+        // WordprocessingML element is treated as belonging to that
+        // same namespace for canonical-prefix purposes, even though
+        // strict XML Namespaces semantics would leave it unprefixed.
+        attributeUri = WORDPROCESSINGML_NAMESPACE_URI;
+      } else {
+        attributeUri = "";
+      }
+
+      const attributeName = canonicalName(attribute.local, attributeUri);
+      attributesOut += ` ${attributeName}="${escapeAttributeValue(attribute.value)}"`;
+    }
+
+    const outName = canonicalName(localName, elementUri);
+    output += node.isSelfClosing ? `<${outName}${attributesOut}/>` : `<${outName}${attributesOut}>`;
+  });
+
+  parser.on("text", (text) => {
+    output += escapeText(text);
+  });
+
+  parser.on("cdata", (text) => {
+    output += escapeText(text);
+  });
+
+  parser.on("closetag", (node) => {
+    // Self-closing tags were already fully emitted on `opentag` --
+    // `saxes` fires `closetag` for them too (same tag object, same
+    // `isSelfClosing: true`), and emitting a second, separate closing
+    // tag here would corrupt the output.
+    if (node.isSelfClosing) return;
+    const elementUri = node.uri ?? "";
+    const localName = node.local ?? node.name;
+    output += `</${canonicalName(localName, elementUri)}>`;
+  });
+
+  parser.write(xml).close();
+  return output;
+}
+
 /**
  * Concatenates ALL `<w:t>…</w:t>` run text, `<w:tab/>`, and
  * `<w:br/>` found within one paragraph's raw XML, IN DOCUMENT ORDER.
@@ -950,11 +1213,27 @@ function validateAndCollectCgvBookmarks(paragraphs: string[]): Map<number, strin
 function extractRawParagraphs(documentXml: string): RawDocxParagraph[] {
   assertWellFormedXml(documentXml);
 
-  const bodyMatch = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(documentXml);
+  // W1 FOURTH REMEDIATION (W1-PREFIX-BODY-01) -- canonicalize every
+  // WordprocessingML-namespaced element/attribute to the `w:` prefix
+  // (and alias every other namespace to a non-colliding `nsN:`
+  // prefix) BEFORE any of the existing, unchanged regex-based
+  // extraction below ever runs -- see the shared primitive's own doc
+  // comment, and the file header's "W1 FOURTH TARGETED REMEDIATION"
+  // section, for the full rationale.
+  const normalizedXml = normalizeToStandardWordprocessingPrefix(documentXml);
+
+  // Tries the self-closing form FIRST, exactly like `PARAGRAPH_TOKEN_RE`
+  // below has to (see that constant's own comment) -- an entirely
+  // empty `<w:body/>` is not a shape Word itself produces, but the
+  // normalizer above can legitimately produce it for a pathological
+  // input, and this module fails closed on "no body" either way (see
+  // the `MALFORMED_DOCUMENT` throw just below), never silently guesses
+  // a body from the whole document.
+  const bodyMatch = /<w:body\b[^>]*\/>|<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(normalizedXml);
   if (!bodyMatch) {
     throw new DocxReadError("MALFORMED_DOCUMENT", "Aucun <w:body> trouvé dans word/document.xml.");
   }
-  const bodyXml = bodyMatch[1];
+  const bodyXml = bodyMatch[1] ?? "";
 
   assertNoUnsupportedStructure(bodyXml);
 
