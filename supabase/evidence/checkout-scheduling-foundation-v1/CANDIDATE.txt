@@ -1,0 +1,54 @@
+CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1) — CANDIDAT
+=====================================================
+
+branche                     feature/checkout-scheduling-foundation-v1
+
+CANDIDAT (implémentation)   091c3f07083b5c8a51cdb7e50a2f9da46530eacf
+arbre du candidat           76b6b7504fc4b71deff64c636bb9b288b845ae40
+base (origin/main)          412dbb53c5f180983860852b79425209c04b9c42
+arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
+
+STRUCTURE DE LA BRANCHE
+-----------------------
+  HEAD      scellement du paquet de preuves — touche UNIQUEMENT
+            supabase/evidence/checkout-scheduling-foundation-v1/
+  HEAD~1    091c3f07083b5c8a51cdb7e50a2f9da46530eacf
+            LE CANDIDAT : 9 fichiers ajoutés, 0 modifié, 0 supprimé
+  HEAD~2    412dbb5 = origin/main au moment du lot
+
+TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
+-----------------------------------------
+  1. manifest.candidate.sha == HEAD~1
+  2. git diff --name-only HEAD~1 HEAD  ne renvoie que des chemins sous
+     supabase/evidence/checkout-scheduling-foundation-v1/
+  3. sha256sum -c SHA256SUMS.txt
+
+LES 9 FICHIERS DU CANDIDAT
+--------------------------
+  A  lib/scheduling/schedule-model.ts
+  A  lib/scheduling/eligibility.ts
+  A  supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
+  A  supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
+  A  supabase/tests/checkout-scheduling-foundation-v1-check.sh
+  A  tests/fixtures/checkout-scheduling-cases.json
+  A  tests/csdj1-scheduling-model.test.ts
+  A  tests/csdj1-scheduling-eligibility.test.ts
+  A  tests/csdj1-sql-structural.test.ts
+
+AUCUN fichier existant n'est modifié. AUCUNE fonction SQL préexistante
+n'est redéfinie : create_order et resolve_delivery_fulfillment sont
+intactes, et le post-vol du lot comme le harnais le constatent.
+
+REJOUER LES PREUVES
+-------------------
+  npx tsc --noEmit
+  node --experimental-strip-types --import ./tests/register.mjs --test \
+    tests/csdj1-*.test.ts
+  sudo -u postgres -E env SCANYM_DISPOSABLE_CLUSTER=1 \
+    bash supabase/tests/checkout-scheduling-foundation-v1-check.sh
+
+PAS POUSSÉ
+----------
+  Le proxy git de la session refuse l'écriture sur yakoutmokhfi-ui/scandz
+  (403, dépôt absent de l'ensemble autorisé). Le mandat l'a acté et
+  demande une livraison par bundle vérifié.

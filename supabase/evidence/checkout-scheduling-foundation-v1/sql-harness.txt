@@ -1,0 +1,115 @@
+[04:15:11] [sûreté] cluster jetable CRÉÉ par ce harnais (données /tmp/tmp.A0QJdX23m2/cluster, socket /tmp/tmp.A0QJdX23m2/sock, port 51220).
+[04:15:11] [sûreté] cible validée : serveur=unix-socket base=postgres utilisateur=postgres superuser=on propre_cluster=1
+[04:15:12] verrou de sûreté franchi : cluster créé par le harnais, bases nommées pour cette exécution uniquement.
+[04:15:12] === [0] Construction du schéma PRÉDÉCESSEUR (scanym_csdj1_base_2068_20261010041511) ===
+[04:15:15] chaîne prédécesseur appliquée (schema .. CUSTOMER CONTACT LIVE TRACKING v1).
+[04:15:15] fixtures posées (2 commerçants, 2 règles de livraison, AUCUNE planification).
+[04:15:15] === [1] Application du SQL aller ===
+[04:15:15] PASS: [1] le SQL aller s'applique sur le schéma prédécesseur réel
+[04:15:15] === [2] Atomicité : post-vol saboté ===
+[04:15:15] PASS: [2] un post-vol en échec interrompt la transaction
+[04:15:15] PASS: [2a] aucune table du lot ne subsiste après l'échec (=0)
+[04:15:15] PASS: [2b] aucune fonction du lot ne subsiste après l'échec (=0)
+[04:15:15] === [3] Structure et posture de sécurité ===
+[04:15:15] PASS: [3a] les 4 tables du lot existent (=4)
+[04:15:15] PASS: [3b] RLS active sur les 4 tables (=4)
+[04:15:16] PASS: [3c] une policy SELECT par table, et AUCUNE policy d'écriture (=4|0)
+[04:15:16] PASS: [3d] les 8 fonctions du lot existent, une surcharge chacune (=8)
+[04:15:16] PASS: [3e] AUCUN grant d'écriture sur les 4 tables, pour aucun rôle (=0)
+[04:15:16] PASS: [3f] anon n'a AUCUN SELECT direct sur les 4 tables (=0)
+[04:15:16] PASS: [3g] authenticated a SELECT sur les 4 tables (=4)
+[04:15:16] PASS: [3h] les 4 tables NAISSENT VIDES (aucun backfill) (=0)
+[04:15:16] PASS: [3i] toutes les fonctions du lot fixent search_path = '' (=8)
+[04:15:16] PASS: [3j] SEULE la lecture publique est exécutable par anon (=1)
+[04:15:16] PASS: [3k] l'autorité d'éligibilité n'est exécutable par AUCUN rôle applicatif (=0)
+[04:15:16] PASS: [3l] les 4 catalogues ne sont exécutables par AUCUN rôle applicatif (=0)
+[04:15:16] PASS: [3m] catalogue des politiques de date (=customer_selectable|derived_earliest|informational_only)
+[04:15:16] PASS: [3n] catalogue des politiques d'horaire (=none|time_within_window|fixed_slots)
+[04:15:16] PASS: [3o] catalogue des statuts (=absent|blocked_upstream|informational_only|dates_available|unfulfillable)
+[04:15:16] PASS: [3p] catalogue des motifs d'infaisabilité (=no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted)
+[04:15:16] === [9] Aucune fuite de fournisseur ni de code interne ===
+[04:15:16] PASS: [9] la lecture publique n'expose pas « provider »
+[04:15:16] PASS: [9] la lecture publique n'expose pas « fulfillment_code »
+[04:15:16] PASS: [9] la lecture publique n'expose pas « fulfillment_rule_id »
+[04:15:16] PASS: [9] la lecture publique n'expose pas « zone_prefixes »
+[04:15:16] === [10] Autorité de tarification réutilisée, jamais réécrite ===
+[04:15:16] PASS: [10a] resolve_delivery_fulfillment est INCHANGÉE par le lot (=a1b991f9ca89e348c9ca70d627135423)
+[04:15:16] PASS: [10b] create_order est INCHANGÉE par le lot (=0bda35ddd6443882f716a186dc6ddcc1)
+[04:15:16] PASS: [10c] create_order n'a toujours qu'une surcharge (=1)
+[04:15:16] PASS: [10d] la lecture publique APPELLE bien l'autorité de tarification (=1)
+[04:15:16] PASS: [10e] le tarif public est au centime celui de l'autorité (=4.90)
+[04:15:16] === [7] Absence et désactivation : le parcours d'avant le lot ===
+[04:15:16] PASS: [7a] aucune planification pour le retrait => 'absent' (=absent)
+[04:15:16] PASS: [7b] une absence ne révèle NI fuseau, NI politique, NI date (=||||)
+[04:15:16] PASS: [7c] une planification COMPLÈTE mais désactivée => 'absent' (=absent)
+[04:15:16] PASS: [7d] désactivée, elle ne révèle rien de plus qu'une absence (=||||)
+[04:15:16] === [6] Fixture partagée rejouée contre l'autorité SQL ===
+19 cas rejoués + 1 cas refusés par contrainte
+[04:15:20] PASS: [6] les 19 cas de la fixture partagée donnent en SQL EXACTEMENT ce que la fixture attend
+[04:15:20] PASS: [6] fixture « absent-no-row »
+[04:15:20] PASS: [6] fixture « absent-disabled »
+[04:15:20] PASS: [6] fixture « pickup-first-eligible-before-cutoff »
+[04:15:20] PASS: [6] fixture « pickup-cutoff-boundary-one-second-before »
+[04:15:20] PASS: [6] fixture « pickup-cutoff-boundary-exact »
+[04:15:20] PASS: [6] fixture « pickup-weekly-closed-days »
+[04:15:20] PASS: [6] fixture « pickup-exceptional-closure »
+[04:15:20] PASS: [6] fixture « pickup-lead-time-pushes-day »
+[04:15:20] PASS: [6] fixture « local-fixed-slots-no-same-day »
+[04:15:20] PASS: [6] fixture « local-fixed-slots-after-cutoff »
+[04:15:20] PASS: [6] fixture « carrier-informational-only »
+[04:15:20] PASS: [6] fixture « carrier-derived-earliest »
+[04:15:20] PASS: [6] fixture « unfulfillable-no-offer »
+[04:15:20] PASS: [6] fixture « unfulfillable-all-closed »
+[04:15:20] PASS: [6] fixture « unfulfillable-horizon-exhausted »
+[04:15:20] PASS: [6] fixture « tz-autumn-dst-boundary »
+[04:15:20] PASS: [6] fixture « tz-spring-dst-boundary »
+[04:15:20] PASS: [6] fixture « tz-far-east-of-utc »
+[04:15:20] PASS: [6] fixture « tz-west-of-utc »
+[04:15:20] PASS: [6r] fixture « unfulfillable-granularity-missing » : la contrainte de table REFUSE cet état (=REFUSE)
+[04:15:20] === [8] Configuré mais infaisable : échec explicite ===
+[04:15:20] PASS: [8a] activée, aucune fenêtre => 'unfulfillable' avec motif (=unfulfillable|no_offer_configured)
+[04:15:20] PASS: [8b] et AUCUNE date n'est rendue -- jamais une date de repli (=|)
+[04:15:20] PASS: [8c] un motif appartient TOUJOURS au catalogue fermé (=true)
+[04:15:20] === [11] L'horloge est celle du serveur ===
+[04:15:20] PASS: [11a] la lecture publique n'accepte AUCUN paramètre temporel (=0)
+[04:15:20] PASS: [11b] l'autorité interne a bien un p_now, mais par défaut now() (=1)
+[04:15:20] === [4] Isolation multi-locataires ===
+[04:15:20] PASS: [4a] l'owner de A lit la planification de A (=1)
+[04:15:20] PASS: [4b] l'owner de A ne lit JAMAIS celle de B (=0)
+[04:15:20] PASS: [4c] l'owner de B ne lit JAMAIS celle de A (=0)
+[04:15:20] PASS: [4d] un étranger ne lit AUCUNE planification (=0)
+[04:15:20] PASS: [4e] les fenêtres suivent la même isolation (=7)
+[04:15:20] PASS: [4f] la lecture back-office de A ne renvoie que A (=1)
+[04:15:20] PASS: [4g] l'owner de A ne peut PAS lire le back-office de B (=REFUSE)
+[04:15:20] PASS: [4h] chaque portée calcule dans SON fuseau (=Europe/Paris|Europe/Lisbon)
+[04:15:20] === [5] ACL d'écriture : owner/manager seulement ===
+[04:15:21] PASS: [5a] owner écrit (=OK)
+[04:15:21] PASS: [5b] manager écrit (=OK)
+[04:15:21] PASS: [5c] staff est REFUSÉ (=REFUSE)
+[04:15:21] PASS: [5d] l'owner d'un AUTRE commerçant est REFUSÉ (=REFUSE)
+[04:15:21] PASS: [5e] anon ne peut même pas exécuter la RPC d'écriture (=REFUSE)
+[04:15:21] PASS: [5f] une session authentifiée SANS identité est refusée (28000) (=REFUSE)
+[04:15:21] === [12] Validation d'écriture : refuser plutôt que deviner ===
+[04:15:21] PASS: [12a] fuseau inconnu du serveur => refusé (=REFUSE)
+[04:15:21] PASS: [12b] politique hors catalogue => refusée (=REFUSE)
+[04:15:21] PASS: [12c] politique INCOHÉRENTE (heure sans date) => refusée (=REFUSE)
+[04:15:21] PASS: [12d] mode de vente hors catalogue => refusé (=REFUSE)
+[04:15:21] PASS: [12e] action inconnue => refusée (=REFUSE)
+[04:15:21] PASS: [12f] règle de livraison ÉTRANGÈRE => refusée nommément (=REFUSE)
+[04:15:21] PASS: [12g] fenêtres superposées du même jour => refusées (=REFUSE)
+[04:15:21] PASS: [12h] après ce refus, AUCUNE fenêtre de retrait ne subsiste (=0)
+[04:15:21] PASS: [12i] fenêtres NON superposées => acceptées (=OK)
+[04:15:21] PASS: [12j] clé de créneau MALFORMÉE => refusée par la contrainte (=REFUSE)
+[04:15:21] PASS: [12k] remplacer des fenêtres SANS planification => refusé (=REFUSE)
+[04:15:21] === [13][14] Retour arrière ===
+[04:15:21] PASS: [14] le retour REFUSE de passer sous un instantané de CSDJ-3, en nommant la cause
+[04:15:22] PASS: [14a] et les tables du lot sont TOUJOURS là après ce refus (=4)
+[04:15:22] PASS: [13] le retour s'applique
+[04:15:22] PASS: [13a] aucune table du lot ne subsiste (=0)
+[04:15:22] PASS: [13b] aucune fonction du lot ne subsiste (=0)
+[04:15:22] PASS: [13c] l'état PRÉDÉCESSEUR est restauré à l'identique (=34|10|127|372)
+[04:15:22] PASS: [13d] create_order est intacte après le retour (=0bda35ddd6443882f716a186dc6ddcc1)
+[04:15:22] PASS: [13e] l'autorité de tarification est intacte après le retour (=a1b991f9ca89e348c9ca70d627135423)
+[04:15:22] PASS: [13f] un second retour est REFUSÉ, il ne réussit pas en silence (=REFUSE)
+[04:15:22] PASS: [13g] une seconde application de l'aller est REFUSÉE (=REFUSE)
+[04:15:22] === BILAN : 94 preuve(s) produite(s), 0 échec(s) ===

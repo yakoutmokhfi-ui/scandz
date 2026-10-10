@@ -1,0 +1,2 @@
+[04:30:27] REFUS DE SÛRETÉ : PGPASSWORD est définie. Cette variable pourrait faire pointer ce harnais vers un serveur non jetable. Relancez-le dans un environnement sans configuration de connexion héritée. (La valeur n'est pas journalisée : elle peut être un secret.)
+[04:30:27] Aucune opération destructive n'a été tentée.

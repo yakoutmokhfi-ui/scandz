@@ -1,0 +1,161 @@
+{
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
+  "status": "READY FOR INDEPENDENT AUDIT",
+  "mandate": "NOUGARO — GO DEVELOP CSDJ-1 LOCALLY AND DELIVER VERIFIED BUNDLE. Premier des trois sous-lots imposés par la décision CIO sur CHECKOUT SCHEDULING & DELIVERY JOURNEY v1.",
+  "base": {
+    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873",
+    "branch": "origin/main",
+    "verification": "git fetch origin main puis relecture du SHA ET de l'arbre juste avant la première édition : identiques à la référence du mandat. Aucun rebase silencieux."
+  },
+  "candidate": {
+    "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
+    "tree": "76b6b7504fc4b71deff64c636bb9b288b845ae40",
+    "parent": "412dbb53c5f180983860852b79425209c04b9c42",
+    "branch": "feature/checkout-scheduling-foundation-v1",
+    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, qui est HEAD~1 de la branche. HEAD est le commit de SCELLEMENT du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/ : un manifeste ne peut pas contenir l'empreinte du commit qui le contient.",
+    "filesChanged": 9,
+    "pushed": false,
+    "pullRequest": null,
+    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz (dépôt absent de l'ensemble autorisé) : 403 en écriture. Le mandat l'a acté et demande une livraison par bundle vérifié."
+  },
+  "scope": {
+    "delivered": [
+      "modèle de planification marchande : 4 tables, portée (mode, règle de fulfillment)",
+      "fuseau IANA par portée",
+      "fenêtres hebdomadaires",
+      "créneaux nommés à identifiant stable",
+      "fermetures exceptionnelles",
+      "heure limite et son décalage en jours",
+      "délai de préparation et minimum de jours",
+      "horizon de réservation",
+      "date_selection_mode et slot_selection_mode (catalogues fermés)",
+      "isolation multi-locataires (RLS, FK composites, écriture RPC-only)",
+      "calcul d'éligibilité SERVEUR-AUTORITATIF",
+      "lecture publique sûre, sans fuite de fournisseur",
+      "réutilisation de l'autorité de tarification existante",
+      "absence de configuration = comportement actuel",
+      "configuré mais infaisable = échec explicite"
+    ],
+    "deliberatelyOutOfScope": {
+      "backOfficeEditor": "Aucune page de dashboard. CSDJ-1 livre le modèle et ses RPC ; l'éditeur back-office n'est nommé par aucun des trois sous-lots du mandat et serait une surface d'interface à arbitrer. Signalé plutôt que glissé dans ce lot.",
+      "checkoutJourney": "CSDJ-2 : code postal d'abord, calendrier, créneaux, adresse après résolution, remise affichée.",
+      "orderSnapshot": "CSDJ-3 : revalidation dans create_order, instantané gelé, variables fulfillment_date / fulfillment_slot.",
+      "editorialAndVisual": "THEME & CONTENT SETTINGS v1 (Debussy) : libellé du bouton, titre et corps du popup, thème visuel, et les clés MCC how_to_order_*. Aucune n'est touchée."
+    }
+  },
+  "invariants": {
+    "CSDJ-V1-SCHEDULE-ABSENT-01": "Aucune ligne de planification, ou une ligne enabled=false : statut `absent`, et le parcours de commande est EXACTEMENT celui d'avant ce lot. C'est l'état de 100 % des commerçants au moment du lot. Prouvé par [7a..7d] du harnais et par [ELIG-2] en TypeScript : absence et désactivation rendent le MÊME objet, et ne révèlent même pas le fuseau.",
+    "CSDJ-V1-UNFULFILLABLE-EXPLICIT-01": "Une planification activée dont la politique exige une date, et pour laquelle aucune date n'est éligible, rend `unfulfillable` AVEC un motif du catalogue fermé, et AUCUNE date. Exigence littérale du CIO : « It must NEVER silently fall back to an invented date. » Prouvé par [8a..8c] du harnais et [ELIG-1] en TypeScript.",
+    "CSDJ-V1-SINGLE-OFFER-AUTHORITY-01": "slot_selection_mode DÉSIGNE laquelle des deux tables d'offres fait foi : `time_within_window` lit les fenêtres et ignore les créneaux, `fixed_slots` l'inverse. Deux autorités simultanées pourraient se contredire sur le même jour. Prouvé par [ELIG-3].",
+    "CSDJ-V1-DAY-WITHOUT-OFFER-01": "Un jour de semaine sans offre est un jour FERMÉ. Aucune table « jours fermés » n'existe : elle ferait une seconde autorité.",
+    "CSDJ-V1-SCOPE-EXACT-01": "Aucun héritage entre portées : une livraison routée vers une règle sans planification est `absent`, elle n'emprunte ni la planification d'une autre règle ni un défaut de mode. Un héritage silencieux appliquerait au client les créneaux d'une zone qu'il n'habite pas.",
+    "CSDJ-V1-SERVER-CLOCK-01": "Toute éligibilité vient de pg_catalog.now() et du fuseau de la portée. La lecture publique n'accepte AUCUN paramètre temporel ([11a]) ; l'autorité interne qui en accepte un pour la fixture n'est exécutable par aucun rôle applicatif ([3k]).",
+    "CSDJ-V1-REFERENCE-NOT-AUTHORITY-01": "lib/scheduling/eligibility.ts est une implémentation de PREUVE, jamais une autorité. Aucun fichier d'app/ ou components/ ne l'importe, et le module ne lit aucune horloge. Gardé par [NO-CLIENT-AUTHORITY-1..3].",
+    "CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01": "Seules les colonnes présentes dans TOUTES les versions livrées de resolve_delivery_fulfillment sont lues. Les trois colonnes de remise n'existent que dans la variante DELIVERY PRICING v2-B5, encore DRAFT non appliquée : les lire créerait une dépendance dure envers un lot absent de la base réelle, et l'application de CSDJ-1 échouerait. L'affichage de la remise appartient à CSDJ-2, qui lit la projection publique déjà porteuse de la remise.",
+    "CSDJ1-V1-SQL-ATOMICITY-01": "Une seule transaction, pré-vol et post-vol DEDANS, commit; en dernière instruction exécutable. Garantie indépendante de ON_ERROR_STOP, prouvée par le sabotage [2]."
+  },
+  "crossProof": {
+    "fixture": "tests/fixtures/checkout-scheduling-cases.json",
+    "cases": 20,
+    "implementations": 3,
+    "method": "Les attendus ont été produits par une TROISIÈME implémentation indépendante (Python avec zoneinfo), afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Les 19 cas insérables sont rejoués par lib/scheduling/eligibility.ts ET par public.resolve_fulfillment_schedule ; le 20e décrit un état que les CONTRAINTES DE TABLE rendent impossible, et le harnais prouve alors le REFUS d'insertion -- preuve plus forte qu'un calcul qui refuse. Même mécanisme que fixtures/delivery-pricing-cases.json.",
+    "coverage": [
+      "première date éligible",
+      "heure limite une seconde avant",
+      "heure limite PILE",
+      "jours de semaine fermés",
+      "fermeture exceptionnelle",
+      "délai de préparation repoussant le jour",
+      "créneaux fixes sans jour même",
+      "transporteur informatif",
+      "date dérivée unique",
+      "aucune offre configurée",
+      "toutes les dates fermées",
+      "horizon épuisé",
+      "granularité manquante",
+      "bascule d'heure d'automne",
+      "bascule d'heure de printemps",
+      "fuseau à UTC+14",
+      "fuseau à l'ouest d'UTC"
+    ]
+  },
+  "results": {
+    "targetedTests": {
+      "pass": 83,
+      "fail": 0,
+      "files": {
+        "csdj1-scheduling-model": 9,
+        "csdj1-scheduling-eligibility": 34,
+        "csdj1-sql-structural": 40
+      }
+    },
+    "relevantRegressions": {
+      "pass": 199,
+      "fail": 0,
+      "files": {
+        "v102-delivery-pricing-determinism": 10,
+        "v96-fulfillment-routing-lot-b": 35,
+        "v97-fulfillment-routing-lot-b1-determinism": 21,
+        "v85-lot2b2-delivery-resolver": 25,
+        "delivery-pricing-rule-stale-tenant.dom": 6,
+        "delivery-method-notice-stale-tenant.dom": 6,
+        "b0-delivery-zone-validation": 55,
+        "mcc-v1-sql-structural": 41
+      }
+    },
+    "sqlHarness": {
+      "proofs": 94,
+      "fail": 0,
+      "cluster": "créé et détruit par le harnais lui-même",
+      "safetyModel": "repris verbatim de MCC v1.1, dont les 47 preuves comportementales restent au dépôt"
+    },
+    "harnessRefusals": {
+      "withoutConsent": {
+        "exit": 2,
+        "destructiveOperationsAttempted": 0
+      },
+      "inheritedRedirectVar": {
+        "exit": 2,
+        "variable": "PGPASSWORD",
+        "valueLeakedInOutput": 0
+      }
+    },
+    "typescript": {
+      "command": "npx tsc --noEmit",
+      "exit": 0,
+      "diagnostics": 0
+    },
+    "build": {
+      "baselineExit": 0,
+      "candidateExit": 0,
+      "routesAdded": [],
+      "routesRemoved": [],
+      "firstLoad": {
+        "/r/[slug]": "248 kB inchangé",
+        "/dashboard/settings": "234 kB inchangé",
+        "/track/[orderId]": "155 kB inchangé"
+      },
+      "note": "AUCUN octet client ajouté : ce lot ne pose aucun composant et ses deux modules TypeScript ne sont importés par aucune page. C'est le signe attendu d'un sous-lot de fondation."
+    },
+    "fullSuite": {
+      "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
+      "comparison": "identités d'échec EXACTES, pas des comptes",
+      "baseline": {
+        "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+        "pass": 4768,
+        "fail": 10
+      },
+      "candidate": {
+        "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
+        "pass": 4851,
+        "fail": 10
+      },
+      "appeared": 0,
+      "disappeared": 0,
+      "identitySetsEqual": "Les deux jeux d'identités d'échec sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Les 10 échecs sont les 10 échecs préexistants du dépôt. Le delta de réussites, +83, est exactement le nombre de tests ajoutés par ce lot."
+    }
+  },
+  "productionTouched": false,
+  "constraints": "AUCUN merge, AUCUN déploiement, AUCUN SQL hébergé, AUCUNE mutation Production/PREPROD, AUCUNE modification de main. SQL DRAFT uniquement."
+}
