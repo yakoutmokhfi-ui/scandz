@@ -1,0 +1,240 @@
+{
+  "lot": "CATALOGUE PRODUCT REORDER v1",
+  "revision": "v1.1 — recomposition sur main courant",
+  "mandate": "VIVALDI — INTEGRATION / RECOMPOSITION — LOT: CATALOGUE PRODUCT REORDER v1.1",
+  "status": "READY FOR INTEGRATION AUDIT",
+  "merged": false,
+  "deployed": false,
+  "hostedSqlExecuted": false,
+  "pullRequestOpened": false,
+  "mainHistoryRewritten": false,
+  "auditedCandidate": {
+    "sha": "46bc04f2905fde2b652c5ea0535f4090ce17bcbd",
+    "tree": "ed142021a0a00322a5e39890aa4eb3698905955e",
+    "evidenceHead": "5364c8aa25586ee7ce7d15778557b05909628971",
+    "branch": "feature/catalogue-product-reorder-v1",
+    "previousBase": "412dbb53c5f180983860852b79425209c04b9c42",
+    "verdict": "PASS WITH NON-BLOCKING OBSERVATIONS",
+    "CPR-AUDIT-01": "CLOSED",
+    "CPR-AUDIT-02": "CLOSED"
+  },
+  "base": {
+    "sha": "2f45df7717b16b08075b51aabf9cec4afd4b2741",
+    "tree": "245ff85970771585a7d53f9f64bb6a1fbd58474c",
+    "branch": "origin/main",
+    "includes": "THEME & CONTENT SETTINGS v1 (7b2f652, fusion #134)",
+    "verifiedCurrentAtSeal": true
+  },
+  "pureRecomposition": {
+    "sha": "b081cec46731ad6a272be9d6d91bb97a16bcd298",
+    "tree": "e0c27a032bc62e042f09e15bb4965e3f05f78879",
+    "parent": "2f45df7717b16b08075b51aabf9cec4afd4b2741",
+    "note": "Candidat audité réappliqué sur main : 27 fichiers au même blob que 46bc04f + fusion à trois voies de lib/i18n.ts. Arbre identique à celui d'un git cherry-pick réel de a118522 puis 46bc04f sur 2f45df7 (0 conflit)."
+  },
+  "candidate": {
+    "sha": "bc045f28b08d11e896dd3b84874cbbf428acc608",
+    "tree": "f4d70c5aa1fdb9d90fe5356c10f13823663aa381",
+    "parent": "b081cec46731ad6a272be9d6d91bb97a16bcd298",
+    "branch": "feature/catalogue-product-reorder-v1-integration",
+    "note": "candidate.sha désigne le CANDIDAT INTÉGRÉ (HEAD~1 de la branche). HEAD est le commit de scellement de ce paquet et ne touche QUE supabase/evidence/catalogue-product-reorder-v1.1/."
+  },
+  "filesChangedVsCurrentMain": {
+    "count": 28,
+    "modified": [
+      "app/dashboard/catalogue/page.tsx",
+      "lib/catalogue-management/filtering.ts",
+      "lib/catalogue-subcategory-grouping.ts",
+      "lib/i18n.ts",
+      "tests/catalogue-management-ux-v1.dom.test.ts",
+      "tests/catalogue-management-ux-v1_1-tag-context-race.dom.test.ts",
+      "tests/customer-collections-by-tags-backoffice.dom.test.ts",
+      "tests/dashboard-restaurant-context-hardening-v1.dom.test.ts",
+      "tests/online-withdrawal-catalogue-v1-dom.test.ts",
+      "tests/product-service-modes-v1-catalogue-editor.dom.test.ts",
+      "tests/restaurant-context-critical-regression-gate-catalogue.dom.test.ts",
+      "tests/v149-operator-dashboard-context-v1.dom.test.ts",
+      "tests/v150-bulk-product-photos.dom.test.ts",
+      "tests/v151-bulk-photos-v1-1-retry-remediation.dom.test.ts",
+      "tests/v153-cleanup-retry-dom.test.ts",
+      "tests/v67b-photo-error-message.dom.test.ts"
+    ],
+    "added": [
+      "lib/catalogue-product-order.ts",
+      "lib/services/catalogue-product-order.ts",
+      "supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql",
+      "supabase/DRAFT-lot-catalogue-product-reorder-v1.sql",
+      "supabase/tests/catalogue-product-reorder-v1-check.sh",
+      "supabase/tests/catalogue-product-reorder-v1-harness-lib.sh",
+      "supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh",
+      "tests/catalogue-product-reorder-v1-sql.test.ts",
+      "tests/catalogue-product-reorder-v1.dom.test.ts",
+      "tests/catalogue-product-reorder-v1.test.ts",
+      "tests/helpers/catalogue-product-reorder-db.ts",
+      "tests/helpers/catalogue-product-reorder-rpc-model.ts"
+    ],
+    "deleted": [],
+    "renamed": [],
+    "insertions": 8694,
+    "deletions": 15
+  },
+  "equivalenceWithAuditedCandidate": {
+    "lotFiles": 28,
+    "blobIdentical": 26,
+    "divergent": [
+      "lib/i18n.ts",
+      "supabase/tests/catalogue-product-reorder-v1-check.sh"
+    ],
+    "divergence": {
+      "lib/i18n.ts": "fusion à trois voies sans conflit (git merge-file) : main + les 37 lignes de ce lot == candidat audité + les 48 lignes de THEME ; aucune ligne retirée",
+      "supabase/tests/catalogue-product-reorder-v1-check.sh": "chaîne rejouée étendue à DRAFT-lot-theme-content-settings-v1.sql ; +35 preuves d'interaction (0c, 1h, 1i, 16e-bis, 16e-ter, section 17) ; aucune des 263 preuves auditées modifiée ni retirée"
+    },
+    "sqlFilesByteIdentical": true,
+    "testFilesByteIdentical": true,
+    "harnessSafetyLibByteIdentical": true,
+    "cherryPickCounterProof": {
+      "commits": [
+        "a1185224f2bfe24fefd81f4057c6cdbd205939f1",
+        "46bc04f2905fde2b652c5ea0535f4090ce17bcbd"
+      ],
+      "onto": "2f45df7717b16b08075b51aabf9cec4afd4b2741",
+      "conflicts": 0,
+      "resultingTree": "e0c27a032bc62e042f09e15bb4965e3f05f78879",
+      "equalsPureRecompositionTree": true
+    }
+  },
+  "conflicts": {
+    "textual": 0,
+    "concurrentFiles": [
+      "lib/i18n.ts"
+    ],
+    "resolution": "fusion automatique à trois voies, union des clés des deux lots (763 + 16 THEME + 11 ce lot = 790 par langue, aucun doublon)"
+  },
+  "themeInteraction": {
+    "verdict": "PASS",
+    "app/dashboard/catalogue/page.tsx": "non touché par THEME ; blob intégré == blob du candidat audité",
+    "lib/i18n.ts": "seul fichier commun ; union sans perte",
+    "dependencies": "package.json et package-lock.json identiques (ancienne base, main, candidat audité, candidat intégré)",
+    "tests": "aucun fichier de test commun aux deux lots",
+    "sql": "aucun objet commun ; THEME : restaurant_configs.theme_tokens, theme_token_*, theme_tokens_valid, update_restaurant_theme_tokens, 3 fonctions de catalogue MCC ; ce lot : move_product_order uniquement",
+    "mainFilesLost": 0
+  },
+  "results": {
+    "dedicated": {
+      "files": 3,
+      "tests": 135,
+      "pass": 135,
+      "fail": 0,
+      "breakdown": {
+        "tests/catalogue-product-reorder-v1.test.ts": 61,
+        "tests/catalogue-product-reorder-v1-sql.test.ts": 37,
+        "tests/catalogue-product-reorder-v1.dom.test.ts": 37
+      }
+    },
+    "sqlHarnessRealPostgres": {
+      "pass": 298,
+      "fail": 0,
+      "auditedProofs": 263,
+      "integrationProofs": 35,
+      "unmodifiedAuditedHarnessOnPureRecomposition": {
+        "pass": 263,
+        "fail": 0
+      }
+    },
+    "harnessSafetyProbes": {
+      "pass": 92,
+      "fail": 0,
+      "skip": 0,
+      "defaultSocketBait": true
+    },
+    "targeted": {
+      "files": 38,
+      "tests": 816,
+      "pass": 815,
+      "fail": 1,
+      "failingIdentities": [
+        "Scénario 16 — Delivery pricing : un opérateur consultant un établissement hors adhésion ne voit JAMAIS de bouton d'édition actif (canEdit reste role-based-only, aucun bypass SQL n'existe encore)"
+      ],
+      "sameSetOnMainWithoutLotFiles": {
+        "tests": 681,
+        "pass": 680,
+        "fail": 1,
+        "failingIdentities": [
+          "Scénario 16 — Delivery pricing : un opérateur consultant un établissement hors adhésion ne voit JAMAIS de bouton d'édition actif (canEdit reste role-based-only, aucun bypass SQL n'existe encore)"
+        ]
+      }
+    },
+    "typescript": {
+      "main": 0,
+      "candidate": 0
+    },
+    "build": {
+      "main": 0,
+      "candidate": 0,
+      "routes": {
+        "main": 38,
+        "candidate": 38,
+        "added": [],
+        "removed": []
+      },
+      "env": "NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY de substitution"
+    },
+    "fullSuite": {
+      "main": {
+        "tests": 4856,
+        "pass": 4846,
+        "fail": 10
+      },
+      "candidate": {
+        "tests": 4991,
+        "pass": 4981,
+        "fail": 10
+      },
+      "failureIdentitiesIdentical": true,
+      "md5": "d788b58cd63f6c59be1b1195c76bc1c5",
+      "newFailures": []
+    },
+    "mutation": {
+      "sql": {
+        "mutants": 15,
+        "killed": 13,
+        "equivalentSurvivors": [
+          "M07",
+          "M13"
+        ]
+      },
+      "harnessSafetyLib": {
+        "mutants": 14,
+        "killed": 14
+      }
+    }
+  },
+  "verdicts": {
+    "THEME INTERACTION": "PASS",
+    "PRODUCT REORDER BEHAVIOR PRESERVED": "PASS",
+    "CPR-AUDIT-01 REGRESSION": "PASS",
+    "CPR-AUDIT-02 REGRESSION": "PASS",
+    "TENANT ISOLATION": "PASS",
+    "STOREFRONT ORDER": "PASS",
+    "XLSX CONTRACT": "PASS",
+    "SQL ANTI-DRIFT": "PASS",
+    "ROLLBACK": "PASS"
+  },
+  "knownLimits": [
+    "Le harnais catalogue-product-reorder-v1-check.sh n'est plus octet pour octet celui du candidat audité (chaîne THEME + 35 preuves).",
+    "L'en-tête du DRAFT SQL nomme toujours 412dbb5 : fichiers SQL laissés identiques au candidat audité.",
+    "Les observations non bloquantes de l'audit ne figurent pas dans le mandat : non traitées.",
+    "Aucun test permanent d'interaction ajouté dans npm test ; l'interaction SQL est prouvée par la section 17 du harnais.",
+    "Pas d'exécution sous Windows.",
+    "Fenêtre résiduelle de création strictement simultanée à un déplacement (héritée, hors périmètre).",
+    "Tests DOM intermittents préexistants de la base (gap-01-withdrawal-requests-backoffice, tracking-freshness-v1-audit-remediation [E4], v155-admin-catalogue-import-entry-point)."
+  ],
+  "environment": {
+    "node": "v22.22.0",
+    "postgres": "16.15",
+    "pglite": "0.5.8",
+    "next": "15.5.21",
+    "typescript": "5.9.3",
+    "os": "Linux 6.18.44",
+    "date": "2026-10-10"
+  }
+}

@@ -1,0 +1,71 @@
+CATALOGUE PRODUCT REORDER v1.1 — CANDIDAT RECOMPOSÉ SUR MAIN COURANT
+====================================================================
+
+branche                      feature/catalogue-product-reorder-v1-integration
+
+CANDIDAT INTÉGRÉ             bc045f28b08d11e896dd3b84874cbbf428acc608
+arbre du candidat            f4d70c5aa1fdb9d90fe5356c10f13823663aa381
+base (origin/main courant)   2f45df7717b16b08075b51aabf9cec4afd4b2741
+arbre de la base             245ff85970771585a7d53f9f64bb6a1fbd58474c
+
+candidat AUDITÉ (PASS)       46bc04f2905fde2b652c5ea0535f4090ce17bcbd
+arbre audité                 ed142021a0a00322a5e39890aa4eb3698905955e
+tête du paquet audité        5364c8aa25586ee7ce7d15778557b05909628971
+base auditée                 412dbb53c5f180983860852b79425209c04b9c42
+
+STRUCTURE DE LA BRANCHE
+-----------------------
+  HEAD      scellement du paquet de preuves — touche UNIQUEMENT
+            supabase/evidence/catalogue-product-reorder-v1.1/
+  HEAD~1    bc045f28b08d11e896dd3b84874cbbf428acc608
+            LE CANDIDAT INTÉGRÉ : le harnais PostgreSQL rejoue la chaîne
+            de main courant (THEME) — 1 fichier, +128 / −3
+  HEAD~2    b081cec46731ad6a272be9d6d91bb97a16bcd298
+            recomposition pure : le candidat audité réappliqué sur main
+            (arbre e0c27a032bc62e042f09e15bb4965e3f05f78879)
+  HEAD~3    2f45df7 = origin/main courant
+
+TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
+-----------------------------------------
+  1. manifest.candidate.sha == HEAD~1
+  2. git diff --name-only HEAD~1 HEAD  ne renvoie que des chemins sous
+     supabase/evidence/catalogue-product-reorder-v1.1/
+  3. sha256sum -c SHA256SUMS.txt
+
+ÉQUIVALENCE AVEC LE CANDIDAT AUDITÉ
+-----------------------------------
+  Le lot compte 28 fichiers d'implémentation (16 modifiés, 12 ajoutés par
+  rapport à main ; +8694 / −15).
+  26 ont la MÊME empreinte de blob git dans 46bc04f et dans bc045f2 —
+  dont les deux fichiers SQL, l'écran, le service, la bibliothèque de
+  sûreté du harnais, les sondes et les trois fichiers de test du lot.
+  2 divergent, et seulement pour l'intégration :
+    lib/i18n.ts
+        seul fichier touché par les deux lots ; fusion à trois voies sans
+        conflit ; main + 37 lignes de ce lot == audité + 48 lignes de THEME
+    supabase/tests/catalogue-product-reorder-v1-check.sh
+        la chaîne rejouée inclut DRAFT-lot-theme-content-settings-v1.sql ;
+        +35 preuves d'interaction ; aucune des 263 preuves auditées
+        modifiée ni retirée
+  Contre-épreuve : un `git cherry-pick` réel de a118522 puis 46bc04f sur
+  2f45df7 se termine sans conflit et produit exactement l'arbre de la
+  recomposition pure b081cec (e0c27a03…).
+  Détail : equivalence-vs-audited-candidate.txt
+
+RÉSULTATS (mesurés sur bc045f2)
+-------------------------------
+  tests dédiés               135 / 135
+  harnais PostgreSQL réel    298 PASS, 0 FAIL
+  sondes HARNESS-01..08      92 PASS, 0 FAIL, 0 SKIP
+  tests ciblés (38 fichiers) 816 tests, 815 PASS, 1 FAIL (identité de main)
+  tsc                        main 0, candidat 0
+  build                      main EXIT 0, candidat EXIT 0
+  suite complète, main       4856 tests, 4846 PASS, 10 FAIL
+  suite complète, candidat   4991 tests, 4981 PASS, 10 FAIL
+  identités d'échec          identiques (md5 d788b58cd63f6c59be1b1195c76bc1c5)
+  nouveaux échecs            aucun
+
+NI FUSIONNÉ, NI DÉPLOYÉ
+-----------------------
+  Aucune fusion, aucun déploiement, aucun SQL exécuté sur une base
+  hébergée, aucune PR ouverte. L'historique de main n'est pas réécrit.

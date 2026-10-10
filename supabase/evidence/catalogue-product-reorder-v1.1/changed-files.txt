@@ -1,0 +1,29 @@
+ app/dashboard/catalogue/page.tsx                                        |  350 +++++++++++++++++++++++++++-
+ lib/catalogue-management/filtering.ts                                   |  Bin 9622 -> 11428 bytes
+ lib/catalogue-product-order.ts                                          |  304 ++++++++++++++++++++++++
+ lib/catalogue-subcategory-grouping.ts                                   |   40 +++-
+ lib/i18n.ts                                                             |   37 +++
+ lib/services/catalogue-product-order.ts                                 |  107 +++++++++
+ supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql            |  123 ++++++++++
+ supabase/DRAFT-lot-catalogue-product-reorder-v1.sql                     |  691 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ supabase/tests/catalogue-product-reorder-v1-check.sh                    | 1407 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ supabase/tests/catalogue-product-reorder-v1-harness-lib.sh              |  490 +++++++++++++++++++++++++++++++++++++++
+ supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh     |  658 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/catalogue-management-ux-v1.dom.test.ts                            |    3 +
+ tests/catalogue-management-ux-v1_1-tag-context-race.dom.test.ts         |    3 +
+ tests/catalogue-product-reorder-v1-sql.test.ts                          | 1143 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/catalogue-product-reorder-v1.dom.test.ts                          | 1406 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/catalogue-product-reorder-v1.test.ts                              | 1513 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/customer-collections-by-tags-backoffice.dom.test.ts               |    3 +
+ tests/dashboard-restaurant-context-hardening-v1.dom.test.ts             |    3 +
+ tests/helpers/catalogue-product-reorder-db.ts                           |  235 +++++++++++++++++++
+ tests/helpers/catalogue-product-reorder-rpc-model.ts                    |  169 ++++++++++++++
+ tests/online-withdrawal-catalogue-v1-dom.test.ts                        |    3 +
+ tests/product-service-modes-v1-catalogue-editor.dom.test.ts             |    3 +
+ tests/restaurant-context-critical-regression-gate-catalogue.dom.test.ts |    3 +
+ tests/v149-operator-dashboard-context-v1.dom.test.ts                    |    3 +
+ tests/v150-bulk-product-photos.dom.test.ts                              |    3 +
+ tests/v151-bulk-photos-v1-1-retry-remediation.dom.test.ts               |    3 +
+ tests/v153-cleanup-retry-dom.test.ts                                    |    3 +
+ tests/v67b-photo-error-message.dom.test.ts                              |    3 +
+ 28 files changed, 8694 insertions(+), 15 deletions(-)

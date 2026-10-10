@@ -1,0 +1,16 @@
+M00-controle-sans-mutation : 0 preuve(s) en échec sur 37 :: 
+M01-display_order-non-compare : 7 preuve(s) en échec sur 37 :: [CPR-01] 1. REPRODUCTION EXACTE DE L'AUDIT : Comté=1 Beau|[CPR-01] 2. EX ÆQUO INTRODUIT par un autre utilisateur ap|[CPR-01] 3. EX ÆQUO SUPPRIMÉ par un autre utilisateur ap|[CPR-01] 9. UN REFUS NE CHANGE AUCUN display_order, octet |[CPR-01] 10. DEUX DÉPLACEURS CONCURRENTS partis de la mê|[CPR-01] la vue doit être CELLE REÇUE, type JSON compris|[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M02-name-non-compare : 3 preuve(s) en échec sur 37 :: [CPR-01] 4. CHAMP DE DÉPARTAGE modifié alors que TOUS le|[CPR-01] 7. PRODUIT RENOMMÉ après le chargement (le nom |[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M03-name-insensible-a-la-casse : 2 preuve(s) en échec sur 37 :: [CPR-01] 7. PRODUIT RENOMMÉ après le chargement (le nom |[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M04-compteur-de-fraicheur-ignore : 9 preuve(s) en échec sur 37 :: [CPR-01] 1. REPRODUCTION EXACTE DE L'AUDIT : Comté=1 Beau|[CPR-01] 2. EX ÆQUO INTRODUIT par un autre utilisateur ap|[CPR-01] 3. EX ÆQUO SUPPRIMÉ par un autre utilisateur ap|[CPR-01] 4. CHAMP DE DÉPARTAGE modifié alors que TOUS le|[CPR-01] 7. PRODUIT RENOMMÉ après le chargement (le nom |[CPR-01] 9. UN REFUS NE CHANGE AUCUN display_order, octet |[CPR-01] 10. DEUX DÉPLACEURS CONCURRENTS partis de la mê|[CPR-01] la vue doit être CELLE REÇUE, type JSON compris|[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M05-compteur-de-lignes-distinctes-ignore : 1 preuve(s) en échec sur 37 :: [MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M06-monotonie-ignoree : 2 preuve(s) en échec sur 37 :: ex æquo d'un état FRAIS : l'ordre affiché est celui de |[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M07-sans-garde-de-taille : 0 preuve(s) en échec sur 37 :: 
+M08-jointure-acceptant-les-archives : 3 preuve(s) en échec sur 37 :: AUCUN DÉPLACEMENT ENTRE CATÉGORIES : la RPC n'écrit jam|[CPR-01] 5. PRODUIT INSÉRÉ dans le périmètre après le|[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M09-jointure-ignorant-la-sous-categorie : 2 preuve(s) en échec sur 37 :: AUCUN DÉPLACEMENT ENTRE CATÉGORIES : la RPC n'écrit jam|[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M10-type-json-de-display_order-non-verifie : 2 preuve(s) en échec sur 37 :: [CPR-01] la vue doit être CELLE REÇUE, type JSON compris|[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
+M11-type-json-de-name-non-verifie : 1 preuve(s) en échec sur 37 :: [CPR-01] la vue doit être CELLE REÇUE, type JSON compris|
+M12-reecrit-les-lignes-inchangees : 1 preuve(s) en échec sur 37 :: [CPR-01] un déplacement accepté ne réécrit QUE les lig|
+M13-type-json-de-id-non-verifie : 0 preuve(s) en échec sur 37 :: 
+M14-display_order-compare-en-numerique : 1 preuve(s) en échec sur 37 :: [CPR-01] la vue doit être CELLE REÇUE, type JSON compris|
+M15-name-compare-apres-rognage : 2 preuve(s) en échec sur 37 :: [CPR-01] 7. PRODUIT RENOMMÉ après le chargement (le nom |[MODÈLE] le modèle TypeScript du contrat RPC -- celui qu|
