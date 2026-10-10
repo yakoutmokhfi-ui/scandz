@@ -383,24 +383,133 @@
  * re-run, unchanged, as part of this remediation's regression to prove
  * this decision cost nothing.
  *
- * SUPPORTED DEFAULT-NAMESPACE ATTRIBUTE POLICY (documented, deliberate
- * departure from strict XML Namespaces semantics): per the XML
- * Namespaces spec, an UNPREFIXED attribute carries NO namespace at
- * all, even when its owning element sits inside a default
- * `xmlns="…"` binding — so, taken strictly, `<bookmarkStart
- * xmlns="…wordprocessingml…" id="1" name="cgv_x"/>` would leave `id`
- * and `name` outside the WordprocessingML namespace entirely, unusable
- * for bookmark identity. This reader instead treats an UNPREFIXED
- * attribute as inheriting its OWNING ELEMENT's resolved namespace
- * whenever that element itself resolves to WordprocessingML — see
- * `normalizeToStandardWordprocessingPrefix` below — so the
- * default-namespace bookmark form is recognized exactly like the
- * explicit-prefix form. This is this reader's own supported policy
- * for deciding which canonical prefix an attribute is rewritten to; it
- * is NEVER used to accept a WRONG namespace (an attribute explicitly
- * bound to a different prefix/namespace is never reinterpreted this
- * way, and an attribute on a NON-WordprocessingML element is never
- * promoted into the WordprocessingML namespace by this rule).
+ * UNPREFIXED-ATTRIBUTE POLICY (SUPERSEDED by the FIFTH remediation
+ * below): this remediation originally treated an UNPREFIXED attribute
+ * as inheriting its owning element's resolved namespace whenever that
+ * element itself resolved to WordprocessingML (so `<bookmarkStart
+ * xmlns="…wordprocessingml…" id="1" name="cgv_x"/>`'s `id`/`name`
+ * would be rewritten to `w:id`/`w:name`). The FIFTH remediation found
+ * this was NOT namespace-identity-preserving — see that section's own
+ * write-up for the full correction; `normalizeToStandardWordprocessingPrefix`
+ * below NO LONGER does this.
+ *
+ * ====================================================================
+ * W1 FIFTH TARGETED REMEDIATION (BOULEZ fourth delta re-audit,
+ * candidate 4f7b976, FAIL) — W1-ATTR-IDENTITY-01 — this section
+ * documents the fix added on top of the FOURTH remediation above,
+ * which the fourth delta re-audit confirmed PASS for W1-PREFIX-BODY-01
+ * (the exact `<x:t>14 jours</x:t>` body reproduction and the
+ * alternate-prefix bookmark reproduction both now correctly surface),
+ * W1-01, W1-02, W1-03, W1-04, and the Windows DOM harness (left
+ * entirely unchanged by this fifth pass).
+ * ====================================================================
+ *
+ * W1-ATTR-IDENTITY-01 — ATTRIBUTE NAMESPACE IDENTITY, NEVER INHERITED
+ * FROM THE ELEMENT. The audit's exact reproduction: a `bookmarkStart`
+ * correctly sitting in the WordprocessingML namespace carries BOTH an
+ * unprefixed `name="cgv_b"` AND an explicitly WordprocessingML-
+ * qualified `w:name="cgv_a"`. Per the XML Namespaces spec, an
+ * unprefixed ELEMENT may sit in a default namespace, but an
+ * unprefixed ATTRIBUTE is NEVER placed in that namespace — "the
+ * default namespace does not apply to attributes" (XML Namespaces
+ * 1.0, §5.3). The FOURTH remediation's `elementIsWordprocessing`
+ * promotion rule violated exactly this: it rewrote the UNPREFIXED
+ * `name` to `w:name` merely because the owning element resolved to
+ * WordprocessingML, colliding it with the GENUINELY WordprocessingML-
+ * qualified `w:name` already on the same element — the normalizer
+ * then wrote BOTH rewritten attributes into the SAME serialized
+ * output string, one after the other in SOURCE order (the normalizer
+ * never deduplicated by canonical name, it simply concatenated), so
+ * the normalized text could contain two literal `w:name="…"`
+ * occurrences on one element. `extractXmlAttribute`'s regex lookup
+ * (`.exec()`, which always returns the FIRST match) then silently
+ * picked whichever one happened to appear FIRST in SOURCE order —
+ * verified directly: source order `w:name="cgv_a" name="cgv_b"`
+ * happened to still read "cgv_a" (the first, correct, occurrence),
+ * while the REVERSED source order `name="cgv_b" w:name="cgv_a"` —
+ * the audit's own reproduction order — read "cgv_b" instead, binding
+ * the import to the WRONG CGV chapter identity while still reporting
+ * `hasNoMeaningfulChanges=true` against the real `cgv_b` chapter — a
+ * silent legal misidentification, not merely a silent loss, and one
+ * whose outcome depended on an incidental attribute-ordering detail
+ * no legitimate Word document has any reason to be consistent about.
+ *
+ * FIX — the promotion rule is DELETED outright (never replaced by a
+ * narrower version of itself): in `normalizeToStandardWordprocessingPrefix`,
+ * an attribute's effective namespace URI is now:
+ *   - its OWN resolved URI (via `attribute.uri`, already correctly
+ *     computed by `saxes` from whichever prefix the attribute itself
+ *     carries) when the attribute IS prefixed;
+ *   - the empty string — UNCONDITIONALLY, regardless of the owning
+ *     element's own namespace — when the attribute is unprefixed.
+ * An unprefixed `name`/`id` therefore always canonicalizes to the
+ * bare, unqualified `name`/`id` (never `w:name`/`w:id`), so it can
+ * never be read by `extractXmlAttribute(attrs, "w:name")` /
+ * `"w:id"` — "an unqualified id/name must NOT masquerade as w:id/
+ * w:name" (mandate). Default-namespace ELEMENTS are UNAFFECTED by
+ * this change (an element's own prefix/default-namespace resolution
+ * was never the bug) — a `<bookmarkStart xmlns="…wordprocessingml…">`
+ * is still recognized exactly as before, PROVIDED its `id`/`name`
+ * attributes are themselves WordprocessingML-qualified (explicitly
+ * prefixed, or carried by a SEPARATE, correctly-qualified attribute);
+ * an unprefixed `id`/`name` on such an element is now correctly
+ * treated as carrying NO recognized bookmark identity at all, exactly
+ * like an unprefixed `id`/`name` on a `w:`-prefixed element always
+ * was (this reader never had, and still does not have, any special
+ * case for the ELEMENT's own prefix choice — only for its resolved
+ * namespace, which is exactly the point).
+ *
+ * COLLISION / AMBIGUITY — ALREADY ENFORCED BY THE EXISTING
+ * WELL-FORMEDNESS CHECK, NOT RE-IMPLEMENTED: the mandate asks that two
+ * attributes which would normalize to the same canonical qualified
+ * name on one element must never be silently resolved by picking
+ * one — "reuse an existing malformed/unsupported XML error if
+ * semantically appropriate". With the promotion rule removed, this
+ * reader's own canonical-name function (`local` + resolved `uri`,
+ * prefixed attributes resolved via `saxes`'s own namespace machinery,
+ * unprefixed attributes always carrying the empty URI) computes
+ * EXACTLY the same identity `saxes` itself already uses, INTERNALLY,
+ * to reject a duplicate attribute (`processAttribsNS`'s own
+ * `eqname`/`seen` check, which keys a PREFIXED attribute by
+ * `{resolvedUri}localName` and an UNPREFIXED attribute by its bare
+ * literal name — i.e. it NEVER lets a default namespace apply to an
+ * attribute either, the exact same rule this fix now also follows).
+ * Concretely: two attributes that would collide under THIS reader's
+ * canonicalization (e.g. `w:name="A" x:name="B"` where `x` is ALSO
+ * bound to the WordprocessingML namespace) necessarily share the same
+ * `saxes`-resolved `(uri, local)` pair too, so `saxes` ALREADY raises
+ * "duplicate attribute" and `assertWellFormedXml` (ALWAYS called, in
+ * `extractRawParagraphs`, immediately before
+ * `normalizeToStandardWordprocessingPrefix` ever runs — see that
+ * function) already throws `MALFORMED_DOCUMENT` before normalization
+ * begins — verified directly against this exact payload in a sandbox
+ * script before relying on it here, and exercised by its own test
+ * below (W1-T-126). By contrast, an UNPREFIXED `name` alongside a
+ * genuinely-qualified `w:name` (the audit's own exact reproduction)
+ * is NOT a collision at all under correct namespace semantics — they
+ * are two DIFFERENT attributes, one with no namespace and one
+ * WordprocessingML-qualified — so `saxes` correctly allows it, and
+ * this reader correctly uses ONLY the qualified one (Option A from the
+ * mandate: "preserve namespace identities such that the real
+ * WordprocessingML attribute w:name is selected", never Option B's
+ * explicit rejection, which would be reaching for a NEW failure mode
+ * to guard an input that is not actually ambiguous once attribute
+ * identity is computed correctly). No new error code or detection pass
+ * was added: the mandate's "reuse an existing … error if semantically
+ * appropriate" branch was exactly the right fit, already wired in, and
+ * already covers the one case that is a genuine identity collision.
+ *
+ * ORDER-INDEPENDENCE: `saxes` exposes an element's attributes as a
+ * plain object keyed by raw literal name (`w:name` and `name` are
+ * different object keys), and this function iterates
+ * `Object.keys(node.attributes)` — insertion order for string keys in
+ * a JS object is always SOURCE order, never alphabetical or
+ * hash-based, but since each surviving (non-colliding) attribute
+ * writes to its OWN distinct canonical output name, source order
+ * never changes which attributes end up in the output or what they
+ * say — see W1-T-121/122 below, which prove `name=…
+ * w:name=…` and `w:name=… name=…` (reversed) produce the identical
+ * recognized bookmark.
  */
 
 import {
@@ -900,7 +1009,6 @@ function normalizeToStandardWordprocessingPrefix(xml: string): string {
 
   parser.on("opentag", (node) => {
     const elementUri = node.uri ?? "";
-    const elementIsWordprocessing = elementUri === WORDPROCESSINGML_NAMESPACE_URI;
     const localName = node.local ?? node.name;
     let attributesOut = "";
 
@@ -914,22 +1022,17 @@ function normalizeToStandardWordprocessingPrefix(xml: string): string {
       // comment above; never a semantic attribute downstream reads.
       if (attribute.local === "xmlns" || attribute.prefix === "xmlns") continue;
 
-      let attributeUri: string;
-      if (attribute.prefix !== "") {
-        // Explicitly prefixed -- `saxes` already resolved this
-        // correctly via standard namespace scoping.
-        attributeUri = attribute.uri;
-      } else if (elementIsWordprocessing) {
-        // SUPPORTED DEFAULT-NAMESPACE ATTRIBUTE POLICY -- see the file
-        // header's "W1 FOURTH TARGETED REMEDIATION" section for the
-        // full rationale: an unprefixed attribute on a
-        // WordprocessingML element is treated as belonging to that
-        // same namespace for canonical-prefix purposes, even though
-        // strict XML Namespaces semantics would leave it unprefixed.
-        attributeUri = WORDPROCESSINGML_NAMESPACE_URI;
-      } else {
-        attributeUri = "";
-      }
+      // W1 FIFTH REMEDIATION (W1-ATTR-IDENTITY-01) -- an attribute's
+      // namespace is its OWN resolved namespace, NEVER its owning
+      // element's. Per XML Namespaces §5.3, a default namespace never
+      // applies to an unprefixed attribute, full stop -- there is no
+      // "but the element is WordprocessingML" exception, and this
+      // function must not invent one (see the file header's "W1 FIFTH
+      // TARGETED REMEDIATION" section for the full write-up of why the
+      // previous `elementIsWordprocessing` promotion was wrong). An
+      // unprefixed attribute therefore ALWAYS carries the empty URI
+      // here, regardless of the element it sits on.
+      const attributeUri = attribute.prefix !== "" ? attribute.uri : "";
 
       const attributeName = canonicalName(attribute.local, attributeUri);
       attributesOut += ` ${attributeName}="${escapeAttributeValue(attribute.value)}"`;

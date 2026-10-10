@@ -1611,17 +1611,44 @@ test("W1-T-109 | mandatory bookmark test 3 -- an arbitrary prefix <foo:bookmarkS
   assert.equal(imported.chapters[0].bookmarkName, name);
 });
 
-test("W1-T-110 | mandatory bookmark test 4 -- default-namespace bookmark form (no prefix, unprefixed id/name attributes) is recognized, per the documented default-namespace attribute policy", () => {
+test("W1-T-110 | mandatory bookmark test 4 -- a default-namespace bookmark ELEMENT, with its id/name attributes THEMSELVES WordprocessingML-qualified (w:id/w:name), is recognized", () => {
+  // W1 FIFTH REMEDIATION (W1-ATTR-IDENTITY-01) -- CORRECTED from the
+  // fourth remediation's version of this test: the ELEMENT may sit in
+  // a default namespace, but its ATTRIBUTES must be their OWN
+  // WordprocessingML-qualified attributes to be recognized -- an
+  // unprefixed attribute is NEVER promoted into the element's
+  // namespace (see W1-T-110b below for that corrected case).
   const model = baseModel();
   const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
   const body =
-    `<w:p><bookmarkStart xmlns="${WP_NS}" id="0" name="${name}"/>` +
+    `<w:p><bookmarkStart xmlns="${WP_NS}" w:id="0" w:name="${name}"/>` +
     `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
-    `<bookmarkEnd xmlns="${WP_NS}" id="0"/></w:p>`;
+    `<bookmarkEnd xmlns="${WP_NS}" w:id="0"/></w:p>`;
   const docx = buildMinimalDocx(wordDocumentXml(body));
   const imported = readDocxDocument(docx);
   assert.equal(imported.chapters.length, 1);
   assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-110b | mandatory bookmark test 10 -- a default-namespace bookmark ELEMENT whose id/name attributes are themselves UNQUALIFIED (unprefixed) is NOT recognized -- an unprefixed attribute is never promoted into the element's namespace", () => {
+  // W1 FIFTH REMEDIATION (W1-ATTR-IDENTITY-01) -- this is the FOURTH
+  // remediation's own W1-T-110 fixture, now asserting the CORRECTED
+  // outcome: per XML Namespaces, a default namespace never applies to
+  // an unprefixed attribute, so `id`/`name` here carry NO recognized
+  // bookmark identity at all -- the document ends up with zero
+  // recognized CGV bookmarks (this is the ONLY bookmark attempt in the
+  // fixture), failing closed exactly like W1-T-11's existing contract,
+  // never silently guessed.
+  const body =
+    `<w:p><bookmarkStart xmlns="${WP_NS}" id="0" name="cgv_identite-du-vendeur"/>` +
+    `<w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r>` +
+    `<bookmarkEnd xmlns="${WP_NS}" id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "NO_RECOGNIZED_BOOKMARK");
+    return true;
+  });
 });
 
 test("W1-T-111 | mandatory bookmark test 5 -- a WRONG namespace sharing the local names 'bookmarkStart'/'bookmarkEnd' must NOT be recognized as a CGV bookmark (fails closed, never guessed)", () => {
@@ -1717,5 +1744,167 @@ test("W1-T-117 | mandatory bookmark test 11 -- Word's own '_GoBack' housekeeping
   const imported = readDocxDocument(docx);
   assert.equal(imported.chapters.length, 1);
   assert.deepEqual(imported.leadingContent, ["Début de sélection.", "Fin de sélection."]);
+});
+
+// ====================================================================
+// W1 FIFTH REMEDIATION -- W1-ATTR-IDENTITY-01 -- ATTRIBUTE NAMESPACE
+// IDENTITY, NEVER INHERITED FROM THE ELEMENT (BOULEZ fourth delta
+// re-audit, candidate 4f7b976, FAIL). Exact reproduction: a
+// `bookmarkStart` correctly sitting in the WordprocessingML namespace
+// carries BOTH an unprefixed `name="cgv_b"` and an explicitly
+// WordprocessingML-qualified `w:name="cgv_a"` -- the FOURTH
+// remediation's "unprefixed attribute inherits the element's
+// namespace" policy collapsed both to `w:name`, and whichever one
+// happened to appear LAST in source order silently won (verified
+// empirically against the fourth candidate's own code, see
+// docx-reader.ts's "W1 FIFTH TARGETED REMEDIATION" doc comment for the
+// exact mechanism) -- binding the import to the WRONG CGV chapter.
+// Fixed: an unprefixed attribute NEVER inherits its element's
+// namespace (XML Namespaces §5.3); only the genuinely WordprocessingML-
+// qualified `w:name`/`x:name`/etc. is ever recognized.
+// ====================================================================
+
+test("W1-T-118 | mandatory attribute-identity test 1 -- w:name only is recognized (baseline, unchanged behavior)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body = bookmarkedParagraphXml(0, name, model.chapters[0].heading);
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-119 | mandatory attribute-identity test 2 -- x:name, where x resolves to the WordprocessingML namespace, is recognized", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" x:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-120 | mandatory attribute-identity test 3 -- an unprefixed 'name' attribute alone (no w:/alt-prefix name anywhere) is NOT treated as a WordprocessingML bookmark name", () => {
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" name="cgv_identite-du-vendeur"/>` +
+    `<w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  // No WordprocessingML-qualified `w:name` anywhere -> no recognized
+  // bookmark identity at all -> structurally unmappable, exactly
+  // W1-T-11's existing "zero recognized bookmarks" contract.
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "NO_RECOGNIZED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-121 | mandatory attribute-identity test 4 -- THE EXACT AUDITOR REPRODUCTION: a bookmarkStart carrying BOTH name='cgv_b' (unprefixed) and w:name='cgv_a' (qualified) recognizes cgv_a ONLY, never cgv_b", () => {
+  const model = baseModel();
+  const nameA = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const nameB = toOoxmlBookmarkName(model.chapters[1].bookmarkName);
+  assert.notEqual(nameA, nameB, "fixture needs two distinct real current-model chapter identities");
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" name="${nameB}" w:name="${nameA}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(
+    imported.chapters[0].bookmarkName,
+    nameA,
+    "AUDITOR REPRODUCTION: the genuinely WordprocessingML-qualified w:name must win -- the unprefixed name must never be silently promoted and never win"
+  );
+  assert.notEqual(imported.chapters[0].bookmarkName, nameB, "the import must never be bound to the wrong (unprefixed-only) chapter identity");
+  // The current model's OWN diff must therefore see chapters[0]
+  // (nameA) as present/unchanged and chapters[1] (nameB) as a genuine
+  // removedChapters entry -- never a silent hasNoMeaningfulChanges=true
+  // that papers over the misidentification.
+  const diff = diffCgvDocxImport(model, imported);
+  assert.ok(
+    diff.removedChapters.some((c) => c.bookmarkName === model.chapters[1].bookmarkName),
+    "expected the chapter that was never actually re-presented (nameB) to surface as removed, never silently absorbed"
+  );
+});
+
+test("W1-T-122 | mandatory attribute-identity test 5 -- REVERSED source order (w:name='cgv_a' before name='cgv_b') produces the EXACT SAME outcome as test 4 -- never order-dependent", () => {
+  const model = baseModel();
+  const nameA = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const nameB = toOoxmlBookmarkName(model.chapters[1].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" w:name="${nameA}" name="${nameB}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, nameA, "reversing the source attribute order must never change which identity wins");
+});
+
+test("W1-T-123 | mandatory attribute-identity test 6 -- x:name='cgv_a' (x resolves to WordprocessingML) + unprefixed name='cgv_b' produces the EXACT SAME outcome as test 4", () => {
+  const model = baseModel();
+  const nameA = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const nameB = toOoxmlBookmarkName(model.chapters[1].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" x:name="${nameA}" name="${nameB}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, nameA, "an alternate WordprocessingML-bound prefix must win over an unprefixed attribute exactly like 'w:' does");
+});
+
+test("W1-T-124 | mandatory attribute-identity test 7 -- a FOREIGN-namespace 'name' attribute alongside the real w:name never aliases to it -- the real w:name wins semantically", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" y:name="should-never-be-read" w:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:y="http://example.com/some-other-namespace"`, body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name);
+});
+
+test("W1-T-125 | mandatory attribute-identity test 8 -- an unprefixed 'id' alongside the real w:id never collides with it / never produces a false bookmark pairing", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart id="999" w:id="0" w:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.equal(imported.chapters[0].bookmarkName, name, "the spurious unprefixed id must never be paired against the real w:id-identified bookmarkEnd");
+});
+
+test("W1-T-126 | DEFENSE IN DEPTH -- two DIFFERENT prefixes BOTH explicitly bound to the WordprocessingML namespace, both used for 'name' on one element, is a genuine identity collision and fails closed (via the existing namespace-aware well-formedness check, never a new silent pick)", () => {
+  const model = baseModel();
+  const nameA = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const nameB = toOoxmlBookmarkName(model.chapters[1].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" w:name="${nameA}" x:name="${nameB}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXmlWithDeclarations(` xmlns:x="${WP_NS}"`, body));
+  // `w:name` and `x:name` resolve to the IDENTICAL (uri, local) pair
+  // here (both `x` and `w` are bound to the WordprocessingML
+  // namespace) -- a genuine namespace-identity collision, which
+  // `saxes`'s own duplicate-attribute check already rejects at the
+  // well-formedness stage, before normalization ever runs (see
+  // docx-reader.ts's "COLLISION / AMBIGUITY" write-up).
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
 });
 
