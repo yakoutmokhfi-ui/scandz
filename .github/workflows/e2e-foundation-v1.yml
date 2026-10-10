@@ -1,0 +1,64 @@
+name: E2E Foundation v1 (informational)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - '.github/workflows/e2e-foundation-v1.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-foundation-v1:
+    name: Local Chromium read-only (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Informational in v1. Never add this job to required branch checks.
+    continue-on-error: true
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Run synthetic local UI integration (zero retries)
+        id: e2e
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee playwright-run.log
+      - name: Preserve results, including read-only audit attachments
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-foundation-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+            playwright-results.json
+            playwright-run.log
+          retention-days: 7
+      - name: Informational summary
+        if: always()
+        env:
+          OUTCOME: ${{ steps.e2e.outcome }}
+        run: |
+          echo "E2E outcome: $OUTCOME; retries: 0; synthetic loopback data only." >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Production/PREPROD, merchant credentials or deployed database/RLS coverage.' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$OUTCOME" != success ]; then
+            echo '::warning::E2E foundation did not pass. Informational only; inspect artifacts.'
+          fi

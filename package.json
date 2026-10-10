@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.63.0",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
