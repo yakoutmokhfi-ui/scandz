@@ -9,6 +9,8 @@ import {
   type InvoiceRequestErrors,
   type InvoiceType,
 } from "@/lib/invoice-request";
+import { resolveCommunicationText } from "@/lib/communications/resolve";
+import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { CustomerInfo } from "@/lib/customer";
 
@@ -49,6 +51,27 @@ import type { CustomerInfo } from "@/lib/customer";
  * ce toggle n'apparaît pas du tout et le comportement reste celui
  * d'avant ce lot (champs manuels toujours obligatoires).
  *
+ * CUSTOMER BILLING PROFILE v2 (Claude Monet) — QUATRE évolutions, à
+ * périmètre d'interface constant (aucune refonte du checkout) :
+ *
+ *   1. PARTICULIER : prénom et nom de famille saisis SÉPARÉMENT, et
+ *      préremplis depuis le client de la commande lorsque celui-ci les
+ *      a déjà donnés (même convention que le reste du checkout). Les
+ *      deux champs se recomposent dans le champ de contact existant --
+ *      aucune colonne, aucun concept de nom supplémentaire.
+ *   2. SOCIÉTÉ : champ SIREN, à côté du numéro de TVA déjà présent.
+ *      Les deux portent la mention « optionnel » DANS leur libellé :
+ *      l'optionalité doit être VISIBLE, pas seulement vraie (mandat
+ *      §9). Aucun contrôle de format, aucune correction de la saisie.
+ *   3. Les champs SOCIÉTÉ n'apparaissent QUE lorsque « Société » est
+ *      sélectionné -- comportement déjà en place, étendu au SIREN.
+ *   4. Un texte d'explication CONFIGURABLE PAR LE COMMERÇANT
+ *      (emplacement `billing_profile_explanation` du catalogue fermé
+ *      MERCHANT CUSTOMER COMMUNICATIONS v1) s'affiche en tête du bloc
+ *      quand il est renseigné. Aucun texte par défaut, aucun texte
+ *      propre à un commerçant codé en dur : non renseigné = rien
+ *      affiché, exactement comme avant ce lot.
+ *
  * Ce même lot ferme aussi un écart d'interface préexistant : les
  * champs `contactName`/`contactEmail` n'étaient rendus que pour la
  * facture SOCIÉTÉ, alors que `lib/invoice-request.ts` les définit
@@ -67,6 +90,7 @@ function Field({
   type = "text",
   autoComplete,
   maxLength,
+  placeholder,
 }: {
   id: string;
   label: string;
@@ -76,6 +100,11 @@ function Field({
   type?: string;
   autoComplete?: string;
   maxLength?: number;
+  /** CUSTOMER BILLING PROFILE v2 -- utilisé pour MONTRER la valeur de
+   *  repli (le prénom/nom déjà donné pour la commande) sans la COPIER
+   *  dans l'état du formulaire : le client voit ce qui sera retenu
+   *  s'il laisse le champ vide, et toute saisie de sa part prévaut. */
+  placeholder?: string;
 }) {
   return (
     <div className="scroll-mt-4">
@@ -88,6 +117,7 @@ function Field({
         value={value}
         autoComplete={autoComplete}
         maxLength={maxLength}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
         className={
@@ -120,14 +150,32 @@ export default function InvoiceRequestFields({
   onChange,
   serviceMode,
   customer,
+  communicationTexts = null,
 }: {
   info: InvoiceRequestInfo;
   errors: InvoiceRequestErrors;
   onChange: (next: InvoiceRequestInfo) => void;
   serviceMode?: ServiceMode | null;
   customer?: CustomerInfo;
+  /** CUSTOMER BILLING PROFILE v2 -- surcharges marchandes déjà
+   *  chargées par MenuView et transmises par CartPanel. `null` /
+   *  absent = aucun texte marchand, donc aucun bloc rendu. */
+  communicationTexts?: CommunicationTextOverrides | null;
 }) {
   const { t } = useI18n();
+
+  /**
+   * Texte d'explication du commerçant. `resolveCommunicationText` est
+   * la SEULE autorité de résolution du dépôt ; cet emplacement n'a
+   * aucun défaut plateforme, donc `source === "absent"` et `text ===
+   * null` est le cas NORMAL -- on ne rend alors AUCUN élément (jamais
+   * un paragraphe vide).
+   */
+  const merchantExplanation = resolveCommunicationText(
+    "billing_profile_explanation",
+    communicationTexts,
+    t
+  );
   // "Adresse de facturation différente de l'adresse de livraison ?"
   // -- décochée par défaut (mandat, littéral : "defaulting to NO").
   // État d'INTERFACE local uniquement -- jamais transmis à `onChange`,
@@ -201,6 +249,19 @@ export default function InvoiceRequestFields({
 
       {info.wantsInvoice && (
         <div className="space-y-3 rounded-xl border border-espresso/10 bg-white/50 p-3">
+          {/* CUSTOMER BILLING PROFILE v2 -- explication du commerçant.
+              Rendue UNIQUEMENT si elle existe : aucun défaut, aucun
+              texte propre à un commerçant codé en dur. Nœud texte
+              React, jamais du balisage interprété. */}
+          {merchantExplanation.text && (
+            <p
+              data-invoice-merchant-explanation=""
+              className="whitespace-pre-wrap break-words text-xs text-ink-on-bg-muted"
+            >
+              {merchantExplanation.text}
+            </p>
+          )}
+
           <div className="flex gap-4 text-sm">
             <label className="flex items-center gap-1.5">
               <input
@@ -221,6 +282,34 @@ export default function InvoiceRequestFields({
               {t("invTypeCompany")}
             </label>
           </div>
+
+          {/* CUSTOMER BILLING PROFILE v2 -- PARTICULIER : prénom et nom
+              de famille, saisis séparément. Recomposés dans le champ de
+              contact existant à l'envoi (composeBillingContactName). */}
+          {info.invoiceType === "individual" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                id="invoice-first-name"
+                label={t("invFirstName")}
+                value={info.firstName}
+                error={errors.firstName ? t(errors.firstName) : undefined}
+                onChange={(v) => set("firstName", v)}
+                autoComplete="given-name"
+                maxLength={INVOICE_FIELD_MAX_LENGTHS.firstName}
+                placeholder={(customer?.firstName ?? "").trim() || undefined}
+              />
+              <Field
+                id="invoice-last-name"
+                label={t("invLastName")}
+                value={info.lastName}
+                error={errors.lastName ? t(errors.lastName) : undefined}
+                onChange={(v) => set("lastName", v)}
+                autoComplete="family-name"
+                maxLength={INVOICE_FIELD_MAX_LENGTHS.lastName}
+                placeholder={(customer?.lastName ?? "").trim() || undefined}
+              />
+            </div>
+          )}
 
           {info.invoiceType === "company" && (
             <Field
@@ -318,15 +407,37 @@ export default function InvoiceRequestFields({
             maxLength={INVOICE_FIELD_MAX_LENGTHS.contactEmail}
           />
 
+          {/* CUSTOMER BILLING PROFILE v2 -- identifiants d'entreprise :
+              SIREN et numéro de TVA, TOUS DEUX OPTIONNELS, et dits
+              tels dans leur propre libellé (l'optionalité doit être
+              VISIBLE). Aucun champ SIRET n'existe ici ; aucune valeur
+              n'est dérivée de l'autre ; la saisie du client n'est
+              jamais corrigée. */}
           {info.invoiceType === "company" && (
-            <Field
-              id="invoice-vat-number"
-              label={t("invVatNumber")}
-              value={info.vatNumber}
-              error={errors.vatNumber ? t(errors.vatNumber) : undefined}
-              onChange={(v) => set("vatNumber", v)}
-              maxLength={INVOICE_FIELD_MAX_LENGTHS.vatNumber}
-            />
+            <>
+              <Field
+                id="invoice-siren"
+                // Le libellé PORTE LUI-MÊME la mention « optionnel »
+                // (comme `invVatNumber` depuis v1.1) : l'optionalité
+                // reste visible même si cette ligne d'aide manquait.
+                label={t("invSiren")}
+                value={info.siren}
+                error={errors.siren ? t(errors.siren) : undefined}
+                onChange={(v) => set("siren", v)}
+                maxLength={INVOICE_FIELD_MAX_LENGTHS.siren}
+              />
+              <Field
+                id="invoice-vat-number"
+                label={t("invVatNumber")}
+                value={info.vatNumber}
+                error={errors.vatNumber ? t(errors.vatNumber) : undefined}
+                onChange={(v) => set("vatNumber", v)}
+                maxLength={INVOICE_FIELD_MAX_LENGTHS.vatNumber}
+              />
+              <p data-invoice-identifiers-optional="" className="text-xs text-ink-on-bg-muted">
+                {t("invCompanyIdentifiersOptionalHint")}
+              </p>
+            </>
           )}
         </div>
       )}

@@ -99,7 +99,7 @@ export async function getDashboardOrders(
         delivery_fee_tax_amount
       ),
       order_invoice_request (
-        invoice_type, company_legal_name, vat_number, contact_name,
+        invoice_type, company_legal_name, vat_number, siren, contact_name,
         contact_email, address_line_1, address_line_2, city, postal_code,
         country, updated_at
       )

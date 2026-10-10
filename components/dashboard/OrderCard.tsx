@@ -288,6 +288,17 @@ export default function OrderCard({
               {t("invCompanyLegalName")} : {order.order_invoice_request.company_legal_name}
             </p>
           )}
+          {/* CUSTOMER BILLING PROFILE v2 -- SIREN et TVA affichés
+              UNIQUEMENT lorsqu'ils ont été renseignés : un identifiant
+              absent ne produit AUCUNE ligne (jamais un « SIREN : — »
+              fabriqué), et son absence n'est pas présentée comme une
+              anomalie -- les deux champs sont optionnels par décision
+              produit. */}
+          {order.order_invoice_request.siren && (
+            <p>
+              {t("dsInvoiceSiren")} : {order.order_invoice_request.siren}
+            </p>
+          )}
           {order.order_invoice_request.vat_number && (
             <p>
               {t("dsInvoiceVatNumber")} : {order.order_invoice_request.vat_number}

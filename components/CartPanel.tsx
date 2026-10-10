@@ -565,6 +565,11 @@ export default function CartPanel({
                   onChange={onChangeInvoiceRequest}
                   serviceMode={serviceMode}
                   customer={customer}
+                  // CUSTOMER BILLING PROFILE v2 -- MÊME source de
+                  // textes marchands que FulfillmentSelector juste
+                  // au-dessus : aucune seconde lecture, aucun second
+                  // chargement.
+                  communicationTexts={communicationTexts}
                 />
               </div>
 

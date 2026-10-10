@@ -33,6 +33,8 @@ interface InvoiceRequestBody {
   country?: unknown;
   companyLegalName?: unknown;
   vatNumber?: unknown;
+  /** CUSTOMER BILLING PROFILE v2 -- optionnel, relayé tel quel. */
+  siren?: unknown;
   contactName?: unknown;
   contactEmail?: unknown;
 }
@@ -83,6 +85,10 @@ export async function POST(request: NextRequest) {
   if (!isOptionalString(body.addressLine2)) return validationFailureResponse("addressLine2");
   if (!isOptionalString(body.companyLegalName)) return validationFailureResponse("companyLegalName");
   if (!isOptionalString(body.vatNumber)) return validationFailureResponse("vatNumber");
+  // CUSTOMER BILLING PROFILE v2 -- SIREN : contrôle de TYPE seulement
+  // (une chaîne, ou rien). Aucune règle de format, aucune obligation :
+  // la RPC SQL ne vérifie elle-même que la longueur.
+  if (!isOptionalString(body.siren)) return validationFailureResponse("siren");
   if (!isOptionalString(body.contactName)) return validationFailureResponse("contactName");
   if (!isOptionalString(body.contactEmail)) return validationFailureResponse("contactEmail");
 
@@ -107,6 +113,7 @@ export async function POST(request: NextRequest) {
       addressLine2: body.addressLine2 ?? null,
       companyLegalName: body.companyLegalName ?? null,
       vatNumber: body.vatNumber ?? null,
+      siren: body.siren ?? null,
       contactName: body.contactName ?? null,
       contactEmail: body.contactEmail ?? null,
     });

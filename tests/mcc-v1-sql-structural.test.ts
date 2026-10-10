@@ -55,38 +55,197 @@ const execSql = executableSql(sql);
 
 /** Les littéraux d'un tableau SQL `array[ 'a', 'b' ]` nommé par une
  *  fonction de catalogue, dans l'ordre du fichier. */
-function sqlArrayLiterals(functionName: string): string[] {
-  const start = execSql.indexOf(`create function public.${functionName}()`);
+function sqlArrayLiterals(functionName: string, source: string = execSql): string[] {
+  const start = source.search(new RegExp(`create (?:or replace )?function public\\.${functionName}\\(\\)`));
   assert.ok(start > 0, `${functionName}() doit être déclarée dans le SQL`);
-  const body = execSql.slice(start, execSql.indexOf("$$;", start));
+  const body = source.slice(start, source.indexOf("$$;", start));
   const open = body.indexOf("array[");
   assert.ok(open > 0, `${functionName}() doit renvoyer un array[...] littéral`);
   const close = body.indexOf("]", open);
   return [...body.slice(open, close).matchAll(/'([^']+)'/g)].map((m) => m[1]);
 }
 
+/**
+ * CUSTOMER BILLING PROFILE v2 (Claude Monet) -- un catalogue FERMÉ peut
+ * être ÉTENDU par un lot ultérieur, et c'est le cas : ce lot-ci ajoute
+ * `billing_profile_explanation` en redéfinissant les deux fonctions de
+ * catalogue dans SON PROPRE fichier. Le miroir à vérifier n'est donc
+ * plus « le fichier MCC v1 = la liste TypeScript » (le fichier
+ * historique ne doit JAMAIS être réécrit après application), mais
+ * « la définition EFFECTIVE, celle que la base porte au final,
+ * = la liste TypeScript ».
+ *
+ * `effectiveSqlCatalog` cherche donc la définition dans le fichier du
+ * lot d'EXTENSION s'il existe, et retombe sur le fichier d'origine
+ * sinon. Les deux cas restent vérifiés : la liste effective doit
+ * coïncider avec TypeScript (ci-dessous), et le fichier d'origine doit
+ * rester intact (test [MIRROR-ORIGIN] ajouté plus bas).
+ */
+const EXTENSION_SQL_PATHS = [
+  // ORDRE D'APPLICATION, du plus ancien au plus récent. Le dernier
+  // fichier qui redéfinit une fonction de catalogue est celui dont la
+  // base porte la définition : c'est la définition EFFECTIVE.
+  "supabase/DRAFT-lot-theme-content-settings-v1.sql",
+  "supabase/DRAFT-lot-customer-billing-profile-v2.sql",
+] as const;
+
+const extensionSql = EXTENSION_SQL_PATHS.map((p) => ({
+  path: p,
+  source: existsSync(p) ? executableSql(readFileSync(p, "utf8")) : null,
+}));
+
+function effectiveSqlCatalog(functionName: string): string[] {
+  for (let i = extensionSql.length - 1; i >= 0; i -= 1) {
+    const { source } = extensionSql[i];
+    if (source && new RegExp(`function public\\.${functionName}\\(\\)`).test(source)) {
+      return sqlArrayLiterals(functionName, source);
+    }
+  }
+  return sqlArrayLiterals(functionName);
+}
+
+/** La définition portée par UN fichier de lot nommé (pour prouver
+ *  qu'un lot n'a pas été réécrit par un lot ultérieur). */
+function lotSqlCatalog(path: string, functionName: string): string[] {
+  const entry = extensionSql.find((e) => e.path === path);
+  assert.ok(entry?.source, `${path} doit exister`);
+  return sqlArrayLiterals(functionName, entry!.source!);
+}
+
 // ---------------------------------------------------------------------
 // MIROIRS SQL <-> TypeScript.
 // ---------------------------------------------------------------------
 
-// THEME & CONTENT SETTINGS v1 ajoute 3 emplacements (order_help_*) au
-// catalogue TS ; le DRAFT MCC v1 reste, lui, à 14 (le delta est porté par
-// DRAFT-lot-theme-content-settings-v1.sql, miroir vérifié dans
-// theme-content-settings-v1-tokens.test.ts [MIR-*]). Ce test prouve donc
-// que le DRAFT MCC est le miroir exact du catalogue TS PRIVÉ de ce delta.
 const THEME_LOT_ADDED_KEYS = ["order_help_button_label", "order_help_title", "order_help_body"];
+const BILLING_LOT_ADDED_KEYS = ["billing_profile_explanation"];
 
-test("[MIRROR-1] communication_text_keys() est le MIROIR EXACT de COMMUNICATION_TEXT_KEYS (hors delta THEME & CONTENT SETTINGS v1)", () => {
-  assert.deepEqual(
-    sqlArrayLiterals("communication_text_keys"),
-    COMMUNICATION_TEXT_KEYS.filter((k) => !THEME_LOT_ADDED_KEYS.includes(k))
-  );
+test("[MIRROR-1] communication_text_keys() est le MIROIR EXACT de COMMUNICATION_TEXT_KEYS (définition EFFECTIVE)", () => {
+  assert.deepEqual(effectiveSqlCatalog("communication_text_keys"), [...COMMUNICATION_TEXT_KEYS]);
 });
 
 test("[MIRROR-2] public_communication_text_keys() est le MIROIR EXACT de PUBLIC_COMMUNICATION_TEXT_KEYS", () => {
   assert.deepEqual(
-    sqlArrayLiterals("public_communication_text_keys"),
-    PUBLIC_COMMUNICATION_TEXT_KEYS.filter((k) => !THEME_LOT_ADDED_KEYS.includes(k))
+    effectiveSqlCatalog("public_communication_text_keys"),
+    [...PUBLIC_COMMUNICATION_TEXT_KEYS]
+  );
+});
+
+test("[MIRROR-OWNERSHIP] chaque lot d'extension n'ajoute QUE ses propres emplacements", () => {
+  // Recomposition CUSTOMER BILLING PROFILE v2.1 — invariant de
+  // PROPRIÉTÉ plutôt qu'effectifs figés. Chaque fichier de lot
+  // RECONDUIT l'état d'avant lui et n'y ajoute que ses clés : c'est ce
+  // qui garantit qu'un lot ne peut pas faire disparaître
+  // l'emplacement d'un autre en réécrivant la liste complète.
+  const mccOnly = sqlArrayLiterals("communication_text_keys");
+  const afterTheme = lotSqlCatalog(
+    "supabase/DRAFT-lot-theme-content-settings-v1.sql",
+    "communication_text_keys"
+  );
+  const afterBilling = lotSqlCatalog(
+    "supabase/DRAFT-lot-customer-billing-profile-v2.sql",
+    "communication_text_keys"
+  );
+
+  // Theme = MCC v1 + ses 3 clés, et RIEN de perdu.
+  assert.deepEqual(
+    afterTheme.filter((k) => !THEME_LOT_ADDED_KEYS.includes(k)),
+    mccOnly
+  );
+  assert.deepEqual(
+    afterTheme.filter((k) => THEME_LOT_ADDED_KEYS.includes(k)),
+    THEME_LOT_ADDED_KEYS
+  );
+
+  // Facturation = Theme + sa seule clé, et RIEN de perdu : les trois
+  // emplacements order_help_* survivent au lot de facturation.
+  assert.deepEqual(
+    afterBilling.filter((k) => !BILLING_LOT_ADDED_KEYS.includes(k)),
+    afterTheme
+  );
+  assert.deepEqual(
+    afterBilling.filter((k) => BILLING_LOT_ADDED_KEYS.includes(k)),
+    BILLING_LOT_ADDED_KEYS
+  );
+  for (const key of THEME_LOT_ADDED_KEYS) {
+    assert.ok(afterBilling.includes(key), `${key} (Theme) a disparu du lot de facturation`);
+  }
+
+  // Même invariant sur la projection publique.
+  const publicAfterTheme = lotSqlCatalog(
+    "supabase/DRAFT-lot-theme-content-settings-v1.sql",
+    "public_communication_text_keys"
+  );
+  const publicAfterBilling = lotSqlCatalog(
+    "supabase/DRAFT-lot-customer-billing-profile-v2.sql",
+    "public_communication_text_keys"
+  );
+  assert.deepEqual(
+    publicAfterBilling.filter((k) => !BILLING_LOT_ADDED_KEYS.includes(k)),
+    publicAfterTheme
+  );
+});
+
+test("[MIRROR-MAXLEN-OWNER] le lot de facturation ne redéfinit PAS communication_text_max_length()", () => {
+  // Cette fonction appartient à MCC v1, étendue par THEME & CONTENT
+  // SETTINGS v1 (bornes 60 / 120 de l'aide à la commande). La
+  // redéfinir depuis un lot de facturation ferait silencieusement
+  // retomber ces bornes à 500.
+  const billing = extensionSql.find(
+    (e) => e.path === "supabase/DRAFT-lot-customer-billing-profile-v2.sql"
+  );
+  assert.ok(billing?.source);
+  assert.ok(
+    !/create (?:or replace )?function public\.communication_text_max_length\(/.test(billing!.source!),
+    "le lot de facturation ne doit pas redéfinir communication_text_max_length()"
+  );
+  // …mais il VÉRIFIE ces bornes, avant et après, plutôt que de les
+  // supposer : la propriété est prouvée en base, pas seulement par
+  // l'absence d'une instruction.
+  assert.ok(billing!.source!.includes("communication_text_max_length('order_help_button_label')"));
+});
+
+test("[MIRROR-ORIGIN] le fichier MCC v1 n'est JAMAIS réécrit par un lot d'extension", () => {
+  // Un fichier de migration déjà appliqué est un FAIT historique : une
+  // extension ultérieure redéfinit les fonctions dans son propre
+  // fichier, elle ne retouche pas celui-ci.
+  assert.deepEqual(sqlArrayLiterals("communication_text_keys"), [
+    "checkout_info",
+    "pickup_explanation",
+    "delivery_local_explanation",
+    "delivery_carrier_explanation",
+    "slot_warning",
+    "sanitary_warning",
+    "order_success_title",
+    "order_success_body",
+    "confirmation_pickup",
+    "confirmation_delivery_local",
+    "confirmation_delivery_carrier",
+    "email_confirmation_subject",
+    "email_confirmation_body",
+    "confirmation_withdrawal_request",
+  ]);
+  assert.equal(sqlArrayLiterals("public_communication_text_keys").length, 11);
+  // Le fichier de THEME & CONTENT SETTINGS v1 n'est pas réécrit non
+  // plus : il reste à SON état (17 / 14), et c'est le lot de
+  // facturation qui porte le delta suivant.
+  assert.equal(
+    lotSqlCatalog("supabase/DRAFT-lot-theme-content-settings-v1.sql", "communication_text_keys").length,
+    17
+  );
+  assert.equal(
+    lotSqlCatalog(
+      "supabase/DRAFT-lot-theme-content-settings-v1.sql",
+      "public_communication_text_keys"
+    ).length,
+    14
+  );
+  // …et une extension ne peut QUE compléter : TOUS les emplacements
+  // d'origine subsistent dans la définition effective, dans le même
+  // ordre relatif.
+  const effective = effectiveSqlCatalog("communication_text_keys");
+  assert.deepEqual(
+    effective.filter((k) => sqlArrayLiterals("communication_text_keys").includes(k)),
+    sqlArrayLiterals("communication_text_keys")
   );
 });
 

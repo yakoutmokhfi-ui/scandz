@@ -63,14 +63,72 @@ const translate = (key: string) => FR[key] ?? key;
 // [CATALOGUE] Le catalogue est FERMÉ et cohérent avec lui-même.
 // ---------------------------------------------------------------------
 
-// THEME & CONTENT SETTINGS v1 : le catalogue effectif = les 14 emplacements
-// MCC v1 + 3 emplacements « aide à la commande » (order_help_*). Le test
-// garde la même intention (fermé, distinct, spécifié) ; seuls les effectifs
-// passent de 14 à 17 (et de 11 à 14 publics). Les 14 emplacements MCC
-// d'origine restent vérifiés un à un par [MIRROR-1/2] (mcc-v1-sql-structural).
-test("[CAT-1] le catalogue porte 17 emplacements distincts (14 MCC + 3 aide à la commande), tous spécifiés", () => {
-  assert.equal(COMMUNICATION_TEXT_KEYS.length, 17);
-  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, 17);
+// INVARIANT DE PROPRIÉTÉ (recomposition CUSTOMER BILLING PROFILE v2.1).
+//
+// Le catalogue est FERMÉ mais il est légitimement ÉTENDU par des lots
+// successifs : MCC v1 l'a créé (14 emplacements), THEME & CONTENT
+// SETTINGS v1 y a ajouté les trois emplacements d'aide à la commande,
+// CUSTOMER BILLING PROFILE v2 y ajoute l'explication de facturation.
+// Un effectif unique écrit en dur (« 14 », « 15 », « 17 »…) devient
+// donc faux au lot suivant, et surtout il ne dit RIEN de ce qui
+// compte : que chaque emplacement appartienne à un lot identifié, et
+// qu'aucun lot n'ait emporté l'emplacement d'un autre.
+//
+// Ces listes sont donc la DÉCOMPOSITION PAR PROPRIÉTAIRE du catalogue.
+// Elles sont exhaustives et disjointes ; l'effectif attendu s'en
+// déduit, il n'est plus posté à la main.
+const MCC_V1_OWNED_KEYS = [
+  "checkout_info",
+  "pickup_explanation",
+  "delivery_local_explanation",
+  "delivery_carrier_explanation",
+  "slot_warning",
+  "sanitary_warning",
+  "order_success_title",
+  "order_success_body",
+  "confirmation_pickup",
+  "confirmation_delivery_local",
+  "confirmation_delivery_carrier",
+  "email_confirmation_subject",
+  "email_confirmation_body",
+  "confirmation_withdrawal_request",
+] as const;
+/** THEME & CONTENT SETTINGS v1 — aide « comment commander ». */
+const THEME_OWNED_KEYS = ["order_help_button_label", "order_help_title", "order_help_body"] as const;
+/** CUSTOMER BILLING PROFILE v2 — explication du bloc de facturation. */
+const BILLING_OWNED_KEYS = ["billing_profile_explanation"] as const;
+const OWNED_KEYS: readonly { owner: string; keys: readonly string[] }[] = [
+  { owner: "MERCHANT CUSTOMER COMMUNICATIONS v1", keys: MCC_V1_OWNED_KEYS },
+  { owner: "THEME & CONTENT SETTINGS v1", keys: THEME_OWNED_KEYS },
+  { owner: "CUSTOMER BILLING PROFILE v2", keys: BILLING_OWNED_KEYS },
+];
+
+test("[CAT-1] le catalogue est FERMÉ, distinct, entièrement spécifié, et chaque emplacement a UN propriétaire", () => {
+  // Fermé et sans doublon.
+  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, COMMUNICATION_TEXT_KEYS.length);
+  // Chaque emplacement appartient à EXACTEMENT un lot : ni orphelin
+  // (un emplacement apparu sans propriétaire), ni revendiqué deux fois
+  // (deux lots qui se disputeraient la même clé).
+  for (const key of COMMUNICATION_TEXT_KEYS) {
+    const owners = OWNED_KEYS.filter((group) => (group.keys as readonly string[]).includes(key));
+    assert.equal(owners.length, 1, `${key} doit avoir exactement un propriétaire (${owners.length})`);
+  }
+  // …et réciproquement : aucun lot n'a perdu son emplacement. C'est
+  // l'invariant qui protège Theme d'un lot de facturation, et
+  // inversement.
+  for (const { owner, keys } of OWNED_KEYS) {
+    for (const key of keys) {
+      assert.ok(
+        (COMMUNICATION_TEXT_KEYS as readonly string[]).includes(key),
+        `${key} (${owner}) a disparu du catalogue`
+      );
+    }
+  }
+  // L'effectif est DÉDUIT de la propriété, jamais écrit en dur.
+  const expected = OWNED_KEYS.reduce((total, group) => total + group.keys.length, 0);
+  assert.equal(COMMUNICATION_TEXT_KEYS.length, expected);
+  // Un emplacement ajouté sans sa spécification échoue ici.
+  assert.equal(Object.keys(COMMUNICATION_TEXT_SPEC).length, COMMUNICATION_TEXT_KEYS.length);
   for (const key of COMMUNICATION_TEXT_KEYS) {
     const spec = COMMUNICATION_TEXT_SPEC[key];
     assert.ok(spec, `spec manquante pour ${key}`);
@@ -80,7 +138,26 @@ test("[CAT-1] le catalogue porte 17 emplacements distincts (14 MCC + 3 aide à l
 });
 
 test("[CAT-2] les 3 gabarits d'e-mail ne sont JAMAIS exposés publiquement", () => {
-  assert.equal(PUBLIC_COMMUNICATION_TEXT_KEYS.length, 14); // 11 MCC + 3 order_help_*
+  // L'invariant RÉEL de ce test : la projection publique est
+  // exactement le catalogue PRIVÉ des trois gabarits d'e-mail. Exprimé
+  // ainsi, il reste vrai quel que soit le nombre d'emplacements -- et
+  // il échouerait si un lot rendait un gabarit public, ou retirait de
+  // la projection un emplacement qui doit y être.
+  const EMAIL_TEMPLATE_KEYS = [
+    "email_confirmation_subject",
+    "email_confirmation_body",
+    "confirmation_withdrawal_request",
+  ] as const;
+  assert.deepEqual(
+    [...PUBLIC_COMMUNICATION_TEXT_KEYS],
+    COMMUNICATION_TEXT_KEYS.filter(
+      (key) => !(EMAIL_TEMPLATE_KEYS as readonly string[]).includes(key)
+    )
+  );
+  assert.equal(
+    PUBLIC_COMMUNICATION_TEXT_KEYS.length,
+    COMMUNICATION_TEXT_KEYS.length - EMAIL_TEMPLATE_KEYS.length
+  );
   for (const key of [
     "email_confirmation_subject",
     "email_confirmation_body",

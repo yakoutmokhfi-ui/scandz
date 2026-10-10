@@ -28,6 +28,32 @@
  * OPTIONNEL, inchangé -- ce lot ajoute une règle de FORMAT, jamais
  * une règle d'obligation nouvelle).
  *
+ * CUSTOMER BILLING PROFILE v2 (Claude Monet) — TROIS ajouts, aucun
+ * concept nouveau :
+ *
+ *   1. `siren` — identifiant OPTIONNEL d'une facturation société, à
+ *      côté du `vatNumber` déjà optionnel. Validation de LONGUEUR
+ *      seulement : aucun contrôle de format, aucune clé de contrôle,
+ *      aucune dérivation (jamais un SIRET depuis un SIREN, jamais une
+ *      TVA depuis un SIREN), aucun appel de registre, et aucune
+ *      « correction » de la saisie -- la valeur du client prévaut.
+ *      Le dépôt ne porte AUCUN champ SIRET, et ce lot n'en introduit
+ *      pas.
+ *   2. `firstName`/`lastName` — saisie SÉPARÉE du prénom et du nom
+ *      pour une facturation particulier, exactement comme le checkout
+ *      le fait déjà pour le client de la commande. Laissés vides, le
+ *      prénom/nom de la commande sert de REPLI (voir
+ *      `composeBillingContactName`) -- jamais une copie silencieuse
+ *      dans l'état du formulaire. Ces deux champs
+ *      sont RECOMPOSÉS en un nom d'affichage normalisé par
+ *      `formatCustomerDisplayName` (lib/customer.ts, la référence
+ *      maison) et écrits dans la colonne EXISTANTE `contact_name` --
+ *      aucune colonne dupliquée, aucun second concept de nom. C'est
+ *      la convention déjà retenue pour `orders.customer_name`.
+ *   3. aucune règle d'obligation nouvelle : ni SIREN, ni TVA, ni
+ *      prénom, ni nom ne deviennent requis. Seule la raison sociale
+ *      reste requise pour une facture société, comme avant ce lot.
+ *
  * INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet) :
  * ajoute `deriveInvoiceAddressFromCustomer` ci-dessous -- fonction
  * PURE, sans effet de bord, utilisée par
@@ -39,7 +65,7 @@
  * uniquement (mandat, littéral : "Do not persist a separate reuse
  * flag. The flag is checkout UI state only.").
  */
-import { isValidEmail } from "@/lib/customer";
+import { formatCustomerDisplayName, isValidEmail } from "@/lib/customer";
 import type { CustomerInfo } from "@/lib/customer";
 
 export type InvoiceType = "individual" | "company";
@@ -54,6 +80,15 @@ export interface InvoiceRequestInfo {
   country: string;
   companyLegalName: string;
   vatNumber: string;
+  /** CUSTOMER BILLING PROFILE v2 -- SIREN tel que saisi, OPTIONNEL en
+   *  toutes circonstances (y compris facture société). */
+  siren: string;
+  /** CUSTOMER BILLING PROFILE v2 -- prénom de facturation (saisie
+   *  séparée). Recomposé avec `lastName` dans `contactName` par
+   *  `composeBillingContactName` ci-dessous : aucune colonne dédiée. */
+  firstName: string;
+  /** CUSTOMER BILLING PROFILE v2 -- nom de famille de facturation. */
+  lastName: string;
   contactName: string;
   contactEmail: string;
 }
@@ -68,6 +103,9 @@ export const EMPTY_INVOICE_REQUEST: InvoiceRequestInfo = {
   country: "FR",
   companyLegalName: "",
   vatNumber: "",
+  siren: "",
+  firstName: "",
+  lastName: "",
   contactName: "",
   contactEmail: "",
 };
@@ -88,9 +126,84 @@ export const INVOICE_FIELD_MAX_LENGTHS = {
   postalCode: 10,
   companyLegalName: 120,
   vatNumber: 30,
+  /** CUSTOMER BILLING PROFILE v2 -- borne de STOCKAGE, jamais un
+   *  format : 14 caractères (et non 9) parce que le client peut
+   *  saisir son SIREN avec les espaces de lisibilité usuels
+   *  (« 123 456 789 ») et que le produit interdit de « corriger » sa
+   *  saisie. Miroir exact de la contrainte CHECK de la colonne
+   *  (supabase/DRAFT-lot-customer-billing-profile-v2.sql). */
+  siren: 14,
+  /** Les deux champs de nom se recomposent dans `contact_name` (45) :
+   *  chacun est donc borné par cette même limite serveur, et la
+   *  recomposition est bornée à son tour. */
+  firstName: 45,
+  lastName: 45,
   contactName: 45,
   contactEmail: 100,
 } as const;
+
+/**
+ * CUSTOMER BILLING PROFILE v2 — recompose le nom de contact de
+ * facturation à écrire dans la colonne EXISTANTE `contact_name`.
+ *
+ * v2.1 — CORRECTION D'AUDIT (CBP-01, HIGH). La v2 composait le nom
+ * SANS regarder le type de facture : `formatCustomerDisplayName`
+ * privilégiant prénom/nom sur le nom unique, un prénom/nom saisi en
+ * mode PARTICULIER puis resté dans l'état du formulaire APRÈS une
+ * bascule en mode SOCIÉTÉ écrasait le contact société réellement
+ * saisi et VISIBLE. Reproduction du mandat : « Alice Martin » (saisi
+ * en particulier) était persisté à la place de « Bob Durand » (saisi
+ * en société).
+ *
+ * La composition est donc désormais EXPLICITEMENT typée, et c'est la
+ * composition elle-même qui est correcte -- pas un nettoyage d'état
+ * ailleurs dans l'interface. Même si de l'état caché de l'autre mode
+ * subsiste (et il subsiste : les champs sont simplement démontés),
+ * la charge utile ne peut plus le reprendre.
+ *
+ * SOCIÉTÉ — seul le champ de contact VISIBLE en mode société fait
+ * foi (`contactName`). Les champs prénom/nom, qui n'existent pas dans
+ * ce mode, sont IGNORÉS, et aucun repli n'est appliqué : c'est
+ * exactement le comportement d'avant ce lot pour une facture société.
+ *
+ * PARTICULIER — prénom et nom explicites d'abord (recomposés par
+ * `formatCustomerDisplayName`, la seule autorité du dépôt pour cela),
+ * puis, à défaut, le champ de contact générique saisi dans ce même
+ * mode, puis, à défaut seulement, le repli APPROUVÉ sur le prénom/nom
+ * déjà donné pour la commande. Les champs propres à la société ne
+ * sont jamais lus.
+ */
+export function composeBillingContactName(
+  info: Pick<InvoiceRequestInfo, "invoiceType" | "firstName" | "lastName" | "contactName">,
+  fallback?: Pick<CustomerInfo, "firstName" | "lastName"> | null
+): string {
+  if (info.invoiceType === "company") {
+    // Le champ de contact société, et RIEN d'autre : ni l'état caché
+    // du mode particulier, ni un repli sur le nom de la commande.
+    // Comportement identique à celui d'avant CUSTOMER BILLING PROFILE
+    // v2 (normalizeOptional(contactName)).
+    return info.contactName.trim();
+  }
+
+  const own = formatCustomerDisplayName({
+    name: info.contactName,
+    firstName: info.firstName,
+    lastName: info.lastName,
+  });
+  if (own !== "") return own;
+  // REPLI, et seulement en l'absence totale de saisie de facturation :
+  // le prénom/nom déjà donné pour la commande. La saisie du client
+  // PRÉVAUT toujours (elle est testée en premier), et ce repli n'est
+  // jamais recopié dans l'état du formulaire -- il est simplement
+  // retenu au moment de construire la charge utile, et montré au
+  // client en indication dans le champ.
+  if (!fallback) return "";
+  return formatCustomerDisplayName({
+    name: "",
+    firstName: fallback.firstName,
+    lastName: fallback.lastName,
+  });
+}
 
 /**
  * Dérive l'adresse de facturation depuis l'adresse de LIVRAISON du
@@ -134,6 +247,9 @@ export type InvoiceRequestErrors = Partial<
     | "country"
     | "companyLegalName"
     | "vatNumber"
+    | "siren"
+    | "firstName"
+    | "lastName"
     | "contactName"
     | "contactEmail",
     string
@@ -158,7 +274,14 @@ export type InvoiceRequestErrors = Partial<
  * littéral : "Do not duplicate non-deterministic tax/business
  * validation."
  */
-export function getInvoiceRequestErrors(info: InvoiceRequestInfo): InvoiceRequestErrors {
+export function getInvoiceRequestErrors(
+  info: InvoiceRequestInfo,
+  /** v2.1 (CBP-01) -- repli éventuel, pour que la validation porte sur
+   *  le nom RÉELLEMENT envoyé et non sur une composition partielle.
+   *  Optionnel : un appelant qui ne le fournit pas valide exactement
+   *  ce que le formulaire contient. */
+  contactNameFallback?: Pick<CustomerInfo, "firstName" | "lastName"> | null
+): InvoiceRequestErrors {
   const errors: InvoiceRequestErrors = {};
 
   if (info.addressLine1.trim().length === 0) {
@@ -197,6 +320,38 @@ export function getInvoiceRequestErrors(info: InvoiceRequestInfo): InvoiceReques
     errors.vatNumber = "invoiceVatNumberTooLong";
   }
 
+  // CUSTOMER BILLING PROFILE v2 -- SIREN : une SEULE règle, la
+  // longueur, et seulement si une valeur est saisie. Jamais « requis »
+  // (pas même pour une facture société), jamais un contrôle de format,
+  // jamais une clé de contrôle, jamais une normalisation : le produit
+  // interdit explicitement de corriger un identifiant saisi par le
+  // client.
+  if (info.siren.trim().length > INVOICE_FIELD_MAX_LENGTHS.siren) {
+    errors.siren = "invoiceSirenTooLong";
+  }
+
+  // Prénom / nom de facturation : optionnels (ce lot ne crée aucune
+  // obligation nouvelle), bornés par la limite serveur de la colonne
+  // dans laquelle ils se recomposent.
+  if (info.firstName.trim().length > INVOICE_FIELD_MAX_LENGTHS.firstName) {
+    errors.firstName = "invoiceFirstNameTooLong";
+  }
+  if (info.lastName.trim().length > INVOICE_FIELD_MAX_LENGTHS.lastName) {
+    errors.lastName = "invoiceLastNameTooLong";
+  }
+  // v2.1 (CBP-01, observation d'audit) -- la validation porte sur le
+  // nom FINAL : celui que `buildInvoicePayload` transmettra, repli
+  // compris, et composé selon le TYPE de facture courant. Avant cette
+  // correction, un nom de contact composé dépassant la limite de
+  // stockage (45 caractères) n'était détecté qu'APRÈS l'appel réseau,
+  // par le refus de la RPC.
+  if (
+    composeBillingContactName(info, contactNameFallback).length >
+    INVOICE_FIELD_MAX_LENGTHS.contactName
+  ) {
+    errors.contactName = "invoiceContactNameTooLong";
+  }
+
   if (info.contactName.trim().length > INVOICE_FIELD_MAX_LENGTHS.contactName) {
     errors.contactName = "invoiceContactNameTooLong";
   }
@@ -214,8 +369,11 @@ export function getInvoiceRequestErrors(info: InvoiceRequestInfo): InvoiceReques
   return errors;
 }
 
-export function hasInvoiceRequestErrors(info: InvoiceRequestInfo): boolean {
-  return Object.keys(getInvoiceRequestErrors(info)).length > 0;
+export function hasInvoiceRequestErrors(
+  info: InvoiceRequestInfo,
+  contactNameFallback?: Pick<CustomerInfo, "firstName" | "lastName"> | null
+): boolean {
+  return Object.keys(getInvoiceRequestErrors(info, contactNameFallback)).length > 0;
 }
 
 /**

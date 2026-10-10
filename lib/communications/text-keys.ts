@@ -61,6 +61,11 @@ export const COMMUNICATION_TEXT_KEYS = [
   "email_confirmation_subject",
   "email_confirmation_body",
   "confirmation_withdrawal_request",
+  // CUSTOMER BILLING PROFILE v2 -- explication affichée DANS le bloc
+  // de facturation du checkout. Emplacement ADDITIF sans défaut
+  // plateforme : tant qu'un commerçant ne le renseigne pas, le
+  // checkout affiche exactement ce qu'il affiche aujourd'hui.
+  "billing_profile_explanation",
 ] as const;
 
 export type CommunicationTextKey = (typeof COMMUNICATION_TEXT_KEYS)[number];
@@ -238,6 +243,17 @@ export const COMMUNICATION_TEXT_SPEC: Record<
   confirmation_withdrawal_request: {
     maxLength: COMMUNICATION_TEXT_MAX_LENGTH,
     publicProjection: false,
+    defaultI18nKey: null,
+  },
+  // CUSTOMER BILLING PROFILE v2 -- aucun défaut plateforme
+  // (`defaultI18nKey: null`) : absent = AUCUN bloc rendu, jamais un
+  // paragraphe vide, jamais un texte inventé -- compatibilité arrière
+  // exacte, même discipline que `checkout_info`/`sanitary_warning`.
+  // `publicProjection: true` : ce texte s'affiche dans le checkout
+  // anonyme, il doit donc sortir par la projection publique.
+  billing_profile_explanation: {
+    maxLength: COMMUNICATION_TEXT_MAX_LENGTH,
+    publicProjection: true,
     defaultI18nKey: null,
   },
 };
