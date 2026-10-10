@@ -1,30 +1,227 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.2 (CSDJ-1) — paquet de preuves
-## Seconde remédiation ciblée : CSDJ1-AUD-02 et CSDJ1-AUD-07
+# CHECKOUT SCHEDULING FOUNDATION v1.3 (CSDJ-1) — paquet de preuves
+## Troisième remédiation ciblée : CSDJ1-AUD-PYTHON-01 et CSDJ1-AUD-07
 
-Deux verdicts se sont succédé sur ce lot.
-
-| candidat | verdict | ce qu'il reste |
+| candidat | verdict | ce qu'il restait |
 | --- | --- | --- |
 | `091c3f0` | **FAIL** — six blockers | — |
-| `d94a110` (première remédiation) | **FAIL** — six clos, deux restants | AUD-02 incomplet, AUD-07 nouveau |
-| `993cb7b` (ce candidat) | prêt pour second re-audit delta | — |
+| `d94a110` | **FAIL** — six clos, deux restants | AUD-02 incomplet, AUD-07 nouveau |
+| `993cb7b` | **FAIL** — deux blockers | preuve Python non indépendante, AUD-07 encore partiel |
+| `9c940e1` | **ce candidat** | — |
 
-Aucun des deux candidats refusés n'est amendé ni réécrit : ils restent
-**intacts** dans l'historique, en ancêtres de celui-ci.
+Aucun des trois candidats refusés n'est amendé ni réécrit : ils restent
+**intacts** dans l'historique, en ancêtres de celui-ci. Et **aucune
+recomposition** sur le `main` courant : le mandat ordonne une lignée
+immuable jusqu'au PASS d'audit.
 
-Remédiation **narrow** : aucun redesign, aucun élargissement de portée,
-aucun contrat déjà clos modifié au-delà du strict nécessaire.
-**CSDJ-2 n'est pas commencé.**
+Remédiation **narrow**. Le résolveur DST n'est pas redessiné ; aucun
+comportement de planification ne change. **CSDJ-2 n'est pas commencé.**
 
-§0 ci-dessous traite les deux blockers de ce tour. §1 à §7 décrivent les
-six blockers du tour précédent et restent valables : ils ont tous été
-**re-prouvés** après la correction d'isolation d'AUD-07 (voir §0.3).
+§0 ci-dessous traite les deux blockers de ce tour. §00 et §1–§7 décrivent
+les tours précédents et restent valables ; les quinze domaines déclarés
+clos sont **re-prouvés** (voir §6).
 
 ---
 
 ## §0 — Les deux blockers de ce tour
 
-### §0.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
+### §0.1 CSDJ1-AUD-PYTHON-01 (P1) — l'oracle n'était plus un oracle
+
+Le reproche est juste, et il est plus sérieux qu'un défaut de
+comportement : `resolve_wall` **reproduisait l'algorithme des deux
+implémentations qu'il juge** — échantillonnage de décalages,
+reconstruction d'instants candidats.
+
+Trois implémentations qui partagent une hypothèse ne se vérifient pas
+mutuellement. Elles se trompent **ensemble**, et leur accord n'établit
+rien. L'audit a d'ailleurs vérifié Paris, Lord Howe et les autres zones
+obligatoires avec son propre oracle, et n'a trouvé **aucune** erreur
+fonctionnelle : le défaut était bien dans la **preuve**.
+
+Une preuve qui ne prouve rien est plus dangereuse qu'une absence de
+preuve, parce qu'on s'y fie.
+
+**La méthode, désormais.** L'oracle ne calcule plus aucun décalage et ne
+construit plus aucun candidat. Il délègue la sémantique des fuseaux à la
+bibliothèque standard, par le mécanisme que PEP 495 a créé pour
+exactement ce problème. Pour une heure murale locale `L` dans la zone
+`Z` :
+
+1. attacher `Z` à `L` avec `fold=0` — la **première** lecture possible ;
+2. attacher `Z` à `L` avec `fold=1` — la **seconde** ;
+3. convertir chaque lecture en instant UTC (`astimezone`) ;
+4. **reconvertir** chaque instant vers `Z` — l'aller-retour ;
+5. ne garder que les instants dont l'heure murale relue vaut
+   exactement `L` ;
+6. dédupliquer les instants UTC égaux.
+
+Le classement est le **cardinal** : zéro → `nonexistent`, un →
+`valid_unique`, deux → `ambiguous`.
+
+**Pourquoi c'est correct sans hypothèse de durée.** En heure normale,
+`fold=0` et `fold=1` désignent le même instant : la déduplication en
+laisse un. Sur un recul d'horloge, ils désignent deux instants distincts
+qui relisent tous deux `L` — que le recouvrement fasse soixante minutes
+(Europe/Paris) ou **trente** (Australia/Lord_Howe), le cardinal ne change
+pas. Sur un saut d'horloge, PEP 495 fait répondre `fold=0` avec le
+décalage d'**avant** la transition et `fold=1` avec celui d'**après** ;
+l'un et l'autre relisent une heure murale décalée, et l'aller-retour les
+élimine tous les deux.
+
+L'étape 4 est le cœur : on ne fait jamais confiance à une conversion, on
+vérifie qu'elle rend ce qu'on avait demandé.
+
+**Le résultat qui mérite d'être dit.** Les **48 cas d'offres sont
+inchangés, octet pour octet**, après le changement de méthode. La méthode
+a changé, les attendus non. C'est exactement ce que vaut l'accord des
+trois — et c'est ce qu'on ne pouvait pas affirmer au tour précédent.
+
+**38 points de classement.** La fixture porte désormais, à côté de ses
+cas d'offres, des points de **classement** dont les attendus viennent de
+cet oracle. Ils sont rejoués par `resolveWallTime`
+(`[ORACLE-3]`) et par `public.checkout_wall_time_status` (harnais
+`[6o]`), qui procèdent tous deux autrement. **Zéro divergence.** Zones :
+Europe/Paris, Australia/Lord_Howe, UTC, Pacific/Kiritimati,
+America/Los_Angeles, America/New_York, Pacific/Chatham, Asia/Kathmandu.
+
+| zone / instant | classement |
+| --- | --- |
+| `Europe/Paris 2026-03-29 02:00 / 02:10 / 02:30 / 02:59` | `nonexistent` |
+| `Europe/Paris 2026-03-29 01:59` et `03:00` | `valid_unique` |
+| `Europe/Paris 2026-10-25 02:00 / 02:30 / 02:59` | `ambiguous` |
+| `Australia/Lord_Howe 2026-04-05 01:30 / 01:45 / 01:59` | `ambiguous` |
+| `Australia/Lord_Howe 2026-04-05 01:00` et `02:00` | `valid_unique` |
+| `Australia/Lord_Howe 2026-10-04 02:00 / 02:10 / 02:29` | `nonexistent` |
+| `Australia/Lord_Howe 2026-05-03 01:45` | `valid_unique` |
+
+**L'indépendance est démontrée, pas déclarée.** Le mandat est explicite :
+ne pas s'en remettre aux seules vérifications de source. Trois
+classificateurs **délibérément faux** sont donc confrontés à l'oracle —
+et chacun reproduit une erreur réellement commise, ou réellement
+tentante, dans l'histoire de ce lot :
+
+| classificateur faux | l'oracle le contredit sur |
+| --- | --- |
+| ambiguïté cherchée « à ±1 heure » *(le défaut du re-audit précédent)* | `Australia/Lord_Howe 2026-04-05 01:45` |
+| confiance à la normalisation du moteur, sans aller-retour *(le défaut du premier candidat)* | `Europe/Paris 2026-03-29 02:30` |
+| sonde unique au point demandé | `Europe/Paris 2026-10-25 02:30` |
+
+`[ORACLE-5]` exige de plus que chacun soit **juste ailleurs** : un
+classificateur faux partout serait trouvé le premier jour et ne dirait
+rien de la finesse de l'oracle. C'est ce qui rend ces défauts dangereux
+dans la vraie vie, et c'est donc cela qu'il faut savoir détecter.
+
+`[ORACLE-2]` ferme l'autre bout : les deux implémentations **jugées**
+doivent continuer d'échantillonner. Si elles migraient un jour vers la
+méthode des plis, les trois convergeraient de nouveau et `[ORACLE-1]`
+resterait vert sans plus rien garantir.
+
+### §0.2 CSDJ1-AUD-07 (P1) — l'identité de destination était partielle
+
+Le nettoyage vérifiait quatre faits avant de muter des rôles : socket,
+port, utilisateur, superutilisateur. Il **omettait** `data_directory`,
+`config_file` et le marqueur d'exécution. Deux clusters différents
+peuvent présenter cette identité partielle — même numéro de port, même
+nom d'utilisateur, même motif de nommage de socket — et la requête rendait
+le **même** résultat que le marqueur fût changé ou retiré. La preuve ne
+liait donc pas le serveur à **cette** exécution.
+
+La cause profonde n'était pas la faiblesse d'un contrôle : c'était
+l'**existence de deux** contrôles, un à la mise en place et un autre au
+nettoyage, subtilement différents. C'est la forme même du défaut.
+
+Il n'y en a donc plus qu'un, dans une bibliothèque sourcée par les deux
+harnais : `supabase/tests/csdj1-cluster-identity.sh`.
+
+**Les huit faits.** Aucune destination réseau (`inet_server_addr()` vaut
+`NULL`) ; la socket attendue figure dans `unix_socket_directories` ; le
+port ; l'utilisateur ; le statut superutilisateur ; le `data_directory`
+**exact** ; le `config_file` **exact** ; un **marqueur** en base portant
+le nonce de cette exécution. Un seul qui échoue, et rien n'est muté.
+
+L'ordre compte : le statut superutilisateur est vérifié **avant** les
+réglages qui l'exigent, sinon un défaut de privilège se présenterait
+comme une erreur de permission et non comme un refus **nommé**. Un test
+structurel fixe cet ordre.
+
+**Une session, une transaction.** Prouver puis muter en deux connexions
+laissait un intervalle pendant lequel la destination pouvait changer. La
+garde et la mutation tiennent donc dans un **bloc `DO` unique**, dont
+l'exception annule tout. Le marqueur est lu par la session même qui
+mutera.
+
+**Le marqueur est en base, pas sur le disque.** Un fichier témoin
+prouverait que le *système de fichiers* est le bon, pas que le *serveur
+joint* est le bon. Le marqueur est une table de ce cluster, lue en SQL :
+aucun autre serveur ne peut la présenter, quel que soit son port, son
+utilisateur ou le nom de sa socket. Il porte un nonce unique par
+exécution (étiquette + 8 octets de `/dev/urandom`), le harnais **refuse**
+si une table de ce nom existe déjà — il ne peut pas prouver qu'il en est
+le propriétaire — et il n'est retiré que du serveur qui vient de prouver
+son identité.
+
+**Tous les chemins qui mutent y passent**, la mise en place comprise.
+Les rôles globaux ne sont plus créés depuis l'amorçage d'une base
+jetable — un marqueur logé dans `postgres` n'y aurait pas été visible —
+mais au niveau du cluster, par le point de passage commun. La
+restauration du nettoyage est **une seule transaction gardée** : ou les
+trois rôles reviennent à leur état d'origine, ou aucun ne bouge ; une
+restauration à moitié faite serait un état que personne n'a jamais
+décidé. Et il n'existe **aucun chemin de repli plus faible** : en cas de
+refus, on ne réessaie pas autrement.
+
+**Dix contrôles négatifs.** Un prédicat qu'on ne peut pas faire échouer
+n'est pas un prédicat. On fausse donc un seul fait à la fois, et on
+exige, pour chacun, le refus **pour la bonne raison** — un refus de
+connexion pris pour un refus d'identité ne prouverait pas la même
+chose — et **zéro mutation** d'un rôle témoin :
+
+| fait faussé | refus | rôle témoin |
+| --- | --- | --- |
+| `data_directory` | `data_directory` | intact |
+| `config_file` | `config_file` | intact |
+| **marqueur retiré** | `marqueur_absent` | intact |
+| **marqueur changé** | `nonce` | intact |
+| nonce attendu faux | `nonce` | intact |
+| port | `port` | intact |
+| utilisateur | `current_user` | intact |
+| non superutilisateur | `is_superuser` | intact |
+| destination réseau (témoin) | `destination_reseau` | intact |
+| socket attendue | `socket` | intact |
+
+Les deux lignes en gras sont la **reproduction littérale** du constat de
+l'audit.
+
+Un onzième contrôle, **positif**, exige que le chemin nominal mute
+toujours, effet observé sur le rôle témoin. C'est l'exigence explicite du
+mandat : *« A harness that always aborts is not a PASS. »*
+
+**PGHOSTADDR** reste refusé par son nom, parmi 27 variables, sans que sa
+valeur paraisse jamais — `harness-refusal-redirect-var.txt` : code 2,
+« aucune mutation n'a été tentée », zéro occurrence de la valeur. Et la
+section `[F]` continue de démontrer que la menace est réelle : sans
+isolation la connexion aboutit **au témoin**, sous `env -i` au cluster
+sous test.
+
+### §0.3 Contrôles de mutation
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M1** | un `env -i` retiré devant un appel client | **détecté** — « appel non isolé » |
+| **M2** | — | nocivité de `PGHOSTADDR` prouvée par démonstration directe (`[F]`), non par mutation |
+| **M3** | instantané de rôle en `::text` comparé à `'t'` *(défaut d'AUD-06)* | **détecté** — 13 échecs décrivant `LOGIN → NOLOGIN`, `BYPASSRLS → NOBYPASSRLS` |
+| **M4** | le **marqueur** retiré du prédicat — *la preuve partielle que l'audit a trouvée* | **détecté** — « marqueur retiré » et « marqueur changé » acceptent alors la mutation, et le rôle témoin est **réellement** muté |
+| **M5** | `data_directory` et `config_file` retirés du prédicat | **détecté** — les deux contrôles négatifs correspondants acceptent la mutation |
+
+M4 est le contrôle qui compte pour ce tour : sans lui, dix contrôles
+négatifs verts ne diraient pas s'ils savent voir quoi que ce soit.
+
+---
+
+## §00 — Les deux blockers du tour précédent
+
+
+
+### §00.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
 
 Le re-audit delta a produit trois reproductions, et deux reproches
 distincts se cachaient derrière.
@@ -111,7 +308,7 @@ UTC (aucune transition), Pacific/Kiritimati (UTC+14),
 America/Los_Angeles et America/New_York (décalages négatifs),
 Pacific/Chatham et Asia/Kathmandu (décalages à 45 minutes de l'heure).
 
-### §0.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
+### §00.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
 
 `q()` héritait des variables libpq de l'environnement appelant.
 **`PGHOSTADDR` l'emporte sur un `-h` explicite** : le harnais pouvait
@@ -194,7 +391,7 @@ tout passerait pour protégé.
 
 **87 preuves, 0 échec** (`harness-role-restoration.txt`).
 
-### §0.3 Contrôles de mutation, et AUD-06 re-prouvé
+### §00.3 Contrôles de mutation, et AUD-06 re-prouvé
 
 Un harnais vert ne prouve rien si le défaut qu'il interdit peut être
 réinjecté sans qu'il échoue.
@@ -221,7 +418,7 @@ exactement, en mode cluster **désigné** — le seul où la restauration a
 des conséquences durables — et le harnais voit encore le défaut quand on
 le réinjecte.
 
-### §0.4 Discipline de portée
+### §00.4 Discipline de portée
 
 Aucun redesign. Aucun contrat déjà clos modifié, à une exception près et
 strictement nécessaire : l'ajout du catalogue des trois statuts d'heure
@@ -278,7 +475,7 @@ choisi lequel. Un refus, lui, est visible et corrigeable.
 
 Deux autorités nouvelles : `checkout_wall_time_status()` classe
 `valid_unique` / `nonexistent` / `ambiguous` (nommé `ok` au tour
-précédent, voir §0.1), et `checkout_wall_time_instant()`
+précédent, voir §00.1), et `checkout_wall_time_instant()`
 rend `NULL` dès que l'heure n'est pas univoque. Ce `NULL` est un
 **refus**, jamais une absence de valeur — c'est pour cela qu'il n'y a
 pas de repli. Miroir TypeScript : `resolveWallTime()`.
@@ -420,14 +617,19 @@ désormais vérifiable.
 | base de fuseaux | **tzdata 2026c** (`/usr/share/zoneinfo`, paquet système `2026c-0ubuntu0.24.04.1`) |
 
 Relancer le générateur reproduit `checkout-scheduling-cases.json` **à
-l'octet** — vérifié par comparaison d'empreinte avant/après. Un test
-structurel `[FIXTURE-SOURCE-1]` vérifie qu'il ne **lit** ni n'**exécute**
-aucune des deux implémentations qu'il juge, et qu'il tire ses fuseaux de
-la bibliothèque standard.
+l'octet** — vérifié par comparaison d'empreinte avant/après
+(`sha256 c266e5ce…`). Un test structurel `[FIXTURE-SOURCE-1]` vérifie
+qu'il ne **lit** ni n'**exécute** aucune des deux implémentations qu'il
+juge, et qu'il tire ses fuseaux de la bibliothèque standard ;
+`[ORACLE-8]` va plus loin et vérifie qu'il ne **dispose** d'aucun
+mécanisme pour le faire (`subprocess`, `importlib`, `exec`, `urllib`…) et
+que tous ses imports sont ceux de la bibliothèque standard.
 
-La fixture passe de 20 à **36 cas**, dont neuf pour AUD-01 et six pour
-AUD-02 (Paris printemps et automne, UTC, UTC+14, décalage négatif dans
-les deux sens).
+La fixture porte **48 cas d'offres** et **38 points de classement**.
+L'indépendance de la **méthode** de l'oracle — ce que ce paquet-ci a
+corrigé — est traitée en §0.1 : la source livrable ne suffisait pas, il
+fallait encore que l'oracle ne refasse pas le calcul de ceux qu'il
+juge.
 
 ---
 
@@ -435,63 +637,76 @@ les deux sens).
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **140 / 0** (10 + 78 + 52) |
-| régressions exigées | **285 / 0** (12 fichiers : tarification, zones, isolation, MCC) |
-| harnais PostgreSQL du lot | **152 preuves / 0 échec** (18 sections, dont 18 cas `aud02-*` rejoués) |
-| harnais d'isolation et de restauration de rôles | **87 preuves / 0 échec** (sections `[A]`–`[F]`) |
-| contrôles de mutation M1 / M3 / M4 | **3 concluants / 0 manquant** — les harnais voient ce qu'ils interdisent |
-| accord à trois voies, classification | **38 points / 0 divergence** |
-| accord à trois voies, fixture | **48 cas / 0 divergence** |
-| fixture reproductible | **à l'octet** (`sha256 0601c074…`, python 3.13.16 / tzdata 2026c) |
+| tests ciblés CSDJ-1 | **149 / 0** (10 + 78 + 53 + 8) |
+| régressions exigées | **285 / 0** (12 fichiers) |
+| harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
+| harnais d'isolation et de restauration de rôles | **120 preuves / 0 échec** (`[A]`–`[G]`) |
+| contrôles de mutation M1 / M3 / M4 / M5 | **4 concluants / 0 manquant** |
+| oracle indépendant vs TypeScript | **38 points / 0 divergence** |
+| oracle indépendant vs autorité SQL | **38 points / 0 divergence** |
+| 48 cas d'offres après changement de méthode | **inchangés, octet pour octet** |
+| fixture reproductible | **à l'octet** (`sha256 c266e5ce…`, python 3.13.16 / tzdata 2026c) |
+| contrôles négatifs d'identité | **10 / 10** refus pour la bonne raison, **zéro** mutation |
+| contrôle positif d'identité | le chemin nominal **mute** toujours |
 | refus sans consentement | **EXIT 2**, « aucune mutation n'a été tentée » |
-| refus d'un `PGHOSTADDR` hérité | **EXIT 2**, valeur **jamais** journalisée (0 occurrence) |
+| refus d'un `PGHOSTADDR` hérité | **EXIT 2**, valeur jamais journalisée (0 occurrence) |
 | TypeScript | **0 diagnostic** |
-| build | **EXIT 0**, 39 routes, aucune route ajoutée |
+| build | **EXIT 0**, 39 routes, aucune ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, première remédiation `d94a110` | 4889 / 10 |
-| suite complète, ce candidat `993cb7b` | **4918 tests, 4908 / 10** |
+| suite complète, seconde remédiation `993cb7b` | 4918 tests, 4908 / 10 |
+| suite complète, ce candidat `9c940e1` | **4927 tests, 4917 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
-Les jeux d'identités d'échec de la **base**, de la **première
+Les jeux d'identités d'échec de la **base**, de la **seconde
 remédiation** et de **ce candidat** sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+19** réussites par
-rapport à la première remédiation est exactement le nombre de tests
-ciblés ajoutés ce tour (+15 en éligibilité, +4 en structurel) : aucun
-test existant n'a changé de verdict, et **aucun échec déterministe n'est
-imputable au candidat**.
+`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+9** réussites est
+exactement le nombre de tests ajoutés ce tour : huit `[ORACLE-*]` et un
+`[AUD07-SQL-2]`. Aucun test existant n'a changé de verdict, et **aucun
+échec déterministe n'est imputable au candidat**.
 
 Les dix échecs sont les dix échecs **préexistants** de la base. Aucun
 non-déterminisme n'a été constaté au cours de ce tour : l'exécution est
 séquentielle (`--test-concurrency=1`) et les jeux d'identités coïncident
-à l'octet. Les preuves **par fichier** sont néanmoins fournies
-(`targeted.tap.gz`, `regressions.tap.gz`) pour que chaque identité soit
-reproductible sans rejouer la suite entière.
+à l'octet. Les preuves **par fichier** sont fournies
+(`targeted.tap.gz`, `regressions.tap.gz`).
 
 Le build exige la **présence** des variables d'environnement Supabase à
-la collecte des pages. Il a été lancé avec des valeurs **synthétiques et
-non fonctionnelles** ; aucun secret réel n'intervient, et les 39 routes
-sont identiques à celles de la première remédiation.
+la collecte des pages ; il a été lancé avec des valeurs **synthétiques et
+non fonctionnelles**, et les 39 routes sont identiques à celles des deux
+remédiations précédentes.
 
 ---
 
 ## §6 — Ce qui n'a pas régressé
 
-Le second re-audit delta a déclaré **onze** domaines clos. Tous sont
-conservés et **re-prouvés** après la correction d'isolation d'AUD-07 :
+Le troisième re-audit delta a déclaré **quinze** domaines clos. Tous
+sont conservés et **re-prouvés** :
 
 | domaine clos | preuve de non-régression |
 | --- | --- |
 | CSDJ1-AUD-01 | fixtures `aud01-*` rejouées (TypeScript **et** SQL), `[AUD01-1..5]`, `[AUD01-SQL]` |
+| CSDJ1-AUD-02 *(fonctionnel)* | 48 cas d'offres **inchangés octet pour octet**, 38 points de classement sans divergence ; aucun comportement de planification modifié |
 | CSDJ1-AUD-03 | harnais `[15a]`–`[15g]`, `[AUD03-SQL]` |
 | CSDJ1-AUD-04 | harnais `[16a]`–`[16i]`, `[MODEL-8]`, `[MODEL-10]`, `[AUD04-1..2]` |
 | CSDJ1-AUD-05 | harnais `[18]` : contrôle positif + cinq sosies, `[AUD05-SQL]` |
-| CSDJ1-AUD-06 | 87 preuves du harnais de rôles **après** la correction d'AUD-07, + contrôle de mutation M3 |
+| CSDJ1-AUD-06 | 120 preuves du harnais de rôles **après** la réécriture du prédicat, + contrôle M3 |
+| Lord Howe | ambiguë, inexistante et ordinaire, dans les deux sens |
+| occurrence tout-ou-rien | `[AUD02-SQL-3]`, fixtures de fenêtres |
+| isolation d'environnement du harnais | `[D]` onze variables, `[E]` structurel, contrôle M1 |
 | zéro UUID réservé | harnais `[17]`, `[SENTINEL-1]` |
-| indépendance de la fixture Python | §4, reproductibilité à l'octet re-vérifiée, `[FIXTURE-SOURCE-1]` |
-| isolation multi-locataires | harnais `[3]`, tests de tenant obsolète dans les régressions |
-| réutilisation de l'autorité de tarification | harnais `[10]`, `[13e]` empreinte inchangée, `[NO-SECOND-ENGINE-1..2]` |
-| retour arrière | harnais `[13a]`–`[13g]` : retour, refus CSDJ-3, second retour refusé, seconde application refusée |
-| frontière de propriété Debussy | `[OWNERSHIP-1..3]` : aucune clé `how_to_order_*`, catalogue MCC toujours exactement 14 clés, aucun import i18n |
+| isolation multi-locataires | harnais `[3]`, tests de tenant obsolète |
+| réutilisation de l'autorité de tarification | harnais `[10]`, `[13e]`, `[NO-SECOND-ENGINE-1..2]` |
+| retour arrière | harnais `[13a]`–`[13g]` |
+| frontière de propriété Debussy | `[OWNERSHIP-1..3]` — voir la réserve d'intégration ci-dessous |
+| identité des régressions | jeux d'identités octet-identiques à la base |
+
+**Réserve d'intégration, à ne pas appliquer maintenant.** Au moment de la
+recomposition, `[OWNERSHIP-2]` (« exactement 14 clés MCC ») doit devenir
+un invariant de **propriété** : « CSDJ-1 n'ajoute ni ne modifie aucune
+clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy, PR #134) a légitimement
+porté le catalogue à 17. Sur `412dbb5`, où ce candidat est construit, 14
+est la valeur juste — le changer maintenant modifierait un contrat clos
+sans nécessité pour exécuter ce candidat.
 
 Aucune fonction préexistante n'est redéfinie : `create_order` et
 `resolve_delivery_fulfillment` sont intactes, et le post-vol comme le

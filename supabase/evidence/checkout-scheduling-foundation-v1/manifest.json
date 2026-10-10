@@ -1,7 +1,7 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.2 (CSDJ-1) — seconde remédiation ciblée",
-  "status": "READY FOR SECOND DELTA RE-AUDIT",
-  "mandate": "NOUGARO — SECOND TARGETED REMEDIATION / CSDJ-1. Verdict du re-audit delta sur d94a110 : FAIL, deux blockers (CSDJ1-AUD-02 incomplet, CSDJ1-AUD-07 nouveau). Remédiation NARROW : pas de redesign, pas d'élargissement de portée, contrats déjà clos non modifiés sauf nécessité stricte, CSDJ-2 non commencé.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.3 (CSDJ-1) — troisième remédiation ciblée",
+  "status": "READY FOR THIRD DELTA RE-AUDIT",
+  "mandate": "NOUGARO — THIRD TARGETED REMEDIATION / CSDJ-1. Verdict du troisième re-audit delta sur 993cb7b : FAIL, deux blockers (CSDJ1-AUD-PYTHON-01, CSDJ1-AUD-07 identité partielle). Remédiation NARROW, lignée IMMUABLE : pas de redesign du résolveur DST, aucun changement de comportement de planification, pas de recomposition sur le main courant, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
     "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
@@ -14,14 +14,15 @@
     "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
   "candidate": {
-    "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
-    "tree": "659ec8a551bc35244fad87c08a96071a5eeed811",
-    "parent": "54ccccd",
+    "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
+    "tree": "cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce",
+    "parent": "214eb7d9c9f6b13089f18ae35ee15a20fb9dc873",
     "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceFirstRemediation": 11,
+    "filesChangedSinceSecondRemediation": 8,
     "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1 de la branche. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
     "amended": false,
     "pushed": false,
+    "recomposedOnCurrentMain": false,
     "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture. Livraison par bundle vérifié, comme le mandat le prévoit."
   },
   "blockers": {
@@ -144,42 +145,38 @@
   },
   "results": {
     "targetedTests": {
-      "pass": 140,
+      "pass": 149,
       "fail": 0,
       "files": {
         "csdj1-scheduling-model": 10,
         "csdj1-scheduling-eligibility": 78,
-        "csdj1-sql-structural": 52
+        "csdj1-sql-structural": 53,
+        "csdj1-oracle-independence": 8
       }
     },
     "requiredRegressions": {
       "pass": 285,
       "fail": 0,
-      "files": 12,
-      "covers": [
-        "tarification livraison",
-        "appariement de zones",
-        "isolation de tenant",
-        "structurels MCC",
-        "comportement MCC"
-      ]
+      "files": 12
     },
     "sqlHarness": {
-      "proofs": 152,
+      "proofs": 156,
       "fail": 0,
-      "sections": 18,
-      "aud02FixtureCasesReplayed": 18
+      "sections": 19,
+      "aud02FixtureCasesReplayed": 18,
+      "oraclePointsReplayed": 38
     },
     "roleRestorationHarness": {
-      "proofs": 87,
+      "proofs": 120,
       "fail": 0,
       "sections": [
         "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif de la preuve tardive",
         "[B] forme de l'instantané",
         "[C] rôle initialement absent",
         "[D] onze variables hostiles + vecteur complet + contrôle positif",
-        "[E] isolation structurelle",
-        "[F] contrôle de nocivité"
+        "[E] isolation structurelle et prédicat PARTAGÉ",
+        "[F] contrôle de nocivité",
+        "[G] dix contrôles négatifs d'identité + contrôle positif"
       ]
     },
     "harnessRefusals": {
@@ -199,7 +196,7 @@
       "exit": 0,
       "routesAdded": [],
       "routes": 39,
-      "note": "39 routes, identiques à celles de la première remédiation. Le build exige la PRÉSENCE des variables d'environnement Supabase à la collecte des pages ; il a été lancé avec des valeurs SYNTHÉTIQUES non fonctionnelles, aucun secret réel."
+      "note": "39 routes, identiques à celles des deux remédiations précédentes. Lancé avec des valeurs d'environnement SYNTHÉTIQUES non fonctionnelles, aucun secret réel."
     },
     "fullSuite": {
       "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
@@ -208,27 +205,29 @@
         "pass": 4768,
         "fail": 10
       },
-      "firstRemediation": {
-        "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
-        "pass": 4889,
-        "fail": 10
-      },
-      "candidate": {
+      "secondRemediation": {
         "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
         "tests": 4918,
         "pass": 4908,
         "fail": 10
       },
+      "candidate": {
+        "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
+        "tests": 4927,
+        "pass": 4917,
+        "fail": 10
+      },
       "appeared": 0,
       "disappeared": 0,
-      "identitySetsEqual": "Les jeux d'identités d'échec de la BASE, de la première remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +19 réussites par rapport à la première remédiation est exactement le nombre de tests ciblés ajoutés ce tour (+15 éligibilité, +4 structurels). AUCUN échec déterministe causé par le candidat.",
-      "nondeterminism": "Aucun constaté. Les dix échecs sont les dix échecs PRÉEXISTANTS de la base, reproduits à l'identique en exécution séquentielle. Aucun échec intermittent n'a été observé au cours de ce tour."
+      "identitySetsEqual": "Les jeux d'identités d'échec de la BASE, de la seconde remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +9 réussites est exactement le nombre de tests ajoutés ce tour (8 [ORACLE-*] et 1 [AUD07-SQL-2]). AUCUN échec déterministe causé par le candidat.",
+      "nondeterminism": "Aucun constaté. Les dix échecs sont les dix échecs PRÉEXISTANTS de la base, reproduits à l'identique en exécution séquentielle."
     },
     "fixtureThreeWay": {
-      "cases": 48,
-      "divergences": 0,
+      "offerCases": 48,
+      "offerDivergences": 0,
       "classificationPoints": 38,
-      "classificationDivergences": 0
+      "classificationDivergences": 0,
+      "note": "les attendus viennent d'un oracle qui ne partage PAS la méthode des deux jugés"
     }
   },
   "preserved": [
@@ -459,41 +458,221 @@
     "log": "harness-mutation-controls.txt",
     "rationale": "Un harnais vert ne prouve rien si le défaut qu'il interdit peut être réinjecté sans qu'il échoue.",
     "M1": {
-      "defect": "un « env -i » retiré devant un appel psql",
+      "defect": "un « env -i » retiré devant un appel client",
       "result": "DÉTECTÉ — « appel non isolé », code 1"
     },
     "M2": {
       "defect": "nocivité de PGHOSTADDR",
-      "result": "prouvée par DÉMONSTRATION DIRECTE en lecture seule ([F]), non par mutation : muter le harnais aurait supprimé son propre garde-fou de récursion et prouvé moins."
+      "result": "prouvée par DÉMONSTRATION DIRECTE en lecture seule ([F]), non par mutation"
     },
     "M3": {
-      "defect": "instantané de rôle en ::text et comparaison à « t » (le défaut d'AUD-06 réinjecté)",
-      "result": "DÉTECTÉ — 13 échecs décrivant LOGIN -> NOLOGIN et BYPASSRLS -> NOBYPASSRLS, code 1"
+      "defect": "instantané de rôle en ::text comparé à « t » (défaut d'AUD-06)",
+      "result": "DÉTECTÉ — 13 échecs décrivant LOGIN -> NOLOGIN et BYPASSRLS -> NOBYPASSRLS"
     },
     "M4": {
-      "defect": "preuve d'identité tardive cassée dans le harnais principal",
-      "result": "DÉNONCÉE — « la restauration a été ABANDONNÉE sur le cluster désigné », code 1"
+      "defect": "le MARQUEUR retiré du prédicat d'identité — la preuve partielle que l'audit a trouvée",
+      "result": "DÉTECTÉ — « marqueur RETIRÉ » et « marqueur CHANGÉ » acceptent alors la mutation, et le rôle témoin est RÉELLEMENT muté (NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS)"
     },
-    "conclusive": 3,
+    "M5": {
+      "defect": "data_directory et config_file retirés du prédicat",
+      "result": "DÉTECTÉ — les deux contrôles négatifs correspondants acceptent la mutation"
+    },
+    "conclusive": 4,
     "missing": 0
   },
   "preservedAreasRetested": {
-    "CSDJ1-AUD-01": "PASS — fixtures aud01-* rejouées (TypeScript + SQL), [AUD01-1..5], [AUD01-SQL]",
+    "CSDJ1-AUD-01": "PASS — fixtures aud01-* rejouées (TypeScript et SQL), [AUD01-1..5], [AUD01-SQL]",
+    "CSDJ1-AUD-02 (fonctionnel)": "PASS — 48 cas d'offres INCHANGÉS octet pour octet, 38 points de classement sans divergence, classificateur transition-safe, Lord Howe 30 min, tout-ou-rien début/fin/grille, aucune heure de remplacement. Aucun comportement de planification modifié.",
     "CSDJ1-AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
     "CSDJ1-AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
     "CSDJ1-AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
-    "CSDJ1-AUD-06": "PASS APRÈS la correction d'isolation d'AUD-07 — les quatre combinaisons LOGIN x BYPASSRLS et le rôle initialement ABSENT sont restaurés EXACTEMENT, en mode cluster DÉSIGNÉ, et le contrôle de mutation M3 prouve que le harnais voit encore le défaut.",
+    "CSDJ1-AUD-06": "PASS APRÈS la réécriture du prédicat d'identité — quatre combinaisons LOGIN x BYPASSRLS et rôle initialement ABSENT restaurés EXACTEMENT, en mode cluster DÉSIGNÉ ; le contrôle M3 prouve que le harnais voit encore le défaut.",
+    "LORD HOWE": "PASS — ambiguë, inexistante et ordinaire, dans les deux sens",
+    "OCCURRENCE ALL-OR-NOTHING": "PASS — [AUD02-SQL-3], fixtures de fenêtres",
+    "HARNESS ENVIRONMENT ISOLATION": "PASS — [D] onze variables, [E] structurel, contrôle M1",
     "ZERO UUID": "PASS — harnais [17], [SENTINEL-1]",
-    "PYTHON FIXTURE INDEPENDENCE": "PASS — générateur versionné, commande, log, python 3.13.16, tzdata 2026c, reproductibilité À L'OCTET re-vérifiée, [FIXTURE-SOURCE-1]",
-    "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète dans les régressions",
-    "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e] empreinte de l'autorité inchangée, [NO-SECOND-ENGINE-1..2]",
-    "ROLLBACK": "PASS — harnais [13a..13g] : retour, refus CSDJ-3, second retour refusé, seconde application refusée",
-    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] : aucune clé how_to_order_*, catalogue MCC toujours exactement 14 clés, aucun import i18n, aucune retouche de DeliveryConditions"
+    "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète",
+    "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e], [NO-SECOND-ENGINE-1..2]",
+    "ROLLBACK": "PASS — harnais [13a..13g]",
+    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (voir la réserve d'intégration ci-dessous)",
+    "REGRESSION IDENTITY": "PASS — jeux d'identités octet-identiques à la base"
   },
   "scopeDiscipline": {
     "redesign": "aucun",
     "closedContractsAltered": "aucun, sauf l'ajout STRICTEMENT nécessaire du catalogue des trois statuts d'heure murale et le renommage de « ok » en « valid_unique » (le statut n'était pas encore exposé publiquement : aucune surface publique ne change).",
     "csdj2Started": false,
     "sameDefectElsewhere": "Le défaut d'isolation d'environnement existe aussi dans supabase/tests/merchant-customer-communications-v1-check.sh, dont ce harnais est dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Voir aud06-same-defect-elsewhere.txt."
+  },
+  "secondRemediation": {
+    "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
+    "tree": "659ec8a551bc35244fad87c08a96071a5eeed811",
+    "evidenceHead": "214eb7d9c9f6b13089f18ae35ee15a20fb9dc873",
+    "verdict": "FAIL (troisième re-audit delta) — AUD-02 fonctionnellement PASS, mais la PREUVE n'était plus indépendante ; AUD-07 encore partiel au nettoyage",
+    "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
+  },
+  "thirdRemediationBlockers": {
+    "CSDJ1-AUD-PYTHON-01": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — défaut d'INDÉPENDANCE DE PREUVE, non de comportement",
+      "problem": "`resolve_wall` reproduisait l'algorithme des deux implémentations livrées : échantillonnage de décalages, reconstruction d'instants candidats. Trois implémentations qui partagent une hypothèse ne se vérifient pas mutuellement -- elles se trompent ensemble, et leur accord n'établit rien. L'audit avait par ailleurs vérifié les zones obligatoires avec son propre oracle et n'avait trouvé AUCUNE erreur fonctionnelle : le défaut était bien dans la preuve.",
+      "whyItMattered": "Une preuve qui ne prouve rien est plus dangereuse qu'une absence de preuve, parce qu'on s'y fie.",
+      "foldRoundTripMethod": {
+        "name": "zoneinfo + fold=0 / fold=1 + validation par aller-retour",
+        "steps": [
+          "attacher le fuseau Z à l'heure murale naïve L avec fold=0 (première lecture possible)",
+          "attacher Z à L avec fold=1 (seconde lecture possible)",
+          "convertir chaque lecture en instant UTC par astimezone",
+          "reconvertir chaque instant vers Z  [ALLER-RETOUR]",
+          "ne garder que les instants dont l'heure murale relue vaut EXACTEMENT L",
+          "dédupliquer les instants UTC égaux"
+        ],
+        "classification": {
+          "0 instant": "nonexistent",
+          "1 instant": "valid_unique",
+          "2 instants": "ambiguous"
+        },
+        "noDurationAssumption": "En heure normale, fold=0 et fold=1 désignent le même instant : la déduplication en laisse un. Sur un recul d'horloge, deux instants distincts relisent tous deux L -- que le recouvrement fasse soixante minutes (Europe/Paris) ou TRENTE (Australia/Lord_Howe), le cardinal ne change pas. Sur un saut d'horloge, PEP 495 fait répondre fold=0 avec le décalage d'AVANT et fold=1 avec celui d'APRÈS ; l'un et l'autre relisent une heure murale décalée, et l'aller-retour les élimine tous les deux.",
+        "roundTripIsThePoint": "L'étape 4 est ce qui interdit d'accepter une normalisation : on ne fait jamais confiance à une conversion, on vérifie qu'elle rend ce qu'on avait demandé."
+      },
+      "whyIndependent": [
+        "Aucun décalage UTC n'est calculé : l'oracle n'appelle pas utcoffset() dans sa décision.",
+        "Aucun instant candidat n'est construit par soustraction d'un décalage.",
+        "Aucune sonde : les constantes -86400 / -14400 / +14400 / +86400 ont disparu du fichier.",
+        "La sémantique des fuseaux est entièrement déléguée à la bibliothèque standard (PEP 495).",
+        "Les deux implémentations JUGÉES continuent, elles, d'échantillonner : [ORACLE-2] l'exige, sans quoi l'indépendance pourrait disparaître par l'autre bout, par convergence."
+      ],
+      "fortyEightFixtureResult": "INCHANGÉS, octet pour octet. Le changement de méthode de l'oracle n'a modifié AUCUN des 48 attendus (comparaison des `cases` avant/après : identiques). La méthode a changé, les attendus non -- c'est exactement ce que vaut l'accord des trois.",
+      "byteReproducibility": "Deux exécutions successives du générateur produisent un fichier identique à l'octet. Empreinte du fichier livré : c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46. python 3.13.16 (CPython) / tzdata 2026c.",
+      "wallTimePoints": {
+        "count": 38,
+        "where": "tests/fixtures/checkout-scheduling-cases.json, clé wallTimeCases",
+        "judgedBy": "l'oracle indépendant",
+        "replayedBy": [
+          "resolveWallTime (TypeScript) — [ORACLE-3]",
+          "public.checkout_wall_time_status (SQL) — harnais [6o]"
+        ],
+        "divergences": 0,
+        "statusesExercised": {
+          "valid_unique": 19,
+          "nonexistent": 10,
+          "ambiguous": 9
+        }
+      },
+      "mandatoryCases": {
+        "Europe/Paris 2026-03-29 02:00": "nonexistent",
+        "Europe/Paris 2026-03-29 02:30": "nonexistent",
+        "Europe/Paris 2026-03-29 03:00": "valid_unique",
+        "Europe/Paris 2026-10-25 02:00 / 02:30 / 02:59": "ambiguous (intervalle vécu deux fois)",
+        "Australia/Lord_Howe 2026-04-05 01:45": "ambiguous",
+        "Australia/Lord_Howe 2026-04-05 01:00": "valid_unique",
+        "Australia/Lord_Howe 2026-04-05 02:00": "valid_unique",
+        "Australia/Lord_Howe 2026-10-04 02:10": "nonexistent",
+        "Australia/Lord_Howe 2026-05-03 01:45": "valid_unique",
+        "zonesAlsoCovered": [
+          "UTC",
+          "Pacific/Kiritimati",
+          "America/Los_Angeles",
+          "America/New_York",
+          "Pacific/Chatham",
+          "Asia/Kathmandu"
+        ]
+      },
+      "differentialControls": {
+        "rationale": "Le mandat le dit : ne pas se fier aux seules vérifications de chaîne de caractères. L'indépendance CONCEPTUELLE se démontre en confrontant l'oracle à des classificateurs délibérément faux.",
+        "brokenClassifiers": [
+          {
+            "defect": "ambiguïté cherchée à ±1 heure (le défaut du re-audit précédent)",
+            "contradictedOn": "Australia/Lord_Howe 2026-04-05 01:45"
+          },
+          {
+            "defect": "confiance à la normalisation du moteur, sans aller-retour (le défaut du premier candidat)",
+            "contradictedOn": "Europe/Paris 2026-03-29 02:30"
+          },
+          {
+            "defect": "sonde unique au point demandé",
+            "contradictedOn": "Europe/Paris 2026-10-25 02:30"
+          }
+        ],
+        "alsoRequired": "[ORACLE-5] exige que chaque classificateur faux soit JUSTE ailleurs : un classificateur faux partout serait trouvé le premier jour et ne dirait rien de la finesse de l'oracle."
+      },
+      "tests": [
+        "[ORACLE-1] méthode : fold + aller-retour, et AUCUNE sonde",
+        "[ORACLE-2] les deux jugés échantillonnent toujours (pas de convergence)",
+        "[ORACLE-3] TypeScript ≡ oracle sur les 38 points",
+        "[ORACLE-4] l'oracle contredit chaque classificateur faux sur le cas nommé",
+        "[ORACLE-5] chaque faux diverge quelque part, et pas partout",
+        "[ORACLE-6] les trois statuts sont exercés",
+        "[ORACLE-7] toutes les zones du mandat sont couvertes",
+        "[ORACLE-8] l'oracle ne dispose d'aucun mécanisme de lecture/exécution de ce qu'il juge",
+        "harnais [6o] SQL ≡ oracle sur les 38 points"
+      ]
+    },
+    "CSDJ1-AUD-07": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — identité de destination PARTIELLE au nettoyage",
+      "invariant": "CSDJ-V1-DESTINATION-PROOF-02",
+      "problem": "Le nettoyage ne vérifiait que quatre faits avant de muter des rôles : socket, port, utilisateur, superutilisateur. Il omettait data_directory, config_file et le marqueur d'exécution. Deux clusters différents peuvent satisfaire cette identité partielle -- même numéro de port, même nom d'utilisateur, même motif de nommage de socket -- et la requête extraite rendait le MÊME résultat que le marqueur fût changé ou retiré.",
+      "rootCause": "Pas la faiblesse d'un contrôle, mais l'EXISTENCE DE DEUX contrôles : un à la mise en place, un autre au nettoyage, subtilement différents. C'est la forme même du défaut.",
+      "fix": "UN seul prédicat, dans une bibliothèque sourcée par les deux harnais : supabase/tests/csdj1-cluster-identity.sh. Il n'existe plus deux versions de lui.",
+      "fullIdentityFields": [
+        "1. aucune destination réseau (inet_server_addr() vaut NULL)",
+        "2. la socket attendue figure dans unix_socket_directories",
+        "3. le port attendu",
+        "4. l'utilisateur attendu",
+        "5. le statut superutilisateur",
+        "6. le data_directory EXACT",
+        "7. le config_file EXACT",
+        "8. un MARQUEUR en base portant le nonce de CETTE exécution"
+      ],
+      "orderMatters": "Le statut superutilisateur est vérifié AVANT les réglages qui l'exigent : sinon un défaut de privilège se présenterait comme une erreur de permission et non comme un refus NOMMÉ. Un test structurel fixe cet ordre.",
+      "nonceDesign": {
+        "uniquePerRun": "nonce = étiquette d'exécution + 8 octets de /dev/urandom",
+        "storedInside": "une TABLE du cluster possédé, au nom étiqueté par l'exécution",
+        "readFromTheMutatingSession": "garde et mutation tiennent dans UN bloc DO unique : UNE session, UNE transaction. Prouver puis muter en deux connexions laissait un intervalle pendant lequel la destination pouvait changer.",
+        "notAFilesystemMarker": "un fichier témoin aurait prouvé que le SYSTÈME DE FICHIERS est le bon, pas que le SERVEUR joint est le bon. Le marqueur est lu en SQL : aucun autre serveur ne peut le présenter, quel que soit son port, son utilisateur ou le nom de sa socket.",
+        "refusesPreexisting": "si une table de ce nom existe déjà, le harnais REFUSE : il ne peut pas prouver qu'il en est le propriétaire.",
+        "removedUnderTheSameGuard": "le marqueur n'est retiré que du serveur qui vient de prouver son identité."
+      },
+      "everyMutatingPath": [
+        "mise en place des rôles globaux — déplacée hors de l'amorçage d'une base jetable, parce qu'un marqueur logé dans « postgres » n'y aurait pas été visible ; elle passe désormais par le point de passage commun, au niveau du cluster",
+        "mutations de rôles du harnais de rôles (set_role_attrs)",
+        "suppression de rôle du cas « initialement absent »",
+        "restauration des rôles au nettoyage — EN UNE SEULE transaction gardée : ou les trois rôles reviennent, ou aucun ne bouge",
+        "retrait du marqueur",
+        "aucun chemin de repli plus faible n'existe : en cas de refus, on ne « réessaie pas autrement »"
+      ],
+      "negativeControls": {
+        "requirement": "pour chacun : REFUS pour la BONNE raison, et ZÉRO mutation d'un rôle témoin",
+        "results": {
+          "data_directory faux": "REFUS « data_directory », zéro mutation",
+          "config_file faux": "REFUS « config_file », zéro mutation",
+          "marqueur RETIRÉ": "REFUS « marqueur_absent », zéro mutation — reproduction littérale du constat de l'audit",
+          "marqueur CHANGÉ": "REFUS « nonce », zéro mutation — reproduction littérale du constat de l'audit",
+          "nonce attendu faux": "REFUS « nonce », zéro mutation",
+          "port faux": "REFUS « port », zéro mutation",
+          "utilisateur faux": "REFUS « current_user », zéro mutation",
+          "non superutilisateur": "REFUS « is_superuser », zéro mutation",
+          "destination RÉSEAU (témoin)": "REFUS « destination_reseau », zéro mutation",
+          "socket attendue fausse": "REFUS « socket », zéro mutation"
+        },
+        "positiveControl": "le chemin NOMINAL mute toujours, et l'effet est observé sur le rôle témoin. Exigence explicite du mandat : « A harness that always aborts is not a PASS. »",
+        "whyRightReason": "exiger la BONNE raison interdit qu'un contrôle passe pour la mauvaise cause -- par exemple un refus de connexion qu'on prendrait pour un refus d'identité."
+      },
+      "pghostaddr": {
+        "preserved": true,
+        "gate": "27 variables, refus PAR LE NOM, jamais par la valeur",
+        "proof": "harness-refusal-redirect-var.txt : PGHOSTADDR=127.0.0.1 => code 2, « Aucune mutation n'a été tentée », et la valeur n'apparaît pas dans la sortie (0 occurrence).",
+        "harmfulnessStillDemonstrated": "section [F] : sans isolation la connexion aboutit AU TÉMOIN, sous env -i elle aboutit au cluster sous test."
+      },
+      "results": {
+        "proofs": 120,
+        "failures": 0
+      }
+    }
+  },
+  "integrationReservation": {
+    "whenRecomposing": "Le mandat l'ordonne au moment de l'intégration, pas maintenant : remplacer l'assertion fragile [OWNERSHIP-2] « exactement 14 clés MCC » par un invariant de PROPRIÉTÉ -- « CSDJ-1 n'ajoute ni ne modifie AUCUNE clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy, PR #134) a légitimement porté le catalogue à 17.",
+    "notChangedNow": "Ce candidat est construit sur 412dbb5, où 14 est la valeur juste. Le changer maintenant modifierait un contrat clos sans nécessité pour exécuter ce candidat.",
+    "currentMain": "2f45df7717b16b08075b51aabf9cec4afd4b2741 (non recomposé, lignée immuable)"
   }
 }
