@@ -308,16 +308,25 @@ test("W1-T-13 | an imported bookmark unknown to the current model fails closed a
   });
 });
 
-test("W1-T-14 | a duplicated bookmark name within one import fails closed at the diff layer, never 'first/last wins'", () => {
+test("W1-T-14 | a duplicated bookmark name within one import fails closed, never 'first/last wins' (W1-03: now caught earlier, at the reader's global bookmark validation, never even reaching the diff layer)", () => {
   const model = baseModel();
   const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
   const docx = buildMinimalDocx(
     wordDocumentXml(bookmarkedParagraphXml(0, name, "Un") + bookmarkedParagraphXml(1, name, "Deux"))
   );
-  const imported = readDocxDocument(docx);
-  assert.throws(() => diffCgvDocxImport(model, imported), (e: unknown) => {
-    assert.ok(e instanceof CgvDocxDiffError);
-    assert.equal((e as CgvDocxDiffError).code, "DUPLICATE_BOOKMARK");
+  // W1-03 REMEDIATION -- the audit's own required fix ("Validate ALL
+  // CGV bookmarks globally before review construction… Reject:
+  // duplicate CGV bookmark name") moved this rejection from
+  // `diffCgvDocxImport` into `readDocxDocument` itself: the document
+  // model is now never even constructed for an import this ambiguous,
+  // let alone handed to the diff engine. `diffCgvDocxImport`'s own
+  // duplicate check (unchanged) remains as defense-in-depth for any
+  // caller that builds a `DocxImportResult` by hand instead of via
+  // `readDocxDocument` -- but the normal pipeline never reaches it for
+  // this case any more.
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "DUPLICATE_BOOKMARK_IDENTITY");
     return true;
   });
 });
@@ -325,7 +334,15 @@ test("W1-T-14 | a duplicated bookmark name within one import fails closed at the
 test("W1-T-15 | a current chapter entirely absent from the import is a non-fatal 'removed chapter', not a failure", () => {
   const model = baseModel();
   const remaining = model.chapters.slice(1); // drop the first chapter's bookmark entirely
-  const bodyXml = remaining.map((c) => bookmarkedParagraphXml(0, toOoxmlBookmarkName(c.bookmarkName), c.heading)).join("");
+  // W1-03 REMEDIATION -- each paragraph now needs its OWN w:id (the
+  // new global bookmark validation rejects an id reused across
+  // multiple bookmarkStart/End pairs as malformed nesting, exactly as
+  // a real document never reuses one); the OLD fixture reused `0`
+  // for every chapter, which only ever happened to work because
+  // nothing previously cross-checked ids globally.
+  const bodyXml = remaining
+    .map((c, i) => bookmarkedParagraphXml(i, toOoxmlBookmarkName(c.bookmarkName), c.heading))
+    .join("");
   const docx = buildMinimalDocx(wordDocumentXml(bodyXml));
   const imported = readDocxDocument(docx);
   const diff = diffCgvDocxImport(model, imported);
@@ -436,5 +453,381 @@ test("W1-T-21 | merchant isolation (N/A): the DOCX round trip persists nothing, 
       assert.equal(source.toLowerCase().includes(term.toLowerCase()), false, `${file} must never reference persistence (${term})`);
     }
   }
+});
+
+// ====================================================================
+// W1 TARGETED REMEDIATION (BOULEZ audit, candidate c5924a5, FAIL).
+// ====================================================================
+//
+// W1-01 -- CHAPTER ORDER.
+// ====================================================================
+
+/** Builds one chapter's exact OOXML block (heading bookmark paragraph
+ *  + body paragraphs), mirroring lib/docx/docx-writer.ts's own shape
+ *  for a single chapter -- used below to hand-assemble FULL,
+ *  reordered exports directly from a `CgvDocumentModel`'s chapters. */
+function chapterBlockXml(chapter: { bookmarkName: string; heading: string; paragraphs: string[] }, bookmarkId: number): string {
+  return (
+    bookmarkedParagraphXml(bookmarkId, toOoxmlBookmarkName(chapter.bookmarkName), chapter.heading) +
+    chapter.paragraphs.map((p) => plainParagraphXml(p)).join("")
+  );
+}
+
+/** Exports a FULL document containing exactly the chapters at
+ *  `chapterIndices` (into `model.chapters`), in THAT order -- the one
+ *  tool needed for every W1-01 scenario below: unchanged order, swaps,
+ *  full reversal, and dropping an index entirely (chapter removed).
+ *  Front matter is carried over UNCHANGED (plain paragraphs, matching
+ *  `model.frontMatter` exactly) so these order-focused fixtures never
+ *  incidentally trip the (separate, W1-02) front-matter diff -- each
+ *  W1-01 test below isolates ONE signal at a time. */
+function exportChapterSubset(model: CgvDocumentModel, chapterIndices: number[]): ArrayBuffer {
+  const frontMatterXml = model.frontMatter.map((line) => plainParagraphXml(line)).join("");
+  const body = frontMatterXml + chapterIndices.map((idx, i) => chapterBlockXml(model.chapters[idx], i)).join("");
+  return buildMinimalDocx(wordDocumentXml(body));
+}
+
+test("W1-T-41 | unchanged chapter order yields orderChanged=false (no spurious reorder signal)", () => {
+  const model = baseModel();
+  const all = model.chapters.map((_, i) => i);
+  const imported = readDocxDocument(exportChapterSubset(model, all));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.orderChanged, false);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
+});
+
+test("W1-T-42 | an adjacent swap of two chapters is surfaced as a meaningful reorder", () => {
+  const model = baseModel();
+  assert.ok(model.chapters.length >= 2);
+  const swapped = [1, 0, ...model.chapters.map((_, i) => i).slice(2)];
+  const imported = readDocxDocument(exportChapterSubset(model, swapped));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.orderChanged, true);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  // Bookmark identity preserved -- never a false added/removed.
+  assert.deepEqual(diff.removedChapters, []);
+  assert.equal(diff.chapters.length, model.chapters.length);
+});
+
+test("W1-T-43 | a full reversal of chapter order is surfaced as a meaningful reorder", () => {
+  const model = baseModel();
+  const reversed = model.chapters.map((_, i) => i).reverse();
+  const imported = readDocxDocument(exportChapterSubset(model, reversed));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.orderChanged, true);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  assert.deepEqual(diff.removedChapters, []);
+  assert.deepEqual(diff.importedOrder, reversed.map((i) => model.chapters[i].bookmarkName));
+});
+
+test("W1-T-44 | a reorder combined with a body edit surfaces BOTH signals (never one masking the other)", () => {
+  const model = baseModel();
+  assert.ok(model.chapters.length >= 2);
+  const swapped = [1, 0, ...model.chapters.map((_, i) => i).slice(2)];
+  const edited = model.chapters.map((c, i) =>
+    i === 0 ? { ...c, paragraphs: c.paragraphs.map((p, j) => (j === 0 ? `${p} (modifié)` : p)) } : c
+  );
+  const frontMatterXml = model.frontMatter.map((line) => plainParagraphXml(line)).join("");
+  const body = frontMatterXml + swapped.map((idx, i) => chapterBlockXml(edited[idx], i)).join("");
+  const imported = readDocxDocument(buildMinimalDocx(wordDocumentXml(body)));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.orderChanged, true, "the reorder must still be surfaced");
+  const editedChapter = diff.chapters.find((c) => c.bookmarkName === model.chapters[0].bookmarkName);
+  assert.ok(editedChapter, "the body edit must still be surfaced, on its own chapter");
+  assert.ok(
+    editedChapter!.entries.some((e) => e.kind !== "unchanged"),
+    "the body edit must still be surfaced, independently of the reorder signal"
+  );
+});
+
+test("W1-T-45 | a chapter removed AND the remaining chapters reordered are BOTH surfaced, independently", () => {
+  const model = baseModel();
+  assert.ok(model.chapters.length >= 3);
+  // Drop chapter 0 entirely, and reorder what remains (2,1 swapped
+  // relative to the current model's own order 1,2,...).
+  const remainingReordered = [2, 1, ...model.chapters.map((_, i) => i).slice(3)];
+  const imported = readDocxDocument(exportChapterSubset(model, remainingReordered));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.removedChapters.length, 1);
+  assert.equal(diff.removedChapters[0].bookmarkName, model.chapters[0].bookmarkName);
+  assert.equal(diff.orderChanged, true, "the remaining chapters' reorder must still be surfaced despite the removal");
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+});
+
+test("W1-T-46 | a chapter removed with the remaining chapters UNCHANGED in order never spuriously sets orderChanged (conditional disappearance check)", () => {
+  const model = baseModel();
+  assert.ok(model.chapters.length >= 3);
+  // Drop chapter 0 entirely (simulating a CONDITIONAL section that no
+  // longer applies); everything else keeps its current-model order.
+  const remainingInOrder = model.chapters.map((_, i) => i).slice(1);
+  const imported = readDocxDocument(exportChapterSubset(model, remainingInOrder));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.removedChapters.length, 1);
+  assert.equal(
+    diff.orderChanged,
+    false,
+    "removal alone, with no actual reordering of what remains, must never be misreported as a reorder"
+  );
+});
+
+// ====================================================================
+// W1-02 -- CONTENT FIDELITY / NO SILENT LOSS.
+// ====================================================================
+
+test("W1-T-47 | a tab character (w:tab) inserted into a paragraph changes the diff, never silently dropped", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withTab =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée</w:t></w:r>` +
+    `<w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">avant sa préparation.</w:t></w:r></w:p>`;
+  assert.ok(documentXml.includes(plainParagraphXml(original)));
+  documentXml = documentXml.replace(plainParagraphXml(original), withTab);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "modified" && e.after.includes("\t")));
+  assert.ok(chapter, "expected the tab to surface as part of a modified entry, never silently dropped");
+});
+
+test("W1-T-48 | a line break (w:br) inserted into a paragraph changes the diff, never silently dropped", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withBr =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée</w:t></w:r>` +
+    `<w:r><w:br/></w:r><w:r><w:t xml:space="preserve">avant sa préparation.</w:t></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withBr);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) => c.entries.some((e) => e.kind === "modified" && e.after.includes("\n")));
+  assert.ok(chapter, "expected the line break to surface as part of a modified entry, never silently dropped");
+});
+
+test("W1-T-49 | a title/preamble edit (front matter) now changes the diff -- previously excluded entirely", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const originalTitle = model.frontMatter[0];
+  assert.ok(originalTitle, "fixture must have a front-matter title");
+  const edited = `${originalTitle} (modifié)`;
+  assert.ok(documentXml.includes(`>${originalTitle}<`));
+  documentXml = documentXml.replace(`>${originalTitle}<`, `>${edited}<`);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  assert.ok(
+    diff.frontMatter.entries.some((e) => e.kind === "modified" && e.before === originalTitle && e.after === edited),
+    "expected the title edit to surface in the diffed front matter"
+  );
+});
+
+test("W1-T-50 | a sentence split across multiple <w:t> runs reconstructs to the exact same text (no silent loss)", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const split =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut </w:t></w:r>` +
+    `<w:r><w:t xml:space="preserve">être annulée avant sa préparation.</w:t></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), split);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(chapter!.entries.every((e) => e.kind === "unchanged"), "run-split text must reconstruct to the exact same string");
+});
+
+test("W1-T-51 | bold/italic-formatted runs splitting a sentence reconstruct to the exact same text (no silent loss)", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const splitFormatted =
+    `<w:p><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Toute commande peut être annulée</w:t></w:r>` +
+    `<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve"> avant sa préparation.</w:t></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), splitFormatted);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(chapter!.entries.every((e) => e.kind === "unchanged"), "bold/italic run split must not change the reconstructed text");
+});
+
+test("W1-T-52 | hyperlink-contained visible text is preserved and participates in the diff", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withHyperlink =
+    `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée avant sa préparation. Voir </w:t></w:r>` +
+    `<w:hyperlink r:id="rIdX"><w:r><w:t xml:space="preserve">la politique complète</w:t></w:r></w:hyperlink></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withHyperlink);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, false);
+  const chapter = diff.chapters.find((c) =>
+    c.entries.some((e) => e.kind === "modified" && e.after.includes("la politique complète"))
+  );
+  assert.ok(chapter, "expected the hyperlink's visible text to surface in the diff");
+});
+
+test("W1-T-53 | a document containing unaccepted tracked changes is rejected whole (fail closed), never silently flattened", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:ins w:id="1" w:author="Marchand"><w:r><w:t xml:space="preserve">Texte ajouté par suivi des modifications.</w:t></w:r></w:ins></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_TRACKED_CHANGES");
+    return true;
+  });
+});
+
+test("W1-T-54 | a document containing a table (w:tbl) is rejected whole (fail closed), never silently flattened", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:tbl><w:tr><w:tc><w:p><w:r><w:t xml:space="preserve">Cellule</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_TABLE_STRUCTURE");
+    return true;
+  });
+});
+
+test("W1-T-55 | a list paragraph (w:numPr) is modeled with an explicit marker, never silently flattened away", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t xml:space="preserve">Premier élément de liste.</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.deepEqual(imported.chapters[0].paragraphs, [model.chapters[0].heading, "• Premier élément de liste."]);
+});
+
+test("W1-T-56 | Word's in-body comment-range markers are harmless -- never crash, never trigger a spurious diff", () => {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withComment =
+    `<w:p><w:commentRangeStart w:id="1"/><w:r><w:t xml:space="preserve">${original}</w:t></w:r>` +
+    `<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withComment);
+  const imported = readDocxDocument(buildMinimalDocx(documentXml));
+  const diff = diffCgvDocxImport(model, imported);
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(chapter!.entries.every((e) => e.kind === "unchanged"));
+});
+
+// ====================================================================
+// W1-03 -- XML / BOOKMARK VALIDATION.
+// ====================================================================
+
+test("W1-T-57 | malformed XML (unclosed <w:r>) is rejected before any content is extracted", () => {
+  const body = `<w:p><w:r><w:t xml:space="preserve">Texte</w:t></w:p>`; // missing </w:r>
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-58 | malformed XML (unclosed <w:p>) is rejected before any content is extracted", () => {
+  const body = `<w:p><w:r><w:t xml:space="preserve">Texte</w:t></w:r>`; // missing </w:p>
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-59 | two identical cgv_* bookmarks inside the SAME paragraph are rejected (ambiguous), never 'first wins' -- the audit's exact reproduction case", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" w:name="${name}"/><w:bookmarkStart w:id="1" w:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/><w:bookmarkEnd w:id="1"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "AMBIGUOUS_BOOKMARK_PARAGRAPH");
+    return true;
+  });
+});
+
+test("W1-T-60 | the same cgv_* bookmark name appearing in two DIFFERENT paragraphs is rejected (duplicate identity)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body = bookmarkedParagraphXml(0, name, "Un") + bookmarkedParagraphXml(1, name, "Deux");
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "DUPLICATE_BOOKMARK_IDENTITY");
+    return true;
+  });
+});
+
+test("W1-T-61 | a bookmark start with no matching end is rejected (unbalanced)", () => {
+  const body = `<w:p><w:bookmarkStart w:id="0" w:name="cgv_identite-du-vendeur"/><w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNBALANCED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-62 | a bookmark end with no matching start is rejected (unbalanced)", () => {
+  const body = `<w:p><w:r><w:t xml:space="preserve">Identité du vendeur</w:t></w:r><w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNBALANCED_BOOKMARK");
+    return true;
+  });
+});
+
+test("W1-T-63 | a cgv_* bookmark whose start and end land in DIFFERENT paragraphs is rejected (malformed/overlapping nesting)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="0" w:name="${name}"/><w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r></w:p>` +
+    `<w:p><w:bookmarkEnd w:id="0"/><w:r><w:t xml:space="preserve">Suite.</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_BOOKMARK_NESTING");
+    return true;
+  });
+});
+
+test("W1-T-64 | a cgv_* bookmark with an empty identity ('cgv_' alone) is rejected (invalid identity)", () => {
+  const body = `<w:p><w:bookmarkStart w:id="0" w:name="cgv_"/><w:r><w:t xml:space="preserve">Vide</w:t></w:r><w:bookmarkEnd w:id="0"/></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "INVALID_BOOKMARK_IDENTITY");
+    return true;
+  });
+});
+
+test("W1-T-65 | Word's own housekeeping bookmarks remain harmless even when they span multiple paragraphs (crossing-paragraph rule is CGV-scoped only)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:bookmarkStart w:id="9" w:name="_GoBack"/><w:r><w:t xml:space="preserve">Début de sélection.</w:t></w:r></w:p>` +
+    `<w:p><w:r><w:t xml:space="preserve">Fin de sélection.</w:t></w:r><w:bookmarkEnd w:id="9"/></w:p>` +
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading);
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.equal(imported.chapters.length, 1);
+  assert.deepEqual(imported.leadingContent, ["Début de sélection.", "Fin de sélection."]);
 });
 

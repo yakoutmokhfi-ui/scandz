@@ -242,6 +242,13 @@ const buildResult = await esbuild.build({
   format: "esm",
   jsx: "automatic",
   target: "es2022",
+  // W1 REMEDIATION -- see the identical comment in
+  // tests/cgv-publication-boundary-v1.dom.test.ts's own client build:
+  // makes esbuild's previously-implicit default explicit (a no-op on
+  // Linux), so `fflate`'s "exports" resolution (now pulled in
+  // transitively via the real page's DOCX imports) is driven by an
+  // explicit option rather than an inferred default.
+  platform: "browser",
   plugins: [mockPlugin],
   external: ["react", "react-dom", "react-dom/client"],
 });

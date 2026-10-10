@@ -298,6 +298,25 @@ const buildResult = await esbuild.build({
   format: "esm",
   jsx: "automatic",
   target: "es2022",
+  // W1 REMEDIATION (Windows harness investigation, BOULEZ audit) --
+  // made the previously-IMPLICIT default explicit. esbuild already
+  // defaults to `platform: "browser"` when this option is omitted, so
+  // this is a no-op today (verified: this suite is unchanged on
+  // Linux) -- it exists only so this bundle's package "exports"/
+  // "conditions" resolution (e.g. for `fflate`, now pulled in
+  // transitively via the real page's lib/docx/docx-writer.ts and
+  // lib/docx/docx-reader.ts imports) is driven by an EXPLICIT build
+  // option rather than esbuild's own inferred default, which is
+  // itself version-dependent. esbuild's "exports" resolution is
+  // governed entirely by this `platform`/`conditions` BUILD OPTION,
+  // never by the host OS -- the same config resolves identically on
+  // Linux and Windows for a given esbuild version, so a genuinely
+  // platform-DEPENDENT resolution bug here would have to be an
+  // esbuild version/host difference, not something this option alone
+  // can paper over. See the deliverable's WINDOWS HARNESS section for
+  // the full investigation and why no further code change is
+  // warranted without a reproducible Windows-side error.
+  platform: "browser",
   plugins: [makeMockPlugin(mocks)],
   external: ["react", "react-dom", "react-dom/client"],
 });

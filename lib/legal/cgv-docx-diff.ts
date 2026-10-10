@@ -60,6 +60,50 @@
  * `lib/docx/docx-reader.ts` already documents (purely cosmetic blank
  * paragraphs) — every remaining textual difference, however small, is
  * surfaced.
+ *
+ * ====================================================================
+ * W1 TARGETED REMEDIATION (BOULEZ audit, candidate c5924a5, FAIL) —
+ * W1-01 / W1-02.
+ * ====================================================================
+ *
+ * W1-01 — CHAPTER ORDER. The audit's reproduction case: current model
+ * [Alpha, Beta], import [Beta, Alpha] (same two bookmarks, just
+ * swapped) used to return `hasNoMeaningfulChanges: true` — order was
+ * never compared at all, only per-chapter line content and chapter
+ * presence/absence. Fixed by `computeOrderChanged` below: it reduces
+ * BOTH sides to the matched-bookmark subset (chapters present on both
+ * sides — a chapter the merchant deleted is already its own
+ * `removedChapters` signal and must never ALSO manufacture a false
+ * order change) and compares the two resulting sequences by bookmark
+ * IDENTITY (never heading text, never position) for exact equality.
+ * `orderChanged` folds into `hasNoMeaningfulChanges` exactly like
+ * `removedChapters`/per-chapter edits already did — a pure reorder
+ * with no other edit is now, correctly, a meaningful change. Per-
+ * chapter `entries` and `removedChapters` are computed EXACTLY as
+ * before this remediation: a reorder is surfaced as its OWN signal,
+ * never translated into a false `added`/`removed` chapter (mandate:
+ * "Preserve bookmark identity for matching… do not convert a reorder
+ * into false added/removed if bookmark identity remains valid").
+ *
+ * W1-02 — FRONT MATTER / PREAMBLE FIDELITY. The audit found that
+ * `imported.leadingContent` (title/seller-name/preamble lines found
+ * before the first recognized chapter bookmark) was surfaced for
+ * display but never actually COMPARED against anything — a merchant
+ * editing the document title in Word produced zero diff signal.
+ * Fixed: `frontMatter` below diffs `currentModel.frontMatter` (lib/
+ * legal/cgv-document-model.ts, already computed from the SAME trusted
+ * `renderCgv()` output the rest of this module already uses) against
+ * `imported.leadingContent`, with the exact same LCS + modified-
+ * pairing pipeline already used for chapter bodies — no new
+ * diffing logic, just applied to one more pair of ordered line lists.
+ * `frontMatter`'s non-unchanged entries fold into
+ * `hasNoMeaningfulChanges` exactly like a chapter's own entries do.
+ * The OLD, undiffed `leadingContent: string[]` field is removed from
+ * this result (nothing outside this module's own now-updated caller,
+ * app/dashboard/legal-cgv/page.tsx, read it — see that file's own
+ * diff for the matching UI update); `docx-reader.ts`'s
+ * `DocxImportResult.leadingContent` is UNCHANGED, it is simply fed
+ * into this new diff instead of being passed through unexamined.
  */
 
 import type { CgvDocumentModel } from "@/lib/legal/cgv-document-model";
@@ -104,15 +148,29 @@ export interface CgvDocxDiffResult {
   /** One entry per chapter present in BOTH the current model and the
    *  import, in current-model document order. */
   chapters: CgvDocxDiffChapterResult[];
-  /** Paragraphs found before the first recognized bookmark in the
-   *  import -- surfaced for review only (see docx-reader.ts), never
-   *  diffed against the current model's front matter. */
-  leadingContent: string[];
-  /** True iff `removedChapters` is empty AND every chapter's entries
-   *  are all "unchanged" -- the mandate's "export -> import unchanged
-   *  = zero meaningful diff" test. `leadingContent` is intentionally
-   *  EXCLUDED: it is informational only, never part of the
-   *  unchanged/changed verdict. */
+  /** W1 REMEDIATION (W1-01) -- true iff the MATCHED chapter subset
+   *  (bookmarks present on both sides, i.e. excluding
+   *  `removedChapters`) appears in a different sequence in the import
+   *  than in the current model. Never set by a chapter's own
+   *  presence/absence (that is `removedChapters`' job) or by its line
+   *  content (that is `chapters[].entries`' job) -- a PURE reorder,
+   *  with no other edit, sets this flag and nothing else. */
+  orderChanged: boolean;
+  /** W1 REMEDIATION (W1-01) -- the matched chapters' internal
+   *  `bookmarkName`s (never the raw OOXML name), in the ORDER found in
+   *  the import -- "preserve imported chapter sequence" (mandate),
+   *  surfaced for display/review whenever `orderChanged` is true. */
+  importedOrder: string[];
+  /** W1 REMEDIATION (W1-02) -- diffed title/seller-name/preamble
+   *  lines: `currentModel.frontMatter` vs. `imported.leadingContent`,
+   *  via the exact same LCS + modified-pairing pipeline as a chapter
+   *  body (see file header, "FRONT MATTER / PREAMBLE FIDELITY").
+   *  Replaces the OLD, undiffed `leadingContent: string[]` field. */
+  frontMatter: { entries: CgvDocxDiffEntry[] };
+  /** True iff `removedChapters` is empty, `orderChanged` is false,
+   *  `frontMatter.entries` are all "unchanged", AND every chapter's
+   *  entries are all "unchanged" -- the mandate's "export -> import
+   *  unchanged = zero meaningful diff" test. */
   hasNoMeaningfulChanges: boolean;
 }
 
@@ -213,6 +271,19 @@ function hasOnlyUnchanged(entries: CgvDocxDiffEntry[]): boolean {
 }
 
 /**
+ * W1 REMEDIATION (W1-01) -- true iff the matched-subset order differs
+ * between the current model and the import. Both arrays are already
+ * restricted, by the caller, to bookmarks present on BOTH sides (a
+ * chapter absent from the import is `removedChapters`' concern, never
+ * this function's) -- so both arrays always have the same length and
+ * the same SET of entries; only their ORDER can differ.
+ */
+function computeOrderChanged(currentOrder: string[], importedOrder: string[]): boolean {
+  if (currentOrder.length !== importedOrder.length) return true; // defensive; should not happen (see caller)
+  return currentOrder.some((name, i) => name !== importedOrder[i]);
+}
+
+/**
  * Builds the structured diff. Throws `CgvDocxDiffError` (never
  * returns a partial result) when the import cannot be mapped safely
  * -- see file header, "MATCHING / FAIL CLOSED".
@@ -250,6 +321,9 @@ export function diffCgvDocxImport(currentModel: CgvDocumentModel, imported: Docx
 
   const removedChapters: { bookmarkName: string; heading: string }[] = [];
   const chapters: CgvDocxDiffChapterResult[] = [];
+  // W1-01 -- matched-subset order, current-model side (internal
+  // bookmarkName, document order as the CURRENT model has it).
+  const currentMatchedOrder: string[] = [];
 
   for (const modelChapter of currentModel.chapters) {
     const rawName = toOoxmlBookmarkName(modelChapter.bookmarkName);
@@ -258,6 +332,7 @@ export function diffCgvDocxImport(currentModel: CgvDocumentModel, imported: Docx
       removedChapters.push({ bookmarkName: modelChapter.bookmarkName, heading: modelChapter.heading });
       continue;
     }
+    currentMatchedOrder.push(modelChapter.bookmarkName);
 
     // Same blank-paragraph normalization as docx-reader.ts applies to
     // the IMPORTED side (file header there, "BLANK PARAGRAPH
@@ -276,7 +351,31 @@ export function diffCgvDocxImport(currentModel: CgvDocumentModel, imported: Docx
     chapters.push({ bookmarkName: modelChapter.bookmarkName, heading: modelChapter.heading, entries });
   }
 
-  const hasNoMeaningfulChanges = removedChapters.length === 0 && chapters.every((c) => hasOnlyUnchanged(c.entries));
+  // W1-01 -- matched-subset order, IMPORT side, mapped back to
+  // internal bookmarkName via the already-built rawName -> model
+  // chapter lookup (every imported chapter is guaranteed matched at
+  // this point -- UNRECOGNIZED_BOOKMARK would already have thrown
+  // above otherwise), in the ORDER `docx-reader.ts` found them (i.e.
+  // "preserve imported chapter sequence", mandate).
+  const importedOrder = imported.chapters.map((c) => rawNameToModelChapter.get(c.bookmarkName)!.bookmarkName);
+  const orderChanged = computeOrderChanged(currentMatchedOrder, importedOrder);
 
-  return { removedChapters, chapters, leadingContent: imported.leadingContent, hasNoMeaningfulChanges };
+  // W1-02 -- front matter (title/seller/preamble) diff, same
+  // LCS + modified-pairing pipeline as any chapter body.
+  const frontMatterEntries = pairAdjacentReplacements(diffLines(currentModel.frontMatter, imported.leadingContent));
+
+  const hasNoMeaningfulChanges =
+    removedChapters.length === 0 &&
+    !orderChanged &&
+    hasOnlyUnchanged(frontMatterEntries) &&
+    chapters.every((c) => hasOnlyUnchanged(c.entries));
+
+  return {
+    removedChapters,
+    chapters,
+    orderChanged,
+    importedOrder,
+    frontMatter: { entries: frontMatterEntries },
+    hasNoMeaningfulChanges,
+  };
 }

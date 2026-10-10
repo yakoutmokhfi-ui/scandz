@@ -170,6 +170,18 @@ export default function LegalCgvPage() {
   const [docxImportBusy, setDocxImportBusy] = useState(false);
   const [docxImportErrorMessage, setDocxImportErrorMessage] = useState<string | null>(null);
   const [docxDiffResult, setDocxDiffResult] = useState<CgvDocxDiffResult | null>(null);
+  /**
+   * W1 REMEDIATION (W1-04) -- RESTAURANT CONTEXT ISOLATION.
+   * `docxDiffResult` on its own carries no restaurant identity, so a
+   * stray render between a context switch and that switch's own
+   * cleanup (or a future refactor that forgets to clear
+   * `docxDiffResult` on switch) could otherwise show one
+   * restaurant's review under another's header. This is a SECOND,
+   * render-time line of defense on top of the guard checkpoints in
+   * `importCgvDocxFile` and the explicit reset in
+   * `handleSelectRestaurant` below -- the diff is only ever rendered
+   * when `docxReviewRestaurantId === restaurantId` (see the JSX). */
+  const [docxReviewRestaurantId, setDocxReviewRestaurantId] = useState<string | null>(null);
   const docxFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
@@ -273,6 +285,27 @@ export default function LegalCgvPage() {
       // l'établissement précédent ne doit pas survivre à la bascule.
       setEditingTerms({ cancellation: false, substitution: false });
       setConfirmRestore(null);
+      // W1 REMEDIATION (W1-04) -- RESTAURANT CONTEXT ISOLATION. A DOCX
+      // review/import in flight for the PREVIOUS restaurant must never
+      // survive the switch, or later commit, under the new one:
+      // cleared in the SAME handler as the context switch itself
+      // (grouped into one React render, exactly like
+      // `enterLegalCgvContext`'s own `setSaving(false)` already does
+      // for mutations) -- "when restaurant changes: clear current
+      // DOCX review, clear imported file state, invalidate any
+      // in-flight import generation" (mandate). The generation
+      // invalidation itself is `enterLegalCgvContext` bumping
+      // `contextGenerationRef` above; `importCgvDocxFile`'s own guard
+      // checkpoints are what make an ALREADY in-flight import's
+      // eventual completion unable to commit anything here, even
+      // without this reset -- this reset's job is only to make the
+      // CURRENTLY DISPLAYED state disappear immediately, synchronously,
+      // never waiting for that in-flight promise to resolve.
+      setDocxImportBusy(false);
+      setDocxImportErrorMessage(null);
+      setDocxDiffResult(null);
+      setDocxReviewRestaurantId(null);
+      if (docxFileInputRef.current) docxFileInputRef.current.value = "";
       setRestaurantId(id);
     },
     [enterLegalCgvContext]
@@ -569,35 +602,75 @@ export default function LegalCgvPage() {
    * `saveCgvProfile`'s W2-5 comment above). No publication side
    * effect: this function never calls publishMerchantCgvVersion /
    * activateMerchantCgv, and never writes anywhere.
+   *
+   * W1 REMEDIATION (W1-04) -- RESTAURANT CONTEXT ISOLATION. Bound to
+   * the restaurant AND context generation active the moment the
+   * import was launched, via `beginLegalCgvOperation()` -- REUSING
+   * the EXISTING stale-response protection pattern already used by
+   * saveLegal/saveCgvProfile/publish/activate above (mandate: "Reuse
+   * the existing stale-response protection pattern already present in
+   * the Legal CGV page if possible"), never `guard.beginRequest()`,
+   * which is reserved for `load()`'s data RELOADS -- see that
+   * function's own W2-4 comment for why the two sequences must stay
+   * independent (reusing it here for a mutation-shaped operation like
+   * this one would risk a data reload wrongly invalidating an import,
+   * or vice versa). Checked AFTER every `await`, before any
+   * `setState`, exactly like the three mutations above: an import
+   * started for restaurant A that only resolves after the user has
+   * switched to B must never flip `docxImportBusy` back to false, let
+   * alone commit A's review, under B's context. No new global state
+   * is introduced -- `targetRestaurantId`/`isOperationCurrent` are
+   * local to this one call, exactly as `beginLegalCgvOperation()`
+   * already works for the other three mutations.
    */
   async function importCgvDocxFile(file: File) {
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setDocxImportBusy(true);
     setDocxImportErrorMessage(null);
     setDocxDiffResult(null);
+    setDocxReviewRestaurantId(null);
     try {
       const previewForDiff = buildPreviewResult();
       if (previewForDiff.reason !== null) {
+        if (!isOperationCurrent()) return;
         setDocxImportErrorMessage(previewFailureMessage(previewForDiff.reason));
         return;
       }
       const buffer = await file.arrayBuffer();
+      // Garde 1 -- après la lecture du fichier (I/O asynchrone), AVANT
+      // toute analyse structurelle du contenu.
+      if (!isOperationCurrent()) return;
       const imported = readDocxDocument(buffer);
       const currentModel = parseCgvDocumentModel(previewForDiff.html);
       const diff = diffCgvDocxImport(currentModel, imported);
+      // Garde 2 -- après le pipeline complet lecture+diff, AVANT tout
+      // affichage du résultat.
+      if (!isOperationCurrent()) return;
       setDocxDiffResult(diff);
+      setDocxReviewRestaurantId(targetRestaurantId);
     } catch (e) {
-      // DocxReadError (fichier malformé / format étranger / ZIP non
-      // sûr) et CgvDocxDiffError (repère non reconnu ou dupliqué) sont
-      // toutes deux des échecs FERMÉS attendus -- jamais une
-      // exception brute affichée au marchand.
+      // Garde 3 -- chemin d'échec. DocxReadError (fichier malformé /
+      // format étranger / ZIP non sûr / repère invalide) et
+      // CgvDocxDiffError (repère non reconnu ou dupliqué) sont toutes
+      // deux des échecs FERMÉS attendus -- jamais une exception brute
+      // affichée au marchand (et jamais affichée du tout si le
+      // contexte a changé entre-temps).
+      if (!isOperationCurrent()) return;
       if (e instanceof DocxReadError || e instanceof CgvDocxDiffError) {
         setDocxImportErrorMessage(`${t("legalCgvDocxImportFailed")} (${e.code})`);
       } else {
         setDocxImportErrorMessage(t("legalCgvDocxImportFailed"));
       }
     } finally {
-      setDocxImportBusy(false);
-      if (docxFileInputRef.current) docxFileInputRef.current.value = "";
+      // Garde 4 -- ne JAMAIS désarmer `docxImportBusy` ni vider le
+      // champ de fichier pour un contexte qui n'est plus courant : cela
+      // écraserait à tort l'état du NOUVEAU contexte (déjà remis à
+      // zéro, le cas échéant, par `handleSelectRestaurant` lui-même au
+      // moment de la bascule).
+      if (isOperationCurrent()) {
+        setDocxImportBusy(false);
+        if (docxFileInputRef.current) docxFileInputRef.current.value = "";
+      }
     }
   }
 
@@ -1046,7 +1119,15 @@ export default function LegalCgvPage() {
                   {docxImportErrorMessage}
                 </p>
               )}
-              {docxDiffResult && (
+              {/*
+                W1 REMEDIATION (W1-04) -- the diff is only ever
+                rendered when it was produced FOR the restaurant
+                currently displayed (second line of defense on top of
+                the guard checkpoints in `importCgvDocxFile` and the
+                explicit reset in `handleSelectRestaurant` -- see
+                `docxReviewRestaurantId`'s own declaration comment).
+              */}
+              {docxDiffResult && docxReviewRestaurantId === restaurantId && (
                 <div data-testid="legal-cgv-docx-diff" className="space-y-3 text-sm">
                   {docxDiffResult.hasNoMeaningfulChanges ? (
                     <p data-testid="legal-cgv-docx-diff-no-changes" className="text-stone-600">
@@ -1054,6 +1135,19 @@ export default function LegalCgvPage() {
                     </p>
                   ) : (
                     <>
+                      {/* W1 REMEDIATION (W1-01) -- a pure chapter
+                          reorder (bookmark identity preserved, never
+                          surfaced as a false added/removed) gets its
+                          own clear signal, distinct from per-chapter
+                          edits and from removed chapters below. */}
+                      {docxDiffResult.orderChanged && (
+                        <div data-testid="legal-cgv-docx-diff-order-changed" className="rounded-lg bg-amber-50 p-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                            {t("legalCgvDocxDiffOrderChanged")}
+                          </p>
+                          <p className="text-stone-700">{docxDiffResult.importedOrder.join(" → ")}</p>
+                        </div>
+                      )}
                       {docxDiffResult.removedChapters.map((removed) => (
                         <div key={removed.bookmarkName} className="rounded-lg bg-red-50 p-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-red-700">
@@ -1089,14 +1183,39 @@ export default function LegalCgvPage() {
                         ))}
                     </>
                   )}
-                  {docxDiffResult.leadingContent.length > 0 && (
-                    <div className="rounded-lg bg-stone-50 p-2" data-testid="legal-cgv-docx-diff-leading">
+                  {/*
+                    W1 REMEDIATION (W1-02) -- front matter (title /
+                    seller name / preamble) is now DIFFED, not merely
+                    displayed: non-unchanged entries render exactly
+                    like a chapter's own entries above. Unlike a
+                    chapter, front matter has no removal/add-chapter
+                    concept of its own -- it is always present on both
+                    sides (the current model always has a title), so
+                    only line-level entries ever appear here.
+                  */}
+                  {docxDiffResult.frontMatter.entries.some((e) => e.kind !== "unchanged") && (
+                    <div className="rounded-lg border border-stone-200 p-2" data-testid="legal-cgv-docx-diff-leading">
                       <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                        {t("legalCgvDocxDiffLeadingContent")}
+                        {t("legalCgvDocxDiffFrontMatterChanged")}
                       </p>
-                      {docxDiffResult.leadingContent.map((line, idx) => (
-                        <p key={idx} className="text-stone-700">{line}</p>
-                      ))}
+                      <ul className="space-y-1">
+                        {docxDiffResult.frontMatter.entries
+                          .filter((entry) => entry.kind !== "unchanged")
+                          .map((entry, idx) => (
+                            <li key={idx}>
+                              {entry.kind === "modified" ? (
+                                <>
+                                  <span className="block text-red-700 line-through">{entry.before}</span>
+                                  <span className="block text-green-700">{entry.after}</span>
+                                </>
+                              ) : entry.kind === "added" ? (
+                                <span className="block text-green-700">{entry.text}</span>
+                              ) : (
+                                <span className="block text-red-700 line-through">{entry.text}</span>
+                              )}
+                            </li>
+                          ))}
+                      </ul>
                     </div>
                   )}
                 </div>
