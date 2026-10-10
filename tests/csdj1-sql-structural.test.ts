@@ -1300,6 +1300,163 @@ test("[AUD07-SQL-2] UN SEUL prédicat d'identité, COMPLET, pour tout chemin qui
   );
 });
 
+test("[AUD07-SQL-3] le répertoire de socket se compare à l'ÉGALITÉ EXACTE", () => {
+  // Défaut du quatrième re-audit : la validation employait `strpos`,
+  // une sémantique de SOUS-CHAÎNE. Un serveur dont la socket est
+  // « /tmp » satisfaisait un attendu « /tm ». Une identité qui accepte
+  // un fragment n'identifie rien -- et sur un poste où plusieurs
+  // clusters jetables vivent côte à côte sous /tmp, le fragment est la
+  // règle, pas l'exception.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  const lib = readFileSync(LIB_PATH, "utf8");
+  // On juge le code EXÉCUTABLE : un commentaire a le droit de nommer
+  // `strpos` pour dire précisément qu'on ne l'emploie plus.
+  const libExec = lib
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.replace(/\s*--.*$/, ""))
+    .join("\n");
+
+  assert.ok(
+    !libExec.includes("strpos"),
+    "le prédicat ne doit plus comparer la liste de sockets par sous-chaîne"
+  );
+  assert.ok(
+    !/like\s*'%/.test(libExec) && !/position\s*\(/.test(libExec),
+    "ni LIKE ni position() ne doivent réintroduire une acceptation partielle"
+  );
+  // La liste est découpée en ENTRÉES, et chaque entrée est comparée à
+  // l'ÉGALITÉ.
+  assert.ok(
+    libExec.includes("string_to_array(") && libExec.includes("pg_catalog.unnest("),
+    "la liste unix_socket_directories doit être découpée en entrées"
+  );
+  assert.ok(
+    /end = '\$\{CSDJ1_ID_SOCKET\}'/.test(libExec),
+    "l'entrée normalisée doit être comparée à l'attendu par égalité"
+  );
+  // Les deux côtés sont normalisés DE LA MÊME FAÇON, sans quoi
+  // « /tmp/ » et « /tmp » seraient deux répertoires différents.
+  assert.ok(
+    lib.includes("csdj1_identity_normalize_socket"),
+    "l'attendu doit être normalisé côté shell"
+  );
+  for (const piece of ["btrim", "rtrim"]) {
+    assert.ok(
+      libExec.includes(piece),
+      `la normalisation SQL doit employer ${piece} (espaces, guillemets, barre oblique finale)`
+    );
+  }
+  // Un attendu vide accepterait une entrée vide : le contrat refuse de
+  // se déclarer.
+  assert.ok(
+    /case "\$sock" in\s*\n\s*\/\*\)/.test(lib),
+    "un répertoire attendu non absolu doit faire REFUSER la déclaration du contrat"
+  );
+
+  // Les contrôles négatifs de socket existent, y compris la
+  // reproduction littérale du rapport d'audit.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+  assert.ok(role.includes("socket_control"), "les contrôles de socket doivent exister");
+  for (const label of [
+    "entrée EXACTE (membre 1)",
+    "entrée EXACTE (membre 2)",
+    "PRÉFIXE d'une entrée",
+    "SUFFIXE d'une entrée",
+    "SOUS-répertoire d'une entrée",
+    "répertoire PARENT",
+    "la LISTE entière",
+    "reproduction d'audit : /tmp vs /tm",
+    "reproduction d'audit : /tmp vs /tmpx",
+  ]) {
+    assert.ok(role.includes(label), `le contrôle de socket « ${label} » doit exister`);
+  }
+  // Un cluster à PLUSIEURS répertoires de socket est nécessaire : sans
+  // lui, rien ne distingue « une entrée complète » de « la liste ».
+  assert.ok(
+    /unix_socket_directories='\$LAB_SOCK_A,\$LAB_SOCK_B'/.test(role),
+    "un cluster à deux répertoires de socket doit être créé pour éprouver la liste"
+  );
+  // Et la nocivité de l'ancien prédicat est démontrée, pas déclarée.
+  assert.ok(
+    role.includes("l'ancien prédicat (sous-chaîne) l'acceptait"),
+    "le harnais doit démontrer que l'ancien prédicat acceptait ces fragments"
+  );
+});
+
+test("[AUD07-SQL-4] AUCUNE mutation de rôle hors de la garde, témoin compris", () => {
+  // Défaut du quatrième re-audit : l'initialisation des rôles du
+  // cluster TÉMOIN passait par un appel brut. Un cluster dont on mute
+  // les rôles est un cluster qu'il faut identifier, même quand il ne
+  // sert que de témoin -- un appel brut qui « ne compte pas » est un
+  // appel brut qui comptera le jour où la destination n'est plus celle
+  // qu'on croit.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+
+  // Le témoin a son CONTRAT COMPLET, pas une dispense.
+  assert.ok(
+    /csdj1_identity_declare temoin /.test(role),
+    "le cluster témoin doit avoir son propre contrat d'identité"
+  );
+  for (const field of ["WIT_SOCK", "WIT_PORT", "WIT_DATA_DIR_PROVEN",
+                        "WIT_CONFIG_FILE_PROVEN", "WIT_MARKER", "WIT_NONCE"]) {
+    assert.ok(role.includes(field), `le contrat du témoin doit porter ${field}`);
+  }
+  // Son marqueur est DISTINCT de celui du cluster sous test, sinon la
+  // preuve « le marqueur n'existe que là » ne voudrait rien dire.
+  assert.ok(
+    /WIT_MARKER="scanym_csdj1_identity_temoin_/.test(role),
+    "le marqueur du témoin doit porter un nom distinct"
+  );
+
+  // L'initialisation des rôles du témoin passe par la garde.
+  const witnessInit = role.slice(
+    role.indexOf("Le TÉMOIN reçoit des attributs distinctifs"),
+    role.indexOf("declare -A WITNESS_BEFORE")
+  );
+  assert.ok(witnessInit.length > 0, "le bloc d'initialisation du témoin doit être identifiable");
+  assert.ok(
+    witnessInit.includes("csdj1_identity_mutate"),
+    "l'initialisation des rôles du témoin doit passer par la mutation gardée"
+  );
+  assert.ok(
+    !/\bqw "do /.test(witnessInit),
+    "aucun appel brut `qw` ne doit porter une mutation de rôle"
+  );
+
+  // Et le harnais porte son propre détecteur, qui raisonne par commande
+  // englobante : une mutation vit presque toujours dans un argument sur
+  // plusieurs lignes, et un contrôle ligne à ligne ne prouverait rien.
+  assert.ok(
+    role.includes("mutation de rôle") || role.includes("NON-GARDEE"),
+    "le harnais doit détecter lui-même une mutation de rôle non gardée"
+  );
+  assert.ok(
+    role.includes("TOUTE mutation de rôle est portée par une commande gardée"),
+    "le détecteur doit conclure explicitement"
+  );
+
+  // Les contrats sont NOMMÉS : plusieurs clusters, plusieurs contrats
+  // complets, et aucun contrat global sauvegardé puis restauré à la
+  // main -- c'est exactement ce dédoublement qui a produit le défaut
+  // d'origine.
+  const lib = readFileSync("supabase/tests/csdj1-cluster-identity.sh", "utf8");
+  assert.ok(
+    lib.includes("csdj1_identity_use") && lib.includes("CSDJ1_ID_CTX_RUNNER"),
+    "la bibliothèque doit gérer des contrats NOMMÉS"
+  );
+  for (const ctx of ["temoin", "test", "banc", "test_sans_privilege"]) {
+    assert.ok(
+      new RegExp(`csdj1_identity_declare ${ctx} `).test(role),
+      `le contrat « ${ctx} » doit être déclaré`
+    );
+  }
+});
+
 test("[AUD03-SQL] la lecture publique vérifie l'activation du mode de vente", () => {
   assert.ok(
     sql.includes("CSDJ-V1-MODE-ENABLED-GATE-01"),

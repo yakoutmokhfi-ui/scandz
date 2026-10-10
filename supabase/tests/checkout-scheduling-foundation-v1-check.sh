@@ -416,9 +416,14 @@ csdj1_runner_main() {
 IDENTITY_MARKER="scanym_csdj1_identity_$RUN_TAG"
 IDENTITY_NONCE="csdj1-$RUN_TAG-$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
 [ -n "${IDENTITY_NONCE#csdj1-$RUN_TAG-}" ] || IDENTITY_NONCE="csdj1-$RUN_TAG-$$"
-csdj1_identity_declare csdj1_runner_main \
+# Contrat NOMMÉ : ce harnais n'a qu'un cluster, mais le prédicat est
+# partagé avec un harnais qui en a trois. Nommer évite de sauvegarder et
+# restaurer un contrat global à la main -- c'est-à-dire d'inventer un
+# second chemin, ce qui est la forme même du défaut d'origine.
+csdj1_identity_declare lot csdj1_runner_main \
   "$SOCKET_DIR" "$SRV_PORT" "$CUR_USER" "$DATA_DIR" "$CONFIG_FILE" \
-  "$IDENTITY_MARKER" "$IDENTITY_NONCE"
+  "$IDENTITY_MARKER" "$IDENTITY_NONCE" \
+  || fatal "contrat d'identité invalide : le harnais refuse de muter."
 csdj1_identity_install \
   || fatal "pose du marqueur d'identité refusée ($CSDJ1_ID_LAST) -- le harnais ne mute rien sans pouvoir lier le serveur à CETTE exécution."
 log "[sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « $IDENTITY_MARKER » (nonce propre à cette exécution)."

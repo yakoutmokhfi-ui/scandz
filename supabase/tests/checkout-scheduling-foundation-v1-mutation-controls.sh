@@ -3,8 +3,9 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte QUATRE
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte CINQ
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
+# (M2 est une démonstration directe, pas une mutation.)
 #
 # M1  un « env -i » retiré devant un appel client
 # M2  (sans objet : démonstration directe, cf. section [F] du harnais)
@@ -12,6 +13,7 @@
 # M4  le MARQUEUR retiré du prédicat d'identité       (défaut d'AUD-07,
 #     seconde passe : la preuve partielle que l'audit a trouvée)
 # M5  data_directory et config_file retirés du prédicat
+# M6  l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -202,6 +204,49 @@ if [ "$M5_RC" != "0" ] \
   grep -m4 'FAIL:' /tmp/csdj1-mut-m5.log | sed 's/^/       /' | tee -a "$OUT"
 else
   ko "M5 — le retrait de data_directory/config_file passe inaperçu (code $M5_RC)"
+fi
+
+# ────────────────────────────────────────────────────────────
+# M6 — AUD-07 (quatrième passe) : l'égalité EXACTE de socket
+#      remplacée par une SOUS-CHAÎNE.
+#
+# C'est le défaut littéral du quatrième re-audit. Les contrôles de
+# socket [H] doivent alors ACCEPTER des attendus partiels, et le rôle
+# témoin du banc doit être réellement muté.
+# ────────────────────────────────────────────────────────────
+say "--- M6 : égalité exacte de socket remplacée par une sous-chaîne"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+python3 -I - "$LIB_SRC" "$MUT_LIB" <<'PYM6'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+# On remonte du « raise ... socket » au « if not exists ( » qui le porte,
+# et on remplace tout le prédicat par l'ancienne sémantique.
+needle = "SCANYM_IDENTITY_REFUS|socket"
+i = s.index(needle)
+start = s.rindex("  if not exists (", 0, i)
+end = s.index("  end if;\n", i) + len("  end if;\n")
+weak = (
+    "  if pg_catalog.strpos(\n"
+    "       coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),\n"
+    "       '${CSDJ1_ID_SOCKET}') = 0 then\n"
+    "    raise exception 'SCANYM_IDENTITY_REFUS|socket';\n"
+    "  end if;\n"
+)
+s = s[:start] + weak + s[end:]
+open(dst, 'w', encoding='utf-8').write(s)
+PYM6
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")"
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M6_RC="$(run_mut_role /tmp/csdj1-mut-m6.log)"
+if [ "$M6_RC" != "0" ] \
+   && grep -q "PRÉFIXE d'une entrée — ACCEPTÉ à tort" /tmp/csdj1-mut-m6.log \
+   && grep -q "reproduction d'audit : /tmp vs /tm — ACCEPTÉ à tort" /tmp/csdj1-mut-m6.log; then
+  ok "M6 — la sémantique de sous-chaîne est VUE : les attendus partiels passent de nouveau (code $M6_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m6.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M6 — l'affaiblissement du prédicat de socket passe inaperçu (code $M6_RC) : [H] ne prouve rien"
 fi
 
 clean

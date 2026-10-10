@@ -157,6 +157,8 @@ cleanup() {
     "$PG_CTL" -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1
   [ "$WITNESS_UP" = "1" ] && env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
     "$PG_CTL" -D "$WIT_DATA" stop -m immediate >/dev/null 2>&1
+  [ "${LAB_UP:-0}" = "1" ] && env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$LAB_DATA" stop -m immediate >/dev/null 2>&1
   rm -rf "$TMP_DIR"
   exit "$rc"
 }
@@ -202,6 +204,38 @@ start_cluster "$WIT_DATA" "$WIT_SOCK" "$WIT_PORT" "127.0.0.1"
 WITNESS_UP=1
 log "cluster TÉMOIN créé par CE fichier (TCP 127.0.0.1:$WIT_PORT -- MÊME port que le cluster sous test, qui n'écoute aucun TCP) : cible réelle d'une redirection."
 
+# ────────────────────────────────────────────────────────────
+# BANC D'ESSAI DE SOCKETS — un cluster à DEUX répertoires
+#
+# `unix_socket_directories` est une LISTE. Un prédicat qui compare la
+# liste entière par sous-chaîne accepte n'importe quel fragment ; un
+# prédicat correct exige l'égalité avec UNE ENTRÉE COMPLÈTE. On ne peut
+# le prouver qu'avec un serveur qui en a réellement plusieurs.
+# ────────────────────────────────────────────────────────────
+LAB_DATA="$TMP_DIR/sockets"
+LAB_SOCK_A="$TMP_DIR/lab-a"
+LAB_SOCK_B="$TMP_DIR/lab-b"
+LAB_PORT=$(( PORT + 1 ))
+LAB_UP=0
+mkdir -p "$LAB_SOCK_A" "$LAB_SOCK_B"
+env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+  "$INITDB" -D "$LAB_DATA" -A trust -E UTF8 --locale=C >"$TMP_DIR/initdb-lab.log" 2>&1 \
+  || fatal "initdb du banc de sockets a échoué : $(tail -3 "$TMP_DIR/initdb-lab.log" | tr '\n' ' ')"
+env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+  "$PG_CTL" -D "$LAB_DATA" -l "$LAB_DATA.log" \
+    -o "-p $LAB_PORT -c unix_socket_directories='$LAB_SOCK_A,$LAB_SOCK_B' -c listen_addresses=''" start \
+    >/dev/null 2>&1 \
+  || fatal "démarrage du banc de sockets impossible : $(tail -3 "$LAB_DATA.log" 2>/dev/null | tr '\n' ' ')"
+LAB_UP=1
+log "cluster BANC DE SOCKETS créé par CE fichier (deux répertoires : $LAB_SOCK_A et $LAB_SOCK_B, aucun TCP)."
+
+csdj1_runner_lab() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h "$LAB_SOCK_A" -p "$LAB_PORT" -U "$OWNER" -d postgres \
+      -c "$1" </dev/null 2>&1
+}
+
 # ============================================================
 # §4  CONTRAT D'IDENTITÉ COMPLÈTE — CSDJ-V1-DESTINATION-PROOF-02
 #
@@ -233,9 +267,18 @@ csdj1_runner_test() {
       -h "$SOCKET_DIR" -p "$PORT" -U "$OWNER" -d postgres \
       -c "$1" </dev/null 2>&1
 }
-# Runner du TÉMOIN : il n'existe que pour les CONTRÔLES NÉGATIFS, afin
-# de prouver qu'une destination réseau est refusée AVANT toute mutation.
+# Runner du TÉMOIN par sa SOCKET : c'est par là que ses rôles sont
+# initialisés, sous garde, comme ceux de tout cluster que ce fichier
+# possède.
 csdj1_runner_witness() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h "$WIT_SOCK" -p "$WIT_PORT" -U "$OWNER" -d postgres \
+      -c "$1" </dev/null 2>&1
+}
+# Runner du témoin par TCP : il n'existe que pour le CONTRÔLE NÉGATIF de
+# destination réseau, qui doit être refusé avant toute mutation.
+csdj1_runner_witness_tcp() {
   env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
     "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
       -h 127.0.0.1 -p "$WIT_PORT" -U "$OWNER" -d postgres \
@@ -246,9 +289,36 @@ DATA_DIR_PROVEN="$(q "select pg_catalog.current_setting('data_directory');")"
 CONFIG_FILE_PROVEN="$(q "select pg_catalog.current_setting('config_file');")"
 IDENTITY_MARKER="scanym_csdj1_identity_$$"
 
-csdj1_identity_declare csdj1_runner_test \
+# ────────────────────────────────────────────────────────────
+# TROIS clusters, TROIS contrats COMPLETS.
+#
+# Le re-audit précédent avait raison sur un point qu'on peut résumer
+# ainsi : un cluster que ce fichier possède et dont il mute les rôles
+# est un cluster qu'il doit IDENTIFIER, témoin compris. Le témoin
+# recevait ses attributs par un appel brut, hors garde. Il a donc
+# maintenant son contrat : sa socket, son port, son utilisateur, son
+# data_directory, son config_file, son nonce et son marqueur.
+#
+# Les contrats sont NOMMÉS plutôt que sauvegardés et restaurés autour de
+# chaque usage : inventer un second chemin de mutation est précisément
+# ce qui a produit le défaut d'origine.
+# ────────────────────────────────────────────────────────────
+WIT_DATA_DIR_PROVEN="$(qw "select pg_catalog.current_setting('data_directory');")"
+WIT_CONFIG_FILE_PROVEN="$(qw "select pg_catalog.current_setting('config_file');")"
+WIT_NONCE="csdj1-temoin-$$-$(date -u '+%Y%m%d%H%M%S')"
+WIT_MARKER="scanym_csdj1_identity_temoin_$$"
+
+csdj1_identity_declare temoin csdj1_runner_witness \
+  "$WIT_SOCK" "$WIT_PORT" "$OWNER" "$WIT_DATA_DIR_PROVEN" "$WIT_CONFIG_FILE_PROVEN" \
+  "$WIT_MARKER" "$WIT_NONCE" \
+  || fatal "contrat d'identité du TÉMOIN invalide -- aucune mutation tentée."
+csdj1_identity_install \
+  || fatal "[E] pose du marqueur d'identité du TÉMOIN REFUSÉE ($CSDJ1_ID_LAST)."
+
+csdj1_identity_declare test csdj1_runner_test \
   "$SOCKET_DIR" "$PORT" "$OWNER" "$DATA_DIR_PROVEN" "$CONFIG_FILE_PROVEN" \
-  "$IDENTITY_MARKER" "$NONCE"
+  "$IDENTITY_MARKER" "$NONCE" \
+  || fatal "contrat d'identité du cluster sous test invalide -- aucune mutation tentée."
 csdj1_identity_install \
   || fatal "[E] pose du marqueur d'identité REFUSÉE ($CSDJ1_ID_LAST) -- aucune mutation tentée."
 
@@ -260,13 +330,13 @@ fi
 
 # La preuve doit DISCRIMINER : adressée au témoin, elle doit échouer --
 # et échouer sur le PREMIER fait, la destination réseau.
-CSDJ1_ID_RUNNER=csdj1_runner_witness
+CSDJ1_ID_RUNNER=csdj1_runner_witness_tcp
 if csdj1_identity_prove; then
   fail "[E] la preuve d'identité ne distingue pas deux clusters"
 else
   pass "[E] la preuve DISCRIMINE : adressée au témoin elle refuse ($CSDJ1_ID_LAST)"
 fi
-CSDJ1_ID_RUNNER=csdj1_runner_test
+csdj1_identity_use test || fatal "contrat du cluster sous test indisponible."
 
 # Et le marqueur n'existe que dans le cluster sous test.
 if [ "$(qw "select count(*) from pg_tables where tablename = '$IDENTITY_MARKER';")" = "0" ]; then
@@ -312,15 +382,24 @@ set_role_attrs() {
 # Le TÉMOIN reçoit des attributs distinctifs : si une redirection
 # aboutissait, le harnais principal les écraserait en NOLOGIN
 # NOBYPASSRLS -- et c'est précisément cela que [D] surveille.
+#
+# Cette initialisation passe par la MÊME garde que toutes les autres
+# mutations de rôle. Elle employait auparavant un appel brut : un
+# cluster dont on mute les rôles est un cluster qu'il faut identifier,
+# même quand il ne sert que de témoin. Un appel brut qui « ne compte
+# pas » est un appel brut qui compte le jour où la destination n'est
+# plus celle qu'on croit.
+csdj1_identity_use temoin || fatal "contrat du témoin indisponible."
 for r in $APP_ROLES; do
-  qw "do \$\$ begin
-        if not exists (select 1 from pg_roles where rolname='$r') then
-          execute 'create role $r LOGIN BYPASSRLS';
-        else
-          execute 'alter role $r LOGIN BYPASSRLS';
-        end if;
-      end \$\$;" >/dev/null
+  csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$r') then
+    execute 'create role $r LOGIN BYPASSRLS';
+  else
+    execute 'alter role $r LOGIN BYPASSRLS';
+  end if;
+" || fatal "initialisation du rôle « $r » du TÉMOIN ABANDONNÉE ($CSDJ1_ID_LAST)."
 done
+csdj1_identity_use test || fatal "contrat du cluster sous test indisponible."
 declare -A WITNESS_BEFORE=()
 for r in $APP_ROLES; do WITNESS_BEFORE[$r]="$(role_attrs witness "$r")"; done
 log "témoin préparé : $(for r in $APP_ROLES; do printf '%s=%s ' "$r" "${WITNESS_BEFORE[$r]}"; done)"
@@ -578,10 +657,10 @@ PROBE_MUTATION="  alter role $PROBE_ROLE bypassrls;"
 # refus de connexion qu'on prendrait pour un refus d'identité.
 negative_control() {
   local label="$1" field="$2" value="$3" expect="$4"
-  local saved_runner="$CSDJ1_ID_RUNNER"
-  local saved_socket="$CSDJ1_ID_SOCKET" saved_port="$CSDJ1_ID_PORT"
-  local saved_user="$CSDJ1_ID_USER" saved_dd="$CSDJ1_ID_DATADIR"
-  local saved_cf="$CSDJ1_ID_CONFIG" saved_nonce="$CSDJ1_ID_NONCE"
+  # Le contrat est NOMMÉ : on le fausse, puis on y revient par son nom.
+  # Six variables sauvegardées à la main en seraient une septième à
+  # oublier un jour.
+  csdj1_identity_use "${5:-test}" || fatal "[G] contrat indisponible."
 
   case "$field" in
     runner)   CSDJ1_ID_RUNNER="$value" ;;
@@ -599,19 +678,19 @@ negative_control() {
       csdj1_runner_test "update public.$IDENTITY_MARKER set nonce = 'nonce-etranger';" >/dev/null 2>&1 ;;
   esac
 
-  if csdj1_identity_mutate "$PROBE_MUTATION"; then
+  local accepted=0 reason
+  if csdj1_identity_mutate "$PROBE_MUTATION"; then accepted=1; fi
+  reason="$CSDJ1_ID_LAST"
+  if [ "$accepted" = "1" ]; then
     fail "[G] $label — la mutation a été ACCEPTÉE malgré une identité fausse"
-  elif [ "$CSDJ1_ID_LAST" = "$expect" ]; then
-    pass "[G] $label — REFUS, raison « $CSDJ1_ID_LAST »"
+  elif [ "$reason" = "$expect" ]; then
+    pass "[G] $label — REFUS, raison « $reason »"
   else
-    fail "[G] $label — refus pour la MAUVAISE raison : « $CSDJ1_ID_LAST » au lieu de « $expect »"
+    fail "[G] $label — refus pour la MAUVAISE raison : « $reason » au lieu de « $expect »"
   fi
 
   # Remise en état du contrat, puis du cluster si le contrôle l'a touché.
-  CSDJ1_ID_RUNNER="$saved_runner"
-  CSDJ1_ID_SOCKET="$saved_socket"; CSDJ1_ID_PORT="$saved_port"
-  CSDJ1_ID_USER="$saved_user"; CSDJ1_ID_DATADIR="$saved_dd"
-  CSDJ1_ID_CONFIG="$saved_cf"; CSDJ1_ID_NONCE="$saved_nonce"
+  csdj1_identity_use "${5:-test}" || fatal "[G] contrat indisponible."
   case "$field" in
     marker_dropped)
       csdj1_runner_test "create table public.$IDENTITY_MARKER (nonce text primary key);" >/dev/null 2>&1
@@ -649,16 +728,23 @@ negative_control "marqueur CHANGÉ"      marker_changed ""                      
 negative_control "nonce attendu faux"   nonce   "nonce-qui-n-a-jamais-existe"  "nonce"
 negative_control "port faux"            port    "$DECOY_PORT"                  "port"
 negative_control "utilisateur faux"     user    "quelqu-un-d-autre"            "current_user"
-negative_control "destination RÉSEAU (témoin)" runner csdj1_runner_witness     "destination_reseau"
+negative_control "destination RÉSEAU (témoin)" runner csdj1_runner_witness_tcp "destination_reseau"
 negative_control "socket attendue fausse" socket "/var/run/postgresql-inexistant" "socket"
 
 # Le fait « superutilisateur » s'éprouve en changeant d'utilisateur ET
 # d'attente : sans cela, c'est `current_user` qui refuserait d'abord, et
 # le contrôle prouverait autre chose que ce qu'il annonce.
-NC_SAVED_USER="$CSDJ1_ID_USER"
-CSDJ1_ID_USER="scanym_csdj1_plain"
-negative_control "non superutilisateur" runner csdj1_runner_plain "is_superuser"
-CSDJ1_ID_USER="$NC_SAVED_USER"
+# Le fait « superutilisateur » s'éprouve par un CONTRAT à part : tout y
+# est exact -- socket, port, utilisateur, data_directory, config_file,
+# marqueur -- sauf que la connexion n'est pas privilégiée. Perturber un
+# champ ne suffirait pas : la remise en état par le NOM du contrat
+# écraserait la perturbation.
+csdj1_identity_declare test_sans_privilege csdj1_runner_plain \
+  "$SOCKET_DIR" "$PORT" "scanym_csdj1_plain" "$DATA_DIR_PROVEN" "$CONFIG_FILE_PROVEN" \
+  "$IDENTITY_MARKER" "$NONCE" \
+  || fatal "[G] contrat non privilégié invalide."
+negative_control "non superutilisateur" aucun "" "is_superuser" test_sans_privilege
+csdj1_identity_use test || fatal "[G] contrat du cluster sous test indisponible."
 
 # Et le CHEMIN NOMINAL fonctionne toujours : un prédicat qui refuserait
 # désormais tout aurait l'air parfait dans les dix contrôles ci-dessus.
@@ -675,6 +761,128 @@ else
 fi
 csdj1_identity_mutate "  drop role if exists $PROBE_ROLE;" >/dev/null
 csdj1_identity_mutate "  drop role if exists scanym_csdj1_plain;" >/dev/null
+
+# ============================================================
+# [H] LE RÉPERTOIRE DE SOCKET SE COMPARE À L'ÉGALITÉ EXACTE
+#
+# Défaut relevé par le quatrième re-audit : la validation employait
+# `strpos`, une sémantique de SOUS-CHAÎNE. Un serveur dont la socket est
+# « /tmp » satisfaisait un attendu « /tm ». Une identité qui accepte un
+# fragment n'identifie rien -- et, sur un poste où plusieurs clusters
+# jetables vivent côte à côte sous /tmp, le fragment est la règle et non
+# l'exception.
+#
+# Le banc d'essai a DEUX répertoires de socket : on éprouve donc aussi
+# ce que vaut la comparaison sur une vraie LISTE.
+# ============================================================
+log "=== [H] égalité exacte du répertoire de socket ==="
+
+LAB_DD="$(csdj1_runner_lab "select pg_catalog.current_setting('data_directory');" | tail -1 | tr -d ' ')"
+LAB_CF="$(csdj1_runner_lab "select pg_catalog.current_setting('config_file');" | tail -1 | tr -d ' ')"
+LAB_NONCE="csdj1-banc-$$-$(date -u '+%Y%m%d%H%M%S')"
+LAB_MARKER="scanym_csdj1_identity_banc_$$"
+
+csdj1_identity_declare banc csdj1_runner_lab \
+  "$LAB_SOCK_A" "$LAB_PORT" "$OWNER" "$LAB_DD" "$LAB_CF" \
+  "$LAB_MARKER" "$LAB_NONCE" \
+  || fatal "[H] contrat d'identité du banc invalide."
+csdj1_identity_install || fatal "[H] pose du marqueur du banc REFUSÉE ($CSDJ1_ID_LAST)."
+
+LAB_PROBE="scanym_csdj1_banc_probe"
+csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$LAB_PROBE') then
+    create role $LAB_PROBE nologin nobypassrls;
+  else
+    alter role $LAB_PROBE nologin nobypassrls;
+  end if;
+" || fatal "[H] impossible de poser le rôle témoin du banc ($CSDJ1_ID_LAST)."
+
+lab_probe_state() {
+  csdj1_runner_lab "select (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
+                    from pg_catalog.pg_roles where rolname = '$LAB_PROBE';" \
+    | tail -1 | tr -d ' '
+}
+LAB_PROBE_BEFORE="$(lab_probe_state)"
+[ "$LAB_PROBE_BEFORE" = "NOBYPASSRLS" ] \
+  || fatal "[H] rôle témoin du banc dans un état inattendu (« $LAB_PROBE_BEFORE »)."
+
+# Un attendu faux, une mutation tentée, et deux exigences : le REFUS
+# pour la raison « socket », et ZÉRO mutation.
+socket_control() {
+  local label="$1" expected="$2" want="$3"
+  csdj1_identity_use banc || fatal "[H] contrat du banc indisponible."
+  CSDJ1_ID_SOCKET="$(csdj1_identity_normalize_socket "$expected")"
+  local accepted=0 reason
+  if csdj1_identity_mutate "  alter role $LAB_PROBE bypassrls;"; then accepted=1; fi
+  # La RAISON se lit AVANT toute autre mutation : la remise en état
+  # ci-dessous écraserait CSDJ1_ID_LAST avec son propre « OK ».
+  reason="$CSDJ1_ID_LAST"
+  local after; after="$(lab_probe_state)"
+  csdj1_identity_use banc || fatal "[H] contrat du banc indisponible."
+  # Remise en état, par le chemin gardé et nominal.
+  csdj1_identity_mutate "  alter role $LAB_PROBE nobypassrls;" >/dev/null
+
+  if [ "$want" = "accept" ]; then
+    if [ "$accepted" = "1" ]; then
+      pass "[H] $label — ACCEPTÉ (attendu « $expected »)"
+    else
+      fail "[H] $label — refusé à tort ($reason) : le prédicat refuserait l'entrée légitime"
+    fi
+    return
+  fi
+  if [ "$accepted" = "1" ]; then
+    fail "[H] $label — ACCEPTÉ à tort : « $expected » n'est pas une entrée complète de la liste"
+  elif [ "$reason" = "socket" ]; then
+    pass "[H] $label — REFUS, raison « socket »"
+  else
+    fail "[H] $label — refus pour la MAUVAISE raison : « $reason » au lieu de « socket »"
+  fi
+  if [ "$after" = "$LAB_PROBE_BEFORE" ]; then
+    pass "[H] $label — ZÉRO mutation (le rôle témoin est resté $after)"
+  else
+    fail "[H] $label — le rôle témoin a été MUTÉ : $LAB_PROBE_BEFORE -> $after"
+  fi
+}
+
+# Les cas exigés par le mandat, dans son ordre.
+socket_control "entrée EXACTE (membre 1)"        "$LAB_SOCK_A"            accept
+socket_control "entrée EXACTE (membre 2)"        "$LAB_SOCK_B"            accept
+socket_control "barre oblique finale, même répertoire" "$LAB_SOCK_A/"     accept
+socket_control "PRÉFIXE d'une entrée"            "${LAB_SOCK_A%?}"        reject
+socket_control "entrée + un caractère"           "${LAB_SOCK_A}x"         reject
+socket_control "répertoire PARENT"               "$TMP_DIR"               reject
+socket_control "SOUS-répertoire d'une entrée"    "$LAB_SOCK_A/sous"       reject
+socket_control "SUFFIXE d'une entrée"            "/lab-a"                 reject
+socket_control "la LISTE entière"                "$LAB_SOCK_A,$LAB_SOCK_B" reject
+
+# La reproduction LITTÉRALE du rapport d'audit : actuel « /tmp »,
+# attendu « /tm ». Le banc vit sous /tmp, on l'éprouve donc tel quel.
+socket_control "reproduction d'audit : /tmp vs /tm" "/tm"                 reject
+socket_control "reproduction d'audit : /tmp vs /tmpx" "/tmpx"             reject
+
+# Et l'on prouve que la MENACE était réelle : l'ancien prédicat, par
+# sous-chaîne, aurait accepté ces attendus-là. On le montre en lecture
+# seule, sans muter quoi que ce soit.
+for bad in "${LAB_SOCK_A%?}" "/tm" "$TMP_DIR"; do
+  OLD_VERDICT="$(csdj1_runner_lab "select pg_catalog.strpos(
+      coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),
+      '$bad') <> 0;" | tail -1 | tr -d ' ')"
+  NEW_VERDICT="$(csdj1_runner_lab "select exists (
+      select 1 from pg_catalog.unnest(pg_catalog.string_to_array(
+        coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''), ',')) as sd(entry)
+      where case
+              when pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')) = '/' then '/'
+              else pg_catalog.rtrim(pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')), '/')
+            end = '$bad');" | tail -1 | tr -d ' ')"
+  if [ "$OLD_VERDICT" = "t" ] && [ "$NEW_VERDICT" = "f" ]; then
+    pass "[H] « $bad » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse"
+  else
+    fail "[H] « $bad » : ancien=$OLD_VERDICT nouveau=$NEW_VERDICT -- la correction ne se distingue pas de l'ancien comportement"
+  fi
+done
+
+csdj1_identity_mutate "  drop role if exists $LAB_PROBE;" >/dev/null
+csdj1_identity_use test || fatal "[H] contrat du cluster sous test indisponible."
 
 # ============================================================
 # [F] CONTRÔLE DE NOCIVITÉ — la menace est RÉELLE
@@ -831,6 +1039,93 @@ if grep 'prove_destination' "$SELF" | grep -vq 'SELF-REFERENCE'; then   # SELF-R
 else
   pass "[E] aucun prédicat d'identité local ne subsiste"
 fi
+# AUCUNE mutation de rôle ne doit subsister hors de la garde.
+#
+# Le défaut relevé par le quatrième re-audit était exactement celui-là :
+# l'initialisation des rôles du TÉMOIN passait par un appel brut, parce
+# qu'un cluster « qui ne sert que de témoin » paraissait ne pas compter.
+#
+# La vérification raisonne par COMMANDE ENGLOBANTE. Une instruction de
+# mutation vit presque toujours à l'intérieur d'un argument sur
+# plusieurs lignes ; ce qui compte n'est donc pas sa ligne mais l'appel
+# qui la porte. On suit l'ouvreur de commande le plus proche en amont,
+# et on exige qu'il soit gardé.
+MUT_REPORT="$TMP_DIR/role-mutations.txt"
+for mfile in "$SELF" "$HARNESS"; do
+  awk -v src="$mfile" '
+    /^[[:space:]]*#/ { next }
+    /SELF-REFERENCE/ { next }
+    # Ouvreurs GARDES : la mutation portee passe par le predicat.
+    /csdj1_identity_mutate|csdj1_identity_install|csdj1_identity_uninstall/ {
+      opener = "garde"; next
+    }
+    # Variables qui ACCUMULENT du SQL de mutation, consommees ensuite
+    # par une mutation gardee (verifie separement ci-dessous).
+    /RESTORE_SQL=|PROBE_MUTATION=/ { opener = "garde"; next }
+    # Ouvreurs BRUTS : un client appele directement.
+    /(^|[^a-z_])(q|qw)[ ]*"/ { opener = "brut:" $0; next }   # SELF-REFERENCE
+    /csdj1_runner_[a-z_]+[ ]*"/ { opener = "brut:" $0; next }   # SELF-REFERENCE
+    /psql |probe |sql_value |run_sql / { opener = "brut:" $0; next }   # SELF-REFERENCE
+    /create role|alter role|drop role|CREATE ROLE|ALTER ROLE|DROP ROLE/ {   # SELF-REFERENCE
+      total++
+      if (opener ~ /^brut:/) {
+        printf "NON-GARDEE\t%s\t%s\t%s\n", src, $0, substr(opener, 6)
+      } else if (opener == "garde") {
+        printf "GARDEE\t%s\t%s\n", src, $0
+      } else {
+        printf "SANS-OUVREUR\t%s\t%s\n", src, $0
+      }
+    }
+  ' "$mfile"
+done > "$MUT_REPORT"
+MUT_SEEN="$(wc -l < "$MUT_REPORT")"
+MUT_BAD="$(grep -c '^NON-GARDEE' "$MUT_REPORT" || true)"
+MUT_ORPHAN="$(grep -c '^SANS-OUVREUR' "$MUT_REPORT" || true)"
+if [ "$MUT_SEEN" -ge 10 ]; then
+  pass "[E] le détecteur de mutations de rôle examine bien les deux harnais ($MUT_SEEN instructions)"
+else
+  fail "[E] le détecteur n'a examiné que $MUT_SEEN instruction(s) de mutation : il ne prouve rien"
+fi
+if [ "$MUT_BAD" = "0" ] && [ "$MUT_ORPHAN" = "0" ]; then
+  pass "[E] TOUTE mutation de rôle est portée par une commande gardée, témoin compris"
+else
+  fail "[E] $MUT_BAD mutation(s) hors garde, $MUT_ORPHAN sans commande identifiable"
+  grep -E '^(NON-GARDEE|SANS-OUVREUR)' "$MUT_REPORT" | head -8 \
+    | while IFS="$(printf '\t')" read -r k f l o; do
+        log "   $k : $(printf '%s' "$l" | cut -c1-80) [porté par : $(printf '%s' "$o" | cut -c1-40)]"
+      done
+fi
+# Les variables qui accumulent du SQL de mutation ne doivent être
+# consommées QUE par une mutation gardée.
+for v in RESTORE_SQL PROBE_MUTATION; do
+  USES="$(grep -n "\$$v" "$SELF" "$HARNESS" 2>/dev/null \
+            | grep -v "$v=" | grep -v 'SELF-REFERENCE' || true)"   # SELF-REFERENCE
+  if [ -z "$USES" ]; then
+    pass "[E] « $v » n'est consommée nulle part hors de sa construction"
+  elif printf '%s\n' "$USES" | grep -qv 'csdj1_identity_mutate'; then
+    fail "[E] « $v » est consommée hors d'une mutation gardée : $(printf '%s' "$USES" | head -1 | cut -c1-100)"
+  else
+    pass "[E] « $v » n'est consommée que par une mutation gardée"
+  fi
+done
+
+# Le répertoire de socket se compare à l'ÉGALITÉ EXACTE, pas par
+# sous-chaîne : c'est le second défaut du quatrième re-audit. On juge le
+# code EXÉCUTABLE : un commentaire a le droit de nommer `strpos` pour
+# dire précisément qu'on ne l'emploie plus.
+LIB_EXEC="$TMP_DIR/identity-exec.sh"
+sed 's/[[:space:]]*--.*$//; /^[[:space:]]*#/d' "$SCRIPT_DIR/csdj1-cluster-identity.sh" > "$LIB_EXEC"
+if grep -q 'strpos' "$LIB_EXEC"; then
+  fail "[E] le prédicat emploie encore strpos : sémantique de sous-chaîne"
+else
+  pass "[E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)"
+fi
+if grep -q 'string_to_array' "$LIB_EXEC" && grep -q "end = '\${CSDJ1_ID_SOCKET}'" "$LIB_EXEC"; then
+  pass "[E] la liste de sockets est découpée en ENTRÉES et comparée à l'ÉGALITÉ"
+else
+  fail "[E] la comparaison de socket n'est pas une égalité d'entrée complète"
+fi
+
 # Et le harnais PRINCIPAL emploie le même, pour le même motif.
 if grep -q 'csdj1_identity_mutate' "$HARNESS" && grep -q 'csdj1-cluster-identity.sh' "$HARNESS"; then
   pass "[E] le harnais principal emploie le MÊME prédicat partagé"

@@ -52,6 +52,8 @@
 # ====================================================================
 
 # Contrat courant. Déclaré une fois, consulté à chaque mutation.
+# Contrat ACTIF : celui que la prochaine mutation gardée emploiera.
+CSDJ1_ID_CONTEXT=""
 CSDJ1_ID_RUNNER=""
 CSDJ1_ID_SOCKET=""
 CSDJ1_ID_PORT=""
@@ -61,26 +63,83 @@ CSDJ1_ID_CONFIG=""
 CSDJ1_ID_MARKER=""
 CSDJ1_ID_NONCE=""
 CSDJ1_ID_DECLARED=0
-CSDJ1_ID_INSTALLED=0
 CSDJ1_ID_LAST=""
 
-# csdj1_identity_declare <runner> <socket_dir> <port> <user> <data_dir> <config_file> <marker_table> <nonce>
+# Contrats NOMMÉS. Un harnais peut avoir plusieurs clusters jetables à
+# lui -- celui sous test, un témoin, un banc d'essai -- et CHACUN doit
+# avoir son contrat complet. Les garder nommés, plutôt que sauvegardés
+# et restaurés à la main autour de chaque usage, évite exactement ce qui
+# a produit le défaut d'origine : deux prédicats presque identiques,
+# divergeant sans que personne le voie.
+declare -A CSDJ1_ID_CTX_RUNNER=()
+declare -A CSDJ1_ID_CTX_SOCKET=()
+declare -A CSDJ1_ID_CTX_PORT=()
+declare -A CSDJ1_ID_CTX_USER=()
+declare -A CSDJ1_ID_CTX_DATADIR=()
+declare -A CSDJ1_ID_CTX_CONFIG=()
+declare -A CSDJ1_ID_CTX_MARKER=()
+declare -A CSDJ1_ID_CTX_NONCE=()
+declare -A CSDJ1_ID_CTX_INSTALLED=()
+
+# Normalise un répertoire de socket ATTENDU, du côté shell, exactement
+# comme la garde normalise les entrées lues du serveur : espaces
+# extérieurs retirés, guillemets retirés, barre oblique finale retirée
+# -- sauf pour « / », qui est son propre répertoire.
+csdj1_identity_normalize_socket() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  v="${v%\"}"; v="${v#\"}"
+  while [ "${#v}" -gt 1 ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
+  printf '%s' "$v"
+}
+
+# csdj1_identity_declare <nom> <runner> <socket_dir> <port> <user> <data_dir> <config_file> <marker_table> <nonce>
 #
 # <runner> est le NOM d'une fonction shell qui prend UNE requête SQL,
 # l'exécute sur la base « postgres » du cluster visé, écrit la sortie
 # combinée sur sa sortie standard et rend le code de retour de psql.
 # Chaque harnais fournit le sien : l'un passe par `env -i`, l'autre par
 # son propre jeu de variables validées. Le PRÉDICAT, lui, est commun.
+#
+# Déclarer rend le contrat ACTIF. `csdj1_identity_use` y revient.
 csdj1_identity_declare() {
-  CSDJ1_ID_RUNNER="$1"
-  CSDJ1_ID_SOCKET="$2"
-  CSDJ1_ID_PORT="$3"
-  CSDJ1_ID_USER="$4"
-  CSDJ1_ID_DATADIR="$5"
-  CSDJ1_ID_CONFIG="$6"
-  CSDJ1_ID_MARKER="$7"
-  CSDJ1_ID_NONCE="$8"
+  local name="$1" sock
+  sock="$(csdj1_identity_normalize_socket "$3")"
+  # Un répertoire attendu VIDE accepterait une entrée vide : on refuse
+  # de déclarer un contrat qui ne contraindrait rien.
+  case "$sock" in
+    /*) : ;;
+    *) printf 'csdj1_identity_declare: répertoire de socket attendu invalide (« %s »)\n' "$3" >&2
+       return 1 ;;
+  esac
+  CSDJ1_ID_CTX_RUNNER[$name]="$2"
+  CSDJ1_ID_CTX_SOCKET[$name]="$sock"
+  CSDJ1_ID_CTX_PORT[$name]="$4"
+  CSDJ1_ID_CTX_USER[$name]="$5"
+  CSDJ1_ID_CTX_DATADIR[$name]="$6"
+  CSDJ1_ID_CTX_CONFIG[$name]="$7"
+  CSDJ1_ID_CTX_MARKER[$name]="$8"
+  CSDJ1_ID_CTX_NONCE[$name]="$9"
+  CSDJ1_ID_CTX_INSTALLED[$name]="${CSDJ1_ID_CTX_INSTALLED[$name]:-0}"
+  csdj1_identity_use "$name"
+}
+
+# Rend ACTIF un contrat déjà déclaré.
+csdj1_identity_use() {
+  local name="$1"
+  [ -n "${CSDJ1_ID_CTX_RUNNER[$name]:-}" ] || { CSDJ1_ID_LAST="contrat_inconnu"; return 1; }
+  CSDJ1_ID_CONTEXT="$name"
+  CSDJ1_ID_RUNNER="${CSDJ1_ID_CTX_RUNNER[$name]}"
+  CSDJ1_ID_SOCKET="${CSDJ1_ID_CTX_SOCKET[$name]}"
+  CSDJ1_ID_PORT="${CSDJ1_ID_CTX_PORT[$name]}"
+  CSDJ1_ID_USER="${CSDJ1_ID_CTX_USER[$name]}"
+  CSDJ1_ID_DATADIR="${CSDJ1_ID_CTX_DATADIR[$name]}"
+  CSDJ1_ID_CONFIG="${CSDJ1_ID_CTX_CONFIG[$name]}"
+  CSDJ1_ID_MARKER="${CSDJ1_ID_CTX_MARKER[$name]}"
+  CSDJ1_ID_NONCE="${CSDJ1_ID_CTX_NONCE[$name]}"
   CSDJ1_ID_DECLARED=1
+  CSDJ1_ID_INSTALLED="${CSDJ1_ID_CTX_INSTALLED[$name]:-0}"
   CSDJ1_ID_LAST=""
 }
 
@@ -108,9 +167,36 @@ csdj1_identity_guard_sql() {
   if coalesce(pg_catalog.current_setting('is_superuser', true), '') <> 'on' then
     raise exception 'SCANYM_IDENTITY_REFUS|is_superuser';
   end if;
-  if pg_catalog.strpos(
-       coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),
-       '${CSDJ1_ID_SOCKET}') = 0 then
+  -- SOCKET : ÉGALITÉ EXACTE avec UNE ENTRÉE COMPLÈTE de la liste.
+  --
+  -- La version précédente employait « strpos » -- une sémantique de
+  -- SOUS-CHAÎNE. Elle acceptait donc « /tm » pour un serveur dont la
+  -- socket est « /tmp », et plus généralement tout préfixe, suffixe ou
+  -- fragment d'une entrée. Une identité qui accepte un fragment
+  -- n'identifie rien.
+  --
+  -- « unix_socket_directories » est une LISTE séparée par des virgules,
+  -- dont les entrées peuvent être encadrées de guillemets doubles
+  -- (c'est la syntaxe que PostgreSQL accepte pour un chemin contenant
+  -- une virgule ou un espace). On la découpe donc en ENTRÉES, on
+  -- normalise chacune -- espaces extérieurs, guillemets, barre oblique
+  -- finale -- et on exige l'égalité avec l'attendu, lui-même normalisé
+  -- de la même façon côté shell. Aucun préfixe, aucun suffixe, aucun
+  -- fragment.
+  if not exists (
+    select 1
+    from pg_catalog.unnest(
+           pg_catalog.string_to_array(
+             coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),
+             ',')) as sd(entry)
+    where case
+            when pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '"')) = '/'
+              then '/'
+            else pg_catalog.rtrim(
+                   pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '"')),
+                   '/')
+          end = '${CSDJ1_ID_SOCKET}'
+  ) then
     raise exception 'SCANYM_IDENTITY_REFUS|socket';
   end if;
   if coalesce(pg_catalog.current_setting('data_directory', true), '') <> '${CSDJ1_ID_DATADIR}' then
@@ -175,6 +261,7 @@ csdj1_identity_install() {
   insert into public.${CSDJ1_ID_MARKER} values ('${CSDJ1_ID_NONCE}');
 " || return 1
   CSDJ1_ID_INSTALLED=1
+  CSDJ1_ID_CTX_INSTALLED[$CSDJ1_ID_CONTEXT]=1
   return 0
 }
 
@@ -193,7 +280,7 @@ csdj1_identity_uninstall() {
   [ "$CSDJ1_ID_INSTALLED" = "1" ] || return 0
   csdj1_identity_mutate "
   drop table if exists public.${CSDJ1_ID_MARKER};
-" && CSDJ1_ID_INSTALLED=0
+" && { CSDJ1_ID_INSTALLED=0; CSDJ1_ID_CTX_INSTALLED[$CSDJ1_ID_CONTEXT]=0; }
 }
 
 # Preuve SEULE, sans mutation : pour journaliser ou assertionner. Le
