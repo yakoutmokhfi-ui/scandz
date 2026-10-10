@@ -1178,3 +1178,174 @@ test("W1-T-86 | SECURITY -- the parser fails SAFELY (a typed DocxReadError, neve
   }
 });
 
+// ====================================================================
+// W1 THIRD REMEDIATION -- W1-02 -- NAMESPACE-AWARE COMMENT DETECTION
+// (BOULEZ second delta re-audit, candidate 1d9bda8, FAIL). Exact
+// reproduction: word/comments.xml binds the WordprocessingML namespace
+// to a prefix OTHER than `w` (e.g. `<x:t xmlns:x="...">`) -- the old
+// literal `<w:t` regex match silently found nothing, so the import was
+// ACCEPTED with hasNoMeaningfulChanges=true even though the comment's
+// visible text said "remplacer 30 jours par 14 jours". Fixed by
+// `extractAllWordprocessingTextContent` (namespace-URI identity, never
+// a prefix string) -- see that function's own doc comment in
+// docx-reader.ts for the full write-up.
+// ====================================================================
+
+/** Builds the real writer's export with an in-body comment reference
+ *  on the "Annulation de commande" paragraph, PLUS a caller-supplied,
+ *  FULLY RAW `word/comments.xml` string -- full control over the
+ *  namespace prefix/declaration shape, unlike `commentsXmlPart` above
+ *  (which always uses the standard `w:` prefix). */
+function docxWithRawCommentsXml(rawCommentsXml: string): { model: CgvDocumentModel; docx: ArrayBuffer } {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withMarkers =
+    `<w:p><w:commentRangeStart w:id="1"/><w:r><w:t xml:space="preserve">${original}</w:t></w:r>` +
+    `<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withMarkers);
+  const docx = buildMinimalDocx(documentXml, { extraFiles: { "word/comments.xml": rawCommentsXml } });
+  return { model, docx };
+}
+
+const WP_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+test("W1-T-87 | mandatory test 1 -- standard <w:t> prefix with the exact legal-style text is rejected (baseline, unchanged behavior)", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><w:t xml:space="preserve">remplacer 30 jours par 14 jours</w:t></w:r></w:p></w:comment></w:comments>`;
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-88 | mandatory test 2 -- the EXACT auditor reproduction: alternate prefix <x:t xmlns:x=WordprocessingML> is REJECTED (previously silently accepted)", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:x="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><x:t xml:space="preserve">remplacer 30 jours par 14 jours</x:t></w:r></w:p></w:comment></w:comments>`;
+  const { model, docx } = docxWithRawCommentsXml(commentsXml);
+  let threw = false;
+  try {
+    const imported = readDocxDocument(docx);
+    const diff = diffCgvDocxImport(model, imported);
+    assert.notEqual(diff.hasNoMeaningfulChanges, true, "AUDITOR REPRODUCTION: must never silently report 'no meaningful changes' for an alternate-prefix comment");
+  } catch (e) {
+    threw = true;
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+  }
+  assert.ok(threw, "expected rejection -- the exact auditor reproduction (alternate prefix 'x' bound to the WordprocessingML namespace) must be caught");
+});
+
+test("W1-T-89 | mandatory test 3 -- another arbitrary prefix <foo:t> bound to the WordprocessingML namespace is REJECTED", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:foo="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><foo:t xml:space="preserve">Un commentaire avec un préfixe arbitraire.</foo:t></w:r></w:p></w:comment></w:comments>`;
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-90 | mandatory test 4 -- the same local name 't' in a DIFFERENT (non-WordprocessingML) namespace must NOT be treated as Word comment text", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:y="http://example.com/some-other-namespace"><w:comment w:id="0">` +
+    `<w:p><w:r><y:t xml:space="preserve">remplacer 30 jours par 14 jours</y:t></w:r></w:p></w:comment></w:comments>`;
+  const { model, docx } = docxWithRawCommentsXml(commentsXml);
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true, "text in an unrelated namespace sharing the local name 't' must never trigger comment rejection");
+});
+
+test("W1-T-91 | mandatory test 5 -- default-namespace form (no prefix at all, WordprocessingML as the default xmlns) is REJECTED exactly like the prefixed form", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<comments xmlns="${WP_NS}"><comment id="0">` +
+    `<p><r><t xml:space="preserve">remplacer 30 jours par 14 jours</t></r></p></comment></comments>`;
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-92 | mandatory test 6 -- multiple runs inside ONE comment, split across runs using DIFFERENT prefixes, is REJECTED when the combined visible text is non-blank", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:x="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><w:t xml:space="preserve">remplacer 30 </w:t></w:r><w:r><x:t xml:space="preserve">jours par 14 jours</x:t></w:r></w:p></w:comment></w:comments>`;
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-93 | mandatory test 7 -- whitespace-only Word text (any prefix) is ACCEPTED, per the documented policy (no VISIBLE text, nothing to lose)", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:x="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><x:t xml:space="preserve">   \t  </x:t></w:r></w:p></w:comment></w:comments>`;
+  const { model, docx } = docxWithRawCommentsXml(commentsXml);
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true, "whitespace-only comment text carries no visible content under the documented policy");
+});
+
+test("W1-T-94 | mandatory test 8 -- multiple comments, only ONE using an alternate prefix, is REJECTED (any comment with non-blank text triggers rejection)", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:x="${WP_NS}">` +
+    `<w:comment w:id="0"><w:p><w:r><w:t xml:space="preserve">   </w:t></w:r></w:p></w:comment>` +
+    `<w:comment w:id="1"><w:p><w:r><x:t xml:space="preserve">remplacer 30 jours par 14 jours</x:t></w:r></w:p></w:comment>` +
+    `</w:comments>`;
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-95 | mandatory test 9 -- malformed comments.xml (using an alternate-prefix element, unclosed) still fails CLOSED (MALFORMED_DOCUMENT), never silently accepted", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="${WP_NS}" xmlns:x="${WP_NS}"><w:comment w:id="0">` +
+    `<w:p><w:r><x:t xml:space="preserve">remplacer 30 jours par 14 jours</x:t></w:r></w:p></w:comment>`; // missing </w:comments>
+  const { docx } = docxWithRawCommentsXml(commentsXml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-96 | mandatory test 10 -- no word/comments.xml at all is still ACCEPTED (unaffected by the namespace-aware rewrite)", () => {
+  const model = baseModel();
+  const docx = exportModel(model);
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
+});
+
+test("W1-T-97 | mandatory test 11 -- comments.xml present with an alternate-prefix <x:comment>/<x:t> structure but NO meaningful Word text (empty) is handled per the documented policy (accepted)", () => {
+  const commentsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<x:comments xmlns:x="${WP_NS}"><x:comment x:id="0"><x:p><x:r><x:t/></x:r></x:p></x:comment></x:comments>`;
+  const { model, docx } = docxWithRawCommentsXml(commentsXml);
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true, "an entirely empty, alternate-prefix comment carries no visible text under the documented policy");
+});
+

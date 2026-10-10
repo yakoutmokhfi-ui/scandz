@@ -298,27 +298,57 @@ const buildResult = await esbuild.build({
   format: "esm",
   jsx: "automatic",
   target: "es2022",
-  // W1 REMEDIATION (Windows harness investigation, BOULEZ audit) --
-  // made the previously-IMPLICIT default explicit. esbuild already
-  // defaults to `platform: "browser"` when this option is omitted, so
-  // this is a no-op today (verified: this suite is unchanged on
-  // Linux) -- it exists only so this bundle's package "exports"/
-  // "conditions" resolution (e.g. for `fflate`, now pulled in
-  // transitively via the real page's lib/docx/docx-writer.ts and
-  // lib/docx/docx-reader.ts imports) is driven by an EXPLICIT build
-  // option rather than esbuild's own inferred default, which is
-  // itself version-dependent. esbuild's "exports" resolution is
-  // governed entirely by this `platform`/`conditions` BUILD OPTION,
-  // never by the host OS -- the same config resolves identically on
-  // Linux and Windows for a given esbuild version, so a genuinely
-  // platform-DEPENDENT resolution bug here would have to be an
-  // esbuild version/host difference, not something this option alone
-  // can paper over. See the deliverable's WINDOWS HARNESS section for
-  // the full investigation and why no further code change is
-  // warranted without a reproducible Windows-side error.
+  // W1 THIRD REMEDIATION (Windows DOM harness, BOULEZ second delta
+  // re-audit) -- CANONICAL comment for this fix; the identical two
+  // other client esbuild.build() calls
+  // (tests/cgv-docx-import-restaurant-context-isolation.dom.test.ts,
+  // tests/restaurant-context-critical-regression-gate-legal-cgv.dom.test.ts)
+  // cross-reference this one rather than repeating it.
+  //
+  // ROOT CAUSE: the FIRST and SECOND remediations both tried to make
+  // esbuild's own BUNDLING of `fflate`/`saxes` deterministic (first
+  // `platform: "browser"`, then pinning the exact `fflate/browser`
+  // subpath). The re-audit reports that under the auditor's Windows /
+  // Node 24 setup, esbuild cannot resolve `fflate/browser` or `saxes`
+  // AT ALL during this bundle step -- i.e. the problem is not WHICH
+  // exports-conditions branch gets picked, it is esbuild's bundling
+  // step itself failing to resolve these two real, installed
+  // dependencies on that host/version combination (a known class of
+  // esbuild issue: its own package-resolution algorithm, run a SECOND
+  // time independently of Node's, occasionally disagrees with Node's
+  // native resolver across esbuild versions/platforms -- see esbuild
+  // issues on `exports`-map and symlink/hoisting edge cases). Chasing
+  // a THIRD esbuild-bundling-specific fix would only add a third layer
+  // of "make esbuild's resolver agree with Node's resolver" patching.
+  //
+  // FIX (the mandate's own "preferred harness principle"): stop asking
+  // esbuild to resolve/bundle these two npm packages AT ALL. Both are
+  // added to `external` below, exactly like `react`/`react-dom`
+  // already are (a pattern already proven to work identically on
+  // every platform this suite has ever run on, including whatever the
+  // auditor's own CI is -- react/react-dom have never been reported
+  // as a Windows resolution problem). Externalized imports are left as
+  // literal `import … from "…"` statements in esbuild's OUTPUT file;
+  // when that output is later loaded with a plain Node `import()`
+  // (see `pathToFileURL(domTmpFile)` below), NODE's OWN, single,
+  // native module resolver loads them -- the exact same resolver the
+  // PURE `node --test` run (no esbuild involved at all) already uses
+  // successfully for these same two packages. This removes esbuild's
+  // package resolution from this path ENTIRELY rather than trying to
+  // make it agree with Node's: one resolver, not two, for `fflate` and
+  // `saxes` specifically. `fflate/browser` is used (not bare
+  // `fflate`) to match the exact specifier lib/ooxml/zip-safe.ts and
+  // lib/docx/docx-writer.ts import (see their own comments); `saxes`
+  // has no `exports` map at all (plain CJS `main`), so its Node
+  // resolution has no conditions to get wrong either way.
+  //
+  // `platform: "browser"` is KEPT (harmless, still correct for
+  // whatever else this bundle resolves) but is no longer load-bearing
+  // for fflate/saxes specifically, now that neither is bundled by
+  // esbuild at all.
   platform: "browser",
   plugins: [makeMockPlugin(mocks)],
-  external: ["react", "react-dom", "react-dom/client"],
+  external: ["react", "react-dom", "react-dom/client", "fflate", "fflate/browser", "saxes"],
 });
 const domCode = buildResult.outputFiles[0].text;
 const domTmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-"));

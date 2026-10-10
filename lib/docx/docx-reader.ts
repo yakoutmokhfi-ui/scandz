@@ -373,6 +373,11 @@ const DOCUMENT_PART = "word/document.xml";
 const COMMENTS_PART = "word/comments.xml";
 const WORDPROCESSING_MAIN_DOCUMENT_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+// W1 THIRD REMEDIATION (W1-02) -- the WordprocessingML namespace URI,
+// used for NAMESPACE-IDENTITY comparison (never a prefix string) when
+// scanning word/comments.xml for visible Word text -- see
+// `extractAllWordprocessingTextContent` below.
+const WORDPROCESSINGML_NAMESPACE_URI = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 /** The ONLY three ZIP entries this module ever decompresses, whatever
  *  else the archive declares (see file header, "PATH TRAVERSAL /
@@ -613,24 +618,59 @@ function assertNoUnsupportedStructure(bodyXml: string): void {
 // ====================================================================
 
 /**
- * Extracts and concatenates every `<w:t>…</w:t>` run's text found
- * ANYWHERE in `commentsXml` (the whole `word/comments.xml` part, not
- * one paragraph) — deliberately simpler than `extractParagraphText`
- * (no `w:tab`/`w:br` modeling, no per-paragraph boundary tracking):
- * this function only ever needs to answer "is there ANY visible
- * comment text at all", never "what exactly does it say, in what
- * structure" (this v1 never imports comment text as CGV body content
- * — see the "W1 SECOND REMEDIATION" doc block above — so no
- * structural fidelity is needed for text this module will never use
- * as anything other than a yes/no trigger).
+ * W1 THIRD REMEDIATION (W1-02) — the BOULEZ second delta re-audit's
+ * exact reproduction: `word/comments.xml` can bind the WordprocessingML
+ * namespace to ANY prefix (`<x:t xmlns:x="…wordprocessingml/2006/main">`,
+ * `<foo:t …>`, or no prefix at all via a default `xmlns="…"`) — OOXML/
+ * XML namespaces are defined by URI, never by the literal prefix
+ * string, and a conforming consumer must not hardcode one. The
+ * PREVIOUS version of this function matched the literal substring
+ * `<w:t` via regex, so any OTHER prefix bound to the exact same
+ * namespace silently produced NO match at all — exactly the silent
+ * content-loss hole the audit reproduced.
+ *
+ * FIX: walk `xml` with the SAME `saxes` parser already used for
+ * well-formedness (STAGE 1), this time actually consuming its
+ * namespace-resolved events (`{ xmlns: true }` — already the option
+ * this module always passes) instead of discarding them. An element
+ * counts as Word visible-text content if and ONLY if its LOCAL NAME
+ * is `t` AND its resolved namespace URI is the WordprocessingML
+ * namespace (`WORDPROCESSINGML_NAMESPACE_URI` below) — never by
+ * matching the prefix string. This is true namespace identity, not a
+ * second, wider regex: `<w:t>`, `<x:t xmlns:x="…">`, `<foo:t …>`, and
+ * the default-namespace form are all treated IDENTICALLY (as they
+ * must be, per the XML namespaces spec), while a DIFFERENT element
+ * that merely happens to share the local name `t` in some OTHER
+ * namespace (`<y:t xmlns:y="http://example.com/other">`) is correctly
+ * NEVER treated as Word text — see W1-T-87..94 below for both
+ * directions proven explicitly.
+ *
+ * Deliberately simpler than `extractParagraphText` (no `w:tab`/`w:br`
+ * modeling, no per-paragraph boundary tracking): this function only
+ * ever needs to answer "is there ANY visible comment text at all",
+ * never "what exactly does it say, in what structure" (this v1 never
+ * imports comment text as CGV body content — see the "W1 SECOND
+ * REMEDIATION" doc block above — so no structural fidelity is needed
+ * for text this module will never use as anything other than a
+ * yes/no trigger). Malformed XML is NOT this function's concern — the
+ * caller (`assertNoWordComments`) always runs `assertWellFormedXml`
+ * first, so by the time this walk begins the input is already proven
+ * well-formed and this second `saxes` pass cannot itself throw.
  */
-function extractAllRunText(xml: string): string {
-  const tokenRe = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g;
+function extractAllWordprocessingTextContent(xml: string): string {
+  const parser = new SaxesParser({ xmlns: true });
+  let depth = 0;
   let text = "";
-  let match: RegExpExecArray | null;
-  while ((match = tokenRe.exec(xml)) !== null) {
-    text += unescapeXmlEntities(match[1]);
-  }
+  parser.on("opentag", (node) => {
+    if (node.local === "t" && node.uri === WORDPROCESSINGML_NAMESPACE_URI) depth += 1;
+  });
+  parser.on("text", (chunk) => {
+    if (depth > 0) text += chunk;
+  });
+  parser.on("closetag", (node) => {
+    if (node.local === "t" && node.uri === WORDPROCESSINGML_NAMESPACE_URI) depth -= 1;
+  });
+  parser.write(xml).close();
   return text;
 }
 
@@ -650,7 +690,7 @@ function assertNoWordComments(commentsXml: string): void {
   // never silently treated as "no comments found".
   assertWellFormedXml(commentsXml);
 
-  const visibleText = extractAllRunText(commentsXml).trim();
+  const visibleText = extractAllWordprocessingTextContent(commentsXml).trim();
   if (visibleText.length > 0) {
     throw new DocxReadError(
       "UNSUPPORTED_WORD_COMMENTS",
