@@ -25,7 +25,52 @@
  * ordinary text edits inside the paragraph they wrap).
  */
 
-import { zipSync } from "fflate";
+// WINDOWS/FFLATE HARNESS FIX (W1 SECOND REMEDIATION, see deliverable's
+// "WINDOWS HARNESS ROOT CAUSE") -- imports the EXPLICIT "fflate/browser"
+// subpath export rather than the bare "fflate" specifier.
+//
+// `fflate`'s package.json declares CONDITIONAL exports for the bare
+// "." entry point: a "node" condition resolving to a native-zlib-
+// backed build (`./lib/node.cjs` / `./esm/index.mjs`), and a default
+// "import"/"require" branch resolving to the pure-JS build
+// (`./esm/browser.js` / `./lib/browser.cjs`). Which branch a given
+// RESOLVER picks for a BARE "fflate" import depends on which
+// "conditions" that resolver considers active -- and this module is
+// evaluated in THREE different resolution contexts that do not all
+// derive those conditions the same way:
+//   1. Node's OWN ESM resolver, for the pure `node --test` run (no
+//      bundler at all) -- picks the "node" condition, correctly.
+//   2. `esbuild`, bundling the REAL app/dashboard/legal-cgv/page.tsx
+//      for the three `.dom.test.ts` suites, with `platform: "browser"`
+//      explicitly set on those `esbuild.build()` calls -- intended to
+//      force the "browser" condition (verified present and correct on
+//      this repository's own CI platform).
+//   3. The actual PRODUCTION Next.js/webpack client bundle -- a
+//      THIRD, independent resolver with its own condition defaults.
+//
+// Each of (1)-(3) is a SEPARATE piece of software with its OWN
+// defaults for which "exports" conditions are active for a given
+// build target, and those defaults are allowed to -- and across
+// esbuild/Node versions and host platforms, DO -- differ (BOULEZ
+// delta re-audit, Windows/Node 24: `platform: "browser"` alone did
+// NOT make esbuild's condition set match what it matches on this
+// repository's own Linux/Node 22 CI run). Rather than depend on THREE
+// independent resolvers' condition-matching logic staying aligned
+// forever, this import pins the SAME, SINGLE, unconditional answer
+// everywhere: `fflate/browser` is its OWN exports subpath (not the
+// bare "."), and that subpath's own `package.json#exports` entry has
+// NO "node" branch at all -- "import" and "require" both resolve to
+// the identical pure-JS browser build, unconditionally, for every one
+// of the three resolvers above, on every OS and Node version. (The
+// pure-JS build is already what the real, deployed, client-side
+// production bundle has ALWAYS run end to end -- this only changes
+// what runs under the Node test harness, from the native-zlib build
+// to the exact same pure-JS build already proven in production. Both
+// builds are the SAME library's two backends for the SAME documented
+// `zipSync`/`unzipSync`/`strToU8` API -- functionally interchangeable
+// by fflate's own design, verified by this lot's full existing test
+// suite passing unchanged under the new import.)
+import { zipSync } from "fflate/browser";
 import type { CgvDocumentModel } from "@/lib/legal/cgv-document-model";
 import { toOoxmlBookmarkName } from "@/lib/legal/cgv-document-model";
 

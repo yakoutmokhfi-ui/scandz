@@ -85,7 +85,14 @@ test("W0-T-03 | AST dependency allowlist: shared module imports only fflate", ()
     ts.forEachChild(node, visit);
   }
   visit(parse(sharedSource));
-  assert.deepEqual(imports, ["fflate"]);
+  // W1 SECOND REMEDIATION (Windows/fflate harness fix): the shared
+  // module now imports the EXPLICIT "fflate/browser" subpath instead
+  // of the bare "fflate" specifier -- see lib/docx/docx-writer.ts's
+  // own import comment for the full cross-resolver rationale. Still
+  // exactly ONE import, still `fflate` (now its own unconditional
+  // subpath) and nothing else -- the allowlist itself is unchanged in
+  // spirit, only the exact string it permits is updated to match.
+  assert.deepEqual(imports, ["fflate/browser"]);
 });
 
 test("W0-T-04 | exact exported limits and unchanged public runtime exports", () => {

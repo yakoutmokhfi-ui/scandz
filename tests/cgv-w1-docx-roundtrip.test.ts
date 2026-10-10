@@ -655,6 +655,19 @@ test("W1-T-51 | bold/italic-formatted runs splitting a sentence reconstruct to t
 test("W1-T-52 | hyperlink-contained visible text is preserved and participates in the diff", () => {
   const model = baseModel();
   let documentXml = extractDocumentXml(exportModel(model));
+  // W1 SECOND REMEDIATION (W1-03): the new conforming parser correctly
+  // enforces XML NAMESPACE well-formedness -- an `r:id` attribute
+  // requires the `r:` prefix to actually be bound somewhere in scope,
+  // exactly as genuine Word output always does (Word never emits an
+  // unbound-prefix document; that would itself be a well-formedness
+  // violation). The real writer's own root element only declares
+  // `xmlns:w` (it never emits hyperlinks itself), so this fixture --
+  // simulating a MERCHANT'S Word edit that added a hyperlink -- adds
+  // the same `xmlns:r` declaration Word would have added automatically.
+  documentXml = documentXml.replace(
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`,
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">`
+  );
   const original = "Toute commande peut être annulée avant sa préparation.";
   const withHyperlink =
     `<w:p><w:r><w:t xml:space="preserve">Toute commande peut être annulée avant sa préparation. Voir </w:t></w:r>` +
@@ -708,7 +721,7 @@ test("W1-T-55 | a list paragraph (w:numPr) is modeled with an explicit marker, n
   assert.deepEqual(imported.chapters[0].paragraphs, [model.chapters[0].heading, "• Premier élément de liste."]);
 });
 
-test("W1-T-56 | Word's in-body comment-range markers are harmless -- never crash, never trigger a spurious diff", () => {
+test("W1-T-56 | Word's in-body comment-range MARKERS, with NO word/comments.xml part in the archive at all, are harmless -- never crash, never trigger a spurious diff (comment markers carry no text of their own; see W1-T-67 for a comments.xml part present but empty)", () => {
   const model = baseModel();
   let documentXml = extractDocumentXml(exportModel(model));
   const original = "Toute commande peut être annulée avant sa préparation.";
@@ -716,11 +729,167 @@ test("W1-T-56 | Word's in-body comment-range markers are harmless -- never crash
     `<w:p><w:commentRangeStart w:id="1"/><w:r><w:t xml:space="preserve">${original}</w:t></w:r>` +
     `<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>`;
   documentXml = documentXml.replace(plainParagraphXml(original), withComment);
+  // Deliberately NO "word/comments.xml" extraFile -- the archive never
+  // declares the part at all, exactly as a document that never had any
+  // comment added would look. See the W1 SECOND REMEDIATION doc block
+  // in docx-reader.ts, point 5.
   const imported = readDocxDocument(buildMinimalDocx(documentXml));
   const diff = diffCgvDocxImport(model, imported);
   const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
   assert.ok(chapter);
   assert.ok(chapter!.entries.every((e) => e.kind === "unchanged"));
+});
+
+// ====================================================================
+// W1 SECOND REMEDIATION -- W1-02 -- WORD COMMENT TEXT MUST NEVER
+// DISAPPEAR SILENTLY (BOULEZ delta re-audit, candidate 710a62c6, the
+// "remplacer 30 jours par 14 jours" reproduction). Policy under test:
+// "If a DOCX contains any visible Word comment text, reject the
+// import with UNSUPPORTED_WORD_COMMENTS. A document with no comments,
+// or whose comments are all empty, imports exactly as before."
+// ====================================================================
+
+/** A realistic `word/comments.xml` part containing exactly the
+ *  comment text(s) given, one `<w:comment>` per string, in the exact
+ *  shape Word itself produces (own `<w:p>`/`<w:r>`/`<w:t>` structure,
+ *  same as the body). */
+function commentsXmlPart(commentTexts: string[]): string {
+  const comments = commentTexts
+    .map(
+      (text, i) =>
+        `<w:comment w:id="${i}" w:author="Relecteur" w:date="2024-01-01T00:00:00Z" w:initials="R">` +
+        `<w:p><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p></w:comment>`
+    )
+    .join("");
+  return (
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${comments}</w:comments>`
+  );
+}
+
+/** Reusable fixture: the real writer's export, with an in-body comment
+ *  reference on the "Annulation de commande" paragraph, PLUS a
+ *  `word/comments.xml` extra file carrying `commentTexts` (empty array
+ *  => an empty `<w:comments/>`, no `<w:comment>` elements at all). */
+function docxWithComments(commentTexts: string[]): { model: CgvDocumentModel; docx: ArrayBuffer } {
+  const model = baseModel();
+  let documentXml = extractDocumentXml(exportModel(model));
+  const original = "Toute commande peut être annulée avant sa préparation.";
+  const withMarkers =
+    `<w:p><w:commentRangeStart w:id="1"/><w:r><w:t xml:space="preserve">${original}</w:t></w:r>` +
+    `<w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>`;
+  documentXml = documentXml.replace(plainParagraphXml(original), withMarkers);
+  const docx = buildMinimalDocx(documentXml, {
+    extraFiles: { "word/comments.xml": commentsXmlPart(commentTexts) },
+  });
+  return { model, docx };
+}
+
+test("W1-T-66 | no comments at all (no word/comments.xml part in the archive) => accepted, exactly as before", () => {
+  const model = baseModel();
+  const docx = exportModel(model); // the real writer never emits word/comments.xml
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
+});
+
+test("W1-T-67 | word/comments.xml IS present but contains no visible comment text (comment markers/empty comment only) => accepted, per explicit policy", () => {
+  const { model, docx } = docxWithComments([]); // <w:comments/> with zero <w:comment> elements
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  const chapter = diff.chapters.find((c) => c.heading === "Annulation de commande");
+  assert.ok(chapter);
+  assert.ok(chapter!.entries.every((e) => e.kind === "unchanged"), "an empty comments part must never itself be treated as a meaningful change");
+});
+
+test("W1-T-67b | word/comments.xml present with a <w:comment> element that itself has no <w:t> text => still accepted (empty comment, not absent part)", () => {
+  const { model, docx } = docxWithComments([""]);
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
+});
+
+test("W1-T-68 | word/comments.xml containing visible comment text => explicit rejection (UNSUPPORTED_WORD_COMMENTS), never imported as CGV body", () => {
+  const { docx } = docxWithComments(["Merci de vérifier ce paragraphe."]);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-69 | the audit's exact legal-style comment ('remplacer 30 jours par 14 jours') is NEVER zero-diffed -- the import itself is rejected before any diff can report 'unchanged'", () => {
+  const { model, docx } = docxWithComments(["remplacer 30 jours par 14 jours"]);
+  let threw = false;
+  try {
+    const imported = readDocxDocument(docx);
+    // If we ever get here, the content-fidelity guarantee is broken --
+    // prove it concretely rather than just failing silently below.
+    const diff = diffCgvDocxImport(model, imported);
+    assert.notEqual(diff.hasNoMeaningfulChanges, true, "a legally meaningful comment must never be reported as 'no meaningful changes'");
+  } catch (e) {
+    threw = true;
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+  }
+  assert.ok(threw, "expected readDocxDocument to reject the import outright (Option A) rather than silently importing a document carrying this comment");
+});
+
+test("W1-T-70 | multiple comments, each with visible text, are rejected exactly the same way as one", () => {
+  const { docx } = docxWithComments(["Premier commentaire.", "Deuxième commentaire : remplacer 30 jours par 14 jours."]);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "UNSUPPORTED_WORD_COMMENTS");
+    return true;
+  });
+});
+
+test("W1-T-71 | a malformed word/comments.xml (unclosed <w:comment>) is rejected fail-closed (MALFORMED_DOCUMENT), never silently treated as 'no comments found'", () => {
+  const model = baseModel();
+  const documentXml = extractDocumentXml(exportModel(model));
+  const malformedComments =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
+    `<w:comment w:id="0"><w:p><w:r><w:t xml:space="preserve">Oops, jamais fermé.</w:t></w:r></w:p></w:comments>`;
+  const docx = buildMinimalDocx(documentXml, { extraFiles: { "word/comments.xml": malformedComments } });
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-72 | a comments relationship nominally 'declared' in word/_rels/document.xml.rels, with word/comments.xml itself ABSENT from the archive, is accepted -- there is no comment text anywhere to lose", () => {
+  const model = baseModel();
+  const documentXml = extractDocumentXml(exportModel(model));
+  const relsDeclaringComments =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>` +
+    `</Relationships>`;
+  // word/comments.xml is deliberately NOT added -- this module never
+  // trusts the relationships part to decide whether comments exist
+  // (see docx-reader.ts, "COMMENT DETECTION STRATEGY").
+  const docx = buildMinimalDocx(documentXml, { extraFiles: { "word/_rels/document.xml.rels": relsDeclaringComments } });
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
+});
+
+test("W1-T-73 | comment text saved at an UNEXPECTED, non-canonical path (not word/comments.xml) is not inspected -- a documented v1 scope boundary, never a crash", () => {
+  const model = baseModel();
+  const documentXml = extractDocumentXml(exportModel(model));
+  // A hypothetical tool-generated or renamed comments part at a
+  // non-standard path. This reader only ever looks at the fixed,
+  // canonical "word/comments.xml" name (exactly as it already does
+  // for word/document.xml) -- never a relationship-driven lookup --
+  // so this is, by documented policy, simply never inspected.
+  const docx = buildMinimalDocx(documentXml, {
+    extraFiles: { "word/commentsRenamed.xml": commentsXmlPart(["remplacer 30 jours par 14 jours"]) },
+  });
+  const imported = readDocxDocument(docx);
+  const diff = diffCgvDocxImport(model, imported);
+  assert.equal(diff.hasNoMeaningfulChanges, true);
 });
 
 // ====================================================================
@@ -829,5 +998,183 @@ test("W1-T-65 | Word's own housekeeping bookmarks remain harmless even when they
   const imported = readDocxDocument(docx);
   assert.equal(imported.chapters.length, 1);
   assert.deepEqual(imported.leadingContent, ["Début de sélection.", "Fin de sélection."]);
+});
+
+// ====================================================================
+// W1 SECOND REMEDIATION -- W1-03 -- CONFORMING XML PARSER (replaces
+// the first remediation's hand-rolled tag-balance validator). BOULEZ
+// delta re-audit reproductions: `<w:t x=1>AB</w:t>` (unquoted
+// attribute) and `AB &bogus; CD` (undefined entity) -- both now
+// caught by `saxes`, never by regex. See docx-reader.ts's
+// `assertWellFormedXml` for the full write-up.
+// ====================================================================
+
+test("W1-T-74 | an UNQUOTED attribute value (<w:t x=1>) -- the audit's exact reproduction -- is rejected, never accepted by a permissive regex scan", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body = bookmarkedParagraphXml(0, name, model.chapters[0].heading) + `<w:p><w:r><w:t x=1>AB</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-75 | an UNDEFINED entity reference (AB &bogus; CD) -- the audit's exact reproduction -- is rejected, never silently passed through as literal text", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:r><w:t xml:space="preserve">AB &bogus; CD</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-76 | mismatched closing tags (<w:r>...</w:p>) are rejected", () => {
+  const body = `<w:p><w:r><w:t xml:space="preserve">Texte</w:t></w:p></w:r>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-77 | malformed namespace syntax (an xmlns declaration with no value) is rejected", () => {
+  // Deliberately bypasses wordDocumentXml()'s own well-formed wrapper
+  // to construct a malformed root element directly.
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<w:document xmlns:w><w:body><w:p><w:r><w:t xml:space="preserve">Texte</w:t></w:r></w:p></w:body></w:document>`;
+  const docx = buildMinimalDocx(xml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-78 | malformed attribute quoting (mismatched quote characters) is rejected", () => {
+  const body = `<w:p><w:r><w:t xml:space='preserve">Texte</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-79 | a malformed comment (-- inside a comment body) is rejected", () => {
+  const body = `<w:p><!-- a malformed -- comment --><w:r><w:t xml:space="preserve">Texte</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-80 | legitimate OOXML with escaped &amp; and &lt; entities is ACCEPTED and the entities are correctly unescaped in the extracted text", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:r><w:t xml:space="preserve">Prix &amp; conditions : montant &lt; 50 €</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.deepEqual(imported.chapters[0].paragraphs, [model.chapters[0].heading, "Prix & conditions : montant < 50 €"]);
+});
+
+test("W1-T-81 | legitimate OOXML containing Unicode (Arabic + French accents) is ACCEPTED and preserved exactly", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const unicodeText = "مرحبا بكم -- préférences générales et café à emporter";
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:r><w:t xml:space="preserve">${unicodeText}</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.deepEqual(imported.chapters[0].paragraphs, [model.chapters[0].heading, unicodeText]);
+});
+
+test("W1-T-82 | legitimate OOXML with multiple runs, bookmarks, and self-closing elements together is ACCEPTED (composite acceptance case)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>` +
+    `<w:bookmarkStart w:id="0" w:name="${name}"/>` +
+    `<w:r><w:t xml:space="preserve">${model.chapters[0].heading}</w:t></w:r>` +
+    `<w:bookmarkEnd w:id="0"/></w:p>` +
+    `<w:p><w:r><w:t xml:space="preserve">Première partie </w:t></w:r><w:r><w:tab/></w:r><w:r><w:t xml:space="preserve">deuxième partie</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  const imported = readDocxDocument(docx);
+  assert.deepEqual(imported.chapters[0].paragraphs, [model.chapters[0].heading, "Première partie \tdeuxième partie"]);
+});
+
+test("W1-T-83 | SECURITY -- a DOCTYPE declaration (even with no entity) is rejected outright, by construction, never parsed for a DTD", () => {
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<!DOCTYPE w:document>` +
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>`;
+  const docx = buildMinimalDocx(xml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-84 | SECURITY -- a classic XXE payload (DOCTYPE with an internal ENTITY declaring a SYSTEM/file reference, then referencing it) is rejected -- never fetched, never expanded, never silently dropped into the extracted text", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<!DOCTYPE w:document [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>` +
+    `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:r><w:t xml:space="preserve">&xxe;</w:t></w:r></w:p>` +
+    `<w:sectPr/></w:body></w:document>`;
+  const docx = buildMinimalDocx(xml);
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-85 | SECURITY -- an undefined entity that LOOKS like an external reference by name is rejected the same as any other undefined entity (no special-casing that could hide a fetch)", () => {
+  const model = baseModel();
+  const name = toOoxmlBookmarkName(model.chapters[0].bookmarkName);
+  const body =
+    bookmarkedParagraphXml(0, name, model.chapters[0].heading) +
+    `<w:p><w:r><w:t xml:space="preserve">&externalEntityReference;</w:t></w:r></w:p>`;
+  const docx = buildMinimalDocx(wordDocumentXml(body));
+  assert.throws(() => readDocxDocument(docx), (e: unknown) => {
+    assert.ok(e instanceof DocxReadError);
+    assert.equal((e as DocxReadError).code, "MALFORMED_DOCUMENT");
+    return true;
+  });
+});
+
+test("W1-T-86 | SECURITY -- the parser fails SAFELY (a typed DocxReadError, never an unhandled/raw exception, never a hang) for a battery of malformed inputs", () => {
+  const malformedBodies = [
+    `<w:p><w:r><w:t>unterminated`,
+    `<w:p><w:r><w:t></w:r></w:t></w:p>`,
+    `<w:p>&;</w:p>`,
+    `<w:p><w:r><w:t attr=unquoted>x</w:t></w:r></w:p>`,
+  ];
+  for (const body of malformedBodies) {
+    const docx = buildMinimalDocx(wordDocumentXml(body));
+    assert.throws(
+      () => readDocxDocument(docx),
+      (e: unknown) => e instanceof DocxReadError,
+      `expected a typed DocxReadError for: ${body}`
+    );
+  }
 });
 
