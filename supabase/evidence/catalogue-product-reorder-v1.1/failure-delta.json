@@ -1,0 +1,21 @@
+{
+  "baseline": {
+    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+    "tests": 4778,
+    "pass": 4768,
+    "failures": 10
+  },
+  "candidate": {
+    "sha": "46bc04f2905fde2b652c5ea0535f4090ce17bcbd",
+    "tests": 4913,
+    "pass": 4903,
+    "failures": 10
+  },
+  "appeared": [],
+  "disappeared": [],
+  "identical": true,
+  "md5": "d788b58cd63f6c59be1b1195c76bc1c5",
+  "baselineTestsMissingFromCandidate": 0,
+  "testsAddedByCandidate": 135,
+  "note": "Identités = lignes « not ok » de premier niveau du TAP, numéro retiré, triées (LC_ALL=C). La base a été ré-exécutée pour ce paquet ; ses 10 identités sont celles de supabase/evidence/catalogue-product-reorder-v1/baseline-failures-sorted.txt (même md5)."
+}

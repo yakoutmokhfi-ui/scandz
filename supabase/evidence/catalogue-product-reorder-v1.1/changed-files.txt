@@ -1,0 +1,13 @@
+ app/dashboard/catalogue/page.tsx                                    |   8 +-
+ lib/catalogue-product-order.ts                                      |  55 +++++++++-
+ lib/services/catalogue-product-order.ts                             |  36 +++++--
+ supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql        |   8 +-
+ supabase/DRAFT-lot-catalogue-product-reorder-v1.sql                 | 248 +++++++++++++++++++++++++++++++------------
+ supabase/tests/catalogue-product-reorder-v1-check.sh                | 634 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-----------------------
+ supabase/tests/catalogue-product-reorder-v1-harness-lib.sh          | 490 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh | 658 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/catalogue-product-reorder-v1-sql.test.ts                      | 725 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++------------
+ tests/catalogue-product-reorder-v1.dom.test.ts                      | 501 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ tests/catalogue-product-reorder-v1.test.ts                          | 469 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+ tests/helpers/catalogue-product-reorder-rpc-model.ts                | 169 +++++++++++++++++++++++++++++
+ 12 files changed, 3677 insertions(+), 324 deletions(-)

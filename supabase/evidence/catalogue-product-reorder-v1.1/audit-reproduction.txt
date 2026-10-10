@@ -1,0 +1,20 @@
+REPRODUCTION DE CPR-AUDIT-01 -- même scénario, même base locale (PGlite), deux versions du DRAFT SQL.
+Le SQL du candidat refusé est lu dans git (git show a1185224…:supabase/DRAFT-lot-catalogue-product-reorder-v1.sql).
+
+=== CANDIDAT REFUSÉ a118522 -- move_product_order(uuid, text, uuid[]) ===
+1. état initial                               : Comté=1|Beaufort=2|Abondance=3
+   vue chargée par le client                  : [Comté, Beaufort, Abondance]
+2. un autre utilisateur : Comté -> 2          : Beaufort=2|Comté=2|Abondance=3
+   ordre visible qui fait autorité            : Beaufort, Comté, Abondance
+3. client périmé : « Abondance UP »           : ACCEPTÉ (position 2)
+4. état final                                 : Comté=1|Abondance=2|Beaufort=3
+   ordre validé par l'autre utilisateur       : ÉCRASÉ
+
+=== REMÉDIATION -- move_product_order(uuid, text, jsonb) ===
+1. état initial                               : Comté=1|Beaufort=2|Abondance=3
+   vue chargée par le client                  : [Comté, Beaufort, Abondance]
+2. un autre utilisateur : Comté -> 2          : Beaufort=2|Comté=2|Abondance=3
+   ordre visible qui fait autorité            : Beaufort, Comté, Abondance
+3. client périmé : « Abondance UP »           : REFUSÉ -- P0001 SCANYM_PRODUCT_ORDER_STALE
+4. état final                                 : Beaufort=2|Comté=2|Abondance=3
+   ordre validé par l'autre utilisateur       : INTACT (aucune écriture)

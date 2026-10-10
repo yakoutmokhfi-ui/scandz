@@ -1,0 +1,18 @@
+ENVIRONNEMENT SIMULÉ : copie du dépôt dont node_modules/fflate/package.json n'expose plus que la condition d'export "node" -- esbuild (conditions browser/import/default) ne peut plus résoudre le paquet, Node le résout toujours. C'est le symptôme de l'audit (« fails to load because of fflate resolution »), reproduit sous Linux ; ce n'est PAS une exécution sous Windows.
+
+--- node résout fflate dans l'environnement simulé :
+node ok function
+
+--- CANDIDAT REFUSÉ a118522 -- commande standard : node --experimental-strip-types --import ./tests/register.mjs --test tests/catalogue-product-reorder-v1.dom.test.ts
+# ✘ [ERROR] Could not resolve "fflate"
+# lib/catalogue-management/export.ts:55:33: ERROR: Could not resolve "fflate"
+not ok 1 - tests/catalogue-product-reorder-v1.dom.test.ts
+# tests 1
+# pass 0
+# fail 1
+
+--- REMÉDIATION -- même commande :
+ok 37 - [I] le bundle de l'écran ne contient AUCUN fichier de node_modules : chaque paquet importé (react, fflate) est externalisé et chargé par Node, esbuild ne résout aucun paquet
+# tests 37
+# pass 37
+# fail 0

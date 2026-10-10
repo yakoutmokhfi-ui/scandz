@@ -1,0 +1,105 @@
+[12:54:37] [sûreté] verrou d'entrée franchi : consentement explicite, aucune configuration de connexion héritée, binaires /usr/lib/postgresql/16/bin.
+[12:54:37] === Préparation : cluster TÉMOIN, fil-piège, faux répertoire d'une autre exécution ===
+[12:54:38] témoin prêt : 5 bases au nom semblable, socket /tmp/scanym-cpr1-probe.ZrWq5Jitam/witness/sock, port 5432 + emplacement par défaut /var/run/postgresql.
+[12:54:38] === HARNESS-01 — sans consentement explicite ===
+[12:54:38] PASS: HARNESS-01 — consentement « absent » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:38] PASS: HARNESS-01 — consentement « SCANYM_DISPOSABLE_CLUSTER=0 » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-01 — consentement « SCANYM_DISPOSABLE_CLUSTER=true » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-01 — consentement « SCANYM_DISPOSABLE_CLUSTER=yes » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-01 — consentement « SCANYM_DISPOSABLE_CLUSTER= » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-01 — consentement « SCANYM_DISPOSABLE_CLUSTER=11 » : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-01 — contrôle positif : avec le consentement, la première commande PostgreSQL (initdb) déclenche bien le fil-piège
+[12:54:39] PASS: HARNESS-06 — échec d'initdb (avant même l'existence du cluster) : sortie non nulle, le répertoire de l'exécution est retiré, rien d'autre n'est touché
+[12:54:39] === HARNESS-02 — variables de connexion héritées pointant ailleurs ===
+[12:54:39] PASS: HARNESS-02 — PGHOST + PGPORT hérités pointant sur le TÉMOIN : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:39] PASS: HARNESS-02 — PGHOST hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-02 — PGHOSTADDR hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-02 — PGPORT hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-02 — PGDATABASE hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-02 — PGUSER hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-02 — PGCLUSTER hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] === HARNESS-03 — PGSERVICE / PGSERVICEFILE hérités ===
+[12:54:40] PASS: HARNESS-03 — contrôle positif : PGSERVICE + PGSERVICEFILE routent bien un psql ordinaire vers le témoin
+[12:54:40] PASS: HARNESS-03 — PGSERVICE + PGSERVICEFILE hérités : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:40] PASS: HARNESS-03 — PGSERVICE hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-03 — PGSERVICEFILE hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-03 — PGSYSCONFDIR hérité seul : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] === HARNESS-04 — PGPASSWORD hérité : jamais affiché, ne redirige rien ===
+[12:54:41] PASS: HARNESS-04 — PGPASSWORD hérité : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-04 — PGPASSFILE hérité : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-04 — DATABASE_URL hérité : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-04 — SUPABASE_DB_URL hérité : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-04 — PGPASSWORD + PGHOST + PGPORT + PGUSER hérités (cible : le témoin) : refusé (code 2) AVANT toute commande PostgreSQL (fil-piège muet, aucun fichier créé, témoin sans connexion et intact)
+[12:54:41] PASS: HARNESS-04 — le secret, l'URL de connexion et le chemin du fichier de mots de passe n'apparaissent dans AUCUNE sortie (seuls des NOMS de variables sont journalisés)
+[12:54:41] === HARNESS-02/03/04 (seconde barrière) — au-delà du verrou, aucune variable n'atteint libpq ===
+[12:54:43] PASS: seconde barrière — le serveur joint malgré PGHOST/PGPORT/PGSERVICE hostiles est le cluster de l'exécution (nonce, data_directory)
+[12:54:43] PASS: seconde barrière — … et non le témoin (aucun marqueur du témoin sur le serveur joint)
+[12:54:43] PASS: seconde barrière — preuve d'identité, création puis suppression d'une base au nom IDENTIQUE à une base du témoin : tout s'exécute sur le cluster de l'exécution (0 / 0 / 0)
+[12:54:43] PASS: seconde barrière — la base créée est une base NEUVE du cluster de l'exécution (sans la sentinelle du témoin)
+[12:54:43] PASS: seconde barrière — PGOPTIONS hostile ignoré (aucune erreur de rôle), PGPASSWORD jamais affiché, y compris sur une commande en échec
+[12:54:43] PASS: seconde barrière — le témoin n'a reçu AUCUNE connexion
+[12:54:43] PASS: seconde barrière — le témoin est intact (mêmes bases, mêmes OID, mêmes sentinelles)
+[12:54:43] PASS: seconde barrière — le cluster de cette sonde a été arrêté et retiré
+[12:54:43] === HARNESS-05 — base préexistante au nom semblable : jamais supprimée ===
+[12:54:45] PASS: HARNESS-05 — création sur un nom DÉJÀ PRIS par une base non créée par l'exécution : refusée (code 2), la base n'est ni remplacée ni supprimée
+[12:54:45] PASS: HARNESS-05 — suppression d'une base préexistante au nom du harnais : REFUSÉE (code 2, hors registre)
+[12:54:45] PASS: HARNESS-05 — une base hors registre ne peut pas non plus servir de modèle (code 2)
+[12:54:45] PASS: HARNESS-05 — la base préexistante est INTACTE : même OID (jamais supprimée puis recréée), sentinelle présente
+[12:54:45] PASS: HARNESS-05 — elle n'est jamais entrée dans le registre des ressources de l'exécution
+[12:54:45] PASS: HARNESS-05 — une base du registre se crée et se supprime (0 / 0), puis n'est plus supprimable une seconde fois (2)
+[12:54:45] PASS: HARNESS-05 — postgres, template1 et un nom forgé (injection) : suppression refusée (2 / 2 / 2)
+[12:54:45] PASS: HARNESS-05 — bases présentes à la fin : exactement celles d'origine + la préexistante
+[12:54:45] PASS: HARNESS-05 — le témoin (bases au nom semblable, sur un autre serveur) n'a reçu aucune connexion
+[12:54:45] PASS: HARNESS-05 — … et il est intact
+[12:54:45] === HARNESS-07 — identité du serveur non conforme : arrêt AVANT DROP DATABASE ===
+[12:54:47] PASS: HARNESS-07 — (a) connexion aboutissant à un AUTRE serveur : preuve d'identité refusée (code 3)
+[12:54:47] PASS: HARNESS-07 — (a) DROP DATABASE d'une base du registre vers cet autre serveur : ABANDONNÉ (code 3)
+[12:54:47] PASS: HARNESS-07 — (a) CREATE DATABASE vers cet autre serveur : abandonné (code 3)
+[12:54:47] PASS: HARNESS-07 — (a) le serveur tiers n'a reçu AUCUNE instruction DROP / CREATE / ALTER DATABASE (journal d'instructions)
+[12:54:47] PASS: HARNESS-07 — (a) la base homonyme du serveur tiers est intacte (même OID, sentinelle présente)
+[12:54:47] PASS: HARNESS-07 — (a) le message dit explicitement que DROP DATABASE n'a pas été envoyé
+[12:54:47] PASS: HARNESS-07 — (a) la base reste au registre (rien n'a été supprimé)
+[12:54:47] PASS: HARNESS-07 — (b) nonce d'exécution non conforme : preuve refusée, DROP abandonné (3 / 3)
+[12:54:47] PASS: HARNESS-07 — (c) data_directory non conforme : DROP abandonné (3)
+[12:54:47] PASS: HARNESS-07 — après ces trois refus, la base de l'exécution existe toujours
+[12:54:47] PASS: HARNESS-07 — (d) identité rétablie : preuve acceptée, DROP exécuté (0 / 0), base supprimée
+[12:54:47] PASS: HARNESS-07 — (e) serveur injoignable : identité non prouvée, DROP abandonné (3)
+[12:54:47] === HARNESS-06 — nettoyage après un échec en cours d'exécution ===
+[12:54:48] PASS: HARNESS-06 — (i) le nettoyage REFUSE de supprimer un répertoire d'une autre exécution (autre nonce), un répertoire sans marqueur et un répertoire au nom non conforme
+[12:54:50] PASS: HARNESS-06 — (ii) échec de la chaîne en cours d'exécution : sortie non nulle
+[12:54:50] PASS: HARNESS-06 — (ii) l'échec est bien survenu APRÈS la création du cluster et d'une base (échec partiel réel)
+[12:54:50] PASS: HARNESS-06 — (ii) le répertoire de l'exécution est retiré ; il ne reste QUE le répertoire de l'autre exécution
+[12:54:50] PASS: HARNESS-06 — (ii) le répertoire de l'autre exécution est intact
+[12:54:50] PASS: HARNESS-06 — (ii) le postmaster de l'exécution est arrêté
+[12:54:50] PASS: HARNESS-06 — (ii) le témoin n'a reçu aucune connexion
+[12:54:50] PASS: HARNESS-06 — (ii) le témoin est intact
+[12:54:54] PASS: HARNESS-06 — (iii) le harnais était bien EN COURS (cluster démarré, chaîne en construction) quand le signal est arrivé
+[12:54:54] PASS: HARNESS-06 — (iii) SIGTERM : sortie 143
+[12:54:54] PASS: HARNESS-06 — (iii) le répertoire de l'exécution est retiré ; il ne reste QUE le répertoire de l'autre exécution
+[12:54:54] PASS: HARNESS-06 — (iii) le répertoire de l'autre exécution est intact
+[12:54:54] PASS: HARNESS-06 — (iii) le postmaster de l'exécution (pid 3083) est arrêté
+[12:54:54] PASS: HARNESS-06 — (iii) aucun postmaster de l'exécution ne subsiste
+[12:54:54] PASS: HARNESS-06 — (iii) le témoin n'a reçu aucune connexion
+[12:54:54] PASS: HARNESS-06 — (iii) le témoin est intact et toujours en service
+[12:54:54] === HARNESS-08 — exécution normale isolée : toutes les preuves passent ===
+[12:54:54] PASS: HARNESS-08 — contrôle positif de l'appât : un psql sans aucun paramètre de connexion aboutit bien au TÉMOIN (emplacement par défaut du poste)
+[12:55:31] PASS: HARNESS-08 — le harnais complet se termine avec succès (code 0)
+[12:55:31] PASS: HARNESS-08 — aucune preuve en échec (=== RÉSUMÉ : PASS=263 FAIL=0 ===)
+[12:55:31] PASS: HARNESS-08 — au moins 250 preuves exécutées (263 PASS)
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9A- : 7 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9B- : 4 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9C- : 13 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9C-bis- : 7 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9D- : 4 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 9E- : 5 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — concurrence réelle, section 8F-10 : 8 preuve(s), aucune en échec
+[12:55:31] PASS: HARNESS-08 — fraîcheur de la vue (CPR-AUDIT-01), section 8F : 58 preuves, aucune en échec
+[12:55:31] PASS: HARNESS-08 — le cluster de l'exécution a été arrêté et retiré ; le répertoire de l'autre exécution est intact
+[12:55:31] PASS: HARNESS-08 — aucun postmaster de l'exécution ne subsiste
+[12:55:31] PASS: HARNESS-08 — le témoin (bases au nom semblable) n'a reçu AUCUNE connexion pendant toute l'exécution
+[12:55:31] PASS: HARNESS-08 — le témoin est intact
+[12:55:31] PASS: HARNESS-08 — aucun secret ni aucune valeur de variable de connexion dans la sortie
+[12:55:31] PASS: HARNESS-08 — AUCUN DÉFAUT AMBIANT : le témoin écoutait à l'emplacement par défaut du poste pendant toute l'exécution, et n'a reçu aucune connexion du harnais
+[12:55:31] PASS: BILAN — sur l'ensemble des sondes, les seules instructions CREATE/DROP/ALTER DATABASE reçues par le témoin sont les 5 créations faites par CE script
+[12:55:31] PASS: BILAN — aucune instruction DROP DATABASE n'a jamais atteint le témoin
+[12:55:31] === RÉSUMÉ DES SONDES : PASS=92 FAIL=0 SKIP=0 ===

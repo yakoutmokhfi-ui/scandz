@@ -1,0 +1,5 @@
+# base 412dbb53c5f180983860852b79425209c04b9c42 -- npx tsc --noEmit -p tsconfig.json
+tsc exit=0
+
+# candidat 46bc04f2905fde2b652c5ea0535f4090ce17bcbd -- npx tsc --noEmit -p tsconfig.json
+tsc exit=0

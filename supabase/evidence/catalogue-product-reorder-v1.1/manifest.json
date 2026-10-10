@@ -1,0 +1,253 @@
+{
+  "lot": "CATALOGUE PRODUCT REORDER v1",
+  "revision": "v1.1 — remédiation de l'audit indépendant",
+  "mandate": "VIVALDI — TARGETED REMEDIATION — LOT: CATALOGUE PRODUCT REORDER v1 — AUDIT RESULT: FAIL",
+  "status": "READY FOR DELTA RE-AUDIT",
+  "merged": false,
+  "deployed": false,
+  "hostedSqlExecuted": false,
+  "base": {
+    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873",
+    "branch": "origin/main"
+  },
+  "failedCandidate": {
+    "sha": "a1185224f2bfe24fefd81f4057c6cdbd205939f1",
+    "tree": "73d2614a27108efac6619cf2a4f050bc05f93779",
+    "evidenceHead": "9661632d41aa3dd4cdbde52ec2695b684a9e070c",
+    "amended": false
+  },
+  "candidate": {
+    "sha": "46bc04f2905fde2b652c5ea0535f4090ce17bcbd",
+    "tree": "ed142021a0a00322a5e39890aa4eb3698905955e",
+    "parent": "9661632d41aa3dd4cdbde52ec2695b684a9e070c",
+    "branch": "feature/catalogue-product-reorder-v1",
+    "note": "candidate.sha désigne le commit de REMÉDIATION (HEAD~1 de la branche). HEAD est le commit de scellement de ce paquet et ne touche QUE supabase/evidence/catalogue-product-reorder-v1.1/."
+  },
+  "filesChangedSinceFailedCandidate": {
+    "modified": [
+      "app/dashboard/catalogue/page.tsx",
+      "lib/catalogue-product-order.ts",
+      "lib/services/catalogue-product-order.ts",
+      "supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql",
+      "supabase/DRAFT-lot-catalogue-product-reorder-v1.sql",
+      "supabase/tests/catalogue-product-reorder-v1-check.sh",
+      "tests/catalogue-product-reorder-v1-sql.test.ts",
+      "tests/catalogue-product-reorder-v1.dom.test.ts",
+      "tests/catalogue-product-reorder-v1.test.ts"
+    ],
+    "added": [
+      "supabase/tests/catalogue-product-reorder-v1-harness-lib.sh",
+      "supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh",
+      "tests/helpers/catalogue-product-reorder-rpc-model.ts"
+    ],
+    "insertions": 3677,
+    "deletions": 324
+  },
+  "findings": {
+    "CPR-AUDIT-01": {
+      "severity": "HIGH",
+      "title": "Vue périmée acceptée après la création d'un ex æquo par un autre utilisateur",
+      "fix": "move_product_order(uuid, text, jsonb) : la vue transmise est la représentation canonique du périmètre reçue du serveur et renvoyée inchangée ([{id, display_order, name}] dans l'ordre affiché). Sous verrou : même ensemble exact d'identifiants, display_order et name de CHAQUE produit égaux à l'état stocké (name octet pour octet, collation C), display_order non décroissant. Tout écart : SCANYM_PRODUCT_ORDER_STALE, aucune écriture.",
+      "equivalenceWithFingerprint": "Comparer la pré-image champ par champ décide E = S, ce qu'une empreinte H(canon(E)) = H(canon(S)) décide aux collisions près ; aucune sérialisation à faire coïncider. Propriété testée sur 4 000 couples (modèle) et 600 scénarios (SQL réel).",
+      "mandatedCases": 10,
+      "levels": [
+        "PGlite à travers le vrai service",
+        "PostgreSQL réel (section 8F, 58 preuves)",
+        "écran réel (DOM)"
+      ],
+      "fakeServer": "tests/helpers/catalogue-product-reorder-rpc-model.ts, prouvé équivalent au SQL réel par un test différentiel de 600 scénarios (même décision, même position, mêmes display_order)."
+    },
+    "CPR-AUDIT-02": {
+      "severity": "HIGH",
+      "title": "Harnais PostgreSQL sans isolement de la destination",
+      "fix": "supabase/tests/catalogue-product-reorder-v1-harness-lib.sh : consentement explicite ; refus par nom seul des variables de connexion héritées ; cluster créé par l'exécution (mktemp, initdb, socket privé, aucune écoute réseau) ; psql réel dans un environnement vide, cible explicite ; identité du serveur (nonce de 128 bits, config_file, data_directory, socket UNIX) prouvée sur la même connexion avant chaque CREATE/DROP DATABASE ; noms aléatoires ; registre ; aucun drop database if exists ; nettoyage sans connexion, borné au répertoire marqué.",
+      "probes": "supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh — HARNESS-01..08"
+    },
+    "DOM-FFLATE": {
+      "title": "tests/catalogue-product-reorder-v1.dom.test.ts ne se chargeait pas quand esbuild ne peut pas résoudre fflate",
+      "fix": "Test uniquement : tout spécificateur nu est externalisé et chargé par Node ; esbuild ne lit rien dans node_modules. Aucune assertion retirée.",
+      "verifiedOnWindows": false,
+      "verification": "Symptôme reproduit par simulation sous Linux (fflate non résoluble par esbuild, résoluble par Node) : candidat refusé 0/1 (fichier non chargé), remédiation 37/37."
+    }
+  },
+  "sqlRequired": true,
+  "sql": {
+    "draft": "supabase/DRAFT-lot-catalogue-product-reorder-v1.sql",
+    "rollback": "supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql",
+    "harness": "supabase/tests/catalogue-product-reorder-v1-check.sh",
+    "harnessSafetyLibrary": "supabase/tests/catalogue-product-reorder-v1-harness-lib.sh",
+    "harnessSafetyProbes": "supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh",
+    "objectsCreated": [
+      "function public.move_product_order(uuid, text, jsonb) returns integer"
+    ],
+    "objectsModified": [],
+    "dataBackfill": false,
+    "xlsxContractChanged": false,
+    "previousDraftSignature": "function public.move_product_order(uuid, text, uuid[]) — jamais appliquée sur une base hébergée"
+  },
+  "preserved": {
+    "orderingColumn": "menu_items.display_order (aucune colonne ajoutée)",
+    "floatingOrdering": false,
+    "backfill": false,
+    "scope": "sous-catégorie, sinon produits directs de la catégorie",
+    "roles": "owner/manager (ou opérateur via assert_product_role), jamais staff",
+    "storefrontComparator": "lib/catalogue-subcategory-grouping.ts non modifié par la remédiation",
+    "ui": "Monter / Descendre, aucun glisser-déposer ; une ligne modifiée dans l'écran",
+    "xlsx": "aucun fichier d'import/export modifié"
+  },
+  "environment": {
+    "node": "v22.22.0",
+    "npm": "10.9.4",
+    "postgres": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+    "pglite": "0.5.8",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3",
+    "bash": "5.2.21",
+    "os": "Linux x86_64"
+  },
+  "results": {
+    "dedicatedTests": {
+      "tests": 135,
+      "pass": 135,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "files": {
+        "tests/catalogue-product-reorder-v1.test.ts": 61,
+        "tests/catalogue-product-reorder-v1-sql.test.ts": 37,
+        "tests/catalogue-product-reorder-v1.dom.test.ts": 37
+      },
+      "addedSinceFailedCandidate": 40
+    },
+    "sqlHarness": {
+      "pass": 263,
+      "fail": 0,
+      "summaryLine": "RÉSUMÉ : PASS=263 FAIL=0",
+      "freshnessProofs8F": 58,
+      "parallelSessionProofs9AtoE": 33,
+      "parallelSessionProofs8F10": 8,
+      "filteredLines": "aucune"
+    },
+    "harnessSafetyProbes": {
+      "pass": 92,
+      "fail": 0,
+      "skip": 0,
+      "defaultSocketBaitActive": true,
+      "byProbe": {
+        "HARNESS-01": 7,
+        "HARNESS-02": 7,
+        "HARNESS-03": 5,
+        "HARNESS-04": 6,
+        "secondBarrier": 8,
+        "HARNESS-05": 10,
+        "HARNESS-06": 17,
+        "HARNESS-07": 12,
+        "HARNESS-08": 18,
+        "summary": 2
+      }
+    },
+    "targetedTests": {
+      "files": 33,
+      "tests": 623,
+      "pass": 622,
+      "fail": 1,
+      "failingIdentityIsBaseline": true
+    },
+    "typescript": {
+      "baseline": 0,
+      "candidate": 0
+    },
+    "build": {
+      "baseline": 0,
+      "candidate": 0,
+      "routes": 38,
+      "routesAdded": 0,
+      "routesRemoved": 0,
+      "dashboardCatalogueKb": {
+        "baseline": 15,
+        "failedCandidate": 16.5,
+        "candidate": 16.6
+      }
+    },
+    "fullSuite": {
+      "baseline": {
+        "tests": 4778,
+        "pass": 4768,
+        "fail": 10
+      },
+      "candidate": {
+        "tests": 4913,
+        "pass": 4903,
+        "fail": 10
+      },
+      "failureIdentitiesIdentical": true,
+      "newFailures": 0,
+      "failureIdentitiesMd5": "d788b58cd63f6c59be1b1195c76bc1c5",
+      "baselineTestsMissingFromCandidate": 0,
+      "note": "Comparaison de référence : base run 1 et candidat 46bc04f. Voir additionalRuns et stability/README.txt.",
+      "additionalRuns": {
+        "purpose": "Contrôle après scellement, sur la tête de branche (arbre identique au candidat hors supabase/evidence/) et de nouveau sur la base.",
+        "headRun1": {
+          "tests": 4913,
+          "fail": 11,
+          "extra": [
+            "[E4] le verrou se relâche après un ÉCHEC réseau (promesse rejetée), pas seulement après un succès — tests/tracking-freshness-v1-audit-remediation.dom.test.ts"
+          ]
+        },
+        "headRun2": {
+          "tests": 4913,
+          "fail": 11,
+          "extra": [
+            "écran backoffice : affiche référence de commande, client, produits/quantités et statut d'accusé (sent) — tests/gap-01-withdrawal-requests-backoffice.dom.test.ts"
+          ]
+        },
+        "baseRun2": {
+          "tests": 4778,
+          "fail": 12,
+          "extra": [
+            "écran backoffice : affiche référence de commande, client, produits/quantités et statut d'accusé (sent) — tests/gap-01-withdrawal-requests-backoffice.dom.test.ts",
+            "ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est présent dans la section Catalogue du cockpit — tests/v155-admin-catalogue-import-entry-point.dom.test.ts"
+          ]
+        },
+        "isolatedAlternatedRuns": {
+          "tests/gap-01-withdrawal-requests-backoffice.dom.test.ts": {
+            "base": {
+              "runs": 30,
+              "failed": 13
+            },
+            "head": {
+              "runs": 30,
+              "failed": 12
+            }
+          },
+          "tests/tracking-freshness-v1-audit-remediation.dom.test.ts": {
+            "base": {
+              "runs": 15,
+              "failed": 0
+            },
+            "head": {
+              "runs": 15,
+              "failed": 0
+            }
+          }
+        },
+        "conclusion": "Échecs intermittents de tests DOM à temporisation préexistants, dans des fichiers non modifiés par la branche, présents aussi sur la base inchangée. Aucun test du lot n'échoue dans aucune exécution."
+      }
+    },
+    "mutation": {
+      "sql": {
+        "mutants": 15,
+        "killed": 13,
+        "equivalentSurvivors": [
+          "M07-sans-garde-de-taille",
+          "M13-type-json-de-id-non-verifie"
+        ]
+      },
+      "harnessLibrary": {
+        "mutants": 14,
+        "killed": 14
+      }
+    }
+  }
+}
