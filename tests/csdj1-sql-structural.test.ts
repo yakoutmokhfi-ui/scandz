@@ -1093,8 +1093,8 @@ test("[AUD07-SQL] le harnais de rôles s'isole et PROUVE sa destination", () => 
     "l'invariant d'isolation doit être nommé"
   );
   assert.ok(
-    roleSrc.includes("CSDJ-V1-DESTINATION-PROOF-01"),
-    "l'invariant de preuve de destination doit être nommé"
+    roleSrc.includes("CSDJ-V1-DESTINATION-PROOF-02"),
+    "l'invariant de preuve de destination COMPLÈTE doit être nommé"
   );
 
   // Les variables de routage sont refusées PAR LEUR NOM -- jamais par
@@ -1139,15 +1139,11 @@ test("[AUD07-SQL] le harnais de rôles s'isole et PROUVE sa destination", () => 
     "la destination doit être entièrement explicite à chaque appel"
   );
 
-  // La preuve de destination précède toute mutation, et un échec ABANDONNE.
+  // L'identité COMPLÈTE précède toute mutation, et un échec ABANDONNE.
   assert.ok(
-    execRole.includes("prove_destination") &&
+    execRole.includes("csdj1_identity_mutate") &&
       execRole.includes("mutation ABANDONNÉE"),
-    "aucune mutation ne doit avoir lieu sans preuve de destination immédiate"
-  );
-  assert.ok(
-    /data_directory|config_file/.test(execRole) && execRole.includes("$NONCE"),
-    "la preuve doit comparer des faits du serveur, dont un nonce propre à cette exécution"
+    "aucune mutation ne doit avoir lieu sans preuve d'identité complète immédiate"
   );
 
   // Le harnais PRINCIPAL ferme le même trou côté nettoyage.
@@ -1174,6 +1170,133 @@ test("[AUD07-SQL] le harnais de rôles s'isole et PROUVE sa destination", () => 
   assert.ok(
     execRole.includes("witness_untouched"),
     "chaque vecteur hostile doit vérifier que le témoin n'a subi AUCUNE mutation"
+  );
+});
+
+test("[AUD07-SQL-2] UN SEUL prédicat d'identité, COMPLET, pour tout chemin qui mute", () => {
+  // Reproche du SECOND re-audit delta : la preuve du nettoyage ne
+  // portait que sur quatre faits (socket, port, utilisateur,
+  // superutilisateur) et omettait data_directory, config_file et le
+  // marqueur. Deux clusters distincts peuvent satisfaire une telle
+  // identité partielle -- même port, même utilisateur, même motif de
+  // socket -- et la preuve ne liait donc pas le serveur à CETTE
+  // exécution.
+  //
+  // La cause profonde n'était pas la faiblesse d'un contrôle mais
+  // l'EXISTENCE DE DEUX contrôles : un à la mise en place, un autre au
+  // nettoyage, subtilement différents. Il n'y en a plus qu'un.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  assert.ok(existsSync(LIB_PATH), "le prédicat d'identité doit vivre dans une bibliothèque partagée");
+  const lib = readFileSync(LIB_PATH, "utf8");
+
+  // Les HUIT faits, chacun avec sa raison de refus NOMMÉE : un refus
+  // sans raison nommée ne se distingue pas d'une panne.
+  for (const fact of [
+    "destination_reseau",
+    "port",
+    "current_user",
+    "is_superuser",
+    "socket",
+    "data_directory",
+    "config_file",
+    "marqueur_absent",
+    "nonce",
+  ]) {
+    assert.ok(
+      lib.includes(`SCANYM_IDENTITY_REFUS|${fact}`),
+      `le prédicat doit vérifier « ${fact} » et le refuser sous ce nom`
+    );
+  }
+
+  // Le statut superutilisateur est vérifié AVANT les réglages qui
+  // l'exigent : sinon un défaut de privilège se présenterait comme une
+  // erreur de permission, et non comme un refus nommé.
+  assert.ok(
+    lib.indexOf("REFUS|is_superuser") < lib.indexOf("REFUS|data_directory"),
+    "is_superuser doit être vérifié avant data_directory"
+  );
+
+  // Preuve et mutation dans UNE session, UNE transaction : prouver puis
+  // muter en deux connexions laisse un intervalle exploitable.
+  assert.ok(
+    /do \\\$csdj1id\\\$/.test(lib) || lib.includes("do \$csdj1id\$"),
+    "la garde et la mutation doivent tenir dans un seul bloc DO"
+  );
+  assert.ok(
+    lib.includes("csdj1_identity_run_guarded"),
+    "un seul point d'exécution gardée"
+  );
+
+  // Le marqueur est en BASE, pas sur le disque : un fichier témoin
+  // prouverait que le système de fichiers est le bon, pas que le
+  // SERVEUR joint est le bon.
+  assert.ok(
+    lib.includes("to_regclass('public.") && lib.includes("where nonce ="),
+    "le marqueur doit être une table de ce cluster, lue en SQL"
+  );
+  assert.ok(
+    !/\[ -f .*marqueur|test -f .*marker/i.test(lib),
+    "aucun marqueur de système de fichiers ne doit servir de preuve d'identité"
+  );
+
+  // LES DEUX harnais emploient ce prédicat, et aucun n'en garde un autre.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  for (const [label, src] of [
+    ["harnais principal", harness],
+    ["harnais de rôles", readFileSync(rolePath, "utf8")],
+  ] as const) {
+    assert.ok(
+      src.includes("csdj1-cluster-identity.sh") &&
+        src.includes("csdj1_identity_mutate"),
+      `${label} doit muter par le prédicat partagé`
+    );
+  }
+
+  // La mutation de rôles de la MISE EN PLACE passe par la garde elle
+  // aussi : c'est l'exigence explicite du mandat. Elle ne peut donc
+  // plus vivre dans l'amorçage d'une base -- un marqueur logé dans
+  // « postgres » n'y serait pas visible.
+  assert.ok(
+    !/create role (anon|authenticated|service_role) nologin; end if;[\s\S]*?\nalter role service_role bypassrls;/.test(
+      execHarness
+    ),
+    "les rôles globaux ne doivent plus être mutés depuis l'amorçage d'une base"
+  );
+  const setupMutation = execHarness.slice(
+    execHarness.indexOf("csdj1_identity_mutate \""),
+  );
+  assert.ok(
+    setupMutation.includes("create role anon nologin") &&
+      setupMutation.includes("alter role service_role bypassrls"),
+    "la mise en place des rôles globaux doit passer par le prédicat"
+  );
+
+  // Et les contrôles négatifs existent, un par fait, avec l'exigence de
+  // ZÉRO mutation : un prédicat qu'on ne peut pas faire échouer n'est
+  // pas un prédicat.
+  const role = readFileSync(rolePath, "utf8");
+  assert.ok(role.includes("negative_control"), "les contrôles négatifs doivent exister");
+  for (const label of [
+    "data_directory faux",
+    "config_file faux",
+    "marqueur RETIRÉ",
+    "marqueur CHANGÉ",
+    "port faux",
+    "utilisateur faux",
+    "non superutilisateur",
+    "destination RÉSEAU",
+    "socket attendue fausse",
+  ]) {
+    assert.ok(role.includes(label), `le contrôle négatif « ${label} » doit exister`);
+  }
+  assert.ok(
+    role.includes("ZÉRO mutation"),
+    "chaque contrôle négatif doit vérifier qu'AUCUNE mutation n'a eu lieu"
+  );
+  assert.ok(
+    role.includes("CONTRÔLE POSITIF") && role.includes("refus universel"),
+    "un harnais qui refuserait TOUT n'est pas un succès : le chemin nominal doit muter"
   );
 });
 

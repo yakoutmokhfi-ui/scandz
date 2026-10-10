@@ -13,6 +13,19 @@
       "/etc/zoneinfo"
     ]
   },
+  "oracleMethod": {
+    "name": "zoneinfo fold=0 / fold=1 + validation par aller-retour",
+    "steps": [
+      "attacher le fuseau à l'heure murale naïve avec fold=0, puis avec fold=1",
+      "convertir chaque lecture en instant UTC (astimezone)",
+      "reconvertir chaque instant vers le fuseau",
+      "ne garder que les instants dont l'heure murale relue est EXACTEMENT celle demandée",
+      "dédupliquer les instants UTC égaux",
+      "classer par le CARDINAL : 0 = nonexistent, 1 = valid_unique, 2 = ambiguous"
+    ],
+    "independence": "Cet oracle ne calcule aucun décalage UTC et ne construit aucun instant candidat : il délègue la sémantique des fuseaux à la bibliothèque standard par le mécanisme de PEP 495. Les deux implémentations livrées (TypeScript et SQL) procèdent autrement, en échantillonnant les décalages en vigueur autour du point et en reconstruisant un candidat par décalage distinct. L'accord des trois a donc une valeur de preuve : il ne découle pas d'une hypothèse partagée.",
+    "noDurationAssumption": "Aucune durée de transition n'intervient : le cardinal ne change pas selon que le recouvrement fasse soixante minutes (Europe/Paris) ou trente (Australia/Lord_Howe)."
+  },
   "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations livrées : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation, versionnée au dépôt sous tests/fixtures/build-checkout-scheduling-cases.py, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Relancer le générateur doit reproduire ce fichier à l'octet.",
   "weekdayConvention": "0 = dimanche, 6 = samedi (extract(dow) et Date#getUTCDay)",
   "policies": {
@@ -21,6 +34,237 @@
     "CSDJ-V1-MINUTE-PRECISION-01": "Toute heure de configuration est à la minute, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée : tronquer 09:00:30-09:00:59 produirait une offre de durée nulle affichée comme disponible."
   },
   "sqlConstraintRefusalNote": "Un cas marqué `sqlConstraintRefusal` décrit un état que les CONTRAINTES DE TABLE rendent impossible. Le TypeScript le joue quand même, pour prouver que le calcul refuse au lieu de deviner ; le harnais SQL, lui, prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque l'état n'est pas seulement mal calculé, il est inatteignable.",
+  "wallTimeCasesNote": "Points de CLASSEMENT d'heure murale, attendus produits par l'oracle indépendant décrit dans oracleMethod. Rejoués par resolveWallTime (TypeScript) et par public.checkout_wall_time_status (SQL), qui classent tous deux par une autre méthode. Un désaccord sur un seul de ces points est une divergence de POLITIQUE, lisible sans passer par un ensemble de dates.",
+  "wallTimeCases": [
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "01:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "01:59",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "02:00",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "02:10",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "02:30",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "02:59",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "03:00",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "03:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-03-29",
+      "time": "04:00",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-10-25",
+      "time": "01:59",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-10-25",
+      "time": "02:00",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-10-25",
+      "time": "02:30",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-10-25",
+      "time": "02:59",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-10-25",
+      "time": "03:00",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Europe/Paris",
+      "date": "2026-06-15",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "01:00",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "01:29",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "01:30",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "01:45",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "01:59",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-04-05",
+      "time": "02:00",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-10-04",
+      "time": "01:59",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-10-04",
+      "time": "02:00",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-10-04",
+      "time": "02:10",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-10-04",
+      "time": "02:29",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-10-04",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Australia/Lord_Howe",
+      "date": "2026-05-03",
+      "time": "01:45",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "UTC",
+      "date": "2026-03-29",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "UTC",
+      "date": "2026-10-25",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Pacific/Kiritimati",
+      "date": "2026-03-29",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Pacific/Kiritimati",
+      "date": "2026-10-25",
+      "time": "02:30",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "America/Los_Angeles",
+      "date": "2026-03-08",
+      "time": "02:30",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "America/Los_Angeles",
+      "date": "2026-11-01",
+      "time": "01:30",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "America/New_York",
+      "date": "2026-03-08",
+      "time": "02:30",
+      "expected": "nonexistent"
+    },
+    {
+      "zone": "America/New_York",
+      "date": "2026-11-01",
+      "time": "01:30",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Asia/Kathmandu",
+      "date": "2026-06-15",
+      "time": "02:45",
+      "expected": "valid_unique"
+    },
+    {
+      "zone": "Pacific/Chatham",
+      "date": "2026-04-05",
+      "time": "02:45",
+      "expected": "ambiguous"
+    },
+    {
+      "zone": "Pacific/Chatham",
+      "date": "2026-09-27",
+      "time": "02:45",
+      "expected": "nonexistent"
+    }
+  ],
   "cases": [
     {
       "id": "absent-no-row",

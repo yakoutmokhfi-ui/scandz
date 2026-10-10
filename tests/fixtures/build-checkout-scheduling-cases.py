@@ -47,11 +47,6 @@ import zoneinfo
 from pathlib import Path
 
 NIL = None
-# Décalages d'échantillonnage, en secondes, relatifs à l'heure murale
-# lue comme si elle était UTC. Un jour de part et d'autre encadre toute
-# transition réelle, quelle que soit sa taille et quel que soit le
-# décalage du fuseau (jusqu'à ±14 h).
-PROBE_SECONDS = (-86400, -14400, 0, 14400, 86400)
 
 
 def dow(d: dt.date) -> int:
@@ -86,37 +81,69 @@ def fmt(minutes: int) -> str:
 def resolve_wall(d: dt.date, minutes: int, tz: str):
     """('valid_unique'|'nonexistent'|'ambiguous', instant ou None).
 
-    CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01. Aucune hypothèse sur la TAILLE
-    du décalage : Australia/Lord_Howe recule de trente minutes, et une
-    détection d'ambiguïté par « plus ou moins une heure » la manque
-    entièrement.
+    ORACLE INDÉPENDANT — CSDJ1-AUD-PYTHON-01
+    ========================================
+    Le re-audit a eu raison sur un point qui n'est pas un détail : une
+    version précédente de cette fonction reproduisait l'algorithme des
+    deux implémentations livrées -- échantillonnage de décalages, puis
+    reconstruction d'instants candidats. Trois implémentations qui
+    partagent une hypothèse ne se vérifient pas mutuellement : elles se
+    trompent ensemble, et leur accord ne prouve rien.
 
-    On ÉNUMÈRE les instants candidats : on échantillonne les décalages
-    UTC réellement en vigueur autour du point, on construit un candidat
-    par décalage distinct, et on ne garde que ceux qui, relus dans le
-    fuseau, rendent exactement l'heure murale demandée. Leur NOMBRE est
-    la réponse -- 0, 1 ou 2.
+    Cette version ne calcule AUCUN décalage et ne construit AUCUN
+    candidat. Elle délègue la sémantique des fuseaux à la bibliothèque
+    standard, par le mécanisme que PEP 495 a créé pour exactement ce
+    problème : l'attribut `fold`.
+
+    Pour une heure murale locale L dans le fuseau Z :
+
+      1. attacher Z à L avec `fold=0`  -- la PREMIÈRE lecture possible
+      2. attacher Z à L avec `fold=1`  -- la SECONDE lecture possible
+      3. convertir chaque lecture en instant UTC (`astimezone`)
+      4. reconvertir chaque instant vers Z          [aller-retour]
+      5. ne garder que les instants dont l'heure murale relue vaut
+         EXACTEMENT L
+      6. dédupliquer les instants UTC égaux
+
+    Le classement est alors le CARDINAL de l'ensemble obtenu :
+
+      0 instant  -> 'nonexistent'   (L n'a pas eu lieu)
+      1 instant  -> 'valid_unique'
+      2 instants -> 'ambiguous'     (L a eu lieu deux fois)
+
+    Pourquoi c'est correct sans hypothèse de durée
+    ----------------------------------------------
+    En heure normale, `fold=0` et `fold=1` désignent le même instant :
+    la déduplication en laisse un. Sur un recul d'horloge, ils
+    désignent deux instants distincts qui relisent tous deux L :
+    ambiguë -- que le recouvrement fasse soixante minutes (Europe/Paris)
+    ou TRENTE (Australia/Lord_Howe), le cardinal ne change pas. Sur un
+    saut d'horloge, PEP 495 fait répondre `fold=0` avec le décalage
+    d'AVANT la transition et `fold=1` avec celui d'APRÈS ; l'un et
+    l'autre relisent une heure murale DÉCALÉE, donc différente de L, et
+    l'aller-retour les élimine tous les deux : inexistante.
+
+    L'étape 4 est ce qui interdit d'accepter une normalisation :
+    on ne fait jamais confiance à une conversion, on vérifie qu'elle
+    rend bien ce qu'on avait demandé.
+
+    Aucune durée de transition n'intervient, ici non plus -- mais par un
+    chemin qui ne doit rien à celui des deux autres implémentations.
     """
     z = zoneinfo.ZoneInfo(tz)
     naive = dt.datetime(d.year, d.month, d.day, minutes // 60, minutes % 60)
-    naive_as_utc = naive.replace(tzinfo=dt.timezone.utc)
 
-    offsets = []
-    for probe in PROBE_SECONDS:
-        o = (naive_as_utc + dt.timedelta(seconds=probe)).astimezone(z).utcoffset()
-        if o not in offsets:
-            offsets.append(o)
+    instants = []
+    for fold in (0, 1):
+        instant = naive.replace(tzinfo=z, fold=fold).astimezone(dt.timezone.utc)
+        round_trip = instant.astimezone(z).replace(tzinfo=None)
+        if round_trip == naive and instant not in instants:
+            instants.append(instant)
 
-    survivors = []
-    for o in offsets:
-        cand = (naive - o).replace(tzinfo=dt.timezone.utc)
-        if cand.astimezone(z).replace(tzinfo=None) == naive and cand not in survivors:
-            survivors.append(cand)
-
-    if not survivors:
+    if not instants:
         return "nonexistent", None
-    if len(survivors) == 1:
-        return "valid_unique", survivors[0]
+    if len(instants) == 1:
+        return "valid_unique", instants[0]
     return "ambiguous", None
 
 
@@ -675,6 +702,89 @@ for c in CASES:
     c["expected"] = resolve(c)
     c["sqlConstraintRefusal"] = violates_table_constraint(c)
 
+
+# ════════════════════════════════════════════════════════════════════
+# POINTS DE CLASSEMENT D'HEURE MURALE — CSDJ1-AUD-PYTHON-01
+#
+# Les 48 cas ci-dessus jugent les implémentations sur leurs OFFRES. Ce
+# second jeu les juge sur le CLASSEMENT lui-même, qui est la décision
+# élémentaire : une divergence y est lisible directement, sans passer
+# par un ensemble de dates.
+#
+# Les attendus viennent de l'oracle INDÉPENDANT défini plus haut
+# (zoneinfo, fold, aller-retour). Ils sont rejoués par
+# `resolveWallTime` (TypeScript) et par
+# `public.checkout_wall_time_status` (SQL), qui procèdent tous deux
+# autrement.
+#
+# Les zones couvrent les cas que le mandat exige : transition d'une
+# heure, transition de TRENTE minutes, absence de transition, décalage
+# très à l'est, décalages négatifs, décalages à quarante-cinq minutes.
+# ════════════════════════════════════════════════════════════════════
+WALL_TIME_POINTS = [
+    # Europe/Paris — saut de printemps 2026-03-29 02:00 -> 03:00
+    ("Europe/Paris", "2026-03-29", "01:30"),
+    ("Europe/Paris", "2026-03-29", "01:59"),
+    ("Europe/Paris", "2026-03-29", "02:00"),
+    ("Europe/Paris", "2026-03-29", "02:10"),
+    ("Europe/Paris", "2026-03-29", "02:30"),
+    ("Europe/Paris", "2026-03-29", "02:59"),
+    ("Europe/Paris", "2026-03-29", "03:00"),
+    ("Europe/Paris", "2026-03-29", "03:30"),
+    ("Europe/Paris", "2026-03-29", "04:00"),
+    # Europe/Paris — recul d'automne 2026-10-25 : l'intervalle 02:xx est vécu deux fois
+    ("Europe/Paris", "2026-10-25", "01:59"),
+    ("Europe/Paris", "2026-10-25", "02:00"),
+    ("Europe/Paris", "2026-10-25", "02:30"),
+    ("Europe/Paris", "2026-10-25", "02:59"),
+    ("Europe/Paris", "2026-10-25", "03:00"),
+    # Europe/Paris — date ordinaire : la politique ne doit pas sur-refuser
+    ("Europe/Paris", "2026-06-15", "02:30"),
+    # Australia/Lord_Howe — recul de TRENTE minutes le 2026-04-05
+    ("Australia/Lord_Howe", "2026-04-05", "01:00"),
+    ("Australia/Lord_Howe", "2026-04-05", "01:29"),
+    ("Australia/Lord_Howe", "2026-04-05", "01:30"),
+    ("Australia/Lord_Howe", "2026-04-05", "01:45"),
+    ("Australia/Lord_Howe", "2026-04-05", "01:59"),
+    ("Australia/Lord_Howe", "2026-04-05", "02:00"),
+    # Australia/Lord_Howe — saut de TRENTE minutes le 2026-10-04
+    ("Australia/Lord_Howe", "2026-10-04", "01:59"),
+    ("Australia/Lord_Howe", "2026-10-04", "02:00"),
+    ("Australia/Lord_Howe", "2026-10-04", "02:10"),
+    ("Australia/Lord_Howe", "2026-10-04", "02:29"),
+    ("Australia/Lord_Howe", "2026-10-04", "02:30"),
+    # Australia/Lord_Howe — date ordinaire
+    ("Australia/Lord_Howe", "2026-05-03", "01:45"),
+    # Aucune transition
+    ("UTC", "2026-03-29", "02:30"),
+    ("UTC", "2026-10-25", "02:30"),
+    # Très à l'est de UTC (+14)
+    ("Pacific/Kiritimati", "2026-03-29", "02:30"),
+    ("Pacific/Kiritimati", "2026-10-25", "02:30"),
+    # Décalages négatifs
+    ("America/Los_Angeles", "2026-03-08", "02:30"),
+    ("America/Los_Angeles", "2026-11-01", "01:30"),
+    ("America/New_York", "2026-03-08", "02:30"),
+    ("America/New_York", "2026-11-01", "01:30"),
+    # Décalages à quarante-cinq minutes de l'heure
+    ("Asia/Kathmandu", "2026-06-15", "02:45"),
+    ("Pacific/Chatham", "2026-04-05", "02:45"),
+    ("Pacific/Chatham", "2026-09-27", "02:45"),
+]
+
+WALL_TIME_CASES = []
+for _zone, _date, _time in WALL_TIME_POINTS:
+    _y, _m, _d = (int(x) for x in _date.split("-"))
+    _minutes = parse_time(_time)
+    assert _minutes is not None, _time
+    _status, _ = resolve_wall(dt.date(_y, _m, _d), _minutes, _zone)
+    WALL_TIME_CASES.append({
+        "zone": _zone,
+        "date": _date,
+        "time": _time,
+        "expected": _status,
+    })
+
 TZ_VERSION = "inconnue"
 for probe in ("/usr/share/zoneinfo/tzdata.zi", "/usr/share/zoneinfo/+VERSION"):
     try:
@@ -693,6 +803,34 @@ out = {
         "implementation": platform.python_implementation(),
         "tzdataVersion": TZ_VERSION,
         "tzpath": list(zoneinfo.TZPATH),
+    },
+    # CSDJ1-AUD-PYTHON-01 — la MÉTHODE de l'oracle est déclarée dans la
+    # fixture elle-même : un lecteur de la fixture doit pouvoir savoir
+    # comment ses attendus ont été obtenus, sans lire le générateur.
+    "oracleMethod": {
+        "name": "zoneinfo fold=0 / fold=1 + validation par aller-retour",
+        "steps": [
+            "attacher le fuseau à l'heure murale naïve avec fold=0, puis avec fold=1",
+            "convertir chaque lecture en instant UTC (astimezone)",
+            "reconvertir chaque instant vers le fuseau",
+            "ne garder que les instants dont l'heure murale relue est EXACTEMENT celle demandée",
+            "dédupliquer les instants UTC égaux",
+            "classer par le CARDINAL : 0 = nonexistent, 1 = valid_unique, 2 = ambiguous",
+        ],
+        "independence": (
+            "Cet oracle ne calcule aucun décalage UTC et ne construit aucun instant "
+            "candidat : il délègue la sémantique des fuseaux à la bibliothèque standard "
+            "par le mécanisme de PEP 495. Les deux implémentations livrées (TypeScript et "
+            "SQL) procèdent autrement, en échantillonnant les décalages en vigueur autour "
+            "du point et en reconstruisant un candidat par décalage distinct. L'accord des "
+            "trois a donc une valeur de preuve : il ne découle pas d'une hypothèse "
+            "partagée."
+        ),
+        "noDurationAssumption": (
+            "Aucune durée de transition n'intervient : le cardinal ne change pas selon que "
+            "le recouvrement fasse soixante minutes (Europe/Paris) ou trente "
+            "(Australia/Lord_Howe)."
+        ),
     },
     "contract": (
         "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations livrées : "
@@ -735,6 +873,15 @@ out = {
         "prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque "
         "l'état n'est pas seulement mal calculé, il est inatteignable."
     ),
+    "wallTimeCasesNote": (
+        "Points de CLASSEMENT d'heure murale, attendus produits par l'oracle "
+        "indépendant décrit dans oracleMethod. Rejoués par resolveWallTime "
+        "(TypeScript) et par public.checkout_wall_time_status (SQL), qui "
+        "classent tous deux par une autre méthode. Un désaccord sur un seul de "
+        "ces points est une divergence de POLITIQUE, lisible sans passer par un "
+        "ensemble de dates."
+    ),
+    "wallTimeCases": WALL_TIME_CASES,
     "cases": CASES,
 }
 

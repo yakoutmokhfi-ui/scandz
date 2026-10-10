@@ -286,6 +286,8 @@ CUR_DB="$(probe "select current_database();")"
 CUR_USER="$(probe "select current_user;")"
 IS_SUPER="$(probe "select current_setting('is_superuser');")"
 DATA_DIR="$(probe "select current_setting('data_directory');")"
+CONFIG_FILE="$(probe "select current_setting('config_file');")"
+SRV_PORT="$(probe "select current_setting('port');")"
 
 case "$SRV_ADDR" in
   unix-socket|127.0.0.1|::1|localhost) : ;;
@@ -383,6 +385,44 @@ for r in $APP_ROLES; do
   esac
 done
 ROLE_SNAPSHOT_TAKEN=1
+
+# ════════════════════════════════════════════════════════════════════
+# CSDJ-V1-DESTINATION-PROOF-02 — CONTRAT D'IDENTITÉ COMPLÈTE
+#
+# Ferme CSDJ1-AUD-07 tel que le second re-audit delta l'a précisé : la
+# preuve de destination du nettoyage ne portait que sur quatre faits
+# (socket, port, utilisateur, superutilisateur). Deux clusters
+# différents peuvent les satisfaire. Elle porte désormais sur HUIT, dont
+# le data_directory, le config_file et un MARQUEUR en base propre à
+# cette exécution -- et c'est le MÊME prédicat pour tout chemin qui
+# mute, mise en place comprise.
+#
+# Le prédicat vit dans une bibliothèque sourcée, précisément pour qu'il
+# n'existe pas deux versions subtilement différentes de lui.
+# ════════════════════════════════════════════════════════════════════
+IDENTITY_LIB="$SCRIPT_DIR/csdj1-cluster-identity.sh"
+[ -f "$IDENTITY_LIB" ] \
+  || fatal "bibliothèque d'identité absente : $IDENTITY_LIB -- aucune mutation ne peut être gardée, le harnais refuse de muter."
+# shellcheck source=/dev/null
+. "$IDENTITY_LIB"
+
+# Le runner du harnais principal : la destination vient des variables
+# EXPORTÉES par le verrou de sûreté, après que le contrôle 2 a refusé
+# toute variable de routage héritée.
+csdj1_runner_main() {
+  psql -X -A -q -t -v ON_ERROR_STOP=1 -d postgres -c "$1" </dev/null 2>&1
+}
+
+IDENTITY_MARKER="scanym_csdj1_identity_$RUN_TAG"
+IDENTITY_NONCE="csdj1-$RUN_TAG-$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+[ -n "${IDENTITY_NONCE#csdj1-$RUN_TAG-}" ] || IDENTITY_NONCE="csdj1-$RUN_TAG-$$"
+csdj1_identity_declare csdj1_runner_main \
+  "$SOCKET_DIR" "$SRV_PORT" "$CUR_USER" "$DATA_DIR" "$CONFIG_FILE" \
+  "$IDENTITY_MARKER" "$IDENTITY_NONCE"
+csdj1_identity_install \
+  || fatal "pose du marqueur d'identité refusée ($CSDJ1_ID_LAST) -- le harnais ne mute rien sans pouvoir lier le serveur à CETTE exécution."
+log "[sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « $IDENTITY_MARKER » (nonce propre à cette exécution)."
+
 SAFETY_LOCK_PASSED=1
 log "verrou de sûreté franchi : $( [ "$OWN_CLUSTER" = 1 ] && echo 'cluster créé par le harnais' || echo 'cluster jetable désigné' ), bases nommées pour cette exécution uniquement."
 
@@ -402,38 +442,29 @@ cleanup() {
     # disparaît entier juste après, et toucher ses rôles est inutile).
     if [ "$ROLE_SNAPSHOT_TAKEN" = "1" ] && [ "$OWN_CLUSTER" != "1" ]; then
       # ══════════════════════════════════════════════════════════════
-      # CSDJ-V1-DESTINATION-PROOF-01 — ferme CSDJ1-AUD-07 côté nettoyage
+      # CSDJ-V1-DESTINATION-PROOF-02 — ferme CSDJ1-AUD-07 tel que le
+      # SECOND re-audit delta l'a précisé.
       #
-      # On ne restaure des rôles qu'après avoir PROUVÉ, à cet instant,
-      # que la connexion aboutit bien là où le verrou de sûreté l'avait
-      # constatée : même socket (donc aucune destination réseau), même
-      # port, même utilisateur, superutilisateur. Sans cette preuve
-      # tardive, une variable d'environnement apparue entre-temps
-      # pourrait faire muter les rôles d'un AUTRE serveur.
+      # La version précédente de ce nettoyage prouvait quatre faits :
+      # socket, port, utilisateur, superutilisateur. Deux clusters
+      # différents peuvent les présenter -- même numéro de port, même
+      # nom d'utilisateur, même motif de socket -- et la preuve ne liait
+      # donc pas le serveur à CETTE exécution.
       #
-      # Si la preuve échoue, on ne restaure RIEN : un rôle non restauré
-      # est un désagrément, un rôle muté sur le mauvais serveur est un
-      # dégât.
+      # Chaque restauration passe maintenant par le prédicat COMMUN :
+      # huit faits, dont le data_directory, le config_file et le
+      # marqueur en base. Preuve et mutation tiennent dans UNE session et
+      # UNE transaction -- aucun intervalle entre les deux.
+      #
+      # Un rôle non restauré est un désagrément ; un rôle muté sur le
+      # mauvais serveur est un dégât. En cas de refus : on ne restaure
+      # RIEN, et on le DIT.
       # ══════════════════════════════════════════════════════════════
-      DEST_NOW="$(psql -X -A -q -t -d postgres </dev/null 2>/dev/null -c "
-        select coalesce(pg_catalog.host(pg_catalog.inet_server_addr()), 'unix-socket')
-               || '|' || pg_catalog.current_setting('port')
-               -- current_user est un constructeur du parseur : qualifié,
-               -- il est lu comme une colonne et la requête échoue. Non
-               -- qualifié, il reste sûr (mot-clé réservé, insensible au
-               -- search_path).
-               || '|' || current_user
-               || '|' || pg_catalog.current_setting('is_superuser');" | tail -1 | tr -d ' ')"
-      DEST_WANT="unix-socket|${PGPORT}|${CUR_USER}|on"
-      if [ "$DEST_NOW" != "$DEST_WANT" ]; then
-        log "[sûreté] RESTAURATION DE RÔLES ABANDONNÉE : la destination n'est plus celle qui a franchi le verrou (attendu « $DEST_WANT »)."
-        ROLE_SNAPSHOT_TAKEN=0
-      fi
-    fi
-    if [ "$ROLE_SNAPSHOT_TAKEN" = "1" ] && [ "$OWN_CLUSTER" != "1" ]; then
+      RESTORE_SQL=""
       for r in $APP_ROLES; do
         case "${ROLE_SNAP[$r]}" in
-          ABSENT) psql -X -q -d postgres -c "drop role if exists $r;" </dev/null >/dev/null 2>&1 ;;
+          ABSENT) RESTORE_SQL="$RESTORE_SQL
+  drop role if exists $r;" ;;
           EXISTS*)
             # CSDJ1-AUD-06 : l'instantané encode 1/0, la restauration
             # compare à 1/0. Toute autre valeur serait un instantané
@@ -442,9 +473,26 @@ cleanup() {
             bypass="$(printf '%s' "${ROLE_SNAP[$r]}" | cut -d'|' -f3)"
             [ "$login" = "1" ] && lk="login" || lk="nologin"
             [ "$bypass" = "1" ] && bk="bypassrls" || bk="nobypassrls"
-            psql -X -q -d postgres -c "alter role $r $lk $bk;" </dev/null >/dev/null 2>&1 ;;
+            RESTORE_SQL="$RESTORE_SQL
+  alter role $r $lk $bk;" ;;
         esac
       done
+      # TOUTE la restauration en UNE transaction gardée : ou les trois
+      # rôles reviennent à leur état d'origine, ou aucun ne bouge. Une
+      # restauration à moitié faite serait un état que personne n'a
+      # jamais décidé.
+      if csdj1_identity_mutate "$RESTORE_SQL"; then
+        log "[sûreté] rôles globaux restaurés à l'identique, après preuve d'identité complète."
+      else
+        log "[sûreté] RESTAURATION DE RÔLES ABANDONNÉE : l'identité complète du serveur n'est plus prouvable ($CSDJ1_ID_LAST). AUCUN rôle n'a été muté."
+        ROLE_SNAPSHOT_TAKEN=0
+      fi
+    fi
+    # Le marqueur disparaît en dernier, et sous la même garde : il n'est
+    # retiré que du serveur qui vient de prouver qu'il est le nôtre.
+    if [ "$CSDJ1_ID_INSTALLED" = "1" ]; then
+      csdj1_identity_uninstall \
+        || log "[sûreté] marqueur « $IDENTITY_MARKER » NON retiré ($CSDJ1_ID_LAST) : il subsiste plutôt que d'être supprimé d'un serveur non identifié."
     fi
   fi
   # Cluster : arrêté puis supprimé UNIQUEMENT si ce harnais l'a créé.
@@ -620,19 +668,40 @@ create or replace function auth.uid() returns uuid language sql stable as $$
 $$;
 create extension if not exists pgcrypto;
 create publication supabase_realtime;
-do $$ begin
-  if not exists (select from pg_roles where rolname='anon') then create role anon nologin; end if;
-  if not exists (select from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-  if not exists (select from pg_roles where rolname='service_role') then create role service_role nologin; end if;
-end $$;
-alter role service_role bypassrls;
-alter role anon nobypassrls;
-alter role authenticated nobypassrls;
 create schema if not exists storage;
 create table storage.buckets (id text primary key, name text not null, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
 create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid);
 create or replace function storage.foldername(name text) returns text[] language sql immutable as $$ select string_to_array(name, '/'); $$;
 SQL
+
+# ════════════════════════════════════════════════════════════════════
+# MUTATION DE RÔLES À LA MISE EN PLACE — même garde que le nettoyage
+#
+# Les rôles anon / authenticated / service_role sont des objets
+# GLOBAUX du cluster, pas des objets de la base jetable. Les créer
+# depuis l'amorçage d'une base, comme le faisait la version précédente,
+# avait deux défauts : la mutation échappait au prédicat d'identité, et
+# un marqueur vivant dans « postgres » n'est pas visible depuis une
+# autre base -- la garde n'aurait donc pas pu s'y appliquer.
+#
+# Elle se fait donc ici, au niveau du cluster, par le point de passage
+# commun. Le mandat l'exige explicitement : « setup-time role mutation »
+# relève du même contrat que la restauration.
+# ════════════════════════════════════════════════════════════════════
+csdj1_identity_mutate "
+  if not exists (select from pg_catalog.pg_roles where rolname='anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select from pg_catalog.pg_roles where rolname='authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select from pg_catalog.pg_roles where rolname='service_role') then
+    create role service_role nologin;
+  end if;
+  alter role service_role bypassrls;
+  alter role anon nobypassrls;
+  alter role authenticated nobypassrls;
+" || fatal "mise en place des rôles globaux REFUSÉE ($CSDJ1_ID_LAST) : l'identité complète du cluster n'est pas prouvée."
 
 for f in $MINIMAL_CHAIN; do
   apply_file "$f" || fatal "chaîne prédécesseur, $f : $(head -3 "$ERR" | tr '\n' ' ')"
@@ -841,6 +910,73 @@ assert_eq "[7c] une planification COMPLÈTE mais désactivée => 'absent'" "abse
 assert_eq "[7d] désactivée, elle ne révèle rien de plus qu'une absence" "||||" \
   "$(sql_value "select coalesce(schedule_timezone,'') || '|' || coalesce(date_selection_mode,'') || '|' || coalesce(slot_selection_mode,'') || '|' || coalesce(first_eligible_date::text,'') || '|' || coalesce(array_to_string(eligible_dates,','),'') from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
 sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+
+# ============================================================
+# [6o] ORACLE INDÉPENDANT — classement d'heure murale
+#
+# CSDJ1-AUD-PYTHON-01. La fixture porte désormais, à côté de ses cas
+# d'offres, des points de CLASSEMENT dont les attendus viennent d'un
+# oracle Python qui n'emploie PAS la méthode des deux implémentations
+# livrées : il lit les deux plis de `zoneinfo` (PEP 495) et valide par
+# aller-retour, là où TypeScript et SQL échantillonnent des décalages
+# et reconstruisent des candidats.
+#
+# On confronte donc ici l'AUTORITÉ SQL à un juge qui ne partage pas son
+# hypothèse. C'est ce qui rend leur accord probant : trois
+# implémentations du même algorithme ne se vérifient pas, elles se
+# répètent.
+# ============================================================
+log "=== [6o] Points de classement d'heure murale, jugés par l'oracle indépendant ==="
+ORACLE_SQL="$TMP_DIR/oracle.sql"
+ORACLE_EXPECTED="$TMP_DIR/oracle.expected"
+python3 - "$FIXTURE_JSON" "$ORACLE_SQL" "$ORACLE_EXPECTED" <<'PYORACLE' || fatal "génération des assertions d'oracle impossible"
+import json, sys
+from pathlib import Path
+
+fixture_path, sql_path, expected_path = sys.argv[1:4]
+data = json.load(open(fixture_path, encoding="utf-8"))
+points = data.get("wallTimeCases") or []
+if len(points) < 38:
+    raise SystemExit(
+        "la fixture doit porter au moins 38 points de classement (vue : %d)" % len(points)
+    )
+sql_lines = []
+expected_lines = []
+for p in points:
+    label = "%s %s %s" % (p["zone"], p["date"], p["time"])
+    sql_lines.append(
+        "select public.checkout_wall_time_status('%s'::date, '%s'::time, '%s');"
+        % (p["date"], p["time"], p["zone"])
+    )
+    expected_lines.append("%s\t%s" % (label, p["expected"]))
+Path(sql_path).write_text("\n".join(sql_lines) + "\n", encoding="utf-8")
+Path(expected_path).write_text("\n".join(expected_lines) + "\n", encoding="utf-8")
+PYORACLE
+ORACLE_GOT="$TMP_DIR/oracle.got"
+psql -X -A -q -t -d "$DB" -f "$ORACLE_SQL" </dev/null > "$ORACLE_GOT" 2>"$ERR" \
+  || fatal "rejeu des points de classement impossible : $(tr '\n' ' ' < "$ERR" | cut -c1-200)"
+ORACLE_N=0
+ORACLE_BAD=0
+while IFS="$(printf '\t')" read -r olabel oexp; do
+  ORACLE_N=$((ORACLE_N + 1))
+  ogot="$(sed -n "${ORACLE_N}p" "$ORACLE_GOT" | tr -d ' ')"
+  if [ "$ogot" != "$oexp" ]; then
+    ORACLE_BAD=$((ORACLE_BAD + 1))
+    fail "[6o] $olabel : oracle indépendant dit « $oexp », l'autorité SQL dit « $ogot »"
+  fi
+done < "$ORACLE_EXPECTED"
+if [ "$ORACLE_BAD" = "0" ]; then
+  pass "[6o] l'autorité SQL s'accorde avec l'oracle INDÉPENDANT sur les $ORACLE_N points de classement"
+fi
+# Et le jeu de points exerce bien les trois statuts : un jeu qui n'en
+# exercerait qu'un laisserait deux tiers de la politique sans témoin.
+for ostatus in valid_unique nonexistent ambiguous; do
+  if grep -q "	$ostatus\$" "$ORACLE_EXPECTED"; then
+    pass "[6o] le statut « $ostatus » est exercé par au moins un point"
+  else
+    fail "[6o] aucun point n'exerce le statut « $ostatus »"
+  fi
+done
 
 # ============================================================
 # [6] FIXTURE PARTAGÉE — le cœur de la preuve croisée

@@ -202,63 +202,77 @@ start_cluster "$WIT_DATA" "$WIT_SOCK" "$WIT_PORT" "127.0.0.1"
 WITNESS_UP=1
 log "cluster TÉMOIN créé par CE fichier (TCP 127.0.0.1:$WIT_PORT -- MÊME port que le cluster sous test, qui n'écoute aucun TCP) : cible réelle d'une redirection."
 
-# Nonce écrit dans le cluster SOUS TEST : il fait partie de la preuve
-# d'identité, et le témoin ne le porte pas.
-q "create table public.scanym_csdj1_identity (nonce text primary key);" >/dev/null
-q "insert into public.scanym_csdj1_identity values ('$NONCE');" >/dev/null
-
 # ============================================================
-# §4  PREUVE D'IDENTITÉ DE DESTINATION
-#     CSDJ-V1-DESTINATION-PROOF-01
+# §4  CONTRAT D'IDENTITÉ COMPLÈTE — CSDJ-V1-DESTINATION-PROOF-02
 #
-# Avant TOUTE mutation de rôle, on prouve -- à cet instant, et non au
-# démarrage -- que la connexion aboutit dans le cluster que CE fichier a
-# créé. Six faits indépendants, dont un nonce que seul ce cluster porte.
+# Le second re-audit delta a précisé le reproche : la preuve d'identité
+# du NETTOYAGE ne portait que sur quatre faits -- socket, port,
+# utilisateur, superutilisateur. Deux clusters différents peuvent les
+# présenter. La preuve ne liait donc pas le serveur à CETTE exécution.
+#
+# Le prédicat est désormais UNIQUE, défini dans une bibliothèque
+# sourcée, et porte sur HUIT faits dont le data_directory, le
+# config_file et un marqueur en base. Les deux harnais l'emploient :
+# il n'existe pas deux versions de lui.
+#
+# Preuve et mutation tiennent dans UNE session et UNE transaction. Un
+# marqueur de fichier prouverait que le système de fichiers est le bon ;
+# un marqueur en base prouve que le SERVEUR joint est le bon.
 # ============================================================
-prove_destination() {
-  local got want
-  got="$(q "
-    select coalesce(pg_catalog.host(pg_catalog.inet_server_addr()), 'unix-socket')
-           || '|' || pg_catalog.current_setting('data_directory')
-           || '|' || pg_catalog.current_setting('config_file')
-           || '|' || pg_catalog.current_setting('port')
-           -- current_user est un CONSTRUCTEUR DU PARSEUR, pas une
-           -- fonction : « pg_catalog.current_user » est lu comme la
-           -- colonne « current_user » de la table « pg_catalog » et
-           -- échoue (« missing FROM-clause entry for table pg_catalog »,
-           -- vérifié empiriquement). Même famille que coalesce, nullif,
-           -- extract et unnest multi-tableaux. Il s'écrit donc NON
-           -- qualifié -- ce qui est sans risque : un mot-clé réservé
-           -- n'est pas résoluble via search_path.
-           || '|' || current_user
-           || '|' || pg_catalog.current_setting('is_superuser')
-           || '|' || coalesce((select nonce from public.scanym_csdj1_identity), 'ABSENT');")"
-  want="unix-socket|$PGDATA_DIR|$PGDATA_DIR/postgresql.conf|$PORT|$OWNER|on|$NONCE"
-  if [ "$got" = "$want" ]; then printf 'OK\n'; else printf '%s\n' "$got"; fi
+IDENTITY_LIB="$SCRIPT_DIR/csdj1-cluster-identity.sh"
+[ -f "$IDENTITY_LIB" ] \
+  || fatal "bibliothèque d'identité absente : $IDENTITY_LIB -- aucune mutation ne peut être gardée."
+# shellcheck source=/dev/null
+. "$IDENTITY_LIB"
+
+# Runner du cluster SOUS TEST : environnement vidé, binaire absolu,
+# destination entièrement explicite. C'est le seul chemin d'accès.
+csdj1_runner_test() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h "$SOCKET_DIR" -p "$PORT" -U "$OWNER" -d postgres \
+      -c "$1" </dev/null 2>&1
+}
+# Runner du TÉMOIN : il n'existe que pour les CONTRÔLES NÉGATIFS, afin
+# de prouver qu'une destination réseau est refusée AVANT toute mutation.
+csdj1_runner_witness() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h 127.0.0.1 -p "$WIT_PORT" -U "$OWNER" -d postgres \
+      -c "$1" </dev/null 2>&1
 }
 
-PROOF="$(prove_destination)"
-if [ "$PROOF" = "OK" ]; then
-  pass "[E] la preuve d'identité de destination passe sur le cluster créé ici"
+DATA_DIR_PROVEN="$(q "select pg_catalog.current_setting('data_directory');")"
+CONFIG_FILE_PROVEN="$(q "select pg_catalog.current_setting('config_file');")"
+IDENTITY_MARKER="scanym_csdj1_identity_$$"
+
+csdj1_identity_declare csdj1_runner_test \
+  "$SOCKET_DIR" "$PORT" "$OWNER" "$DATA_DIR_PROVEN" "$CONFIG_FILE_PROVEN" \
+  "$IDENTITY_MARKER" "$NONCE"
+csdj1_identity_install \
+  || fatal "[E] pose du marqueur d'identité REFUSÉE ($CSDJ1_ID_LAST) -- aucune mutation tentée."
+
+if csdj1_identity_prove; then
+  pass "[E] l'identité COMPLÈTE (8 faits) passe sur le cluster créé ici"
 else
-  fatal "[E] la preuve d'identité ÉCHOUE avant toute mutation : « $PROOF » -- aucune mutation tentée."
+  fatal "[E] la preuve d'identité complète ÉCHOUE avant toute mutation ($CSDJ1_ID_LAST) -- aucune mutation tentée."
 fi
 
-# La preuve doit DISCRIMINER : adressée au témoin, elle doit échouer.
-WIT_PROOF="$(env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" "$PSQL" -X -A -q -t \
-  -h "$WIT_SOCK" -p "$WIT_PORT" -U "$OWNER" -d postgres -c "
-    select coalesce(pg_catalog.host(inet_server_addr()), 'unix-socket')
-           || '|' || pg_catalog.current_setting('data_directory')
-           || '|' || pg_catalog.current_setting('port');" </dev/null 2>/dev/null | tail -1 | tr -d ' ')"
-case "$WIT_PROOF" in
-  "unix-socket|$PGDATA_DIR|$PORT") fail "[E] la preuve d'identité ne distingue pas deux clusters" ;;
-  *) pass "[E] la preuve DISCRIMINE : le témoin ne satisfait pas l'identité attendue" ;;
-esac
-# Et le nonce n'existe que dans le cluster sous test.
-if [ "$(qw "select count(*) from pg_tables where tablename = 'scanym_csdj1_identity';")" = "0" ]; then
-  pass "[E] le nonce d'identité n'existe QUE dans le cluster sous test"
+# La preuve doit DISCRIMINER : adressée au témoin, elle doit échouer --
+# et échouer sur le PREMIER fait, la destination réseau.
+CSDJ1_ID_RUNNER=csdj1_runner_witness
+if csdj1_identity_prove; then
+  fail "[E] la preuve d'identité ne distingue pas deux clusters"
 else
-  fail "[E] le témoin porte la table d'identité -- le nonce ne prouve rien"
+  pass "[E] la preuve DISCRIMINE : adressée au témoin elle refuse ($CSDJ1_ID_LAST)"
+fi
+CSDJ1_ID_RUNNER=csdj1_runner_test
+
+# Et le marqueur n'existe que dans le cluster sous test.
+if [ "$(qw "select count(*) from pg_tables where tablename = '$IDENTITY_MARKER';")" = "0" ]; then
+  pass "[E] le marqueur d'identité n'existe QUE dans le cluster sous test"
+else
+  fail "[E] le témoin porte le marqueur -- il ne prouve rien"
 fi
 
 # ============================================================
@@ -281,19 +295,18 @@ role_attrs() {
   fi
 }
 
+# TOUTE mutation de rôle passe par le prédicat COMMUN : preuve des huit
+# faits et mutation dans la MÊME session, la MÊME transaction. En cas de
+# refus, `fatal` -- on n'essaie pas « autrement », il n'y a pas de
+# chemin de repli plus faible.
 set_role_attrs() {
-  # Toute mutation est précédée de la preuve d'identité, immédiatement.
-  local proof; proof="$(prove_destination)"
-  if [ "$proof" != "OK" ]; then
-    fatal "mutation ABANDONNÉE : la destination n'est plus celle prouvée (« $proof »)."
-  fi
-  q "do \$\$ begin
-       if not exists (select 1 from pg_roles where rolname='$1') then
-         execute 'create role $1 $2 $3';
-       else
-         execute 'alter role $1 $2 $3';
-       end if;
-     end \$\$;" >/dev/null
+  csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$1') then
+    execute 'create role $1 $2 $3';
+  else
+    execute 'alter role $1 $2 $3';
+  end if;
+" || fatal "mutation ABANDONNÉE : l'identité complète du serveur n'est plus prouvable ($CSDJ1_ID_LAST)."
 }
 
 # Le TÉMOIN reçoit des attributs distinctifs : si une redirection
@@ -414,9 +427,9 @@ fi
 # [C] Un rôle ABSENT avant doit être ABSENT après
 # ============================================================
 log "=== [C] un rôle absent avant doit être absent après ==="
-PROOF="$(prove_destination)"
-[ "$PROOF" = "OK" ] || fatal "[C] preuve d'identité perdue : $PROOF"
-q "drop role if exists service_role;" >/dev/null
+csdj1_identity_prove || fatal "[C] preuve d'identité perdue : $CSDJ1_ID_LAST"
+csdj1_identity_mutate "  drop role if exists service_role;" \
+  || fatal "[C] suppression du rôle ABANDONNÉE ($CSDJ1_ID_LAST)."
 if [ "$(role_attrs test service_role)" = "ABSENT" ]; then
   if run_main_harness; then
     pass "[C] le harnais principal s'exécute avec un rôle initialement absent"
@@ -525,6 +538,143 @@ if grep -q 'connexion-propre-ok' "$CLEAN_LOG"; then
 else
   fail "[D] contrôle positif — l'environnement propre ne se connecte pas : $(head -2 "$CLEAN_LOG" | tr '\n' ' ')"
 fi
+
+# ============================================================
+# [G] CONTRÔLES NÉGATIFS DE L'IDENTITÉ COMPLÈTE
+#     CSDJ-V1-DESTINATION-PROOF-02
+#
+# Le second re-audit delta a trouvé que la preuve du nettoyage restait
+# satisfaite alors que le marqueur avait été changé ou retiré : elle ne
+# le regardait pas. Un prédicat qu'on ne peut pas faire échouer n'est
+# pas un prédicat.
+#
+# On fausse donc UN SEUL fait à la fois -- les huit, l'un après
+# l'autre -- et on exige, pour chacun :
+#
+#   - le refus, avec la RAISON attendue et pas une autre ;
+#   - ZÉRO mutation : le rôle témoin ne bouge pas d'un attribut.
+#
+# Le rôle témoin `scanym_csdj1_probe` existe pour cela : NOLOGIN
+# NOBYPASSRLS au départ, et la mutation tentée voudrait le passer
+# BYPASSRLS. S'il basculait une seule fois, un contrôle aurait laissé
+# passer une mutation.
+# ============================================================
+log "=== [G] contrôles négatifs : chaque fait de l'identité, faussé à son tour ==="
+PROBE_ROLE="scanym_csdj1_probe"
+set_role_attrs "$PROBE_ROLE" "NOLOGIN" "NOBYPASSRLS"
+PROBE_BEFORE="$(role_attrs test "$PROBE_ROLE")"
+if [ "$PROBE_BEFORE" = "NOLOGIN+NOBYPASSRLS" ]; then
+  pass "[G] rôle témoin posé ($PROBE_BEFORE) par le chemin NOMINAL -- le prédicat laisse passer ce qui est légitime"
+else
+  fatal "[G] impossible de poser le rôle témoin (vu « $PROBE_BEFORE »)."
+fi
+
+# La mutation tentée par chaque contrôle. Observable, et réversible.
+PROBE_MUTATION="  alter role $PROBE_ROLE bypassrls;"
+
+# Fausse UN champ du contrat, tente la mutation, restaure le contrat.
+# `expect` est la raison de refus ATTENDUE : exiger la BONNE raison
+# interdit qu'un contrôle passe pour la mauvaise cause -- par exemple un
+# refus de connexion qu'on prendrait pour un refus d'identité.
+negative_control() {
+  local label="$1" field="$2" value="$3" expect="$4"
+  local saved_runner="$CSDJ1_ID_RUNNER"
+  local saved_socket="$CSDJ1_ID_SOCKET" saved_port="$CSDJ1_ID_PORT"
+  local saved_user="$CSDJ1_ID_USER" saved_dd="$CSDJ1_ID_DATADIR"
+  local saved_cf="$CSDJ1_ID_CONFIG" saved_nonce="$CSDJ1_ID_NONCE"
+
+  case "$field" in
+    runner)   CSDJ1_ID_RUNNER="$value" ;;
+    socket)   CSDJ1_ID_SOCKET="$value" ;;
+    port)     CSDJ1_ID_PORT="$value" ;;
+    user)     CSDJ1_ID_USER="$value" ;;
+    datadir)  CSDJ1_ID_DATADIR="$value" ;;
+    config)   CSDJ1_ID_CONFIG="$value" ;;
+    nonce)    CSDJ1_ID_NONCE="$value" ;;
+    marker_dropped)
+      # Le marqueur est RETIRÉ du cluster, hors garde : c'est la
+      # reproduction littérale du constat de l'audit.
+      csdj1_runner_test "drop table if exists public.$IDENTITY_MARKER;" >/dev/null 2>&1 ;;
+    marker_changed)
+      csdj1_runner_test "update public.$IDENTITY_MARKER set nonce = 'nonce-etranger';" >/dev/null 2>&1 ;;
+  esac
+
+  if csdj1_identity_mutate "$PROBE_MUTATION"; then
+    fail "[G] $label — la mutation a été ACCEPTÉE malgré une identité fausse"
+  elif [ "$CSDJ1_ID_LAST" = "$expect" ]; then
+    pass "[G] $label — REFUS, raison « $CSDJ1_ID_LAST »"
+  else
+    fail "[G] $label — refus pour la MAUVAISE raison : « $CSDJ1_ID_LAST » au lieu de « $expect »"
+  fi
+
+  # Remise en état du contrat, puis du cluster si le contrôle l'a touché.
+  CSDJ1_ID_RUNNER="$saved_runner"
+  CSDJ1_ID_SOCKET="$saved_socket"; CSDJ1_ID_PORT="$saved_port"
+  CSDJ1_ID_USER="$saved_user"; CSDJ1_ID_DATADIR="$saved_dd"
+  CSDJ1_ID_CONFIG="$saved_cf"; CSDJ1_ID_NONCE="$saved_nonce"
+  case "$field" in
+    marker_dropped)
+      csdj1_runner_test "create table public.$IDENTITY_MARKER (nonce text primary key);" >/dev/null 2>&1
+      csdj1_runner_test "insert into public.$IDENTITY_MARKER values ('$NONCE');" >/dev/null 2>&1 ;;
+    marker_changed)
+      csdj1_runner_test "update public.$IDENTITY_MARKER set nonce = '$NONCE';" >/dev/null 2>&1 ;;
+  esac
+
+  # ZÉRO MUTATION : l'exigence du mandat, vérifiée après CHAQUE contrôle.
+  local after; after="$(role_attrs test "$PROBE_ROLE")"
+  if [ "$after" = "$PROBE_BEFORE" ]; then
+    pass "[G] $label — ZÉRO mutation (le rôle témoin est resté $after)"
+  else
+    fail "[G] $label — le rôle témoin a été MUTÉ : $PROBE_BEFORE -> $after"
+  fi
+}
+
+# Un utilisateur NON superutilisateur, pour éprouver ce fait-là seul.
+csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='scanym_csdj1_plain') then
+    create role scanym_csdj1_plain login nosuperuser;
+  end if;
+" || fatal "[G] impossible de créer le rôle non privilégié de contrôle."
+csdj1_runner_plain() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h "$SOCKET_DIR" -p "$PORT" -U scanym_csdj1_plain -d postgres \
+      -c "$1" </dev/null 2>&1
+}
+
+negative_control "data_directory faux"  datadir "$DATA_DIR_PROVEN-faux"        "data_directory"
+negative_control "config_file faux"     config  "$CONFIG_FILE_PROVEN.faux"     "config_file"
+negative_control "marqueur RETIRÉ"      marker_dropped ""                      "marqueur_absent"
+negative_control "marqueur CHANGÉ"      marker_changed ""                      "nonce"
+negative_control "nonce attendu faux"   nonce   "nonce-qui-n-a-jamais-existe"  "nonce"
+negative_control "port faux"            port    "$DECOY_PORT"                  "port"
+negative_control "utilisateur faux"     user    "quelqu-un-d-autre"            "current_user"
+negative_control "destination RÉSEAU (témoin)" runner csdj1_runner_witness     "destination_reseau"
+negative_control "socket attendue fausse" socket "/var/run/postgresql-inexistant" "socket"
+
+# Le fait « superutilisateur » s'éprouve en changeant d'utilisateur ET
+# d'attente : sans cela, c'est `current_user` qui refuserait d'abord, et
+# le contrôle prouverait autre chose que ce qu'il annonce.
+NC_SAVED_USER="$CSDJ1_ID_USER"
+CSDJ1_ID_USER="scanym_csdj1_plain"
+negative_control "non superutilisateur" runner csdj1_runner_plain "is_superuser"
+CSDJ1_ID_USER="$NC_SAVED_USER"
+
+# Et le CHEMIN NOMINAL fonctionne toujours : un prédicat qui refuserait
+# désormais tout aurait l'air parfait dans les dix contrôles ci-dessus.
+# C'est l'exigence explicite du mandat : « A harness that always aborts
+# is not a PASS. »
+if csdj1_identity_mutate "  alter role $PROBE_ROLE bypassrls;"; then
+  if [ "$(role_attrs test "$PROBE_ROLE")" = "NOLOGIN+BYPASSRLS" ]; then
+    pass "[G] CONTRÔLE POSITIF — le chemin nominal MUTE toujours (le prédicat n'est pas devenu un refus universel)"
+  else
+    fail "[G] CONTRÔLE POSITIF — mutation acceptée mais sans effet observable"
+  fi
+else
+  fail "[G] CONTRÔLE POSITIF — le prédicat refuse le chemin NOMINAL ($CSDJ1_ID_LAST) : il refuse tout, il ne prouve rien"
+fi
+csdj1_identity_mutate "  drop role if exists $PROBE_ROLE;" >/dev/null
+csdj1_identity_mutate "  drop role if exists scanym_csdj1_plain;" >/dev/null
 
 # ============================================================
 # [F] CONTRÔLE DE NOCIVITÉ — la menace est RÉELLE
@@ -668,11 +818,33 @@ if grep -q 'ROUTING_VARS=' "$SELF" && grep -q 'PGHOSTADDR' "$SELF"; then
 else
   fail "[E] PGHOSTADDR n'est pas dans la liste des variables refusées"
 fi
-if grep -q 'prove_destination' "$SELF" && grep -q 'mutation ABANDONNÉE' "$SELF"; then
-  pass "[E] toute mutation de rôle est précédée de la preuve d'identité"
+# Le prédicat doit être le PARTAGÉ, et non une copie locale : c'est
+# l'existence de deux prédicats subtilement différents qui a produit le
+# défaut, pas la faiblesse de l'un des deux.
+if grep -q 'csdj1_identity_mutate' "$SELF" && grep -q 'csdj1-cluster-identity.sh' "$SELF"; then
+  pass "[E] les mutations passent par le prédicat d'identité PARTAGÉ"
 else
-  fail "[E] une mutation de rôle peut avoir lieu sans preuve d'identité"
+  fail "[E] ce fichier n'emploie pas le prédicat partagé : deux prédicats divergeraient de nouveau"
 fi
+if grep 'prove_destination' "$SELF" | grep -vq 'SELF-REFERENCE'; then   # SELF-REFERENCE
+  fail "[E] un prédicat d'identité LOCAL subsiste à côté du partagé"
+else
+  pass "[E] aucun prédicat d'identité local ne subsiste"
+fi
+# Et le harnais PRINCIPAL emploie le même, pour le même motif.
+if grep -q 'csdj1_identity_mutate' "$HARNESS" && grep -q 'csdj1-cluster-identity.sh' "$HARNESS"; then
+  pass "[E] le harnais principal emploie le MÊME prédicat partagé"
+else
+  fail "[E] le harnais principal a son propre prédicat d'identité"
+fi
+# Les huit faits doivent tous figurer dans le prédicat partagé.
+for ifact in destination_reseau port current_user is_superuser socket data_directory config_file marqueur_absent nonce; do
+  if grep -q "SCANYM_IDENTITY_REFUS|$ifact" "$SCRIPT_DIR/csdj1-cluster-identity.sh"; then
+    pass "[E] le prédicat partagé vérifie « $ifact »"
+  else
+    fail "[E] le prédicat partagé ne vérifie PAS « $ifact »"
+  fi
+done
 
 log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
 [ "$FAIL" -eq 0 ] || exit 1
