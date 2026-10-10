@@ -1,0 +1,383 @@
+ÉQUIVALENCE — candidat audité <-> candidat intégré
+==================================================
+
+candidat audité            : 46bc04f2905fde2b652c5ea0535f4090ce17bcbd  arbre ed142021a0a00322a5e39890aa4eb3698905955e
+base du candidat audité    : 412dbb53c5f180983860852b79425209c04b9c42
+main courant               : 2f45df7717b16b08075b51aabf9cec4afd4b2741  arbre 245ff85970771585a7d53f9f64bb6a1fbd58474c
+recomposition pure (C1)    : b081cec46731ad6a272be9d6d91bb97a16bcd298  arbre e0c27a032bc62e042f09e15bb4965e3f05f78879
+candidat intégré  (C2)     : bc045f28b08d11e896dd3b84874cbbf428acc608  arbre f4d70c5aa1fdb9d90fe5356c10f13823663aa381
+
+=== MÉTHODE 1 — identité de blob, fichier par fichier (28 fichiers d'implémentation du lot) ===
+Empreinte d'objet git dans le candidat AUDITÉ, puis dans la recomposition pure C1 et dans le candidat intégré C2.
+
+  C1 IDENTIQUE  C2 IDENTIQUE  f83befa9b1b719be81ac51f6f1ce9b2e058c808a  app/dashboard/catalogue/page.tsx
+  C1 IDENTIQUE  C2 IDENTIQUE  1b5ad99f377213d969f66bf0e213d4d8d5b80de3  lib/catalogue-management/filtering.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  c80cd9c15bbbad3064abf10a4972e17f2b896f19  lib/catalogue-product-order.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  a160f5fd6d0f23454e94ce12d7a02e9cb446611a  lib/catalogue-subcategory-grouping.ts
+  C1 DIVERGENT  C2 DIVERGENT  1cbcf3b396859a11610d3f07405c7b3933c51a87  lib/i18n.ts   (C1 905378be5a9c, C2 905378be5a9c)
+  C1 IDENTIQUE  C2 IDENTIQUE  2280cbafb0f9ae8649520a7dbac9ef9d375d36f3  lib/services/catalogue-product-order.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  635b444fb35ccf6e4294c68d99f96afba7dafb3b  supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql
+  C1 IDENTIQUE  C2 IDENTIQUE  feac5e8dc9e28983dc8429ca502a09c91b8d669f  supabase/DRAFT-lot-catalogue-product-reorder-v1.sql
+  C1 IDENTIQUE  C2 DIVERGENT  bae42f8bd2970905d73618a4744eb3b20595a617  supabase/tests/catalogue-product-reorder-v1-check.sh   (C1 bae42f8bd297, C2 af9ed8d5da51)
+  C1 IDENTIQUE  C2 IDENTIQUE  f5a2fa91ab1ccaf2d635aecf8d5b984aea24427f  supabase/tests/catalogue-product-reorder-v1-harness-lib.sh
+  C1 IDENTIQUE  C2 IDENTIQUE  f3f715ff43383f37fc80cecc59459218a9caa6a9  supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh
+  C1 IDENTIQUE  C2 IDENTIQUE  a3c4867fced301b733739d178123871cea97d256  tests/catalogue-management-ux-v1.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  5ce50bdceb2ed059bcae62c8c1c68c9dd9347f37  tests/catalogue-management-ux-v1_1-tag-context-race.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  b06a9bae248f3941a83ab209fce12ec73c9e0883  tests/catalogue-product-reorder-v1-sql.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  948e1e3ff5ec4808436fd4665db8cbbe3bead4e8  tests/catalogue-product-reorder-v1.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  e75fd6d51755dc4a5ae1c82ea024f2b8629421c1  tests/catalogue-product-reorder-v1.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  c8a6425519388a99977ab7e688c96416de821a55  tests/customer-collections-by-tags-backoffice.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  d7276e90f1d45e16a53f31ffcb03bd790f1e92ba  tests/dashboard-restaurant-context-hardening-v1.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  ed217b63410e0020168b9a5a546962546d2b04b5  tests/helpers/catalogue-product-reorder-db.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  c49c7de1695c75490ddba73d889ad8d507dd7924  tests/helpers/catalogue-product-reorder-rpc-model.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  313ad31ffca74196c8841c649ee4c7ce30c5835d  tests/online-withdrawal-catalogue-v1-dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  88dee49cc57383c2c18e0164fb30cc1d6cdde3ad  tests/product-service-modes-v1-catalogue-editor.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  c081f6e7557abae2db7b54c12ebff2ffa9bfee7f  tests/restaurant-context-critical-regression-gate-catalogue.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  25727728c17e6c266e4283cd489eecddb0f63880  tests/v149-operator-dashboard-context-v1.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  af3fa3b01e99695434def0b18b3aea37d79ec486  tests/v150-bulk-product-photos.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  c9a906a5d32d2f84ff5ac81ae5441780fce94912  tests/v151-bulk-photos-v1-1-retry-remediation.dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  63f5716c89397650e21f3f3aa88c6a276f53c078  tests/v153-cleanup-retry-dom.test.ts
+  C1 IDENTIQUE  C2 IDENTIQUE  fc8a26281588ea81219210c3fdd5ed7bf698c808  tests/v67b-photo-error-message.dom.test.ts
+
+  divergents dans C1 (recomposition pure) : 1 / 28
+  divergents dans C2 (candidat intégré)   : 2 / 28
+
+  Les deux seuls fichiers divergents, et pourquoi :
+
+  lib/i18n.ts
+      Seul fichier modifié par les DEUX lots. Fusion à trois voies sans conflit
+      (THEME +48 lignes, ce lot +37 lignes, aucune ligne retirée, emplacements
+      disjoints). Voir theme-interaction.txt §2 : le fichier intégré est
+      exactement « main + les 37 lignes de ce lot » et exactement
+      « candidat audité + les 48 lignes de THEME ».
+
+  supabase/tests/catalogue-product-reorder-v1-check.sh
+      IDENTIQUE dans C1. Étendu dans C2 (+128 / -3) : la chaîne rejouée se
+      termine par THEME & CONTENT SETTINGS v1, et 35 preuves d'interaction sont
+      AJOUTÉES (0c, 1h, 1i, 16e-bis, 16e-ter, section 17). Aucune des 263
+      preuves auditées n'est modifiée ni retirée. Diff complet ci-dessous (§4).
+
+=== MÉTHODE 2 — contre-épreuve par cherry-pick réel ===
+Les deux commits fonctionnels de la branche d'audit (a118522 puis 46bc04f) ont été appliqués par
+`git cherry-pick` sur main courant, dans un arbre de travail séparé : 0 conflit.
+  cherry-pick a118522 : code 0, fichiers en conflit : 0
+  cherry-pick 46bc04f : code 0, fichiers en conflit : 0
+  arbre obtenu par cherry-pick réel : e0c27a032bc62e042f09e15bb4965e3f05f78879
+  arbre de la recomposition pure C1 : e0c27a032bc62e042f09e15bb4965e3f05f78879
+  IDENTIQUES : True
+
+=== 3. Diff complet candidat audité -> candidat intégré (noms) ===
+(A = apporté par main : THEME & CONTENT SETTINGS v1 ; D = paquets de preuves de la branche d'audit, non repris ; M = voir ci-dessus)
+
+  M	app/dashboard/settings/page.tsx
+  M	app/globals.css
+  M	components/DeliveryConditions.tsx
+  M	components/MenuView.tsx
+  A	components/OrderHelpButton.tsx
+  M	components/ProductInfoButton.tsx
+  M	components/RestaurantInfoBar.tsx
+  A	components/dashboard/ThemeTokensFields.tsx
+  M	lib/communications/text-keys.ts
+  M	lib/i18n.ts
+  M	lib/services/dashboard.ts
+  A	lib/theme-tokens.ts
+  M	lib/types.ts
+  A	supabase/DRAFT-lot-theme-content-settings-v1-rollback.sql
+  A	supabase/DRAFT-lot-theme-content-settings-v1.sql
+  A	supabase/evidence/theme-content-settings-v1/README.md
+  A	supabase/evidence/theme-content-settings-v1/browser-proof.mjs
+  A	supabase/evidence/theme-content-settings-v1/computed-styles.json
+  A	supabase/evidence/theme-content-settings-v1/configured-delivery-popup.png
+  A	supabase/evidence/theme-content-settings-v1/configured-order-help-popup.png
+  A	supabase/evidence/theme-content-settings-v1/configured-page.png
+  A	supabase/evidence/theme-content-settings-v1/configured-product-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-delivery-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-order-help-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-page.png
+  A	supabase/evidence/theme-content-settings-v1/default-product-popup.png
+  A	supabase/evidence/theme-content-settings-v1/render-markup.mjs
+  M	supabase/tests/catalogue-product-reorder-v1-check.sh
+  A	supabase/tests/theme-content-settings-v1-check.sh
+  A	supabase/tests/theme-tokens-mirror-cases.mjs
+  A	tests/fixtures/theme-content-settings-v1/baseline-noconfig.json
+  M	tests/mcc-v1-communication-texts.test.ts
+  M	tests/mcc-v1-sql-structural.test.ts
+  M	tests/settings-save-reliability-v1.dom.test.ts
+  A	tests/theme-content-settings-v1-tokens.test.ts
+  A	tests/theme-content-settings-v1.dom.test.ts
+  D	supabase/evidence/catalogue-product-reorder-v1/    (15 fichiers — paquet du candidat refusé, resté sur la branche d'audit)
+  (le paquet catalogue-product-reorder-v1.1/ du candidat audité a été ajouté par le commit de scellement 5364c8a, APRÈS 46bc04f : il ne figure donc pas dans ce diff ; il reste lui aussi sur la branche d'audit)
+
+  total : {'M': 14, 'A': 22, 'D': 15}
+  fichiers ajoutés qui ne viennent PAS de main : []
+  fichiers modifiés : ['app/dashboard/settings/page.tsx', 'app/globals.css', 'components/DeliveryConditions.tsx', 'components/MenuView.tsx', 'components/ProductInfoButton.tsx', 'components/RestaurantInfoBar.tsx', 'lib/communications/text-keys.ts', 'lib/i18n.ts', 'lib/services/dashboard.ts', 'lib/types.ts', 'supabase/tests/catalogue-product-reorder-v1-check.sh', 'tests/mcc-v1-communication-texts.test.ts', 'tests/mcc-v1-sql-structural.test.ts', 'tests/settings-save-reliability-v1.dom.test.ts']
+  -> pour chaque fichier modifié par THEME hors lib/i18n.ts, le blob intégré est celui de main : True
+
+=== 4. Diff du harnais : candidat audité -> candidat intégré ===
+
+diff --git a/supabase/tests/catalogue-product-reorder-v1-check.sh b/supabase/tests/catalogue-product-reorder-v1-check.sh
+index bae42f8..af9ed8d 100755
+--- a/supabase/tests/catalogue-product-reorder-v1-check.sh
++++ b/supabase/tests/catalogue-product-reorder-v1-check.sh
+@@ -18,8 +18,16 @@
+ #   COMMIT IDEMPOTENCY (OB-4), VAT COMPLETENESS GUARD, OPERATOR
+ #   CATALOGUE RESET, COLLECTIONS/TAGS FOUNDATION, CATALOGUE MANAGEMENT
+ #   UX, TRANSLATIONS MANAGEMENT v2 ; puis ONLINE WITHDRAWAL, DELIVERY
+-#   COUNTRY SCOPE, PRODUCT SERVICE MODES et MERCHANT CUSTOMER
+-#   COMMUNICATIONS v1 (dernier lot de main).
++#   COUNTRY SCOPE, PRODUCT SERVICE MODES, MERCHANT CUSTOMER
++#   COMMUNICATIONS v1 et THEME & CONTENT SETTINGS v1 (dernier lot de
++#   main, 2f45df7).
++#
++#   RECOMPOSITION SUR MAIN COURANT : la chaîne se termine désormais par
++#   THEME & CONTENT SETTINGS v1. Les preuves de ce harnais s'exécutent
++#   donc sur le schéma de main courant. La section 17 prouve en plus
++#   que les deux lots sont INDÉPENDANTS : ce lot s'applique avec ou sans
++#   THEME, THEME s'applique avec ou sans ce lot, dans les deux ordres,
++#   et chaque rollback laisse l'autre lot intact.
+ #
+ #   SEUL fichier du dépôt touchant menu_items / les RPC catalogue qui
+ #   n'est PAS rejoué : DRAFT-lot-bulk-product-photos-storage-
+@@ -234,6 +242,39 @@ non_order_fp() {
+ taxonomy_fp() {
+   q "select md5(string_agg(mi.id::text || ':' || mi.category_id::text || ':' || coalesce(mi.subcategory_id::text, '-'), ',' order by mi.id)) from public.menu_items mi;"
+ }
++# Empreinte de TOUT le schéma public HORS la fonction de ce lot :
++# fonctions (définition complète, ACL, propriétaire), colonnes,
++# contraintes, policies RLS, index, triggers, droits de table et
++# drapeaux RLS. Deux empreintes égales = aucun objet d'un autre lot
++# (THEME, MCC, catalogue…) créé, modifié, remplacé ou supprimé.
++schema_fp_in() {
++  q_in "$1" "select md5(
++    coalesce((select string_agg(p.oid::regprocedure::text || '|' || pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '-') || '|' || pg_get_userbyid(p.proowner), E'\\n' order by p.oid::regprocedure::text)
++              from pg_proc p join pg_namespace n on n.oid = p.pronamespace
++              where n.nspname = 'public' and p.prokind <> 'a' and p.proname <> 'move_product_order'), '')
++    || '#' || coalesce((select string_agg(c.table_name || '.' || c.column_name || ':' || c.data_type || ':' || c.is_nullable || ':' || coalesce(c.column_default, '-'), ',' order by c.table_name, c.ordinal_position) from information_schema.columns c where c.table_schema = 'public'), '')
++    || '#' || coalesce((select string_agg(con.conrelid::regclass::text || '.' || con.conname || ':' || pg_get_constraintdef(con.oid), ',' order by con.conrelid::regclass::text, con.conname) from pg_constraint con join pg_namespace n on n.oid = con.connamespace where n.nspname = 'public'), '')
++    || '#' || coalesce((select string_agg(pol.tablename || '.' || pol.policyname || ':' || pol.cmd || ':' || pol.roles::text || ':' || coalesce(pol.qual, '-') || ':' || coalesce(pol.with_check, '-'), ',' order by pol.tablename, pol.policyname) from pg_policies pol where pol.schemaname = 'public'), '')
++    || '#' || coalesce((select string_agg(i.indexdef, ',' order by i.indexname) from pg_indexes i where i.schemaname = 'public'), '')
++    || '#' || coalesce((select string_agg(pg_get_triggerdef(t.oid), ',' order by t.tgrelid::regclass::text, t.tgname) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal), '')
++    || '#' || coalesce((select string_agg(g.table_name || ':' || g.grantee || ':' || g.privilege_type, ',' order by g.table_name, g.grantee, g.privilege_type) from information_schema.role_table_grants g where g.table_schema = 'public'), '')
++    || '#' || coalesce((select string_agg(c.relname || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text, ',' order by c.relname) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'), '')
++  );"
++}
++# État lisible de THEME & CONTENT SETTINGS v1 : catalogue MCC étendu
++# (17 emplacements, 14 publics), 7 jetons de surface, colonne
++# restaurant_configs.theme_tokens, RPC d'écriture.
++THEME_INSTALLED="17/14|7|1|true"
++theme_state_in() {
++  q_in "$1" "select cardinality(public.communication_text_keys())::text || '/' || cardinality(public.public_communication_text_keys())::text
++                    || '|' || cardinality(public.theme_token_keys())::text
++                    || '|' || (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'restaurant_configs' and column_name = 'theme_tokens')::text
++                    || '|' || (to_regprocedure('public.update_restaurant_theme_tokens(uuid,jsonb)') is not null)::text;"
++}
++# Empreinte de la fonction de CE lot : définition, ACL, propriétaire.
++move_fp_in() {
++  q_in "$1" "select md5(pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '-') || '|' || pg_get_userbyid(p.proowner)) from pg_proc p where p.oid = to_regprocedure('public.move_product_order(uuid, text, jsonb)');"
++}
+ fn_count_in() {
+   q_in "$1" "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'move_product_order';"
+ }
+@@ -272,7 +313,7 @@ ORDER_CHAIN="DRAFT-lot-order-received-enqueue-recovery-v1.sql migration-20260919
+ TRACKING_CHAIN="DRAFT-lot-tracking-final-fiscal-summary-v1-1.sql DRAFT-lot-customer-tracking-capability-v3-1.sql DRAFT-lot-customer-contact-live-tracking-v1.sql DRAFT-lot-customer-followup-tracking-email-v1.sql"
+ # Lots catalogue, à leur position historique (avant ONLINE WITHDRAWAL).
+ CATALOGUE_CHAIN="DRAFT-lot-catalogue-operator-authorization-v1.sql DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql DRAFT-lot-catalogue-vat-completeness-guard-v1.sql DRAFT-lot-operator-catalogue-reset-v1.sql DRAFT-lot-catalogue-collections-tags-foundation-v1.sql DRAFT-lot-catalogue-management-ux-v1.sql DRAFT-lot-translations-management-v2.sql"
+-TAIL_CHAIN="DRAFT-lot-online-withdrawal-foundation-v1.sql DRAFT-lot-online-withdrawal-v1-1-cgv-mixed-regime.sql DRAFT-lot-delivery-country-scope-v1.sql DRAFT-lot-product-service-modes-v1.sql DRAFT-lot-merchant-customer-communications-v1.sql"
++TAIL_CHAIN="DRAFT-lot-online-withdrawal-foundation-v1.sql DRAFT-lot-online-withdrawal-v1-1-cgv-mixed-regime.sql DRAFT-lot-delivery-country-scope-v1.sql DRAFT-lot-product-service-modes-v1.sql DRAFT-lot-merchant-customer-communications-v1.sql DRAFT-lot-theme-content-settings-v1.sql"
+ 
+ apply_to() { hpsql "$1" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$2" >/dev/null 2>"$ERR"; }
+ 
+@@ -405,11 +446,13 @@ clone_template "$DB"
+ assert_eq "0a. baseline : move_product_order ABSENTE avant le lot" "0" "$(fn_count_in "$DB")"
+ assert_eq "0b. baseline : set_product_order (V67b) présente" "1" \
+   "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='set_product_order';")"
++assert_eq "0c. baseline = MAIN COURANT : THEME & CONTENT SETTINGS v1 installé (catalogue MCC 17/14, 7 jetons, colonne theme_tokens, RPC)" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
+ 
+ # ============================================================
+ log "=== [1] Application du lot — aucune donnée modifiée ==="
+ FP_ORDER_BEFORE="$(order_fp_in "$DB")"
+ FP_NON_ORDER_BEFORE="$(non_order_fp)"
++SCHEMA_FP_BEFORE="$(schema_fp_in "$DB")"
+ FN_FP_BEFORE="$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';")"
+ 
+ hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+@@ -423,6 +466,8 @@ assert_eq "1f. aucune fonction préexistante modifiée (empreinte nom+signature+
+   "$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'move_product_order';")"
+ assert_eq "1g. SECURITY DEFINER, search_path vide, propriétaire postgres" "true|search_path=\"\"|postgres" \
+   "$(q "select p.prosecdef::text || '|' || array_to_string(p.proconfig, ',') || '|' || pg_get_userbyid(p.proowner) from pg_proc p where p.oid = 'public.move_product_order(uuid, text, jsonb)'::regprocedure;")"
++assert_eq "1h. THEME & CONTENT SETTINGS v1 intact après l'installation de ce lot (catalogue MCC 17/14, 7 jetons, colonne, RPC)" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
++assert_eq "1i. TOUT le schéma public hors move_product_order (fonctions + ACL, colonnes, contraintes, policies, index, triggers, droits, RLS) : empreinte identique avant et après -- aucun objet de THEME, de MCC ou d'un autre lot n'est créé, remplacé ou supprimé" "$SCHEMA_FP_BEFORE" "$(schema_fp_in "$DB")"
+ 
+ # Références figées pour tout le reste du harnais.
+ FP_B_ORDER="$(scope_fp "$CAT_B" NULL)"
+@@ -1257,6 +1302,8 @@ assert_eq "16c. les ordres enregistrés par les marchands sont CONSERVÉS (aucun
+ assert_eq "16d. aucune autre donnée produit touchée par le rollback" "$FP_NON_ORDER_BEFORE_RB" "$(non_order_fp)"
+ assert_eq "16e. set_product_order et assert_product_role intactes" "2" \
+   "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('set_product_order','assert_product_role');")"
++assert_eq "16e-bis. après rollback, TOUT le schéma public est revenu à l'empreinte d'avant ce lot (THEME et MCC compris)" "$SCHEMA_FP_BEFORE" "$(schema_fp_in "$DB")"
++assert_eq "16e-ter. … THEME & CONTENT SETTINGS v1 toujours installé et intact" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
+ as_user "$OWNER_A" "select public.set_product_order('$(pid 'Eau')'::uuid, 1);"
+ assert_ok "16f. le champ numérique historique fonctionne après rollback" $?
+ hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+@@ -1276,6 +1323,84 @@ else
+ fi
+ 
+ # ============================================================
++# ============================================================
++log "=== [17] Interaction avec THEME & CONTENT SETTINGS v1 — ordres d'application et rollbacks croisés ==="
++# Les sections 0 à 16 ont tourné sur le schéma de main courant (THEME
++# installé AVANT ce lot). Ici : l'autre ordre, l'absence de THEME, et
++# chaque rollback en présence de l'autre lot.
++THEME_SQL="$SUPABASE_DIR/DRAFT-lot-theme-content-settings-v1.sql"
++THEME_ROLLBACK_SQL="$SUPABASE_DIR/DRAFT-lot-theme-content-settings-v1-rollback.sql"
++[ -f "$THEME_ROLLBACK_SQL" ] || fatal "rollback de THEME absent : $THEME_ROLLBACK_SQL"
++DB_SAVED="$DB"
++MOVE_FP_MAIN="$(move_fp_in "$DB")"
++
++# --- A. Schéma SANS THEME (l'ancienne base 412dbb5) -----------------
++clone_template "$DB_SCRATCH"
++DB="$DB_SCRATCH"
++FP_WITH_THEME="$(schema_fp_in "$DB")"
++assert_eq "17a. (contrôle) le modèle porte le schéma de main courant, identique à celui d'avant ce lot dans la base principale" "$SCHEMA_FP_BEFORE" "$FP_WITH_THEME"
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17b. (préparation) rollback de THEME : schéma d'avant THEME" $?
++assert_eq "17c. THEME absent, catalogue MCC revenu à 14 emplacements" "true|14" \
++  "$(q "select (to_regprocedure('public.theme_token_keys()') is null)::text || '|' || cardinality(public.communication_text_keys())::text;")"
++FP_WITHOUT_THEME="$(schema_fp_in "$DB")"
++assert_ne "17d. (contrôle) l'empreinte de schéma distingue « avec THEME » de « sans THEME »" "$FP_WITH_THEME" "$FP_WITHOUT_THEME"
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17e. ce lot s'applique sur le schéma SANS THEME : il n'en dépend pas" $?
++assert_eq "17f. … sans rien créer ni modifier d'autre" "$FP_WITHOUT_THEME" "$(schema_fp_in "$DB")"
++MOVE_FP="$(move_fp_in "$DB")"
++assert_eq "17g. la fonction installée sans THEME est IDENTIQUE (définition, ACL, propriétaire) à celle installée avec THEME" "$MOVE_FP_MAIN" "$MOVE_FP"
++move "$OWNER_A" 'Beaufort' up 'Comté|Beaufort|Abondance'
++assert_ok "17h. … et Monter fonctionne" "$MOVE_RC"
++
++# --- B. Ordre inverse de main : CE LOT d'abord, THEME ensuite --------
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17i. THEME s'applique sur un schéma où ce lot est DÉJÀ installé (son anti-dérive ne bute pas sur move_product_order)" $?
++assert_eq "17j. THEME complet : catalogue MCC 17/14, 7 jetons, colonne, RPC" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
++assert_eq "17k. l'application de THEME n'a pas modifié move_product_order" "$MOVE_FP" "$(move_fp_in "$DB")"
++assert_eq "17l. les deux ordres d'application aboutissent au MÊME schéma (THEME puis ce lot == ce lot puis THEME)" "$FP_WITH_THEME" "$(schema_fp_in "$DB")"
++move "$OWNER_A" 'Beaufort' down 'Beaufort|Comté|Abondance'
++assert_ok "17m. Descendre fonctionne avec THEME installé après coup" "$MOVE_RC"
++assert_eq "17n. … ordre exact" "Comté=1|Beaufort=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
++
++# Les deux RPC d'écriture coexistent sans se toucher.
++q "insert into public.restaurant_configs (restaurant_id, max_tables, currency, whatsapp_number)
++   select '$RID_A', 5, 'EUR', '+33600000001'
++   where not exists (select 1 from public.restaurant_configs where restaurant_id = '$RID_A');" >/dev/null
++ORDER_FP_17="$(order_fp_in "$DB")"
++as_user "$OWNER_A" "select public.update_restaurant_theme_tokens('$RID_A'::uuid, '{\"popup_bg\":\"#FFFFFF\",\"popup_text\":\"#000000\"}'::jsonb);"
++assert_ok "17o. la RPC de THEME (update_restaurant_theme_tokens) fonctionne à côté de ce lot" $?
++assert_eq "17p. … jetons enregistrés" "#FFFFFF|#000000" "$(q "select (theme_tokens->>'popup_bg') || '|' || (theme_tokens->>'popup_text') from public.restaurant_configs where restaurant_id = '$RID_A';")"
++assert_eq "17q. … et AUCUN display_order touché par une écriture de thème" "$ORDER_FP_17" "$(order_fp_in "$DB")"
++THEME_TOKENS_17="$(q "select theme_tokens::text from public.restaurant_configs where restaurant_id = '$RID_A';")"
++move "$OWNER_A" 'Abondance' up 'Comté|Beaufort|Abondance'
++assert_ok "17r. un déplacement après une écriture de thème" "$MOVE_RC"
++assert_eq "17s. … ne touche pas aux jetons de thème" "$THEME_TOKENS_17" "$(q "select theme_tokens::text from public.restaurant_configs where restaurant_id = '$RID_A';")"
++as_user "$OWNER_A" "select public.update_restaurant_theme_tokens('$RID_A'::uuid, '{}'::jsonb);"
++
++# --- C. Rollbacks croisés -------------------------------------------
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17t. rollback de THEME alors que ce lot est installé" $?
++assert_eq "17u. … move_product_order intacte (définition, ACL, propriétaire)" "$MOVE_FP" "$(move_fp_in "$DB")"
++move "$OWNER_A" 'Abondance' down 'Comté|Abondance|Beaufort'
++assert_ok "17v. … et toujours fonctionnelle" "$MOVE_RC"
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17w. rollback de ce lot ensuite" $?
++assert_eq "17x. … move_product_order retirée" "0" "$(fn_count_in "$DB")"
++assert_eq "17y. … schéma revenu EXACTEMENT à celui d'avant THEME et d'avant ce lot" "$FP_WITHOUT_THEME" "$(schema_fp_in "$DB")"
++
++# Ordre de main : rollback de CE lot alors que THEME reste installé.
++clone_template "$DB_SCRATCH"
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17z. (ordre de main) ce lot sur le schéma de main courant" $?
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17aa. rollback de ce lot alors que THEME est installé" $?
++assert_eq "17ab. … schéma de main courant retrouvé à l'identique" "$FP_WITH_THEME" "$(schema_fp_in "$DB")"
++assert_eq "17ac. … THEME intact" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
++hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
++assert_ok "17ad. … et le rollback de THEME reste applicable ensuite" $?
++DB="$DB_SAVED"
++
+ harness_prove_identity || fail "le serveur joint en fin d'exécution n'est plus prouvé comme le cluster jetable de cette exécution"
+ log "[sûreté] toutes les commandes de cette exécution ont visé le cluster jetable $H_RUN_DIR (étiquette $H_TAG) ; il est arrêté et supprimé en sortie."
+ log "=== RÉSUMÉ : PASS=$PASS FAIL=$FAIL ==="
+
+=== 5. Diff de lib/i18n.ts : candidat audité -> candidat intégré (= les 48 lignes de THEME) ===
+
+diff --git a/lib/i18n.ts b/lib/i18n.ts
+index 1cbcf3b..905378b 100644
+--- a/lib/i18n.ts
++++ b/lib/i18n.ts
+@@ -458,6 +458,22 @@ const fr: Dict = {
+   stCommEventHint: "Désactivés par défaut. Un e-mail facultatif n'est envoyé que si vous l'activez ici ET que les e-mails de notification sont configurés. Réservé à owner et manager.",
+   stCommEventSaveError: "Échec d'enregistrement des e-mails facultatifs.",
+   stCommKey_checkout_info: "Information affichée au moment de la commande",
++  stCommKey_order_help_button_label: "Libellé du bouton d'aide à la commande (vide = bouton non affiché)",
++  stCommKey_order_help_title: "Titre de la fenêtre d'aide à la commande",
++  stCommKey_order_help_body: "Contenu de la fenêtre d'aide à la commande",
++  stThemeTokensTitle: "Couleurs des panneaux et fenêtres",
++  stThemeTokensHint: "Facultatif. Chaque panneau a un fond et un texte, à renseigner ensemble. Laissez vide pour conserver l'apparence actuelle.",
++  stThemeTokReset: "Rétablir l'apparence par défaut",
++  stThemeTok_info_panel_bg: "Panneau adresse / horaires — fond",
++  stThemeTok_info_panel_text: "Panneau adresse / horaires — texte",
++  stThemeTok_popup_bg: "Fenêtres d'information — fond",
++  stThemeTok_popup_text: "Fenêtres d'information — texte",
++  stThemeTok_delivery_card_bg: "Cartes des tarifs de livraison — fond",
++  stThemeTok_delivery_card_text: "Cartes des tarifs de livraison — texte",
++  stThemeTok_surface_border: "Bordure des panneaux, fenêtres et cartes",
++  stThemeTokPairIncomplete: "Renseignez le fond ET le texte de ce panneau, ou videz les deux.",
++  stThemeTokLowContrast: "Contraste insuffisant entre le fond et le texte (minimum 4,5:1).",
++  stThemeTokensSaveError: "Échec de l'enregistrement des couleurs des panneaux",
+   stCommKey_pickup_explanation: "Explication du retrait sur place",
+   stCommKey_delivery_local_explanation: "Explication de la livraison locale",
+   stCommKey_delivery_carrier_explanation: "Explication de la livraison par transporteur",
+@@ -1454,6 +1470,22 @@ const en: Dict = {
+   stCommEventHint: "Disabled by default. An optional email is only sent if you enable it here AND notification emails are configured. Owner and manager only.",
+   stCommEventSaveError: "Could not save the optional emails.",
+   stCommKey_checkout_info: "Information shown at checkout",
++  stCommKey_order_help_button_label: "Order help button label (empty = button hidden)",
++  stCommKey_order_help_title: "Order help window title",
++  stCommKey_order_help_body: "Order help window content",
++  stThemeTokensTitle: "Panel and window colors",
++  stThemeTokensHint: "Optional. Each panel has a background and a text color, to be set together. Leave empty to keep the current look.",
++  stThemeTokReset: "Restore the default look",
++  stThemeTok_info_panel_bg: "Address / hours panel — background",
++  stThemeTok_info_panel_text: "Address / hours panel — text",
++  stThemeTok_popup_bg: "Information windows — background",
++  stThemeTok_popup_text: "Information windows — text",
++  stThemeTok_delivery_card_bg: "Delivery price cards — background",
++  stThemeTok_delivery_card_text: "Delivery price cards — text",
++  stThemeTok_surface_border: "Border of panels, windows and cards",
++  stThemeTokPairIncomplete: "Set both the background AND the text of this panel, or clear both.",
++  stThemeTokLowContrast: "Not enough contrast between background and text (minimum 4.5:1).",
++  stThemeTokensSaveError: "Failed to save the panel colors",
+   stCommKey_pickup_explanation: "In-store pickup explanation",
+   stCommKey_delivery_local_explanation: "Local delivery explanation",
+   stCommKey_delivery_carrier_explanation: "Carrier delivery explanation",
+@@ -2375,6 +2407,22 @@ const ar: Dict = {
+   stCommEventHint: "معطّلة افتراضيًا. لا تُرسل الرسالة الاختيارية إلا إذا فعّلتموها هنا وكانت رسائل الإشعار مهيّأة. مخصص للمالك والمدير.",
+   stCommEventSaveError: "تعذّر حفظ الرسائل الاختيارية.",
+   stCommKey_checkout_info: "معلومة تُعرض عند الطلب",
++  stCommKey_order_help_button_label: "عنوان زر مساعدة الطلب (فارغ = الزر مخفي)",
++  stCommKey_order_help_title: "عنوان نافذة مساعدة الطلب",
++  stCommKey_order_help_body: "محتوى نافذة مساعدة الطلب",
++  stThemeTokensTitle: "ألوان اللوحات والنوافذ",
++  stThemeTokensHint: "اختياري. لكل لوحة لون خلفية ولون نص يُحدَّدان معًا. اتركه فارغًا للإبقاء على المظهر الحالي.",
++  stThemeTokReset: "استعادة المظهر الافتراضي",
++  stThemeTok_info_panel_bg: "لوحة العنوان / الساعات — الخلفية",
++  stThemeTok_info_panel_text: "لوحة العنوان / الساعات — النص",
++  stThemeTok_popup_bg: "نوافذ المعلومات — الخلفية",
++  stThemeTok_popup_text: "نوافذ المعلومات — النص",
++  stThemeTok_delivery_card_bg: "بطاقات أسعار التوصيل — الخلفية",
++  stThemeTok_delivery_card_text: "بطاقات أسعار التوصيل — النص",
++  stThemeTok_surface_border: "حدود اللوحات والنوافذ والبطاقات",
++  stThemeTokPairIncomplete: "حدّد خلفية هذه اللوحة ونصها معًا، أو امسح الاثنين.",
++  stThemeTokLowContrast: "التباين غير كافٍ بين الخلفية والنص (الحد الأدنى 4.5:1).",
++  stThemeTokensSaveError: "فشل حفظ ألوان اللوحات",
+   stCommKey_pickup_explanation: "شرح الاستلام من المتجر",
+   stCommKey_delivery_local_explanation: "شرح التوصيل المحلي",
+   stCommKey_delivery_carrier_explanation: "شرح التوصيل عبر الناقل",
+

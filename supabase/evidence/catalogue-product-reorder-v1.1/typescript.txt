@@ -1,0 +1,5 @@
+# main courant 2f45df7717b16b08075b51aabf9cec4afd4b2741 -- npx tsc --noEmit -p tsconfig.json
+tsc exit=0
+
+# candidat intégré bc045f28b08d11e896dd3b84874cbbf428acc608 -- npx tsc --noEmit -p tsconfig.json
+tsc exit=0

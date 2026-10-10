@@ -138,6 +138,9 @@ const mocks: Record<string, string> = {
   "@/lib/services/catalogue-tags": MOCK_TAGS,
   "@/lib/services/establishments": MOCK_ESTABLISHMENTS,
   "@/lib/sale-modes-public": MOCK_SALE_MODES_PUBLIC,
+  // CATALOGUE PRODUCT REORDER v1 -- moveProductOrder() n'est pas l'objet de
+  // ce test ; service remplacé, patron déjà suivi par les autres mocks ci-dessus.
+  "@/lib/services/catalogue-product-order": `export async function moveProductOrder() { return 1; } export class ProductOrderStaleError extends Error {} export class ProductOrderBoundaryError extends Error {}`,
 };
 
 const mockPlugin: esbuild.Plugin = {

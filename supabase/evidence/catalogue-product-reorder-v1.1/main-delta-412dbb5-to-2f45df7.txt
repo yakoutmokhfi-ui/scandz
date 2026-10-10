@@ -1,0 +1,85 @@
+CE QUE MAIN A APPORTÉ DEPUIS LA BASE DU CANDIDAT AUDITÉ
+======================================================
+
+ancienne base : 412dbb53c5f180983860852b79425209c04b9c42
+main courant  : 2f45df7717b16b08075b51aabf9cec4afd4b2741
+
+=== commits (412dbb5..2f45df7) ===
+  2f45df7717b16b08075b51aabf9cec4afd4b2741 Merge pull request #134 from yakoutmokhfi-ui/feature/theme-content-settings-v1
+  7b2f65270b8168642b0e7266e9d3b5637ab03a9a feat(theme-content): THEME & CONTENT SETTINGS v1 — structured surface tokens + order-help texts
+
+=== fichiers (git diff --name-status 412dbb5 2f45df7) ===
+  M	app/dashboard/settings/page.tsx
+  M	app/globals.css
+  M	components/DeliveryConditions.tsx
+  M	components/MenuView.tsx
+  A	components/OrderHelpButton.tsx
+  M	components/ProductInfoButton.tsx
+  M	components/RestaurantInfoBar.tsx
+  A	components/dashboard/ThemeTokensFields.tsx
+  M	lib/communications/text-keys.ts
+  M	lib/i18n.ts
+  M	lib/services/dashboard.ts
+  A	lib/theme-tokens.ts
+  M	lib/types.ts
+  A	supabase/DRAFT-lot-theme-content-settings-v1-rollback.sql
+  A	supabase/DRAFT-lot-theme-content-settings-v1.sql
+  A	supabase/evidence/theme-content-settings-v1/README.md
+  A	supabase/evidence/theme-content-settings-v1/browser-proof.mjs
+  A	supabase/evidence/theme-content-settings-v1/computed-styles.json
+  A	supabase/evidence/theme-content-settings-v1/configured-delivery-popup.png
+  A	supabase/evidence/theme-content-settings-v1/configured-order-help-popup.png
+  A	supabase/evidence/theme-content-settings-v1/configured-page.png
+  A	supabase/evidence/theme-content-settings-v1/configured-product-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-delivery-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-order-help-popup.png
+  A	supabase/evidence/theme-content-settings-v1/default-page.png
+  A	supabase/evidence/theme-content-settings-v1/default-product-popup.png
+  A	supabase/evidence/theme-content-settings-v1/render-markup.mjs
+  A	supabase/tests/theme-content-settings-v1-check.sh
+  A	supabase/tests/theme-tokens-mirror-cases.mjs
+  A	tests/fixtures/theme-content-settings-v1/baseline-noconfig.json
+  M	tests/mcc-v1-communication-texts.test.ts
+  M	tests/mcc-v1-sql-structural.test.ts
+  M	tests/settings-save-reliability-v1.dom.test.ts
+  A	tests/theme-content-settings-v1-tokens.test.ts
+  A	tests/theme-content-settings-v1.dom.test.ts
+
+   35 files changed, 3589 insertions(+), 10 deletions(-)
+
+=== recoupement avec les 28 fichiers d'implémentation de ce lot ===
+  touché par les deux : lib/i18n.ts
+  (un seul fichier ; fusion à trois voies sans conflit -- voir theme-interaction.txt §2)
+
+=== état des 28 fichiers du lot entre l'ancienne base et main courant ===
+  INCHANGÉ SUR MAIN  6e8a78ff0b38                 app/dashboard/catalogue/page.tsx
+  INCHANGÉ SUR MAIN  2ea2a9140fa8                 lib/catalogue-management/filtering.ts
+  AJOUT DU LOT (absent de la base et de main)   lib/catalogue-product-order.ts
+  INCHANGÉ SUR MAIN  1b40692128e6                 lib/catalogue-subcategory-grouping.ts
+  MODIFIÉ PAR MAIN   e8a1482c2187 -> 26e262c8dfa4   lib/i18n.ts
+  AJOUT DU LOT (absent de la base et de main)   lib/services/catalogue-product-order.ts
+  AJOUT DU LOT (absent de la base et de main)   supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql
+  AJOUT DU LOT (absent de la base et de main)   supabase/DRAFT-lot-catalogue-product-reorder-v1.sql
+  AJOUT DU LOT (absent de la base et de main)   supabase/tests/catalogue-product-reorder-v1-check.sh
+  AJOUT DU LOT (absent de la base et de main)   supabase/tests/catalogue-product-reorder-v1-harness-lib.sh
+  AJOUT DU LOT (absent de la base et de main)   supabase/tests/catalogue-product-reorder-v1-harness-safety-check.sh
+  INCHANGÉ SUR MAIN  f5c2fadaa7db                 tests/catalogue-management-ux-v1.dom.test.ts
+  INCHANGÉ SUR MAIN  faef65e1eab6                 tests/catalogue-management-ux-v1_1-tag-context-race.dom.test.ts
+  AJOUT DU LOT (absent de la base et de main)   tests/catalogue-product-reorder-v1-sql.test.ts
+  AJOUT DU LOT (absent de la base et de main)   tests/catalogue-product-reorder-v1.dom.test.ts
+  AJOUT DU LOT (absent de la base et de main)   tests/catalogue-product-reorder-v1.test.ts
+  INCHANGÉ SUR MAIN  2a55637b283d                 tests/customer-collections-by-tags-backoffice.dom.test.ts
+  INCHANGÉ SUR MAIN  cc2c32928acb                 tests/dashboard-restaurant-context-hardening-v1.dom.test.ts
+  AJOUT DU LOT (absent de la base et de main)   tests/helpers/catalogue-product-reorder-db.ts
+  AJOUT DU LOT (absent de la base et de main)   tests/helpers/catalogue-product-reorder-rpc-model.ts
+  INCHANGÉ SUR MAIN  96ea55f711de                 tests/online-withdrawal-catalogue-v1-dom.test.ts
+  INCHANGÉ SUR MAIN  ef4668d438a7                 tests/product-service-modes-v1-catalogue-editor.dom.test.ts
+  INCHANGÉ SUR MAIN  88d1340f2d2b                 tests/restaurant-context-critical-regression-gate-catalogue.dom.test.ts
+  INCHANGÉ SUR MAIN  8465dba7103b                 tests/v149-operator-dashboard-context-v1.dom.test.ts
+  INCHANGÉ SUR MAIN  0f99982af850                 tests/v150-bulk-product-photos.dom.test.ts
+  INCHANGÉ SUR MAIN  67d1e0adebba                 tests/v151-bulk-photos-v1-1-retry-remediation.dom.test.ts
+  INCHANGÉ SUR MAIN  6fc15cfd7036                 tests/v153-cleanup-retry-dom.test.ts
+  INCHANGÉ SUR MAIN  f912ab89e5e4                 tests/v67b-photo-error-message.dom.test.ts
+
+=== dépendances ===
+  package.json et package-lock.json : INCHANGÉS entre 412dbb5 et 2f45df7

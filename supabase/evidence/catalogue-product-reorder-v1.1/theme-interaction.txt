@@ -1,0 +1,56 @@
+INTERACTION THEME & CONTENT SETTINGS v1  <->  CATALOGUE PRODUCT REORDER v1.1
+=======================================================================
+ancienne base    : 412dbb53c5f180983860852b79425209c04b9c42
+main courant     : 2f45df7717b16b08075b51aabf9cec4afd4b2741  (contient THEME & CONTENT SETTINGS v1)
+candidat audité  : 46bc04f2905fde2b652c5ea0535f4090ce17bcbd
+candidat intégré : bc045f28b08d11e896dd3b84874cbbf428acc608
+
+=== 1. Recoupement de fichiers ===
+fichiers de THEME (412dbb5..2f45df7) : 35
+fichiers de ce lot (412dbb5..46bc04f, hors paquets de preuves) : 28
+fichiers touchés par LES DEUX : ['lib/i18n.ts']
+
+=== 2. lib/i18n.ts -- fusion à trois voies ===
+THEME  vs base : +48 lignes, -0
+ce lot vs base : +37 lignes, -0
+candidat intégré vs main courant    : +37 lignes, -0  -> exactement les lignes de ce lot : True
+candidat intégré vs candidat audité : +48 lignes, -0  -> exactement les lignes de THEME  : True
+lignes : base 3002, main 3050, audité 3039, intégré 3087 (= base + 48 + 37 : True)
+  [fr] clés : base 763, +THEME 16, +ce lot 11, intégré 790 ; toutes les clés de main présentes : True ; toutes les clés du candidat audité présentes : True ; clés communes aux deux ajouts : [] ; doublons : 0
+  [en] clés : base 763, +THEME 16, +ce lot 11, intégré 790 ; toutes les clés de main présentes : True ; toutes les clés du candidat audité présentes : True ; clés communes aux deux ajouts : [] ; doublons : 0
+  [ar] clés : base 763, +THEME 16, +ce lot 11, intégré 790 ; toutes les clés de main présentes : True ; toutes les clés du candidat audité présentes : True ; clés communes aux deux ajouts : [] ; doublons : 0
+  clés ajoutées par THEME  : stCommKey_order_help_button_label, stCommKey_order_help_title, stCommKey_order_help_body, stThemeTokensTitle, stThemeTokensHint, stThemeTokReset, stThemeTok_info_panel_bg, stThemeTok_info_panel_text, stThemeTok_popup_bg, stThemeTok_popup_text, stThemeTok_delivery_card_bg, stThemeTok_delivery_card_text, stThemeTok_surface_border, stThemeTokPairIncomplete, stThemeTokLowContrast, stThemeTokensSaveError
+  clés ajoutées par ce lot : mcSortCatalogueOrder, mcMoveUp, mcMoveDown, mcMoveUpAria, mcMoveDownAria, mcReorderHint, mcReorderActiveHint, mcReorderFiltersHint, mcReorderMoved, mcReorderStale, mcReorderFailed
+
+=== 3. Indépendance des imports ===
+fichiers source de THEME (12) qui référencent un symbole de ce lot : []
+fichiers source de ce lot (6) qui référencent un symbole de THEME : []
+fichiers source de ce lot : app/dashboard/catalogue/page.tsx, lib/catalogue-management/filtering.ts, lib/catalogue-product-order.ts, lib/catalogue-subcategory-grouping.ts, lib/i18n.ts, lib/services/catalogue-product-order.ts
+  app/dashboard/catalogue/page.tsx             base 6e8a78ff0b38  main 6e8a78ff0b38  audité f83befa9b1b7  intégré f83befa9b1b7   modifié par : ce lot   [intégré = audité]
+  app/dashboard/settings/page.tsx              base 4d40074408b8  main e061967b037a  audité 4d40074408b8  intégré e061967b037a   modifié par : THEME   [intégré = main]
+  lib/services/dashboard.ts                    base 1ed386e79a7b  main 069486de70da  audité 1ed386e79a7b  intégré 069486de70da   modifié par : THEME   [intégré = main]
+  components/MenuView.tsx                      base e244835f99fc  main 64a634279842  audité e244835f99fc  intégré 64a634279842   modifié par : THEME   [intégré = main]
+  lib/catalogue-subcategory-grouping.ts        base 1b40692128e6  main 1b40692128e6  audité a160f5fd6d0f  intégré a160f5fd6d0f   modifié par : ce lot   [intégré = audité]
+  lib/services/restaurant.ts                   base 0406c47686c2  main 0406c47686c2  audité 0406c47686c2  intégré 0406c47686c2   modifié par : aucun
+
+=== 4. Dépendances ===
+  package.json       {'412dbb53c5f180983860852b79425209c04b9c42': '7e8ddd2184d0', '2f45df7717b16b08075b51aabf9cec4afd4b2741': '7e8ddd2184d0', '46bc04f2905fde2b652c5ea0535f4090ce17bcbd': '7e8ddd2184d0', 'bc045f28b08d11e896dd3b84874cbbf428acc608': '7e8ddd2184d0'}  identique partout : True
+  package-lock.json  {'412dbb53c5f180983860852b79425209c04b9c42': 'c6621ec3fe44', '2f45df7717b16b08075b51aabf9cec4afd4b2741': 'c6621ec3fe44', '46bc04f2905fde2b652c5ea0535f4090ce17bcbd': 'c6621ec3fe44', 'bc045f28b08d11e896dd3b84874cbbf428acc608': 'c6621ec3fe44'}  identique partout : True
+
+=== 5. SQL ===
+objets créés / remplacés / modifiés par le SQL de THEME : public.communication_text_keys, public.communication_text_max_length, public.public_communication_text_keys, public.restaurant_configs, public.theme_token_contrast, public.theme_token_keys, public.theme_token_luminance, public.theme_tokens_valid, public.update_restaurant_theme_tokens
+objets créés / remplacés / modifiés par le SQL de ce lot : public.move_product_order
+objets communs : []
+le SQL de THEME mentionne menu_items / assert_product_role / set_product_order / move_product_order : False
+le SQL de ce lot mentionne restaurant_configs / theme_ / communication_text : False
+  supabase/DRAFT-lot-catalogue-product-reorder-v1.sql : blob audité feac5e8dc9e28983dc8429ca502a09c91b8d669f  blob intégré feac5e8dc9e28983dc8429ca502a09c91b8d669f  IDENTIQUE : True
+  supabase/DRAFT-lot-catalogue-product-reorder-v1-ROLLBACK.sql : blob audité 635b444fb35ccf6e4294c68d99f96afba7dafb3b  blob intégré 635b444fb35ccf6e4294c68d99f96afba7dafb3b  IDENTIQUE : True
+  supabase/DRAFT-lot-theme-content-settings-v1.sql : blob main a840023af41c23265ad9049696ba5cebfecfdff3  blob intégré a840023af41c23265ad9049696ba5cebfecfdff3  IDENTIQUE : True
+  supabase/DRAFT-lot-theme-content-settings-v1-rollback.sql : blob main 95f53f7bec4e3bfb1164c5df46e659939bcb93e5  blob intégré 95f53f7bec4e3bfb1164c5df46e659939bcb93e5  IDENTIQUE : True
+  supabase/DRAFT-lot-merchant-customer-communications-v1.sql : blob main f224823438ce4cab331366969536bb0bb00602c5  blob intégré f224823438ce4cab331366969536bb0bb00602c5  IDENTIQUE : True
+Preuve par l'exécution (PostgreSQL réel) : sql-harness.txt, preuves 0c, 1h, 1i, 16e-bis, 16e-ter et section 17 (17a..17ad).
+
+=== 6. Aucun fichier de main n'est perdu ===
+fichiers de main supprimés ou renommés par le candidat intégré : []
+fichiers de main modifiés par le candidat intégré (16) : tous sont des fichiers de ce lot : True
+fichiers de THEME dont le blob diffère entre main et le candidat intégré : ['lib/i18n.ts']
