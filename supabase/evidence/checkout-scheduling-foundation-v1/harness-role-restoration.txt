@@ -1,0 +1,34 @@
+[12:18:38] cluster TÉMOIN créé par CE fichier (socket /tmp/tmp.Ow9CQ1srRy/sock, port 56121).
+[12:18:38] === [A] état initial des rôles : NOLOGIN + NOBYPASSRLS ===
+[12:18:38]   avant : anon=NOLOGIN+NOBYPASSRLS authenticated=NOLOGIN+NOBYPASSRLS service_role=NOLOGIN+NOBYPASSRLS 
+[12:18:59] PASS: [A] NOLOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:18:59] PASS: [A] NOLOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:18:59] PASS: [A] NOLOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:18:59] PASS: [A] NOLOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:18:59] === [A] état initial des rôles : LOGIN + NOBYPASSRLS ===
+[12:18:59]   avant : anon=LOGIN+NOBYPASSRLS authenticated=LOGIN+NOBYPASSRLS service_role=LOGIN+NOBYPASSRLS 
+[12:19:20] PASS: [A] LOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:19:20] PASS: [A] LOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[12:19:20] PASS: [A] LOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[12:19:20] PASS: [A] LOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[12:19:20] === [A] état initial des rôles : NOLOGIN + BYPASSRLS ===
+[12:19:20]   avant : anon=NOLOGIN+BYPASSRLS authenticated=NOLOGIN+BYPASSRLS service_role=NOLOGIN+BYPASSRLS 
+[12:19:40] PASS: [A] NOLOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:19:40] PASS: [A] NOLOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[12:19:40] PASS: [A] NOLOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[12:19:40] PASS: [A] NOLOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[12:19:40] === [A] état initial des rôles : LOGIN + BYPASSRLS ===
+[12:19:40]   avant : anon=LOGIN+BYPASSRLS authenticated=LOGIN+BYPASSRLS service_role=LOGIN+BYPASSRLS 
+[12:19:59] PASS: [A] LOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:19:59] PASS: [A] LOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[12:19:59] PASS: [A] LOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[12:19:59] PASS: [A] LOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[12:19:59] === [B] forme de l'instantané de rôle ===
+[12:19:59] PASS: [B] l'instantané encode explicitement 1/0
+[12:19:59] PASS: [B] l'instantané n'emploie plus ::text sur un booléen
+[12:19:59] PASS: [B] la restauration compare bien à 1, et non à 't'
+[12:19:59] PASS: [B] le verrou de sûreté n'accepte que les quatre instantanés bien formés
+[12:19:59] === [C] un rôle absent avant doit être absent après ===
+[12:20:20] PASS: [C] le harnais principal s'exécute avec un rôle initialement absent
+[12:20:20] PASS: [C] 'service_role', absent avant, est bien absent après
+[12:20:20] === BILAN RESTAURATION DE RÔLES : 22 preuve(s), 0 échec(s) ===

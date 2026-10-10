@@ -1,20 +1,29 @@
-CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1) — CANDIDAT
-=====================================================
+CHECKOUT SCHEDULING FOUNDATION v1.1 (CSDJ-1) — CANDIDAT DE REMÉDIATION
+======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   091c3f07083b5c8a51cdb7e50a2f9da46530eacf
-arbre du candidat           76b6b7504fc4b71deff64c636bb9b288b845ae40
+CANDIDAT (implémentation)   d94a1100b7149e60bde1a7f770cb756ecda8b174
+arbre du candidat           dd4163c8c9303974ebd81a676f51953f207e420d
 base (origin/main)          412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
+
+CANDIDAT REFUSÉ (FAIL)      091c3f07083b5c8a51cdb7e50a2f9da46530eacf
+arbre refusé                76b6b7504fc4b71deff64c636bb9b288b845ae40
+scellement refusé           7546ace347b121ab01e0db2301d268e1586fdf1a
+
+Le candidat refusé n'est NI amendé, NI réécrit : il reste intact dans
+l'historique comme grand-parent du nouveau candidat.
 
 STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    091c3f07083b5c8a51cdb7e50a2f9da46530eacf
-            LE CANDIDAT : 9 fichiers ajoutés, 0 modifié, 0 supprimé
-  HEAD~2    412dbb5 = origin/main au moment du lot
+  HEAD~1    d94a1100b7149e60bde1a7f770cb756ecda8b174
+            LE CANDIDAT DE REMÉDIATION : 11 fichiers, 9 modifiés, 2 ajoutés
+  HEAD~2    7546ace = scellement du candidat refusé
+  HEAD~3    091c3f0 = CANDIDAT REFUSÉ
+  HEAD~4    412dbb5 = origin/main
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -23,32 +32,35 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 9 FICHIERS DU CANDIDAT
---------------------------
-  A  lib/scheduling/schedule-model.ts
-  A  lib/scheduling/eligibility.ts
-  A  supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
-  A  supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
-  A  supabase/tests/checkout-scheduling-foundation-v1-check.sh
-  A  tests/fixtures/checkout-scheduling-cases.json
-  A  tests/csdj1-scheduling-model.test.ts
-  A  tests/csdj1-scheduling-eligibility.test.ts
-  A  tests/csdj1-sql-structural.test.ts
-
-AUCUN fichier existant n'est modifié. AUCUNE fonction SQL préexistante
-n'est redéfinie : create_order et resolve_delivery_fulfillment sont
-intactes, et le post-vol du lot comme le harnais le constatent.
+LES 11 FICHIERS CHANGÉS DEPUIS LE CANDIDAT REFUSÉ
+-------------------------------------------------
+  M  lib/scheduling/schedule-model.ts                    AUD-01 AUD-04
+  M  lib/scheduling/eligibility.ts                       AUD-01 AUD-02 AUD-04
+  M  supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
+                                        AUD-01 AUD-02 AUD-03 AUD-04 AUD-05 + zéro UUID
+  M  supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql   AUD-02
+  M  supabase/tests/checkout-scheduling-foundation-v1-check.sh
+                                        AUD-03 AUD-04 AUD-05 AUD-06 + zéro UUID
+  A  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh   AUD-06
+  A  tests/fixtures/build-checkout-scheduling-cases.py   preuve de fixture
+  M  tests/fixtures/checkout-scheduling-cases.json       20 -> 36 cas
+  M  tests/csdj1-scheduling-model.test.ts                AUD-01 AUD-04
+  M  tests/csdj1-scheduling-eligibility.test.ts          AUD-01 AUD-02 AUD-04
+  M  tests/csdj1-sql-structural.test.ts                  les six blockers
 
 REJOUER LES PREUVES
 -------------------
   npx tsc --noEmit
   node --experimental-strip-types --import ./tests/register.mjs --test \
     tests/csdj1-*.test.ts
+  python3 -I tests/fixtures/build-checkout-scheduling-cases.py   # doit
+                                 # reproduire la fixture À L'OCTET
   sudo -u postgres -E env SCANYM_DISPOSABLE_CLUSTER=1 \
     bash supabase/tests/checkout-scheduling-foundation-v1-check.sh
+  sudo -u postgres -E env SCANYM_DISPOSABLE_CLUSTER=1 \
+    bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
 
 PAS POUSSÉ
 ----------
   Le proxy git de la session refuse l'écriture sur yakoutmokhfi-ui/scandz
-  (403, dépôt absent de l'ensemble autorisé). Le mandat l'a acté et
-  demande une livraison par bundle vérifié.
+  (403). Livraison par bundle vérifié.

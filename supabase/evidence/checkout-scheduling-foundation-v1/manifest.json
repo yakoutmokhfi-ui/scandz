@@ -1,161 +1,235 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
-  "status": "READY FOR INDEPENDENT AUDIT",
-  "mandate": "NOUGARO — GO DEVELOP CSDJ-1 LOCALLY AND DELIVER VERIFIED BUNDLE. Premier des trois sous-lots imposés par la décision CIO sur CHECKOUT SCHEDULING & DELIVERY JOURNEY v1.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.1 (CSDJ-1) — remédiation ciblée",
+  "status": "READY FOR DELTA RE-AUDIT",
+  "mandate": "NOUGARO — TARGETED REMEDIATION / CSDJ-1. Verdict d'audit indépendant sur 091c3f0 : FAIL, six blockers. Remédiation CIBLÉE : pas de redesign, pas d'élargissement de portée, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
-    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873",
-    "branch": "origin/main",
-    "verification": "git fetch origin main puis relecture du SHA ET de l'arbre juste avant la première édition : identiques à la référence du mandat. Aucun rebase silencieux."
+    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
   },
-  "candidate": {
+  "failedCandidate": {
     "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
     "tree": "76b6b7504fc4b71deff64c636bb9b288b845ae40",
-    "parent": "412dbb53c5f180983860852b79425209c04b9c42",
-    "branch": "feature/checkout-scheduling-foundation-v1",
-    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, qui est HEAD~1 de la branche. HEAD est le commit de SCELLEMENT du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/ : un manifeste ne peut pas contenir l'empreinte du commit qui le contient.",
-    "filesChanged": 9,
-    "pushed": false,
-    "pullRequest": null,
-    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz (dépôt absent de l'ensemble autorisé) : 403 en écriture. Le mandat l'a acté et demande une livraison par bundle vérifié."
+    "evidenceHead": "7546ace347b121ab01e0db2301d268e1586fdf1a",
+    "verdict": "FAIL (audit indépendant)",
+    "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
-  "scope": {
-    "delivered": [
-      "modèle de planification marchande : 4 tables, portée (mode, règle de fulfillment)",
-      "fuseau IANA par portée",
-      "fenêtres hebdomadaires",
-      "créneaux nommés à identifiant stable",
-      "fermetures exceptionnelles",
-      "heure limite et son décalage en jours",
-      "délai de préparation et minimum de jours",
-      "horizon de réservation",
-      "date_selection_mode et slot_selection_mode (catalogues fermés)",
-      "isolation multi-locataires (RLS, FK composites, écriture RPC-only)",
-      "calcul d'éligibilité SERVEUR-AUTORITATIF",
-      "lecture publique sûre, sans fuite de fournisseur",
-      "réutilisation de l'autorité de tarification existante",
-      "absence de configuration = comportement actuel",
-      "configuré mais infaisable = échec explicite"
-    ],
-    "deliberatelyOutOfScope": {
-      "backOfficeEditor": "Aucune page de dashboard. CSDJ-1 livre le modèle et ses RPC ; l'éditeur back-office n'est nommé par aucun des trois sous-lots du mandat et serait une surface d'interface à arbitrer. Signalé plutôt que glissé dans ce lot.",
-      "checkoutJourney": "CSDJ-2 : code postal d'abord, calendrier, créneaux, adresse après résolution, remise affichée.",
-      "orderSnapshot": "CSDJ-3 : revalidation dans create_order, instantané gelé, variables fulfillment_date / fulfillment_slot.",
-      "editorialAndVisual": "THEME & CONTENT SETTINGS v1 (Debussy) : libellé du bouton, titre et corps du popup, thème visuel, et les clés MCC how_to_order_*. Aucune n'est touchée."
+  "candidate": {
+    "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
+    "tree": "dd4163c8c9303974ebd81a676f51953f207e420d",
+    "parent": "7546ace347b121ab01e0db2301d268e1586fdf1a",
+    "branch": "feature/checkout-scheduling-foundation-v1",
+    "filesChangedSinceFailedCandidate": 11,
+    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1 de la branche. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
+    "amended": false,
+    "pushed": false,
+    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture. Livraison par bundle vérifié, comme le mandat le prévoit."
+  },
+  "blockers": {
+    "CSDJ1-AUD-01": {
+      "severity": "P1",
+      "invariant": "CSDJ-V1-OFFER-START-INSTANT-01",
+      "problem": "Le délai de préparation n'était appliqué qu'à la DATE de départ : un créneau 09:00-11:00 avec 120 minutes de délai restait proposé à 15:00, parce que la date passait le filtre et que personne ne regardait l'offre.",
+      "fix": "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, plancher de (today + min_lead_days) dans le fuseau). Une offre dont le DÉBUT tombe avant est écartée, créneau déjà commencé compris. Une date sans offre survivante cesse d'être éligible. Pour time_within_window, le début est AVANCÉ sur la grille de granularité du commerçant ; si la grille sort de la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée.",
+      "newReason": "no_offer_in_horizon, distinct de horizon_exhausted : des dates étaient ouvertes, ce sont les OFFRES qui ne tenaient plus -- et les deux se corrigent différemment.",
+      "tests": [
+        "fixture aud01-reproduction-past-slot-with-lead-time (reproduction littérale)",
+        "fixture aud01-slot-entirely-past",
+        "fixture aud01-slot-started-not-ended",
+        "fixture aud01-slot-starts-one-second-before-threshold",
+        "fixture aud01-slot-starts-exactly-at-threshold (inclusif)",
+        "fixture aud01-slot-starts-after-threshold",
+        "fixture aud01-all-offers-removed-unfulfillable",
+        "fixture aud01-future-day-remains-valid",
+        "fixture pickup-window-clipped-by-lead-time",
+        "[AUD01-1..5] TypeScript",
+        "[AUD01-SQL] structurel",
+        "harnais : 34 cas de fixture rejoués en SQL"
+      ]
+    },
+    "CSDJ1-AUD-02": {
+      "severity": "P1",
+      "invariant": "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01",
+      "problem": "Le serveur acceptait une heure murale locale INEXISTANTE (Europe/Paris, 2026-03-29 02:10-02:50) : PostgreSQL la normalisait en silence. Une normalisation de moteur n'est pas une politique commerciale.",
+      "policy": "REFUS FERMÉ des deux cas pathologiques : heure inexistante du saut de printemps ET heure ambiguë du recul d'automne. Pour une heure ambiguë, « nous vous livrons à 02:30 » désignerait deux instants distants d'une heure, et personne n'aurait choisi lequel. Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration : la même fenêtre reste valide les 364 autres jours -- c'est pourquoi il ne peut pas être prononcé à l'écriture.",
+      "authority": "public.checkout_wall_time_status() classe ok/nonexistent/ambiguous ; public.checkout_wall_time_instant() rend NULL dès que l'heure n'est pas univoque. Le NULL est un REFUS, jamais une absence de valeur. Miroir TypeScript : resolveWallTime().",
+      "tests": [
+        "fixture aud02-paris-spring-forward-nonexistent-rejected",
+        "fixture aud02-paris-autumn-fallback-ambiguous-rejected",
+        "fixture aud02-utc-no-transition",
+        "fixture aud02-utc-plus-14-no-transition",
+        "fixture aud02-negative-offset-spring-forward",
+        "fixture aud02-negative-offset-autumn-fallback",
+        "[AUD02-1..6] TypeScript (01:59 valide, 02:xx refusée, 03:00 valide ; UTC, UTC+14, décalage négatif)",
+        "post-vol SQL : la politique doit refuser l'inexistante ET l'ambiguë, et ne pas refuser une heure ordinaire"
+      ]
+    },
+    "CSDJ1-AUD-03": {
+      "severity": "P1",
+      "invariant": "CSDJ-V1-MODE-ENABLED-GATE-01",
+      "problem": "restaurant_sale_modes.enabled = false et la lecture publique projetait quand même la planification : l'activation n'était vérifiée qu'indirectement, pour la livraison, via l'autorité de tarification.",
+      "fix": "La lecture publique vérifie l'activation du mode AVANT toute projection, pour tous les modes. La réponse est celle d'une absence, volontairement INDISCERNABLE de « aucune planification » et de « planification désactivée » : un statut distinct ferait de la surface publique un moyen de sonder la configuration d'un commerçant.",
+      "noLeak": "Ni fuseau, ni politique de date, ni politique d'horaire, ni granularité, ni date, ni offre. Prouvé par [15c] et par [15d], qui compare la réponse à celle d'un commerçant sans planification.",
+      "tests": [
+        "[15a] mode activé => projection",
+        "[15b] désactivé APRÈS configuration => absent",
+        "[15c] aucune fuite (six champs vides)",
+        "[15d] indiscernable d'une absence",
+        "[15e] réactivé => projette de nouveau",
+        "[15f] mode absent chez l'autre tenant",
+        "[15g] mode hors catalogue => refus nommé",
+        "[AUD03-SQL] la garde précède la résolution"
+      ]
+    },
+    "CSDJ1-AUD-04": {
+      "severity": "P2",
+      "invariants": [
+        "CSDJ-V1-MINUTE-PRECISION-01",
+        "CSDJ-V1-NO-24H-01"
+      ],
+      "problem": "Un créneau 09:00:01-09:00:59 se sérialisait publiquement en « 09:00-09:00 » tout en restant disponible : une offre de durée nulle affichée comme réservable.",
+      "contract": "Toute heure de configuration est à la MINUTE, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée -- tronquer était précisément le défaut, parce que la configuration disait une chose et la projection une autre. Toute représentation publique est HH:MM. 24:00 est refusé explicitement : une fin de journée se déclare 23:59, sinon chaque comparaison, chaque formatage et chaque calcul d'instant devrait connaître ce cas particulier.",
+      "enforcement": "Contrainte sur CHAQUE colonne time des trois tables, refus nommé CSDJ1_SUBMINUTE_TIME dans la RPC d'écriture avant la contrainte, et parseScheduleTime qui refuse au lieu d'arrondir. Même règle des deux côtés.",
+      "tests": [
+        "[16a..16i] harnais",
+        "[MODEL-8] et [MODEL-10] TypeScript",
+        "[AUD04-1..2] TypeScript",
+        "fixture aud04-subminute-offer-not-admissible (refus d'insertion prouvé)",
+        "[16h] aller-retour de sérialisation",
+        "[16i] aucune offre de durée nulle possible"
+      ]
+    },
+    "CSDJ1-AUD-05": {
+      "severity": "P2",
+      "invariant": "CSDJ-V1-RESOLVER-EXACT-SHAPE-01",
+      "problem": "Le pré-vol cherchait les colonnes attendues par SOUS-CHAÎNE dans le texte de la signature : « not_eligible » contient « eligible », « not_block » contient « block ». Le lot s'appliquait, puis échouait en 42703 à la première lecture -- c'est-à-dire en production et non à l'application.",
+      "fix": "Vérification par INTROSPECTION DU CATALOGUE : nom EXACT et TYPE EXACT de chaque colonne de sortie, lus dans pg_proc via unnest(proargnames, proargmodes, proallargtypes), en ne retenant que les colonnes de mode 't'. Plus l'exigence d'une surcharge UNIQUE, sans laquelle le contrôle serait ambigu. Aucune heuristique textuelle.",
+      "tests": [
+        "[18] CONTRÔLE POSITIF : une forme conforme s'applique (le garde ne refuse pas tout)",
+        "[18] SOSIE par sous-chaîne (not_eligible / not_block)",
+        "[18] colonne RENOMMÉE (is_eligible)",
+        "[18] MAUVAIS type (delivery_fee en text)",
+        "[18] colonne ABSENTE (free_threshold retirée)",
+        "[18] SURCHARGE supplémentaire",
+        "chaque mutation vérifie aussi qu'AUCUN objet du lot n'a été créé avant le refus",
+        "[AUD05-SQL] structurel : plus aucune vérification par sous-chaîne"
+      ]
+    },
+    "CSDJ1-AUD-06": {
+      "severity": "P2",
+      "problem": "`boolean::text` rend « true »/« false » ; « t »/« f » est la forme de l'affichage ALIGNÉ de psql. La capture employait ::text et la comparaison testait « t » : elle échouait toujours, et la branche de repli restaurait NOLOGIN NOBYPASSRLS. Invisible sur un cluster jetable détruit juste après, mais durable sur un cluster DÉSIGNÉ par l'opérateur.",
+      "fix": "L'instantané encode explicitement 1/0, la restauration compare à 1/0, et le verrou de sûreté n'accepte que les quatre instantanés bien formés -- un instantané d'une autre forme fait REFUSER l'exécution plutôt que muter un cluster non restaurable.",
+      "dedicatedHarness": "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh — 22 preuves : les quatre combinaisons LOGIN x BYPASSRLS sur les trois rôles, en mode CLUSTER DÉSIGNÉ (le seul où la restauration a des conséquences durables), plus le cas du rôle initialement ABSENT, plus quatre contrôles de forme.",
+      "mutationControl": "harness-role-restoration-mutation.txt : le défaut réinjecté dans une COPIE hors dépôt produit 13 échecs décrivant exactement la corruption que l'audit a décrite (LOGIN -> NOLOGIN, BYPASSRLS -> NOBYPASSRLS). Sans ce contrôle, 22 preuves vertes ne diraient pas si le harnais sait détecter quoi que ce soit.",
+      "sameDefectElsewhere": "Le MÊME défaut existe dans supabase/tests/merchant-customer-communications-v1-check.sh (lignes 340 et 376), d'où ce harnais a été dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Signalé pour planification -- voir aud06-same-defect-elsewhere.txt."
     }
   },
-  "invariants": {
-    "CSDJ-V1-SCHEDULE-ABSENT-01": "Aucune ligne de planification, ou une ligne enabled=false : statut `absent`, et le parcours de commande est EXACTEMENT celui d'avant ce lot. C'est l'état de 100 % des commerçants au moment du lot. Prouvé par [7a..7d] du harnais et par [ELIG-2] en TypeScript : absence et désactivation rendent le MÊME objet, et ne révèlent même pas le fuseau.",
-    "CSDJ-V1-UNFULFILLABLE-EXPLICIT-01": "Une planification activée dont la politique exige une date, et pour laquelle aucune date n'est éligible, rend `unfulfillable` AVEC un motif du catalogue fermé, et AUCUNE date. Exigence littérale du CIO : « It must NEVER silently fall back to an invented date. » Prouvé par [8a..8c] du harnais et [ELIG-1] en TypeScript.",
-    "CSDJ-V1-SINGLE-OFFER-AUTHORITY-01": "slot_selection_mode DÉSIGNE laquelle des deux tables d'offres fait foi : `time_within_window` lit les fenêtres et ignore les créneaux, `fixed_slots` l'inverse. Deux autorités simultanées pourraient se contredire sur le même jour. Prouvé par [ELIG-3].",
-    "CSDJ-V1-DAY-WITHOUT-OFFER-01": "Un jour de semaine sans offre est un jour FERMÉ. Aucune table « jours fermés » n'existe : elle ferait une seconde autorité.",
-    "CSDJ-V1-SCOPE-EXACT-01": "Aucun héritage entre portées : une livraison routée vers une règle sans planification est `absent`, elle n'emprunte ni la planification d'une autre règle ni un défaut de mode. Un héritage silencieux appliquerait au client les créneaux d'une zone qu'il n'habite pas.",
-    "CSDJ-V1-SERVER-CLOCK-01": "Toute éligibilité vient de pg_catalog.now() et du fuseau de la portée. La lecture publique n'accepte AUCUN paramètre temporel ([11a]) ; l'autorité interne qui en accepte un pour la fixture n'est exécutable par aucun rôle applicatif ([3k]).",
-    "CSDJ-V1-REFERENCE-NOT-AUTHORITY-01": "lib/scheduling/eligibility.ts est une implémentation de PREUVE, jamais une autorité. Aucun fichier d'app/ ou components/ ne l'importe, et le module ne lit aucune horloge. Gardé par [NO-CLIENT-AUTHORITY-1..3].",
-    "CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01": "Seules les colonnes présentes dans TOUTES les versions livrées de resolve_delivery_fulfillment sont lues. Les trois colonnes de remise n'existent que dans la variante DELIVERY PRICING v2-B5, encore DRAFT non appliquée : les lire créerait une dépendance dure envers un lot absent de la base réelle, et l'application de CSDJ-1 échouerait. L'affichage de la remise appartient à CSDJ-2, qui lit la projection publique déjà porteuse de la remise.",
-    "CSDJ1-V1-SQL-ATOMICITY-01": "Une seule transaction, pré-vol et post-vol DEDANS, commit; en dernière instruction exécutable. Garantie indépendante de ON_ERROR_STOP, prouvée par le sabotage [2]."
+  "narrowObservationsClosed": {
+    "zeroUuidReserved": "Le zéro UUID, sentinelle interne de « portée de mode », est RÉSERVÉ : contrainte rfs_rule_id_not_sentinel et refus nommé CSDJ1_RESERVED_RULE_ID. Sans cela, « portée de mode » et « portée de cette règle-là » deviendraient indiscernables le jour où une règle porterait cette valeur.",
+    "bookingHorizonZero": "L'horizon accepte 0 (« aujourd'hui seulement »), forme minimale dans laquelle se reproduit AUD-01 -- et cas commerçant réel."
   },
-  "crossProof": {
-    "fixture": "tests/fixtures/checkout-scheduling-cases.json",
-    "cases": 20,
-    "implementations": 3,
-    "method": "Les attendus ont été produits par une TROISIÈME implémentation indépendante (Python avec zoneinfo), afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Les 19 cas insérables sont rejoués par lib/scheduling/eligibility.ts ET par public.resolve_fulfillment_schedule ; le 20e décrit un état que les CONTRAINTES DE TABLE rendent impossible, et le harnais prouve alors le REFUS d'insertion -- preuve plus forte qu'un calcul qui refuse. Même mécanisme que fixtures/delivery-pricing-cases.json.",
-    "coverage": [
-      "première date éligible",
-      "heure limite une seconde avant",
-      "heure limite PILE",
-      "jours de semaine fermés",
-      "fermeture exceptionnelle",
-      "délai de préparation repoussant le jour",
-      "créneaux fixes sans jour même",
-      "transporteur informatif",
-      "date dérivée unique",
-      "aucune offre configurée",
-      "toutes les dates fermées",
-      "horizon épuisé",
-      "granularité manquante",
-      "bascule d'heure d'automne",
-      "bascule d'heure de printemps",
-      "fuseau à UTC+14",
-      "fuseau à l'ouest d'UTC"
-    ]
+  "nonBlockingLeftOpen": {
+    "displayOrder": "`display_order` est stocké mais n'ordonne rien : l'ordre des offres est celui des heures de début, déterministe et indépendant d'une saisie. La colonne est réservée à l'éditeur back-office (hors CSDJ-1). Aucun invariant v1 n'est violé.",
+    "overlappingNamedSlots": "Deux créneaux nommés peuvent se chevaucher, et c'est voulu : « matin » 09:00-13:00 et « midi » 12:00-14:00 sont une offre commerciale légitime. Les FENÊTRES, elles, ne peuvent pas se superposer, parce qu'elles décrivent une ouverture et non un choix. Aucun invariant v1 n'est violé.",
+    "csdj3RollbackCoordination": "Le point d'extension existe déjà : le retour arrière REFUSE de passer si public.order_fulfillment_schedule_snapshot (CSDJ-3) est présente, avec SCANYM_ROLLBACK_REFUSED. CSDJ-3 n'est pas implémenté."
+  },
+  "pythonFixtureEvidence": {
+    "claim": "MAINTENUE, et désormais vérifiable",
+    "source": "tests/fixtures/build-checkout-scheduling-cases.py (versionné au dépôt)",
+    "command": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
+    "log": "fixture-generation.log",
+    "python": "3.13.16 (CPython)",
+    "tzdata": "2026c (/usr/share/zoneinfo, paquet système tzdata 2026c-0ubuntu0.24.04.1)",
+    "byteReproducible": "Relancer le générateur reproduit tests/fixtures/checkout-scheduling-cases.json À L'OCTET (vérifié par comparaison d'empreinte avant/après).",
+    "independence": "Un test structurel [FIXTURE-SOURCE-1] vérifie que le générateur ne LIT ni n'EXÉCUTE aucune des deux implémentations qu'il juge, et qu'il tire ses fuseaux de la bibliothèque standard."
   },
   "results": {
     "targetedTests": {
-      "pass": 83,
+      "pass": 121,
       "fail": 0,
       "files": {
-        "csdj1-scheduling-model": 9,
-        "csdj1-scheduling-eligibility": 34,
-        "csdj1-sql-structural": 40
+        "csdj1-scheduling-model": 10,
+        "csdj1-scheduling-eligibility": 63,
+        "csdj1-sql-structural": 48
       }
     },
-    "relevantRegressions": {
-      "pass": 199,
+    "requiredRegressions": {
+      "pass": 285,
       "fail": 0,
-      "files": {
-        "v102-delivery-pricing-determinism": 10,
-        "v96-fulfillment-routing-lot-b": 35,
-        "v97-fulfillment-routing-lot-b1-determinism": 21,
-        "v85-lot2b2-delivery-resolver": 25,
-        "delivery-pricing-rule-stale-tenant.dom": 6,
-        "delivery-method-notice-stale-tenant.dom": 6,
-        "b0-delivery-zone-validation": 55,
-        "mcc-v1-sql-structural": 41
-      }
+      "files": 12,
+      "covers": [
+        "tarification livraison",
+        "appariement de zones",
+        "isolation de tenant",
+        "structurels MCC",
+        "comportement MCC"
+      ]
     },
     "sqlHarness": {
-      "proofs": 94,
+      "proofs": 140,
       "fail": 0,
-      "cluster": "créé et détruit par le harnais lui-même",
-      "safetyModel": "repris verbatim de MCC v1.1, dont les 47 preuves comportementales restent au dépôt"
+      "sections": 18
+    },
+    "roleRestorationHarness": {
+      "proofs": 22,
+      "fail": 0,
+      "mutationControl": {
+        "failuresWhenDefectReinjected": 13
+      }
     },
     "harnessRefusals": {
       "withoutConsent": {
-        "exit": 2,
-        "destructiveOperationsAttempted": 0
+        "exit": 2
       },
       "inheritedRedirectVar": {
         "exit": 2,
-        "variable": "PGPASSWORD",
-        "valueLeakedInOutput": 0
+        "valueLeaked": 0
       }
     },
     "typescript": {
-      "command": "npx tsc --noEmit",
       "exit": 0,
       "diagnostics": 0
     },
     "build": {
-      "baselineExit": 0,
-      "candidateExit": 0,
+      "exit": 0,
       "routesAdded": [],
-      "routesRemoved": [],
       "firstLoad": {
         "/r/[slug]": "248 kB inchangé",
         "/dashboard/settings": "234 kB inchangé",
         "/track/[orderId]": "155 kB inchangé"
       },
-      "note": "AUCUN octet client ajouté : ce lot ne pose aucun composant et ses deux modules TypeScript ne sont importés par aucune page. C'est le signe attendu d'un sous-lot de fondation."
+      "note": "Toujours aucun octet client ajouté : ce sous-lot ne pose aucun composant."
     },
     "fullSuite": {
       "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
-      "comparison": "identités d'échec EXACTES, pas des comptes",
       "baseline": {
         "sha": "412dbb53c5f180983860852b79425209c04b9c42",
         "pass": 4768,
         "fail": 10
       },
       "candidate": {
-        "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
-        "pass": 4851,
+        "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
+        "pass": 4889,
         "fail": 10
       },
       "appeared": 0,
       "disappeared": 0,
-      "identitySetsEqual": "Les deux jeux d'identités d'échec sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Les 10 échecs sont les 10 échecs préexistants du dépôt. Le delta de réussites, +83, est exactement le nombre de tests ajoutés par ce lot."
+      "identitySetsEqual": "Les deux jeux d'identités d'échec sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +121 réussites est exactement le nombre de tests ciblés de ce lot. AUCUN échec déterministe causé par le candidat.",
+      "nondeterminism": "Aucun constaté : les deux exécutions sont séquentielles et leurs jeux d'identités coïncident à l'octet. Les preuves par fichier sont néanmoins fournies (targeted.tap.gz, regressions.tap.gz) pour que chaque identité soit reproductible sans rejouer la suite entière."
     }
   },
-  "productionTouched": false,
-  "constraints": "AUCUN merge, AUCUN déploiement, AUCUN SQL hébergé, AUCUNE mutation Production/PREPROD, AUCUNE modification de main. SQL DRAFT uniquement."
+  "preserved": [
+    "isolation multi-locataires",
+    "réutilisation de l'autorité de tarification",
+    "retour arrière",
+    "frontière de propriété Debussy",
+    "aucune fuite de fournisseur",
+    "aucun second moteur de prix",
+    "aucun texte Theme/MCC",
+    "aucune interface de paiement",
+    "aucun instantané de commande",
+    "aucune API transporteur",
+    "aucune application hébergée",
+    "aucun merge, aucun déploiement"
+  ],
+  "productionTouched": false
 }
