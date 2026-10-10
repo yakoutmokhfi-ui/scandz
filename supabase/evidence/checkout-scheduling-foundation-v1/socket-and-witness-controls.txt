@@ -1,0 +1,74 @@
+[20:00:37] === [G] contrôles négatifs : chaque fait de l'identité, faussé à son tour ===
+[20:00:37] PASS: [G] rôle témoin posé (NOLOGIN+NOBYPASSRLS) par le chemin NOMINAL -- le prédicat laisse passer ce qui est légitime
+[20:00:37] PASS: [G] data_directory faux — REFUS, raison « data_directory »
+[20:00:37] PASS: [G] data_directory faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] config_file faux — REFUS, raison « config_file »
+[20:00:37] PASS: [G] config_file faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] marqueur RETIRÉ — REFUS, raison « marqueur_absent »
+[20:00:37] PASS: [G] marqueur RETIRÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] marqueur CHANGÉ — REFUS, raison « nonce »
+[20:00:37] PASS: [G] marqueur CHANGÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] nonce attendu faux — REFUS, raison « nonce »
+[20:00:37] PASS: [G] nonce attendu faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] port faux — REFUS, raison « port »
+[20:00:37] PASS: [G] port faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] utilisateur faux — REFUS, raison « current_user »
+[20:00:37] PASS: [G] utilisateur faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] destination RÉSEAU (témoin) — REFUS, raison « destination_reseau »
+[20:00:37] PASS: [G] destination RÉSEAU (témoin) — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] socket attendue fausse — REFUS, raison « socket »
+[20:00:37] PASS: [G] socket attendue fausse — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] non superutilisateur — REFUS, raison « is_superuser »
+[20:00:37] PASS: [G] non superutilisateur — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[20:00:37] PASS: [G] CONTRÔLE POSITIF — le chemin nominal MUTE toujours (le prédicat n'est pas devenu un refus universel)
+[20:00:37] === [H] égalité exacte du répertoire de socket ===
+[20:00:38] PASS: [H] entrée EXACTE (membre 1) — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-a »)
+[20:00:38] PASS: [H] entrée EXACTE (membre 2) — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-b »)
+[20:00:38] PASS: [H] barre oblique finale, même répertoire — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-a/ »)
+[20:00:38] PASS: [H] PRÉFIXE d'une entrée — REFUS, raison « socket »
+[20:00:38] PASS: [H] PRÉFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] entrée + un caractère — REFUS, raison « socket »
+[20:00:38] PASS: [H] entrée + un caractère — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] répertoire PARENT — REFUS, raison « socket »
+[20:00:38] PASS: [H] répertoire PARENT — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] SOUS-répertoire d'une entrée — REFUS, raison « socket »
+[20:00:38] PASS: [H] SOUS-répertoire d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] SUFFIXE d'une entrée — REFUS, raison « socket »
+[20:00:38] PASS: [H] SUFFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] la LISTE entière — REFUS, raison « socket »
+[20:00:38] PASS: [H] la LISTE entière — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tm — REFUS, raison « socket »
+[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tm — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tmpx — REFUS, raison « socket »
+[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tmpx — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[20:00:38] PASS: [H] « /tmp/tmp.xE1wbVD2Cy/lab- » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
+[20:00:38] PASS: [H] « /tm » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
+[20:00:38] PASS: [H] « /tmp/tmp.xE1wbVD2Cy » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
+[20:00:38] PASS: [E] le détecteur de mutations de rôle examine bien les deux harnais (15 instructions)
+[20:00:38] PASS: [E] TOUTE mutation de rôle est portée par une commande gardée, témoin compris
+[20:00:38] PASS: [E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)
+[20:00:38] PASS: [E] la liste de sockets est découpée en ENTRÉES et comparée à l'ÉGALITÉ
+[20:00:38] PASS: [E] le prédicat partagé vérifie « destination_reseau »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « port »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « current_user »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « is_superuser »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « socket »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « data_directory »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « config_file »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « marqueur_absent »
+[20:00:38] PASS: [E] le prédicat partagé vérifie « nonce »
+
+======================================================================
+LE PRÉDICAT DE SOCKET : AVANT / APRÈS
+======================================================================
+  AVANT  strpos(liste, attendu) <> 0        -- SOUS-CHAÎNE
+         => « /tm » acceptait un serveur dont la socket est « /tmp »
+         => le répertoire PARENT et la LISTE ENTIÈRE passaient aussi
+
+  APRÈS  la liste est découpée en ENTRÉES (string_to_array + unnest),
+         chaque entrée est normalisée (espaces, guillemets, barre
+         oblique finale) et comparée à l'ÉGALITÉ avec l'attendu,
+         lui-même normalisé de la même façon côté shell.
+
+  Les deux verdicts sont comparés en lecture seule dans [H], sur le
+  cluster de banc d'essai à DEUX répertoires de socket.

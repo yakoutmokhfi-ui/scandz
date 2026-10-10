@@ -1,30 +1,145 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.3 (CSDJ-1) — paquet de preuves
-## Troisième remédiation ciblée : CSDJ1-AUD-PYTHON-01 et CSDJ1-AUD-07
+# CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1) — paquet de preuves
+## Quatrième remédiation ciblée : les deux derniers défauts d'AUD-07
 
-| candidat | verdict | ce qu'il restait |
-| --- | --- | --- |
-| `091c3f0` | **FAIL** — six blockers | — |
-| `d94a110` | **FAIL** — six clos, deux restants | AUD-02 incomplet, AUD-07 nouveau |
-| `993cb7b` | **FAIL** — deux blockers | preuve Python non indépendante, AUD-07 encore partiel |
-| `9c940e1` | **ce candidat** | — |
+| candidat | verdict |
+| --- | --- |
+| `091c3f0` | **FAIL** — six blockers |
+| `d94a110` | **FAIL** — six clos, deux restants |
+| `993cb7b` | **FAIL** — preuve Python non indépendante, AUD-07 partiel |
+| `9c940e1` | **FAIL** — AUD-PYTHON-01 et AUD-02..06 clos ; deux défauts d'AUD-07 |
+| `610e356` | **ce candidat** |
 
-Aucun des trois candidats refusés n'est amendé ni réécrit : ils restent
-**intacts** dans l'historique, en ancêtres de celui-ci. Et **aucune
-recomposition** sur le `main` courant : le mandat ordonne une lignée
-immuable jusqu'au PASS d'audit.
+Aucun des quatre candidats refusés n'est amendé ni réécrit : ils restent
+**intacts** dans l'historique. **Aucune recomposition** sur le `main`
+courant : lignée immuable jusqu'au PASS d'audit.
 
-Remédiation **narrow**. Le résolveur DST n'est pas redessiné ; aucun
-comportement de planification ne change. **CSDJ-2 n'est pas commencé.**
-
-§0 ci-dessous traite les deux blockers de ce tour. §00 et §1–§7 décrivent
-les tours précédents et restent valables ; les quinze domaines déclarés
-clos sont **re-prouvés** (voir §6).
+L'oracle Python, ses plis, son aller-retour, les 48 cas de fixture et les
+contrôles différentiels sont **intacts** et seulement **rejoués en
+régression**. **CSDJ-2 n'est pas commencé.**
 
 ---
 
-## §0 — Les deux blockers de ce tour
+## §0 — Les deux défauts de ce tour
 
-### §0.1 CSDJ1-AUD-PYTHON-01 (P1) — l'oracle n'était plus un oracle
+Les deux reproches sont justes, et tous deux sont de la même famille :
+une garde qui laisse passer ce qu'elle était censée arrêter.
+
+### §0.1 L'initialisation des rôles du TÉMOIN échappait à la garde
+
+Le cluster témoin recevait ses attributs distinctifs — `service_role
+LOGIN BYPASSRLS`, et de même pour `anon` et `authenticated` — par un
+appel brut `qw`, sans le prédicat d'identité complète. L'invariant est
+pourtant sans exception : **toute** mutation de rôle a lieu après la
+preuve complète, marqueur et nonce compris, dans le même chemin gardé.
+
+La raison du défaut est banale, et c'est ce qui la rend dangereuse : un
+cluster « qui ne sert que de témoin » paraît ne pas compter. Un appel
+brut qui ne compte pas est un appel brut qui comptera le jour où la
+destination n'est plus celle qu'on croit — et ce fichier existe
+précisément pour prouver qu'on ne mute jamais le mauvais serveur.
+
+**Le témoin a donc son contrat complet** : socket attendue, port,
+utilisateur, assertion superutilisateur, `data_directory`,
+`config_file`, nonce d'exécution, et un marqueur en base **au nom
+distinct** de celui du cluster sous test — sans quoi la preuve « le
+marqueur n'existe que là » ne voudrait plus rien dire. Son
+initialisation passe par `csdj1_identity_mutate`, le même prédicat
+atomique que toutes les autres mutations. Aucun appel brut ne porte plus
+de mutation de rôle.
+
+**Contrats nommés.** La bibliothèque en gère désormais plusieurs, et
+quatre cohabitent : `test` (cluster sous test), `temoin`, `banc` (banc
+d'essai de sockets) et `test_sans_privilege` (connexion non
+privilégiée). Les nommer, plutôt que sauvegarder et restaurer un contrat
+global à la main autour de chaque usage, évite exactement ce qui a
+produit le défaut d'origine : deux chemins presque identiques qui
+divergent sans qu'on le voie.
+
+**Un détecteur, qui aurait vu ce défaut.** Il raisonne par **commande
+englobante** : une instruction de mutation vit presque toujours à
+l'intérieur d'un argument sur plusieurs lignes, et un contrôle ligne à
+ligne ne prouverait rien. Il suit l'ouvreur de commande le plus proche
+en amont et exige qu'il soit gardé — dans **les deux** harnais, pour
+`create role`, `alter role` et `drop role`, dans les deux casses. Il
+vérifie aussi que les variables qui accumulent du SQL de mutation
+(`RESTORE_SQL`, `PROBE_MUTATION`) ne sont consommées que par une
+mutation gardée, et il **compte ce qu'il examine** : un détecteur qui ne
+trouverait rien à examiner passerait pour vert.
+
+### §0.2 Le répertoire de socket se comparait par SOUS-CHAÎNE
+
+`strpos(unix_socket_directories, attendu) <> 0` acceptait n'importe quel
+fragment. La reproduction du rapport, vérifiée ici :
+
+| socket réelle | attendu | ancien prédicat | nouveau |
+| --- | --- | --- | --- |
+| `/tmp/…/lab-a` | `/tm` | **accepté** | refusé |
+| `/tmp/…/lab-a` | `/tmp/…/lab-` *(préfixe)* | **accepté** | refusé |
+| `/tmp/…/lab-a` | `/tmp/…` *(parent)* | **accepté** | refusé |
+
+Une identité qui accepte un fragment n'identifie rien. Et sur un poste
+où plusieurs clusters jetables vivent côte à côte sous `/tmp`, le
+fragment est la règle, pas l'exception.
+
+**La correction.** `unix_socket_directories` est une **liste** séparée
+par des virgules, dont les entrées peuvent être encadrées de guillemets
+doubles — c'est la syntaxe que PostgreSQL accepte pour un chemin
+contenant une virgule ou un espace. Elle est donc découpée en
+**entrées** (`string_to_array` + `unnest`) ; chacune est normalisée —
+espaces extérieurs, guillemets, barre oblique finale, `/` restant son
+propre répertoire — et l'attendu, **normalisé de la même façon** côté
+shell, doit être **égal** à une entrée complète. Sans cette symétrie,
+`/tmp/` et `/tmp` seraient deux répertoires différents. Un attendu non
+absolu fait refuser la déclaration du contrat : un attendu vide aurait
+accepté une entrée vide.
+
+**Un banc d'essai à deux répertoires.** Le harnais crée un cluster avec
+`unix_socket_directories='A,B'`. Sans lui, rien ne distingue « une
+entrée complète » de « la liste ». Onze contrôles :
+
+| attendu | verdict |
+| --- | --- |
+| entrée exacte (membre 1) | **accepté** |
+| entrée exacte (membre 2) | **accepté** |
+| entrée avec barre oblique finale | **accepté** |
+| préfixe d'une entrée | refus `socket`, zéro mutation |
+| entrée + un caractère | refus `socket`, zéro mutation |
+| répertoire parent | refus `socket`, zéro mutation |
+| sous-répertoire d'une entrée | refus `socket`, zéro mutation |
+| suffixe d'une entrée | refus `socket`, zéro mutation |
+| la liste entière | refus `socket`, zéro mutation |
+| **`/tmp` contre `/tm`** | refus `socket`, zéro mutation |
+| **`/tmp` contre `/tmpx`** | refus `socket`, zéro mutation |
+
+Les deux dernières lignes sont la reproduction littérale du rapport.
+
+**La nocivité est démontrée, pas déclarée.** Pour trois attendus
+partiels, le harnais montre en lecture seule que l'ancien prédicat les
+acceptait et que le nouveau les refuse.
+
+### §0.3 Contrôle de sensibilité — M6
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M6** | l'égalité exacte remplacée par une sous-chaîne | **détecté** — « préfixe d'une entrée » et « répertoire parent » sont **acceptés à tort**, et le rôle témoin du banc est **réellement** muté (`NOBYPASSRLS → BYPASSRLS`) |
+
+M1, M3, M4 et M5 sont rejoués et restent concluants. Un prédicat qu'on
+ne peut pas faire échouer n'est pas un prédicat.
+
+### §0.4 Un incident, réparé au passage
+
+Un commentaire du heredoc de la garde contenait des accents graves, que
+le shell exécutait comme des commandes : le harnais imprimait `strpos:
+command not found` à chaque nettoyage. Sans conséquence sur le SQL émis,
+mais un harnais qui bruite est un harnais qu'on cesse de lire.
+
+---
+
+## §00 — Les deux blockers du tour précédent
+
+
+
+### §00.1 CSDJ1-AUD-PYTHON-01 (P1) — l'oracle n'était plus un oracle
 
 Le reproche est juste, et il est plus sérieux qu'un défaut de
 comportement : `resolve_wall` **reproduisait l'algorithme des deux
@@ -115,7 +230,7 @@ doivent continuer d'échantillonner. Si elles migraient un jour vers la
 méthode des plis, les trois convergeraient de nouveau et `[ORACLE-1]`
 resterait vert sans plus rien garantir.
 
-### §0.2 CSDJ1-AUD-07 (P1) — l'identité de destination était partielle
+### §00.2 CSDJ1-AUD-07 (P1) — l'identité de destination était partielle
 
 Le nettoyage vérifiait quatre faits avant de muter des rôles : socket,
 port, utilisateur, superutilisateur. Il **omettait** `data_directory`,
@@ -202,7 +317,7 @@ section `[F]` continue de démontrer que la menace est réelle : sans
 isolation la connexion aboutit **au témoin**, sous `env -i` au cluster
 sous test.
 
-### §0.3 Contrôles de mutation
+### §00.3 Contrôles de mutation
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -217,11 +332,11 @@ négatifs verts ne diraient pas s'ils savent voir quoi que ce soit.
 
 ---
 
-## §00 — Les deux blockers du tour précédent
+## §000 — Les deux blockers du tour antérieur
 
 
 
-### §00.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
+### §000.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
 
 Le re-audit delta a produit trois reproductions, et deux reproches
 distincts se cachaient derrière.
@@ -308,7 +423,7 @@ UTC (aucune transition), Pacific/Kiritimati (UTC+14),
 America/Los_Angeles et America/New_York (décalages négatifs),
 Pacific/Chatham et Asia/Kathmandu (décalages à 45 minutes de l'heure).
 
-### §00.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
+### §000.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
 
 `q()` héritait des variables libpq de l'environnement appelant.
 **`PGHOSTADDR` l'emporte sur un `-h` explicite** : le harnais pouvait
@@ -391,7 +506,7 @@ tout passerait pour protégé.
 
 **87 preuves, 0 échec** (`harness-role-restoration.txt`).
 
-### §00.3 Contrôles de mutation, et AUD-06 re-prouvé
+### §000.3 Contrôles de mutation, et AUD-06 re-prouvé
 
 Un harnais vert ne prouve rien si le défaut qu'il interdit peut être
 réinjecté sans qu'il échoue.
@@ -418,7 +533,7 @@ exactement, en mode cluster **désigné** — le seul où la restauration a
 des conséquences durables — et le harnais voit encore le défaut quand on
 le réinjecte.
 
-### §00.4 Discipline de portée
+### §000.4 Discipline de portée
 
 Aucun redesign. Aucun contrat déjà clos modifié, à une exception près et
 strictement nécessaire : l'ajout du catalogue des trois statuts d'heure
@@ -475,7 +590,7 @@ choisi lequel. Un refus, lui, est visible et corrigeable.
 
 Deux autorités nouvelles : `checkout_wall_time_status()` classe
 `valid_unique` / `nonexistent` / `ambiguous` (nommé `ok` au tour
-précédent, voir §00.1), et `checkout_wall_time_instant()`
+précédent, voir §000.1), et `checkout_wall_time_instant()`
 rend `NULL` dès que l'heure n'est pas univoque. Ce `NULL` est un
 **refus**, jamais une absence de valeur — c'est pour cela qu'il n'y a
 pas de repli. Miroir TypeScript : `resolveWallTime()`.
@@ -637,68 +752,63 @@ juge.
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **149 / 0** (10 + 78 + 53 + 8) |
+| tests ciblés CSDJ-1 | **151 / 0** (10 + 78 + 55 + 8) |
 | régressions exigées | **285 / 0** (12 fichiers) |
 | harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
-| harnais d'isolation et de restauration de rôles | **120 preuves / 0 échec** (`[A]`–`[G]`) |
-| contrôles de mutation M1 / M3 / M4 / M5 | **4 concluants / 0 manquant** |
-| oracle indépendant vs TypeScript | **38 points / 0 divergence** |
-| oracle indépendant vs autorité SQL | **38 points / 0 divergence** |
-| 48 cas d'offres après changement de méthode | **inchangés, octet pour octet** |
-| fixture reproductible | **à l'octet** (`sha256 c266e5ce…`, python 3.13.16 / tzdata 2026c) |
-| contrôles négatifs d'identité | **10 / 10** refus pour la bonne raison, **zéro** mutation |
-| contrôle positif d'identité | le chemin nominal **mute** toujours |
+| harnais d'isolation et de rôles | **148 preuves / 0 échec** (`[A]`–`[H]`) |
+| contrôles de mutation M1/M3/M4/M5/**M6** | **5 concluants / 0 manquant** |
+| contrôles de socket | **11 / 11**, refus pour la raison `socket`, **zéro** mutation |
+| contrôles négatifs d'identité | **10 / 10**, refus pour la bonne raison, **zéro** mutation |
+| contrôles positifs | le chemin nominal **mute** toujours (identité et socket) |
+| oracle Python | **INTACT**, fixture reproduite **à l'octet** (`sha256 c266e5ce…`) |
+| oracle vs TypeScript / vs SQL | **38 points / 0 divergence** chacun |
 | refus sans consentement | **EXIT 2**, « aucune mutation n'a été tentée » |
 | refus d'un `PGHOSTADDR` hérité | **EXIT 2**, valeur jamais journalisée (0 occurrence) |
 | TypeScript | **0 diagnostic** |
 | build | **EXIT 0**, 39 routes, aucune ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, seconde remédiation `993cb7b` | 4918 tests, 4908 / 10 |
-| suite complète, ce candidat `9c940e1` | **4927 tests, 4917 / 10** |
+| suite complète, troisième remédiation `9c940e1` | 4927 tests, 4917 / 10 |
+| suite complète, ce candidat `610e356` | **4929 tests, 4919 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
-Les jeux d'identités d'échec de la **base**, de la **seconde
-remédiation** et de **ce candidat** sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+9** réussites est
-exactement le nombre de tests ajoutés ce tour : huit `[ORACLE-*]` et un
-`[AUD07-SQL-2]`. Aucun test existant n'a changé de verdict, et **aucun
-échec déterministe n'est imputable au candidat**.
+La comparaison porte sur les **identités**, pas sur les comptes. Les jeux
+d'identités d'échec de la **base**, de la **troisième remédiation** et de
+**ce candidat** sont **octet-identiques** (md5
+`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+2** réussites est
+exactement le nombre de tests ajoutés ce tour : `[AUD07-SQL-3]` et
+`[AUD07-SQL-4]`.
 
 Les dix échecs sont les dix échecs **préexistants** de la base. Aucun
-non-déterminisme n'a été constaté au cours de ce tour : l'exécution est
-séquentielle (`--test-concurrency=1`) et les jeux d'identités coïncident
-à l'octet. Les preuves **par fichier** sont fournies
-(`targeted.tap.gz`, `regressions.tap.gz`).
-
-Le build exige la **présence** des variables d'environnement Supabase à
-la collecte des pages ; il a été lancé avec des valeurs **synthétiques et
-non fonctionnelles**, et les 39 routes sont identiques à celles des deux
-remédiations précédentes.
+non-déterminisme constaté ; l'exécution est séquentielle
+(`--test-concurrency=1`).
 
 ---
 
 ## §6 — Ce qui n'a pas régressé
 
-Le troisième re-audit delta a déclaré **quinze** domaines clos. Tous
-sont conservés et **re-prouvés** :
+Le quatrième re-audit delta a déclaré clos AUD-PYTHON-01, AUD-02,
+AUD-03, AUD-04, AUD-05 et AUD-06, plus treize domaines à préserver. Tous
+sont conservés et **re-prouvés** après les deux corrections :
 
 | domaine clos | preuve de non-régression |
 | --- | --- |
-| CSDJ1-AUD-01 | fixtures `aud01-*` rejouées (TypeScript **et** SQL), `[AUD01-1..5]`, `[AUD01-SQL]` |
-| CSDJ1-AUD-02 *(fonctionnel)* | 48 cas d'offres **inchangés octet pour octet**, 38 points de classement sans divergence ; aucun comportement de planification modifié |
-| CSDJ1-AUD-03 | harnais `[15a]`–`[15g]`, `[AUD03-SQL]` |
-| CSDJ1-AUD-04 | harnais `[16a]`–`[16i]`, `[MODEL-8]`, `[MODEL-10]`, `[AUD04-1..2]` |
-| CSDJ1-AUD-05 | harnais `[18]` : contrôle positif + cinq sosies, `[AUD05-SQL]` |
-| CSDJ1-AUD-06 | 120 preuves du harnais de rôles **après** la réécriture du prédicat, + contrôle M3 |
+| AUD-PYTHON-01 | oracle **intact** (plis, aller-retour) ; fixture reproduite à l'octet ; 8 tests `[ORACLE-*]` |
+| AUD-02 | 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL d'accord avec l'oracle |
+| AUD-03 | harnais `[15a]`–`[15g]`, `[AUD03-SQL]` |
+| AUD-04 | harnais `[16a]`–`[16i]`, `[MODEL-8]`, `[MODEL-10]`, `[AUD04-1..2]` |
+| AUD-05 | harnais `[18]` : contrôle positif + cinq sosies, `[AUD05-SQL]` |
+| AUD-06 | quatre combinaisons `LOGIN × BYPASSRLS` et rôle initialement absent restaurés exactement, **après** les deux corrections ; M3 toujours discriminant |
 | Lord Howe | ambiguë, inexistante et ordinaire, dans les deux sens |
-| occurrence tout-ou-rien | `[AUD02-SQL-3]`, fixtures de fenêtres |
-| isolation d'environnement du harnais | `[D]` onze variables, `[E]` structurel, contrôle M1 |
-| zéro UUID réservé | harnais `[17]`, `[SENTINEL-1]` |
+| occurrence tout-ou-rien | `[AUD02-SQL-3]` |
+| nonce manquant / changé | `[G]` « marqueur retiré » et « marqueur changé », zéro mutation ; M4 |
+| garde `data_directory` | `[G]`, zéro mutation ; M5 |
+| garde `config_file` | `[G]`, zéro mutation ; M5 |
+| rejet de `PGHOSTADDR` | code 2, valeur jamais journalisée, nocivité toujours démontrée en `[F]` |
 | isolation multi-locataires | harnais `[3]`, tests de tenant obsolète |
 | réutilisation de l'autorité de tarification | harnais `[10]`, `[13e]`, `[NO-SECOND-ENGINE-1..2]` |
 | retour arrière | harnais `[13a]`–`[13g]` |
-| frontière de propriété Debussy | `[OWNERSHIP-1..3]` — voir la réserve d'intégration ci-dessous |
-| identité des régressions | jeux d'identités octet-identiques à la base |
+| frontière de propriété Debussy | `[OWNERSHIP-1..3]` |
+| identités de régression | jeux octet-identiques à la base |
 
 **Réserve d'intégration, à ne pas appliquer maintenant.** Au moment de la
 recomposition, `[OWNERSHIP-2]` (« exactement 14 clés MCC ») doit devenir

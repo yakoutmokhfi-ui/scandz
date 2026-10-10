@@ -1,42 +1,41 @@
-CHECKOUT SCHEDULING FOUNDATION v1.3 (CSDJ-1)
-TROISIÈME REMÉDIATION CIBLÉE — CANDIDAT
+CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1)
+QUATRIÈME REMÉDIATION CIBLÉE — CANDIDAT
 ======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   9c940e1cdd488e73ace432df8f0fc259d31e59c2
-arbre du candidat           cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce
+CANDIDAT (implémentation)   610e3560101ccd3d53fcb61b69f8c32c11f69956
+arbre du candidat           e3492964cdfe33e81f9b642ddbbd25df3c1876ef
 base de développement       412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
 
 LIGNÉE — AUCUN CANDIDAT RÉÉCRIT
 -------------------------------
-  091c3f0  candidat initial                        FAIL (6 blockers)
-  d94a110  première remédiation                    FAIL (2 restants)
-  993cb7b  seconde remédiation                     FAIL (2 blockers)
-  9c940e1  CE CANDIDAT                             à auditer
+  091c3f0  candidat initial                    FAIL (6 blockers)
+  d94a110  première remédiation                FAIL (2 restants)
+  993cb7b  seconde remédiation                 FAIL (2 blockers)
+  9c940e1  troisième remédiation               FAIL (2 défauts AUD-07)
+  610e356  CE CANDIDAT                         à auditer
 
-Aucun des trois candidats refusés n'est amendé ni réécrit. Ils restent
+Aucun des quatre candidats refusés n'est amendé ni réécrit. Ils restent
 intacts dans l'historique, en ancêtres de celui-ci.
 
 PAS DE RECOMPOSITION
 --------------------
   origin/main courant = 2f45df7717b16b08075b51aabf9cec4afd4b2741
-  Ce candidat reste sur 412dbb5. Le mandat l'ordonne : lignée
-  IMMUABLE, recomposition après PASS d'audit, sur ordre du CIO.
+  Ce candidat reste sur 412dbb5. Lignée IMMUABLE, comme ordonné.
 
 STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    9c940e1 = LE CANDIDAT : 8 fichiers, 6 modifiés, 2 ajoutés
-  HEAD~2    214eb7d = scellement de la seconde remédiation
-  HEAD~3    993cb7b = seconde remédiation (FAIL)
-  HEAD~4    54ccccd = scellement de la première remédiation
-  HEAD~5    d94a110 = première remédiation (FAIL)
-  HEAD~6    7546ace = scellement du candidat initial
-  HEAD~7    091c3f0 = candidat initial (FAIL)
-  HEAD~8    412dbb5 = base de développement
+  HEAD~1    610e356 = LE CANDIDAT : 5 fichiers, tous modifiés
+  HEAD~2    662b00d = scellement de la troisième remédiation
+  HEAD~3    9c940e1 = troisième remédiation
+  HEAD~4    214eb7d / 993cb7b = seconde remédiation et son scellement
+  HEAD~6    54ccccd / d94a110 = première remédiation et son scellement
+  HEAD~8    7546ace / 091c3f0 = candidat initial et son scellement
+  HEAD~10   412dbb5 = base de développement
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -45,37 +44,41 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 8 FICHIERS CHANGÉS DEPUIS 993cb7b
+LES 5 FICHIERS CHANGÉS DEPUIS 9c940e1
 -------------------------------------
-  M  tests/fixtures/build-checkout-scheduling-cases.py
-         AUD-PYTHON-01 — oracle réécrit : zoneinfo + fold=0/fold=1 +
-                  aller-retour. Les sondes ont disparu. 38 points de
-                  classement ajoutés à la sortie.
-  M  tests/fixtures/checkout-scheduling-cases.json
-         AUD-PYTHON-01 — 48 cas d'offres INCHANGÉS ; ajout de
-                  oracleMethod et de wallTimeCases (38 points).
-  A  tests/csdj1-oracle-independence.test.ts
-         AUD-PYTHON-01 — 8 tests, dont les contrôles différentiels
-                  contre trois classificateurs délibérément faux.
-  A  supabase/tests/csdj1-cluster-identity.sh
-         AUD-07 — LE prédicat d'identité, unique et partagé. Huit
-                  faits, garde et mutation dans un seul bloc DO.
-  M  supabase/tests/checkout-scheduling-foundation-v1-check.sh
-         AUD-07 — source le prédicat ; marqueur d'exécution ; mise en
-                  place des rôles globaux sortie de l'amorçage de base
-                  et passée sous garde ; restauration en UNE
-                  transaction gardée ; retrait du marqueur.
-         AUD-PYTHON-01 — section [6o] : les 38 points rejoués contre
-                  l'autorité SQL.
+  M  supabase/tests/csdj1-cluster-identity.sh
+         BLOCKER 2 — la liste unix_socket_directories est découpée en
+                  ENTRÉES, normalisée et comparée à l'ÉGALITÉ. strpos
+                  a disparu.
+         BLOCKER 1 — contrats NOMMÉS : plusieurs clusters, plusieurs
+                  contrats complets, aucun contrat global sauvegardé et
+                  restauré à la main.
+         Incident — accents graves retirés du heredoc (le shell les
+                  exécutait).
   M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
-         AUD-07 — prédicat local supprimé au profit du partagé ;
-                  section [G] : dix contrôles négatifs + un positif.
+         BLOCKER 1 — contrat complet du TÉMOIN et initialisation de ses
+                  rôles SOUS GARDE ; détecteur de mutations non gardées
+                  dans les deux harnais ; contrat « non privilégié »
+                  distinct pour le contrôle is_superuser.
+         BLOCKER 2 — cluster de banc d'essai à DEUX répertoires de
+                  socket et section [H] : onze contrôles + démonstration
+                  de nocivité de l'ancien prédicat.
+  M  supabase/tests/checkout-scheduling-foundation-v1-check.sh
+         BLOCKER 1 — contrat nommé « lot ».
   M  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
-         AUD-07 — M4 (marqueur retiré du prédicat) et M5
-                  (data_directory/config_file retirés) ajoutés.
+         BLOCKER 2 — M6 : l'égalité exacte remplacée par une
+                  sous-chaîne doit faire ÉCHOUER les contrôles [H].
   M  tests/csdj1-sql-structural.test.ts
-         AUD-07 — [AUD07-SQL-2] : un seul prédicat, complet, pour tout
-                  chemin qui mute.
+         [AUD07-SQL-3] égalité exacte de socket
+         [AUD07-SQL-4] aucune mutation de rôle hors garde, témoin compris
+
+INTACTS — ET REJOUÉS EN RÉGRESSION
+----------------------------------
+  tests/fixtures/build-checkout-scheduling-cases.py   (oracle, plis,
+                                                       aller-retour)
+  tests/fixtures/checkout-scheduling-cases.json       (48 cas + 38 points)
+  tests/csdj1-oracle-independence.test.ts             (8 tests)
+  La fixture est reproduite À L'OCTET par le générateur inchangé.
 
 REJOUER LES PREUVES
 -------------------

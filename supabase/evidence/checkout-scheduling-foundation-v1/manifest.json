@@ -1,7 +1,7 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.3 (CSDJ-1) — troisième remédiation ciblée",
-  "status": "READY FOR THIRD DELTA RE-AUDIT",
-  "mandate": "NOUGARO — THIRD TARGETED REMEDIATION / CSDJ-1. Verdict du troisième re-audit delta sur 993cb7b : FAIL, deux blockers (CSDJ1-AUD-PYTHON-01, CSDJ1-AUD-07 identité partielle). Remédiation NARROW, lignée IMMUABLE : pas de redesign du résolveur DST, aucun changement de comportement de planification, pas de recomposition sur le main courant, CSDJ-2 non commencé.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1) — quatrième remédiation ciblée",
+  "status": "READY FOR FOURTH DELTA RE-AUDIT",
+  "mandate": "NOUGARO — FOURTH TARGETED REMEDIATION / CSDJ-1. Verdict du quatrième re-audit delta sur 9c940e1 : deux défauts d'AUD-07 restants (initialisation de rôles du témoin non gardée ; comparaison de socket par sous-chaîne). Lignée IMMUABLE, aucune recomposition, oracle Python et fixture INTACTS, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
     "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
@@ -14,11 +14,11 @@
     "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
   "candidate": {
-    "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
-    "tree": "cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce",
-    "parent": "214eb7d9c9f6b13089f18ae35ee15a20fb9dc873",
+    "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
+    "tree": "e3492964cdfe33e81f9b642ddbbd25df3c1876ef",
+    "parent": "662b00d0d58fde05f6d1aa62f7d9a3cd310d98af",
     "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceSecondRemediation": 8,
+    "filesChangedSinceThirdRemediation": 5,
     "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1 de la branche. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
     "amended": false,
     "pushed": false,
@@ -145,12 +145,12 @@
   },
   "results": {
     "targetedTests": {
-      "pass": 149,
+      "pass": 151,
       "fail": 0,
       "files": {
         "csdj1-scheduling-model": 10,
         "csdj1-scheduling-eligibility": 78,
-        "csdj1-sql-structural": 53,
+        "csdj1-sql-structural": 55,
         "csdj1-oracle-independence": 8
       }
     },
@@ -162,21 +162,20 @@
     "sqlHarness": {
       "proofs": 156,
       "fail": 0,
-      "sections": 19,
-      "aud02FixtureCasesReplayed": 18,
-      "oraclePointsReplayed": 38
+      "sections": 19
     },
     "roleRestorationHarness": {
-      "proofs": 120,
+      "proofs": 148,
       "fail": 0,
       "sections": [
         "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif de la preuve tardive",
         "[B] forme de l'instantané",
         "[C] rôle initialement absent",
         "[D] onze variables hostiles + vecteur complet + contrôle positif",
-        "[E] isolation structurelle et prédicat PARTAGÉ",
-        "[F] contrôle de nocivité",
-        "[G] dix contrôles négatifs d'identité + contrôle positif"
+        "[E] isolation structurelle, prédicat PARTAGÉ, détecteur de mutations non gardées",
+        "[F] contrôle de nocivité de PGHOSTADDR",
+        "[G] dix contrôles négatifs d'identité + contrôle positif",
+        "[H] onze contrôles d'égalité exacte de socket + démonstration de nocivité"
       ]
     },
     "harnessRefusals": {
@@ -196,7 +195,7 @@
       "exit": 0,
       "routesAdded": [],
       "routes": 39,
-      "note": "39 routes, identiques à celles des deux remédiations précédentes. Lancé avec des valeurs d'environnement SYNTHÉTIQUES non fonctionnelles, aucun secret réel."
+      "note": "39 routes, identiques aux trois remédiations précédentes. Valeurs d'environnement synthétiques."
     },
     "fullSuite": {
       "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
@@ -205,22 +204,22 @@
         "pass": 4768,
         "fail": 10
       },
-      "secondRemediation": {
-        "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
-        "tests": 4918,
-        "pass": 4908,
-        "fail": 10
-      },
-      "candidate": {
+      "thirdRemediation": {
         "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
         "tests": 4927,
         "pass": 4917,
         "fail": 10
       },
+      "candidate": {
+        "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
+        "tests": 4929,
+        "pass": 4919,
+        "fail": 10
+      },
       "appeared": 0,
       "disappeared": 0,
-      "identitySetsEqual": "Les jeux d'identités d'échec de la BASE, de la seconde remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +9 réussites est exactement le nombre de tests ajoutés ce tour (8 [ORACLE-*] et 1 [AUD07-SQL-2]). AUCUN échec déterministe causé par le candidat.",
-      "nondeterminism": "Aucun constaté. Les dix échecs sont les dix échecs PRÉEXISTANTS de la base, reproduits à l'identique en exécution séquentielle."
+      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux d'identités d'échec de la BASE, de la troisième remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +2 réussites est exactement le nombre de tests ajoutés ce tour ([AUD07-SQL-3] et [AUD07-SQL-4]).",
+      "nondeterminism": "aucun constaté ; les dix échecs sont les dix échecs PRÉEXISTANTS de la base"
     },
     "fixtureThreeWay": {
       "offerCases": 48,
@@ -459,43 +458,49 @@
     "rationale": "Un harnais vert ne prouve rien si le défaut qu'il interdit peut être réinjecté sans qu'il échoue.",
     "M1": {
       "defect": "un « env -i » retiré devant un appel client",
-      "result": "DÉTECTÉ — « appel non isolé », code 1"
+      "result": "DÉTECTÉ, code 1"
     },
     "M2": {
       "defect": "nocivité de PGHOSTADDR",
-      "result": "prouvée par DÉMONSTRATION DIRECTE en lecture seule ([F]), non par mutation"
+      "result": "prouvée par démonstration directe ([F])"
     },
     "M3": {
-      "defect": "instantané de rôle en ::text comparé à « t » (défaut d'AUD-06)",
-      "result": "DÉTECTÉ — 13 échecs décrivant LOGIN -> NOLOGIN et BYPASSRLS -> NOBYPASSRLS"
+      "defect": "instantané de rôle en ::text comparé à « t » (AUD-06)",
+      "result": "DÉTECTÉ — 13 échecs"
     },
     "M4": {
-      "defect": "le MARQUEUR retiré du prédicat d'identité — la preuve partielle que l'audit a trouvée",
-      "result": "DÉTECTÉ — « marqueur RETIRÉ » et « marqueur CHANGÉ » acceptent alors la mutation, et le rôle témoin est RÉELLEMENT muté (NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS)"
+      "defect": "le MARQUEUR retiré du prédicat (AUD-07, 2e passe)",
+      "result": "DÉTECTÉ — marqueur retiré/changé acceptent la mutation, rôle témoin réellement muté"
     },
     "M5": {
       "defect": "data_directory et config_file retirés du prédicat",
-      "result": "DÉTECTÉ — les deux contrôles négatifs correspondants acceptent la mutation"
+      "result": "DÉTECTÉ"
     },
-    "conclusive": 4,
+    "M6": {
+      "defect": "l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE (AUD-07, 4e passe)",
+      "result": "DÉTECTÉ — « PRÉFIXE d'une entrée » et « répertoire PARENT » sont ACCEPTÉS à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
+    },
+    "conclusive": 5,
     "missing": 0
   },
   "preservedAreasRetested": {
-    "CSDJ1-AUD-01": "PASS — fixtures aud01-* rejouées (TypeScript et SQL), [AUD01-1..5], [AUD01-SQL]",
-    "CSDJ1-AUD-02 (fonctionnel)": "PASS — 48 cas d'offres INCHANGÉS octet pour octet, 38 points de classement sans divergence, classificateur transition-safe, Lord Howe 30 min, tout-ou-rien début/fin/grille, aucune heure de remplacement. Aucun comportement de planification modifié.",
-    "CSDJ1-AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
-    "CSDJ1-AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
-    "CSDJ1-AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
-    "CSDJ1-AUD-06": "PASS APRÈS la réécriture du prédicat d'identité — quatre combinaisons LOGIN x BYPASSRLS et rôle initialement ABSENT restaurés EXACTEMENT, en mode cluster DÉSIGNÉ ; le contrôle M3 prouve que le harnais voit encore le défaut.",
+    "AUD-PYTHON-01": "PASS — oracle Python INTACT (plis fold=0/fold=1, aller-retour) ; fichier inchangé par ce tour, fixture reproduite À L'OCTET (sha256 c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46) ; 8 tests [ORACLE-*] verts, dont les contrôles différentiels contre trois classificateurs faux",
+    "AUD-02": "PASS — 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL s'accordent avec l'oracle sans divergence",
+    "AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
+    "AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
+    "AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
+    "AUD-06": "PASS — quatre combinaisons LOGIN x BYPASSRLS et rôle initialement ABSENT restaurés EXACTEMENT, en mode cluster DÉSIGNÉ, APRÈS les deux corrections ; contrôle M3 toujours discriminant",
     "LORD HOWE": "PASS — ambiguë, inexistante et ordinaire, dans les deux sens",
-    "OCCURRENCE ALL-OR-NOTHING": "PASS — [AUD02-SQL-3], fixtures de fenêtres",
-    "HARNESS ENVIRONMENT ISOLATION": "PASS — [D] onze variables, [E] structurel, contrôle M1",
-    "ZERO UUID": "PASS — harnais [17], [SENTINEL-1]",
+    "OCCURRENCE ALL-OR-NOTHING": "PASS — [AUD02-SQL-3]",
+    "NONCE missing/changed": "PASS — [G] « marqueur RETIRÉ » et « marqueur CHANGÉ », zéro mutation ; M4",
+    "DATA_DIRECTORY guard": "PASS — [G] « data_directory faux », zéro mutation ; M5",
+    "CONFIG_FILE guard": "PASS — [G] « config_file faux », zéro mutation ; M5",
+    "PGHOSTADDR rejection": "PASS — code 2, valeur jamais journalisée (0 occurrence), aucune mutation tentée ; nocivité toujours démontrée en [F]",
     "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète",
     "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e], [NO-SECOND-ENGINE-1..2]",
     "ROLLBACK": "PASS — harnais [13a..13g]",
-    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (voir la réserve d'intégration ci-dessous)",
-    "REGRESSION IDENTITY": "PASS — jeux d'identités octet-identiques à la base"
+    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (réserve d'intégration inchangée)",
+    "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base"
   },
   "scopeDiscipline": {
     "redesign": "aucun",
@@ -674,5 +679,76 @@
     "whenRecomposing": "Le mandat l'ordonne au moment de l'intégration, pas maintenant : remplacer l'assertion fragile [OWNERSHIP-2] « exactement 14 clés MCC » par un invariant de PROPRIÉTÉ -- « CSDJ-1 n'ajoute ni ne modifie AUCUNE clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy, PR #134) a légitimement porté le catalogue à 17.",
     "notChangedNow": "Ce candidat est construit sur 412dbb5, où 14 est la valeur juste. Le changer maintenant modifierait un contrat clos sans nécessité pour exécuter ce candidat.",
     "currentMain": "2f45df7717b16b08075b51aabf9cec4afd4b2741 (non recomposé, lignée immuable)"
+  },
+  "thirdRemediation": {
+    "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
+    "tree": "cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce",
+    "evidenceHead": "662b00d0d58fde05f6d1aa62f7d9a3cd310d98af",
+    "verdict": "AUD-PYTHON-01, AUD-02, AUD-03, AUD-04, AUD-05, AUD-06 CLOS ; deux défauts d'AUD-07 restants",
+    "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
+  },
+  "fourthRemediationBlockers": {
+    "BLOCKER-1-witness-role-init": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — initialisation des rôles du TÉMOIN hors de la garde",
+      "problem": "Le cluster témoin recevait ses attributs distinctifs (service_role LOGIN BYPASSRLS, et de même pour anon et authenticated) par un appel brut `qw`, sans le prédicat d'identité complète. L'invariant exige que TOUTE mutation de rôle PostgreSQL ait lieu après la preuve complète, marqueur et nonce compris, dans le même chemin de mutation gardé.",
+      "whyItHappened": "Un cluster « qui ne sert que de témoin » paraît ne pas compter. Un appel brut qui ne compte pas est un appel brut qui comptera le jour où la destination n'est plus celle qu'on croit -- et ce fichier existe précisément pour prouver qu'on ne mute jamais le mauvais serveur.",
+      "fix": {
+        "witnessContract": [
+          "socket attendue (WIT_SOCK)",
+          "port (WIT_PORT)",
+          "utilisateur (OWNER)",
+          "assertion superutilisateur",
+          "data_directory (WIT_DATA_DIR_PROVEN)",
+          "config_file (WIT_CONFIG_FILE_PROVEN)",
+          "nonce d'exécution (WIT_NONCE)",
+          "marqueur en base (WIT_MARKER), au nom DISTINCT de celui du cluster sous test"
+        ],
+        "throughSharedGuard": "l'initialisation des rôles du témoin passe par csdj1_identity_mutate, le même prédicat atomique que toutes les autres mutations",
+        "namedContracts": "la bibliothèque gère désormais des contrats NOMMÉS. Quatre cohabitent : « test » (cluster sous test), « temoin », « banc » (banc d'essai de sockets) et « test_sans_privilege » (connexion non privilégiée). Les nommer, plutôt que sauvegarder et restaurer un contrat global à la main, évite exactement ce qui a produit le défaut d'origine : deux chemins presque identiques qui divergent sans qu'on le voie.",
+        "noRawCallRemains": "aucun appel brut `q` ou `qw` ne porte plus de mutation de rôle"
+      },
+      "structuralDetector": {
+        "where": "section [E] du harnais de rôles, et [AUD07-SQL-4] côté TypeScript",
+        "method": "raisonnement par COMMANDE ENGLOBANTE : une instruction de mutation vit presque toujours à l'intérieur d'un argument sur plusieurs lignes, et un contrôle ligne à ligne ne prouverait rien. Le détecteur suit l'ouvreur de commande le plus proche en amont et exige qu'il soit gardé.",
+        "scope": "les DEUX harnais, pour create role / alter role / drop role, dans les deux casses",
+        "wouldHaveCaughtThisDefect": true,
+        "alsoChecks": "les variables qui accumulent du SQL de mutation (RESTORE_SQL, PROBE_MUTATION) ne sont consommées que par une mutation gardée",
+        "countsWhatItExamines": "un détecteur qui ne trouverait rien à examiner passerait pour vert"
+      },
+      "verdict": "PASS"
+    },
+    "BLOCKER-2-socket-exact-match": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — comparaison du répertoire de socket par SOUS-CHAÎNE",
+      "problem": "`strpos(unix_socket_directories, attendu) <> 0` acceptait tout fragment. Reproduction du rapport : socket réelle « /tmp », attendu « /tm » => accepté. Vérifié empiriquement : le répertoire PARENT et la LISTE ENTIÈRE passaient aussi.",
+      "whyItMattered": "Une identité qui accepte un fragment n'identifie rien. Sur un poste où plusieurs clusters jetables vivent côte à côte sous /tmp, le fragment est la règle et non l'exception.",
+      "fix": {
+        "entries": "`unix_socket_directories` est une LISTE séparée par des virgules, dont les entrées peuvent être encadrées de guillemets doubles (syntaxe PostgreSQL pour un chemin contenant une virgule ou un espace). Elle est découpée en ENTRÉES par string_to_array + unnest.",
+        "normalization": "chaque entrée est normalisée -- espaces extérieurs, guillemets, barre oblique finale ; « / » reste son propre répertoire -- et l'attendu est normalisé DE LA MÊME FAÇON côté shell (csdj1_identity_normalize_socket), sans quoi « /tmp/ » et « /tmp » seraient deux répertoires différents.",
+        "equality": "l'attendu doit être ÉGAL à une entrée complète. Aucun préfixe, suffixe ou fragment.",
+        "refusesEmptyExpected": "un attendu non absolu fait REFUSER la déclaration du contrat : un attendu vide aurait accepté une entrée vide.",
+        "listSyntaxPreserved": "la syntaxe de liste légitime de PostgreSQL reste prise en charge"
+      },
+      "socketLab": "un cluster de banc d'essai est créé par le harnais avec DEUX répertoires de socket (unix_socket_directories='A,B'). Sans lui, rien ne distingue « une entrée complète » de « la liste ».",
+      "negativeTests": {
+        "entrée EXACTE (membre 1)": "ACCEPTÉ",
+        "entrée EXACTE (membre 2)": "ACCEPTÉ",
+        "barre oblique finale, même répertoire": "ACCEPTÉ",
+        "PRÉFIXE d'une entrée": "REFUS « socket », zéro mutation",
+        "entrée + un caractère": "REFUS « socket », zéro mutation",
+        "répertoire PARENT": "REFUS « socket », zéro mutation",
+        "SOUS-répertoire d'une entrée": "REFUS « socket », zéro mutation",
+        "SUFFIXE d'une entrée": "REFUS « socket », zéro mutation",
+        "la LISTE entière": "REFUS « socket », zéro mutation",
+        "reproduction d'audit : /tmp vs /tm": "REFUS « socket », zéro mutation",
+        "reproduction d'audit : /tmp vs /tmpx": "REFUS « socket », zéro mutation"
+      },
+      "harmfulnessDemonstrated": "pour trois attendus partiels, le harnais montre EN LECTURE SEULE que l'ANCIEN prédicat (sous-chaîne) les acceptait et que le nouveau les refuse. La menace n'est pas déclarée, elle est reproduite.",
+      "verdict": "PASS"
+    },
+    "incidental": {
+      "backticksInHeredoc": "un commentaire du heredoc de la garde contenait des accents graves, que le shell exécutait comme des commandes -- le harnais imprimait « strpos: command not found » à chaque nettoyage. Sans conséquence sur le SQL émis, mais un harnais qui bruite est un harnais qu'on cesse de lire. Corrigé."
+    }
   }
 }
