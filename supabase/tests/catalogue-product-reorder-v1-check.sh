@@ -18,8 +18,16 @@
 #   COMMIT IDEMPOTENCY (OB-4), VAT COMPLETENESS GUARD, OPERATOR
 #   CATALOGUE RESET, COLLECTIONS/TAGS FOUNDATION, CATALOGUE MANAGEMENT
 #   UX, TRANSLATIONS MANAGEMENT v2 ; puis ONLINE WITHDRAWAL, DELIVERY
-#   COUNTRY SCOPE, PRODUCT SERVICE MODES et MERCHANT CUSTOMER
-#   COMMUNICATIONS v1 (dernier lot de main).
+#   COUNTRY SCOPE, PRODUCT SERVICE MODES, MERCHANT CUSTOMER
+#   COMMUNICATIONS v1 et THEME & CONTENT SETTINGS v1 (dernier lot de
+#   main, 2f45df7).
+#
+#   RECOMPOSITION SUR MAIN COURANT : la chaîne se termine désormais par
+#   THEME & CONTENT SETTINGS v1. Les preuves de ce harnais s'exécutent
+#   donc sur le schéma de main courant. La section 17 prouve en plus
+#   que les deux lots sont INDÉPENDANTS : ce lot s'applique avec ou sans
+#   THEME, THEME s'applique avec ou sans ce lot, dans les deux ordres,
+#   et chaque rollback laisse l'autre lot intact.
 #
 #   SEUL fichier du dépôt touchant menu_items / les RPC catalogue qui
 #   n'est PAS rejoué : DRAFT-lot-bulk-product-photos-storage-
@@ -234,6 +242,39 @@ non_order_fp() {
 taxonomy_fp() {
   q "select md5(string_agg(mi.id::text || ':' || mi.category_id::text || ':' || coalesce(mi.subcategory_id::text, '-'), ',' order by mi.id)) from public.menu_items mi;"
 }
+# Empreinte de TOUT le schéma public HORS la fonction de ce lot :
+# fonctions (définition complète, ACL, propriétaire), colonnes,
+# contraintes, policies RLS, index, triggers, droits de table et
+# drapeaux RLS. Deux empreintes égales = aucun objet d'un autre lot
+# (THEME, MCC, catalogue…) créé, modifié, remplacé ou supprimé.
+schema_fp_in() {
+  q_in "$1" "select md5(
+    coalesce((select string_agg(p.oid::regprocedure::text || '|' || pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '-') || '|' || pg_get_userbyid(p.proowner), E'\\n' order by p.oid::regprocedure::text)
+              from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.prokind <> 'a' and p.proname <> 'move_product_order'), '')
+    || '#' || coalesce((select string_agg(c.table_name || '.' || c.column_name || ':' || c.data_type || ':' || c.is_nullable || ':' || coalesce(c.column_default, '-'), ',' order by c.table_name, c.ordinal_position) from information_schema.columns c where c.table_schema = 'public'), '')
+    || '#' || coalesce((select string_agg(con.conrelid::regclass::text || '.' || con.conname || ':' || pg_get_constraintdef(con.oid), ',' order by con.conrelid::regclass::text, con.conname) from pg_constraint con join pg_namespace n on n.oid = con.connamespace where n.nspname = 'public'), '')
+    || '#' || coalesce((select string_agg(pol.tablename || '.' || pol.policyname || ':' || pol.cmd || ':' || pol.roles::text || ':' || coalesce(pol.qual, '-') || ':' || coalesce(pol.with_check, '-'), ',' order by pol.tablename, pol.policyname) from pg_policies pol where pol.schemaname = 'public'), '')
+    || '#' || coalesce((select string_agg(i.indexdef, ',' order by i.indexname) from pg_indexes i where i.schemaname = 'public'), '')
+    || '#' || coalesce((select string_agg(pg_get_triggerdef(t.oid), ',' order by t.tgrelid::regclass::text, t.tgname) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not t.tgisinternal), '')
+    || '#' || coalesce((select string_agg(g.table_name || ':' || g.grantee || ':' || g.privilege_type, ',' order by g.table_name, g.grantee, g.privilege_type) from information_schema.role_table_grants g where g.table_schema = 'public'), '')
+    || '#' || coalesce((select string_agg(c.relname || ':' || c.relrowsecurity::text || ':' || c.relforcerowsecurity::text, ',' order by c.relname) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'), '')
+  );"
+}
+# État lisible de THEME & CONTENT SETTINGS v1 : catalogue MCC étendu
+# (17 emplacements, 14 publics), 7 jetons de surface, colonne
+# restaurant_configs.theme_tokens, RPC d'écriture.
+THEME_INSTALLED="17/14|7|1|true"
+theme_state_in() {
+  q_in "$1" "select cardinality(public.communication_text_keys())::text || '/' || cardinality(public.public_communication_text_keys())::text
+                    || '|' || cardinality(public.theme_token_keys())::text
+                    || '|' || (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'restaurant_configs' and column_name = 'theme_tokens')::text
+                    || '|' || (to_regprocedure('public.update_restaurant_theme_tokens(uuid,jsonb)') is not null)::text;"
+}
+# Empreinte de la fonction de CE lot : définition, ACL, propriétaire.
+move_fp_in() {
+  q_in "$1" "select md5(pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '-') || '|' || pg_get_userbyid(p.proowner)) from pg_proc p where p.oid = to_regprocedure('public.move_product_order(uuid, text, jsonb)');"
+}
 fn_count_in() {
   q_in "$1" "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'move_product_order';"
 }
@@ -272,7 +313,7 @@ ORDER_CHAIN="DRAFT-lot-order-received-enqueue-recovery-v1.sql migration-20260919
 TRACKING_CHAIN="DRAFT-lot-tracking-final-fiscal-summary-v1-1.sql DRAFT-lot-customer-tracking-capability-v3-1.sql DRAFT-lot-customer-contact-live-tracking-v1.sql DRAFT-lot-customer-followup-tracking-email-v1.sql"
 # Lots catalogue, à leur position historique (avant ONLINE WITHDRAWAL).
 CATALOGUE_CHAIN="DRAFT-lot-catalogue-operator-authorization-v1.sql DRAFT-lot-catalogue-import-commit-idempotency-v1-1.sql DRAFT-lot-catalogue-vat-completeness-guard-v1.sql DRAFT-lot-operator-catalogue-reset-v1.sql DRAFT-lot-catalogue-collections-tags-foundation-v1.sql DRAFT-lot-catalogue-management-ux-v1.sql DRAFT-lot-translations-management-v2.sql"
-TAIL_CHAIN="DRAFT-lot-online-withdrawal-foundation-v1.sql DRAFT-lot-online-withdrawal-v1-1-cgv-mixed-regime.sql DRAFT-lot-delivery-country-scope-v1.sql DRAFT-lot-product-service-modes-v1.sql DRAFT-lot-merchant-customer-communications-v1.sql"
+TAIL_CHAIN="DRAFT-lot-online-withdrawal-foundation-v1.sql DRAFT-lot-online-withdrawal-v1-1-cgv-mixed-regime.sql DRAFT-lot-delivery-country-scope-v1.sql DRAFT-lot-product-service-modes-v1.sql DRAFT-lot-merchant-customer-communications-v1.sql DRAFT-lot-theme-content-settings-v1.sql"
 
 apply_to() { hpsql "$1" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$2" >/dev/null 2>"$ERR"; }
 
@@ -405,11 +446,13 @@ clone_template "$DB"
 assert_eq "0a. baseline : move_product_order ABSENTE avant le lot" "0" "$(fn_count_in "$DB")"
 assert_eq "0b. baseline : set_product_order (V67b) présente" "1" \
   "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='set_product_order';")"
+assert_eq "0c. baseline = MAIN COURANT : THEME & CONTENT SETTINGS v1 installé (catalogue MCC 17/14, 7 jetons, colonne theme_tokens, RPC)" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
 
 # ============================================================
 log "=== [1] Application du lot — aucune donnée modifiée ==="
 FP_ORDER_BEFORE="$(order_fp_in "$DB")"
 FP_NON_ORDER_BEFORE="$(non_order_fp)"
+SCHEMA_FP_BEFORE="$(schema_fp_in "$DB")"
 FN_FP_BEFORE="$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public';")"
 
 hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
@@ -423,6 +466,8 @@ assert_eq "1f. aucune fonction préexistante modifiée (empreinte nom+signature+
   "$(q "select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')=' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'move_product_order';")"
 assert_eq "1g. SECURITY DEFINER, search_path vide, propriétaire postgres" "true|search_path=\"\"|postgres" \
   "$(q "select p.prosecdef::text || '|' || array_to_string(p.proconfig, ',') || '|' || pg_get_userbyid(p.proowner) from pg_proc p where p.oid = 'public.move_product_order(uuid, text, jsonb)'::regprocedure;")"
+assert_eq "1h. THEME & CONTENT SETTINGS v1 intact après l'installation de ce lot (catalogue MCC 17/14, 7 jetons, colonne, RPC)" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
+assert_eq "1i. TOUT le schéma public hors move_product_order (fonctions + ACL, colonnes, contraintes, policies, index, triggers, droits, RLS) : empreinte identique avant et après -- aucun objet de THEME, de MCC ou d'un autre lot n'est créé, remplacé ou supprimé" "$SCHEMA_FP_BEFORE" "$(schema_fp_in "$DB")"
 
 # Références figées pour tout le reste du harnais.
 FP_B_ORDER="$(scope_fp "$CAT_B" NULL)"
@@ -1257,6 +1302,8 @@ assert_eq "16c. les ordres enregistrés par les marchands sont CONSERVÉS (aucun
 assert_eq "16d. aucune autre donnée produit touchée par le rollback" "$FP_NON_ORDER_BEFORE_RB" "$(non_order_fp)"
 assert_eq "16e. set_product_order et assert_product_role intactes" "2" \
   "$(q "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('set_product_order','assert_product_role');")"
+assert_eq "16e-bis. après rollback, TOUT le schéma public est revenu à l'empreinte d'avant ce lot (THEME et MCC compris)" "$SCHEMA_FP_BEFORE" "$(schema_fp_in "$DB")"
+assert_eq "16e-ter. … THEME & CONTENT SETTINGS v1 toujours installé et intact" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
 as_user "$OWNER_A" "select public.set_product_order('$(pid 'Eau')'::uuid, 1);"
 assert_ok "16f. le champ numérique historique fonctionne après rollback" $?
 hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
@@ -1276,6 +1323,84 @@ else
 fi
 
 # ============================================================
+# ============================================================
+log "=== [17] Interaction avec THEME & CONTENT SETTINGS v1 — ordres d'application et rollbacks croisés ==="
+# Les sections 0 à 16 ont tourné sur le schéma de main courant (THEME
+# installé AVANT ce lot). Ici : l'autre ordre, l'absence de THEME, et
+# chaque rollback en présence de l'autre lot.
+THEME_SQL="$SUPABASE_DIR/DRAFT-lot-theme-content-settings-v1.sql"
+THEME_ROLLBACK_SQL="$SUPABASE_DIR/DRAFT-lot-theme-content-settings-v1-rollback.sql"
+[ -f "$THEME_ROLLBACK_SQL" ] || fatal "rollback de THEME absent : $THEME_ROLLBACK_SQL"
+DB_SAVED="$DB"
+MOVE_FP_MAIN="$(move_fp_in "$DB")"
+
+# --- A. Schéma SANS THEME (l'ancienne base 412dbb5) -----------------
+clone_template "$DB_SCRATCH"
+DB="$DB_SCRATCH"
+FP_WITH_THEME="$(schema_fp_in "$DB")"
+assert_eq "17a. (contrôle) le modèle porte le schéma de main courant, identique à celui d'avant ce lot dans la base principale" "$SCHEMA_FP_BEFORE" "$FP_WITH_THEME"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17b. (préparation) rollback de THEME : schéma d'avant THEME" $?
+assert_eq "17c. THEME absent, catalogue MCC revenu à 14 emplacements" "true|14" \
+  "$(q "select (to_regprocedure('public.theme_token_keys()') is null)::text || '|' || cardinality(public.communication_text_keys())::text;")"
+FP_WITHOUT_THEME="$(schema_fp_in "$DB")"
+assert_ne "17d. (contrôle) l'empreinte de schéma distingue « avec THEME » de « sans THEME »" "$FP_WITH_THEME" "$FP_WITHOUT_THEME"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17e. ce lot s'applique sur le schéma SANS THEME : il n'en dépend pas" $?
+assert_eq "17f. … sans rien créer ni modifier d'autre" "$FP_WITHOUT_THEME" "$(schema_fp_in "$DB")"
+MOVE_FP="$(move_fp_in "$DB")"
+assert_eq "17g. la fonction installée sans THEME est IDENTIQUE (définition, ACL, propriétaire) à celle installée avec THEME" "$MOVE_FP_MAIN" "$MOVE_FP"
+move "$OWNER_A" 'Beaufort' up 'Comté|Beaufort|Abondance'
+assert_ok "17h. … et Monter fonctionne" "$MOVE_RC"
+
+# --- B. Ordre inverse de main : CE LOT d'abord, THEME ensuite --------
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17i. THEME s'applique sur un schéma où ce lot est DÉJÀ installé (son anti-dérive ne bute pas sur move_product_order)" $?
+assert_eq "17j. THEME complet : catalogue MCC 17/14, 7 jetons, colonne, RPC" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
+assert_eq "17k. l'application de THEME n'a pas modifié move_product_order" "$MOVE_FP" "$(move_fp_in "$DB")"
+assert_eq "17l. les deux ordres d'application aboutissent au MÊME schéma (THEME puis ce lot == ce lot puis THEME)" "$FP_WITH_THEME" "$(schema_fp_in "$DB")"
+move "$OWNER_A" 'Beaufort' down 'Beaufort|Comté|Abondance'
+assert_ok "17m. Descendre fonctionne avec THEME installé après coup" "$MOVE_RC"
+assert_eq "17n. … ordre exact" "Comté=1|Beaufort=2|Abondance=3" "$(scope_state "$CAT_FRO" NULL)"
+
+# Les deux RPC d'écriture coexistent sans se toucher.
+q "insert into public.restaurant_configs (restaurant_id, max_tables, currency, whatsapp_number)
+   select '$RID_A', 5, 'EUR', '+33600000001'
+   where not exists (select 1 from public.restaurant_configs where restaurant_id = '$RID_A');" >/dev/null
+ORDER_FP_17="$(order_fp_in "$DB")"
+as_user "$OWNER_A" "select public.update_restaurant_theme_tokens('$RID_A'::uuid, '{\"popup_bg\":\"#FFFFFF\",\"popup_text\":\"#000000\"}'::jsonb);"
+assert_ok "17o. la RPC de THEME (update_restaurant_theme_tokens) fonctionne à côté de ce lot" $?
+assert_eq "17p. … jetons enregistrés" "#FFFFFF|#000000" "$(q "select (theme_tokens->>'popup_bg') || '|' || (theme_tokens->>'popup_text') from public.restaurant_configs where restaurant_id = '$RID_A';")"
+assert_eq "17q. … et AUCUN display_order touché par une écriture de thème" "$ORDER_FP_17" "$(order_fp_in "$DB")"
+THEME_TOKENS_17="$(q "select theme_tokens::text from public.restaurant_configs where restaurant_id = '$RID_A';")"
+move "$OWNER_A" 'Abondance' up 'Comté|Beaufort|Abondance'
+assert_ok "17r. un déplacement après une écriture de thème" "$MOVE_RC"
+assert_eq "17s. … ne touche pas aux jetons de thème" "$THEME_TOKENS_17" "$(q "select theme_tokens::text from public.restaurant_configs where restaurant_id = '$RID_A';")"
+as_user "$OWNER_A" "select public.update_restaurant_theme_tokens('$RID_A'::uuid, '{}'::jsonb);"
+
+# --- C. Rollbacks croisés -------------------------------------------
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17t. rollback de THEME alors que ce lot est installé" $?
+assert_eq "17u. … move_product_order intacte (définition, ACL, propriétaire)" "$MOVE_FP" "$(move_fp_in "$DB")"
+move "$OWNER_A" 'Abondance' down 'Comté|Abondance|Beaufort'
+assert_ok "17v. … et toujours fonctionnelle" "$MOVE_RC"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17w. rollback de ce lot ensuite" $?
+assert_eq "17x. … move_product_order retirée" "0" "$(fn_count_in "$DB")"
+assert_eq "17y. … schéma revenu EXACTEMENT à celui d'avant THEME et d'avant ce lot" "$FP_WITHOUT_THEME" "$(schema_fp_in "$DB")"
+
+# Ordre de main : rollback de CE lot alors que THEME reste installé.
+clone_template "$DB_SCRATCH"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$LOT_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17z. (ordre de main) ce lot sur le schéma de main courant" $?
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17aa. rollback de ce lot alors que THEME est installé" $?
+assert_eq "17ab. … schéma de main courant retrouvé à l'identique" "$FP_WITH_THEME" "$(schema_fp_in "$DB")"
+assert_eq "17ac. … THEME intact" "$THEME_INSTALLED" "$(theme_state_in "$DB")"
+hpsql "$DB" -v ON_ERROR_STOP=1 -f "$THEME_ROLLBACK_SQL" >"$OUT" 2>"$ERR"
+assert_ok "17ad. … et le rollback de THEME reste applicable ensuite" $?
+DB="$DB_SAVED"
+
 harness_prove_identity || fail "le serveur joint en fin d'exécution n'est plus prouvé comme le cluster jetable de cette exécution"
 log "[sûreté] toutes les commandes de cette exécution ont visé le cluster jetable $H_RUN_DIR (étiquette $H_TAG) ; il est arrêté et supprimé en sortie."
 log "=== RÉSUMÉ : PASS=$PASS FAIL=$FAIL ==="
