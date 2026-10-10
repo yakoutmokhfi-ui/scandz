@@ -1,0 +1,2787 @@
+{
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
+  "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation indépendante, en Python avec zoneinfo, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Même cas, même résultat des trois côtés -- c'est le mécanisme déjà employé par fixtures/delivery-pricing-cases.json.",
+  "weekdayConvention": "0 = dimanche, 6 = samedi (extract(dow) et Date#getUTCDay)",
+  "sqlConstraintRefusalNote": "Un cas marqué `sqlConstraintRefusal` décrit un état que les CONTRAINTES DE TABLE rendent impossible. Le TypeScript le joue quand même, pour prouver que le calcul refuse au lieu de deviner ; le harnais SQL, lui, prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque l'état n'est pas seulement mal calculé, il est inatteignable.",
+  "dstNote": "Aucun cas n'emploie une heure murale située DANS une heure de transition (02:00-03:00 à Paris) : une telle heure est inexistante ou ambiguë, et PostgreSQL et JavaScript la résolvent différemment. Cette divergence est consignée comme observation non bloquante du lot.",
+  "cases": [
+    {
+      "id": "absent-no-row",
+      "note": "Aucune planification configurée : le parcours reste celui d'avant le lot.",
+      "config": null,
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "absent",
+        "reason": null,
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "absent-disabled",
+      "note": "Planification complète mais enabled=false : MÊME état observable qu'une absence.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": false,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "absent",
+        "reason": null,
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-first-eligible-before-cutoff",
+      "note": "Mardi 09:00. L'heure limite de mercredi (mardi 16:00) n'est pas passée : la première date éligible est mercredi, pas aujourd'hui -- l'heure limite d'aujourd'hui était hier 16:00.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-14",
+        "dates": [
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-cutoff-boundary-one-second-before",
+      "note": "Mardi 15:59:59 : mercredi est encore éligible.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T15:59:59+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-14",
+        "dates": [
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-cutoff-boundary-exact",
+      "note": "Mardi 16:00:00 PILE : trop tard pour mercredi. Une limite qu'on peut atteindre pile n'est pas une limite.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T16:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-15",
+        "dates": [
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-weekly-closed-days",
+      "note": "Vendredi 09:00 : samedi éligible, dimanche et lundi SANS fenêtre donc absents de la liste, reprise mardi.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 7
+      },
+      "nowIso": "2026-10-16T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-17",
+        "dates": [
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-exceptional-closure",
+      "note": "Mercredi fermé exceptionnellement : la première date devient jeudi.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [
+        {
+          "closedOn": "2026-10-14"
+        }
+      ],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-15",
+        "dates": [
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "pickup-lead-time-pushes-day",
+      "note": "Délai de préparation de 2880 minutes (48 h) : la première date est repoussée de deux jours, par le DÉLAI et non par l'heure limite.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 2880,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-15",
+        "dates": [
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "local-fixed-slots-no-same-day",
+      "note": "Mardi 09:00, minLeadDays=1 : pas de livraison le jour même, et l'heure limite de la veille écarte aussi mercredi.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 1,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 10
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 2,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-14",
+        "dates": [
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "local-fixed-slots-after-cutoff",
+      "note": "Mardi 16:30, après l'heure limite : mercredi tombe, jeudi devient la première date.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 1,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 10
+      },
+      "nowIso": "2026-10-13T16:30:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 2,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 4,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 5,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "11-14",
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "14-17",
+          "startsAt": "14:00",
+          "endsAt": "17:00"
+        },
+        {
+          "weekday": 6,
+          "slotKey": "17-20",
+          "startsAt": "17:00",
+          "endsAt": "20:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-15",
+        "dates": [
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "offers": [
+              {
+                "slotKey": "11-14",
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": "14-17",
+                "startsAt": "14:00",
+                "endsAt": "17:00"
+              },
+              {
+                "slotKey": "17-20",
+                "startsAt": "17:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "carrier-informational-only",
+      "note": "Politique purement informative : AUCUNE date n'est montrée ni dérivée. C'est le transporteur qui ne sait pas s'engager -- et ne rien inventer est ici le comportement correct.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "informational_only",
+        "slotSelectionMode": "none",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "informational_only",
+        "reason": null,
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "carrier-derived-earliest",
+      "note": "Date dérivée : le serveur en rend UNE seule, la première réellement éligible, et le client ne choisit pas.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "derived_earliest",
+        "slotSelectionMode": "none",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 2,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-15",
+        "dates": [
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "unfulfillable-no-offer",
+      "note": "Activée, politique exigeant une date, AUCUNE fenêtre : échec explicite, jamais une date inventée.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_configured",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "unfulfillable-all-closed",
+      "note": "Des fenêtres existent, mais chaque date de l'horizon est fermée : le motif dit « tout est fermé », qui se corrige en retirant une fermeture.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 3
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [
+        {
+          "closedOn": "2026-10-13"
+        },
+        {
+          "closedOn": "2026-10-14"
+        },
+        {
+          "closedOn": "2026-10-15"
+        },
+        {
+          "closedOn": "2026-10-16"
+        }
+      ],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "all_dates_closed",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "unfulfillable-horizon-exhausted",
+      "note": "Minimum de 30 jours pour un horizon de 14 : le motif dit « horizon épuisé », qui se corrige en allongeant l'horizon.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 30,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "horizon_exhausted",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "tz-autumn-dst-boundary",
+      "note": "Samedi 2026-10-24 15:00, la veille du recul d'heure à Paris : l'heure limite du 26 est le 25 à 16:00, c'est-à-dire APRÈS la bascule, donc en UTC+1. Prouve que la bascule ne décale pas d'un jour.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 5
+      },
+      "nowIso": "2026-10-24T15:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-27",
+        "dates": [
+          {
+            "date": "2026-10-27",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-28",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-29",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "tz-spring-dst-boundary",
+      "note": "Samedi 2026-03-28 15:00, la veille du saut de printemps.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 5
+      },
+      "nowIso": "2026-03-28T15:00:00+01:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-03-31",
+        "dates": [
+          {
+            "date": "2026-03-31",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-04-01",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-04-02",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "tz-far-east-of-utc",
+      "note": "Pacific/Kiritimati (UTC+14) : à 12:00 UTC le 13, le commerçant est DÉJÀ au 14. La date civile lue est celle du COMMERÇANT, jamais celle d'UTC ni celle du client.",
+      "config": {
+        "timezone": "Pacific/Kiritimati",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 4
+      },
+      "nowIso": "2026-10-13T12:00:00+00:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-14",
+        "dates": [
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "tz-west-of-utc",
+      "note": "America/Los_Angeles : à 02:00 UTC le 14, le commerçant est ENCORE au 13.",
+      "config": {
+        "timezone": "America/Los_Angeles",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 4
+      },
+      "nowIso": "2026-10-14T02:00:00+00:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-13",
+        "dates": [
+          {
+            "date": "2026-10-13",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "19:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "unfulfillable-granularity-missing",
+      "note": "`time_within_window` sans granularité : refus plutôt que choisir une grille à la place du commerçant. La contrainte de table l'interdit déjà ; ce cas prouve que le calcul refuse quand même.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": "16:00",
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 14
+      },
+      "nowIso": "2026-10-13T09:00:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "granularity_missing",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": true
+    }
+  ]
+}
