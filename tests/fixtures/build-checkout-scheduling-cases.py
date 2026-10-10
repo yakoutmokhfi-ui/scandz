@@ -47,7 +47,11 @@ import zoneinfo
 from pathlib import Path
 
 NIL = None
-HOUR = dt.timedelta(hours=1)
+# Décalages d'échantillonnage, en secondes, relatifs à l'heure murale
+# lue comme si elle était UTC. Un jour de part et d'autre encadre toute
+# transition réelle, quelle que soit sa taille et quel que soit le
+# décalage du fuseau (jusqu'à ±14 h).
+PROBE_SECONDS = (-86400, -14400, 0, 14400, 86400)
 
 
 def dow(d: dt.date) -> int:
@@ -80,28 +84,40 @@ def fmt(minutes: int) -> str:
 
 
 def resolve_wall(d: dt.date, minutes: int, tz: str):
-    """('ok'|'nonexistent'|'ambiguous', instant ou None).
+    """('valid_unique'|'nonexistent'|'ambiguous', instant ou None).
 
-    `fold` de la bibliothèque standard donne les deux occurrences d'une
-    heure ambiguë ; un aller-retour détecte une heure inexistante.
+    CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01. Aucune hypothèse sur la TAILLE
+    du décalage : Australia/Lord_Howe recule de trente minutes, et une
+    détection d'ambiguïté par « plus ou moins une heure » la manque
+    entièrement.
+
+    On ÉNUMÈRE les instants candidats : on échantillonne les décalages
+    UTC réellement en vigueur autour du point, on construit un candidat
+    par décalage distinct, et on ne garde que ceux qui, relus dans le
+    fuseau, rendent exactement l'heure murale demandée. Leur NOMBRE est
+    la réponse -- 0, 1 ou 2.
     """
     z = zoneinfo.ZoneInfo(tz)
     naive = dt.datetime(d.year, d.month, d.day, minutes // 60, minutes % 60)
-    a = naive.replace(tzinfo=z, fold=0)
-    b = naive.replace(tzinfo=z, fold=1)
-    # Heure AMBIGUË : les deux « plis » désignent deux instants réels
-    # distincts portant la même heure murale.
-    if a.utcoffset() != b.utcoffset():
-        if a.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) == naive and \
-           b.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) == naive:
-            return "ambiguous", None
-        # Les deux plis diffèrent mais l'heure murale ne se relit pas :
-        # c'est le trou du saut de printemps.
+    naive_as_utc = naive.replace(tzinfo=dt.timezone.utc)
+
+    offsets = []
+    for probe in PROBE_SECONDS:
+        o = (naive_as_utc + dt.timedelta(seconds=probe)).astimezone(z).utcoffset()
+        if o not in offsets:
+            offsets.append(o)
+
+    survivors = []
+    for o in offsets:
+        cand = (naive - o).replace(tzinfo=dt.timezone.utc)
+        if cand.astimezone(z).replace(tzinfo=None) == naive and cand not in survivors:
+            survivors.append(cand)
+
+    if not survivors:
         return "nonexistent", None
-    # Heure INEXISTANTE : l'aller-retour ne rend pas l'heure demandée.
-    if a.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) != naive:
-        return "nonexistent", None
-    return "ok", a
+    if len(survivors) == 1:
+        return "valid_unique", survivors[0]
+    return "ambiguous", None
 
 
 def resolve(case):
@@ -155,7 +171,7 @@ def resolve(case):
     last = today + dt.timedelta(days=cfg["bookingHorizonDays"])
 
     # CSDJ-V1-OFFER-START-INSTANT-01
-    floor_status, floor_instant = resolve_wall(start, 0, tz)
+    floor_status, floor_instant = resolve_wall(start, 0, tz)  # minuit peut ne pas exister
     from_lead = now + dt.timedelta(minutes=cfg["leadTimeMinutes"])
     min_instant = from_lead
     if floor_instant is not None and floor_instant > from_lead:
@@ -180,7 +196,7 @@ def resolve(case):
         if cutoff_min is not None:
             cd = d - dt.timedelta(days=cfg["cutoffOffsetDays"])
             status, instant = resolve_wall(cd, cutoff_min, tz)
-            if instant is None or now >= instant:
+            if status != "valid_unique" or now >= instant:
                 d += dt.timedelta(days=1)
                 continue
         saw_open_date = True
@@ -188,21 +204,32 @@ def resolve(case):
         usable = []
         for o in day_offers:
             smin, emin = parse_time(o["startsAt"]), parse_time(o["endsAt"])
+            # CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01 : la FIN doit exister
+            # elle aussi. Une fenêtre 01:30-02:30 le 29 mars 2026 à Paris
+            # a un début valide et une fin qui n'a pas eu lieu.
+            if resolve_wall(d, emin, tz)[0] != "valid_unique":
+                continue
             if slot_mode == "time_within_window":
+                # TOUS les points de grille sont validés, pas seulement
+                # la part encore utilisable : sur une date ordinaire, le
+                # client pourrait choisir n'importe lequel.
+                grid_sound = True
                 chosen = None
                 t = smin
                 while t < emin:
                     status, instant = resolve_wall(d, t, tz)
-                    if instant is not None and instant >= min_instant:
-                        chosen = t
+                    if status != "valid_unique":
+                        grid_sound = False
                         break
+                    if chosen is None and instant >= min_instant:
+                        chosen = t
                     t += granularity
-                if chosen is None:
+                if not grid_sound or chosen is None:
                     continue
                 usable.append({"slotKey": NIL, "startsAt": fmt(chosen), "endsAt": fmt(emin)})
                 continue
             status, instant = resolve_wall(d, smin, tz)
-            if instant is None or instant < min_instant:
+            if status != "valid_unique" or instant < min_instant:
                 continue
             usable.append({"slotKey": o["slotKey"], "startsAt": fmt(smin), "endsAt": fmt(emin)})
 
@@ -463,6 +490,117 @@ case("aud02-negative-offset-autumn-fallback",
      "America/Los_Angeles, dimanche 1er novembre 2026 : heure ambiguë rejetée.",
      slot_cfg(timezone="America/Los_Angeles", bookingHorizonDays=2),
      "2026-10-31T12:00:00-07:00", slots=DST_SLOTS)
+
+# ── E.2 CSDJ1-AUD-02 (second re-audit) — FENÊTRES et grille ──────────
+# CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01. Les quatre fenêtres exigées par
+# l'auditeur, le 29 mars 2026 à Paris. Toutes posées le DIMANCHE
+# (weekday 0), jour de la bascule.
+def window_cfg(**over):
+    cfg = {
+        "timezone": "Europe/Paris", "enabled": True,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0, "minLeadDays": 0,
+        "cutoffTime": None, "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2,
+    }
+    cfg.update(over)
+    return cfg
+
+
+case("aud02-window-start-valid-end-nonexistent",
+     "FENÊTRE 01:30-02:30 le 29 mars 2026 à Paris : le DÉBUT est valide, la "
+     "FIN n'existe pas. La première remédiation l'exposait quand même, fin "
+     "comprise -- elle ne validait que le début. L'occurrence doit "
+     "DISPARAÎTRE ce jour-là.",
+     window_cfg(), "2026-03-28T00:30:00+01:00",
+     windows=[{"weekday": 0, "startsAt": "01:30", "endsAt": "02:30"}])
+case("aud02-window-entirely-nonexistent",
+     "FENÊTRE 02:00-03:00 : début ET fin dans le trou. Indisponible.",
+     window_cfg(), "2026-03-28T00:30:00+01:00",
+     windows=[{"weekday": 0, "startsAt": "02:00", "endsAt": "03:00"}])
+case("aud02-window-spans-nonexistent-region",
+     "FENÊTRE 01:30-03:30 : début et fin valides, mais la GRILLE traverse le "
+     "trou -- 02:00, 02:15, 02:30 et 02:45 n'existent pas. Exposer la fenêtre "
+     "laisserait le client choisir une heure qui n'a jamais eu lieu : "
+     "l'occurrence entière est écartée, et aucune heure de remplacement n'est "
+     "inventée.",
+     window_cfg(), "2026-03-28T00:30:00+01:00",
+     windows=[{"weekday": 0, "startsAt": "01:30", "endsAt": "03:30"}])
+case("aud02-window-after-transition-valid",
+     "FENÊTRE 03:00-04:00, entièrement après la bascule : parfaitement "
+     "valide. La politique ne doit pas sur-refuser.",
+     window_cfg(), "2026-03-28T00:30:00+01:00",
+     windows=[{"weekday": 0, "startsAt": "03:00", "endsAt": "04:00"}])
+case("aud02-window-before-transition-valid",
+     "FENÊTRE 00:30-01:30, entièrement avant la bascule : valide.",
+     window_cfg(), "2026-03-28T00:30:00+01:00",
+     windows=[{"weekday": 0, "startsAt": "00:30", "endsAt": "01:30"}])
+case("aud02-window-ordinary-date-unaffected",
+     "La MÊME fenêtre 01:30-02:30, une semaine plus tard : elle redevient "
+     "valide. Le refus porte sur l'OCCURRENCE d'une date, jamais sur la "
+     "configuration -- sinon un commerçant perdrait une fenêtre toute "
+     "l'année à cause d'un seul dimanche.",
+     window_cfg(bookingHorizonDays=9), "2026-03-30T00:30:00+02:00",
+     windows=[{"weekday": 0, "startsAt": "01:30", "endsAt": "02:30"}])
+case("aud02-window-ambiguous-region-autumn",
+     "FENÊTRE 01:30-02:30 le 25 octobre 2026 : la grille traverse l'heure "
+     "vécue DEUX fois. Promettre 02:00 désignerait deux instants distants "
+     "d'une heure : l'occurrence est écartée.",
+     window_cfg(), "2026-10-24T00:30:00+02:00",
+     windows=[{"weekday": 0, "startsAt": "01:30", "endsAt": "02:30"}])
+
+# ── E.3 CSDJ1-AUD-02 — TRANSITION DE 30 MINUTES (Lord Howe) ──────────
+# La première remédiation détectait l'ambiguïté en regardant « plus ou
+# moins une heure » : elle manquait ENTIÈREMENT une bascule de trente
+# minutes. Australia/Lord_Howe recule de 30 min le 5 avril 2026 et
+# avance de 30 min le 4 octobre.
+LH_SLOTS_AUTUMN = [
+    {"weekday": 0, "slotKey": "t0100", "startsAt": "01:00", "endsAt": "01:25"},
+    {"weekday": 0, "slotKey": "t0145", "startsAt": "01:45", "endsAt": "01:55"},
+    {"weekday": 0, "slotKey": "t0200", "startsAt": "02:00", "endsAt": "03:00"},
+]
+LH_SLOTS_SPRING = [
+    {"weekday": 0, "slotKey": "t0130", "startsAt": "01:30", "endsAt": "01:55"},
+    {"weekday": 0, "slotKey": "t0210", "startsAt": "02:10", "endsAt": "02:25"},
+    {"weekday": 0, "slotKey": "t0230", "startsAt": "02:30", "endsAt": "03:30"},
+]
+
+case("aud02-lord-howe-autumn-30min-ambiguous",
+     "Australia/Lord_Howe, 5 avril 2026 : recul de TRENTE minutes. Le créneau "
+     "01:45-01:55 est AMBIGU -- reproduction exacte de l'auditeur -- et doit "
+     "être rejeté, tandis que 01:00 et 02:00 restent valides. Une détection "
+     "par « plus ou moins une heure » aurait laissé passer 01:45.",
+     slot_cfg(timezone="Australia/Lord_Howe", bookingHorizonDays=2),
+     "2026-04-04T00:30:00+11:00", slots=LH_SLOTS_AUTUMN)
+case("aud02-lord-howe-spring-30min-nonexistent",
+     "Australia/Lord_Howe, 4 octobre 2026 : avance de TRENTE minutes. "
+     "02:00-02:29 n'existe pas : le créneau 02:10-02:25 est rejeté, 01:30 et "
+     "02:30 restent valides.",
+     slot_cfg(timezone="Australia/Lord_Howe", bookingHorizonDays=2),
+     "2026-10-03T00:30:00+10:30", slots=LH_SLOTS_SPRING)
+case("aud02-lord-howe-ordinary-date-valid",
+     "Australia/Lord_Howe, un dimanche ordinaire : les trois créneaux de la "
+     "zone de bascule sont valides. La politique ne sur-refuse pas.",
+     slot_cfg(timezone="Australia/Lord_Howe", bookingHorizonDays=2),
+     "2026-05-02T00:30:00+10:30", slots=LH_SLOTS_AUTUMN)
+
+# ── E.4 CSDJ1-AUD-02 — fuseau à décalage négatif, deux sens ──────────
+case("aud02-new-york-spring-nonexistent",
+     "America/New_York, 8 mars 2026 : 02:30 n'existe pas.",
+     slot_cfg(timezone="America/New_York", bookingHorizonDays=2),
+     "2026-03-07T00:30:00-05:00",
+     slots=[{"weekday": 0, "slotKey": "t0130", "startsAt": "01:30", "endsAt": "01:55"},
+            {"weekday": 0, "slotKey": "t0230", "startsAt": "02:30", "endsAt": "02:55"},
+            {"weekday": 0, "slotKey": "t0330", "startsAt": "03:30", "endsAt": "04:30"}])
+case("aud02-new-york-autumn-ambiguous",
+     "America/New_York, 1er novembre 2026 : 01:30 a lieu deux fois.",
+     slot_cfg(timezone="America/New_York", bookingHorizonDays=2),
+     "2026-10-31T00:30:00-04:00",
+     slots=[{"weekday": 0, "slotKey": "t0030", "startsAt": "00:30", "endsAt": "00:55"},
+            {"weekday": 0, "slotKey": "t0130", "startsAt": "01:30", "endsAt": "01:55"},
+            {"weekday": 0, "slotKey": "t0330", "startsAt": "03:30", "endsAt": "04:30"}])
 
 # ── F. Transporteur §F : informatif, ou date dérivée ───────────────────
 case("carrier-informational-only",

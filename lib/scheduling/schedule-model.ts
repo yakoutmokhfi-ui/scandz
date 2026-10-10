@@ -156,6 +156,35 @@ export type CheckoutUnfulfillableReason =
   (typeof CHECKOUT_UNFULFILLABLE_REASONS)[number];
 
 /**
+ * ═══ STATUTS D'HEURE MURALE ═══
+ *
+ * Catalogue FERMÉ, miroir de `public.checkout_wall_time_statuses()`.
+ * Une heure murale locale est exactement l'une de ces trois choses, et
+ * la politique CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 n'en accepte qu'une.
+ *
+ *   - `valid_unique` : elle désigne UN instant, et un seul ;
+ *   - `nonexistent`  : elle n'a pas eu lieu (saut de printemps) ;
+ *   - `ambiguous`    : elle a eu lieu deux fois (recul d'automne).
+ */
+export const CHECKOUT_WALL_TIME_STATUSES = [
+  "valid_unique",
+  "nonexistent",
+  "ambiguous",
+] as const;
+
+export type CheckoutWallTimeStatus =
+  (typeof CHECKOUT_WALL_TIME_STATUSES)[number];
+
+export function isCheckoutWallTimeStatus(
+  value: unknown
+): value is CheckoutWallTimeStatus {
+  return (
+    typeof value === "string" &&
+    (CHECKOUT_WALL_TIME_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
  * ═══ BORNES ═══
  *
  * Miroirs exacts des CHECK de la base. Le serveur reste l'autorité : ces

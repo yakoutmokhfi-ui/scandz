@@ -188,7 +188,7 @@ fi
 # un chemin de fichier de secrets, et ne doit jamais atteindre une
 # sortie, même partiellement rédigée (une structure partielle reste une
 # fuite).
-REDIRECTING_VARS="PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE DATABASE_URL POSTGRES_URL POSTGRESQL_URL PG_URL SUPABASE_DB_URL SCANYM_DB_URL SCANYM_DATABASE_URL"
+REDIRECTING_VARS="PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE PGSYSCONFDIR PGCLUSTER DATABASE_URL POSTGRES_URL POSTGRESQL_URL PG_URL SUPABASE_DB_URL SCANYM_DB_URL SCANYM_DATABASE_URL"
 # N'influencent que la session -> neutralisées.
 NEUTRALIZED_VARS="PGOPTIONS PGCONNECT_TIMEOUT PGSSLMODE PGSSLROOTCERT PGSSLCERT PGSSLKEY PGAPPNAME PGCLIENTENCODING PGTARGETSESSIONATTRS"
 
@@ -400,6 +400,36 @@ cleanup() {
     done
     # Rôles : seulement si le cluster n'est PAS le nôtre (sinon il
     # disparaît entier juste après, et toucher ses rôles est inutile).
+    if [ "$ROLE_SNAPSHOT_TAKEN" = "1" ] && [ "$OWN_CLUSTER" != "1" ]; then
+      # ══════════════════════════════════════════════════════════════
+      # CSDJ-V1-DESTINATION-PROOF-01 — ferme CSDJ1-AUD-07 côté nettoyage
+      #
+      # On ne restaure des rôles qu'après avoir PROUVÉ, à cet instant,
+      # que la connexion aboutit bien là où le verrou de sûreté l'avait
+      # constatée : même socket (donc aucune destination réseau), même
+      # port, même utilisateur, superutilisateur. Sans cette preuve
+      # tardive, une variable d'environnement apparue entre-temps
+      # pourrait faire muter les rôles d'un AUTRE serveur.
+      #
+      # Si la preuve échoue, on ne restaure RIEN : un rôle non restauré
+      # est un désagrément, un rôle muté sur le mauvais serveur est un
+      # dégât.
+      # ══════════════════════════════════════════════════════════════
+      DEST_NOW="$(psql -X -A -q -t -d postgres </dev/null 2>/dev/null -c "
+        select coalesce(pg_catalog.host(pg_catalog.inet_server_addr()), 'unix-socket')
+               || '|' || pg_catalog.current_setting('port')
+               -- current_user est un constructeur du parseur : qualifié,
+               -- il est lu comme une colonne et la requête échoue. Non
+               -- qualifié, il reste sûr (mot-clé réservé, insensible au
+               -- search_path).
+               || '|' || current_user
+               || '|' || pg_catalog.current_setting('is_superuser');" | tail -1 | tr -d ' ')"
+      DEST_WANT="unix-socket|${PGPORT}|${CUR_USER}|on"
+      if [ "$DEST_NOW" != "$DEST_WANT" ]; then
+        log "[sûreté] RESTAURATION DE RÔLES ABANDONNÉE : la destination n'est plus celle qui a franchi le verrou (attendu « $DEST_WANT »)."
+        ROLE_SNAPSHOT_TAKEN=0
+      fi
+    fi
     if [ "$ROLE_SNAPSHOT_TAKEN" = "1" ] && [ "$OWN_CLUSTER" != "1" ]; then
       for r in $APP_ROLES; do
         case "${ROLE_SNAP[$r]}" in
@@ -730,8 +760,8 @@ assert_eq "[3b] RLS active sur les 4 tables" "4" \
   "$(sql_value "select count(*) from pg_class where relnamespace='public'::regnamespace and relname like 'restaurant_fulfillment_schedule%' and relrowsecurity;")"
 assert_eq "[3c] une policy SELECT par table, et AUCUNE policy d'écriture" "4|0" \
   "$(sql_value "select count(*) filter (where cmd='SELECT') || '|' || count(*) filter (where cmd <> 'SELECT') from pg_policies where schemaname='public' and tablename like 'restaurant_fulfillment_schedule%';")"
-assert_eq "[3d] les 8 fonctions du lot existent, une surcharge chacune" "8" \
-  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in ('checkout_date_selection_modes','checkout_slot_selection_modes','checkout_schedule_statuses','checkout_unfulfillable_reasons','resolve_fulfillment_schedule','get_checkout_fulfillment_schedule','get_merchant_fulfillment_schedules','mutate_merchant_fulfillment_schedule');")"
+assert_eq "[3d] les 11 fonctions du lot existent, une surcharge chacune" "11" \
+  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in ('checkout_date_selection_modes','checkout_slot_selection_modes','checkout_schedule_statuses','checkout_unfulfillable_reasons','checkout_wall_time_statuses','checkout_wall_time_status','checkout_wall_time_instant','resolve_fulfillment_schedule','get_checkout_fulfillment_schedule','get_merchant_fulfillment_schedules','mutate_merchant_fulfillment_schedule') and proname <> 'x';")"
 assert_eq "[3e] AUCUN grant d'écriture sur les 4 tables, pour aucun rôle" "0" \
   "$(sql_value "select count(*) from (select unnest(array['anon','authenticated','service_role']) r, unnest(array['INSERT','UPDATE','DELETE','TRUNCATE']) p) x, pg_class c where c.relnamespace='public'::regnamespace and c.relname like 'restaurant_fulfillment_schedule%' and has_table_privilege(x.r, c.oid, x.p);")"
 assert_eq "[3f] anon n'a AUCUN SELECT direct sur les 4 tables" "0" \
@@ -740,8 +770,8 @@ assert_eq "[3g] authenticated a SELECT sur les 4 tables" "4" \
   "$(sql_value "select count(*) from pg_class c where c.relnamespace='public'::regnamespace and c.relname like 'restaurant_fulfillment_schedule%' and has_table_privilege('authenticated', c.oid, 'SELECT');")"
 assert_eq "[3h] les 4 tables NAISSENT VIDES (aucun backfill)" "0" \
   "$(sql_value "select (select count(*) from public.restaurant_fulfillment_schedule) + (select count(*) from public.restaurant_fulfillment_schedule_window) + (select count(*) from public.restaurant_fulfillment_schedule_slot) + (select count(*) from public.restaurant_fulfillment_schedule_closure);")"
-assert_eq "[3i] toutes les fonctions du lot fixent search_path = ''" "8" \
-  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in ('checkout_date_selection_modes','checkout_slot_selection_modes','checkout_schedule_statuses','checkout_unfulfillable_reasons','resolve_fulfillment_schedule','get_checkout_fulfillment_schedule','get_merchant_fulfillment_schedules','mutate_merchant_fulfillment_schedule') and array_to_string(proconfig,',') like '%search_path=%';")"
+assert_eq "[3i] toutes les fonctions du lot fixent search_path = ''" "11" \
+  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and (proname like 'checkout_%' or proname like '%fulfillment_schedule%') and array_to_string(proconfig,',') like '%search_path=%';")"
 assert_eq "[3j] SEULE la lecture publique est exécutable par anon" "1" \
   "$(sql_value "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and (p.proname like 'checkout_%' or p.proname like '%fulfillment_schedule%') and has_function_privilege('anon', p.oid, 'EXECUTE');")"
 assert_eq "[3k] l'autorité d'éligibilité n'est exécutable par AUCUN rôle applicatif" "0" \

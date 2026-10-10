@@ -385,6 +385,53 @@ revoke all on function public.checkout_unfulfillable_reasons() from public, anon
 -- et c'est pourquoi ce refus ne peut pas être prononcé à l'écriture.
 -- ------------------------------------------------------------
 
+create function public.checkout_wall_time_statuses()
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $$
+  select array[
+    'valid_unique',
+    'nonexistent',
+    'ambiguous'
+  ]::text[]
+$$;
+
+comment on function public.checkout_wall_time_statuses() is
+  'CHECKOUT SCHEDULING FOUNDATION v1 — catalogue FERMÉ des statuts d''heure murale. Miroir exact de CHECKOUT_WALL_TIME_STATUSES (lib/scheduling/schedule-model.ts). Une heure murale locale est exactement l''une de ces trois choses, et la politique n''en accepte qu''une.';
+
+revoke all on function public.checkout_wall_time_statuses() from public, anon, authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01
+--
+-- Remédiation du re-audit delta. La première version détectait
+-- l'ambiguïté en regardant si l'instant trouvé PLUS OU MOINS UNE HEURE
+-- rendait la même heure murale. C'était faux : UNE TRANSITION NE FAIT
+-- PAS TOUJOURS UNE HEURE. Australia/Lord_Howe recule de TRENTE minutes,
+-- et le 5 avril 2026 à 01:45 l'heure locale est vécue deux fois -- que
+-- ce test manquait entièrement, puisque ni 00:45 ni 02:45 ne rendent
+-- 01:45.
+--
+-- L'algorithme ci-dessous ne suppose RIEN de la taille du décalage. Il
+-- ÉNUMÈRE les instants candidats :
+--
+--   1. il échantillonne les décalages UTC réellement en vigueur autour
+--      de l'heure demandée (un jour avant, quatre heures avant, le
+--      point lui-même, quatre heures après, un jour après) -- assez
+--      large pour encadrer n'importe quelle transition, assez serré
+--      pour n'en manquer aucune ;
+--   2. pour CHAQUE décalage distinct, il construit l'instant candidat
+--      « heure murale moins décalage » ;
+--   3. il ne garde que les candidats qui, relus dans le fuseau, rendent
+--      EXACTEMENT l'heure murale demandée.
+--
+-- Le NOMBRE de survivants est la réponse : 0 inexistante, 1 univoque,
+-- 2 ambiguë. Aucune constante de durée n'entre dans la décision, et la
+-- seule source de vérité est la base de fuseaux du serveur.
+-- ------------------------------------------------------------
+
 create function public.checkout_wall_time_status(
   p_date date, p_time time, p_timezone text
 )
@@ -393,24 +440,50 @@ language sql
 stable
 set search_path = ''
 as $$
-  with naive as (select (p_date + p_time) as ts),
-  mapped as (select n.ts, (n.ts at time zone p_timezone) as inst from naive n)
-  select case
-    -- ALLER-RETOUR : si l'instant obtenu, relu dans le fuseau, ne rend
-    -- pas l'heure murale demandée, c'est que cette heure n'existe pas.
-    when ((m.inst at time zone p_timezone) is distinct from m.ts) then 'nonexistent'
-    -- VOISINS : si l'instant obtenu plus ou moins une heure rend la MÊME
-    -- heure murale, c'est que cette heure a eu lieu deux fois.
-    when (((m.inst - pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
-      or (((m.inst + pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
-      then 'ambiguous'
-    else 'ok'
+  with naive as (
+    select (p_date + p_time)::timestamp as ts
+  ),
+  base as (
+    select n.ts, (n.ts at time zone 'UTC') as inst0 from naive n
+  ),
+  -- 1. Décalages réellement en vigueur autour du point.
+  offsets as (
+    select distinct
+      ((b.inst0 + v.probe) at time zone p_timezone)
+        - ((b.inst0 + v.probe) at time zone 'UTC') as utc_offset
+    from base b
+    cross join (values
+      (pg_catalog.make_interval(days => -1)),
+      (pg_catalog.make_interval(hours => -4)),
+      (pg_catalog.make_interval()),
+      (pg_catalog.make_interval(hours => 4)),
+      (pg_catalog.make_interval(days => 1))
+    ) as v(probe)
+  ),
+  -- 2. Un candidat par décalage distinct.
+  candidates as (
+    select distinct ((b.ts - o.utc_offset) at time zone 'UTC') as inst
+    from base b cross join offsets o
+  ),
+  -- 3. Seuls survivent ceux qui rendent l'heure murale demandée.
+  survivors as (
+    select pg_catalog.count(*) as n
+    from candidates c cross join base b
+    where (c.inst at time zone p_timezone) = b.ts
+  )
+  select case (select n from survivors)
+    when 0 then 'nonexistent'
+    when 1 then 'valid_unique'
+    -- Deux instants ou plus pour la même heure murale : elle est
+    -- ambiguë, et la politique la refuse. Le cas « plus de deux »
+    -- n'existe pas dans la base de fuseaux, mais le traiter comme
+    -- ambigu est le MÊME refus -- jamais un choix silencieux.
+    else 'ambiguous'
   end
-  from mapped m
 $$;
 
 comment on function public.checkout_wall_time_status(date,time,text) is
-  'CHECKOUT SCHEDULING FOUNDATION v1 — CLASSE une heure murale locale : `ok`, `nonexistent` (trou du saut de printemps) ou `ambiguous` (heure vécue deux fois au recul d''automne). Miroir de resolveWallTime (lib/scheduling/eligibility.ts). Autorité de la politique CSDJ-V1-WALL-TIME-FAIL-CLOSED-01.';
+  'CHECKOUT SCHEDULING FOUNDATION v1 — CLASSE une heure murale locale : `valid_unique`, `nonexistent` (trou d''un passage à l''heure d''été) ou `ambiguous` (heure vécue deux fois à un retour à l''heure normale). CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01 : la classification ÉNUMÈRE les instants candidats à partir des décalages réellement en vigueur, sans jamais supposer qu''une transition fait une heure -- Australia/Lord_Howe en fait trente minutes. Miroir de resolveWallTime (lib/scheduling/eligibility.ts).';
 
 revoke all on function public.checkout_wall_time_status(date,time,text) from public, anon, authenticated, service_role;
 
@@ -426,14 +499,14 @@ as $$
   -- alors l'offre. Un NULL n'est donc pas une absence de valeur, c'est
   -- un REFUS -- et c'est pour cela qu'il n'y a pas de repli.
   select case
-    when public.checkout_wall_time_status(p_date, p_time, p_timezone) = 'ok'
+    when public.checkout_wall_time_status(p_date, p_time, p_timezone) = 'valid_unique'
       then ((p_date + p_time) at time zone p_timezone)
     else null
   end
 $$;
 
 comment on function public.checkout_wall_time_instant(date,time,text) is
-  'CHECKOUT SCHEDULING FOUNDATION v1 — instant UTC d''une heure murale locale, ou NULL si cette heure est inexistante ou ambiguë. Le NULL est un REFUS, jamais une absence de valeur : l''appelant écarte l''offre (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).';
+  'CHECKOUT SCHEDULING FOUNDATION v1 — instant UTC d''une heure murale locale, ou NULL si elle est inexistante ou ambiguë. Le NULL est un REFUS, jamais une absence de valeur (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).';
 
 revoke all on function public.checkout_wall_time_instant(date,time,text) from public, anon, authenticated, service_role;
 
@@ -756,6 +829,7 @@ declare
   v_end_min      integer;
   v_t            integer;
   v_pick         integer;
+  v_grid_sound   boolean;
   v_inst         timestamptz;
 begin
   select * into v_s
@@ -926,25 +1000,55 @@ begin
       v_end_min   := pg_catalog.date_part('hour', v_off.ends_at)::integer * 60
                    + pg_catalog.date_part('minute', v_off.ends_at)::integer;
 
+      -- ══════════════════════════════════════════════════════════════
+      -- CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01
+      --
+      -- Remédiation du re-audit delta. Valider le seul DÉBUT ne
+      -- suffisait pas : une fenêtre 01:30-02:30 le 29 mars 2026 à Paris
+      -- a un début parfaitement valide et une FIN qui n'existe pas --
+      -- elle était pourtant exposée, fin comprise. Et une fenêtre
+      -- 01:30-03:30 pouvait exposer un intervalle contenant des heures
+      -- murales inexistantes, que le client aurait pu choisir.
+      --
+      -- Règle : si UNE SEULE des heures murales nécessaires à la
+      -- construction de l'offre -- début, fin, ou n'importe quel point
+      -- de la grille sélectionnable -- n'est pas univoque, l'offre
+      -- N'EST PAS EXPOSÉE ce jour-là. Tout ou rien, et fermé. Aucune
+      -- heure de remplacement n'est inventée.
+      -- ══════════════════════════════════════════════════════════════
+      if public.checkout_wall_time_status(v_d, v_off.ends_at, v_s.timezone)
+           <> 'valid_unique' then
+        continue;
+      end if;
+
       if v_s.slot_selection_mode = 'time_within_window' then
-        -- Le client choisit une HEURE dans la fenêtre : le début est
-        -- AVANCÉ le long de la grille de granularité du commerçant
-        -- jusqu'au premier point utilisable. La grille reste ancrée sur
-        -- le début CONFIGURÉ, pour rester celle qu'il a décrite. Ce
-        -- n'est pas une offre nouvelle, c'est la part encore utilisable
-        -- d'une fenêtre existante.
+        -- TOUS les points de grille sont validés, pas seulement la part
+        -- encore utilisable : sur une date ordinaire, le client pourrait
+        -- choisir n'importe lequel d'entre eux. Le premier point
+        -- RÉALISABLE devient le début exposé
+        -- (CSDJ-V1-OFFER-START-INSTANT-01) ; la grille reste ancrée sur
+        -- le début CONFIGURÉ, pour rester celle que le commerçant a
+        -- décrite.
         v_pick := null;
+        v_grid_sound := true;
         v_t := v_start_min;
         while v_t < v_end_min loop
-          v_inst := public.checkout_wall_time_instant(
-            v_d, pg_catalog.make_time(v_t / 60, v_t % 60, 0), v_s.timezone);
-          if v_inst is not null and v_inst >= v_min_instant then
-            v_pick := v_t;
+          if public.checkout_wall_time_status(
+               v_d, pg_catalog.make_time(v_t / 60, v_t % 60, 0), v_s.timezone)
+             <> 'valid_unique' then
+            v_grid_sound := false;
             exit;
+          end if;
+          if v_pick is null then
+            v_inst := public.checkout_wall_time_instant(
+              v_d, pg_catalog.make_time(v_t / 60, v_t % 60, 0), v_s.timezone);
+            if v_inst is not null and v_inst >= v_min_instant then
+              v_pick := v_t;
+            end if;
           end if;
           v_t := v_t + v_s.time_granularity_minutes;
         end loop;
-        if v_pick is null then
+        if not v_grid_sound or v_pick is null then
           continue;
         end if;
         v_day := v_day || pg_catalog.jsonb_build_object(
@@ -954,7 +1058,8 @@ begin
         continue;
       end if;
 
-      -- `fixed_slots` et `none` : l'offre est atomique, son DÉBUT décide.
+      -- `fixed_slots` et `none` : l'offre est atomique. Début ET fin
+      -- doivent exister, et le DÉBUT décide de sa réalisabilité.
       v_inst := public.checkout_wall_time_instant(v_d, v_off.starts_at, v_s.timezone);
       if v_inst is null or v_inst < v_min_instant then
         continue;
@@ -1546,6 +1651,7 @@ begin
     'checkout_slot_selection_modes',
     'checkout_schedule_statuses',
     'checkout_unfulfillable_reasons',
+    'checkout_wall_time_statuses',
     'checkout_wall_time_status',
     'checkout_wall_time_instant',
     'resolve_fulfillment_schedule',
@@ -1567,6 +1673,7 @@ begin
     raise exception 'SCANYM_POSTCHECK: anon devrait pouvoir exécuter la lecture publique.';
   end if;
   foreach v_t in array array[
+    'public.checkout_wall_time_statuses()',
     'public.checkout_wall_time_status(date,time without time zone,text)',
     'public.checkout_wall_time_instant(date,time without time zone,text)',
     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',
@@ -1630,6 +1737,27 @@ begin
   if public.checkout_wall_time_status('2026-03-29'::date, '02:30'::time, 'Europe/Paris') <> 'nonexistent'
      or public.checkout_wall_time_status('2026-10-25'::date, '02:30'::time, 'Europe/Paris') <> 'ambiguous' then
     raise exception 'SCANYM_POSTCHECK: la CLASSIFICATION des heures murales est fausse.';
+  end if;
+  -- CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01 : la sonde la plus importante
+  -- du lot. Australia/Lord_Howe recule de TRENTE minutes le 5 avril
+  -- 2026 ; une classification qui suppose une heure laisse passer
+  -- 01:45, et c'est exactement le défaut que le re-audit a trouvé.
+  if public.checkout_wall_time_status('2026-04-05'::date, '01:45'::time, 'Australia/Lord_Howe')
+       <> 'ambiguous' then
+    raise exception 'SCANYM_POSTCHECK: une transition de TRENTE minutes n''est pas détectée -- la classification suppose une heure.';
+  end if;
+  if public.checkout_wall_time_status('2026-10-04'::date, '02:10'::time, 'Australia/Lord_Howe')
+       <> 'nonexistent' then
+    raise exception 'SCANYM_POSTCHECK: le trou d''une transition de trente minutes n''est pas détecté.';
+  end if;
+  -- Et la politique ne sur-refuse pas : un dimanche ordinaire du même
+  -- fuseau est univoque.
+  if public.checkout_wall_time_status('2026-05-03'::date, '01:45'::time, 'Australia/Lord_Howe')
+       <> 'valid_unique' then
+    raise exception 'SCANYM_POSTCHECK: une heure ordinaire est refusée : la politique sur-refuse.';
+  end if;
+  if pg_catalog.cardinality(public.checkout_wall_time_statuses()) <> 3 then
+    raise exception 'SCANYM_POSTCHECK: cardinalité du catalogue des statuts d''heure murale inattendue.';
   end if;
 
   -- Z.9ter LA GARDE DE MODE DÉSACTIVÉ EST PRÉSENTE dans la lecture

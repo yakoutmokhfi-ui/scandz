@@ -85,6 +85,7 @@ drop function if exists public.get_checkout_fulfillment_schedule(uuid,text,text,
 drop function if exists public.resolve_fulfillment_schedule(uuid,text,uuid,timestamptz);
 drop function if exists public.checkout_wall_time_instant(date,time,text);
 drop function if exists public.checkout_wall_time_status(date,time,text);
+drop function if exists public.checkout_wall_time_statuses();
 
 -- ============================================================
 -- §B  Tables — filles d'abord
@@ -130,6 +131,7 @@ begin
     'public.checkout_slot_selection_modes()',
     'public.checkout_schedule_statuses()',
     'public.checkout_unfulfillable_reasons()',
+    'public.checkout_wall_time_statuses()',
     'public.checkout_wall_time_status(date,time without time zone,text)',
     'public.checkout_wall_time_instant(date,time without time zone,text)',
     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',

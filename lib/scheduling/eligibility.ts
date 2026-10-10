@@ -31,6 +31,7 @@
 
 import {
   type CheckoutDateSelectionMode,
+  type CheckoutWallTimeStatus,
   type CheckoutScheduleStatus,
   type CheckoutSlotSelectionMode,
   type CheckoutUnfulfillableReason,
@@ -162,50 +163,72 @@ function zoneOffsetMs(epochMs: number, tz: string): number {
  * ══════════════════════════════════════════════════════════════════════
  * CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 — POLITIQUE DE CHANGEMENT D'HEURE
  *
- * Deux heures murales locales ne désignent pas un instant unique :
- *   - l'heure INEXISTANTE du saut de printemps (à Paris, le 29 mars 2026
- *     entre 02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
- *   - l'heure AMBIGUË du recul d'automne (le 25 octobre 2026 entre 02:00
- *     et 03:00 : ces minutes ont eu lieu DEUX fois).
+ * Une heure murale locale ne désigne pas toujours un instant unique :
+ *   - INEXISTANTE au saut de printemps (à Paris, le 29 mars 2026 entre
+ *     02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
+ *   - AMBIGUË au recul d'automne (le 25 octobre 2026 entre 02:00 et
+ *     03:00 : ces minutes ont eu lieu DEUX fois).
  *
- * La politique de la v1 est le REFUS FERMÉ des deux cas : une telle
- * occurrence n'est PAS une offre, elle est écartée. Aucune normalisation
- * silencieuse.
+ * La politique de la v1 est le REFUS FERMÉ des deux cas. La
+ * normalisation de PostgreSQL est un comportement de MOTEUR, pas une
+ * décision commerciale : pour une heure ambiguë, la promesse « nous
+ * vous livrons à 02:30 » désignerait deux instants distants d'une
+ * heure, et aucun des deux n'aurait été choisi par quiconque.
  *
- * Pourquoi. La normalisation de PostgreSQL est un comportement de
- * MOTEUR, pas une décision commerciale : elle déplacerait l'heure
- * inexistante après le saut et choisirait l'une des deux occurrences
- * ambiguës, sans que ni le commerçant ni le client ne le sachent. Pour
- * une heure ambiguë, la promesse « nous vous livrons à 02:30 » désigne
- * alors deux instants distants d'une heure, et aucun des deux n'a été
- * choisi par quiconque. Un refus est visible, corrigeable, et ne promet
- * rien de faux.
+ * Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration :
+ * une fenêtre 02:00-03:00 reste valide les 364 autres jours de l'année,
+ * et c'est pourquoi il ne peut pas être prononcé à l'écriture.
  *
- * Portée. Le refus porte sur l'OCCURRENCE (une date précise), pas sur la
- * configuration : une fenêtre 02:00–03:00 reste parfaitement valide les
- * 364 autres jours de l'année, et c'est bien pourquoi le refus ne peut
- * pas être prononcé à l'écriture.
+ * ══════════════════════════════════════════════════════════════════════
+ * CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01 — remédiation du re-audit delta
+ *
+ * La première remédiation détectait l'ambiguïté en regardant si
+ * l'instant trouvé PLUS OU MOINS UNE HEURE rendait la même heure
+ * murale. C'était faux : UNE TRANSITION NE FAIT PAS TOUJOURS UNE HEURE.
+ * Australia/Lord_Howe recule de TRENTE minutes, et le 5 avril 2026 à
+ * 01:45 l'heure locale est vécue deux fois -- que ce test manquait
+ * entièrement, puisque ni 00:45 ni 02:45 ne rendent 01:45.
+ *
+ * L'algorithme ci-dessous ne suppose RIEN de la taille du décalage. Il
+ * ÉNUMÈRE les instants candidats :
+ *
+ *   1. on échantillonne les décalages UTC réellement en vigueur autour
+ *      de l'heure demandée (un jour avant, quatre heures avant, le
+ *      point lui-même, quatre heures après, un jour après) -- assez
+ *      large pour encadrer n'importe quelle transition, assez serré
+ *      pour n'en manquer aucune ;
+ *   2. pour CHAQUE décalage distinct, on construit l'instant candidat
+ *      `heure murale - décalage` ;
+ *   3. on ne garde que les candidats qui, relus dans le fuseau, rendent
+ *      EXACTEMENT l'heure murale demandée.
+ *
+ * Le NOMBRE de survivants est la réponse, et il n'y en a pas d'autre :
+ *   0 -> l'heure n'existe pas ;
+ *   1 -> elle désigne un instant unique ;
+ *   2 -> elle en désigne deux.
+ *
+ * Aucune constante de durée n'apparaît dans la décision. La seule
+ * source de vérité est la base de fuseaux du système, la même que celle
+ * de PostgreSQL.
  * ══════════════════════════════════════════════════════════════════════
  */
-export type WallTimeStatus = "ok" | "nonexistent" | "ambiguous";
+/** Alias du catalogue fermé : une seule liste, deux noms d'usage. */
+export type WallTimeStatus = CheckoutWallTimeStatus;
 
 export interface WallTimeResolution {
   readonly status: WallTimeStatus;
-  /** Instant UTC, ou `null` dès que le statut n'est pas `ok`. */
+  /** Instant UTC, ou `null` dès que le statut n'est pas `valid_unique`. */
   readonly epochMs: number | null;
 }
 
 /**
- * Résout une heure murale locale, en CLASSANT le résultat.
- *
- * Deux passes pour l'instant candidat : on devine avec le décalage de
- * l'instant approché, puis on corrige si le décalage réel diffère.
- * Ensuite, deux contrôles :
- *   - ALLER-RETOUR : si l'instant trouvé, relu dans le fuseau, ne rend
- *     pas l'heure murale demandée, c'est que cette heure n'existe pas ;
- *   - VOISINS : si l'instant trouvé ±1 h rend la MÊME heure murale,
- *     c'est que cette heure a eu lieu deux fois.
+ * Décalages d'échantillonnage, en millisecondes, relatifs à l'heure
+ * murale lue comme si elle était UTC. Un jour de part et d'autre
+ * encadre toute transition réelle, quelle que soit sa taille et quel
+ * que soit le décalage du fuseau (jusqu'à ±14 h).
  */
+const OFFSET_PROBES_MS = [-86_400_000, -14_400_000, 0, 14_400_000, 86_400_000];
+
 export function resolveWallTime(
   year: number,
   month: number,
@@ -213,34 +236,45 @@ export function resolveWallTime(
   minutesOfDay: number,
   tz: string
 ): WallTimeResolution {
-  const naive = Date.UTC(
+  const naiveAsUtc = Date.UTC(
     year,
     month - 1,
     day,
     Math.floor(minutesOfDay / 60),
     minutesOfDay % 60
   );
-  const firstGuess = naive - zoneOffsetMs(naive, tz);
-  const epochMs = naive - zoneOffsetMs(firstGuess, tz);
 
-  const back = zonedDateParts(epochMs, tz);
-  const wantedDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  if (back.date !== wantedDate || back.minutesOfDay !== minutesOfDay) {
-    return { status: "nonexistent", epochMs: null };
+  // 1. Décalages réellement en vigueur autour de ce point.
+  const offsets: number[] = [];
+  for (const probe of OFFSET_PROBES_MS) {
+    const off = zoneOffsetMs(naiveAsUtc + probe, tz);
+    if (!offsets.includes(off)) offsets.push(off);
   }
 
-  const HOUR = 3_600_000;
-  for (const neighbour of [epochMs - HOUR, epochMs + HOUR]) {
-    const alt = zonedDateParts(neighbour, tz);
-    if (alt.date === wantedDate && alt.minutesOfDay === minutesOfDay) {
-      return { status: "ambiguous", epochMs: null };
+  // 2./3. Candidats, puis survivants de l'aller-retour.
+  const survivors: number[] = [];
+  for (const off of offsets) {
+    const candidate = naiveAsUtc - off;
+    const back = zonedDateParts(candidate, tz);
+    const wanted = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (back.date === wanted && back.minutesOfDay === minutesOfDay) {
+      if (!survivors.includes(candidate)) survivors.push(candidate);
     }
   }
 
-  return { status: "ok", epochMs };
+  if (survivors.length === 0) return { status: "nonexistent", epochMs: null };
+  if (survivors.length === 1) {
+    return { status: "valid_unique", epochMs: survivors[0]! };
+  }
+  // Deux instants ou plus pour la même heure murale : elle est ambiguë,
+  // et la politique la refuse. Le cas « plus de deux » n'existe pas
+  // dans la base de fuseaux, mais le traiter comme ambigu est le même
+  // refus -- jamais un choix silencieux.
+  return { status: "ambiguous", epochMs: null };
 }
 
-/** Date civile (`YYYY-MM-DD`) et minutes depuis minuit, dans `tz`. */
+/** Date civile (`YYYY-MM-DD`), minutes depuis minuit et jour de semaine
+ *  d'un instant, LUS DANS `tz`. */
 function zonedDateParts(
   epochMs: number,
   tz: string
@@ -279,6 +313,7 @@ function addDays(date: string, days: number): string {
   ).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** Jour de semaine d'une date civile. 0 = dimanche, comme extract(dow). */
 function weekdayOfDate(date: string): number {
   const { y, m, d } = splitDate(date);
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
@@ -526,21 +561,47 @@ export function resolveScheduleEligibility(
       const endMin = parseScheduleTime(offer.endsAt);
       if (startMin === null || endMin === null) continue;
 
+      // ════════════════════════════════════════════════════════════════
+      // CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01
+      //
+      // Remédiation du re-audit delta. Il ne suffit pas de valider le
+      // DÉBUT : une fenêtre 01:30-02:30 le 29 mars 2026 à Paris avait un
+      // début parfaitement valide et une FIN qui n'existe pas -- elle
+      // était pourtant proposée, fin comprise. Et une fenêtre
+      // 01:30-03:30 pouvait exposer un intervalle contenant des heures
+      // murales inexistantes, que le client aurait pu choisir.
+      //
+      // Règle : si UNE SEULE des heures murales nécessaires pour
+      // construire l'offre -- début, fin, ou n'importe quel point de la
+      // grille sélectionnable -- est inexistante ou ambiguë, l'offre
+      // N'EST PAS EXPOSÉE pour cette date. Tout ou rien, et fermé.
+      //
+      // Aucune heure de remplacement n'est inventée. L'occurrence
+      // disparaît ce jour-là ; la configuration reste intacte et valide
+      // les autres jours.
+      // ════════════════════════════════════════════════════════════════
+      const endStatus = resolveWallTime(y, m, d, endMin, cfg.timezone).status;
+      if (endStatus !== "valid_unique") continue;
+
       if (cfg.slotSelectionMode === "time_within_window" && granularity) {
-        // Avancer le long de la grille du commerçant jusqu'au premier
-        // point utilisable. La grille est ancrée sur le DÉBUT configuré
-        // de la fenêtre, pour rester celle que le commerçant a décrite.
+        // Toute la grille est validée, pas seulement la part encore
+        // utilisable : sur une date ordinaire, le client pourrait
+        // choisir n'importe lequel de ces points.
+        let gridIsSound = true;
         let chosen: { minute: number; epochMs: number } | null = null;
         for (let t = startMin; t < endMin; t += granularity) {
           const r = resolveWallTime(y, m, d, t, cfg.timezone);
-          // Heure murale inexistante ou ambiguë : ce point de grille
-          // n'est pas proposable, on passe au suivant.
-          if (r.epochMs === null) continue;
-          if (r.epochMs >= minInstant) {
-            chosen = { minute: t, epochMs: r.epochMs };
+          if (r.status !== "valid_unique") {
+            gridIsSound = false;
             break;
           }
+          // Premier point réalisable : il devient le début exposé
+          // (CSDJ-V1-OFFER-START-INSTANT-01).
+          if (chosen === null && r.epochMs !== null && r.epochMs >= minInstant) {
+            chosen = { minute: t, epochMs: r.epochMs };
+          }
         }
+        if (!gridIsSound) continue;
         if (chosen === null) continue;
         usable.push({
           slotKey: null,
@@ -550,9 +611,10 @@ export function resolveScheduleEligibility(
         continue;
       }
 
-      // `fixed_slots` et `none` : l'offre est atomique. Son DÉBUT décide.
+      // `fixed_slots` et `none` : l'offre est atomique. Début ET fin
+      // doivent exister, et le DÉBUT décide de sa réalisabilité.
       const r = resolveWallTime(y, m, d, startMin, cfg.timezone);
-      if (r.epochMs === null) continue;
+      if (r.status !== "valid_unique" || r.epochMs === null) continue;
       if (r.epochMs < minInstant) continue;
       usable.push({
         slotKey: offer.slotKey,

@@ -8,6 +8,7 @@ import {
   CHECKOUT_SCHEDULE_STATUSES,
   CHECKOUT_SLOT_SELECTION_MODES,
   CHECKOUT_UNFULFILLABLE_REASONS,
+  CHECKOUT_WALL_TIME_STATUSES,
   SCHEDULE_CLOSURE_LABEL_MAX_LENGTH,
   SCHEDULE_CUTOFF_OFFSET_DAYS_MAX,
   SCHEDULE_LEAD_TIME_MINUTES_MAX,
@@ -127,6 +128,17 @@ test("[MIRROR-4] checkout_unfulfillable_reasons() ≡ CHECKOUT_UNFULFILLABLE_REA
   assert.deepEqual(sqlArrayLiterals("checkout_unfulfillable_reasons"), [
     ...CHECKOUT_UNFULFILLABLE_REASONS,
   ]);
+});
+
+test("[MIRROR-9] checkout_wall_time_statuses() ≡ CHECKOUT_WALL_TIME_STATUSES", () => {
+  // Le classement d'une heure murale est un CATALOGUE FERMÉ, au même
+  // titre que les statuts de planning : trois valeurs, exactement, et
+  // les mêmes des deux côtés. Un quatrième état d'un seul côté serait
+  // une politique qui diverge en silence.
+  assert.deepEqual(sqlArrayLiterals("checkout_wall_time_statuses"), [
+    ...CHECKOUT_WALL_TIME_STATUSES,
+  ]);
+  assert.equal(CHECKOUT_WALL_TIME_STATUSES.length, 3);
 });
 
 test("[MIRROR-5] la forme d'une clé de créneau est la MÊME des deux côtés", () => {
@@ -718,12 +730,48 @@ test("[NO-HARDCODE-2] aucun fuseau en dur dans la décision", () => {
   // ne décident de rien.
   for (const hardcoded of [
     "at time zone 'Europe/Paris'",
-    "at time zone 'UTC'",
     "'Europe/Paris', p_time",
   ]) {
     assert.ok(
       !execSql.includes(hardcoded),
       `aucun fuseau en dur ne doit servir de fuseau de calcul (« ${hardcoded} »)`
+    );
+  }
+
+  // Cas particulier d'« at time zone 'UTC' » : ce n'est PAS un fuseau
+  // métier, c'est le PIVOT sans lequel un `timestamp` nu ne peut pas
+  // devenir un instant absolu. La classification d'heure murale en a
+  // besoin pour énumérer ses instants candidats. Elle n'y localise
+  // jamais l'heure du commerçant : cela, elle le fait avec
+  // `p_timezone`.
+  //
+  // La garantie est donc : ce pivot n'existe QUE dans la
+  // classification, et nulle part dans les fonctions qui décident de
+  // l'éligibilité. Interdire le pivot partout aurait rendu la
+  // classification impossible ; l'autoriser partout aurait rouvert le
+  // fuseau en dur. On délimite.
+  const countOf = (hay: string, needle: RegExp) => (hay.match(needle) ?? []).length;
+  const UTC_PIVOT = /at time zone 'UTC'/g;
+  const classifier =
+    sqlFunctionBlock("create function public.checkout_wall_time_status(") +
+    "\n" +
+    sqlFunctionBlock("create function public.checkout_wall_time_instant(");
+  assert.equal(
+    countOf(execSql, UTC_PIVOT),
+    countOf(classifier, UTC_PIVOT),
+    "le pivot UTC ne doit apparaître QUE dans la classification d'heure murale"
+  );
+  assert.ok(
+    countOf(classifier, UTC_PIVOT) > 0,
+    "la classification doit bien employer un pivot explicite, et non une normalisation implicite"
+  );
+  for (const decider of [
+    "create function public.resolve_fulfillment_schedule(",
+    "create function public.get_checkout_fulfillment_schedule(",
+  ]) {
+    assert.ok(
+      !/at time zone '/.test(sqlFunctionBlock(decider)),
+      `aucun fuseau littéral ne doit intervenir dans ${decider}`
     );
   }
   // Et les deux fonctions de décision lisent bien un fuseau PARAMÉTRÉ.
@@ -891,6 +939,241 @@ test("[AUD02-SQL] la politique d'heure murale est une AUTORITÉ, pas un commenta
   assert.ok(
     sql.includes("CSDJ-V1-WALL-TIME-FAIL-CLOSED-01"),
     "la politique doit être nommée dans le fichier"
+  );
+});
+
+test("[AUD02-SQL-2] la classification d'heure murale ne suppose AUCUNE transition d'une heure", () => {
+  // Reproche du re-audit delta : une classification qui cherche
+  // l'ambiguïté « à plus ou moins une heure » rate Australia/Lord_Howe,
+  // dont la transition fait TRENTE minutes. La classification doit donc
+  // ÉNUMÉRER les décalages réellement en vigueur autour de l'instant,
+  // et ne tenir aucune durée pour acquise.
+  const status = sqlFunctionBlock("create function public.checkout_wall_time_status(");
+  assert.ok(
+    status.includes("'valid_unique'"),
+    "le cas unique doit être nommé, et non implicite"
+  );
+
+  // Les cinq sondes de décalage, par leur VALEUR : une sonde perdue
+  // rétrécirait silencieusement la fenêtre d'observation.
+  for (const probe of [
+    "make_interval(days => -1)",
+    "make_interval(hours => -4)",
+    "make_interval()",
+    "make_interval(hours => 4)",
+    "make_interval(days => 1)",
+  ]) {
+    assert.ok(
+      status.includes(probe),
+      `la sonde ${probe} doit faire partie de l'énumération des décalages`
+    );
+  }
+
+  // AUCUNE constante d'une heure dans la DÉCISION : ni '1 hour', ni
+  // 3600, ni interval '01:00'. C'est l'hypothèse que l'audit interdit.
+  for (const forbidden of ["1 hour", "3600", "01:00:00'::interval", "hours => 1)"]) {
+    assert.ok(
+      !status.includes(forbidden),
+      `« ${forbidden} » dans la classification réintroduirait l'hypothèse des 60 minutes`
+    );
+  }
+
+  // La décision est un COMPTAGE de candidats survivants, pas une
+  // comparaison à un décalage attendu.
+  assert.ok(
+    /count\(\*\)/.test(status),
+    "la classification doit compter les instants candidats survivants"
+  );
+  assert.ok(
+    status.includes("when 0 then 'nonexistent'") &&
+      status.includes("when 1 then 'valid_unique'"),
+    "zéro candidat = inexistante, un = unique, au-delà = ambiguë"
+  );
+
+  // Le miroir TypeScript partage la même structure, et la même absence
+  // d'hypothèse.
+  assert.ok(
+    eligibilitySrc.includes("OFFSET_PROBES_MS"),
+    "le miroir TypeScript doit énumérer les mêmes sondes"
+  );
+  for (const probe of ["-86_400_000", "-14_400_000", "14_400_000", "86_400_000"]) {
+    assert.ok(
+      eligibilitySrc.includes(probe),
+      `la sonde ${probe} doit exister côté TypeScript`
+    );
+  }
+  const resolveWall = eligibilitySrc.slice(
+    eligibilitySrc.indexOf("export function resolveWallTime"),
+    eligibilitySrc.indexOf("export function", eligibilitySrc.indexOf("export function resolveWallTime") + 10)
+  );
+  assert.ok(resolveWall.length > 0, "resolveWallTime doit être exportée");
+  assert.ok(
+    !resolveWall.includes("3_600_000") && !resolveWall.includes("3600000"),
+    "aucune constante d'une heure ne doit intervenir dans la classification TypeScript"
+  );
+
+  assert.ok(
+    sql.includes("CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01"),
+    "l'invariant doit être nommé dans le SQL"
+  );
+  assert.ok(
+    eligibilitySrc.includes("CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01"),
+    "l'invariant doit être nommé dans le miroir TypeScript"
+  );
+
+  // Et le post-vol l'éprouve sur la zone qui fait tomber l'hypothèse.
+  assert.ok(
+    execSql.includes("Australia/Lord_Howe"),
+    "le post-vol doit sonder une zone à transition de trente minutes"
+  );
+  assert.ok(
+    sql.includes("TRENTE minutes"),
+    "le post-vol doit dire ce qu'il prouve : une transition de trente minutes"
+  );
+});
+
+test("[AUD02-SQL-3] une occurrence est exposée en ENTIER ou pas du tout", () => {
+  // Reproche du re-audit delta : une fenêtre dont le DÉBUT existe mais
+  // dont la FIN ou un point de la grille n'existe pas restait offerte.
+  // La règle est désormais tout-ou-rien.
+  const resolver = sqlFunctionBlock("create function public.resolve_fulfillment_schedule(");
+  assert.ok(
+    sql.includes("CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01"),
+    "l'invariant doit être nommé dans le SQL"
+  );
+  assert.ok(
+    eligibilitySrc.includes("CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01"),
+    "l'invariant doit être nommé dans le miroir TypeScript"
+  );
+  // La FIN de fenêtre passe par l'autorité de classification.
+  assert.ok(
+    /checkout_wall_time_status\(\s*v_d,\s*v_off\.ends_at,\s*v_s\.timezone\)\s*\n?\s*<> 'valid_unique'/.test(
+      resolver
+    ),
+    "la FIN de fenêtre doit être classée et l'occurrence écartée si elle ne l'est pas"
+  );
+  // Et la grille entière est parcourue, avec un verdict unique.
+  assert.ok(
+    resolver.includes("v_grid_sound"),
+    "la grille doit porter un verdict d'ensemble (tout-ou-rien)"
+  );
+  assert.ok(
+    eligibilitySrc.includes("gridIsSound"),
+    "le miroir TypeScript doit porter le même verdict d'ensemble"
+  );
+  // La fixture partagée doit contenir les quatre fenêtres exigées.
+  const fixture = readFileSync(
+    "tests/fixtures/checkout-scheduling-cases.json",
+    "utf8"
+  );
+  for (const id of [
+    "aud02-window-start-valid-end-nonexistent",
+    "aud02-window-entirely-nonexistent",
+    "aud02-window-spans-nonexistent-region",
+    "aud02-window-after-transition-valid",
+    "aud02-lord-howe-autumn-30min-ambiguous",
+    "aud02-lord-howe-spring-30min-nonexistent",
+  ]) {
+    assert.ok(fixture.includes(id), `le cas ${id} doit figurer dans la fixture partagée`);
+  }
+});
+
+test("[AUD07-SQL] le harnais de rôles s'isole et PROUVE sa destination", () => {
+  // Reproche du re-audit delta : PGHOSTADDR l'emporte sur un « -h »
+  // explicite ; un client qui hérite de l'environnement peut donc muter
+  // un AUTRE serveur que celui que le verrou de sûreté a constaté.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  assert.ok(existsSync(rolePath), "le harnais de restauration de rôles doit exister");
+  const roleSrc = readFileSync(rolePath, "utf8");
+  const execRole = executableShell(roleSrc);
+
+  assert.ok(
+    roleSrc.includes("CSDJ-V1-HARNESS-CLEAN-ENV-01"),
+    "l'invariant d'isolation doit être nommé"
+  );
+  assert.ok(
+    roleSrc.includes("CSDJ-V1-DESTINATION-PROOF-01"),
+    "l'invariant de preuve de destination doit être nommé"
+  );
+
+  // Les variables de routage sont refusées PAR LEUR NOM -- jamais par
+  // leur valeur, qui peut être un secret.
+  for (const name of [
+    "PGHOST",
+    "PGHOSTADDR",
+    "PGPORT",
+    "PGDATABASE",
+    "PGUSER",
+    "PGPASSWORD",
+    "PGPASSFILE",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+    "PGSYSCONFDIR",
+    "PGCLUSTER",
+    "DATABASE_URL",
+    "SUPABASE_DB_URL",
+  ]) {
+    assert.ok(
+      new RegExp(`ROUTING_VARS="[^"]*\\b${name}\\b`).test(execRole),
+      `${name} doit figurer dans la liste des variables refusées`
+    );
+  }
+  assert.ok(
+    roleSrc.includes("La valeur n'est pas journalisée"),
+    "le refus doit dire explicitement qu'il ne journalise pas la valeur"
+  );
+
+  // Chaque appel client passe par env -i, avec PATH, HOME et -h/-p/-U/-d
+  // explicites, et par un binaire à chemin ABSOLU.
+  assert.ok(
+    /env -i PATH="\$SAFE_PATH" HOME="\$SAFE_HOME"/.test(execRole),
+    "les appels clients doivent s'exécuter dans un environnement vidé"
+  );
+  assert.ok(
+    execRole.includes("resolve_bin"),
+    "les binaires doivent être résolus en chemin absolu, pas par le PATH"
+  );
+  assert.ok(
+    /-h "\$SOCKET_DIR" -p "\$PORT" -U "\$OWNER" -d postgres/.test(execRole),
+    "la destination doit être entièrement explicite à chaque appel"
+  );
+
+  // La preuve de destination précède toute mutation, et un échec ABANDONNE.
+  assert.ok(
+    execRole.includes("prove_destination") &&
+      execRole.includes("mutation ABANDONNÉE"),
+    "aucune mutation ne doit avoir lieu sans preuve de destination immédiate"
+  );
+  assert.ok(
+    /data_directory|config_file/.test(execRole) && execRole.includes("$NONCE"),
+    "la preuve doit comparer des faits du serveur, dont un nonce propre à cette exécution"
+  );
+
+  // Le harnais PRINCIPAL ferme le même trou côté nettoyage.
+  assert.ok(
+    execHarness.includes("RESTAURATION DE RÔLES ABANDONNÉE"),
+    "le harnais principal doit abandonner la restauration si sa destination a changé"
+  );
+  assert.ok(
+    /ROUTING_VARS|REDIRECTING_VARS/.test(execHarness) &&
+      /\bPGHOSTADDR\b/.test(execHarness),
+    "le harnais principal doit nommer PGHOSTADDR parmi les variables refusées"
+  );
+
+  // La menace est DÉMONTRÉE nocive, pas seulement déclarée : un témoin
+  // joignable, et une reproduction en lecture seule.
+  assert.ok(
+    execRole.includes("WIT_DATA") && execRole.includes("127.0.0.1"),
+    "un cluster témoin joignable doit exister, sans quoi l'absence de redirection ne prouve rien"
+  );
+  assert.ok(
+    execRole.includes("PSQL_UNISOLATED_ON_PURPOSE"),
+    "le contrôle de nocivité doit exister"
+  );
+  assert.ok(
+    execRole.includes("witness_untouched"),
+    "chaque vecteur hostile doit vérifier que le témoin n'a subi AUCUNE mutation"
   );
 });
 

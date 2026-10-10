@@ -417,25 +417,25 @@ test("[ELIG-13] une fermeture ne décale pas l'horizon, elle retire un jour", ()
 
 test("[AUD02-1] une heure murale INEXISTANTE est classée comme telle", () => {
   // Europe/Paris, 29 mars 2026 : 02:00 -> 03:00 n'a pas eu lieu.
-  for (const minutes of [2 * 60, 2 * 60 + 10, 2 * 60 + 30, 2 * 60 + 59]) {
+  // Les six heures exigées par l'auditeur, bornes comprises.
+  assert.equal(resolveWallTime(2026, 3, 29, 119, "Europe/Paris").status, "valid_unique");
+  for (const minutes of [120, 130, 150, 179]) {
     const r = resolveWallTime(2026, 3, 29, minutes, "Europe/Paris");
-    assert.equal(r.status, "nonexistent", `02:${minutes - 120} devrait être inexistante`);
+    assert.equal(r.status, "nonexistent", `${minutes} min devrait être inexistante`);
     assert.equal(r.epochMs, null, "une heure inexistante ne rend AUCUN instant");
   }
-  // Les bornes, elles, existent.
-  assert.equal(resolveWallTime(2026, 3, 29, 119, "Europe/Paris").status, "ok");
-  assert.equal(resolveWallTime(2026, 3, 29, 180, "Europe/Paris").status, "ok");
+  assert.equal(resolveWallTime(2026, 3, 29, 180, "Europe/Paris").status, "valid_unique");
 });
 
 test("[AUD02-2] une heure murale AMBIGUË est classée comme telle", () => {
   // Europe/Paris, 25 octobre 2026 : 02:00 -> 03:00 a eu lieu deux fois.
-  for (const minutes of [2 * 60, 2 * 60 + 30, 2 * 60 + 59]) {
+  assert.equal(resolveWallTime(2026, 10, 25, 119, "Europe/Paris").status, "valid_unique");
+  for (const minutes of [120, 150, 179]) {
     const r = resolveWallTime(2026, 10, 25, minutes, "Europe/Paris");
     assert.equal(r.status, "ambiguous");
     assert.equal(r.epochMs, null, "une heure ambiguë ne rend AUCUN instant");
   }
-  assert.equal(resolveWallTime(2026, 10, 25, 119, "Europe/Paris").status, "ok");
-  assert.equal(resolveWallTime(2026, 10, 25, 180, "Europe/Paris").status, "ok");
+  assert.equal(resolveWallTime(2026, 10, 25, 180, "Europe/Paris").status, "valid_unique");
 });
 
 test("[AUD02-3] un fuseau sans transition n'a ni heure inexistante ni ambiguë", () => {
@@ -443,11 +443,13 @@ test("[AUD02-3] un fuseau sans transition n'a ni heure inexistante ni ambiguë",
     for (const date of [
       [2026, 3, 29],
       [2026, 10, 25],
+      [2026, 4, 5],
+      [2026, 10, 4],
     ] as const) {
-      for (const minutes of [0, 120, 150, 180, 1439]) {
+      for (const minutes of [0, 105, 120, 150, 180, 1439]) {
         assert.equal(
           resolveWallTime(date[0], date[1], date[2], minutes, tz).status,
-          "ok",
+          "valid_unique",
           `${tz} ${date.join("-")} ${minutes}`
         );
       }
@@ -456,60 +458,169 @@ test("[AUD02-3] un fuseau sans transition n'a ni heure inexistante ni ambiguë",
 });
 
 test("[AUD02-4] un fuseau à décalage NÉGATIF suit la même politique", () => {
-  // America/Los_Angeles : saut le 8 mars 2026, recul le 1er novembre.
+  // America/New_York : saut le 8 mars 2026, recul le 1er novembre.
   assert.equal(
-    resolveWallTime(2026, 3, 8, 150, "America/Los_Angeles").status,
+    resolveWallTime(2026, 3, 8, 150, "America/New_York").status,
     "nonexistent"
   );
   assert.equal(
-    resolveWallTime(2026, 11, 1, 90, "America/Los_Angeles").status,
+    resolveWallTime(2026, 11, 1, 90, "America/New_York").status,
     "ambiguous"
   );
-  assert.equal(resolveWallTime(2026, 3, 8, 60, "America/Los_Angeles").status, "ok");
+  assert.equal(resolveWallTime(2026, 3, 8, 60, "America/New_York").status, "valid_unique");
+  assert.equal(resolveWallTime(2026, 11, 1, 210, "America/New_York").status, "valid_unique");
 });
 
-test("[AUD02-5] une offre dont l'heure murale est refusée n'est JAMAIS exposée", () => {
-  // La politique ne se contente pas de classer : elle ÉCARTE l'offre.
-  const got = resolveScheduleEligibility({
-    config: {
-      ...BASE_CONFIG,
-      slotSelectionMode: "fixed_slots",
-      bookingHorizonDays: 2,
-      cutoffTime: null,
-    },
-    windows: [],
-    slots: [
-      { weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" },
-      { weekday: 0, slotKey: "safe", startsAt: "04:00", endsAt: "05:00" },
-    ],
-    closures: [],
-    nowIso: "2026-03-28T12:00:00+01:00",
-  });
-  assert.equal(got.status, "dates_available");
-  assert.deepEqual(
-    got.dates.map((d) => d.offers.map((o) => o.slotKey)),
-    [["safe"]],
-    "le créneau tombant dans le trou du changement d'heure doit avoir disparu"
+test("[AUD02-7] UNE TRANSITION NE FAIT PAS TOUJOURS UNE HEURE — Lord Howe", () => {
+  // CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01. Australia/Lord_Howe recule de
+  // TRENTE minutes le 5 avril 2026 : 01:30-01:59 est vécu deux fois.
+  // La détection par « plus ou moins une heure » de la première
+  // remédiation manquait entièrement ce cas, puisque ni 00:45 ni 02:45
+  // ne rendent 01:45.
+  const lh = "Australia/Lord_Howe";
+  assert.equal(resolveWallTime(2026, 4, 5, 60, lh).status, "valid_unique", "01:00");
+  assert.equal(resolveWallTime(2026, 4, 5, 85, lh).status, "valid_unique", "01:25");
+  for (const [minutes, label] of [
+    [90, "01:30"],
+    [105, "01:45 — la reproduction de l'auditeur"],
+    [119, "01:59"],
+  ] as const) {
+    const r = resolveWallTime(2026, 4, 5, minutes, lh);
+    assert.equal(r.status, "ambiguous", `${label} doit être ambiguë`);
+    assert.equal(r.epochMs, null);
+  }
+  assert.equal(resolveWallTime(2026, 4, 5, 120, lh).status, "valid_unique", "02:00");
+
+  // Et dans l'autre sens : le 4 octobre 2026, Lord Howe AVANCE de
+  // trente minutes, donc 02:00-02:29 n'existe pas.
+  assert.equal(resolveWallTime(2026, 10, 4, 119, lh).status, "valid_unique", "01:59");
+  for (const minutes of [120, 130, 149]) {
+    assert.equal(
+      resolveWallTime(2026, 10, 4, minutes, lh).status,
+      "nonexistent",
+      `${minutes} min devrait être inexistante`
+    );
+  }
+  assert.equal(resolveWallTime(2026, 10, 4, 150, lh).status, "valid_unique", "02:30");
+
+  // Un dimanche ordinaire : rien n'est refusé.
+  for (const minutes of [90, 105, 120, 150]) {
+    assert.equal(resolveWallTime(2026, 5, 3, minutes, lh).status, "valid_unique");
+  }
+});
+
+test("[AUD02-8] la classification n'encode AUCUNE durée de transition", () => {
+  // Preuve structurelle : le module ne doit contenir aucune constante
+  // d'une heure servant à détecter une transition. La seule durée
+  // admise est l'ÉCHANTILLONNAGE, qui ne décide de rien.
+  const src = readFileSync("lib/scheduling/eligibility.ts", "utf8");
+  const executable = src
+    .split("\n")
+    .filter((line) => !/^\s*(\*|\/\/|\/\*)/.test(line))
+    .join("\n");
+  assert.ok(
+    !executable.includes("3_600_000") && !executable.includes("3600000"),
+    "aucune constante d'une heure ne doit subsister dans la décision"
+  );
+  assert.ok(
+    executable.includes("OFFSET_PROBES_MS"),
+    "la classification doit passer par l'échantillonnage des décalages"
   );
 });
 
-test("[AUD02-6] si TOUTES les offres du jour tombent dans le trou, le jour disparaît", () => {
+test("[AUD02-9] occurrence TOUT-OU-RIEN : début, fin et grille", () => {
+  // CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01, les quatre fenêtres de
+  // l'auditeur, le 29 mars 2026 à Paris.
+  const windowCase = (startsAt: string, endsAt: string) =>
+    resolveScheduleEligibility({
+      config: {
+        ...BASE_CONFIG,
+        slotSelectionMode: "time_within_window",
+        timeGranularityMinutes: 15,
+        bookingHorizonDays: 2,
+        cutoffTime: null,
+      },
+      windows: [{ weekday: 0, startsAt, endsAt }],
+      slots: [],
+      closures: [],
+      nowIso: "2026-03-28T00:30:00+01:00",
+    });
+
+  // Début valide, FIN inexistante : la première remédiation l'exposait.
+  assert.equal(windowCase("01:30", "02:30").status, "unfulfillable");
+  // Début ET fin dans le trou.
+  assert.equal(windowCase("02:00", "03:00").status, "unfulfillable");
+  // Bornes valides, mais la GRILLE traverse le trou.
+  assert.equal(windowCase("01:30", "03:30").status, "unfulfillable");
+  // Entièrement après la bascule : valide -- la politique ne sur-refuse pas.
+  const after = windowCase("03:00", "04:00");
+  assert.equal(after.status, "dates_available");
+  assert.deepEqual(after.dates[0]!.offers, [
+    { slotKey: null, startsAt: "03:00", endsAt: "04:00" },
+  ]);
+  // Entièrement avant : valide.
+  assert.equal(windowCase("00:30", "01:30").status, "dates_available");
+});
+
+test("[AUD02-10] le refus porte sur l'OCCURRENCE, jamais sur la configuration", () => {
+  // La même fenêtre, une semaine après la bascule : elle redevient
+  // valide. Sinon un commerçant perdrait une fenêtre toute l'année à
+  // cause d'un seul dimanche.
+  const cfg = {
+    ...BASE_CONFIG,
+    slotSelectionMode: "time_within_window" as const,
+    timeGranularityMinutes: 15,
+    bookingHorizonDays: 2,
+    cutoffTime: null,
+  };
+  const windows = [{ weekday: 0, startsAt: "01:30", endsAt: "02:30" }];
+  const onTransition = resolveScheduleEligibility({
+    config: cfg,
+    windows,
+    slots: [],
+    closures: [],
+    nowIso: "2026-03-28T00:30:00+01:00",
+  });
+  const weekAfter = resolveScheduleEligibility({
+    config: cfg,
+    windows,
+    slots: [],
+    closures: [],
+    nowIso: "2026-04-04T00:30:00+02:00",
+  });
+  assert.equal(onTransition.status, "unfulfillable");
+  assert.equal(weekAfter.status, "dates_available");
+  assert.deepEqual(weekAfter.dates[0]!.offers, [
+    { slotKey: null, startsAt: "01:30", endsAt: "02:30" },
+  ]);
+});
+
+test("[AUD02-11] une heure limite non univoque écarte la date", () => {
+  // On ne devine pas l'instant d'une limite : si l'heure limite tombe
+  // elle-même dans un trou ou dans une heure vécue deux fois, la date
+  // est écartée.
   const got = resolveScheduleEligibility({
     config: {
       ...BASE_CONFIG,
       slotSelectionMode: "fixed_slots",
-      bookingHorizonDays: 1,
-      minLeadDays: 1,
-      cutoffTime: null,
+      cutoffTime: "02:30",
+      cutoffOffsetDays: 1,
+      bookingHorizonDays: 2,
     },
     windows: [],
-    slots: [{ weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" }],
+    // Le 30 mars 2026 est un lundi ; son heure limite est le 29 à 02:30,
+    // qui n'existe pas à Paris.
+    slots: [{ weekday: 1, slotKey: "a", startsAt: "10:00", endsAt: "12:00" }],
     closures: [],
-    nowIso: "2026-03-28T12:00:00+01:00",
+    nowIso: "2026-03-28T00:30:00+01:00",
   });
   assert.equal(got.status, "unfulfillable");
-  assert.equal(got.reason, "no_offer_in_horizon");
-  assert.equal(got.firstEligibleDate, null);
+  // `horizon_exhausted` et non `no_offer_in_horizon` : la date est
+  // écartée par son HEURE LIMITE, donc avant même d'être comptée comme
+  // ouverte. C'est exactement la définition de ce motif -- « le délai,
+  // le minimum de jours ou l'heure limite repoussent la première date
+  // au-delà de l'horizon ».
+  assert.equal(got.reason, "horizon_exhausted");
 });
 
 // ====================================================================
