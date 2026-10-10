@@ -1,0 +1,72 @@
+CSDJ-1 v1.2 — CLASSIFICATION D'HEURE MURALE : ACCORD À TROIS VOIES
+==================================================================
+
+CSDJ1-AUD-02 / CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01
+
+38 points de classification, chacun soumis aux TROIS implémentations :
+  - Python  : tests/fixtures/build-checkout-scheduling-cases.py (resolve_wall)
+  - TypeScript : lib/scheduling/eligibility.ts (resolveWallTime) -- référence, jamais autorité
+  - SQL     : public.checkout_wall_time_status() EXTRAITE LITTÉRALEMENT du lot
+              et créée dans un cluster jetable (aucune réécriture)
+
+fuseau|date|heure murale|classement (identique dans les trois)
+-----------------------------------------------------------------
+Europe/Paris|2026-03-29|01:30|valid_unique
+Europe/Paris|2026-03-29|01:59|valid_unique
+Europe/Paris|2026-03-29|02:00|nonexistent
+Europe/Paris|2026-03-29|02:10|nonexistent
+Europe/Paris|2026-03-29|02:30|nonexistent
+Europe/Paris|2026-03-29|02:59|nonexistent
+Europe/Paris|2026-03-29|03:00|valid_unique
+Europe/Paris|2026-03-29|03:30|valid_unique
+Europe/Paris|2026-03-29|04:00|valid_unique
+Europe/Paris|2026-10-25|01:59|valid_unique
+Europe/Paris|2026-10-25|02:00|ambiguous
+Europe/Paris|2026-10-25|02:30|ambiguous
+Europe/Paris|2026-10-25|02:59|ambiguous
+Europe/Paris|2026-10-25|03:00|valid_unique
+Europe/Paris|2026-06-15|02:30|valid_unique
+Australia/Lord_Howe|2026-04-05|01:00|valid_unique
+Australia/Lord_Howe|2026-04-05|01:29|valid_unique
+Australia/Lord_Howe|2026-04-05|01:30|ambiguous
+Australia/Lord_Howe|2026-04-05|01:45|ambiguous
+Australia/Lord_Howe|2026-04-05|01:59|ambiguous
+Australia/Lord_Howe|2026-04-05|02:00|valid_unique
+Australia/Lord_Howe|2026-10-04|01:59|valid_unique
+Australia/Lord_Howe|2026-10-04|02:00|nonexistent
+Australia/Lord_Howe|2026-10-04|02:10|nonexistent
+Australia/Lord_Howe|2026-10-04|02:29|nonexistent
+Australia/Lord_Howe|2026-10-04|02:30|valid_unique
+Australia/Lord_Howe|2026-05-03|01:45|valid_unique
+UTC|2026-03-29|02:30|valid_unique
+UTC|2026-10-25|02:30|valid_unique
+Pacific/Kiritimati|2026-03-29|02:30|valid_unique
+Pacific/Kiritimati|2026-10-25|02:30|valid_unique
+America/Los_Angeles|2026-03-08|02:30|nonexistent
+America/Los_Angeles|2026-11-01|01:30|ambiguous
+America/New_York|2026-03-08|02:30|nonexistent
+America/New_York|2026-11-01|01:30|ambiguous
+Asia/Kathmandu|2026-06-15|02:45|valid_unique
+Pacific/Chatham|2026-04-05|02:45|ambiguous
+Pacific/Chatham|2026-09-27|02:45|nonexistent
+
+-----------------------------------------------------------------
+diff python/typescript : AUCUN
+diff python/sql        : AUCUN
+
+LECTURE
+-------
+Europe/Paris 2026-03-29 : 02:00, 02:10, 02:30, 02:59 INEXISTANTES ;
+  01:59 et 03:00 valides. La borne exacte est prouvée des deux côtés.
+Europe/Paris 2026-10-25 : 02:00, 02:30, 02:59 AMBIGUËS ; 01:59 et 03:00
+  valides.
+Australia/Lord_Howe 2026-04-05 : la transition fait TRENTE minutes.
+  01:30, 01:45, 01:59 sont AMBIGUËS, 01:00 et 02:00 valides. Une
+  recherche d'ambiguïté « à plus ou moins une heure » aurait déclaré
+  01:45 valide : c'est le reproche exact du re-audit delta.
+Australia/Lord_Howe 2026-10-04 : 02:00, 02:10, 02:29 INEXISTANTES.
+Australia/Lord_Howe 2026-05-03 01:45 : VALIDE -- la politique ne
+  sur-refuse pas une date ordinaire.
+Pacific/Chatham, Asia/Kathmandu : décalages à 45 minutes de l'heure.
+Pacific/Kiritimati (UTC+14), America/Los_Angeles et America/New_York
+  (décalages négatifs), UTC (aucune transition) : couverts.

@@ -1,3 +1,6 @@
 npx tsc --noEmit
-EXIT=0
-0 diagnostic.
+
+(aucune ligne de sortie)
+
+code de sortie : 0
+diagnostics    : 0

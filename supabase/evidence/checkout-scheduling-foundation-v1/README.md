@@ -1,14 +1,237 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.1 (CSDJ-1) — paquet de preuves
-## Remédiation ciblée des six blockers d'audit
+# CHECKOUT SCHEDULING FOUNDATION v1.2 (CSDJ-1) — paquet de preuves
+## Seconde remédiation ciblée : CSDJ1-AUD-02 et CSDJ1-AUD-07
 
-Verdict d'audit indépendant sur `091c3f0` : **FAIL**, six blockers. Ce
-paquet accompagne le candidat de remédiation. Le candidat refusé reste
-**intact** dans l'historique de la branche, comme grand-parent du
-nouveau.
+Deux verdicts se sont succédé sur ce lot.
 
-Remédiation **ciblée** : aucun redesign, aucun élargissement de portée,
-aucune interface de paiement, aucun instantané de commande, aucune
-surface Theme/MCC. **CSDJ-2 n'est pas commencé.**
+| candidat | verdict | ce qu'il reste |
+| --- | --- | --- |
+| `091c3f0` | **FAIL** — six blockers | — |
+| `d94a110` (première remédiation) | **FAIL** — six clos, deux restants | AUD-02 incomplet, AUD-07 nouveau |
+| `993cb7b` (ce candidat) | prêt pour second re-audit delta | — |
+
+Aucun des deux candidats refusés n'est amendé ni réécrit : ils restent
+**intacts** dans l'historique, en ancêtres de celui-ci.
+
+Remédiation **narrow** : aucun redesign, aucun élargissement de portée,
+aucun contrat déjà clos modifié au-delà du strict nécessaire.
+**CSDJ-2 n'est pas commencé.**
+
+§0 ci-dessous traite les deux blockers de ce tour. §1 à §7 décrivent les
+six blockers du tour précédent et restent valables : ils ont tous été
+**re-prouvés** après la correction d'isolation d'AUD-07 (voir §0.3).
+
+---
+
+## §0 — Les deux blockers de ce tour
+
+### §0.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
+
+Le re-audit delta a produit trois reproductions, et deux reproches
+distincts se cachaient derrière.
+
+| reproduction | comportement fautif |
+| --- | --- |
+| `Europe/Paris 2026-03-29` fenêtre `01:30–02:30` | offerte, **fin comprise**, alors que 02:30 n'existe pas |
+| `Europe/Paris 2026-03-29` fenêtre `01:30–03:30` | pouvait exposer des points de grille inexistants, **au choix du client** |
+| `Australia/Lord_Howe 2026-04-05 01:45` | traitée comme valide alors qu'elle est **ambiguë** |
+
+**Premier reproche : une hypothèse de taille.** La version précédente
+cherchait l'ambiguïté en comparant à **plus ou moins une heure**. Lord
+Howe recule de **trente** minutes : 01:45 y est vécue deux fois, et ce
+test ne pouvait pas la voir. L'audit l'a dit en une phrase — « DST
+transitions are NOT always exactly 60 minutes » — et c'est la phrase qui
+condamne toute la méthode, pas seulement sa constante.
+
+La classification n'émet donc plus **aucune** hypothèse sur la durée
+d'une transition :
+
+1. lire le décalage UTC en vigueur à cinq sondes autour de l'instant
+   naïf — `−1 jour`, `−4 h`, `0`, `+4 h`, `+1 jour` — et ne retenir que
+   les décalages **distincts** ;
+2. pour chaque décalage distinct, construire un instant candidat
+   `heure murale − décalage` ;
+3. ne garder que les candidats qui, **re-rendus dans le fuseau**,
+   redonnent exactement la date et la minute demandées ;
+4. **compter** : zéro candidat → `nonexistent`, un → `valid_unique`,
+   deux ou plus → `ambiguous`.
+
+L'étape 3 est ce qui interdit la normalisation silencieuse : on ne fait
+jamais confiance au résultat d'une conversion, on vérifie l'aller-retour.
+L'étape 4 est ce qui remplace l'hypothèse : la réponse est un
+**comptage**, et aucune durée n'y intervient. `[AUD02-SQL-2]` interdit
+structurellement toute constante d'une heure (`1 hour`, `3600`,
+`interval '01:00'`, `hours => 1`, `3_600_000`) dans la décision, des
+deux côtés.
+
+Le classement est un **catalogue fermé de trois valeurs**,
+`public.checkout_wall_time_statuses()`, miré par `[MIRROR-9]`. Le statut
+`ok` de la version précédente est devenu `valid_unique` : « ok » ne
+disait pas *ce qui* était vrai. Il n'était exposé par aucune surface
+publique, donc rien ne change pour un client.
+
+**Second reproche : une hypothèse de suffisance.** Valider le seul
+**début** laissait passer une fin inexistante et des points de grille
+inexistants. `CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01` : une occurrence est
+exposée **en entier ou pas du tout**. Début, fin et **chaque** point de
+la grille sélectionnable doivent être `valid_unique` ; un seul point non
+univoque et l'occurrence disparaît **ce jour-là**. Aucune heure de
+remplacement n'est inventée.
+
+Le refus porte sur l'**occurrence d'une date**, jamais sur la
+configuration : la même fenêtre reste valide les 364 autres jours. C'est
+pourquoi il ne peut pas être prononcé à l'écriture — et `[AUD02-10]` le
+prouve.
+
+Tous les points de la grille sont validés, pas seulement la part encore
+réalisable : sur une date ordinaire, le client pourrait choisir
+n'importe lequel d'entre eux.
+
+**Résultat sur Lord Howe** (`wall-time-three-way-agreement.txt`) :
+
+| instant | classement |
+| --- | --- |
+| `2026-04-05 01:00` | `valid_unique` |
+| `2026-04-05 01:30` | `ambiguous` |
+| `2026-04-05 01:45` | `ambiguous` ← le cas exact du re-audit |
+| `2026-04-05 01:59` | `ambiguous` |
+| `2026-04-05 02:00` | `valid_unique` |
+| `2026-10-04 02:00 / 02:10 / 02:29` | `nonexistent` (saut de trente minutes) |
+| `2026-05-03 01:45` | `valid_unique` — la politique ne **sur-refuse** pas |
+
+Côté offres : `aud02-lord-howe-autumn-30min-ambiguous` n'expose plus que
+`t0100` et `t0200` — **`t0145` a disparu**.
+
+**Accord à trois voies.** Les trois implémentations — Python
+(`resolve_wall`), TypeScript (`resolveWallTime`) et le SQL du lot
+(`checkout_wall_time_status`, extraite **littéralement** du fichier et
+créée dans un cluster jetable) — s'accordent sur **38 points de
+classification** et sur les **48 cas de fixture**, avec **zéro**
+divergence. Zones couvertes : Europe/Paris, Australia/Lord_Howe (30 min),
+UTC (aucune transition), Pacific/Kiritimati (UTC+14),
+America/Los_Angeles et America/New_York (décalages négatifs),
+Pacific/Chatham et Asia/Kathmandu (décalages à 45 minutes de l'heure).
+
+### §0.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
+
+`q()` héritait des variables libpq de l'environnement appelant.
+**`PGHOSTADDR` l'emporte sur un `-h` explicite** : le harnais pouvait
+donc muter les rôles **globaux** d'un autre serveur que celui que le
+verrou de sûreté avait constaté — et ne s'en apercevoir qu'après.
+
+Trois défenses, dans cet ordre.
+
+**1. Refus par le nom.** 27 variables de routage, refusées dès le
+démarrage avec le code 2 : `PGHOST`, `PGHOSTADDR`, `PGPORT`,
+`PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGPASSFILE`, `PGSERVICE`,
+`PGSERVICEFILE`, `PGSYSCONFDIR`, `PGCLUSTER`, `PGREQUIRESSL`,
+`PGSSLMODE`, `PGSSLROOTCERT`, `PGSSLCERT`, `PGSSLKEY`, `PGOPTIONS`,
+`PGCONNECT_TIMEOUT`, `PGTARGETSESSIONATTRS`, `PGDATA`, `DATABASE_URL`,
+`POSTGRES_URL`, `POSTGRESQL_URL`, `PG_URL`, `SUPABASE_DB_URL`,
+`SCANYM_DB_URL`, `SCANYM_DATABASE_URL`. Puis un balayage défensif retire
+toute autre `PG*` héritée, pour qu'un oubli de la liste ne subsiste pas.
+
+Le refus **nomme la variable et jamais sa valeur** : une valeur peut
+être un secret. `harness-refusal-redirect-var.txt` le montre, et chaque
+vecteur hostile vérifie que la valeur n'apparaît nulle part dans la
+sortie.
+
+**2. Isolation.** Chaque appel client s'exécute en
+`env -i PATH=<sûr> HOME=<jetable>`, avec un binaire résolu en chemin
+**absolu** (un binaire résolu par le `PATH` est un binaire que le `PATH`
+peut remplacer) et une destination entièrement explicite
+`-h/-p/-U/-d`. `[E]` le vérifie **structurellement** : il reconstitue
+les lignes **logiques** du fichier — continuations recollées, car
+`env -i … \` suivi de `"$PSQL" …` est une seule commande et un contrôle
+ligne à ligne la déclarerait faussement nue — et compte ce qu'il examine,
+parce qu'un détecteur qui ne trouve rien passerait pour vert.
+
+**3. Preuve d'identité, immédiatement avant chaque mutation.** Sept
+faits comparés : socket unix (donc **aucune** destination réseau),
+`data_directory`, `config_file`, port, `current_user`, `is_superuser`, et
+un **nonce** que seul le cluster créé par ce fichier porte. Si la preuve
+échoue : **abandon avant mutation**. La même preuve adressée au cluster
+témoin échoue — elle **discrimine**.
+
+Le harnais principal ferme le même trou côté nettoyage : destination
+changée ⇒ `RESTAURATION DE RÔLES ABANDONNÉE`, plutôt que muter le mauvais
+serveur. Un rôle non restauré est un désagrément ; un rôle muté sur le
+mauvais serveur est un dégât.
+
+**Un défaut trouvé dans la preuve elle-même.** `pg_catalog.current_user`
+n'est pas une fonction qualifiable : c'est un **constructeur du
+parseur**, lu comme la colonne `current_user` d'une table `pg_catalog`,
+et la requête échouait (`missing FROM-clause entry for table
+pg_catalog`, vérifié empiriquement dans un cluster jetable). Même
+famille que `coalesce`, `nullif`, `extract` et `unnest` multi-tableaux.
+
+Une preuve **cassée** se comporte comme une preuve **échouée** : elle
+abandonne la restauration. Fermé, donc sans danger — mais **muet**, et
+le chemin de restauration aurait été mort sans que rien ne le dise.
+`[A]` exige désormais qu'une exécution **nominale** ne l'abandonne
+jamais, et le contrôle de mutation M4 prouve que cette garde voit une
+preuve cassée.
+
+**La menace est démontrée, pas déclarée.** Un refus qui protège d'un
+danger inexistant ne prouve rien. Le fichier crée donc un **cluster
+témoin** qui écoute en TCP sur `127.0.0.1` au **même numéro de port** que
+le cluster sous test — lequel n'écoute **aucun** TCP, n'occupant que sa
+socket privée. La redirection est ainsi réellement possible, et `[F]` la
+reproduit en **lecture seule** :
+
+| appel | destination atteinte |
+| --- | --- |
+| `PGHOSTADDR=127.0.0.1 PGPORT=<port>` + `-h <socket privée>` | **le témoin** |
+| le même, sous `env -i` | le cluster sous test |
+
+Onze variables hostiles sont ensuite éprouvées une par une, le harnais
+étant relancé **en enfant** avec la variable pointant vers le témoin.
+Pour chacune : refus avec le code 2, le refus **nomme** la variable, la
+valeur n'apparaît **nulle part**, et le témoin subit **zéro** mutation.
+Puis le vecteur complet `PGHOSTADDR + PGPORT` ensemble. Puis un
+**contrôle positif** : un environnement propre ne déclenche pas ce refus
+et atteint bien le cluster sous test — sans quoi un harnais qui refuserait
+tout passerait pour protégé.
+
+**87 preuves, 0 échec** (`harness-role-restoration.txt`).
+
+### §0.3 Contrôles de mutation, et AUD-06 re-prouvé
+
+Un harnais vert ne prouve rien si le défaut qu'il interdit peut être
+réinjecté sans qu'il échoue.
+`supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh`
+est **versionné** pour que l'audit le rejoue
+(`harness-mutation-controls.txt`) :
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M1** | un `env -i` retiré devant un appel `psql` | **détecté** — « appel non isolé », code 1 |
+| **M2** | — | la nocivité de `PGHOSTADDR` est prouvée par **démonstration directe** en lecture seule (`[F]`), non par mutation : muter le harnais aurait supprimé son propre garde-fou de récursion et prouvé moins |
+| **M3** | l'instantané de rôle en `::text` comparé à `'t'` — le défaut d'**AUD-06** | **détecté** — 13 échecs décrivant `LOGIN → NOLOGIN` et `BYPASSRLS → NOBYPASSRLS` |
+| **M4** | preuve d'identité tardive cassée | **dénoncée** — « la restauration a été ABANDONNÉE sur le cluster désigné » |
+
+`harness-role-restoration-mutation.txt` est conservé : c'est le contrôle
+de mutation du tour **précédent**, conduit sur le harnais d'alors. M3 le
+reconduit sur le harnais **réécrit**, et c'est M3 qui fait foi pour ce
+candidat.
+
+M3 est la réponse à l'exigence du mandat : **AUD-06 reste clos**
+après la correction d'isolation d'AUD-07. Les quatre combinaisons
+`LOGIN × BYPASSRLS` et le rôle initialement **absent** sont restaurés
+exactement, en mode cluster **désigné** — le seul où la restauration a
+des conséquences durables — et le harnais voit encore le défaut quand on
+le réinjecte.
+
+### §0.4 Discipline de portée
+
+Aucun redesign. Aucun contrat déjà clos modifié, à une exception près et
+strictement nécessaire : l'ajout du catalogue des trois statuts d'heure
+murale et le renommage de `ok` en `valid_unique`, qu'aucune surface
+publique n'expose. CSDJ-2 **non commencé**.
+
+Le défaut d'isolation d'environnement existe **aussi** dans
+`supabase/tests/merchant-customer-communications-v1-check.sh`, dont ce
+harnais est dérivé. **Non corrigé ici** : le mandat interdit d'élargir la
+portée. Signalé dans `aud06-same-defect-elsewhere.txt`.
 
 ---
 
@@ -54,7 +277,8 @@ désignerait deux instants distants d'une heure, et personne n'aurait
 choisi lequel. Un refus, lui, est visible et corrigeable.
 
 Deux autorités nouvelles : `checkout_wall_time_status()` classe
-`ok` / `nonexistent` / `ambiguous`, et `checkout_wall_time_instant()`
+`valid_unique` / `nonexistent` / `ambiguous` (nommé `ok` au tour
+précédent, voir §0.1), et `checkout_wall_time_instant()`
 rend `NULL` dès que l'heure n'est pas univoque. Ce `NULL` est un
 **refus**, jamais une absence de valeur — c'est pour cela qu'il n'y a
 pas de repli. Miroir TypeScript : `resolveWallTime()`.
@@ -211,39 +435,67 @@ les deux sens).
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **121 / 0** (10 + 63 + 48) |
+| tests ciblés CSDJ-1 | **140 / 0** (10 + 78 + 52) |
 | régressions exigées | **285 / 0** (12 fichiers : tarification, zones, isolation, MCC) |
-| harnais PostgreSQL du lot | **140 preuves / 0 échec** (18 sections) |
-| harnais de restauration de rôles | **22 preuves / 0 échec** |
-| contrôle de mutation AUD-06 | **13 échecs** avec le défaut réinjecté — le harnais discrimine |
-| refus sans consentement | **EXIT 2** |
-| refus d'un `PGPASSWORD` hérité | **EXIT 2**, valeur **jamais** journalisée |
+| harnais PostgreSQL du lot | **152 preuves / 0 échec** (18 sections, dont 18 cas `aud02-*` rejoués) |
+| harnais d'isolation et de restauration de rôles | **87 preuves / 0 échec** (sections `[A]`–`[F]`) |
+| contrôles de mutation M1 / M3 / M4 | **3 concluants / 0 manquant** — les harnais voient ce qu'ils interdisent |
+| accord à trois voies, classification | **38 points / 0 divergence** |
+| accord à trois voies, fixture | **48 cas / 0 divergence** |
+| fixture reproductible | **à l'octet** (`sha256 0601c074…`, python 3.13.16 / tzdata 2026c) |
+| refus sans consentement | **EXIT 2**, « aucune mutation n'a été tentée » |
+| refus d'un `PGHOSTADDR` hérité | **EXIT 2**, valeur **jamais** journalisée (0 occurrence) |
 | TypeScript | **0 diagnostic** |
-| build | **EXIT 0**, 0 route ajoutée, premiers chargements inchangés |
+| build | **EXIT 0**, 39 routes, aucune route ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, candidat | **4889 / 10** |
+| suite complète, première remédiation `d94a110` | 4889 / 10 |
+| suite complète, ce candidat `993cb7b` | **4918 tests, 4908 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
-Les deux jeux d'identités d'échec sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+121** réussites est
-exactement le nombre de tests ciblés de ce lot : aucun test existant n'a
-changé de verdict, et **aucun échec déterministe n'est imputable au
-candidat**.
+Les jeux d'identités d'échec de la **base**, de la **première
+remédiation** et de **ce candidat** sont **octet-identiques** (md5
+`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+19** réussites par
+rapport à la première remédiation est exactement le nombre de tests
+ciblés ajoutés ce tour (+15 en éligibilité, +4 en structurel) : aucun
+test existant n'a changé de verdict, et **aucun échec déterministe n'est
+imputable au candidat**.
 
-Aucun non-déterminisme n'a été constaté : les deux exécutions sont
-séquentielles et leurs jeux d'identités coïncident à l'octet. Les
-preuves **par fichier** sont néanmoins fournies (`targeted.tap.gz`,
-`regressions.tap.gz`) pour que chaque identité soit reproductible sans
-rejouer la suite entière.
+Les dix échecs sont les dix échecs **préexistants** de la base. Aucun
+non-déterminisme n'a été constaté au cours de ce tour : l'exécution est
+séquentielle (`--test-concurrency=1`) et les jeux d'identités coïncident
+à l'octet. Les preuves **par fichier** sont néanmoins fournies
+(`targeted.tap.gz`, `regressions.tap.gz`) pour que chaque identité soit
+reproductible sans rejouer la suite entière.
+
+Le build exige la **présence** des variables d'environnement Supabase à
+la collecte des pages. Il a été lancé avec des valeurs **synthétiques et
+non fonctionnelles** ; aucun secret réel n'intervient, et les 39 routes
+sont identiques à celles de la première remédiation.
 
 ---
 
 ## §6 — Ce qui n'a pas régressé
 
-L'audit avait validé quatre domaines : isolation multi-locataires,
-réutilisation du moteur de tarification, retour arrière, frontière de
-propriété Debussy. Tous sont conservés et **reprouvés** par le harnais
-et par les tests structurels. Aucune fonction préexistante n'est
+Le second re-audit delta a déclaré **onze** domaines clos. Tous sont
+conservés et **re-prouvés** après la correction d'isolation d'AUD-07 :
+
+| domaine clos | preuve de non-régression |
+| --- | --- |
+| CSDJ1-AUD-01 | fixtures `aud01-*` rejouées (TypeScript **et** SQL), `[AUD01-1..5]`, `[AUD01-SQL]` |
+| CSDJ1-AUD-03 | harnais `[15a]`–`[15g]`, `[AUD03-SQL]` |
+| CSDJ1-AUD-04 | harnais `[16a]`–`[16i]`, `[MODEL-8]`, `[MODEL-10]`, `[AUD04-1..2]` |
+| CSDJ1-AUD-05 | harnais `[18]` : contrôle positif + cinq sosies, `[AUD05-SQL]` |
+| CSDJ1-AUD-06 | 87 preuves du harnais de rôles **après** la correction d'AUD-07, + contrôle de mutation M3 |
+| zéro UUID réservé | harnais `[17]`, `[SENTINEL-1]` |
+| indépendance de la fixture Python | §4, reproductibilité à l'octet re-vérifiée, `[FIXTURE-SOURCE-1]` |
+| isolation multi-locataires | harnais `[3]`, tests de tenant obsolète dans les régressions |
+| réutilisation de l'autorité de tarification | harnais `[10]`, `[13e]` empreinte inchangée, `[NO-SECOND-ENGINE-1..2]` |
+| retour arrière | harnais `[13a]`–`[13g]` : retour, refus CSDJ-3, second retour refusé, seconde application refusée |
+| frontière de propriété Debussy | `[OWNERSHIP-1..3]` : aucune clé `how_to_order_*`, catalogue MCC toujours exactement 14 clés, aucun import i18n |
+
+Aucune fonction préexistante n'est redéfinie : `create_order` et
+`resolve_delivery_fulfillment` sont intactes, et le post-vol comme le
+harnais le constatent. Aucune fonction préexistante n'est
 redéfinie : `create_order` et `resolve_delivery_fulfillment` sont
 intactes, et le post-vol comme le harnais le constatent.
 

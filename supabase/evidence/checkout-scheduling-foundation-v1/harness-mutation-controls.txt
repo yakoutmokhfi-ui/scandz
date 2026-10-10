@@ -1,0 +1,19 @@
+=== CONTRÔLES DE MUTATION CSDJ-1 (AUD-06 / AUD-07) ===
+--- M1 : retrait d'un « env -i » devant un appel psql
+CONTROL PASS: M1 — le harnais DÉTECTE un appel client non isolé (code 1)
+       [17:43:45]    appel non isolé :     "$PSQL" -X -A -q -t        -h "$SOCKET_DIR" -p "$PORT" -U "$OWNER" -d postgres        -c "$1" </dev/null 2
+--- M3 : réinjection du défaut d'instantané de rôle (::text / 't')
+CONTROL PASS: M3 — le défaut d'instantané est VU : 13 échec(s), code 1
+       [17:44:19] FAIL: [A] LOGIN+NOBYPASSRLS — 'anon' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [17:44:19] FAIL: [A] LOGIN+NOBYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [17:44:19] FAIL: [A] LOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [17:44:34] FAIL: [A] NOLOGIN+BYPASSRLS — 'anon' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [17:44:34] FAIL: [A] NOLOGIN+BYPASSRLS — 'authenticated' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [17:44:34] FAIL: [A] NOLOGIN+BYPASSRLS — 'service_role' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+--- M4 : preuve d'identité tardive cassée dans le harnais principal
+CONTROL PASS: M4 — une preuve d'identité cassée est DÉNONCÉE au lieu d'être subie (code 1)
+       [17:45:22] FAIL: [A] NOLOGIN+NOBYPASSRLS — la restauration a été ABANDONNÉE sur le cluster désigné : la preuve d'identité ne passe pas en nominal (preuve cassée, non pas destination hostile)
+       [17:45:22] FAIL: [A] NOLOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'NOLOGIN+NOBYPASSRLS', après 'NOLOGIN+BYPASSRLS'
+       [17:45:39] FAIL: [A] LOGIN+NOBYPASSRLS — la restauration a été ABANDONNÉE sur le cluster désigné : la preuve d'identité ne passe pas en nominal (preuve cassée, non pas destination hostile)
+=== BILAN CONTRÔLES DE MUTATION : 3 contrôle(s) concluant(s), 0 manquant(s) ===
+RC=0

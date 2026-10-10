@@ -1,7 +1,7 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.1 (CSDJ-1) — remédiation ciblée",
-  "status": "READY FOR DELTA RE-AUDIT",
-  "mandate": "NOUGARO — TARGETED REMEDIATION / CSDJ-1. Verdict d'audit indépendant sur 091c3f0 : FAIL, six blockers. Remédiation CIBLÉE : pas de redesign, pas d'élargissement de portée, CSDJ-2 non commencé.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.2 (CSDJ-1) — seconde remédiation ciblée",
+  "status": "READY FOR SECOND DELTA RE-AUDIT",
+  "mandate": "NOUGARO — SECOND TARGETED REMEDIATION / CSDJ-1. Verdict du re-audit delta sur d94a110 : FAIL, deux blockers (CSDJ1-AUD-02 incomplet, CSDJ1-AUD-07 nouveau). Remédiation NARROW : pas de redesign, pas d'élargissement de portée, contrats déjà clos non modifiés sauf nécessité stricte, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
     "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
@@ -14,11 +14,11 @@
     "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
   "candidate": {
-    "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
-    "tree": "dd4163c8c9303974ebd81a676f51953f207e420d",
-    "parent": "7546ace347b121ab01e0db2301d268e1586fdf1a",
+    "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
+    "tree": "659ec8a551bc35244fad87c08a96071a5eeed811",
+    "parent": "54ccccd",
     "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceFailedCandidate": 11,
+    "filesChangedSinceFirstRemediation": 11,
     "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1 de la branche. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
     "amended": false,
     "pushed": false,
@@ -144,12 +144,12 @@
   },
   "results": {
     "targetedTests": {
-      "pass": 121,
+      "pass": 140,
       "fail": 0,
       "files": {
         "csdj1-scheduling-model": 10,
-        "csdj1-scheduling-eligibility": 63,
-        "csdj1-sql-structural": 48
+        "csdj1-scheduling-eligibility": 78,
+        "csdj1-sql-structural": 52
       }
     },
     "requiredRegressions": {
@@ -165,16 +165,22 @@
       ]
     },
     "sqlHarness": {
-      "proofs": 140,
+      "proofs": 152,
       "fail": 0,
-      "sections": 18
+      "sections": 18,
+      "aud02FixtureCasesReplayed": 18
     },
     "roleRestorationHarness": {
-      "proofs": 22,
+      "proofs": 87,
       "fail": 0,
-      "mutationControl": {
-        "failuresWhenDefectReinjected": 13
-      }
+      "sections": [
+        "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif de la preuve tardive",
+        "[B] forme de l'instantané",
+        "[C] rôle initialement absent",
+        "[D] onze variables hostiles + vecteur complet + contrôle positif",
+        "[E] isolation structurelle",
+        "[F] contrôle de nocivité"
+      ]
     },
     "harnessRefusals": {
       "withoutConsent": {
@@ -192,12 +198,8 @@
     "build": {
       "exit": 0,
       "routesAdded": [],
-      "firstLoad": {
-        "/r/[slug]": "248 kB inchangé",
-        "/dashboard/settings": "234 kB inchangé",
-        "/track/[orderId]": "155 kB inchangé"
-      },
-      "note": "Toujours aucun octet client ajouté : ce sous-lot ne pose aucun composant."
+      "routes": 39,
+      "note": "39 routes, identiques à celles de la première remédiation. Le build exige la PRÉSENCE des variables d'environnement Supabase à la collecte des pages ; il a été lancé avec des valeurs SYNTHÉTIQUES non fonctionnelles, aucun secret réel."
     },
     "fullSuite": {
       "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
@@ -206,15 +208,27 @@
         "pass": 4768,
         "fail": 10
       },
-      "candidate": {
+      "firstRemediation": {
         "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
         "pass": 4889,
         "fail": 10
       },
+      "candidate": {
+        "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
+        "tests": 4918,
+        "pass": 4908,
+        "fail": 10
+      },
       "appeared": 0,
       "disappeared": 0,
-      "identitySetsEqual": "Les deux jeux d'identités d'échec sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +121 réussites est exactement le nombre de tests ciblés de ce lot. AUCUN échec déterministe causé par le candidat.",
-      "nondeterminism": "Aucun constaté : les deux exécutions sont séquentielles et leurs jeux d'identités coïncident à l'octet. Les preuves par fichier sont néanmoins fournies (targeted.tap.gz, regressions.tap.gz) pour que chaque identité soit reproductible sans rejouer la suite entière."
+      "identitySetsEqual": "Les jeux d'identités d'échec de la BASE, de la première remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +19 réussites par rapport à la première remédiation est exactement le nombre de tests ciblés ajoutés ce tour (+15 éligibilité, +4 structurels). AUCUN échec déterministe causé par le candidat.",
+      "nondeterminism": "Aucun constaté. Les dix échecs sont les dix échecs PRÉEXISTANTS de la base, reproduits à l'identique en exécution séquentielle. Aucun échec intermittent n'a été observé au cours de ce tour."
+    },
+    "fixtureThreeWay": {
+      "cases": 48,
+      "divergences": 0,
+      "classificationPoints": 38,
+      "classificationDivergences": 0
     }
   },
   "preserved": [
@@ -231,5 +245,255 @@
     "aucune application hébergée",
     "aucun merge, aucun déploiement"
   ],
-  "productionTouched": false
+  "productionTouched": false,
+  "firstRemediation": {
+    "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
+    "tree": "dd4163c8c9303974ebd81a676f51953f207e420d",
+    "evidenceHead": "54ccccd",
+    "verdict": "FAIL (re-audit delta) — six blockers clos, deux restants",
+    "disposition": "conservé INTACT : ni amendé, ni réécrit. Il est le grand-parent du nouveau candidat."
+  },
+  "secondRemediationBlockers": {
+    "CSDJ1-AUD-02": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — validation DST/heure murale INCOMPLÈTE",
+      "invariants": [
+        "CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01",
+        "CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01"
+      ],
+      "reproductionsFromAudit": {
+        "window-0130-0230-paris-2026-03-29": "offerte alors que 02:30 n'existe pas",
+        "window-0130-0330-paris-2026-03-29": "pouvait exposer des heures murales inexistantes de la grille",
+        "lord-howe-2026-04-05-0145": "traitée comme valide alors qu'elle est AMBIGUË — la transition fait TRENTE minutes"
+      },
+      "rootCauses": [
+        "Hypothèse de TAILLE : chercher l'ambiguïté « à plus ou moins une heure » rate toute transition d'une autre durée.",
+        "Hypothèse de SUFFISANCE : valider le seul DÉBUT laisse passer une fin et des points de grille inexistants."
+      ],
+      "classificationAlgorithm": {
+        "name": "échantillonnage des décalages réellement en vigueur, puis comptage des candidats",
+        "probes": [
+          "-1 jour",
+          "-4 heures",
+          "0",
+          "+4 heures",
+          "+1 jour"
+        ],
+        "steps": [
+          "Lire le décalage UTC en vigueur à chacune des cinq sondes autour de l'instant naïf ; ne retenir que les décalages DISTINCTS.",
+          "Pour chaque décalage distinct, construire un instant candidat = (heure murale) - (décalage).",
+          "Ne garder que les candidats qui, re-rendus dans le fuseau, redonnent EXACTEMENT la date et la minute demandées.",
+          "Compter : 0 => nonexistent, 1 => valid_unique, >= 2 => ambiguous."
+        ],
+        "noAssumption": "Aucune durée de transition n'intervient. Aucune constante d'une heure (1 hour, 3600, interval '01:00', hours => 1) n'existe dans la décision, et [AUD02-SQL-2] l'interdit structurellement des deux côtés.",
+        "noEngineNormalization": "La classification n'accepte jamais le résultat d'une normalisation PostgreSQL : elle vérifie par ALLER-RETOUR que l'instant retenu rend bien l'heure demandée.",
+        "statuses": [
+          "valid_unique",
+          "nonexistent",
+          "ambiguous"
+        ],
+        "catalogue": "public.checkout_wall_time_statuses(), miroir de CHECKOUT_WALL_TIME_STATUSES ([MIRROR-9])",
+        "refusalNotAbsence": "checkout_wall_time_instant() rend NULL dès que le statut n'est pas valid_unique : un REFUS, pas une absence de valeur."
+      },
+      "windowGridPolicy": {
+        "rule": "Une occurrence est exposée EN ENTIER ou pas du tout. Début, FIN et CHAQUE point de la grille sélectionnable doivent être valid_unique. Un seul point non univoque et l'occurrence disparaît CE JOUR-LÀ.",
+        "scope": "l'OCCURRENCE d'une date, jamais la configuration : la même fenêtre reste valide les autres jours.",
+        "noInvention": "Aucune heure de remplacement n'est proposée. Le refus est fermé et nommé.",
+        "gridAnchoring": "La grille reste ancrée sur le DÉBUT CONFIGURÉ -- elle doit rester celle que le commerçant a décrite -- et tous ses points sont validés, pas seulement la part encore réalisable : sur une date ordinaire, le client pourrait choisir n'importe lequel."
+      },
+      "lordHoweResult": {
+        "2026-04-05 01:00": "valid_unique",
+        "2026-04-05 01:29": "valid_unique",
+        "2026-04-05 01:30": "ambiguous",
+        "2026-04-05 01:45": "ambiguous  <= le cas exact du re-audit : désormais REFUSÉ",
+        "2026-04-05 01:59": "ambiguous",
+        "2026-04-05 02:00": "valid_unique",
+        "2026-10-04 02:00 / 02:10 / 02:29": "nonexistent (saut de trente minutes)",
+        "2026-05-03 01:45": "valid_unique — la politique ne SUR-REFUSE pas une date ordinaire",
+        "offerConsequence": "fixture aud02-lord-howe-autumn-30min-ambiguous : les créneaux exposés sont t0100 et t0200 UNIQUEMENT ; t0145 a disparu. fixture aud02-lord-howe-spring-30min-nonexistent : t0130 et t0230, t0210 a disparu."
+      },
+      "zonesCovered": [
+        "Europe/Paris",
+        "Australia/Lord_Howe (transition de 30 min)",
+        "UTC (aucune transition)",
+        "Pacific/Kiritimati (UTC+14)",
+        "America/Los_Angeles (décalage négatif)",
+        "America/New_York",
+        "Pacific/Chatham (décalage à 45 min)",
+        "Asia/Kathmandu (décalage à 45 min)"
+      ],
+      "threeWayAgreement": {
+        "points": 38,
+        "implementations": [
+          "Python (resolve_wall)",
+          "TypeScript (resolveWallTime)",
+          "SQL (checkout_wall_time_status, EXTRAITE LITTÉRALEMENT du lot)"
+        ],
+        "divergences": 0,
+        "file": "wall-time-three-way-agreement.txt"
+      },
+      "tests": [
+        "[AUD02-1..4] bornes Paris printemps/automne, zones sans transition, décalage négatif",
+        "[AUD02-7] Lord Howe dans les DEUX sens + un dimanche ordinaire",
+        "[AUD02-8] structurel : aucune constante de 3 600 000 dans la décision TypeScript",
+        "[AUD02-9] les QUATRE fenêtres exigées par l'audit (01:30-02:30, 02:00-03:00, 01:30-03:30, 03:00-04:00)",
+        "[AUD02-10] le refus porte sur l'OCCURRENCE, pas sur la configuration",
+        "[AUD02-11] un cutoff non univoque ne compte pas la date comme ouverte",
+        "[AUD02-SQL-2] sondes présentes, aucune constante d'une heure, décision par comptage",
+        "[AUD02-SQL-3] fin + grille validées, verdict d'ensemble, fixtures exigées présentes",
+        "[MIRROR-9] catalogue des trois statuts, SQL ≡ TypeScript",
+        "post-vol SQL : sondes Lord Howe (ambiguë, inexistante, ordinaire) + cardinalité du catalogue",
+        "harnais SQL : 18 cas aud02-* rejoués par l'AUTORITÉ SQL, tous conformes"
+      ]
+    },
+    "CSDJ1-AUD-07": {
+      "severity": "P1",
+      "verdictBefore": "FAIL — le harnais de restauration de rôles n'était pas isolé",
+      "invariants": [
+        "CSDJ-V1-HARNESS-CLEAN-ENV-01",
+        "CSDJ-V1-DESTINATION-PROOF-01"
+      ],
+      "problem": "q() héritait des variables libpq de l'environnement appelant. PGHOSTADDR l'emporte sur un « -h » explicite : le harnais pouvait donc muter les rôles globaux d'un AUTRE serveur que celui que le verrou de sûreté avait constaté, et le constater trop tard.",
+      "defenceInDepth": {
+        "1-refusalByName": {
+          "variables": 27,
+          "named": [
+            "PGHOST",
+            "PGHOSTADDR",
+            "PGPORT",
+            "PGDATABASE",
+            "PGUSER",
+            "PGPASSWORD",
+            "PGPASSFILE",
+            "PGSERVICE",
+            "PGSERVICEFILE",
+            "PGSYSCONFDIR",
+            "PGCLUSTER",
+            "PGREQUIRESSL",
+            "PGSSLMODE",
+            "PGSSLROOTCERT",
+            "PGSSLCERT",
+            "PGSSLKEY",
+            "PGOPTIONS",
+            "PGCONNECT_TIMEOUT",
+            "PGTARGETSESSIONATTRS",
+            "PGDATA",
+            "DATABASE_URL",
+            "POSTGRES_URL",
+            "POSTGRESQL_URL",
+            "PG_URL",
+            "SUPABASE_DB_URL",
+            "SCANYM_DB_URL",
+            "SCANYM_DATABASE_URL"
+          ],
+          "byNameOnly": "Le refus nomme la variable et JAMAIS sa valeur : une valeur peut être un secret.",
+          "defensiveSweep": "Toute autre PG* héritée est retirée, pour qu'aucun oubli de la liste ne subsiste.",
+          "exitCode": 2
+        },
+        "2-isolation": {
+          "mechanism": "env -i PATH=<sûr> HOME=<jetable> <binaire absolu> -X -A -q -t -h <socket> -p <port> -U <rôle> -d postgres",
+          "absoluteBinaries": "initdb, pg_ctl et psql sont résolus une fois en chemin ABSOLU : un binaire résolu par le PATH est un binaire que le PATH peut remplacer.",
+          "structuralCheck": "[E] reconstitue les LIGNES LOGIQUES du fichier (continuations recollées) et exige « env -i » devant chaque commande client. Le détecteur compte ce qu'il examine : un détecteur qui ne trouverait rien passerait pour vert.",
+          "singleDeliberateException": "[F] contient UN appel non isolé délibéré, nommé PSQL_UNISOLATED_ON_PURPOSE, en LECTURE SEULE. [E] exige qu'il soit unique et que sa requête soit un SELECT."
+        },
+        "3-destinationProof": {
+          "when": "immédiatement AVANT chaque mutation de rôle, pas au démarrage",
+          "facts": [
+            "socket unix (donc aucune destination réseau)",
+            "data_directory",
+            "config_file",
+            "port",
+            "current_user",
+            "is_superuser",
+            "nonce propre à cette exécution"
+          ],
+          "onFailure": "ABORT AVANT mutation. « aucune mutation tentée. »",
+          "discriminates": "La même preuve adressée au cluster TÉMOIN échoue, et le nonce n'existe que dans le cluster sous test.",
+          "mainHarness": "Le harnais principal ferme le même trou côté nettoyage : si la destination n'est plus celle qui a franchi le verrou, il ABANDONNE la restauration (« RESTAURATION DE RÔLES ABANDONNÉE ») plutôt que de muter le mauvais serveur."
+        }
+      },
+      "defectFoundInTheProofItself": {
+        "what": "« pg_catalog.current_user » n'est pas une fonction qualifiable mais un CONSTRUCTEUR DU PARSEUR : PostgreSQL le lit comme la colonne « current_user » de la table « pg_catalog » et la requête échoue (« missing FROM-clause entry for table pg_catalog », vérifié empiriquement). Même famille que coalesce, nullif, extract et unnest multi-tableaux.",
+        "fix": "Écrit non qualifié (sans risque : un mot-clé réservé n'est pas résoluble via search_path), des deux côtés.",
+        "guard": "[A] exige désormais qu'une exécution NOMINALE sur le cluster désigné n'abandonne JAMAIS la restauration. Le contrôle de mutation M4 prouve que cette garde voit une preuve cassée.",
+        "whyItMattered": "Une preuve d'identité CASSÉE se comporte comme une preuve ÉCHOUÉE : elle abandonne la restauration. Fermé, donc sans danger -- mais MUET, et le chemin de restauration aurait été mort sans que rien ne le dise."
+      },
+      "harmfulnessControl": {
+        "why": "Un refus qui protège d'un danger inexistant ne prouve rien.",
+        "witness": "un second cluster, créé par le même fichier, qui écoute en TCP sur 127.0.0.1 au MÊME NUMÉRO DE PORT que le cluster sous test -- lequel n'écoute AUCUN TCP. La redirection est donc réellement possible.",
+        "reproduction": "PGHOSTADDR=127.0.0.1 PGPORT=<port> psql -h <socket privée> -p <port> : sans isolation, la connexion aboutit AU TÉMOIN (data_directory du témoin). Le MÊME appel sous « env -i » aboutit au cluster SOUS TEST. Lecture seule : aucun rôle du témoin n'est muté.",
+        "result": "[F] NOCIF puis NEUTRALISÉ, et témoin intact."
+      },
+      "hostileEnvironmentTests": {
+        "method": "le harnais est relancé EN ENFANT avec la variable pointant vers le témoin",
+        "variables": [
+          "PGHOSTADDR",
+          "PGHOST",
+          "PGPORT",
+          "PGDATABASE",
+          "PGUSER",
+          "PGSERVICE",
+          "PGSERVICEFILE",
+          "PGPASSWORD",
+          "PGPASSFILE",
+          "PGSYSCONFDIR",
+          "DATABASE_URL"
+        ],
+        "assertedForEach": [
+          "refus avec le code 2",
+          "le refus NOMME la variable",
+          "la VALEUR n'apparaît nulle part dans la sortie",
+          "le témoin a subi ZÉRO mutation"
+        ],
+        "fullVector": "PGHOSTADDR=127.0.0.1 + PGPORT=<port du témoin> ensemble : refus, et témoin intact.",
+        "positiveControl": "un environnement propre ne déclenche PAS ce refus et atteint bien le cluster sous test -- sans quoi un harnais qui refuserait TOUT passerait pour protégé."
+      },
+      "results": {
+        "proofs": 87,
+        "failures": 0
+      }
+    }
+  },
+  "mutationControls": {
+    "file": "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh (VERSIONNÉ, rejouable)",
+    "log": "harness-mutation-controls.txt",
+    "rationale": "Un harnais vert ne prouve rien si le défaut qu'il interdit peut être réinjecté sans qu'il échoue.",
+    "M1": {
+      "defect": "un « env -i » retiré devant un appel psql",
+      "result": "DÉTECTÉ — « appel non isolé », code 1"
+    },
+    "M2": {
+      "defect": "nocivité de PGHOSTADDR",
+      "result": "prouvée par DÉMONSTRATION DIRECTE en lecture seule ([F]), non par mutation : muter le harnais aurait supprimé son propre garde-fou de récursion et prouvé moins."
+    },
+    "M3": {
+      "defect": "instantané de rôle en ::text et comparaison à « t » (le défaut d'AUD-06 réinjecté)",
+      "result": "DÉTECTÉ — 13 échecs décrivant LOGIN -> NOLOGIN et BYPASSRLS -> NOBYPASSRLS, code 1"
+    },
+    "M4": {
+      "defect": "preuve d'identité tardive cassée dans le harnais principal",
+      "result": "DÉNONCÉE — « la restauration a été ABANDONNÉE sur le cluster désigné », code 1"
+    },
+    "conclusive": 3,
+    "missing": 0
+  },
+  "preservedAreasRetested": {
+    "CSDJ1-AUD-01": "PASS — fixtures aud01-* rejouées (TypeScript + SQL), [AUD01-1..5], [AUD01-SQL]",
+    "CSDJ1-AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
+    "CSDJ1-AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
+    "CSDJ1-AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
+    "CSDJ1-AUD-06": "PASS APRÈS la correction d'isolation d'AUD-07 — les quatre combinaisons LOGIN x BYPASSRLS et le rôle initialement ABSENT sont restaurés EXACTEMENT, en mode cluster DÉSIGNÉ, et le contrôle de mutation M3 prouve que le harnais voit encore le défaut.",
+    "ZERO UUID": "PASS — harnais [17], [SENTINEL-1]",
+    "PYTHON FIXTURE INDEPENDENCE": "PASS — générateur versionné, commande, log, python 3.13.16, tzdata 2026c, reproductibilité À L'OCTET re-vérifiée, [FIXTURE-SOURCE-1]",
+    "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète dans les régressions",
+    "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e] empreinte de l'autorité inchangée, [NO-SECOND-ENGINE-1..2]",
+    "ROLLBACK": "PASS — harnais [13a..13g] : retour, refus CSDJ-3, second retour refusé, seconde application refusée",
+    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] : aucune clé how_to_order_*, catalogue MCC toujours exactement 14 clés, aucun import i18n, aucune retouche de DeliveryConditions"
+  },
+  "scopeDiscipline": {
+    "redesign": "aucun",
+    "closedContractsAltered": "aucun, sauf l'ajout STRICTEMENT nécessaire du catalogue des trois statuts d'heure murale et le renommage de « ok » en « valid_unique » (le statut n'était pas encore exposé publiquement : aucune surface publique ne change).",
+    "csdj2Started": false,
+    "sameDefectElsewhere": "Le défaut d'isolation d'environnement existe aussi dans supabase/tests/merchant-customer-communications-v1-check.sh, dont ce harnais est dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Voir aud06-same-defect-elsewhere.txt."
+  }
 }

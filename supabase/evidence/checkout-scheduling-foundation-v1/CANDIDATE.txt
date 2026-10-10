@@ -1,29 +1,38 @@
-CHECKOUT SCHEDULING FOUNDATION v1.1 (CSDJ-1) — CANDIDAT DE REMÉDIATION
+CHECKOUT SCHEDULING FOUNDATION v1.2 (CSDJ-1)
+SECONDE REMÉDIATION CIBLÉE — CANDIDAT
 ======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   d94a1100b7149e60bde1a7f770cb756ecda8b174
-arbre du candidat           dd4163c8c9303974ebd81a676f51953f207e420d
+CANDIDAT (implémentation)   993cb7b1424fc1eb4c8e948cda54e3b1e16068e3
+arbre du candidat           659ec8a551bc35244fad87c08a96071a5eeed811
 base (origin/main)          412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
 
-CANDIDAT REFUSÉ (FAIL)      091c3f07083b5c8a51cdb7e50a2f9da46530eacf
-arbre refusé                76b6b7504fc4b71deff64c636bb9b288b845ae40
-scellement refusé           7546ace347b121ab01e0db2301d268e1586fdf1a
+PREMIÈRE REMÉDIATION        d94a1100b7149e60bde1a7f770cb756ecda8b174
+arbre                       dd4163c8c9303974ebd81a676f51953f207e420d
+scellement                  54ccccd
+verdict                     FAIL (re-audit delta) — 6 blockers clos,
+                            2 restants : AUD-02 incomplet, AUD-07 nouveau
 
-Le candidat refusé n'est NI amendé, NI réécrit : il reste intact dans
-l'historique comme grand-parent du nouveau candidat.
+CANDIDAT INITIAL REFUSÉ     091c3f07083b5c8a51cdb7e50a2f9da46530eacf
+scellement                  7546ace
+
+Ni d94a110 ni 091c3f0 n'est amendé ou réécrit : tous deux restent
+intacts dans l'historique de la branche, en ancêtres du nouveau
+candidat.
 
 STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    d94a1100b7149e60bde1a7f770cb756ecda8b174
-            LE CANDIDAT DE REMÉDIATION : 11 fichiers, 9 modifiés, 2 ajoutés
-  HEAD~2    7546ace = scellement du candidat refusé
-  HEAD~3    091c3f0 = CANDIDAT REFUSÉ
-  HEAD~4    412dbb5 = origin/main
+  HEAD~1    993cb7b = LE CANDIDAT DE SECONDE REMÉDIATION
+                      11 fichiers : 10 modifiés, 1 ajouté
+  HEAD~2    54ccccd = scellement de la première remédiation
+  HEAD~3    d94a110 = première remédiation (FAIL)
+  HEAD~4    7546ace = scellement du candidat initial
+  HEAD~5    091c3f0 = candidat initial (FAIL)
+  HEAD~6    412dbb5 = origin/main
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -32,21 +41,38 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 11 FICHIERS CHANGÉS DEPUIS LE CANDIDAT REFUSÉ
--------------------------------------------------
-  M  lib/scheduling/schedule-model.ts                    AUD-01 AUD-04
-  M  lib/scheduling/eligibility.ts                       AUD-01 AUD-02 AUD-04
+LES 11 FICHIERS CHANGÉS DEPUIS LA PREMIÈRE REMÉDIATION
+------------------------------------------------------
+  M  lib/scheduling/schedule-model.ts
+         AUD-02 — catalogue CHECKOUT_WALL_TIME_STATUSES (3 valeurs)
+  M  lib/scheduling/eligibility.ts
+         AUD-02 — resolveWallTime par échantillonnage de décalages,
+                  occurrence tout-ou-nothing (fin + grille entière)
   M  supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
-                                        AUD-01 AUD-02 AUD-03 AUD-04 AUD-05 + zéro UUID
-  M  supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql   AUD-02
+         AUD-02 — checkout_wall_time_statuses(), classification par
+                  comptage de candidats, validation fin + grille,
+                  post-vol Lord Howe
+         AUD-07 — rien (le SQL ne change pas pour AUD-07)
+  M  supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
+         AUD-02 — le retour arrière supprime la 11e fonction
   M  supabase/tests/checkout-scheduling-foundation-v1-check.sh
-                                        AUD-03 AUD-04 AUD-05 AUD-06 + zéro UUID
-  A  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh   AUD-06
-  A  tests/fixtures/build-checkout-scheduling-cases.py   preuve de fixture
-  M  tests/fixtures/checkout-scheduling-cases.json       20 -> 36 cas
-  M  tests/csdj1-scheduling-model.test.ts                AUD-01 AUD-04
-  M  tests/csdj1-scheduling-eligibility.test.ts          AUD-01 AUD-02 AUD-04
-  M  tests/csdj1-sql-structural.test.ts                  les six blockers
+         AUD-07 — PGSYSCONFDIR/PGCLUSTER refusées, preuve de destination
+                  avant restauration, correction de « current_user »
+  M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+         AUD-07 — réécriture complète : refus par nom (27 variables),
+                  env -i partout, binaires absolus, preuve d'identité
+                  avec nonce, cluster témoin joignable, [A]..[F]
+  A  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+         AUD-06/AUD-07 — contrôles de mutation rejouables (M1, M3, M4)
+  M  tests/fixtures/build-checkout-scheduling-cases.py
+         AUD-02 — même algorithme, 36 -> 48 cas
+  M  tests/fixtures/checkout-scheduling-cases.json
+         AUD-02 — 48 cas, dont 18 aud02-*
+  M  tests/csdj1-scheduling-eligibility.test.ts
+         AUD-02 — 63 -> 78 tests ([AUD02-7..11] ajoutés)
+  M  tests/csdj1-sql-structural.test.ts
+         AUD-02/AUD-07 — 48 -> 52 tests ([MIRROR-9], [AUD02-SQL-2],
+                  [AUD02-SQL-3], [AUD07-SQL])
 
 REJOUER LES PREUVES
 -------------------
@@ -55,12 +81,22 @@ REJOUER LES PREUVES
     tests/csdj1-*.test.ts
   python3 -I tests/fixtures/build-checkout-scheduling-cases.py   # doit
                                  # reproduire la fixture À L'OCTET
-  sudo -u postgres -E env SCANYM_DISPOSABLE_CLUSTER=1 \
+  sudo -u postgres env -i PATH=/usr/bin:/bin HOME=/tmp \
+    SCANYM_DISPOSABLE_CLUSTER=1 \
     bash supabase/tests/checkout-scheduling-foundation-v1-check.sh
-  sudo -u postgres -E env SCANYM_DISPOSABLE_CLUSTER=1 \
+  sudo -u postgres env -i PATH=/usr/bin:/bin HOME=/tmp \
+    SCANYM_DISPOSABLE_CLUSTER=1 \
     bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+  bash supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+
+Le harnais de rôles REFUSE de démarrer si une variable de routage libpq
+est présente dans l'environnement : « env -i » dans la commande ci-dessus
+n'est pas une précaution de style, c'est la condition de démarrage.
 
 PAS POUSSÉ
 ----------
   Le proxy git de la session refuse l'écriture sur yakoutmokhfi-ui/scandz
   (403). Livraison par bundle vérifié.
+
+AUCUN MERGE. AUCUN DÉPLOIEMENT. AUCUN SQL APPLIQUÉ.
+AUCUNE MUTATION DE PRODUCTION. CSDJ-2 NON COMMENCÉ.

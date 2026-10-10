@@ -1,5 +1,5 @@
 python 3.13.16 / tzdata 2026c
-36 cas écrits dans /home/claude/scandz/tests/fixtures/checkout-scheduling-cases.json
+48 cas écrits dans /home/claude/scandz/tests/fixtures/checkout-scheduling-cases.json
 dont 2 refusés par contrainte de table : unfulfillable-granularity-missing, aud04-subminute-offer-not-admissible
   absent-no-row                                    absent              -                    first=-           n=0
   absent-disabled                                  absent              -                    first=-           n=0
@@ -26,6 +26,18 @@ dont 2 refusés par contrainte de table : unfulfillable-granularity-missing, aud
   aud02-utc-plus-14-no-transition                  dates_available     -                    first=2026-03-29  n=1
   aud02-negative-offset-spring-forward             dates_available     -                    first=2026-03-08  n=1
   aud02-negative-offset-autumn-fallback            dates_available     -                    first=2026-11-01  n=1
+  aud02-window-start-valid-end-nonexistent         unfulfillable       no_offer_in_horizon  first=-           n=0
+  aud02-window-entirely-nonexistent                unfulfillable       no_offer_in_horizon  first=-           n=0
+  aud02-window-spans-nonexistent-region            unfulfillable       no_offer_in_horizon  first=-           n=0
+  aud02-window-after-transition-valid              dates_available     -                    first=2026-03-29  n=1
+  aud02-window-before-transition-valid             dates_available     -                    first=2026-03-29  n=1
+  aud02-window-ordinary-date-unaffected            dates_available     -                    first=2026-04-05  n=1
+  aud02-window-ambiguous-region-autumn             unfulfillable       no_offer_in_horizon  first=-           n=0
+  aud02-lord-howe-autumn-30min-ambiguous           dates_available     -                    first=2026-04-05  n=1
+  aud02-lord-howe-spring-30min-nonexistent         dates_available     -                    first=2026-10-04  n=1
+  aud02-lord-howe-ordinary-date-valid              dates_available     -                    first=2026-05-03  n=1
+  aud02-new-york-spring-nonexistent                dates_available     -                    first=2026-03-08  n=1
+  aud02-new-york-autumn-ambiguous                  dates_available     -                    first=2026-11-01  n=1
   carrier-informational-only                       informational_only  -                    first=-           n=0
   carrier-derived-earliest                         dates_available     -                    first=2026-10-15  n=1
   unfulfillable-no-offer                           unfulfillable       no_offer_configured  first=-           n=0
