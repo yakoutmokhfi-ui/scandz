@@ -1,9 +1,26 @@
 {
   "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
-  "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation indépendante, en Python avec zoneinfo, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Même cas, même résultat des trois côtés -- c'est le mécanisme déjà employé par fixtures/delivery-pricing-cases.json.",
+  "generator": "tests/fixtures/build-checkout-scheduling-cases.py",
+  "generatorCommand": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
+  "generatorRuntime": {
+    "python": "3.13.16",
+    "implementation": "CPython",
+    "tzdataVersion": "2026c",
+    "tzpath": [
+      "/usr/share/zoneinfo",
+      "/usr/lib/zoneinfo",
+      "/usr/share/lib/zoneinfo",
+      "/etc/zoneinfo"
+    ]
+  },
+  "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations livrées : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation, versionnée au dépôt sous tests/fixtures/build-checkout-scheduling-cases.py, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Relancer le générateur doit reproduire ce fichier à l'octet.",
   "weekdayConvention": "0 = dimanche, 6 = samedi (extract(dow) et Date#getUTCDay)",
+  "policies": {
+    "CSDJ-V1-OFFER-START-INSTANT-01": "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, début de (today + min_lead_days) dans le fuseau). Une offre dont le DÉBUT tombe avant est écartée, y compris un créneau déjà commencé. Pour time_within_window, le début est avancé le long de la grille de granularité jusqu'au premier point utilisable ; si la grille sort de la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée.",
+    "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01": "Une heure murale locale INEXISTANTE (saut de printemps) ou AMBIGUË (recul d'automne) ne désigne pas un instant unique : l'occurrence est ÉCARTÉE, jamais normalisée en silence. Le refus porte sur l'occurrence d'une date, pas sur la configuration : la même fenêtre reste valide les 364 autres jours.",
+    "CSDJ-V1-MINUTE-PRECISION-01": "Toute heure de configuration est à la minute, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée : tronquer 09:00:30-09:00:59 produirait une offre de durée nulle affichée comme disponible."
+  },
   "sqlConstraintRefusalNote": "Un cas marqué `sqlConstraintRefusal` décrit un état que les CONTRAINTES DE TABLE rendent impossible. Le TypeScript le joue quand même, pour prouver que le calcul refuse au lieu de deviner ; le harnais SQL, lui, prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque l'état n'est pas seulement mal calculé, il est inatteignable.",
-  "dstNote": "Aucun cas n'emploie une heure murale située DANS une heure de transition (02:00-03:00 à Paris) : une telle heure est inexistante ou ambiguë, et PostgreSQL et JavaScript la résolvent différemment. Cette divergence est consignée comme observation non bloquante du lot.",
   "cases": [
     {
       "id": "absent-no-row",
@@ -1314,6 +1331,125 @@
       "sqlConstraintRefusal": false
     },
     {
+      "id": "pickup-window-clipped-by-lead-time",
+      "note": "Mardi 12:30 sans heure limite : la fenêtre 11:00-14:00 du jour est AVANCÉE au premier point de grille utilisable (12:30), la fenêtre 16:00-20:00 reste entière, et les jours suivants sont intacts. La part passée d'une fenêtre n'est pas proposée, et aucun créneau n'est inventé.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "time_within_window",
+        "timeGranularityMinutes": 15,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-10-13T12:30:00+02:00",
+      "windows": [
+        {
+          "weekday": 2,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "11:00",
+          "endsAt": "14:00"
+        },
+        {
+          "weekday": 2,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 3,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 4,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 5,
+          "startsAt": "16:00",
+          "endsAt": "20:00"
+        },
+        {
+          "weekday": 6,
+          "startsAt": "11:00",
+          "endsAt": "19:30"
+        }
+      ],
+      "slots": [],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-13",
+        "dates": [
+          {
+            "date": "2026-10-13",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "12:30",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "offers": [
+              {
+                "slotKey": null,
+                "startsAt": "11:00",
+                "endsAt": "14:00"
+              },
+              {
+                "slotKey": null,
+                "startsAt": "16:00",
+                "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
       "id": "local-fixed-slots-no-same-day",
       "note": "Mardi 09:00, minLeadDays=1 : pas de livraison le jour même, et l'heure limite de la veille écarte aussi mercredi.",
       "config": {
@@ -1844,6 +1980,705 @@
                 "slotKey": "17-20",
                 "startsAt": "17:00",
                 "endsAt": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-reproduction-past-slot-with-lead-time",
+      "note": "REPRODUCTION DE L'AUDIT : créneau 09:00-11:00, délai 120 minutes, il est 15:00. Le créneau ne doit PAS être proposé. La version précédente le proposait, parce qu'elle ne comparait que des DATES.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 120,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T15:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00",
+          "endsAt": "11:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_in_horizon",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-slot-entirely-past",
+      "note": "Créneau entièrement passé, sans aucun délai : écarté.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T15:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00",
+          "endsAt": "11:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_in_horizon",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-slot-started-not-ended",
+      "note": "Créneau COMMENCÉ mais pas fini (14:00-16:00, il est 15:00) : écarté. Un créneau déjà entamé n'est pas honorable en entier ; le proposer serait promettre ce qu'on ne peut plus tenir.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T15:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "1400-1600",
+          "startsAt": "14:00",
+          "endsAt": "16:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_in_horizon",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-slot-starts-one-second-before-threshold",
+      "note": "Le créneau commence UNE SECONDE avant le seuil : écarté.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T10:00:01+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "1000-1200",
+          "startsAt": "10:00",
+          "endsAt": "12:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_in_horizon",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-slot-starts-exactly-at-threshold",
+      "note": "Le créneau commence EXACTEMENT au seuil : conservé. La comparaison est inclusive -- un créneau qui commence à l'instant minimal est réalisable.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T10:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "1000-1200",
+          "startsAt": "10:00",
+          "endsAt": "12:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-13",
+        "dates": [
+          {
+            "date": "2026-10-13",
+            "offers": [
+              {
+                "slotKey": "1000-1200",
+                "startsAt": "10:00",
+                "endsAt": "12:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-slot-starts-after-threshold",
+      "note": "Le seuil est une seconde avant le début du créneau : conservé.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T09:59:59+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "1000-1200",
+          "startsAt": "10:00",
+          "endsAt": "12:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-13",
+        "dates": [
+          {
+            "date": "2026-10-13",
+            "offers": [
+              {
+                "slotKey": "1000-1200",
+                "startsAt": "10:00",
+                "endsAt": "12:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-all-offers-removed-unfulfillable",
+      "note": "Toutes les offres du seul jour ouvert sont passées : statut `unfulfillable` avec le motif `no_offer_in_horizon` -- des dates étaient ouvertes, ce sont les OFFRES qui ne tenaient plus. Jamais une date de repli.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T21:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00",
+          "endsAt": "11:00"
+        },
+        {
+          "weekday": 2,
+          "slotKey": "1400-1600",
+          "startsAt": "14:00",
+          "endsAt": "16:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_in_horizon",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud01-future-day-remains-valid",
+      "note": "Les offres d'aujourd'hui sont passées, mais le jour suivant reste entièrement valide : le filtre d'instant retire des offres, il ne ferme pas l'horizon.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 1
+      },
+      "nowIso": "2026-10-13T21:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00",
+          "endsAt": "11:00"
+        },
+        {
+          "weekday": 3,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00",
+          "endsAt": "11:00"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-14",
+        "dates": [
+          {
+            "date": "2026-10-14",
+            "offers": [
+              {
+                "slotKey": "0900-1100",
+                "startsAt": "09:00",
+                "endsAt": "11:00"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-paris-spring-forward-nonexistent-rejected",
+      "note": "Europe/Paris, dimanche 29 mars 2026 : 02:00-03:00 n'existe pas. Le créneau 01:59 est conservé, 02:10-02:50 est REJETÉ, 03:30 est conservé. La normalisation de PostgreSQL n'est pas une politique commerciale.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-03-28T12:00:00+01:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-03-29",
+        "dates": [
+          {
+            "date": "2026-03-29",
+            "offers": [
+              {
+                "slotKey": "t0159",
+                "startsAt": "01:59",
+                "endsAt": "02:00"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-paris-autumn-fallback-ambiguous-rejected",
+      "note": "Europe/Paris, dimanche 25 octobre 2026 : 02:00-03:00 a lieu DEUX fois. Le créneau 02:10 est REJETÉ -- promettre 02:10 désignerait deux instants distants d'une heure, et personne n'aurait choisi lequel.",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-10-24T12:00:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-10-25",
+        "dates": [
+          {
+            "date": "2026-10-25",
+            "offers": [
+              {
+                "slotKey": "t0159",
+                "startsAt": "01:59",
+                "endsAt": "02:00"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-utc-no-transition",
+      "note": "UTC n'a aucune transition : les trois créneaux sont conservés.",
+      "config": {
+        "timezone": "UTC",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-03-28T12:00:00+00:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-03-29",
+        "dates": [
+          {
+            "date": "2026-03-29",
+            "offers": [
+              {
+                "slotKey": "t0159",
+                "startsAt": "01:59",
+                "endsAt": "02:00"
+              },
+              {
+                "slotKey": "t0210",
+                "startsAt": "02:10",
+                "endsAt": "02:50"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-utc-plus-14-no-transition",
+      "note": "Pacific/Kiritimati (UTC+14) n'a aucune transition : les trois créneaux sont conservés, et la date civile est celle du commerçant.",
+      "config": {
+        "timezone": "Pacific/Kiritimati",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-03-28T00:00:00+00:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-03-29",
+        "dates": [
+          {
+            "date": "2026-03-29",
+            "offers": [
+              {
+                "slotKey": "t0159",
+                "startsAt": "01:59",
+                "endsAt": "02:00"
+              },
+              {
+                "slotKey": "t0210",
+                "startsAt": "02:10",
+                "endsAt": "02:50"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-negative-offset-spring-forward",
+      "note": "America/Los_Angeles (décalage négatif), dimanche 8 mars 2026 : même politique, même rejet de l'heure inexistante.",
+      "config": {
+        "timezone": "America/Los_Angeles",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-03-07T12:00:00-08:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-03-08",
+        "dates": [
+          {
+            "date": "2026-03-08",
+            "offers": [
+              {
+                "slotKey": "t0159",
+                "startsAt": "01:59",
+                "endsAt": "02:00"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
+              }
+            ]
+          }
+        ]
+      },
+      "sqlConstraintRefusal": false
+    },
+    {
+      "id": "aud02-negative-offset-autumn-fallback",
+      "note": "America/Los_Angeles, dimanche 1er novembre 2026 : heure ambiguë rejetée.",
+      "config": {
+        "timezone": "America/Los_Angeles",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 2
+      },
+      "nowIso": "2026-10-31T12:00:00-07:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 0,
+          "slotKey": "t0159",
+          "startsAt": "01:59",
+          "endsAt": "02:00"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0210",
+          "startsAt": "02:10",
+          "endsAt": "02:50"
+        },
+        {
+          "weekday": 0,
+          "slotKey": "t0330",
+          "startsAt": "03:30",
+          "endsAt": "04:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "dates_available",
+        "reason": null,
+        "firstEligibleDate": "2026-11-01",
+        "dates": [
+          {
+            "date": "2026-11-01",
+            "offers": [
+              {
+                "slotKey": "t0210",
+                "startsAt": "02:10",
+                "endsAt": "02:50"
+              },
+              {
+                "slotKey": "t0330",
+                "startsAt": "03:30",
+                "endsAt": "04:30"
               }
             ]
           }
@@ -2641,12 +3476,7 @@
             "offers": [
               {
                 "slotKey": null,
-                "startsAt": "11:00",
-                "endsAt": "14:00"
-              },
-              {
-                "slotKey": null,
-                "startsAt": "16:00",
+                "startsAt": "19:00",
                 "endsAt": "20:00"
               }
             ]
@@ -2778,6 +3608,40 @@
       "expected": {
         "status": "unfulfillable",
         "reason": "granularity_missing",
+        "firstEligibleDate": null,
+        "dates": []
+      },
+      "sqlConstraintRefusal": true
+    },
+    {
+      "id": "aud04-subminute-offer-not-admissible",
+      "note": "Créneau 09:00:30-11:00:30 : précision sous la minute. Le calcul écarte l'offre au lieu de la tronquer -- la tronquer produirait 09:00-11:00, soit une offre que la configuration ne décrit pas. La contrainte de table l'interdit aussi (CSDJ-V1-MINUTE-PRECISION-01).",
+      "config": {
+        "timezone": "Europe/Paris",
+        "enabled": true,
+        "dateSelectionMode": "customer_selectable",
+        "slotSelectionMode": "fixed_slots",
+        "timeGranularityMinutes": null,
+        "leadTimeMinutes": 0,
+        "minLeadDays": 0,
+        "cutoffTime": null,
+        "cutoffOffsetDays": 1,
+        "bookingHorizonDays": 0
+      },
+      "nowIso": "2026-10-13T00:30:00+02:00",
+      "windows": [],
+      "slots": [
+        {
+          "weekday": 2,
+          "slotKey": "0900-1100",
+          "startsAt": "09:00:30",
+          "endsAt": "11:00:30"
+        }
+      ],
+      "closures": [],
+      "expected": {
+        "status": "unfulfillable",
+        "reason": "no_offer_configured",
         "firstEligibleDate": null,
         "dates": []
       },

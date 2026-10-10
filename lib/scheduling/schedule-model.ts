@@ -131,13 +131,25 @@ export type CheckoutScheduleStatus =
  *                              l'horizon est fermée exceptionnellement ;
  *   - `horizon_exhausted`    : le délai, le minimum de jours ou l'heure
  *                              limite repoussent la première date
- *                              au-delà de l'horizon de réservation.
+ *                              au-delà de l'horizon de réservation ;
+ *   - `no_offer_in_horizon`   : des offres existent et des dates sont
+ *                              ouvertes, mais AUCUNE offre n'est encore
+ *                              réalisable -- toutes sont passées, ou
+ *                              tombent avant l'instant minimal de
+ *                              réalisation, ou leur heure murale locale
+ *                              n'existe pas / est ambiguë. Distinct de
+ *                              `horizon_exhausted`, qui dit que la
+ *                              première date POSSIBLE est au-delà de
+ *                              l'horizon : ici des dates sont dans
+ *                              l'horizon, ce sont les OFFRES qui ne
+ *                              tiennent pas.
  */
 export const CHECKOUT_UNFULFILLABLE_REASONS = [
   "no_offer_configured",
   "granularity_missing",
   "all_dates_closed",
   "horizon_exhausted",
+  "no_offer_in_horizon",
 ] as const;
 
 export type CheckoutUnfulfillableReason =
@@ -157,7 +169,8 @@ export const SCHEDULE_CLOSURE_LABEL_MAX_LENGTH = 120;
 export const SCHEDULE_LEAD_TIME_MINUTES_MAX = 100_000;
 export const SCHEDULE_MIN_LEAD_DAYS_MAX = 365;
 export const SCHEDULE_CUTOFF_OFFSET_DAYS_MAX = 30;
-export const SCHEDULE_BOOKING_HORIZON_DAYS_MIN = 1;
+/** 0 = « aujourd'hui seulement ». */
+export const SCHEDULE_BOOKING_HORIZON_DAYS_MIN = 0;
 export const SCHEDULE_BOOKING_HORIZON_DAYS_MAX = 365;
 export const SCHEDULE_TIME_GRANULARITY_MINUTES_MIN = 5;
 export const SCHEDULE_TIME_GRANULARITY_MINUTES_MAX = 240;
@@ -255,25 +268,63 @@ export function isSchedulePolicyCoherent(
   return dateMode === "customer_selectable" || slotMode === "none";
 }
 
-/** Minutes depuis minuit d'un `HH:MM` ou `HH:MM:SS`, sinon `null`. */
+/**
+ * ═══ CSDJ-V1-MINUTE-PRECISION-01 ═══
+ *
+ * CONTRAT DE PRÉCISION : toute heure de la configuration est à la
+ * MINUTE. Les secondes doivent valoir exactement `00`, et toute valeur
+ * sous-minute est REFUSÉE -- jamais tronquée.
+ *
+ * Pourquoi un refus et non une troncature : un créneau
+ * `09:00:01–09:00:59` tronqué devient `09:00–09:00`, soit un créneau de
+ * durée nulle, affiché comme disponible et impossible à honorer. Le
+ * défaut n'était pas la troncature elle-même mais son SILENCE : la
+ * configuration disait une chose, la projection publique une autre.
+ * Refuser à l'écriture est la seule correction qui ne laisse aucune
+ * représentation ambiguë circuler.
+ *
+ * Miroirs SQL : les CHECK `… = pg_catalog.date_trunc('minute', …)` sur
+ * chaque colonne `time` du lot, et la garde `CSDJ1_SUBMINUTE_TIME` de
+ * la RPC d'écriture.
+ *
+ * ═══ CSDJ-V1-NO-24H-01 ═══
+ *
+ * `24:00:00` est REFUSÉ, bien que PostgreSQL sache le stocker dans un
+ * `time`. Une fenêtre qui « finit à minuit » se déclare `23:59`, et une
+ * offre qui franchit minuit se déclare en deux lignes. Accepter 24:00
+ * obligerait chaque comparaison, chaque formatage et chaque calcul
+ * d'instant à connaître ce cas particulier -- et il suffit d'un endroit
+ * qui l'oublie pour produire une date décalée d'un jour.
+ */
+export const SCHEDULE_MAX_MINUTE_OF_DAY = 23 * 60 + 59;
+
+/**
+ * Minutes depuis minuit d'un `HH:MM` ou `HH:MM:SS` dont les SECONDES
+ * valent `00`, sinon `null`.
+ *
+ * psql rend un `time` en `HH:MM:SS` : la forme à six chiffres doit donc
+ * être lisible. Mais `09:00:30` n'est pas une heure valide de ce lot, et
+ * cette fonction le dit au lieu de l'arrondir.
+ */
 export function parseScheduleTime(value: unknown): number | null {
   if (typeof value !== "string") return null;
-  const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+  const m = /^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/.exec(value);
   if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
   const sec = m[3] === undefined ? 0 : Number(m[3]);
-  // 24:00:00 n'est PAS accepté : une fenêtre qui finit « à minuit » se
-  // déclare 23:59, et une offre qui franchit minuit se déclare en deux
-  // lignes. Accepter 24:00 obligerait chaque comparaison à connaître ce
-  // cas particulier.
-  if (h > 23 || min > 59 || sec > 59) return null;
-  // Les SECONDES sont acceptées puis IGNORÉES : psql rend un `time` en
-  // `HH:MM:SS`, il faut donc savoir le lire, mais tout ce lot raisonne
-  // en minutes depuis minuit -- la granularité minimale configurable
-  // est de 5 minutes. Tronquer ici est le seul endroit où cette
-  // conversion a lieu.
+  const frac = m[4];
+  if (h > 23 || min > 59) return null;
+  // CSDJ-V1-MINUTE-PRECISION-01 : toute précision sous la minute est
+  // REFUSÉE, jamais tronquée.
+  if (sec !== 0) return null;
+  if (frac !== undefined && /[1-9]/.test(frac)) return null;
   return h * 60 + min;
+}
+
+/** La valeur est-elle une heure de configuration admissible ? */
+export function isScheduleTime(value: unknown): boolean {
+  return parseScheduleTime(value) !== null;
 }
 
 /** `HH:MM` depuis des minutes depuis minuit. */

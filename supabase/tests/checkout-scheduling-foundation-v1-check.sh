@@ -352,16 +352,34 @@ create_tracked_db() {
   CREATED_DBS="$CREATED_DBS $name"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# CSDJ1-AUD-06 — NORMALISATION EXPLICITE DES BOOLÉENS
+#
+# `boolean::text` rend « true »/« false » en SQL, jamais « t »/« f » --
+# c'est « t » que donne l'affichage ALIGNÉ de psql, pas la conversion.
+# La version précédente capturait « true » puis comparait à « t » au
+# nettoyage : la comparaison échouait toujours, et un rôle préexistant
+# LOGIN+BYPASSRLS était restauré en NOLOGIN+NOBYPASSRLS. Sur un cluster
+# jetable créé par le harnais c'était invisible ; sur un cluster DÉSIGNÉ
+# par l'opérateur, c'était une mutation durable de ses rôles.
+#
+# L'instantané encode donc explicitement 1/0, et la restauration compare
+# à 1/0. Aucune représentation intermédiaire n'est devinée.
+# ════════════════════════════════════════════════════════════════════
 role_state() {
-  probe "select coalesce((select 'EXISTS|' || rolcanlogin::text || '|' || rolbypassrls::text
+  probe "select coalesce((select 'EXISTS|' || (case when rolcanlogin then '1' else '0' end)
+                                  || '|' || (case when rolbypassrls then '1' else '0' end)
                           from pg_roles where rolname = '$1'), 'ABSENT');"
 }
 declare -A ROLE_SNAP=()
 for r in $APP_ROLES; do
   st="$(role_state "$r")"
   case "$st" in
-    ABSENT|EXISTS'|'*) ROLE_SNAP[$r]="$st" ;;
-    *) fatal "état initial du rôle global '$r' illisible -- refus de muter un cluster non restaurable." ;;
+    ABSENT|'EXISTS|0|0'|'EXISTS|0|1'|'EXISTS|1|0'|'EXISTS|1|1') ROLE_SNAP[$r]="$st" ;;
+    # Un instantané d'une autre forme serait illisible au nettoyage : on
+    # refuse de muter un cluster qu'on ne saurait pas restaurer
+    # EXACTEMENT (CSDJ1-AUD-06).
+    *) fatal "état initial du rôle global '$r' illisible ('$st') -- refus de muter un cluster non restaurable." ;;
   esac
 done
 ROLE_SNAPSHOT_TAKEN=1
@@ -387,10 +405,13 @@ cleanup() {
         case "${ROLE_SNAP[$r]}" in
           ABSENT) psql -X -q -d postgres -c "drop role if exists $r;" </dev/null >/dev/null 2>&1 ;;
           EXISTS*)
+            # CSDJ1-AUD-06 : l'instantané encode 1/0, la restauration
+            # compare à 1/0. Toute autre valeur serait un instantané
+            # illisible, et le verrou de sûreté a déjà refusé ce cas.
             login="$(printf '%s' "${ROLE_SNAP[$r]}" | cut -d'|' -f2)"
             bypass="$(printf '%s' "${ROLE_SNAP[$r]}" | cut -d'|' -f3)"
-            [ "$login" = "t" ] && lk="login" || lk="nologin"
-            [ "$bypass" = "t" ] && bk="bypassrls" || bk="nobypassrls"
+            [ "$login" = "1" ] && lk="login" || lk="nologin"
+            [ "$bypass" = "1" ] && bk="bypassrls" || bk="nobypassrls"
             psql -X -q -d postgres -c "alter role $r $lk $bk;" </dev/null >/dev/null 2>&1 ;;
         esac
       done
@@ -455,6 +476,20 @@ outcome_as() {
   else
     out="$(PGOPTIONS="-c role=$role" psql -X -A -q -t -v ON_ERROR_STOP=1 -d "$DB" -c "$query" 2>&1)"
   fi
+  rc=$?
+  if [ "$rc" -eq 0 ]; then printf 'OK\n'; return 0; fi
+  out="${out#*ERROR:  }"
+  out="${out%%$'\n'*}"
+  printf '%s\n' "$out"
+}
+# Résultat d'une instruction exécutée par la connexion PROPRIÉTAIRE,
+# sans endosser de rôle. `outcome_as` impose un `-c role=...` : l'appeler
+# avec un rôle vide ferait échouer psql À LA CONNEXION, et un refus
+# attendu passerait alors pour la bonne réponse donnée pour la MAUVAISE
+# raison. Ce helper existe pour que ce faux positif soit impossible.
+outcome_owner() {
+  local out rc
+  out="$(psql -X -A -q -t -v ON_ERROR_STOP=1 -d "$DB" -c "$1" 2>&1)"
   rc=$?
   if [ "$rc" -eq 0 ]; then printf 'OK\n'; return 0; fi
   out="${out#*ERROR:  }"
@@ -721,7 +756,7 @@ assert_eq "[3n] catalogue des politiques d'horaire" "none|time_within_window|fix
   "$(sql_value "select array_to_string(public.checkout_slot_selection_modes(), '|');")"
 assert_eq "[3o] catalogue des statuts" "absent|blocked_upstream|informational_only|dates_available|unfulfillable" \
   "$(sql_value "select array_to_string(public.checkout_schedule_statuses(), '|');")"
-assert_eq "[3p] catalogue des motifs d'infaisabilité" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted" \
+assert_eq "[3p] catalogue des motifs d'infaisabilité" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted|no_offer_in_horizon" \
   "$(sql_value "select array_to_string(public.checkout_unfulfillable_reasons(), '|');")"
 
 # ============================================================
@@ -785,6 +820,7 @@ FIXTURE_SQL="$TMP_DIR/fixture.sql"
 FIXTURE_EXPECTED="$TMP_DIR/fixture.expected"
 python3 - "$FIXTURE_JSON" "$FIXTURE_SQL" "$FIXTURE_EXPECTED" "$RID_A" "$NIL_RULE" <<'PYGEN' || fatal "génération des assertions de fixture impossible"
 import json, sys
+from pathlib import Path
 
 fixture_path, sql_path, expected_path, rid, nil_rule = sys.argv[1:6]
 data = json.load(open(fixture_path, encoding="utf-8"))
@@ -801,13 +837,41 @@ for c in data["cases"]:
     cid = c["id"]
     cfg = c["config"]
     if c.get("sqlConstraintRefusal"):
-        # État que les CONTRAINTES DE TABLE rendent impossible : on
-        # prouve le REFUS d'insertion, pas un résultat de calcul.
-        refusal_lines.append("|".join([
-            cid, cfg["dateSelectionMode"], cfg["slotSelectionMode"],
-            "null" if cfg.get("timeGranularityMinutes") is None
-            else str(cfg["timeGranularityMinutes"]),
-        ]))
+        # État que les CONTRAINTES DE TABLE rendent impossible. On prouve
+        # le REFUS d'insertion du JEU COMPLET -- la violation peut porter
+        # sur la ligne de planification, sur une FENÊTRE ou sur un
+        # CRÉNEAU, et n'en tester qu'une partie laisserait un faux
+        # positif.
+        block = [
+            "begin;",
+            f"delete from public.restaurant_fulfillment_schedule where restaurant_id = '{rid}';",
+            "insert into public.restaurant_fulfillment_schedule "
+            "(restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled, "
+            "date_selection_mode, slot_selection_mode, time_granularity_minutes, "
+            "lead_time_minutes, min_lead_days, cutoff_time, cutoff_offset_days, "
+            "booking_horizon_days) values ("
+            f"'{rid}', 'pickup', null, {q(cfg['timezone'])}, {str(cfg['enabled']).lower()}, "
+            f"{q(cfg['dateSelectionMode'])}, {q(cfg['slotSelectionMode'])}, "
+            f"{q(cfg['timeGranularityMinutes'])}, {cfg['leadTimeMinutes']}, "
+            f"{cfg['minLeadDays']}, {q(cfg['cutoffTime'])}, {cfg['cutoffOffsetDays']}, "
+            f"{cfg['bookingHorizonDays']});",
+        ]
+        for w in c["windows"]:
+            block.append(
+                "insert into public.restaurant_fulfillment_schedule_window "
+                "(restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ("
+                f"'{rid}', 'pickup', '{nil_rule}', {w['weekday']}, "
+                f"{q(w['startsAt'])}, {q(w['endsAt'])});")
+        for sl in c["slots"]:
+            block.append(
+                "insert into public.restaurant_fulfillment_schedule_slot "
+                "(restaurant_id, mode_code, rule_key, weekday, slot_key, starts_at, ends_at) values ("
+                f"'{rid}', 'pickup', '{nil_rule}', {sl['weekday']}, {q(sl['slotKey'])}, "
+                f"{q(sl['startsAt'])}, {q(sl['endsAt'])});")
+        block.append("rollback;")
+        (Path(sql_path).parent / f"refusal-{cid}.sql").write_text(
+            "\n".join(block) + "\n", encoding="utf-8")
+        refusal_lines.append(cid)
         continue
     sql_lines.append(f"-- {cid}")
     sql_lines.append(
@@ -912,11 +976,16 @@ fi
 # que l'INSERTION est refusée. C'est une preuve plus forte qu'un calcul
 # qui refuse -- l'état n'est pas mal calculé, il est inatteignable.
 if [ -s "$FIXTURE_EXPECTED.refusals" ]; then
-  while IFS='|' read -r cid dmode smode gran; do
+  while IFS= read -r cid; do
     [ -n "$cid" ] || continue
     sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
-    assert_eq "[6r] fixture « $cid » : la contrainte de table REFUSE cet état" "REFUSE" \
-      "$(refused "$(outcome_as '' '' "insert into public.restaurant_fulfillment_schedule (restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled, date_selection_mode, slot_selection_mode, time_granularity_minutes) values ('$RID_A','pickup',null,'Europe/Paris',true,'$dmode','$smode',$gran);")")"
+    if apply_path "$TMP_DIR/refusal-$cid.sql" "$DB"; then
+      fail "[6r] fixture « $cid » : la contrainte de table a ACCEPTÉ un état censé être impossible"
+    else
+      pass "[6r] fixture « $cid » : la contrainte de table REFUSE cet état"
+    fi
+    assert_eq "[6r] fixture « $cid » : et rien ne subsiste de la tentative" "0" \
+      "$(sql_value "select count(*) from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';")"
   done < "$FIXTURE_EXPECTED.refusals"
 fi
 sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
@@ -1032,6 +1101,174 @@ assert_eq "[12j] clé de créneau MALFORMÉE => refusée par la contrainte" "REF
   "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"dateSelectionMode\":\"customer_selectable\",\"slotSelectionMode\":\"fixed_slots\"}'::jsonb), public.mutate_merchant_fulfillment_schedule('$RID_A','replace_slots','{\"modeCode\":\"pickup\",\"slots\":[{\"weekday\":2,\"slotKey\":\"Matin 11h\",\"startsAt\":\"11:00\",\"endsAt\":\"14:00\"}]}'::jsonb);")")"
 assert_eq "[12k] remplacer des fenêtres SANS planification => refusé" "REFUSE" \
   "$(refused "$(outcome_as authenticated "$OWNER_B" "select public.mutate_merchant_fulfillment_schedule('$RID_B','replace_windows','{\"modeCode\":\"pickup\",\"windows\":[]}'::jsonb);")")"
+
+# ============================================================
+# [15] CSDJ1-AUD-03 — MODE DE VENTE DÉSACTIVÉ JAMAIS EXPOSÉ
+#      CSDJ-V1-MODE-ENABLED-GATE-01
+# ============================================================
+log "=== [15] Mode de vente désactivé : aucune projection ==="
+sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+psql -X -d "$DB" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL || fatal "planification de retrait : $(tr '\n' ' ' < "$ERR")"
+insert into public.restaurant_fulfillment_schedule
+  (restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled,
+   date_selection_mode, slot_selection_mode, cutoff_time, booking_horizon_days)
+values ('$RID_A','pickup',null,'Europe/Paris',true,'customer_selectable','none',null,14);
+insert into public.restaurant_fulfillment_schedule_window
+  (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at)
+select '$RID_A','pickup','$NIL_RULE', g, '00:01','23:59' from generate_series(0,6) g;
+SQL
+assert_eq "[15a] mode ACTIVÉ => la planification est projetée" "dates_available" \
+  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
+sql_value "update public.restaurant_sale_modes set enabled = false where restaurant_id='$RID_A' and mode_code='pickup';" >/dev/null
+assert_eq "[15b] mode DÉSACTIVÉ APRÈS configuration => 'absent'" "absent" \
+  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
+assert_eq "[15c] et AUCUNE fuite : ni fuseau, ni politique, ni granularité, ni date, ni offre" "||||||" \
+  "$(sql_value "select coalesce(schedule_timezone,'') || '|' || coalesce(date_selection_mode,'') || '|' || coalesce(slot_selection_mode,'') || '|' || coalesce(time_granularity_minutes::text,'') || '|' || coalesce(first_eligible_date::text,'') || '|' || coalesce(array_to_string(eligible_dates,','),'') || '|' || coalesce(offers::text,'') from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
+assert_eq "[15d] la réponse est INDISCERNABLE d'une planification absente" "same" \
+  "$(sql_value "select case when (select schedule_status || '|' || coalesce(schedule_timezone,'~') from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null)) = (select schedule_status || '|' || coalesce(schedule_timezone,'~') from public.get_checkout_fulfillment_schedule('$RID_B','pickup',null,1,null)) then 'same' else 'different' end;")"
+sql_value "update public.restaurant_sale_modes set enabled = true where restaurant_id='$RID_A' and mode_code='pickup';" >/dev/null
+assert_eq "[15e] réactivé, il projette de nouveau" "dates_available" \
+  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
+# Mode d'un AUTRE tenant : la ligne de mode de A ne vaut pas pour B.
+sql_value "delete from public.restaurant_sale_modes where restaurant_id='$RID_B' and mode_code='pickup';" >/dev/null
+assert_eq "[15f] mode ABSENT chez l'autre tenant => 'absent', même si A l'a activé" "absent" \
+  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_B','pickup',null,1,null);")"
+assert_eq "[15g] mode hors catalogue => REFUS nommé, jamais une projection" "REFUSE" \
+  "$(refused "$(outcome_owner "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','teleportation',null,1,null);")")"
+psql -X -d "$DB" -c "insert into public.restaurant_sale_modes (restaurant_id, mode_code, enabled, display_order) values ('$RID_B','pickup',true,1) on conflict do nothing;" >/dev/null 2>&1
+sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+
+# ============================================================
+# [16] CSDJ1-AUD-04 — PRÉCISION À LA MINUTE
+#      CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01
+# ============================================================
+log "=== [16] Précision horaire : la minute, et rien de plus fin ==="
+assert_eq "[16a] une heure limite à la minute est ACCEPTÉE" "OK" \
+  "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"cutoffTime\":\"16:00\"}'::jsonb);")"
+assert_eq "[16b] une heure limite SOUS-MINUTE est REFUSÉE, jamais tronquée" "REFUSE" \
+  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"cutoffTime\":\"16:00:30\"}'::jsonb);")")"
+assert_eq "[16c] une fenêtre sous-minute est REFUSÉE" "REFUSE" \
+  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','replace_windows','{\"modeCode\":\"pickup\",\"windows\":[{\"weekday\":2,\"startsAt\":\"09:00:01\",\"endsAt\":\"11:00:59\"}]}'::jsonb);")")"
+assert_eq "[16d] un créneau sous-minute est REFUSÉ" "REFUSE" \
+  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"dateSelectionMode\":\"customer_selectable\",\"slotSelectionMode\":\"fixed_slots\"}'::jsonb), public.mutate_merchant_fulfillment_schedule('$RID_A','replace_slots','{\"modeCode\":\"pickup\",\"slots\":[{\"weekday\":2,\"slotKey\":\"a\",\"startsAt\":\"09:00:30\",\"endsAt\":\"11:00\"}]}'::jsonb);")")"
+assert_eq "[16e] la CONTRAINTE DE TABLE refuse aussi, sans passer par la RPC" "REFUSE" \
+  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',3,'09:00:01','11:00');")")"
+assert_eq "[16f] 24:00 est REFUSÉ explicitement (CSDJ-V1-NO-24H-01)" "REFUSE" \
+  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',4,'20:00','24:00');")")"
+assert_eq "[16g] 23:59 est la borne de fin de journée ACCEPTÉE" "OK" \
+  "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',5,'20:00','23:59');")"
+# Aller-retour de sérialisation : ce qui est stocké est ce qui est
+# publié, en HH:MM, sans perte.
+assert_eq "[16h] aller-retour de sérialisation sans perte" "20:00-23:59" \
+  "$(sql_value "select to_char(starts_at,'HH24:MI') || '-' || to_char(ends_at,'HH24:MI') from public.restaurant_fulfillment_schedule_window where restaurant_id='$RID_A' and weekday=5;")"
+assert_eq "[16i] aucune offre de durée NULLE ne peut exister après formatage" "0" \
+  "$(sql_value "select count(*) from public.restaurant_fulfillment_schedule_window where to_char(starts_at,'HH24:MI') = to_char(ends_at,'HH24:MI');")"
+sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+
+# ============================================================
+# [17] ZÉRO UUID RÉSERVÉ
+# ============================================================
+log "=== [17] Le zéro UUID est une sentinelle réservée ==="
+assert_eq "[17a] la RPC refuse une règle au zéro UUID, en la nommant" "REFUSE" \
+  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"delivery\",\"timezone\":\"Europe/Paris\",\"fulfillmentRuleId\":\"$NIL_RULE\"}'::jsonb);")")"
+assert_eq "[17b] la CONTRAINTE DE TABLE la refuse aussi" "REFUSE" \
+  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule (restaurant_id, mode_code, fulfillment_rule_id, timezone) values ('$RID_A','delivery','$NIL_RULE','Europe/Paris');")")"
+
+# ============================================================
+# [18] CSDJ1-AUD-05 — ANTI-DÉRIVE EXACT, PROUVÉ PAR MUTATION
+#      CSDJ-V1-RESOLVER-EXACT-SHAPE-01
+#
+# Chaque mutation remplace l'autorité de tarification par un SOSIE dans
+# une base jetable propre, applique le lot, et exige :
+#   - que l'application ÉCHOUE,
+#   - avec SCANYM_SCHEMA_DRIFT,
+#   - et qu'AUCUN objet du lot n'ait été créé -- le refus doit tomber
+#     AVANT toute création, pas à la première lecture en production.
+# ============================================================
+log "=== [18] Anti-dérive exact : mutations du résolveur ==="
+RESOLVER_SIG="public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)"
+
+mutate_resolver_and_apply() {
+  local label="$1" returns="$2" db="scanym_csdj1_mut$3_$RUN_TAG"
+  create_tracked_db "$db" -T "$DB_BASE"
+  psql -X -q -d "$db" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL
+drop function $RESOLVER_SIG;
+create function public.resolve_delivery_fulfillment(
+  p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric default null
+) returns table ($returns)
+language plpgsql stable security definer set search_path = ''
+as \$f\$ begin return; end \$f\$;
+SQL
+  if [ $? -ne 0 ]; then
+    fail "[18] $label — sosie impossible à injecter : $(head -2 "$ERR" | tr '\n' ' ')"
+    return
+  fi
+  if apply_path "$SUPABASE_DIR/$LOT_SQL" "$db"; then
+    fail "[18] $label — le lot s'est appliqué sur une forme de résolveur INCOMPATIBLE"
+  else
+    if grep -q 'SCANYM_SCHEMA_DRIFT' "$OUT"; then
+      pass "[18] $label — refusé, et le refus nomme la dérive de schéma"
+    else
+      fail "[18] $label — refusé, mais pas pour la bonne raison : $(tail -3 "$OUT" | tr '\n' ' ')"
+    fi
+  fi
+  assert_eq "[18] $label — AUCUN objet du lot créé avant le refus" "0" \
+    "$(sql_on "$db" "select count(*) from pg_class where relnamespace='public'::regnamespace and relname like 'restaurant_fulfillment_schedule%';")"
+}
+
+# CONTRÔLE POSITIF — une forme CONFORME doit s'appliquer, sinon le garde
+# refuserait tout et ne prouverait rien.
+GOOD_RETURNS="eligible boolean, fulfillment_rule_id uuid, fulfillment_code text, provider text, matched_prefix text, zone_prefixes text[], is_fallback boolean, min_items integer, customer_text text, display_order integer, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, block text, missing integer"
+DB_POS="scanym_csdj1_mutpos_$RUN_TAG"
+create_tracked_db "$DB_POS" -T "$DB_BASE"
+psql -X -q -d "$DB_POS" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
+drop function $RESOLVER_SIG;
+create function public.resolve_delivery_fulfillment(
+  p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric default null
+) returns table ($GOOD_RETURNS)
+language plpgsql stable security definer set search_path = ''
+as \$f\$ begin return; end \$f\$;
+SQL
+if apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_POS"; then
+  pass "[18] CONTRÔLE POSITIF — une forme conforme s'applique (le garde ne refuse pas tout)"
+else
+  fail "[18] CONTRÔLE POSITIF — une forme conforme est refusée : $(tail -3 "$OUT" | tr '\n' ' ')"
+fi
+
+# Mutation 1 : colonne RENOMMÉE en SOSIE qui CONTIENT le nom attendu.
+#   C'est le défaut exact de l'audit : « not_eligible » contient
+#   « eligible », « not_block » contient « block ».
+mutate_resolver_and_apply "SOSIE par sous-chaîne (not_eligible / not_block)" \
+  "not_eligible boolean, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, not_block text" "sub"
+# Mutation 2 : colonne simplement RENOMMÉE.
+mutate_resolver_and_apply "colonne RENOMMÉE (is_eligible)" \
+  "is_eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric" "ren"
+# Mutation 3 : bon nom, MAUVAIS type.
+mutate_resolver_and_apply "MAUVAIS type (delivery_fee en text)" \
+  "eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee text" "typ"
+# Mutation 4 : colonne ABSENTE.
+mutate_resolver_and_apply "colonne ABSENTE (free_threshold retirée)" \
+  "eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, delivery_fee numeric" "abs"
+# Mutation 5 : SURCHARGE supplémentaire -- le contrôle deviendrait
+#   ambigu, et l'appel du lot imprévisible.
+DB_DUP="scanym_csdj1_mutdup_$RUN_TAG"
+create_tracked_db "$DB_DUP" -T "$DB_BASE"
+psql -X -q -d "$DB_DUP" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
+create function public.resolve_delivery_fulfillment(p_restaurant_id uuid)
+returns table (eligible boolean)
+language plpgsql stable set search_path = ''
+as \$f\$ begin return; end \$f\$;
+SQL
+if apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_DUP"; then
+  fail "[18] SURCHARGE supplémentaire — le lot s'est appliqué malgré deux résolveurs"
+else
+  if grep -q 'SCANYM_SCHEMA_DRIFT' "$OUT"; then
+    pass "[18] SURCHARGE supplémentaire — refusée, et le refus nomme la dérive"
+  else
+    fail "[18] SURCHARGE supplémentaire — refusée pour une autre raison : $(tail -3 "$OUT" | tr '\n' ' ')"
+  fi
+fi
+DB="$DB_FWD"
 
 # ============================================================
 # [13][14] ROLLBACK

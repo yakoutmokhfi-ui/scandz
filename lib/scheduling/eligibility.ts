@@ -159,30 +159,60 @@ function zoneOffsetMs(epochMs: number, tz: string): number {
 }
 
 /**
- * Instant UTC correspondant à une heure murale locale dans `tz`.
+ * ══════════════════════════════════════════════════════════════════════
+ * CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 — POLITIQUE DE CHANGEMENT D'HEURE
  *
- * Deux passes : on devine avec le décalage de l'instant approché, puis on
- * corrige si le décalage réel à l'instant trouvé diffère -- c'est ce qui
- * rend le résultat juste de part et d'autre d'un changement d'heure.
+ * Deux heures murales locales ne désignent pas un instant unique :
+ *   - l'heure INEXISTANTE du saut de printemps (à Paris, le 29 mars 2026
+ *     entre 02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
+ *   - l'heure AMBIGUË du recul d'automne (le 25 octobre 2026 entre 02:00
+ *     et 03:00 : ces minutes ont eu lieu DEUX fois).
  *
- * Heures murales PARTICULIÈRES, comportement documenté et assumé :
- *   - heure INEXISTANTE (saut de printemps, 02:30 à Paris) : le résultat
- *     tombe après le saut ;
- *   - heure AMBIGUË (recul d'automne, 02:30 à Paris) : la PREMIÈRE
- *     occurrence est retenue (heure d'été).
- * PostgreSQL retient, lui, l'interprétation en heure NORMALE pour une
- * heure ambiguë : les deux côtés diffèrent donc d'une heure dans cette
- * seule heure de l'année. La fixture partagée n'emploie volontairement
- * aucune heure murale située dans une heure de transition, et cette
- * divergence est consignée comme observation non bloquante du lot.
+ * La politique de la v1 est le REFUS FERMÉ des deux cas : une telle
+ * occurrence n'est PAS une offre, elle est écartée. Aucune normalisation
+ * silencieuse.
+ *
+ * Pourquoi. La normalisation de PostgreSQL est un comportement de
+ * MOTEUR, pas une décision commerciale : elle déplacerait l'heure
+ * inexistante après le saut et choisirait l'une des deux occurrences
+ * ambiguës, sans que ni le commerçant ni le client ne le sachent. Pour
+ * une heure ambiguë, la promesse « nous vous livrons à 02:30 » désigne
+ * alors deux instants distants d'une heure, et aucun des deux n'a été
+ * choisi par quiconque. Un refus est visible, corrigeable, et ne promet
+ * rien de faux.
+ *
+ * Portée. Le refus porte sur l'OCCURRENCE (une date précise), pas sur la
+ * configuration : une fenêtre 02:00–03:00 reste parfaitement valide les
+ * 364 autres jours de l'année, et c'est bien pourquoi le refus ne peut
+ * pas être prononcé à l'écriture.
+ * ══════════════════════════════════════════════════════════════════════
  */
-function zonedWallTimeToEpoch(
+export type WallTimeStatus = "ok" | "nonexistent" | "ambiguous";
+
+export interface WallTimeResolution {
+  readonly status: WallTimeStatus;
+  /** Instant UTC, ou `null` dès que le statut n'est pas `ok`. */
+  readonly epochMs: number | null;
+}
+
+/**
+ * Résout une heure murale locale, en CLASSANT le résultat.
+ *
+ * Deux passes pour l'instant candidat : on devine avec le décalage de
+ * l'instant approché, puis on corrige si le décalage réel diffère.
+ * Ensuite, deux contrôles :
+ *   - ALLER-RETOUR : si l'instant trouvé, relu dans le fuseau, ne rend
+ *     pas l'heure murale demandée, c'est que cette heure n'existe pas ;
+ *   - VOISINS : si l'instant trouvé ±1 h rend la MÊME heure murale,
+ *     c'est que cette heure a eu lieu deux fois.
+ */
+export function resolveWallTime(
   year: number,
   month: number,
   day: number,
   minutesOfDay: number,
   tz: string
-): number {
+): WallTimeResolution {
   const naive = Date.UTC(
     year,
     month - 1,
@@ -191,8 +221,23 @@ function zonedWallTimeToEpoch(
     minutesOfDay % 60
   );
   const firstGuess = naive - zoneOffsetMs(naive, tz);
-  const refined = naive - zoneOffsetMs(firstGuess, tz);
-  return refined;
+  const epochMs = naive - zoneOffsetMs(firstGuess, tz);
+
+  const back = zonedDateParts(epochMs, tz);
+  const wantedDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (back.date !== wantedDate || back.minutesOfDay !== minutesOfDay) {
+    return { status: "nonexistent", epochMs: null };
+  }
+
+  const HOUR = 3_600_000;
+  for (const neighbour of [epochMs - HOUR, epochMs + HOUR]) {
+    const alt = zonedDateParts(neighbour, tz);
+    if (alt.date === wantedDate && alt.minutesOfDay === minutesOfDay) {
+      return { status: "ambiguous", epochMs: null };
+    }
+  }
+
+  return { status: "ok", epochMs };
 }
 
 /** Date civile (`YYYY-MM-DD`) et minutes depuis minuit, dans `tz`. */
@@ -243,12 +288,25 @@ function compareDates(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function normalizeTime(value: string): string | null {
-  const minutes = parseScheduleTime(value);
-  if (minutes === null) return null;
+/** `HH:MM` depuis des minutes depuis minuit. Seule forme publique
+ *  (CSDJ-V1-MINUTE-PRECISION-01). */
+function formatMinutes(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * Normalise une heure de configuration, ou `null` si elle n'est pas
+ * admissible -- secondes non nulles comprises
+ * (CSDJ-V1-MINUTE-PRECISION-01). Une heure refusée ici n'est jamais
+ * tronquée : l'offre correspondante est simplement écartée, et la base
+ * la refuse déjà à l'écriture.
+ */
+function normalizeTime(value: string): string | null {
+  const minutes = parseScheduleTime(value);
+  if (minutes === null) return null;
+  return formatMinutes(minutes);
 }
 
 /**
@@ -371,27 +429,60 @@ export function resolveScheduleEligibility(
   // `today` est la date civile du commerçant, pas celle du client.
   const today = zonedDateParts(nowMs, cfg.timezone).date;
 
-  // Délai de préparation : il repousse l'instant le plus tôt, donc
-  // possiblement le JOUR le plus tôt.
-  const earliestFromLead = zonedDateParts(
-    nowMs + cfg.leadTimeMinutes * 60_000,
-    cfg.timezone
-  ).date;
-  const earliestFromMinDays = addDays(today, cfg.minLeadDays);
-  const startDate =
-    compareDates(earliestFromLead, earliestFromMinDays) >= 0
-      ? earliestFromLead
-      : earliestFromMinDays;
-
+  // `min_lead_days` est une contrainte de JOUR : la date demandée doit
+  // être au moins N jours après aujourd'hui. Elle borne donc l'intervalle
+  // examiné.
+  const startDate = addDays(today, cfg.minLeadDays);
   const lastDate = addDays(today, cfg.bookingHorizonDays);
+
+  // ════════════════════════════════════════════════════════════════════
+  // CSDJ-V1-OFFER-START-INSTANT-01 — INSTANT MINIMAL DE RÉALISATION
+  //
+  // Le délai de préparation est une contrainte d'INSTANT, pas de jour.
+  // La version précédente ne l'appliquait qu'à la date de départ, ce qui
+  // laissait proposer un créneau 09:00–11:00 avec 120 minutes de délai
+  // alors qu'il était 15:00 : la date passait le filtre, l'offre non --
+  // et personne ne regardait l'offre (CSDJ1-AUD-01).
+  //
+  // Désormais CHAQUE offre est comparée, en INSTANT, à
+  //     minInstant = max( now + lead_time_minutes,
+  //                       début de (today + min_lead_days) dans le fuseau )
+  // et une offre dont le DÉBUT tombe avant est écartée. Règle unique
+  // pour les trois politiques d'horaire, choisie parce qu'elle est
+  // conservatrice : un créneau déjà commencé n'est pas honorable en
+  // entier, donc il n'est pas proposé. Aucun « créneau suivant » n'est
+  // inventé -- les offres sont filtrées, jamais fabriquées.
+  //
+  // Seule nuance, pour `time_within_window` : le client y choisit une
+  // HEURE dans la fenêtre, donc le début est AVANCÉ le long de la grille
+  // de granularité du commerçant jusqu'au premier point utilisable. Ce
+  // n'est pas une offre nouvelle, c'est la part encore utilisable d'une
+  // fenêtre existante ; si la grille sort de la fenêtre, la fenêtre
+  // disparaît.
+  // ════════════════════════════════════════════════════════════════════
+  const startDateParts = splitDate(startDate);
+  const startDateFloor = resolveWallTime(
+    startDateParts.y,
+    startDateParts.m,
+    startDateParts.d,
+    0,
+    cfg.timezone
+  );
+  const fromLead = nowMs + cfg.leadTimeMinutes * 60_000;
+  const minInstant =
+    startDateFloor.epochMs !== null && startDateFloor.epochMs > fromLead
+      ? startDateFloor.epochMs
+      : fromLead;
 
   const cutoffMinutes =
     cfg.cutoffTime === null || cfg.cutoffTime === undefined
       ? null
       : parseScheduleTime(cfg.cutoffTime);
 
+  const granularity = cfg.timeGranularityMinutes;
   const eligible: ScheduleDateOffer[] = [];
-  let sawClosureOnly = false;
+  let sawClosure = false;
+  let sawOpenDate = false;
 
   for (
     let date = startDate;
@@ -405,7 +496,7 @@ export function resolveScheduleEligibility(
     if (!offers || offers.length === 0) continue;
 
     if (closed.has(date)) {
-      sawClosureOnly = true;
+      sawClosure = true;
       continue;
     }
 
@@ -414,20 +505,67 @@ export function resolveScheduleEligibility(
     // commerçant. L'inégalité est STRICTE : à la seconde de l'heure
     // limite, il est trop tard -- une limite qu'on peut atteindre pile
     // n'est pas une limite.
+    //
+    // Si cette heure limite tombe elle-même sur une heure murale
+    // inexistante ou ambiguë, la date est écartée : on ne devine pas
+    // l'instant d'une limite (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).
     if (cutoffMinutes !== null) {
       const cutoffDate = addDays(date, -cfg.cutoffOffsetDays);
-      const { y, m, d } = splitDate(cutoffDate);
-      const cutoffEpoch = zonedWallTimeToEpoch(
-        y,
-        m,
-        d,
-        cutoffMinutes,
-        cfg.timezone
-      );
-      if (nowMs >= cutoffEpoch) continue;
+      const c = splitDate(cutoffDate);
+      const cutoff = resolveWallTime(c.y, c.m, c.d, cutoffMinutes, cfg.timezone);
+      if (cutoff.epochMs === null) continue;
+      if (nowMs >= cutoff.epochMs) continue;
     }
 
-    eligible.push({ date, offers });
+    sawOpenDate = true;
+    const { y, m, d } = splitDate(date);
+    const usable: ScheduleOffer[] = [];
+
+    for (const offer of offers) {
+      const startMin = parseScheduleTime(offer.startsAt);
+      const endMin = parseScheduleTime(offer.endsAt);
+      if (startMin === null || endMin === null) continue;
+
+      if (cfg.slotSelectionMode === "time_within_window" && granularity) {
+        // Avancer le long de la grille du commerçant jusqu'au premier
+        // point utilisable. La grille est ancrée sur le DÉBUT configuré
+        // de la fenêtre, pour rester celle que le commerçant a décrite.
+        let chosen: { minute: number; epochMs: number } | null = null;
+        for (let t = startMin; t < endMin; t += granularity) {
+          const r = resolveWallTime(y, m, d, t, cfg.timezone);
+          // Heure murale inexistante ou ambiguë : ce point de grille
+          // n'est pas proposable, on passe au suivant.
+          if (r.epochMs === null) continue;
+          if (r.epochMs >= minInstant) {
+            chosen = { minute: t, epochMs: r.epochMs };
+            break;
+          }
+        }
+        if (chosen === null) continue;
+        usable.push({
+          slotKey: null,
+          startsAt: formatMinutes(chosen.minute),
+          endsAt: formatMinutes(endMin),
+        });
+        continue;
+      }
+
+      // `fixed_slots` et `none` : l'offre est atomique. Son DÉBUT décide.
+      const r = resolveWallTime(y, m, d, startMin, cfg.timezone);
+      if (r.epochMs === null) continue;
+      if (r.epochMs < minInstant) continue;
+      usable.push({
+        slotKey: offer.slotKey,
+        startsAt: formatMinutes(startMin),
+        endsAt: formatMinutes(endMin),
+      });
+    }
+
+    // Une date dont toutes les offres ont été écartées n'est PAS une date
+    // éligible : la proposer afficherait un jour sans aucune heure.
+    if (usable.length === 0) continue;
+
+    eligible.push({ date, offers: usable });
     if (cfg.dateSelectionMode === "derived_earliest") break;
   }
 
@@ -435,12 +573,19 @@ export function resolveScheduleEligibility(
     return {
       ...base,
       status: "unfulfillable",
-      // Distinguer « tout est fermé » de « l'horizon est épuisé » :
-      // le premier se corrige en retirant une fermeture, le second en
-      // allongeant l'horizon ou en desserrant le délai. Confondre les
-      // deux, c'est livrer au commerçant un refus qu'il ne sait pas
+      // Trois causes distinctes, trois corrections distinctes :
+      //   - tout est fermé            -> retirer une fermeture ;
+      //   - des dates sont ouvertes mais aucune offre ne tient encore
+      //     -> desserrer le délai, ou attendre demain ;
+      //   - la première date possible est au-delà de l'horizon
+      //     -> allonger l'horizon ou réduire le minimum de jours.
+      // Les confondre livrerait au commerçant un refus qu'il ne sait pas
       // corriger.
-      reason: sawClosureOnly ? "all_dates_closed" : "horizon_exhausted",
+      reason: sawOpenDate
+        ? "no_offer_in_horizon"
+        : sawClosure
+          ? "all_dates_closed"
+          : "horizon_exhausted",
       firstEligibleDate: null,
       dates: [],
     };

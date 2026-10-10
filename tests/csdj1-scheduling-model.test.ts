@@ -14,6 +14,7 @@ import {
   isCheckoutUnfulfillableReason,
   isSchedulePolicyCoherent,
   isScheduleSlotKey,
+  isScheduleTime,
   isScheduleWeekday,
   parseScheduleTime,
 } from "../lib/scheduling/schedule-model.ts";
@@ -47,7 +48,10 @@ test("[MODEL-1] les quatre catalogues sont fermés, ordonnés et sans doublon", 
   assert.deepEqual(CHECKOUT_DATE_SELECTION_MODES.length, 3);
   assert.deepEqual(CHECKOUT_SLOT_SELECTION_MODES.length, 3);
   assert.deepEqual(CHECKOUT_SCHEDULE_STATUSES.length, 5);
-  assert.deepEqual(CHECKOUT_UNFULFILLABLE_REASONS.length, 4);
+  // Cinq depuis la remédiation : `no_offer_in_horizon` distingue
+  // « des dates ouvertes mais aucune offre réalisable » de
+  // « la première date possible est au-delà de l'horizon ».
+  assert.deepEqual(CHECKOUT_UNFULFILLABLE_REASONS.length, 5);
 });
 
 test("[MODEL-2] les statuts porteurs des deux invariants existent", () => {
@@ -133,20 +137,40 @@ test("[MODEL-7] clé de créneau : forme étroite, pour n'avoir jamais à l'éch
   assert.equal(isScheduleSlotKey("a".repeat(SCHEDULE_SLOT_KEY_MAX_LENGTH)), true);
 });
 
-test("[MODEL-8] lecture d'heure : HH:MM et HH:MM:SS, et rien d'autre", () => {
+test("[MODEL-8] lecture d'heure : la MINUTE, et rien de plus fin", () => {
+  // CSDJ-V1-MINUTE-PRECISION-01, ferme CSDJ1-AUD-04.
   assert.equal(parseScheduleTime("00:00"), 0);
   assert.equal(parseScheduleTime("16:00"), 960);
   assert.equal(parseScheduleTime("19:30"), 1170);
   assert.equal(parseScheduleTime("23:59"), 1439);
-  // psql rend un `time` en HH:MM:SS : il faut savoir le lire.
+  // psql rend un `time` en HH:MM:SS : il faut savoir le lire, et des
+  // secondes NULLES sont admissibles.
   assert.equal(parseScheduleTime("16:00:00"), 960);
-  // Les secondes sont tronquées, pas arrondies.
-  assert.equal(parseScheduleTime("16:00:59"), 960);
+  // Mais des secondes NON nulles sont REFUSÉES, jamais tronquées :
+  // tronquer 09:00:30-09:00:59 produirait une offre de durée nulle
+  // affichée comme disponible -- le défaut CSDJ1-AUD-04.
+  assert.equal(parseScheduleTime("16:00:30"), null);
+  assert.equal(parseScheduleTime("16:00:59"), null);
+  assert.equal(parseScheduleTime("16:00:01"), null);
+  // Une fraction de seconde non nulle est refusée aussi.
+  assert.equal(parseScheduleTime("16:00:00.500"), null);
+  assert.equal(parseScheduleTime("16:00:00.000"), 960);
   // 24:00 est refusé : une fenêtre qui finit « à minuit » se déclare
-  // 23:59, sinon chaque comparaison devrait connaître ce cas.
+  // 23:59, sinon chaque comparaison devrait connaître ce cas
+  // (CSDJ-V1-NO-24H-01).
   assert.equal(parseScheduleTime("24:00"), null);
+  assert.equal(parseScheduleTime("24:00:00"), null);
   for (const v of ["", "6:00", "16h00", "16:60", "25:00", "abcd", null, 960, {}]) {
     assert.equal(parseScheduleTime(v), null, `${String(v)} ne doit pas passer`);
+  }
+});
+
+test("[MODEL-10] isScheduleTime refuse exactement ce que parseScheduleTime refuse", () => {
+  for (const v of ["09:00", "09:00:00", "23:59"]) {
+    assert.equal(isScheduleTime(v), true, String(v));
+  }
+  for (const v of ["09:00:30", "24:00", "9:00", "", null]) {
+    assert.equal(isScheduleTime(v), false, String(v));
   }
 });
 

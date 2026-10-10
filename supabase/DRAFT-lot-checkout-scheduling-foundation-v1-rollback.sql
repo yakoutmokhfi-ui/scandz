@@ -10,7 +10,8 @@
 -- CE QUE CE RETOUR FAIT
 --
 --   1. supprime les quatre RPC et l'autorité d'éligibilité du lot ;
---   2. supprime les quatre catalogues fermés du lot ;
+--   2. supprime les quatre catalogues fermés du lot et les deux
+--      fonctions de politique d'heure murale ;
 --   3. supprime les quatre tables du lot, dans l'ordre inverse de
 --      leurs dépendances -- les trois tables filles d'abord, la table
 --      de planification ensuite.
@@ -82,6 +83,8 @@ drop function if exists public.mutate_merchant_fulfillment_schedule(uuid,text,js
 drop function if exists public.get_merchant_fulfillment_schedules(uuid);
 drop function if exists public.get_checkout_fulfillment_schedule(uuid,text,text,integer,numeric);
 drop function if exists public.resolve_fulfillment_schedule(uuid,text,uuid,timestamptz);
+drop function if exists public.checkout_wall_time_instant(date,time,text);
+drop function if exists public.checkout_wall_time_status(date,time,text);
 
 -- ============================================================
 -- §B  Tables — filles d'abord
@@ -127,6 +130,8 @@ begin
     'public.checkout_slot_selection_modes()',
     'public.checkout_schedule_statuses()',
     'public.checkout_unfulfillable_reasons()',
+    'public.checkout_wall_time_status(date,time without time zone,text)',
+    'public.checkout_wall_time_instant(date,time without time zone,text)',
     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',
     'public.get_checkout_fulfillment_schedule(uuid,text,text,integer,numeric)',
     'public.get_merchant_fulfillment_schedules(uuid)',

@@ -214,23 +214,58 @@ begin
       using errcode = '42710';
   end if;
 
-  -- P-3bis. FORME de l'autorité de tarification. CSDJ-1 ne lit que les
-  --      colonnes communes à toutes ses versions livrées
-  --      (CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01) ; si l'une d'elles
-  --      disparaissait, la lecture publique renverrait du vide au lieu
-  --      d'échouer, et un défaut deviendrait indiscernable d'un refus
-  --      légitime. On refuse donc d'appliquer le lot.
+  -- ════════════════════════════════════════════════════════════════
+  -- P-3bis. FORME EXACTE DE L'AUTORITÉ DE TARIFICATION
+  --         CSDJ-V1-RESOLVER-EXACT-SHAPE-01 — ferme CSDJ1-AUD-05
+  --
+  -- CSDJ-1 ne lit que les colonnes communes à toutes les versions
+  -- livrées du résolveur (CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01). La
+  -- version précédente le vérifiait par SOUS-CHAÎNE sur le texte de la
+  -- signature, ce qui acceptait des SOSIES : une colonne renommée
+  -- `not_eligible` contient « eligible », une colonne `not_block`
+  -- contient « block ». Le lot s'appliquait alors, et échouait plus
+  -- tard en 42703 à la première lecture -- c'est-à-dire en production,
+  -- et non à l'application.
+  --
+  -- La vérification porte désormais sur le CATALOGUE : nom EXACT et
+  -- TYPE EXACT de chaque colonne de sortie, lus dans pg_proc. Aucune
+  -- heuristique textuelle.
+  -- ════════════════════════════════════════════════════════════════
   foreach v_missing in array array[
-    'eligible', 'block', 'fulfillment_rule_id', 'min_items', 'missing',
-    'customer_text', 'pricing_mode', 'fixed_fee', 'free_threshold', 'delivery_fee'
+    'eligible=boolean', 'block=text', 'fulfillment_rule_id=uuid',
+    'min_items=integer', 'missing=integer', 'customer_text=text',
+    'pricing_mode=text', 'fixed_fee=numeric', 'free_threshold=numeric',
+    'delivery_fee=numeric'
   ] loop
-    if pg_catalog.pg_get_function_result(
-         pg_catalog.to_regprocedure('public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)')
-       ) not like '%' || v_missing || '%' then
-      raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie plus la colonne % -- CSDJ-1 annulé.', v_missing
+    if not exists (
+      select 1
+      from pg_catalog.pg_proc p,
+      -- `unnest` à PLUSIEURS tableaux est une construction du parseur
+      -- (sucre pour ROWS FROM), pas une surcharge de pg_catalog : la
+      -- qualifier échoue. Même famille de leçon que coalesce, extract et
+      -- greatest. `pg_catalog` reste implicitement en tête du chemin de
+      -- recherche, la résolution n'est donc pas détournable.
+      unnest(p.proargnames, p.proargmodes, p.proallargtypes)
+             as a(argname, argmode, argtype)
+      where p.oid = pg_catalog.to_regprocedure(
+              'public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)')
+        and a.argmode = 't'
+        and a.argname = pg_catalog.split_part(v_missing, '=', 1)
+        and pg_catalog.format_type(a.argtype, null) = pg_catalog.split_part(v_missing, '=', 2)
+    ) then
+      raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie pas la colonne de sortie attendue « % » -- CSDJ-1 annulé AVANT toute création d''objet.', v_missing
         using errcode = '42804';
     end if;
   end loop;
+
+  -- Et une seule surcharge : deux résolveurs de même nom rendraient le
+  -- contrôle ci-dessus ambigu, et l'appel du lot imprévisible.
+  if (select pg_catalog.count(*) from pg_catalog.pg_proc p
+      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'resolve_delivery_fulfillment') <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment possède plusieurs surcharges -- CSDJ-1 annulé.'
+      using errcode = '42725';
+  end if;
 
   -- P-4. Le type `time` et l'arithmétique de fuseau sont employés pour
   --      la PREMIÈRE fois de ce dépôt. On vérifie que le serveur porte
@@ -316,7 +351,8 @@ as $$
     'no_offer_configured',
     'granularity_missing',
     'all_dates_closed',
-    'horizon_exhausted'
+    'horizon_exhausted',
+    'no_offer_in_horizon'
   ]::text[]
 $$;
 
@@ -324,6 +360,82 @@ comment on function public.checkout_unfulfillable_reasons() is
   'CHECKOUT SCHEDULING FOUNDATION v1 — catalogue FERMÉ des motifs d''infaisabilité. Un statut `unfulfillable` porte TOUJOURS exactement un de ces motifs : un refus dont on ne sait pas dire la cause est un refus qu''on ne saura pas corriger.';
 
 revoke all on function public.checkout_unfulfillable_reasons() from public, anon, authenticated, service_role;
+
+-- ------------------------------------------------------------
+-- §A.2  POLITIQUE D'HEURE MURALE — CSDJ-V1-WALL-TIME-FAIL-CLOSED-01
+--
+-- Ferme CSDJ1-AUD-02. Deux heures murales locales ne désignent pas un
+-- instant unique :
+--   - l'heure INEXISTANTE du saut de printemps (à Paris, le 29 mars 2026
+--     entre 02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
+--   - l'heure AMBIGUË du recul d'automne (le 25 octobre 2026 entre 02:00
+--     et 03:00 : ces minutes ont eu lieu DEUX fois).
+--
+-- La politique de la v1 est le REFUS FERMÉ des deux cas. La
+-- normalisation de PostgreSQL est un comportement de MOTEUR, pas une
+-- décision commerciale : elle déplacerait l'heure inexistante après le
+-- saut et choisirait l'une des deux occurrences ambiguës sans que ni le
+-- commerçant ni le client ne le sachent. Pour une heure ambiguë, la
+-- promesse « nous vous livrons à 02:30 » désignerait deux instants
+-- distants d'une heure, et aucun des deux n'aurait été choisi par
+-- quiconque.
+--
+-- Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration :
+-- une fenêtre 02:00-03:00 reste valide les 364 autres jours de l'année,
+-- et c'est pourquoi ce refus ne peut pas être prononcé à l'écriture.
+-- ------------------------------------------------------------
+
+create function public.checkout_wall_time_status(
+  p_date date, p_time time, p_timezone text
+)
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  with naive as (select (p_date + p_time) as ts),
+  mapped as (select n.ts, (n.ts at time zone p_timezone) as inst from naive n)
+  select case
+    -- ALLER-RETOUR : si l'instant obtenu, relu dans le fuseau, ne rend
+    -- pas l'heure murale demandée, c'est que cette heure n'existe pas.
+    when ((m.inst at time zone p_timezone) is distinct from m.ts) then 'nonexistent'
+    -- VOISINS : si l'instant obtenu plus ou moins une heure rend la MÊME
+    -- heure murale, c'est que cette heure a eu lieu deux fois.
+    when (((m.inst - pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
+      or (((m.inst + pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
+      then 'ambiguous'
+    else 'ok'
+  end
+  from mapped m
+$$;
+
+comment on function public.checkout_wall_time_status(date,time,text) is
+  'CHECKOUT SCHEDULING FOUNDATION v1 — CLASSE une heure murale locale : `ok`, `nonexistent` (trou du saut de printemps) ou `ambiguous` (heure vécue deux fois au recul d''automne). Miroir de resolveWallTime (lib/scheduling/eligibility.ts). Autorité de la politique CSDJ-V1-WALL-TIME-FAIL-CLOSED-01.';
+
+revoke all on function public.checkout_wall_time_status(date,time,text) from public, anon, authenticated, service_role;
+
+create function public.checkout_wall_time_instant(
+  p_date date, p_time time, p_timezone text
+)
+returns timestamptz
+language sql
+stable
+set search_path = ''
+as $$
+  -- NULL dès que l'heure murale n'est pas univoque : l'appelant écarte
+  -- alors l'offre. Un NULL n'est donc pas une absence de valeur, c'est
+  -- un REFUS -- et c'est pour cela qu'il n'y a pas de repli.
+  select case
+    when public.checkout_wall_time_status(p_date, p_time, p_timezone) = 'ok'
+      then ((p_date + p_time) at time zone p_timezone)
+    else null
+  end
+$$;
+
+comment on function public.checkout_wall_time_instant(date,time,text) is
+  'CHECKOUT SCHEDULING FOUNDATION v1 — instant UTC d''une heure murale locale, ou NULL si cette heure est inexistante ou ambiguë. Le NULL est un REFUS, jamais une absence de valeur : l''appelant écarte l''offre (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).';
+
+revoke all on function public.checkout_wall_time_instant(date,time,text) from public, anon, authenticated, service_role;
 
 -- ============================================================
 -- §B  MODÈLE DE PLANIFICATION
@@ -340,7 +452,15 @@ create table public.restaurant_fulfillment_schedule (
   -- supprime sa planification -- une planification orpheline
   -- désignerait une zone qui n'existe plus.
   fulfillment_rule_id      uuid
-                           references public.restaurant_sale_mode_fulfillments(id) on delete cascade,
+                           references public.restaurant_sale_mode_fulfillments(id) on delete cascade
+                           -- Le zéro UUID est RÉSERVÉ comme sentinelle
+                           -- interne (voir `rule_key`) : aucune vraie
+                           -- règle ne peut porter cette valeur, sinon
+                           -- « portée de mode » et « portée de cette
+                           -- règle-là » deviendraient indiscernables.
+                           constraint rfs_rule_id_not_sentinel
+                           check (fulfillment_rule_id is distinct from
+                                  '00000000-0000-0000-0000-000000000000'::uuid),
   -- Colonne générée : PostgreSQL ne sait pas mettre une expression dans
   -- une clé primaire, et deux lignes NULL ne seraient pas en conflit --
   -- il serait donc possible de créer deux planifications de mode pour
@@ -375,12 +495,22 @@ create table public.restaurant_fulfillment_schedule (
   min_lead_days            smallint not null default 0
                            check (min_lead_days between 0 and 365),
 
-  cutoff_time              time,
+  -- CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01 : toute heure de
+  -- configuration est à la MINUTE, et 24:00 est refusé.
+  cutoff_time              time
+                           constraint rfs_cutoff_minute_precision
+                           check (cutoff_time is null
+                                  or (cutoff_time = pg_catalog.date_trunc('minute', cutoff_time)
+                                      and cutoff_time < '24:00:00'::time)),
   cutoff_offset_days       smallint not null default 1
                            check (cutoff_offset_days between 0 and 30),
 
+  -- 0 est admissible et signifie « aujourd'hui seulement » : un
+  -- commerçant qui ne prend que des commandes du jour doit pouvoir le
+  -- dire, et c'est aussi la forme minimale dans laquelle se reproduit
+  -- CSDJ1-AUD-01.
   booking_horizon_days     smallint not null default 14
-                           check (booking_horizon_days between 1 and 365),
+                           check (booking_horizon_days between 0 and 365),
 
   -- Versionne la MÉTHODE de calcul, pour la faire évoluer sans jamais
   -- réécrire un instantané de commande déjà persisté (CSDJ-3).
@@ -434,7 +564,16 @@ create table public.restaurant_fulfillment_schedule_window (
     references public.restaurant_fulfillment_schedule (restaurant_id, mode_code, rule_key)
     on delete cascade,
 
-  constraint rfsw_interval_valid check (ends_at > starts_at)
+  constraint rfsw_interval_valid check (ends_at > starts_at),
+
+  -- CSDJ-V1-MINUTE-PRECISION-01 : secondes exactement 00, sinon la
+  -- projection publique en HH:MM dirait autre chose que la
+  -- configuration. CSDJ-V1-NO-24H-01 : 24:00 refusé.
+  constraint rfsw_minute_precision
+    check (starts_at = pg_catalog.date_trunc('minute', starts_at)
+           and ends_at = pg_catalog.date_trunc('minute', ends_at)
+           and starts_at < '24:00:00'::time
+           and ends_at < '24:00:00'::time)
 );
 
 comment on table public.restaurant_fulfillment_schedule_window is
@@ -463,7 +602,17 @@ create table public.restaurant_fulfillment_schedule_slot (
     references public.restaurant_fulfillment_schedule (restaurant_id, mode_code, rule_key)
     on delete cascade,
 
-  constraint rfss_interval_valid check (ends_at > starts_at)
+  constraint rfss_interval_valid check (ends_at > starts_at),
+
+  -- CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01. Un créneau
+  -- 09:00:01-09:00:59 publié en HH:MM deviendrait « 09:00-09:00 », une
+  -- offre de durée nulle affichée comme disponible : c'est le défaut
+  -- CSDJ1-AUD-04, et il se ferme ici, à la source.
+  constraint rfss_minute_precision
+    check (starts_at = pg_catalog.date_trunc('minute', starts_at)
+           and ends_at = pg_catalog.date_trunc('minute', ends_at)
+           and starts_at < '24:00:00'::time
+           and ends_at < '24:00:00'::time)
 );
 
 comment on table public.restaurant_fulfillment_schedule_slot is
@@ -586,20 +735,28 @@ security definer
 set search_path = ''
 as $csdj1_resolve$
 declare
-  v_s           public.restaurant_fulfillment_schedule;
-  v_rule_key    uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
-  v_uses_slots  boolean;
-  v_today       date;
-  v_start       date;
-  v_last        date;
-  v_from_lead   date;
-  v_d           date;
-  v_dates       date[] := array[]::date[];
-  v_offers      jsonb := '{}'::jsonb;
-  v_day_offers  jsonb;
-  v_saw_closure boolean := false;
-  v_has_offer   boolean;
-  v_cutoff_at   timestamptz;
+  v_s            public.restaurant_fulfillment_schedule;
+  v_rule_key     uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
+  v_uses_slots   boolean;
+  v_today        date;
+  v_start        date;
+  v_last         date;
+  v_d            date;
+  v_dates        date[] := array[]::date[];
+  v_offers       jsonb := '{}'::jsonb;
+  v_day          jsonb;
+  v_saw_closure  boolean := false;
+  v_saw_open     boolean := false;
+  v_has_offer    boolean;
+  v_cutoff_at    timestamptz;
+  v_min_instant  timestamptz;
+  v_floor        timestamptz;
+  v_off          record;
+  v_start_min    integer;
+  v_end_min      integer;
+  v_t            integer;
+  v_pick         integer;
+  v_inst         timestamptz;
 begin
   select * into v_s
   from public.restaurant_fulfillment_schedule s
@@ -607,7 +764,7 @@ begin
     and s.mode_code = p_mode_code
     and s.rule_key = v_rule_key;
 
-  -- CSDJ-V1-SCHEDULE-ABSENT-01 — absence ET désactivation donnent le
+  -- CSDJ-V1-SCHEDULE-ABSENT-01 -- absence ET désactivation donnent le
   -- MÊME état observable. Distinguer les deux laisserait une trace de
   -- comportement après une désactivation.
   if not found or v_s.enabled is not true then
@@ -662,42 +819,54 @@ begin
 
   -- Date civile du COMMERÇANT, jamais celle du client.
   v_today := (p_now at time zone v_s.timezone)::date;
-  v_from_lead := ((p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes))
-                   at time zone v_s.timezone)::date;
-  v_start := greatest(v_from_lead, v_today + v_s.min_lead_days);
-  v_last := v_today + v_s.booking_horizon_days;
+  -- `min_lead_days` est une contrainte de JOUR : elle borne l'intervalle.
+  v_start := v_today + v_s.min_lead_days;
+  v_last  := v_today + v_s.booking_horizon_days;
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- CSDJ-V1-OFFER-START-INSTANT-01 — INSTANT MINIMAL DE RÉALISATION
+  --
+  -- Ferme CSDJ1-AUD-01. Le délai de préparation est une contrainte
+  -- d'INSTANT, pas de jour. La version précédente ne l'appliquait qu'à
+  -- la date de départ, ce qui laissait proposer un créneau 09:00-11:00
+  -- avec 120 minutes de délai alors qu'il était 15:00 : la DATE passait
+  -- le filtre, et personne ne regardait l'OFFRE.
+  --
+  --   minInstant = max( now + lead_time_minutes,
+  --                     plancher de (today + min_lead_days) dans le fuseau )
+  --
+  -- Chaque offre est ensuite comparée à cet instant, et une offre dont
+  -- le DÉBUT tombe avant est écartée -- y compris un créneau déjà
+  -- commencé, qui n'est plus honorable en entier. Aucun « créneau
+  -- suivant » n'est inventé : les offres sont filtrées, jamais
+  -- fabriquées.
+  -- ══════════════════════════════════════════════════════════════════
+  v_floor := public.checkout_wall_time_instant(v_start, '00:00'::time, v_s.timezone);
+  v_min_instant := greatest(
+    p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes),
+    coalesce(v_floor, p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes)));
 
   v_d := v_start;
   while v_d <= v_last loop
-    -- Offres du jour de semaine. `extract(dow)` : 0 = dimanche.
+    -- CSDJ-V1-DAY-WITHOUT-OFFER-01 : un jour sans offre est un jour
+    -- fermé. `date_part('dow')` vaut 0 le dimanche, comme le TypeScript.
     if v_uses_slots then
-      select pg_catalog.jsonb_agg(
-               pg_catalog.jsonb_build_object(
-                 'slot_key', x.slot_key,
-                 'starts_at', pg_catalog.to_char(x.starts_at, 'HH24:MI'),
-                 'ends_at', pg_catalog.to_char(x.ends_at, 'HH24:MI'))
-               order by x.starts_at, x.slot_key)
-        into v_day_offers
-      from public.restaurant_fulfillment_schedule_slot x
-      where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
-        and x.rule_key = v_rule_key
-        and x.weekday = pg_catalog.date_part('dow', v_d)::smallint;
+      select exists (
+        select 1 from public.restaurant_fulfillment_schedule_slot x
+        where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
+          and x.rule_key = v_rule_key
+          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
+      ) into v_has_offer;
     else
-      select pg_catalog.jsonb_agg(
-               pg_catalog.jsonb_build_object(
-                 'slot_key', null,
-                 'starts_at', pg_catalog.to_char(x.starts_at, 'HH24:MI'),
-                 'ends_at', pg_catalog.to_char(x.ends_at, 'HH24:MI'))
-               order by x.starts_at)
-        into v_day_offers
-      from public.restaurant_fulfillment_schedule_window x
-      where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
-        and x.rule_key = v_rule_key
-        and x.weekday = pg_catalog.date_part('dow', v_d)::smallint;
+      select exists (
+        select 1 from public.restaurant_fulfillment_schedule_window x
+        where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
+          and x.rule_key = v_rule_key
+          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
+      ) into v_has_offer;
     end if;
 
-    -- CSDJ-V1-DAY-WITHOUT-OFFER-01 : jour sans offre = jour fermé.
-    if v_day_offers is null then
+    if not v_has_offer then
       v_d := v_d + 1;
       continue;
     end if;
@@ -715,17 +884,96 @@ begin
     -- Heure limite, dans le fuseau du commerçant. Inégalité STRICTE :
     -- à la seconde de l'heure limite il est trop tard -- une limite
     -- qu'on peut atteindre pile n'est pas une limite.
+    --
+    -- Si cette heure limite tombe elle-même sur une heure murale
+    -- inexistante ou ambiguë, la date est écartée : on ne devine pas
+    -- l'instant d'une limite (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).
     if v_s.cutoff_time is not null then
-      v_cutoff_at := ((v_d - v_s.cutoff_offset_days)::timestamp + v_s.cutoff_time)
-                       at time zone v_s.timezone;
-      if p_now >= v_cutoff_at then
+      v_cutoff_at := public.checkout_wall_time_instant(
+        v_d - v_s.cutoff_offset_days, v_s.cutoff_time, v_s.timezone);
+      if v_cutoff_at is null or p_now >= v_cutoff_at then
         v_d := v_d + 1;
         continue;
       end if;
     end if;
 
+    v_saw_open := true;
+    v_day := '[]'::jsonb;
+
+    for v_off in
+      select * from (
+        select x.slot_key, x.starts_at, x.ends_at
+        from public.restaurant_fulfillment_schedule_slot x
+        where v_uses_slots
+          and x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
+          and x.rule_key = v_rule_key
+          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
+        union all
+        select null::text, w.starts_at, w.ends_at
+        from public.restaurant_fulfillment_schedule_window w
+        where not v_uses_slots
+          and w.restaurant_id = p_restaurant_id and w.mode_code = p_mode_code
+          and w.rule_key = v_rule_key
+          and w.weekday = pg_catalog.date_part('dow', v_d)::smallint
+      ) o
+      order by o.starts_at, coalesce(o.slot_key, '')
+    loop
+      -- Raisonnement en MINUTES depuis minuit, comme le TypeScript :
+      -- `time + interval` repasserait modulo 24 h et ferait boucler une
+      -- fenêtre tardive.
+      v_start_min := pg_catalog.date_part('hour', v_off.starts_at)::integer * 60
+                   + pg_catalog.date_part('minute', v_off.starts_at)::integer;
+      v_end_min   := pg_catalog.date_part('hour', v_off.ends_at)::integer * 60
+                   + pg_catalog.date_part('minute', v_off.ends_at)::integer;
+
+      if v_s.slot_selection_mode = 'time_within_window' then
+        -- Le client choisit une HEURE dans la fenêtre : le début est
+        -- AVANCÉ le long de la grille de granularité du commerçant
+        -- jusqu'au premier point utilisable. La grille reste ancrée sur
+        -- le début CONFIGURÉ, pour rester celle qu'il a décrite. Ce
+        -- n'est pas une offre nouvelle, c'est la part encore utilisable
+        -- d'une fenêtre existante.
+        v_pick := null;
+        v_t := v_start_min;
+        while v_t < v_end_min loop
+          v_inst := public.checkout_wall_time_instant(
+            v_d, pg_catalog.make_time(v_t / 60, v_t % 60, 0), v_s.timezone);
+          if v_inst is not null and v_inst >= v_min_instant then
+            v_pick := v_t;
+            exit;
+          end if;
+          v_t := v_t + v_s.time_granularity_minutes;
+        end loop;
+        if v_pick is null then
+          continue;
+        end if;
+        v_day := v_day || pg_catalog.jsonb_build_object(
+          'slot_key', null,
+          'starts_at', pg_catalog.to_char(pg_catalog.make_time(v_pick / 60, v_pick % 60, 0), 'HH24:MI'),
+          'ends_at', pg_catalog.to_char(v_off.ends_at, 'HH24:MI'));
+        continue;
+      end if;
+
+      -- `fixed_slots` et `none` : l'offre est atomique, son DÉBUT décide.
+      v_inst := public.checkout_wall_time_instant(v_d, v_off.starts_at, v_s.timezone);
+      if v_inst is null or v_inst < v_min_instant then
+        continue;
+      end if;
+      v_day := v_day || pg_catalog.jsonb_build_object(
+        'slot_key', v_off.slot_key,
+        'starts_at', pg_catalog.to_char(v_off.starts_at, 'HH24:MI'),
+        'ends_at', pg_catalog.to_char(v_off.ends_at, 'HH24:MI'));
+    end loop;
+
+    -- Une date dont TOUTES les offres ont été écartées n'est pas une
+    -- date éligible : la proposer afficherait un jour sans aucune heure.
+    if pg_catalog.jsonb_array_length(v_day) = 0 then
+      v_d := v_d + 1;
+      continue;
+    end if;
+
     v_dates := v_dates || v_d;
-    v_offers := v_offers || pg_catalog.jsonb_build_object(v_d::text, v_day_offers);
+    v_offers := v_offers || pg_catalog.jsonb_build_object(v_d::text, v_day);
 
     if v_s.date_selection_mode = 'derived_earliest' then
       exit;
@@ -735,8 +983,18 @@ begin
   end loop;
 
   if pg_catalog.cardinality(v_dates) = 0 then
+    -- Trois causes distinctes, trois corrections distinctes :
+    --   - des dates étaient ouvertes mais aucune offre ne tenait encore
+    --     -> desserrer le délai, ou attendre ;
+    --   - tout est fermé -> retirer une fermeture ;
+    --   - la première date possible est au-delà de l'horizon
+    --     -> allonger l'horizon ou réduire le minimum de jours.
+    -- Les confondre livrerait au commerçant un refus qu'il ne sait pas
+    -- corriger.
     return query select 'unfulfillable'::text,
-                        case when v_saw_closure then 'all_dates_closed' else 'horizon_exhausted' end::text,
+                        case when v_saw_open then 'no_offer_in_horizon'
+                             when v_saw_closure then 'all_dates_closed'
+                             else 'horizon_exhausted' end::text,
                         v_s.timezone, v_s.date_selection_mode, v_s.slot_selection_mode,
                         case when v_s.slot_selection_mode = 'time_within_window'
                              then v_s.time_granularity_minutes end,
@@ -826,6 +1084,35 @@ begin
   if v_is_delivery is null then
     raise exception 'CSDJ1_UNKNOWN_MODE: mode de vente hors catalogue.'
       using errcode = '22023';
+  end if;
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- CSDJ-V1-MODE-ENABLED-GATE-01 — ferme CSDJ1-AUD-03
+  --
+  -- Un mode de vente DÉSACTIVÉ pour cet établissement ne doit RIEN
+  -- projeter : ni fuseau, ni politique, ni fenêtre, ni créneau, ni
+  -- date. La version précédente ne vérifiait l'activation que pour la
+  -- livraison, et seulement indirectement, via l'autorité de
+  -- tarification : un retrait désactivé continuait donc de publier sa
+  -- planification.
+  --
+  -- La réponse est celle d'une ABSENCE, volontairement indiscernable de
+  -- « aucune planification » et de « planification désactivée » : si le
+  -- statut distinguait ces cas, la surface publique deviendrait un
+  -- moyen de sonder la configuration d'un commerçant.
+  -- ══════════════════════════════════════════════════════════════════
+  if not exists (
+    select 1 from public.restaurant_sale_modes m
+    where m.restaurant_id = p_restaurant_id
+      and m.mode_code = p_mode_code
+      and m.enabled = true
+  ) then
+    return query select v_is_delivery, null::boolean, null::text, null::numeric,
+                        null::integer, null::integer, null::text,
+                        null::text, null::numeric, null::numeric,
+                        'absent'::text, null::text, null::text, null::text, null::text,
+                        null::smallint, null::date, null::date[], null::jsonb;
+    return;
   end if;
 
   if v_is_delivery then
@@ -1011,6 +1298,14 @@ begin
   -- règle d'un autre tenant ne peut pas correspondre.
   if p_payload ? 'fulfillmentRuleId' and p_payload->>'fulfillmentRuleId' is not null then
     v_rule := (p_payload->>'fulfillmentRuleId')::uuid;
+    -- Le zéro UUID est la sentinelle interne de « portée de mode » : le
+    -- laisser désigner une vraie règle rendrait les deux portées
+    -- indiscernables. La contrainte de table le refuse aussi ; ici le
+    -- refus porte un nom.
+    if v_rule = '00000000-0000-0000-0000-000000000000'::uuid then
+      raise exception 'CSDJ1_RESERVED_RULE_ID: le zéro UUID est réservé comme sentinelle interne.'
+        using errcode = '22023';
+    end if;
     if not exists (
       select 1 from public.restaurant_sale_mode_fulfillments f
       where f.id = v_rule and f.restaurant_id = p_restaurant_id and f.mode_code = v_mode
@@ -1039,6 +1334,16 @@ begin
     if v_date_mode <> all(public.checkout_date_selection_modes())
        or v_slot_mode <> all(public.checkout_slot_selection_modes()) then
       raise exception 'CSDJ1_INVALID_POLICY: politique hors catalogue.' using errcode = '22023';
+    end if;
+    -- CSDJ-V1-MINUTE-PRECISION-01 : une heure limite sous-minute est
+    -- REFUSÉE par un message qui la nomme, plutôt que par la contrainte
+    -- de table seule -- et jamais tronquée.
+    if nullif(p_payload->>'cutoffTime','') is not null then
+      if (p_payload->>'cutoffTime')::time
+           is distinct from pg_catalog.date_trunc('minute', (p_payload->>'cutoffTime')::time) then
+        raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
+          using errcode = '22023';
+      end if;
     end if;
 
     insert into public.restaurant_fulfillment_schedule as t (
@@ -1084,6 +1389,15 @@ begin
     if pg_catalog.jsonb_typeof(p_payload->'windows') is distinct from 'array' then
       raise exception 'CSDJ1_INVALID_PAYLOAD: `windows` doit être un tableau.' using errcode = '22023';
     end if;
+    -- CSDJ-V1-MINUTE-PRECISION-01, nommé avant la contrainte de table.
+    if exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_payload->'windows') e
+      where (e->>'startsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'startsAt')::time)
+         or (e->>'endsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'endsAt')::time)
+    ) then
+      raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
+        using errcode = '22023';
+    end if;
     delete from public.restaurant_fulfillment_schedule_window w
     where w.restaurant_id = p_restaurant_id and w.mode_code = v_mode and w.rule_key = v_rule_key;
     insert into public.restaurant_fulfillment_schedule_window
@@ -1119,6 +1433,14 @@ begin
   if p_action = 'replace_slots' then
     if pg_catalog.jsonb_typeof(p_payload->'slots') is distinct from 'array' then
       raise exception 'CSDJ1_INVALID_PAYLOAD: `slots` doit être un tableau.' using errcode = '22023';
+    end if;
+    if exists (
+      select 1 from pg_catalog.jsonb_array_elements(p_payload->'slots') e
+      where (e->>'startsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'startsAt')::time)
+         or (e->>'endsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'endsAt')::time)
+    ) then
+      raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
+        using errcode = '22023';
     end if;
     delete from public.restaurant_fulfillment_schedule_slot x
     where x.restaurant_id = p_restaurant_id and x.mode_code = v_mode and x.rule_key = v_rule_key;
@@ -1224,6 +1546,8 @@ begin
     'checkout_slot_selection_modes',
     'checkout_schedule_statuses',
     'checkout_unfulfillable_reasons',
+    'checkout_wall_time_status',
+    'checkout_wall_time_instant',
     'resolve_fulfillment_schedule',
     'get_checkout_fulfillment_schedule',
     'get_merchant_fulfillment_schedules',
@@ -1243,6 +1567,8 @@ begin
     raise exception 'SCANYM_POSTCHECK: anon devrait pouvoir exécuter la lecture publique.';
   end if;
   foreach v_t in array array[
+    'public.checkout_wall_time_status(date,time without time zone,text)',
+    'public.checkout_wall_time_instant(date,time without time zone,text)',
     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',
     'public.get_merchant_fulfillment_schedules(uuid)',
     'public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb)',
@@ -1280,12 +1606,40 @@ begin
   if pg_catalog.cardinality(public.checkout_date_selection_modes()) <> 3
      or pg_catalog.cardinality(public.checkout_slot_selection_modes()) <> 3
      or pg_catalog.cardinality(public.checkout_schedule_statuses()) <> 5
-     or pg_catalog.cardinality(public.checkout_unfulfillable_reasons()) <> 4 then
+     or pg_catalog.cardinality(public.checkout_unfulfillable_reasons()) <> 5 then
     raise exception 'SCANYM_POSTCHECK: cardinalité de catalogue inattendue.';
   end if;
   if not ('absent' = any(public.checkout_schedule_statuses()))
      or not ('unfulfillable' = any(public.checkout_schedule_statuses())) then
     raise exception 'SCANYM_POSTCHECK: les statuts porteurs des invariants sont absents.';
+  end if;
+
+  -- Z.9bis LA POLITIQUE D'HEURE MURALE EST EFFECTIVE. On ne vérifie pas
+  --        que la fonction existe, mais qu'elle REFUSE : une heure du
+  --        trou de printemps et une heure ambiguë d'automne doivent
+  --        rendre NULL, et une heure ordinaire un instant.
+  if public.checkout_wall_time_instant('2026-03-29'::date, '02:30'::time, 'Europe/Paris') is not null then
+    raise exception 'SCANYM_POSTCHECK: une heure murale INEXISTANTE est acceptée -- CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 violé.';
+  end if;
+  if public.checkout_wall_time_instant('2026-10-25'::date, '02:30'::time, 'Europe/Paris') is not null then
+    raise exception 'SCANYM_POSTCHECK: une heure murale AMBIGUË est acceptée -- CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 violé.';
+  end if;
+  if public.checkout_wall_time_instant('2026-10-13'::date, '09:00'::time, 'Europe/Paris') is null then
+    raise exception 'SCANYM_POSTCHECK: une heure murale ORDINAIRE est refusée : la politique sur-refuse.';
+  end if;
+  if public.checkout_wall_time_status('2026-03-29'::date, '02:30'::time, 'Europe/Paris') <> 'nonexistent'
+     or public.checkout_wall_time_status('2026-10-25'::date, '02:30'::time, 'Europe/Paris') <> 'ambiguous' then
+    raise exception 'SCANYM_POSTCHECK: la CLASSIFICATION des heures murales est fausse.';
+  end if;
+
+  -- Z.9ter LA GARDE DE MODE DÉSACTIVÉ EST PRÉSENTE dans la lecture
+  --        publique. Le comportement est prouvé par le harnais ; ici on
+  --        constate que la garde n'a pas disparu du corps.
+  if (select pg_catalog.count(*) from pg_catalog.pg_proc p
+      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'get_checkout_fulfillment_schedule'
+        and pg_catalog.pg_get_functiondef(p.oid) like '%restaurant_sale_modes%') <> 1 then
+    raise exception 'SCANYM_POSTCHECK: la lecture publique ne vérifie plus l''activation du mode de vente.';
   end if;
 
   -- Z.10 AUCUNE FONCTION PRÉEXISTANTE REDÉFINIE. `create_order` et

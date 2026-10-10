@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   type ScheduleInput,
   resolveScheduleEligibility,
+  resolveWallTime,
 } from "../lib/scheduling/eligibility.ts";
 
 /**
@@ -283,49 +284,49 @@ test("[ELIG-8] cutoffTime null signifie AUCUNE limite, et non minuit", () => {
     windows: PICKUP_WINDOWS,
     slots: [],
     closures: [],
-    // Mardi 23:50 : avec une limite à minuit, mardi serait encore
-    // ouvert ; sans limite du tout, il l'est aussi -- la distinction se
-    // voit sur MERCREDI, qu'une limite à minuit la veille exclurait.
+    // Mardi 23:50. Une limite à minuit la veille exclurait MERCREDI ;
+    // sans limite du tout, mercredi reste ouvert -- c'est là que se voit
+    // la différence entre « aucune limite » et « limite à minuit ».
     nowIso: "2026-10-13T23:50:00+02:00",
   }).dates.map((d) => d.date);
-  // Horizon de 7 jours depuis le 13 : la borne haute est le 20 inclus,
-  // et seuls mardi (2) et mercredi (3) portent une fenêtre.
-  assert.deepEqual(dates, ["2026-10-13", "2026-10-14", "2026-10-20"]);
+  // Horizon de 7 jours depuis le 13 : borne haute le 20 inclus, et seuls
+  // mardi (2) et mercredi (3) portent une fenêtre.
+  // Mardi 13 disparaît pour une autre raison, et c'est voulu : sa seule
+  // fenêtre commence à 11:00, donc AVANT l'instant courant
+  // (CSDJ-V1-OFFER-START-INSTANT-01). Une offre passée n'est pas une
+  // offre.
+  assert.deepEqual(dates, ["2026-10-14", "2026-10-20"]);
 });
 
 test("[ELIG-9] le fuseau vient de la CONFIGURATION, jamais de la machine", () => {
-  // Deux portées, même instant, deux fuseaux : deux dates civiles
-  // différentes. Si le calcul lisait le fuseau du processus, les deux
+  // Même instant, trois fuseaux : trois dates civiles différentes chez
+  // le commerçant. Si le calcul lisait le fuseau du processus, les trois
   // résultats seraient identiques.
+  //
+  // `minLeadDays: 1` isole volontairement la propriété mesurée : la
+  // première date est alors « le lendemain du jour du COMMERÇANT », et
+  // le filtre d'instant ne peut pas s'en mêler, puisque le plancher de
+  // cette date est postérieur à l'instant courant.
   const nowIso = "2026-10-13T23:30:00+00:00";
-  const paris = resolveScheduleEligibility({
-    config: { ...BASE_CONFIG, timezone: "Europe/Paris" },
-    windows: PICKUP_WINDOWS,
-    slots: [],
-    closures: [],
-    nowIso,
-  });
-  const auckland = resolveScheduleEligibility({
-    config: { ...BASE_CONFIG, timezone: "Pacific/Auckland" },
-    windows: PICKUP_WINDOWS,
-    slots: [],
-    closures: [],
-    nowIso,
-  });
-  // À 23:30 UTC le 13, il est déjà le 14 à Paris (UTC+2) et le 14 à
-  // Auckland (UTC+13) -- mais Auckland est plus loin dans la journée.
-  assert.equal(paris.firstEligibleDate, "2026-10-14");
-  assert.equal(auckland.firstEligibleDate, "2026-10-14");
-  // La preuve que le fuseau est bien lu : un fuseau à l'ouest donne
-  // encore le 13.
-  const la = resolveScheduleEligibility({
-    config: { ...BASE_CONFIG, timezone: "America/Los_Angeles" },
-    windows: PICKUP_WINDOWS,
-    slots: [],
-    closures: [],
-    nowIso,
-  });
-  assert.equal(la.firstEligibleDate, "2026-10-13");
+  const everyDay = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+    weekday,
+    startsAt: "09:00",
+    endsAt: "18:00",
+  }));
+  const firstFor = (timezone: string) =>
+    resolveScheduleEligibility({
+      config: { ...BASE_CONFIG, timezone, minLeadDays: 1 },
+      windows: everyDay,
+      slots: [],
+      closures: [],
+      nowIso,
+    }).firstEligibleDate;
+
+  // À 23:30 UTC le 13 : il est déjà le 14 à Paris (UTC+2) et le 14 à
+  // midi passé à Auckland (UTC+13), mais encore le 13 à Los Angeles.
+  assert.equal(firstFor("Europe/Paris"), "2026-10-15");
+  assert.equal(firstFor("Pacific/Auckland"), "2026-10-15");
+  assert.equal(firstFor("America/Los_Angeles"), "2026-10-14");
 });
 
 test("[ELIG-10] la granularité n'est rendue que là où elle a un sens", () => {
@@ -408,4 +409,275 @@ test("[ELIG-13] une fermeture ne décale pas l'horizon, elle retire un jour", ()
     open.filter((d) => d !== "2026-10-14"),
     "exactement un jour en moins, et aucun jour gagné au-delà de l'horizon"
   );
+});
+
+// ====================================================================
+// CSDJ1-AUD-02 — classification des heures murales
+// ====================================================================
+
+test("[AUD02-1] une heure murale INEXISTANTE est classée comme telle", () => {
+  // Europe/Paris, 29 mars 2026 : 02:00 -> 03:00 n'a pas eu lieu.
+  for (const minutes of [2 * 60, 2 * 60 + 10, 2 * 60 + 30, 2 * 60 + 59]) {
+    const r = resolveWallTime(2026, 3, 29, minutes, "Europe/Paris");
+    assert.equal(r.status, "nonexistent", `02:${minutes - 120} devrait être inexistante`);
+    assert.equal(r.epochMs, null, "une heure inexistante ne rend AUCUN instant");
+  }
+  // Les bornes, elles, existent.
+  assert.equal(resolveWallTime(2026, 3, 29, 119, "Europe/Paris").status, "ok");
+  assert.equal(resolveWallTime(2026, 3, 29, 180, "Europe/Paris").status, "ok");
+});
+
+test("[AUD02-2] une heure murale AMBIGUË est classée comme telle", () => {
+  // Europe/Paris, 25 octobre 2026 : 02:00 -> 03:00 a eu lieu deux fois.
+  for (const minutes of [2 * 60, 2 * 60 + 30, 2 * 60 + 59]) {
+    const r = resolveWallTime(2026, 10, 25, minutes, "Europe/Paris");
+    assert.equal(r.status, "ambiguous");
+    assert.equal(r.epochMs, null, "une heure ambiguë ne rend AUCUN instant");
+  }
+  assert.equal(resolveWallTime(2026, 10, 25, 119, "Europe/Paris").status, "ok");
+  assert.equal(resolveWallTime(2026, 10, 25, 180, "Europe/Paris").status, "ok");
+});
+
+test("[AUD02-3] un fuseau sans transition n'a ni heure inexistante ni ambiguë", () => {
+  for (const tz of ["UTC", "Pacific/Kiritimati"]) {
+    for (const date of [
+      [2026, 3, 29],
+      [2026, 10, 25],
+    ] as const) {
+      for (const minutes of [0, 120, 150, 180, 1439]) {
+        assert.equal(
+          resolveWallTime(date[0], date[1], date[2], minutes, tz).status,
+          "ok",
+          `${tz} ${date.join("-")} ${minutes}`
+        );
+      }
+    }
+  }
+});
+
+test("[AUD02-4] un fuseau à décalage NÉGATIF suit la même politique", () => {
+  // America/Los_Angeles : saut le 8 mars 2026, recul le 1er novembre.
+  assert.equal(
+    resolveWallTime(2026, 3, 8, 150, "America/Los_Angeles").status,
+    "nonexistent"
+  );
+  assert.equal(
+    resolveWallTime(2026, 11, 1, 90, "America/Los_Angeles").status,
+    "ambiguous"
+  );
+  assert.equal(resolveWallTime(2026, 3, 8, 60, "America/Los_Angeles").status, "ok");
+});
+
+test("[AUD02-5] une offre dont l'heure murale est refusée n'est JAMAIS exposée", () => {
+  // La politique ne se contente pas de classer : elle ÉCARTE l'offre.
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "fixed_slots",
+      bookingHorizonDays: 2,
+      cutoffTime: null,
+    },
+    windows: [],
+    slots: [
+      { weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" },
+      { weekday: 0, slotKey: "safe", startsAt: "04:00", endsAt: "05:00" },
+    ],
+    closures: [],
+    nowIso: "2026-03-28T12:00:00+01:00",
+  });
+  assert.equal(got.status, "dates_available");
+  assert.deepEqual(
+    got.dates.map((d) => d.offers.map((o) => o.slotKey)),
+    [["safe"]],
+    "le créneau tombant dans le trou du changement d'heure doit avoir disparu"
+  );
+});
+
+test("[AUD02-6] si TOUTES les offres du jour tombent dans le trou, le jour disparaît", () => {
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "fixed_slots",
+      bookingHorizonDays: 1,
+      minLeadDays: 1,
+      cutoffTime: null,
+    },
+    windows: [],
+    slots: [{ weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" }],
+    closures: [],
+    nowIso: "2026-03-28T12:00:00+01:00",
+  });
+  assert.equal(got.status, "unfulfillable");
+  assert.equal(got.reason, "no_offer_in_horizon");
+  assert.equal(got.firstEligibleDate, null);
+});
+
+// ====================================================================
+// CSDJ1-AUD-01 — l'instant minimal, et rien d'autre
+// ====================================================================
+
+test("[AUD01-1] le délai de préparation filtre les OFFRES, pas seulement les dates", () => {
+  // Reproduction littérale de l'audit : créneau 09:00-11:00, délai de
+  // 120 minutes, il est 15:00.
+  const base = {
+    ...BASE_CONFIG,
+    slotSelectionMode: "fixed_slots" as const,
+    leadTimeMinutes: 120,
+    bookingHorizonDays: 0,
+    cutoffTime: null,
+  };
+  const slots = [
+    { weekday: 2, slotKey: "0900-1100", startsAt: "09:00", endsAt: "11:00" },
+  ];
+  const got = resolveScheduleEligibility({
+    config: base,
+    windows: [],
+    slots,
+    closures: [],
+    nowIso: "2026-10-13T15:00:00+02:00",
+  });
+  assert.equal(got.status, "unfulfillable");
+  assert.equal(got.reason, "no_offer_in_horizon");
+  assert.equal(got.dates.length, 0);
+
+  // Et le matin, le même créneau est bien proposé : le filtre écarte
+  // l'offre passée, il ne supprime pas l'offre.
+  const earlier = resolveScheduleEligibility({
+    config: base,
+    windows: [],
+    slots,
+    closures: [],
+    nowIso: "2026-10-13T06:00:00+02:00",
+  });
+  assert.equal(earlier.status, "dates_available");
+  assert.deepEqual(earlier.dates[0]!.offers.map((o) => o.slotKey), ["0900-1100"]);
+});
+
+test("[AUD01-2] la comparaison d'instant est inclusive à la seconde", () => {
+  const cfg = {
+    ...BASE_CONFIG,
+    slotSelectionMode: "fixed_slots" as const,
+    bookingHorizonDays: 0,
+    cutoffTime: null,
+  };
+  const slots = [
+    { weekday: 2, slotKey: "1000", startsAt: "10:00", endsAt: "12:00" },
+  ];
+  const at = (nowIso: string) =>
+    resolveScheduleEligibility({
+      config: cfg,
+      windows: [],
+      slots,
+      closures: [],
+      nowIso,
+    }).status;
+  assert.equal(at("2026-10-13T09:59:59+02:00"), "dates_available");
+  assert.equal(at("2026-10-13T10:00:00+02:00"), "dates_available", "PILE = réalisable");
+  assert.equal(at("2026-10-13T10:00:01+02:00"), "unfulfillable");
+});
+
+test("[AUD01-3] une fenêtre est AVANCÉE sur la grille, jamais inventée", () => {
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "time_within_window",
+      timeGranularityMinutes: 15,
+      bookingHorizonDays: 0,
+      cutoffTime: null,
+    },
+    windows: [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }],
+    slots: [],
+    closures: [],
+    nowIso: "2026-10-13T12:07:00+02:00",
+  });
+  // Grille ancrée sur 11:00 : le premier point utilisable est 12:15,
+  // pas 12:07 -- la grille reste celle que le commerçant a décrite.
+  assert.deepEqual(got.dates[0]!.offers, [
+    { slotKey: null, startsAt: "12:15", endsAt: "14:00" },
+  ]);
+});
+
+test("[AUD01-4] une fenêtre dont la grille sort entièrement disparaît", () => {
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "time_within_window",
+      timeGranularityMinutes: 15,
+      bookingHorizonDays: 0,
+      cutoffTime: null,
+    },
+    windows: [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }],
+    slots: [],
+    closures: [],
+    nowIso: "2026-10-13T13:50:00+02:00",
+  });
+  // Le dernier point de grille strictement inférieur à 14:00 est 13:45,
+  // déjà passé : plus rien n'est utilisable.
+  assert.equal(got.status, "unfulfillable");
+  assert.equal(got.reason, "no_offer_in_horizon");
+});
+
+test("[AUD01-5] les trois motifs d'infaisabilité restent distincts", () => {
+  const windows = [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }];
+  const reason = (cfg: Partial<typeof BASE_CONFIG>, closures: string[] = []) =>
+    resolveScheduleEligibility({
+      config: { ...BASE_CONFIG, cutoffTime: null, ...cfg },
+      windows,
+      slots: [],
+      closures: closures.map((closedOn) => ({ closedOn })),
+      nowIso: "2026-10-13T20:00:00+02:00",
+    }).reason;
+
+  // Des dates ouvertes, mais plus aucune offre réalisable.
+  assert.equal(reason({ bookingHorizonDays: 0 }), "no_offer_in_horizon");
+  // Toutes les dates de l'horizon sont fermées.
+  assert.equal(reason({ bookingHorizonDays: 0 }, ["2026-10-13"]), "all_dates_closed");
+  // La première date POSSIBLE est au-delà de l'horizon.
+  assert.equal(reason({ minLeadDays: 30, bookingHorizonDays: 7 }), "horizon_exhausted");
+});
+
+// ====================================================================
+// CSDJ1-AUD-04 — précision à la minute
+// ====================================================================
+
+test("[AUD04-1] une offre sous-minute est ÉCARTÉE, jamais tronquée", () => {
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "fixed_slots",
+      bookingHorizonDays: 0,
+      cutoffTime: null,
+    },
+    windows: [],
+    slots: [
+      { weekday: 2, slotKey: "zero", startsAt: "09:00:01", endsAt: "09:00:59" },
+      { weekday: 2, slotKey: "franche", startsAt: "10:00", endsAt: "12:00" },
+    ],
+    closures: [],
+    nowIso: "2026-10-13T06:00:00+02:00",
+  });
+  // Tronquer aurait produit « 09:00-09:00 », une offre de durée nulle
+  // affichée comme disponible : exactement le défaut CSDJ1-AUD-04.
+  assert.deepEqual(got.dates[0]!.offers.map((o) => o.slotKey), ["franche"]);
+});
+
+test("[AUD04-2] toute heure publiée est en HH:MM, jamais en HH:MM:SS", () => {
+  const got = resolveScheduleEligibility({
+    config: {
+      ...BASE_CONFIG,
+      slotSelectionMode: "fixed_slots",
+      bookingHorizonDays: 1,
+      cutoffTime: null,
+    },
+    windows: [],
+    slots: [{ weekday: 2, slotKey: "a", startsAt: "09:00:00", endsAt: "11:00:00" }],
+    closures: [],
+    nowIso: "2026-10-13T06:00:00+02:00",
+  });
+  for (const d of got.dates) {
+    for (const o of d.offers) {
+      assert.match(o.startsAt, /^\d{2}:\d{2}$/);
+      assert.match(o.endsAt, /^\d{2}:\d{2}$/);
+    }
+  }
 });

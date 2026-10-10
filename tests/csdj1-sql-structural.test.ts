@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -286,7 +286,7 @@ test("[NO-SECOND-ENGINE-2] seules les colonnes COMMUNES du résolveur sont lues"
   // Et le pré-vol refuse si l'une des colonnes communes disparaissait.
   assert.ok(
     execSql.includes(
-      "SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie plus la colonne"
+      "SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie pas la colonne de sortie attendue"
     ),
     "le pré-vol doit refuser une forme de résolveur amputée"
   );
@@ -704,14 +704,37 @@ test("[NO-HARDCODE-2] aucun fuseau en dur dans la décision", () => {
   // base de fuseaux du serveur fonctionne -- jamais comme fuseau de
   // calcul. Un fuseau en dur condamnerait tous les commerçants d'un
   // autre pays.
-  // Deux emplois LÉGITIMES : la sonde du pré-vol qui vérifie que la base
-  // de fuseaux du serveur fonctionne, et l'EXEMPLE du commentaire de
-  // colonne. Ce qui compte est l'absence dans la fonction de CALCUL.
-  const occurrences = [...execSql.matchAll(/Europe\/Paris/g)].length;
-  assert.equal(occurrences, 2, "deux emplois attendus : la sonde du pré-vol et l'exemple documentaire");
+  // Les emplois LÉGITIMES sont des SONDES : le pré-vol vérifie que la
+  // base de fuseaux du serveur fonctionne, le post-vol que la politique
+  // d'heure murale refuse bien. Ce qui compte est l'absence de fuseau en
+  // dur dans les fonctions qui DÉCIDENT.
   assert.ok(
     execSql.includes("pg_catalog.pg_timezone_names where name = 'Europe/Paris'"),
-    "le premier emploi doit être la sonde du pré-vol"
+    "le pré-vol doit sonder la base de fuseaux du serveur"
+  );
+  // Aucun fuseau LITTÉRAL ne doit servir de fuseau de calcul : un
+  // fuseau en dur condamnerait tout commerçant d'un autre pays. Les
+  // seuls emplois admis sont des SONDES de pré-vol et de post-vol, qui
+  // ne décident de rien.
+  for (const hardcoded of [
+    "at time zone 'Europe/Paris'",
+    "at time zone 'UTC'",
+    "'Europe/Paris', p_time",
+  ]) {
+    assert.ok(
+      !execSql.includes(hardcoded),
+      `aucun fuseau en dur ne doit servir de fuseau de calcul (« ${hardcoded} »)`
+    );
+  }
+  // Et les deux fonctions de décision lisent bien un fuseau PARAMÉTRÉ.
+  assert.ok(
+    sqlFunctionBlock("create function public.resolve_fulfillment_schedule(")
+      .includes("v_s.timezone"),
+    "le résolveur doit lire le fuseau de la portée"
+  );
+  assert.ok(
+    execSql.includes("at time zone p_timezone"),
+    "la politique d'heure murale doit lire le fuseau qu'on lui passe"
   );
   const resolveBlock = sqlFunctionBlock(
     "create function public.resolve_fulfillment_schedule("
@@ -800,4 +823,267 @@ test("[HARNESS-5] le harnais rejoue la FIXTURE PARTAGÉE, pas des cas réécrits
     execHarness.includes("checkout-scheduling-cases.json"),
     "le harnais doit lire la fixture partagée : c'est elle qui fait la preuve croisée"
   );
+});
+
+// ====================================================================
+// REMÉDIATION — les six blockers de l'audit indépendant
+// ====================================================================
+
+test("[AUD01-SQL] le résolveur compare des INSTANTS, pas seulement des dates", () => {
+  assert.ok(
+    sql.includes("CSDJ-V1-OFFER-START-INSTANT-01"),
+    "l'invariant doit être nommé dans le fichier, pas seulement dans un test"
+  );
+  const block = sqlFunctionBlock("create function public.resolve_fulfillment_schedule(");
+  assert.ok(
+    block.includes("v_min_instant"),
+    "un instant minimal de réalisation doit être calculé"
+  );
+  // Chaque offre est comparée à cet instant -- deux comparaisons, une
+  // par politique d'horaire.
+  assert.ok(
+    (block.match(/v_inst >= v_min_instant|v_inst < v_min_instant/g) ?? []).length >= 2,
+    "chaque offre doit être comparée à l'instant minimal"
+  );
+  // Et une date sans offre survivante est retirée.
+  assert.ok(
+    block.includes("pg_catalog.jsonb_array_length(v_day) = 0"),
+    "une date dont toutes les offres sont écartées doit être retirée"
+  );
+  assert.ok(
+    CHECKOUT_UNFULFILLABLE_REASONS.includes("no_offer_in_horizon"),
+    "le motif distinguant « des dates ouvertes mais aucune offre » doit exister"
+  );
+});
+
+test("[AUD02-SQL] la politique d'heure murale est une AUTORITÉ, pas un commentaire", () => {
+  assert.ok(execSql.includes("create function public.checkout_wall_time_status("));
+  assert.ok(execSql.includes("create function public.checkout_wall_time_instant("));
+  const status = sqlFunctionBlock("create function public.checkout_wall_time_status(");
+  assert.ok(status.includes("'nonexistent'"), "l'heure inexistante doit être nommée");
+  assert.ok(status.includes("'ambiguous'"), "l'heure ambiguë doit être nommée");
+  // Le résolveur ne doit JAMAIS convertir une heure murale autrement
+  // que par cette autorité : un `at time zone` direct rouvrirait la
+  // normalisation silencieuse que la politique ferme.
+  const resolver = sqlFunctionBlock("create function public.resolve_fulfillment_schedule(");
+  const directConversions = (
+    resolver.match(/\+ v_s\.cutoff_time\)\s*\n?\s*at time zone/g) ?? []
+  ).length;
+  assert.equal(
+    directConversions,
+    0,
+    "aucune conversion d'heure murale ne doit contourner checkout_wall_time_instant"
+  );
+  assert.ok(
+    resolver.includes("public.checkout_wall_time_instant("),
+    "le résolveur doit passer par l'autorité de politique"
+  );
+  // Et le post-vol le vérifie à l'exécution, pas seulement au texte.
+  assert.ok(
+    execSql.includes("une heure murale INEXISTANTE est acceptée"),
+    "le post-vol doit refuser une politique inopérante"
+  );
+  assert.ok(execSql.includes("une heure murale AMBIGUË est acceptée"));
+  assert.ok(
+    execSql.includes("la politique sur-refuse"),
+    "le post-vol doit aussi refuser une politique qui refuserait TOUT"
+  );
+  assert.ok(
+    sql.includes("CSDJ-V1-WALL-TIME-FAIL-CLOSED-01"),
+    "la politique doit être nommée dans le fichier"
+  );
+});
+
+test("[AUD03-SQL] la lecture publique vérifie l'activation du mode de vente", () => {
+  assert.ok(
+    sql.includes("CSDJ-V1-MODE-ENABLED-GATE-01"),
+    "la garde doit être nommée dans le fichier"
+  );
+  const block = sqlFunctionBlock(
+    "create function public.get_checkout_fulfillment_schedule("
+  );
+  assert.ok(
+    block.includes("public.restaurant_sale_modes m"),
+    "l'activation doit être lue sur la table des modes du commerçant"
+  );
+  assert.ok(
+    block.includes("and m.enabled = true"),
+    "seule l'activation STRICTE autorise la projection"
+  );
+  // La garde doit précéder tout calcul de planification : sinon elle
+  // n'empêcherait pas la fuite, elle l'accompagnerait.
+  const gate = block.indexOf("and m.enabled = true");
+  const firstResolve = block.indexOf("public.resolve_fulfillment_schedule(");
+  assert.ok(gate > 0 && firstResolve > gate, "la garde doit précéder la résolution");
+  assert.ok(
+    execSql.includes("la lecture publique ne vérifie plus l''activation du mode de vente"),
+    "le post-vol doit constater la présence de la garde"
+  );
+});
+
+test("[AUD04-SQL] la précision à la minute est contrainte sur CHAQUE colonne time", () => {
+  for (const [table, constraint] of [
+    ["restaurant_fulfillment_schedule", "rfs_cutoff_minute_precision"],
+    ["restaurant_fulfillment_schedule_window", "rfsw_minute_precision"],
+    ["restaurant_fulfillment_schedule_slot", "rfss_minute_precision"],
+  ] as const) {
+    const start = execSql.indexOf(`create table public.${table} (`);
+    const body = execSql.slice(start, execSql.indexOf("\n);", start));
+    assert.ok(body.includes(constraint), `${table} doit porter ${constraint}`);
+    assert.ok(
+      body.includes("pg_catalog.date_trunc('minute'"),
+      `${table} doit exiger des secondes nulles`
+    );
+    assert.ok(
+      body.includes("'24:00:00'::time"),
+      `${table} doit refuser 24:00 explicitement (CSDJ-V1-NO-24H-01)`
+    );
+  }
+  // Et la RPC d'écriture refuse AVANT la contrainte, avec un nom.
+  assert.ok(execSql.includes("CSDJ1_SUBMINUTE_TIME"));
+  // Le TypeScript dit la même chose : refus, pas troncature.
+  assert.ok(
+    modelSrc.includes("CSDJ-V1-MINUTE-PRECISION-01"),
+    "l'invariant doit être nommé dans le modèle TypeScript"
+  );
+  assert.ok(
+    modelSrc.includes("if (sec !== 0) return null;"),
+    "parseScheduleTime doit REFUSER des secondes non nulles, jamais les tronquer"
+  );
+});
+
+test("[AUD05-SQL] l'anti-dérive lit le CATALOGUE, jamais une sous-chaîne", () => {
+  assert.ok(
+    sql.includes("CSDJ-V1-RESOLVER-EXACT-SHAPE-01"),
+    "la stratégie doit être nommée dans le fichier"
+  );
+  // Nom ET type, lus dans pg_proc.
+  assert.ok(execSql.includes("unnest(p.proargnames, p.proargmodes, p.proallargtypes)"));
+  assert.ok(execSql.includes("a.argmode = 't'"), "seules les colonnes de SORTIE comptent");
+  assert.ok(
+    execSql.includes("pg_catalog.format_type(a.argtype, null) = pg_catalog.split_part("),
+    "le TYPE doit être comparé, pas seulement le nom"
+  );
+  // L'ancienne heuristique textuelle ne doit plus exister.
+  assert.ok(
+    !execSql.includes("pg_get_function_result(\n         pg_catalog.to_regprocedure('public.resolve_delivery_fulfillment"),
+    "aucune vérification par sous-chaîne de la signature du résolveur"
+  );
+  const preflight = execSql.slice(
+    execSql.indexOf("$csdj1_preflight$"),
+    execSql.indexOf("§A  CATALOGUES FERMÉS")
+  );
+  assert.ok(
+    preflight.includes("resolve_delivery_fulfillment"),
+    "le contrôle doit être dans le PRÉ-vol : le refus doit tomber avant toute création"
+  );
+  assert.ok(
+    preflight.includes("plusieurs surcharges"),
+    "deux résolveurs de même nom rendraient le contrôle ambigu"
+  );
+});
+
+test("[AUD06-SQL] le harnais normalise les booléens et restaure exactement", () => {
+  assert.ok(
+    execHarness.includes("then '1' else '0' end"),
+    "l'instantané de rôle doit encoder explicitement 1/0"
+  );
+  assert.ok(
+    !execHarness.includes("rolcanlogin::text"),
+    "`boolean::text` rend « true », jamais « t » : la capture ne doit plus l'employer"
+  );
+  assert.ok(
+    execHarness.includes('[ "$login" = "1" ]') &&
+      execHarness.includes('[ "$bypass" = "1" ]'),
+    "la restauration doit comparer à la MÊME forme que la capture"
+  );
+  assert.ok(
+    execHarness.includes("'EXISTS|1|1'"),
+    "le verrou de sûreté doit énumérer les instantanés admissibles"
+  );
+  // Et un harnais dédié prouve la restauration des quatre combinaisons.
+  assert.ok(
+    existsSync(
+      "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh"
+    ),
+    "le harnais de restauration de rôles doit exister"
+  );
+  const roleHarness = readFileSync(
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh",
+    "utf8"
+  );
+  for (const combo of [
+    "NOLOGIN NOBYPASSRLS",
+    "LOGIN NOBYPASSRLS",
+    "NOLOGIN BYPASSRLS",
+    "LOGIN BYPASSRLS",
+  ]) {
+    assert.ok(roleHarness.includes(combo), `la combinaison ${combo} doit être couverte`);
+  }
+  assert.ok(
+    roleHarness.includes("SCANYM_HARNESS_PGHOST"),
+    "la preuve doit porter sur le mode CLUSTER DÉSIGNÉ : c'est le seul où la restauration a des conséquences durables"
+  );
+});
+
+test("[SENTINEL-1] le zéro UUID est réservé des deux côtés", () => {
+  const start = execSql.indexOf("create table public.restaurant_fulfillment_schedule (");
+  const body = execSql.slice(start, execSql.indexOf("\n);", start));
+  assert.ok(body.includes("rfs_rule_id_not_sentinel"));
+  assert.ok(
+    body.includes("is distinct from\n                                  '00000000-0000-0000-0000-000000000000'::uuid") ||
+      body.replace(/\s+/g, " ").includes(
+        "check (fulfillment_rule_id is distinct from '00000000-0000-0000-0000-000000000000'::uuid)"
+      ),
+    "aucune vraie règle ne doit pouvoir porter la sentinelle"
+  );
+  assert.ok(execSql.includes("CSDJ1_RESERVED_RULE_ID"), "la RPC doit refuser par un nom");
+});
+
+test("[FIXTURE-SOURCE-1] le générateur de la fixture est VERSIONNÉ et traçable", () => {
+  // L'audit a eu raison : une preuve « indépendante » dont la source
+  // n'est pas livrable n'est pas vérifiable.
+  const generator = "tests/fixtures/build-checkout-scheduling-cases.py";
+  assert.ok(existsSync(generator), "la troisième implémentation doit être au dépôt");
+  const fixture = JSON.parse(
+    readFileSync("tests/fixtures/checkout-scheduling-cases.json", "utf8")
+  ) as {
+    generator?: string;
+    generatorCommand?: string;
+    generatorRuntime?: { python?: string; tzdataVersion?: string };
+  };
+  assert.equal(fixture.generator, generator);
+  assert.ok(fixture.generatorCommand?.includes(generator));
+  assert.ok(fixture.generatorRuntime?.python, "la version de Python doit être consignée");
+  assert.ok(
+    fixture.generatorRuntime?.tzdataVersion,
+    "la version de la base de fuseaux doit être consignée"
+  );
+  // Et le générateur ne doit RIEN emprunter aux implémentations qu'il
+  // juge, sinon il n'en serait pas indépendant.
+  // Ce qui compte est qu'il ne LISE aucune des deux implémentations
+  // qu'il juge : son en-tête les NOMME, précisément pour expliquer son
+  // rôle, et le lui interdire serait confondre documentation et code.
+  const executablePy = readFileSync(generator, "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*#/.test(line))
+    .join("\n");
+  for (const borrowed of ["subprocess", "psycopg", "importlib", "requests"]) {
+    assert.ok(
+      !executablePy.includes(borrowed),
+      `le générateur ne doit rien exécuter d'extérieur (« ${borrowed} »)`
+    );
+  }
+  // Et il ne LIT aucun fichier d'implémentation : ni TypeScript, ni SQL.
+  assert.ok(
+    !/(open|read_text|readlines|load)\s*\([^)]*\.(ts|sql)\b/.test(executablePy),
+    "le générateur ne doit lire aucune des deux implémentations qu'il juge"
+  );
+  // Ses seules lectures sont la sonde de version de fuseaux ; sa seule
+  // écriture est la fixture.
+  assert.ok(
+    executablePy.includes("zoneinfo"),
+    "le générateur doit tirer ses fuseaux de la bibliothèque standard"
+  );
+
 });
