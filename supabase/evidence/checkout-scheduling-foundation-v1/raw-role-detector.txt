@@ -1,94 +1,231 @@
-CSDJ-1 v1.7 — LE DÉTECTEUR DE MUTATIONS BRUTES : AVANT / APRÈS
-==============================================================
+CSDJ-1 v1.8 — LE DÉTECTEUR DE MUTATIONS BRUTES : LA CLASSE, ET NON LES CAS
+==========================================================================
 
-CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01 (huitième passe)
 
-LA SÉQUENCE DE L'AUDIT
-----------------------
-  csdj1_identity_mutate "perform 1;" # l'initialisation est terminee
-  q \
-  'alter role fixture bypassrls;'
 
-Sémantique de Bash : la première commande est complète ; le commentaire
-s'arrête à la fin de la ligne ; « q » est une NOUVELLE commande brute,
-dont l'argument SQL est « alter role fixture bypassrls; » ; PostgreSQL
-exécute la mutation.
+CE QUE LE HUITIÈME AUDIT A TROUVÉ
+---------------------------------
+Deux formes de plus, que le détecteur du septième tour ne voyait pas :
 
-Ancien détecteur : GARDEE.   Correct : NON-GARDEE.
+  E1   q "alter \                      E2   q "alter
+       role fixture bypassrls;"                role fixture bypassrls;"
 
-LES DIX-SEPT FIXTURES, JOUÉES CONTRE LES DEUX DÉTECTEURS
---------------------------------------------------------
-fixture                                   ancien          nouveau
------------------------------------------ --------------- -----------
-D1  q 'alter role ...'   (apostrophe)     NON-GARDEE      NON-GARDEE
-D2  q "alter role ..."   (guillemet)      NON-GARDEE      NON-GARDEE
-D3  q 'Alter Role ...'   (casse mixte)    NON-GARDEE      NON-GARDEE
-D4  garde complète puis mutation brute    NON-GARDEE      NON-GARDEE
-D5  mutation brute multi-lignes           NON-GARDEE      NON-GARDEE
-D6  mutation correctement gardée          GARDEE          GARDEE
-D7  SQL sans mutation de rôle             (ignoré)        (ignoré)
+Dans les deux cas Bash transmet « alter role fixture bypassrls; » :
+dans E1 parce qu'il retire « barre oblique inverse + saut de ligne »
+JUSQUE DANS les guillemets doubles ; dans E2 parce que le saut de ligne
+reste dans l'argument et que PostgreSQL le lit comme un blanc. Le
+détecteur, lui, cherchait « (create|alter|drop)[ \t]+role » sur le
+texte accumulé : ni la barre oblique inverse ni le saut de ligne ne
+satisfaisaient « [ \t] ».
 
-R1  LA REPRODUCTION DE L'AUDIT            GARDEE  <<<<    NON-GARDEE
-R2  commentaire avec apostrophe           NON-GARDEE      NON-GARDEE
-R3  commentaire avec guillemet            NON-GARDEE      NON-GARDEE
-R4  commentaire avec les deux, casse mixte NON-GARDEE     NON-GARDEE
-R5  « # » À L'INTÉRIEUR de l'argument SQL NON-GARDEE      NON-GARDEE
+Le mandat a tiré la conclusion qui s'imposait : « le détecteur doit
+cesser d'être rapiécé exemple par exemple ». Corriger E1 et E2 par deux
+exceptions aurait seulement déplacé la frontière une huitième fois.
 
-C1  q \ puis 'alter role ...'             SANS-OUVREUR    NON-GARDEE
-C2  qw \ puis "alter role ..."            SANS-OUVREUR    NON-GARDEE
-C3  q \ puis 'Alter Role ...'             SANS-OUVREUR    NON-GARDEE
-C4  csdj1_identity_mutate \ puis "..."    SANS-OUVREUR    GARDEE
-C5  q \ puis 'select 1;'                  (ignoré)        (ignoré)
 
-DEUX DÉFAUTS, ET NON UN SEUL
-----------------------------
-R1  FAUX NÉGATIF : une mutation brute déclarée gardée. C'est le défaut
-    que l'audit a trouvé, et le dangereux.
-C4  FAUX POSITIF : une continuation GARDÉE légitime déclarée
-    SANS-OUVREUR, donc traitée comme un échec. Personne ne l'avait
-    relevé ; il aurait fait échouer le harnais sur du code correct.
+CE QUI A ÉTÉ FAIT : UNE REPRÉSENTATION NORMALISÉE, EN SIX ÉTAPES
+----------------------------------------------------------------
+On ne compare plus des textes. On CONSTRUIT la représentation que le
+serveur verra, et c'est elle qu'on interroge. Chaque étape est une
+fonction lisible et éprouvable seule.
 
+  A. Reconstitution LEXICALE d'une commande shell.
+     Un automate à cinq états — hors citation, apostrophe, guillemet
+     double, commentaire, corps de document en ligne — avance caractère
+     par caractère et accumule DEUX textes :
+       cmdraw   le VERBATIM de la commande, citations comprises, parce
+                que c'est là que se lisent les appels (« q "… » ) ;
+       cmdexp   l'EXPANSÉ, citations consommées comme le shell les
+                consomme, parce que c'est ce que le client reçoit.
+     « ; », « & » et « | » hors citation terminent la commande.
+
+  B. Normalisation SÉMANTIQUE du shell.
+     • « \ » en fin de ligne est une continuation DANS LES DEUX ÉTATS :
+       hors citation ET entre guillemets doubles. Elle ne laisse RIEN —
+       ni saut de ligne, ni fin de commande (correction de E1).
+     • Un argument encore OUVERT en fin de ligne garde, lui, son saut
+       de ligne : il fait partie de l'argument (correction de E2).
+       L'ordre de ces deux règles EST la correction.
+     • Un « # » en début de mot hors citation abandonne le reste de la
+       ligne physique et n'affecte aucun état ; un « # » à l'intérieur
+       d'un argument cité reste du SQL.
+     • Entre apostrophes, aucun échappement : c'est la règle du shell.
+
+  C. Extraction de l'argument réellement transmis.
+     C'est cmdexp. Les guillemets de concaténation sont consommés, donc
+     « "alt""er role …" » devient « alter role … » — forme que le
+     détecteur du septième tour ne voyait pas non plus, et qui est
+     désormais couverte (voir plus bas : conséquence sur le harnais).
+
+  D. Normalisation SQL.
+     • « -- » jusqu'au saut de ligne, et « /* */ » imbricables, retirés.
+     • Corps à dollars — « $$ … $$ », « $tag$ … $tag$ » — CONSERVÉS :
+       le corps d'un DO est EXÉCUTÉ. Le retirer masquerait une mutation
+       réelle.
+     • Littéral entre apostrophes : tenu pour des DONNÉES, SAUF quand
+       il est l'argument d'EXECUTE. « lastword » est le dernier MOT
+       COMPLET, et un blanc ne l'efface pas — sans quoi
+       « execute 'alter role …' », avec son espace, échapperait à la
+       règle.
+     • Tout blanc SQL réduit à une espace unique :
+          gsub(/[ \t\r\n\013\f]+/, " ", out)
+       C'est l'équivalence que PostgreSQL applique, et c'est pourquoi
+       « ALTER<LF>ROLE », « ALTER<TAB>ROLE » et « ALTER  ROLE » sont la
+       même mutation.
+
+  E. Reconnaissance du mot-clé, insensible à la casse, sur la
+     représentation normalisée :
+          tolower(sql_normalize(expanded)) ~ /(create|alter|drop) role/
+
+  F. Classement gardé / brut, sur le VERBATIM de la commande.
+     Un appel BRUT l'emporte sur un appel gardé présent dans la même
+     commande : en cas de doute, le classement défavorable gagne.
+
+
+L'INVARIANT EXIGÉ PAR LE MANDAT
+-------------------------------
+« Si Bash transmet du SQL que PostgreSQL lit comme ALTER ROLE ou
+CREATE ROLE, le détecteur doit soit le classer correctement, soit
+FERMER. Il ne doit JAMAIS produire silencieusement “aucun
+signalement”. »
+
+Trois sorties, et une seule silencieuse :
+  NON-GARDEE    mutation portée par un appel brut ;
+  GARDEE        mutation portée par le prédicat d'identité ;
+  SANS-OUVREUR  commande que le détecteur ne sait pas classer — fermé.
+Le harnais traite SANS-OUVREUR comme un échec, au même titre que
+NON-GARDEE.
+
+
+LES TRENTE-SIX FIXTURES, JOUÉES CONTRE LES DEUX DÉTECTEURS
+----------------------------------------------------------
 Chaque fixture est d'abord validée par « bash -n » : une fixture que le
-shell lui-même refuserait ne représenterait aucune réalité lexicale.
+shell refuserait ne représenterait aucune réalité lexicale.
 
-POURQUOI UN LEXEUR, ET PAS UN QUATRIÈME CORRECTIF
--------------------------------------------------
-Trois audits ont trouvé trois façons de tromper le comptage de
-guillemets ligne par ligne : la casse, la forme du littéral, la fuite
-d'état. La quatrième -- l'apostrophe d'un commentaire -- n'était qu'une
-question de temps.
+cas   attendu     v1.7        v1.8        écart
+----- ----------- ----------- ----------- -----------------------------
+d1    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+d2    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+d3    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+d4    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+d5    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+d6    GARDEE      GARDEE      GARDEE      inchangé
+d7    AUCUNE      AUCUNE      AUCUNE      inchangé
+r1    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+r2    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+r3    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+r4    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+r5    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+c1    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+c2    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+c3    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+c4    GARDEE      GARDEE      GARDEE      inchangé
+c5    AUCUNE      AUCUNE      AUCUNE      inchangé
+e1    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+e2    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+e3    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+e4    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+e5    GARDEE      AUCUNE      GARDEE      v1.7 MANQUAIT -- corrigé
+e6    AUCUNE      AUCUNE      AUCUNE      inchangé
+e7    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+e8    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+e9    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+e10   NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+f1    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+f2    NON-GARDEE  NON-GARDEE  NON-GARDEE  inchangé
+f3    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+f4    GARDEE      AUCUNE      GARDEE      v1.7 MANQUAIT -- corrigé
+f5    NON-GARDEE  AUCUNE      NON-GARDEE  v1.7 MANQUAIT -- corrigé
+f6    AUCUNE      NON-GARDEE  AUCUNE      v1.7 FAUX POSITIF -- corrigé
+p1    AUCUNE      NON-GARDEE  AUCUNE      v1.7 FAUX POSITIF -- corrigé
+p2    AUCUNE      NON-GARDEE  AUCUNE      v1.7 FAUX POSITIF -- corrigé
+p3    AUCUNE      NON-GARDEE  AUCUNE      v1.7 FAUX POSITIF -- corrigé
 
-Le détecteur reconstitue donc les COMMANDES, et chaque commande est
-classée SEULE. Aucun état ne traverse une frontière de commande : la
-classe entière de défauts « fuite d'état » disparaît par construction,
-et non par correctif.
+  onze mutations réelles que v1.7 MANQUAIT, désormais vues ;
+  quatre FAUX POSITIFS de v1.7, désormais tus ;
+  vingt-et-un verdicts INCHANGÉS ;
+  zéro régression.
 
-Ce qui est modélisé, et rien de plus : texte ordinaire ; apostrophes
-(sans échappement, c'est la règle du shell) ; guillemets (où la barre
-oblique inverse échappe) ; commentaire -- « # » en début de mot, hors
-citation, jusqu'à la fin de la ligne physique, sans effet sur aucun
-état ; continuation par barre oblique inverse ; fin de commande sur
-« ; », « & », « | » ou fin de ligne ; documents en ligne, dont le corps
-est du texte mais dont les mutations appartiennent à la commande qui
-les ouvre.
+Les fixtures en détail (verbes assemblés, jamais écrits en clair dans
+le harnais) :
 
-FERMÉ PAR DÉFAUT : une commande qu'on ne sait pas classer est rapportée
-défavorablement, et un appel brut l'emporte sur un appel gardé présent
-dans la même commande.
+  E1   q "alter \ <LF> role fixture bypassrls;"      continuation citée
+  E2   q "alter <LF> role fixture bypassrls;"        saut de ligne
+  E3   q "alter<TAB>role fixture bypassrls;"         tabulation
+  E4   q "alter    role fixture bypassrls;"          plusieurs espaces
+  E5   csdj1_identity_mutate "alter \ <LF> role …"   ÉQUIVALENT GARDÉ
+  E6   q "select \ <LF>  1;"                         aucune mutation
+  E7   q "create \ <LF> role fixture login;"         CREATE, continuation
+  E8   qw "create <LF> role<TAB>fixture login;"      CREATE, LF + TAB
+  E9   q 'ALTER <LF> ROLE fixture bypassrls;'        apostrophes, MAJ.
+  E10  qw "Alter<CR><LF>Role fixture bypassrls;"     casse mixte, CRLF
+  F1   garde + commentaire à apostrophe + E1
+  F2   commentaire PORTANT le verbe, puis mutation à tabulation
+  F3   document en ligne, mutation sur DEUX lignes du corps
+  F4   appel GARDÉ dont l'argument court sur trois lignes
+  F5   q "select '#'; alter <LF> role fixture bypassrls;"
+  F6   q "select 'ALTER ROLE';"                      littéral = DONNÉES
+  P1   q "select 'ALTER ROLE foo';"                  faux positif
+  P2   q "select 1; -- ALTER ROLE foo"               faux positif
+  P3   q "select 'CREATE ROLE foo';"                 faux positif
 
-[I] — LA NOCIVITÉ N'EST PAS DÉDUITE, ELLE EST OBSERVÉE
-------------------------------------------------------
-La section [I] du harnais EXÉCUTE la séquence de l'audit sur le cluster
-jetable, avec le vrai client brut :
+E5 et F4 ne sont pas décoratifs : sans un équivalent GARDÉ de chaque
+forme nouvellement reconnue, « tout classer NON-GARDEE » passerait pour
+une réussite.
 
-  rôle témoin avant   NOBYPASSRLS
-  rôle témoin après   BYPASSRLS
 
-Ce que le label « GARDEE » couvrait était une mutation effective.
+CONSÉQUENCE SUR LE HARNAIS LUI-MÊME, ASSUMÉE
+--------------------------------------------
+L'étape C modélise la concaténation des citations du shell. Les verbes
+que le harnais assemblait pour ne pas les écrire en clair —
+  V_ALTER="alt""er role"
+— sont donc devenus, pour le détecteur, un verbe ADJACENT : le harnais
+était son propre signalement (trois SANS-OUVREUR, constatés et NON
+contournés par une exception). Les verbes sont désormais assemblés EN
+DEUX TEMPS, jamais adjacents :
+  V_W_ALTER="alt""er"   V_W_ROLE="ro""le"   V_ALTER="$V_W_ALTER $V_W_ROLE"
+Un test structurel ([AUD07-SQL-8]) échoue si une affectation reconstitue
+le verbe d'un seul tenant.
 
-M9 — LE CONTRÔLE
-----------------
-Les deux règles (commentaire, continuation) retirées dans une copie :
-R1 redevient GARDEE, et dans la MÊME exécution [I] montre la mutation
-appliquée. Le contrôle prouve donc la NOCIVITÉ du défaut, et pas
-seulement un changement d'étiquette.
+
+LE DÉTECTEUR SUR LES VRAIS FICHIERS
+-----------------------------------
+  awk -f supabase/tests/csdj1-raw-role-mutation-detector.awk \
+      supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+      supabase/tests/checkout-scheduling-foundation-v1-check.sh \
+      supabase/tests/csdj1-cluster-identity.sh
+
+  26 GARDEE        0 NON-GARDEE        0 SANS-OUVREUR
+
+Joué sur LES MÊMES fichiers, le détecteur v1.7 rend lui aussi
+26 GARDEE / 0 NON-GARDEE / 0 SANS-OUVREUR, et les vingt-six textes de
+commande, blancs retirés, sont IDENTIQUES à ceux de v1.8 (comparaison
+mécanique, « diff » vide). Le détecteur v1.8 est donc strictement plus
+sévère sur les fixtures SANS rien dénoncer de nouveau dans le code
+réel — ce qui est le résultat attendu, puisque toutes les mutations
+réelles passent par le prédicat d'identité.
+
+v1.8 imprime UN signalement par LIGNE (les blancs du texte rapporté
+sont réduits, le texte est tronqué à 240 caractères) : une commande
+reconstituée contient des sauts de ligne, et le harnais compte des
+lignes. C'est la seule différence de forme entre les deux sorties.
+
+
+LIMITES ASSUMÉES, ET DOCUMENTÉES
+--------------------------------
+1. Un littéral SQL est tenu pour des DONNÉES sauf comme argument
+   d'EXECUTE. Relecture exhaustive des deux harnais et de la
+   bibliothèque : les seules formes employées sont
+   « execute 'create role … ' » et « execute 'alter role … ' » ; aucun
+   « execute format(…) », aucune requête préparée. Si une telle forme
+   devait apparaître, le commentaire en tête du détecteur est l'endroit
+   où le dire.
+2. L'EXPANSION DES PARAMÈTRES n'est pas modélisée. Une AFFECTATION
+   portant le verbe est donc rapportée SANS-OUVREUR : fermé, et non
+   présumé inoffensif. C'est le cas X1 de la section [J].
+3. Entre APOSTROPHES, « \ » + saut de ligne n'est pas une
+   continuation : Bash les transmet tels quels, PostgreSQL REFUSE
+   l'instruction, et le détecteur ne signale rien. Le cas X2 vérifie
+   les DEUX moitiés du fait — l'absence de signalement y est
+   accompagnée de la preuve que le rôle ne bouge pas.

@@ -1,21 +1,196 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1) — paquet de preuves
-## Septième remédiation : le détecteur reconstitue les commandes du shell
+# CHECKOUT SCHEDULING FOUNDATION v1.8 (CSDJ-1) — paquet de preuves
+## Huitième remédiation de durcissement : le détecteur NORMALISE au lieu de reconnaître
 
 | candidat | verdict |
 | --- | --- |
-| `091c3f0` → `8dafd78` | sept verdicts FAIL successifs, détaillés plus bas |
-| `de70c13` | **ce candidat** |
+| `091c3f0` → `de70c13` | huit verdicts FAIL successifs, détaillés plus bas |
+| `f369c4b` | **ce candidat** |
 
 Aucun candidat refusé n'est amendé ni réécrit. **Aucune recomposition.**
-La bibliothèque d'identité, l'oracle Python, la fixture, le résolveur et
-le SQL du lot sont **intacts** — `git diff` sur ces chemins est vide — et
-seulement **rejoués en régression**. **CSDJ-2 n'est pas commencé.**
+La bibliothèque d'identité, l'oracle Python, la fixture, le résolveur, le
+SQL du lot et le harnais PostgreSQL du lot sont **intacts** —
+`git diff de70c13 HEAD` sur ces chemins est vide — et seulement **rejoués
+en régression**. **CSDJ-2 n'est pas commencé.**
 
 ---
 
 ## §0 — Le blocker de ce tour
 
-### §0.1 Le détecteur pouvait déclarer GARDÉE une mutation brute
+### §0.1 Deux formes de plus, et la fin des rustines
+
+`CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01`, huitième passe. C'est un défaut de
+**fiabilité de la preuve**, non de logique métier : aucun chemin nominal
+de mutation non gardée n'existe. Mais un détecteur qui peut taire une
+mutation brute ne prouve rien.
+
+**Les deux formes trouvées :**
+
+```
+E1   q "alter \                 E2   q "alter
+     role fixture bypassrls;"          role fixture bypassrls;"
+```
+
+Bash transmet, dans les deux cas, `alter role fixture bypassrls;` : dans
+E1 parce qu'il retire « barre oblique inverse + saut de ligne » **jusque
+dans les guillemets doubles** ; dans E2 parce que le saut de ligne reste
+dans l'argument, et que **PostgreSQL le lit comme un blanc**. Le
+détecteur, lui, cherchait `(create|alter|drop)[ \t]+role` : ni la barre
+oblique inverse ni le saut de ligne ne satisfaisaient `[ \t]`.
+
+Le mandat a nommé la bonne cause : *« le détecteur doit cesser d'être
+rapiécé exemple par exemple »*. Deux exceptions de plus auraient déplacé
+la frontière une huitième fois.
+
+### §0.2 Ce qui a changé : une REPRÉSENTATION NORMALISÉE, en six étapes
+
+On ne compare plus des textes. On **construit** la représentation que le
+serveur verra, et c'est elle qu'on interroge. Six étapes explicites,
+chacune une fonction lisible et éprouvable seule.
+
+| étape | ce qu'elle fait |
+| --- | --- |
+| **A** reconstitution lexicale | un automate à cinq états accumule **deux** textes : le *verbatim* (`cmdraw`), où se lisent les appels, et l'*expansé* (`cmdexp`), qui est ce que le client reçoit. `;`, `&`, `\|` hors citation terminent la commande |
+| **B** normalisation du shell | la continuation est reconnue **dans les deux états** — hors citation **et entre guillemets doubles** — et elle ne laisse **rien** ; un argument encore **ouvert** garde, lui, son saut de ligne. **L'ordre de ces deux règles est la correction** |
+| **C** extraction de l'argument | citations consommées comme le shell les consomme — `"alt""er role …"` comprise |
+| **D** normalisation SQL | `--` et `/* */` imbricables retirés ; corps à dollars **conservés** (le corps d'un `DO` s'exécute) ; littéral tenu pour des **données** sauf comme argument d'`EXECUTE` ; **tout blanc** — espace, tabulation, retour chariot, saut de ligne — réduit à une espace, parce que c'est l'équivalence que PostgreSQL applique |
+| **E** le mot-clé | insensible à la casse, sur cette représentation |
+| **F** gardé / brut | sur le verbatim ; en cas de doute, le défavorable l'emporte |
+
+**Un étage plus bas, la même classe.** Les corps de **documents en
+ligne** étaient encore analysés ligne à ligne : `alter` en fin de ligne
+suivi de `role` en tête de la suivante y échappait. Ils sont désormais
+accumulés et analysés **d'un seul bloc**, et attribués à la commande qui
+les ouvre.
+
+**L'invariant exigé.** Trois sorties, une seule silencieuse :
+`NON-GARDEE`, `GARDEE`, et `SANS-OUVREUR` — fermé — que le harnais traite
+comme un échec. Si Bash transmet du SQL que PostgreSQL lit comme
+`CREATE ROLE` ou `ALTER ROLE`, le détecteur classe ou ferme ; il ne se
+tait jamais.
+
+### §0.3 Ce que cela a coûté au harnais, et qui est assumé
+
+L'étape C modélise la **concaténation** des citations. Les verbes que le
+harnais assemblait pour ne pas les écrire en clair —
+`V_ALTER="alt""er role"` — sont donc devenus, pour le détecteur, un verbe
+**adjacent** : le harnais était son propre signalement (trois
+`SANS-OUVREUR`, **constatés et non contournés par une exception**). Les
+verbes sont désormais assemblés **en deux temps**, jamais adjacents :
+
+```sh
+V_W_ALTER="alt""er"   V_W_ROLE="ro""le"   V_ALTER="$V_W_ALTER $V_W_ROLE"
+```
+
+`[AUD07-SQL-8]` échoue si une affectation reconstitue le verbe d'un seul
+tenant.
+
+### §0.4 Trente-six fixtures — et le bilan contre v1.7
+
+E1–E10 et F1–F6 couvrent la classe ; P1–P3 contrôlent les **faux
+positifs** ; D1–D7, R1–R5 et C1–C5 sont rejouées **inchangées**. Chacune
+est validée par `bash -n` : une fixture que le shell refuserait ne
+représenterait aucune réalité lexicale.
+
+| | v1.7 | v1.8 |
+| --- | --- | --- |
+| mutations réelles **manquées** | 11 | **0** |
+| **faux positifs** | 4 | **0** |
+| verdicts inchangés | — | 21 |
+| régressions | — | **0** |
+
+Le tableau cas par cas est dans `raw-role-detector.txt`.
+
+**E5 et F4 ne sont pas décoratifs** : ce sont les **équivalents gardés**
+des formes nouvellement reconnues. Sans eux, « tout classer NON-GARDEE »
+passerait pour une réussite.
+
+### §0.5 La contre-épreuve adversariale — section `[J]`
+
+Des fixtures écrites par celui qui corrige ne prouvent pas qu'on a
+cherché à se tromper. La section `[J]` engendre donc une **matrice** de
+**34 formes équivalentes** — verbe, casse, six séparateurs, trois formes
+de citation (concaténation comprise), deux formes d'appel, commentaire —
+et, pour chacune, établit **quatre faits** :
+
+1. `bash -n` l'accepte ;
+2. l'argument **réellement transmis** est relevé en faisant jouer à
+   **Bash** le rôle d'oracle (`q() { printf "%s" "$1"; }`) ;
+3. la forme est **exécutée**, et le changement d'état **observé** : le
+   rôle sonde passe de `NOBYPASSRLS` à `BYPASSRLS`, ou un rôle qui
+   n'existait pas existe. **C'est PostgreSQL, et non une expression
+   régulière, qui dit qu'il s'agit d'un `CREATE`/`ALTER ROLE`** ;
+4. le détecteur rend `NON-GARDEE`.
+
+**L'ordre de 3 et de 4 est délibéré.** L'exécution est éprouvée **avant**
+le verdict : un échec portant sur le verdict **établit** donc que
+PostgreSQL, lui, a muté. C'est cette paire que M10 et M11 exploitent.
+
+Le revers : **12 formes** portant le verbe **sans l'exécuter** (littéral,
+commentaire `--`, commentaire `/* */`, concaténation SQL, transtypage,
+comparaison, littéral sur deux lignes…). Pour chacune, le **piège est
+d'abord vérifié présent** — un contrôle de faux positif qui ne contient
+pas le piège ne contrôle rien — puis la forme est exécutée, le rôle sonde
+ne bouge pas, et le verdict est `AUCUNE`.
+
+**Deux cas assumés, et documentés** :
+
+- **X1** une **affectation** portant le verbe → `SANS-OUVREUR`.
+  L'expansion des paramètres n'est pas modélisée, donc rien n'est
+  présumé : **fermé**.
+- **X2** `\` + saut de ligne **entre apostrophes** → PostgreSQL **refuse**
+  l'instruction. Le détecteur ne signale rien, et **les deux moitiés du
+  fait sont vérifiées** : l'absence de signalement est accompagnée de
+  l'observation que le rôle sonde ne bouge pas.
+
+### §0.6 M10, M11 — et pourquoi l'attendu de M9 a changé
+
+| contrôle | défaut réinjecté | ce qui doit apparaître |
+| --- | --- | --- |
+| **M10** | la continuation entre guillemets doubles redevient une barre oblique inverse ordinaire | `fixture « e1 » : AUCUNE au lieu de NON-GARDEE` **et** `[J] … le détecteur rend AUCUNE alors que PostgreSQL a muté` |
+| **M11** | l'équivalence des blancs SQL est retirée (`gsub(/[ ]+/…)`) | `fixture « e2 »` **et** `fixture « e8 » : AUCUNE` **et** la même preuve de mutation réelle |
+
+**M9 est conservée, et son attendu a changé — c'est écrit dans le
+fichier.** Au septième tour, la réinjection faisait classer R1
+« GARDÉE » : un **mensonge**. Le classement par commande, sur le texte
+verbatim où l'appel brut `q '` est visible, a rendu ce mensonge
+**improduisible** — R1 reste `NON-GARDEE` même avec les deux règles
+retirées, et le contrôle le **constate** pour que l'auditeur n'ait pas à
+le déduire. La même réinjection produit désormais le défaut restant, qui
+est le pire des deux : le **silence**. R3 — un commentaire portant un
+**guillemet** — redevient `AUCUNE`, pendant que `[J]` montre PostgreSQL
+exécuter la mutation.
+
+### §0.7 Inspection indépendante des chemins réels
+
+Le mandat exige, en plus des fixtures, d'inspecter les **vrais** chemins.
+Elle a été faite par une **seconde implémentation**, écrite séparément,
+en python, et délibérément plus simple : elle ne normalise pas le SQL,
+n'accumule pas les corps de documents en ligne, ne cherche aucune
+équivalence de blancs. Elle attribue chaque ligne physique à la
+**commande** qui la porte, puis lit le texte de cette commande.
+
+| | |
+| --- | --- |
+| occurrences du verbe | **42** |
+| commentaires (aucun code) | 5 |
+| portées par une commande **gardée** | **37** |
+| chemins **bruts** ou indéterminés | **0** |
+
+**Tous les chemins réels de mutation de rôle sont gardés.** Le détecteur
+awk rapporte 26 **signalements** et l'inspecteur python 37
+**occurrences** : ce n'est pas une divergence, c'est l'unité de compte —
+le détecteur classe des **commandes**, et plusieurs commandes gardées
+portent plusieurs instructions (le bloc d'amorçage du harnais principal
+en porte six à lui seul).
+
+Source et sortie versionnées : `role-mutation-paths-inspector.py`,
+`role-mutation-paths-inspection.txt`.
+
+---
+
+## §00 — Le blocker du tour précédent (septième remédiation)
+
+### §00.1 Le détecteur pouvait déclarer GARDÉE une mutation brute
 
 C'est un défaut de **fiabilité de la preuve**, non de logique métier :
 aucun chemin nominal de mutation non gardée n'existait. Mais un
@@ -63,7 +238,7 @@ Le détecteur vit désormais dans **son propre fichier**. Logé dans le
 fichier qu'il analyse, il se dénonçait lui-même, et on lui ajoutait des
 exceptions — lesquelles sont autant de trous.
 
-### §0.2 Dix-sept fixtures, et un second défaut que personne n'avait vu
+### §00.2 Dix-sept fixtures, et un second défaut que personne n'avait vu
 
 | fixture | ancien | nouveau |
 | --- | --- | --- |
@@ -87,7 +262,7 @@ comme un échec, qui aurait fait échouer le harnais sur du code correct.
 Chaque fixture est d'abord validée par `bash -n` : une fixture que le
 shell lui-même refuserait ne représenterait aucune réalité lexicale.
 
-### §0.3 `[I]` — la nocivité est observée, pas déduite
+### §00.3 `[I]` — la nocivité est observée, pas déduite
 
 Dire que l'ancien détecteur se trompait ne suffit pas. La section `[I]`
 du harnais **exécute** la séquence de l'audit sur le cluster jetable,
@@ -100,7 +275,7 @@ avec le vrai client brut :
 
 Ce que le label « GARDEE » couvrait était une mutation effective.
 
-### §0.4 M9
+### §00.4 M9
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -1060,37 +1235,54 @@ juge.
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **155 / 0** (10 + 78 + 59 + 8) |
-| régressions exigées | **285 / 0** (12 fichiers) |
+| tests ciblés CSDJ-1 | **156 / 0** (8 + 78 + 10 + 60) |
+| régressions exigées | **285 / 0** (12 fichiers, un par un) |
 | harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
-| harnais d'isolation et de rôles | **195 preuves / 0 échec** (`[A]`–`[I]`) |
-| contrôles de mutation M1/M3/M4/M5/M6/M7/M8/**M9** | **8 concluants / 0 manquant** |
-| fixtures du détecteur | **17 / 17** (D1–D7, R1–R5, C1–C5) |
+| harnais d'isolation et de rôles | **218 preuves / 0 échec** (`[A]`–`[J]`) |
+| contrôles de mutation M1/M3–M9/**M10**/**M11** | **10 concluants / 0 manquant** |
+| fixtures du détecteur | **36 / 36** (D1–D7, R1–R5, C1–C5, **E1–E10**, **F1–F6**, **P1–P3**) |
+| contre-épreuve adversariale `[J]` | **34 formes équivalentes** exécutées et vues, **12 non-mutations** tues, **X1**/**X2** |
+| inspection indépendante des chemins réels | **42 occurrences, 0 brute, 0 indéterminée** |
+| détecteur sur les vrais fichiers | **26 GARDEE / 0 NON-GARDEE / 0 SANS-OUVREUR** |
 | contrôles de socket et d'octets réservés | **18 + S1/S2**, zéro mutation |
 | contrôles négatifs d'identité | **10**, zéro mutation |
-| bibliothèque d'identité, oracle, fixture, résolveur, SQL | **NON TOUCHÉS** (`git diff` vide) |
+| refus sans consentement / variable de routage | **code 2** dans les deux cas, valeur jamais journalisée |
+| fixture Python | reproduite **à l'octet** (`c266e5ce…e52e46`) |
+| identité, oracle, fixture, résolveur, SQL, harnais du lot | **NON TOUCHÉS** (`git diff de70c13 HEAD` vide) |
 | TypeScript | **0 diagnostic** |
-| build | **EXIT 0**, 39 routes, aucune ajoutée |
+| build | **EXIT 0**, 38 lignes de route, **identiques à la base** |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, sixième remédiation `8dafd78` | 4933 tests, 4923 / 10 |
-| suite complète, ce candidat `de70c13` | **4933 tests, 4923 / 10** |
+| suite complète, septième remédiation `de70c13` | 4933 tests, 4923 / 10 |
+| suite complète, ce candidat `f369c4b` | **4934 tests, 4924 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
-La comparaison porte sur les **identités**. Les jeux de la **base**, du
-**sixième candidat** et de **celui-ci** sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Aucun test ajouté ni retiré : les
-deux tests structurels concernés ont été **réécrits**, pas multipliés —
-d'où un total inchangé.
+La comparaison porte sur les **identités**, non sur les comptes. Les jeux
+d'échecs de la **base**, du **septième candidat** et de **celui-ci** sont
+**octet-identiques** (md5 `d788b58cd63f6c59be1b1195c76bc1c5`, dix
+identités, voir `candidate-failures-sorted.txt`). Le total passe de 4933 à
+4934 pour **une** raison : `[AUD07-SQL-9]` est ajouté. Les deux tests
+structurels existants ont été **réécrits**, pas multipliés.
 
-**Aucun échec intermittent** : la suite a tourné machine au repos.
+**Aucun échec intermittent** : la suite a tourné machine au repos, et
+l'échec non déterministe signalé au cinquième tour
+(`nondeterministic-failure.txt`) ne s'est pas reproduit.
+
+Le `npm run build` exige `NEXT_PUBLIC_SUPABASE_URL` et
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` : « next build » collecte les données de
+page et `lib/supabase.ts` échoue **fermé** si elles manquent. Deux espaces
+réservés locaux suffisent, et **aucune valeur réelle n'est employée ni
+journalisée** (voir `build-candidate.txt`).
 
 ---
 
 ## §6 — Ce qui n'a pas régressé
 
-Le quatrième re-audit delta a déclaré clos AUD-PYTHON-01, AUD-02,
-AUD-03, AUD-04, AUD-05 et AUD-06, plus treize domaines à préserver. Tous
-sont conservés et **re-prouvés** après les deux corrections :
+Le mandat de ce tour nomme ce qui doit **rester PASS** :
+AUD-PYTHON-01, AUD-02, AUD-06, et tous les sous-domaines d'AUD-07. Tous
+sont conservés et **re-prouvés** après la correction du détecteur — qui
+ne touche ni la bibliothèque d'identité, ni le parseur de sockets, ni les
+défenses de sentinelle, ni le harnais PostgreSQL du lot (`git diff
+de70c13 HEAD` est **vide** sur ces chemins) :
 
 | domaine clos | preuve de non-régression |
 | --- | --- |
@@ -1110,6 +1302,12 @@ sont conservés et **re-prouvés** après les deux corrections :
 | réutilisation de l'autorité de tarification | harnais `[10]`, `[13e]`, `[NO-SECOND-ENGINE-1..2]` |
 | retour arrière | harnais `[13a]`–`[13g]` |
 | frontière de propriété Debussy | `[OWNERSHIP-1..3]` |
+| défense anti-sous-chaîne de socket | `[H]` 18 contrôles + S1/S2 ; M6 toujours discriminant |
+| parseur sensible aux guillemets | `[H]`, `[AUD07-SQL-5]` ; M7 toujours discriminant |
+| sentinelles `chr(1)` / `chr(2)` | `[H]` S1/S2, **zéro mutation** ; M8 toujours discriminant |
+| fuite d'état par commentaires et continuations | R1–R5 inchangées ; M9 **conservée**, attendu mis à jour et expliqué (§0.6) |
+| restauration des rôles | `[A]` quatre combinaisons + contrôle positif, **après** la correction |
+| garanties d'isolation | `[E]` : 27 commandes clientes examinées, un seul appel non isolé délibéré |
 | identités de régression | jeux octet-identiques à la base |
 
 **Réserve d'intégration, à ne pas appliquer maintenant.** Au moment de la
@@ -1122,9 +1320,7 @@ sans nécessité pour exécuter ce candidat.
 
 Aucune fonction préexistante n'est redéfinie : `create_order` et
 `resolve_delivery_fulfillment` sont intactes, et le post-vol comme le
-harnais le constatent. Aucune fonction préexistante n'est
-redéfinie : `create_order` et `resolve_delivery_fulfillment` sont
-intactes, et le post-vol comme le harnais le constatent.
+harnais le constatent.
 
 Préservés également : aucune fuite de fournisseur, aucun second moteur
 de prix, aucun texte Theme/MCC, aucune interface de paiement, aucun
@@ -1134,6 +1330,25 @@ hébergée, aucun merge, aucun déploiement.
 ---
 
 ## §7 — Limites
+
+Trois limites du détecteur sont **assumées et écrites dans le fichier
+lui-même**, non découvertes par l'audit :
+
+1. un littéral SQL est tenu pour des **données** sauf comme argument
+   d'`EXECUTE`. Relecture exhaustive des deux harnais et de la
+   bibliothèque : les seules formes employées sont
+   `execute 'create role … '` et `execute 'alter role … '` ; aucun
+   `execute format(…)`, aucune requête préparée ;
+2. l'**expansion des paramètres** n'est pas modélisée : une affectation
+   portant le verbe est rapportée `SANS-OUVREUR` — fermé (cas **X1**) ;
+3. entre **apostrophes**, `\` + saut de ligne n'est pas une
+   continuation : PostgreSQL refuse l'instruction, et le détecteur ne
+   signale rien (cas **X2**, dont les deux moitiés sont vérifiées).
+
+Le défaut d'AUD-06 signalé ailleurs
+(`merchant-customer-communications-v1-check.sh`, lignes 340 et 376) reste
+**non corrigé et documenté** : il est hors du périmètre de ce lot — voir
+`aud06-same-defect-elsewhere.txt`.
 
 SQL **DRAFT** uniquement. Aucun merge, aucun déploiement, aucun PREPROD,
 aucune mutation Production, aucune modification de `main`. Le candidat

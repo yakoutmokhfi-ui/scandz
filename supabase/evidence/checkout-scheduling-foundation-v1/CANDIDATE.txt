@@ -1,11 +1,11 @@
-CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1)
-SEPTIÈME REMÉDIATION CIBLÉE — CANDIDAT
+CHECKOUT SCHEDULING FOUNDATION v1.8 (CSDJ-1)
+HUITIÈME REMÉDIATION DE DURCISSEMENT — CANDIDAT
 ======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   de70c13de7fd3c9872b9f7eff6be24d76a65dace
-arbre du candidat           676b2ca2cee97e8bebd13f26570971992a6487b7
+CANDIDAT (implémentation)   f369c4b53e35604c5df9c349413c16ec695c4e88
+arbre du candidat           c25ba7c8e7465c7690305666d758dc81c6caeee0
 base de développement       412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
 
@@ -18,7 +18,8 @@ LIGNÉE — AUCUN CANDIDAT RÉÉCRIT
   610e356  quatrième           FAIL (socket CSV)
   7420bec  cinquième           FAIL (2 blockers P2)
   8dafd78  sixième             FAIL (détecteur P2)
-  de70c13  CE CANDIDAT         à auditer
+  de70c13  septième            FAIL (détecteur P2, E1/E2)
+  f369c4b  CE CANDIDAT         à auditer
 
 PAS DE RECOMPOSITION
 --------------------
@@ -29,10 +30,10 @@ STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    de70c13 = LE CANDIDAT : 4 fichiers, 3 modifiés, 1 ajouté
-  HEAD~2    2b328a8 = scellement de la sixième remédiation
-  HEAD~3    8dafd78 = sixième remédiation
-  HEAD~16   412dbb5 = base de développement
+  HEAD~1    f369c4b = LE CANDIDAT : 4 fichiers, tous MODIFIÉS
+  HEAD~2    bf36705 = scellement de la septième remédiation
+  HEAD~3    de70c13 = septième remédiation
+  HEAD~18   412dbb5 = base de développement
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -41,25 +42,33 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 4 FICHIERS CHANGÉS DEPUIS 8dafd78
+LES 4 FICHIERS CHANGÉS DEPUIS de70c13
 -------------------------------------
-  A  supabase/tests/csdj1-raw-role-mutation-detector.awk
-         LE DÉTECTEUR, désormais dans son propre fichier : un lexeur
-         qui reconstitue les COMMANDES du shell (citations,
-         commentaires, continuations, documents en ligne) au lieu de
-         compter les guillemets ligne par ligne. Chaque commande est
-         classée seule ; aucun état ne traverse une frontière de
-         commande. Fermé par défaut.
+  M  supabase/tests/csdj1-raw-role-mutation-detector.awk
+         LE DÉTECTEUR, en SIX ÉTAPES. Il ne reconnaît plus une
+         orthographe : il CONSTRUIT la représentation que le serveur
+         verra -- continuations retirées jusque dans les guillemets
+         doubles, tout blanc SQL réduit à une espace, corps à dollars
+         conservés, littéral tenu pour des données sauf comme argument
+         d'EXECUTE -- et c'est elle qu'il interroge. Les corps de
+         documents en ligne sont analysés d'un seul bloc. Fermé par
+         défaut.
   M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
-         emploie le détecteur externalisé ; 17 fixtures D1-D7, R1-R5,
-         C1-C5, chacune validée par « bash -n » ; section [I] qui
-         EXÉCUTE la séquence de l'audit et observe la mutation réelle
-         du rôle témoin.
+         36 fixtures (D1-D7, R1-R5, C1-C5, E1-E10, F1-F6, P1-P3),
+         chacune validée par « bash -n » ; NOUVELLE section [J] :
+         contre-épreuve adversariale de 34 formes équivalentes + 12
+         non-mutations + X1/X2, chaque forme EXÉCUTÉE et son effet
+         OBSERVÉ ; verbes assemblés en DEUX variables jamais
+         adjacentes.
   M  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
-         M9 (fuite d'état par commentaires et continuations).
-         M6, M7, M8 inchangés.
+         M10 (continuation entre guillemets non normalisée) et M11
+         (équivalence des blancs SQL retirée), chacune exigeant un
+         DOMMAGE RÉEL dans la même exécution. M9 conservée, attendu
+         mis à jour et EXPLIQUÉ. M1, M3-M8 inchangées.
   M  tests/csdj1-sql-structural.test.ts
-         [AUD07-SQL-6] et [AUD07-SQL-8] réécrits pour juger le lexeur.
+         [AUD07-SQL-6] et [AUD07-SQL-8] réécrits pour juger les six
+         étapes ; [AUD07-SQL-9] AJOUTÉ : la contre-épreuve adversariale
+         et les deux réinjections sont STRUCTURELLEMENT exigées.
 
 INTACTS — ET SEULEMENT REJOUÉS EN RÉGRESSION
 --------------------------------------------
@@ -67,12 +76,14 @@ INTACTS — ET SEULEMENT REJOUÉS EN RÉGRESSION
                                               sentinelles, nonce,
                                               marqueur, data_directory,
                                               config_file, PGHOSTADDR)
+  supabase/tests/checkout-scheduling-foundation-v1-check.sh
   tests/fixtures/build-checkout-scheduling-cases.py
   tests/fixtures/checkout-scheduling-cases.json
   tests/csdj1-oracle-independence.test.ts
   tests/csdj1-scheduling-eligibility.test.ts
+  tests/csdj1-scheduling-model.test.ts
   lib/scheduling/*  et  supabase/DRAFT-lot-checkout-scheduling-*.sql
-  `git diff` sur ces chemins est VIDE.
+  `git diff de70c13 HEAD` sur ces chemins est VIDE.
 
 REJOUER LES PREUVES
 -------------------
@@ -88,11 +99,26 @@ REJOUER LES PREUVES
     SCANYM_DISPOSABLE_CLUSTER=1 \
     bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
   bash supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+  awk -f supabase/tests/csdj1-raw-role-mutation-detector.awk \
+    supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+    supabase/tests/checkout-scheduling-foundation-v1-check.sh \
+    supabase/tests/csdj1-cluster-identity.sh
+  python3 -I supabase/evidence/checkout-scheduling-foundation-v1/\
+role-mutation-paths-inspector.py \
+    supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+    supabase/tests/checkout-scheduling-foundation-v1-check.sh \
+    supabase/tests/csdj1-cluster-identity.sh
 
 Le harnais de rôles REFUSE de démarrer si une variable de routage libpq
 est présente dans l'environnement : « env -i » dans les commandes
 ci-dessus n'est pas une précaution de style, c'est la condition de
 démarrage.
+
+Le `npm run build` a besoin de NEXT_PUBLIC_SUPABASE_URL et de
+NEXT_PUBLIC_SUPABASE_ANON_KEY : « next build » collecte les données de
+page, et lib/supabase.ts échoue FERMÉ si elles manquent. Deux espaces
+réservés locaux suffisent (voir build-candidate.txt) ; aucune valeur
+réelle n'est employée ni journalisée.
 
 RÉSERVE D'INTÉGRATION — À NE PAS APPLIQUER MAINTENANT
 -----------------------------------------------------

@@ -1,1017 +1,1087 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1) — septième remédiation ciblée",
-  "status": "READY FOR SEVENTH DELTA RE-AUDIT",
-  "mandate": "NOUGARO — SEVENTH TARGETED REMEDIATION / CSDJ-1. Verdict du septième re-audit delta sur 8dafd78 : un seul blocker P2, CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01. Lignée IMMUABLE, aucune recomposition, oracle / fixture / résolveur / SQL / bibliothèque d'identité INTACTS, CSDJ-2 non commencé.",
-  "base": {
-    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
-    "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
+ "lot": "CHECKOUT SCHEDULING FOUNDATION v1.8 (CSDJ-1) — huitième remédiation de durcissement",
+ "status": "READY FOR EIGHTH DELTA RE-AUDIT",
+ "mandate": "NOUGARO — EIGHTH HARDENING REMEDIATION / CSDJ-1. Verdict du huitième re-audit delta sur de70c13 : un seul blocker ouvert, CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01, et l'ordre explicite de fermer LA CLASSE ENTIÈRE des représentations de blancs et de continuations du shell et du SQL -- non pas E1 et E2 par deux exceptions. Lignée IMMUABLE, aucune recomposition, oracle / fixture / résolveur / SQL / bibliothèque d'identité / parseur de sockets / défenses de sentinelle INTACTS, CSDJ-2 non commencé.",
+ "base": {
+  "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+  "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
+ },
+ "failedCandidate": {
+  "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
+  "tree": "76b6b7504fc4b71deff64c636bb9b288b845ae40",
+  "evidenceHead": "7546ace347b121ab01e0db2301d268e1586fdf1a",
+  "verdict": "FAIL (audit indépendant)",
+  "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
+ },
+ "candidate": {
+  "sha": "f369c4b53e35604c5df9c349413c16ec695c4e88",
+  "tree": "c25ba7c8e7465c7690305666d758dc81c6caeee0",
+  "parent": "bf367059e99b162f0e1356a8aa544b4d2f0d60d2",
+  "branch": "feature/checkout-scheduling-foundation-v1",
+  "filesChangedSinceSeventhRemediation": 4,
+  "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
+  "amended": false,
+  "pushed": false,
+  "recomposedOnCurrentMain": false,
+  "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture."
+ },
+ "blockers": {
+  "CSDJ1-AUD-01": {
+   "severity": "P1",
+   "invariant": "CSDJ-V1-OFFER-START-INSTANT-01",
+   "problem": "Le délai de préparation n'était appliqué qu'à la DATE de départ : un créneau 09:00-11:00 avec 120 minutes de délai restait proposé à 15:00, parce que la date passait le filtre et que personne ne regardait l'offre.",
+   "fix": "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, plancher de (today + min_lead_days) dans le fuseau). Une offre dont le DÉBUT tombe avant est écartée, créneau déjà commencé compris. Une date sans offre survivante cesse d'être éligible. Pour time_within_window, le début est AVANCÉ sur la grille de granularité du commerçant ; si la grille sort de la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée.",
+   "newReason": "no_offer_in_horizon, distinct de horizon_exhausted : des dates étaient ouvertes, ce sont les OFFRES qui ne tenaient plus -- et les deux se corrigent différemment.",
+   "tests": [
+    "fixture aud01-reproduction-past-slot-with-lead-time (reproduction littérale)",
+    "fixture aud01-slot-entirely-past",
+    "fixture aud01-slot-started-not-ended",
+    "fixture aud01-slot-starts-one-second-before-threshold",
+    "fixture aud01-slot-starts-exactly-at-threshold (inclusif)",
+    "fixture aud01-slot-starts-after-threshold",
+    "fixture aud01-all-offers-removed-unfulfillable",
+    "fixture aud01-future-day-remains-valid",
+    "fixture pickup-window-clipped-by-lead-time",
+    "[AUD01-1..5] TypeScript",
+    "[AUD01-SQL] structurel",
+    "harnais : 34 cas de fixture rejoués en SQL"
+   ]
   },
-  "failedCandidate": {
-    "sha": "091c3f07083b5c8a51cdb7e50a2f9da46530eacf",
-    "tree": "76b6b7504fc4b71deff64c636bb9b288b845ae40",
-    "evidenceHead": "7546ace347b121ab01e0db2301d268e1586fdf1a",
-    "verdict": "FAIL (audit indépendant)",
-    "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
+  "CSDJ1-AUD-02": {
+   "severity": "P1",
+   "invariant": "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01",
+   "problem": "Le serveur acceptait une heure murale locale INEXISTANTE (Europe/Paris, 2026-03-29 02:10-02:50) : PostgreSQL la normalisait en silence. Une normalisation de moteur n'est pas une politique commerciale.",
+   "policy": "REFUS FERMÉ des deux cas pathologiques : heure inexistante du saut de printemps ET heure ambiguë du recul d'automne. Pour une heure ambiguë, « nous vous livrons à 02:30 » désignerait deux instants distants d'une heure, et personne n'aurait choisi lequel. Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration : la même fenêtre reste valide les 364 autres jours -- c'est pourquoi il ne peut pas être prononcé à l'écriture.",
+   "authority": "public.checkout_wall_time_status() classe ok/nonexistent/ambiguous ; public.checkout_wall_time_instant() rend NULL dès que l'heure n'est pas univoque. Le NULL est un REFUS, jamais une absence de valeur. Miroir TypeScript : resolveWallTime().",
+   "tests": [
+    "fixture aud02-paris-spring-forward-nonexistent-rejected",
+    "fixture aud02-paris-autumn-fallback-ambiguous-rejected",
+    "fixture aud02-utc-no-transition",
+    "fixture aud02-utc-plus-14-no-transition",
+    "fixture aud02-negative-offset-spring-forward",
+    "fixture aud02-negative-offset-autumn-fallback",
+    "[AUD02-1..6] TypeScript (01:59 valide, 02:xx refusée, 03:00 valide ; UTC, UTC+14, décalage négatif)",
+    "post-vol SQL : la politique doit refuser l'inexistante ET l'ambiguë, et ne pas refuser une heure ordinaire"
+   ]
   },
-  "candidate": {
-    "sha": "de70c13de7fd3c9872b9f7eff6be24d76a65dace",
-    "tree": "676b2ca2cee97e8bebd13f26570971992a6487b7",
-    "parent": "2b328a88949a653f8a24162df203c74c5f0798aa",
-    "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceSixthRemediation": 4,
-    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
-    "amended": false,
-    "pushed": false,
-    "recomposedOnCurrentMain": false,
-    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture."
+  "CSDJ1-AUD-03": {
+   "severity": "P1",
+   "invariant": "CSDJ-V1-MODE-ENABLED-GATE-01",
+   "problem": "restaurant_sale_modes.enabled = false et la lecture publique projetait quand même la planification : l'activation n'était vérifiée qu'indirectement, pour la livraison, via l'autorité de tarification.",
+   "fix": "La lecture publique vérifie l'activation du mode AVANT toute projection, pour tous les modes. La réponse est celle d'une absence, volontairement INDISCERNABLE de « aucune planification » et de « planification désactivée » : un statut distinct ferait de la surface publique un moyen de sonder la configuration d'un commerçant.",
+   "noLeak": "Ni fuseau, ni politique de date, ni politique d'horaire, ni granularité, ni date, ni offre. Prouvé par [15c] et par [15d], qui compare la réponse à celle d'un commerçant sans planification.",
+   "tests": [
+    "[15a] mode activé => projection",
+    "[15b] désactivé APRÈS configuration => absent",
+    "[15c] aucune fuite (six champs vides)",
+    "[15d] indiscernable d'une absence",
+    "[15e] réactivé => projette de nouveau",
+    "[15f] mode absent chez l'autre tenant",
+    "[15g] mode hors catalogue => refus nommé",
+    "[AUD03-SQL] la garde précède la résolution"
+   ]
   },
-  "blockers": {
-    "CSDJ1-AUD-01": {
-      "severity": "P1",
-      "invariant": "CSDJ-V1-OFFER-START-INSTANT-01",
-      "problem": "Le délai de préparation n'était appliqué qu'à la DATE de départ : un créneau 09:00-11:00 avec 120 minutes de délai restait proposé à 15:00, parce que la date passait le filtre et que personne ne regardait l'offre.",
-      "fix": "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, plancher de (today + min_lead_days) dans le fuseau). Une offre dont le DÉBUT tombe avant est écartée, créneau déjà commencé compris. Une date sans offre survivante cesse d'être éligible. Pour time_within_window, le début est AVANCÉ sur la grille de granularité du commerçant ; si la grille sort de la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée.",
-      "newReason": "no_offer_in_horizon, distinct de horizon_exhausted : des dates étaient ouvertes, ce sont les OFFRES qui ne tenaient plus -- et les deux se corrigent différemment.",
-      "tests": [
-        "fixture aud01-reproduction-past-slot-with-lead-time (reproduction littérale)",
-        "fixture aud01-slot-entirely-past",
-        "fixture aud01-slot-started-not-ended",
-        "fixture aud01-slot-starts-one-second-before-threshold",
-        "fixture aud01-slot-starts-exactly-at-threshold (inclusif)",
-        "fixture aud01-slot-starts-after-threshold",
-        "fixture aud01-all-offers-removed-unfulfillable",
-        "fixture aud01-future-day-remains-valid",
-        "fixture pickup-window-clipped-by-lead-time",
-        "[AUD01-1..5] TypeScript",
-        "[AUD01-SQL] structurel",
-        "harnais : 34 cas de fixture rejoués en SQL"
-      ]
-    },
-    "CSDJ1-AUD-02": {
-      "severity": "P1",
-      "invariant": "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01",
-      "problem": "Le serveur acceptait une heure murale locale INEXISTANTE (Europe/Paris, 2026-03-29 02:10-02:50) : PostgreSQL la normalisait en silence. Une normalisation de moteur n'est pas une politique commerciale.",
-      "policy": "REFUS FERMÉ des deux cas pathologiques : heure inexistante du saut de printemps ET heure ambiguë du recul d'automne. Pour une heure ambiguë, « nous vous livrons à 02:30 » désignerait deux instants distants d'une heure, et personne n'aurait choisi lequel. Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration : la même fenêtre reste valide les 364 autres jours -- c'est pourquoi il ne peut pas être prononcé à l'écriture.",
-      "authority": "public.checkout_wall_time_status() classe ok/nonexistent/ambiguous ; public.checkout_wall_time_instant() rend NULL dès que l'heure n'est pas univoque. Le NULL est un REFUS, jamais une absence de valeur. Miroir TypeScript : resolveWallTime().",
-      "tests": [
-        "fixture aud02-paris-spring-forward-nonexistent-rejected",
-        "fixture aud02-paris-autumn-fallback-ambiguous-rejected",
-        "fixture aud02-utc-no-transition",
-        "fixture aud02-utc-plus-14-no-transition",
-        "fixture aud02-negative-offset-spring-forward",
-        "fixture aud02-negative-offset-autumn-fallback",
-        "[AUD02-1..6] TypeScript (01:59 valide, 02:xx refusée, 03:00 valide ; UTC, UTC+14, décalage négatif)",
-        "post-vol SQL : la politique doit refuser l'inexistante ET l'ambiguë, et ne pas refuser une heure ordinaire"
-      ]
-    },
-    "CSDJ1-AUD-03": {
-      "severity": "P1",
-      "invariant": "CSDJ-V1-MODE-ENABLED-GATE-01",
-      "problem": "restaurant_sale_modes.enabled = false et la lecture publique projetait quand même la planification : l'activation n'était vérifiée qu'indirectement, pour la livraison, via l'autorité de tarification.",
-      "fix": "La lecture publique vérifie l'activation du mode AVANT toute projection, pour tous les modes. La réponse est celle d'une absence, volontairement INDISCERNABLE de « aucune planification » et de « planification désactivée » : un statut distinct ferait de la surface publique un moyen de sonder la configuration d'un commerçant.",
-      "noLeak": "Ni fuseau, ni politique de date, ni politique d'horaire, ni granularité, ni date, ni offre. Prouvé par [15c] et par [15d], qui compare la réponse à celle d'un commerçant sans planification.",
-      "tests": [
-        "[15a] mode activé => projection",
-        "[15b] désactivé APRÈS configuration => absent",
-        "[15c] aucune fuite (six champs vides)",
-        "[15d] indiscernable d'une absence",
-        "[15e] réactivé => projette de nouveau",
-        "[15f] mode absent chez l'autre tenant",
-        "[15g] mode hors catalogue => refus nommé",
-        "[AUD03-SQL] la garde précède la résolution"
-      ]
-    },
-    "CSDJ1-AUD-04": {
-      "severity": "P2",
-      "invariants": [
-        "CSDJ-V1-MINUTE-PRECISION-01",
-        "CSDJ-V1-NO-24H-01"
-      ],
-      "problem": "Un créneau 09:00:01-09:00:59 se sérialisait publiquement en « 09:00-09:00 » tout en restant disponible : une offre de durée nulle affichée comme réservable.",
-      "contract": "Toute heure de configuration est à la MINUTE, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée -- tronquer était précisément le défaut, parce que la configuration disait une chose et la projection une autre. Toute représentation publique est HH:MM. 24:00 est refusé explicitement : une fin de journée se déclare 23:59, sinon chaque comparaison, chaque formatage et chaque calcul d'instant devrait connaître ce cas particulier.",
-      "enforcement": "Contrainte sur CHAQUE colonne time des trois tables, refus nommé CSDJ1_SUBMINUTE_TIME dans la RPC d'écriture avant la contrainte, et parseScheduleTime qui refuse au lieu d'arrondir. Même règle des deux côtés.",
-      "tests": [
-        "[16a..16i] harnais",
-        "[MODEL-8] et [MODEL-10] TypeScript",
-        "[AUD04-1..2] TypeScript",
-        "fixture aud04-subminute-offer-not-admissible (refus d'insertion prouvé)",
-        "[16h] aller-retour de sérialisation",
-        "[16i] aucune offre de durée nulle possible"
-      ]
-    },
-    "CSDJ1-AUD-05": {
-      "severity": "P2",
-      "invariant": "CSDJ-V1-RESOLVER-EXACT-SHAPE-01",
-      "problem": "Le pré-vol cherchait les colonnes attendues par SOUS-CHAÎNE dans le texte de la signature : « not_eligible » contient « eligible », « not_block » contient « block ». Le lot s'appliquait, puis échouait en 42703 à la première lecture -- c'est-à-dire en production et non à l'application.",
-      "fix": "Vérification par INTROSPECTION DU CATALOGUE : nom EXACT et TYPE EXACT de chaque colonne de sortie, lus dans pg_proc via unnest(proargnames, proargmodes, proallargtypes), en ne retenant que les colonnes de mode 't'. Plus l'exigence d'une surcharge UNIQUE, sans laquelle le contrôle serait ambigu. Aucune heuristique textuelle.",
-      "tests": [
-        "[18] CONTRÔLE POSITIF : une forme conforme s'applique (le garde ne refuse pas tout)",
-        "[18] SOSIE par sous-chaîne (not_eligible / not_block)",
-        "[18] colonne RENOMMÉE (is_eligible)",
-        "[18] MAUVAIS type (delivery_fee en text)",
-        "[18] colonne ABSENTE (free_threshold retirée)",
-        "[18] SURCHARGE supplémentaire",
-        "chaque mutation vérifie aussi qu'AUCUN objet du lot n'a été créé avant le refus",
-        "[AUD05-SQL] structurel : plus aucune vérification par sous-chaîne"
-      ]
-    },
-    "CSDJ1-AUD-06": {
-      "severity": "P2",
-      "problem": "`boolean::text` rend « true »/« false » ; « t »/« f » est la forme de l'affichage ALIGNÉ de psql. La capture employait ::text et la comparaison testait « t » : elle échouait toujours, et la branche de repli restaurait NOLOGIN NOBYPASSRLS. Invisible sur un cluster jetable détruit juste après, mais durable sur un cluster DÉSIGNÉ par l'opérateur.",
-      "fix": "L'instantané encode explicitement 1/0, la restauration compare à 1/0, et le verrou de sûreté n'accepte que les quatre instantanés bien formés -- un instantané d'une autre forme fait REFUSER l'exécution plutôt que muter un cluster non restaurable.",
-      "dedicatedHarness": "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh — 22 preuves : les quatre combinaisons LOGIN x BYPASSRLS sur les trois rôles, en mode CLUSTER DÉSIGNÉ (le seul où la restauration a des conséquences durables), plus le cas du rôle initialement ABSENT, plus quatre contrôles de forme.",
-      "mutationControl": "harness-role-restoration-mutation.txt : le défaut réinjecté dans une COPIE hors dépôt produit 13 échecs décrivant exactement la corruption que l'audit a décrite (LOGIN -> NOLOGIN, BYPASSRLS -> NOBYPASSRLS). Sans ce contrôle, 22 preuves vertes ne diraient pas si le harnais sait détecter quoi que ce soit.",
-      "sameDefectElsewhere": "Le MÊME défaut existe dans supabase/tests/merchant-customer-communications-v1-check.sh (lignes 340 et 376), d'où ce harnais a été dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Signalé pour planification -- voir aud06-same-defect-elsewhere.txt."
-    }
+  "CSDJ1-AUD-04": {
+   "severity": "P2",
+   "invariants": [
+    "CSDJ-V1-MINUTE-PRECISION-01",
+    "CSDJ-V1-NO-24H-01"
+   ],
+   "problem": "Un créneau 09:00:01-09:00:59 se sérialisait publiquement en « 09:00-09:00 » tout en restant disponible : une offre de durée nulle affichée comme réservable.",
+   "contract": "Toute heure de configuration est à la MINUTE, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée -- tronquer était précisément le défaut, parce que la configuration disait une chose et la projection une autre. Toute représentation publique est HH:MM. 24:00 est refusé explicitement : une fin de journée se déclare 23:59, sinon chaque comparaison, chaque formatage et chaque calcul d'instant devrait connaître ce cas particulier.",
+   "enforcement": "Contrainte sur CHAQUE colonne time des trois tables, refus nommé CSDJ1_SUBMINUTE_TIME dans la RPC d'écriture avant la contrainte, et parseScheduleTime qui refuse au lieu d'arrondir. Même règle des deux côtés.",
+   "tests": [
+    "[16a..16i] harnais",
+    "[MODEL-8] et [MODEL-10] TypeScript",
+    "[AUD04-1..2] TypeScript",
+    "fixture aud04-subminute-offer-not-admissible (refus d'insertion prouvé)",
+    "[16h] aller-retour de sérialisation",
+    "[16i] aucune offre de durée nulle possible"
+   ]
   },
-  "narrowObservationsClosed": {
-    "zeroUuidReserved": "Le zéro UUID, sentinelle interne de « portée de mode », est RÉSERVÉ : contrainte rfs_rule_id_not_sentinel et refus nommé CSDJ1_RESERVED_RULE_ID. Sans cela, « portée de mode » et « portée de cette règle-là » deviendraient indiscernables le jour où une règle porterait cette valeur.",
-    "bookingHorizonZero": "L'horizon accepte 0 (« aujourd'hui seulement »), forme minimale dans laquelle se reproduit AUD-01 -- et cas commerçant réel."
+  "CSDJ1-AUD-05": {
+   "severity": "P2",
+   "invariant": "CSDJ-V1-RESOLVER-EXACT-SHAPE-01",
+   "problem": "Le pré-vol cherchait les colonnes attendues par SOUS-CHAÎNE dans le texte de la signature : « not_eligible » contient « eligible », « not_block » contient « block ». Le lot s'appliquait, puis échouait en 42703 à la première lecture -- c'est-à-dire en production et non à l'application.",
+   "fix": "Vérification par INTROSPECTION DU CATALOGUE : nom EXACT et TYPE EXACT de chaque colonne de sortie, lus dans pg_proc via unnest(proargnames, proargmodes, proallargtypes), en ne retenant que les colonnes de mode 't'. Plus l'exigence d'une surcharge UNIQUE, sans laquelle le contrôle serait ambigu. Aucune heuristique textuelle.",
+   "tests": [
+    "[18] CONTRÔLE POSITIF : une forme conforme s'applique (le garde ne refuse pas tout)",
+    "[18] SOSIE par sous-chaîne (not_eligible / not_block)",
+    "[18] colonne RENOMMÉE (is_eligible)",
+    "[18] MAUVAIS type (delivery_fee en text)",
+    "[18] colonne ABSENTE (free_threshold retirée)",
+    "[18] SURCHARGE supplémentaire",
+    "chaque mutation vérifie aussi qu'AUCUN objet du lot n'a été créé avant le refus",
+    "[AUD05-SQL] structurel : plus aucune vérification par sous-chaîne"
+   ]
   },
-  "nonBlockingLeftOpen": {
-    "displayOrder": "`display_order` est stocké mais n'ordonne rien : l'ordre des offres est celui des heures de début, déterministe et indépendant d'une saisie. La colonne est réservée à l'éditeur back-office (hors CSDJ-1). Aucun invariant v1 n'est violé.",
-    "overlappingNamedSlots": "Deux créneaux nommés peuvent se chevaucher, et c'est voulu : « matin » 09:00-13:00 et « midi » 12:00-14:00 sont une offre commerciale légitime. Les FENÊTRES, elles, ne peuvent pas se superposer, parce qu'elles décrivent une ouverture et non un choix. Aucun invariant v1 n'est violé.",
-    "csdj3RollbackCoordination": "Le point d'extension existe déjà : le retour arrière REFUSE de passer si public.order_fulfillment_schedule_snapshot (CSDJ-3) est présente, avec SCANYM_ROLLBACK_REFUSED. CSDJ-3 n'est pas implémenté."
-  },
-  "pythonFixtureEvidence": {
-    "claim": "MAINTENUE, et désormais vérifiable",
-    "source": "tests/fixtures/build-checkout-scheduling-cases.py (versionné au dépôt)",
-    "command": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
-    "log": "fixture-generation.log",
-    "python": "3.13.16 (CPython)",
-    "tzdata": "2026c (/usr/share/zoneinfo, paquet système tzdata 2026c-0ubuntu0.24.04.1)",
-    "byteReproducible": "Relancer le générateur reproduit tests/fixtures/checkout-scheduling-cases.json À L'OCTET (vérifié par comparaison d'empreinte avant/après).",
-    "independence": "Un test structurel [FIXTURE-SOURCE-1] vérifie que le générateur ne LIT ni n'EXÉCUTE aucune des deux implémentations qu'il juge, et qu'il tire ses fuseaux de la bibliothèque standard."
-  },
-  "results": {
-    "targetedTests": {
-      "pass": 155,
-      "fail": 0,
-      "files": {
-        "csdj1-scheduling-model": 10,
-        "csdj1-scheduling-eligibility": 78,
-        "csdj1-sql-structural": 59,
-        "csdj1-oracle-independence": 8
-      }
-    },
-    "requiredRegressions": {
-      "pass": 285,
-      "fail": 0,
-      "files": 12
-    },
-    "sqlHarness": {
-      "proofs": 156,
-      "fail": 0,
-      "sections": 19
-    },
-    "roleRestorationHarness": {
-      "proofs": 195,
-      "fail": 0,
-      "sections": [
-        "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif",
-        "[B] forme de l'instantané",
-        "[C] rôle initialement absent",
-        "[D] onze variables hostiles + vecteur complet + contrôle positif",
-        "[E] isolation, prédicat partagé, détecteur externalisé + 17 fixtures D/R/C",
-        "[F] nocivité de PGHOSTADDR",
-        "[G] dix contrôles négatifs d'identité + contrôle positif",
-        "[H] dix-huit contrôles de socket + S1/S2 d'octets réservés + contrôle positif",
-        "[I] nocivité du détecteur : la séquence de l'audit mute réellement un rôle"
-      ]
-    },
-    "harnessRefusals": {
-      "withoutConsent": {
-        "exit": 2
-      },
-      "inheritedRedirectVar": {
-        "exit": 2,
-        "valueLeaked": 0
-      }
-    },
-    "typescript": {
-      "exit": 0,
-      "diagnostics": 0
-    },
-    "build": {
-      "exit": 0,
-      "routesAdded": [],
-      "routes": 39
-    },
-    "fullSuite": {
-      "runOrder": "SÉQUENTIEL (--test-concurrency=1), machine au repos",
-      "baseline": {
-        "sha": "412dbb53c5f180983860852b79425209c04b9c42",
-        "pass": 4768,
-        "fail": 10
-      },
-      "sixthRemediation": {
-        "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
-        "tests": 4933,
-        "pass": 4923,
-        "fail": 10
-      },
-      "candidate": {
-        "sha": "de70c13de7fd3c9872b9f7eff6be24d76a65dace",
-        "tests": 4933,
-        "pass": 4923,
-        "fail": 10
-      },
-      "appeared": 0,
-      "disappeared": 0,
-      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux de la BASE, du sixième candidat et de celui-ci sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Aucun test ajouté ni retiré ce tour : les deux tests structurels concernés ont été RÉÉCRITS, pas multipliés -- d'où un total inchangé.",
-      "nondeterminism": "aucun échec intermittent : suite exécutée machine au repos."
-    },
-    "fixtureThreeWay": {
-      "offerCases": 48,
-      "offerDivergences": 0,
-      "classificationPoints": 38,
-      "classificationDivergences": 0,
-      "note": "les attendus viennent d'un oracle qui ne partage PAS la méthode des deux jugés"
-    }
-  },
-  "preserved": [
-    "isolation multi-locataires",
-    "réutilisation de l'autorité de tarification",
-    "retour arrière",
-    "frontière de propriété Debussy",
-    "aucune fuite de fournisseur",
-    "aucun second moteur de prix",
-    "aucun texte Theme/MCC",
-    "aucune interface de paiement",
-    "aucun instantané de commande",
-    "aucune API transporteur",
-    "aucune application hébergée",
-    "aucun merge, aucun déploiement"
-  ],
-  "productionTouched": false,
-  "firstRemediation": {
-    "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
-    "tree": "dd4163c8c9303974ebd81a676f51953f207e420d",
-    "evidenceHead": "54ccccd",
-    "verdict": "FAIL (re-audit delta) — six blockers clos, deux restants",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit. Il est le grand-parent du nouveau candidat."
-  },
-  "secondRemediationBlockers": {
-    "CSDJ1-AUD-02": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — validation DST/heure murale INCOMPLÈTE",
-      "invariants": [
-        "CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01",
-        "CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01"
-      ],
-      "reproductionsFromAudit": {
-        "window-0130-0230-paris-2026-03-29": "offerte alors que 02:30 n'existe pas",
-        "window-0130-0330-paris-2026-03-29": "pouvait exposer des heures murales inexistantes de la grille",
-        "lord-howe-2026-04-05-0145": "traitée comme valide alors qu'elle est AMBIGUË — la transition fait TRENTE minutes"
-      },
-      "rootCauses": [
-        "Hypothèse de TAILLE : chercher l'ambiguïté « à plus ou moins une heure » rate toute transition d'une autre durée.",
-        "Hypothèse de SUFFISANCE : valider le seul DÉBUT laisse passer une fin et des points de grille inexistants."
-      ],
-      "classificationAlgorithm": {
-        "name": "échantillonnage des décalages réellement en vigueur, puis comptage des candidats",
-        "probes": [
-          "-1 jour",
-          "-4 heures",
-          "0",
-          "+4 heures",
-          "+1 jour"
-        ],
-        "steps": [
-          "Lire le décalage UTC en vigueur à chacune des cinq sondes autour de l'instant naïf ; ne retenir que les décalages DISTINCTS.",
-          "Pour chaque décalage distinct, construire un instant candidat = (heure murale) - (décalage).",
-          "Ne garder que les candidats qui, re-rendus dans le fuseau, redonnent EXACTEMENT la date et la minute demandées.",
-          "Compter : 0 => nonexistent, 1 => valid_unique, >= 2 => ambiguous."
-        ],
-        "noAssumption": "Aucune durée de transition n'intervient. Aucune constante d'une heure (1 hour, 3600, interval '01:00', hours => 1) n'existe dans la décision, et [AUD02-SQL-2] l'interdit structurellement des deux côtés.",
-        "noEngineNormalization": "La classification n'accepte jamais le résultat d'une normalisation PostgreSQL : elle vérifie par ALLER-RETOUR que l'instant retenu rend bien l'heure demandée.",
-        "statuses": [
-          "valid_unique",
-          "nonexistent",
-          "ambiguous"
-        ],
-        "catalogue": "public.checkout_wall_time_statuses(), miroir de CHECKOUT_WALL_TIME_STATUSES ([MIRROR-9])",
-        "refusalNotAbsence": "checkout_wall_time_instant() rend NULL dès que le statut n'est pas valid_unique : un REFUS, pas une absence de valeur."
-      },
-      "windowGridPolicy": {
-        "rule": "Une occurrence est exposée EN ENTIER ou pas du tout. Début, FIN et CHAQUE point de la grille sélectionnable doivent être valid_unique. Un seul point non univoque et l'occurrence disparaît CE JOUR-LÀ.",
-        "scope": "l'OCCURRENCE d'une date, jamais la configuration : la même fenêtre reste valide les autres jours.",
-        "noInvention": "Aucune heure de remplacement n'est proposée. Le refus est fermé et nommé.",
-        "gridAnchoring": "La grille reste ancrée sur le DÉBUT CONFIGURÉ -- elle doit rester celle que le commerçant a décrite -- et tous ses points sont validés, pas seulement la part encore réalisable : sur une date ordinaire, le client pourrait choisir n'importe lequel."
-      },
-      "lordHoweResult": {
-        "2026-04-05 01:00": "valid_unique",
-        "2026-04-05 01:29": "valid_unique",
-        "2026-04-05 01:30": "ambiguous",
-        "2026-04-05 01:45": "ambiguous  <= le cas exact du re-audit : désormais REFUSÉ",
-        "2026-04-05 01:59": "ambiguous",
-        "2026-04-05 02:00": "valid_unique",
-        "2026-10-04 02:00 / 02:10 / 02:29": "nonexistent (saut de trente minutes)",
-        "2026-05-03 01:45": "valid_unique — la politique ne SUR-REFUSE pas une date ordinaire",
-        "offerConsequence": "fixture aud02-lord-howe-autumn-30min-ambiguous : les créneaux exposés sont t0100 et t0200 UNIQUEMENT ; t0145 a disparu. fixture aud02-lord-howe-spring-30min-nonexistent : t0130 et t0230, t0210 a disparu."
-      },
-      "zonesCovered": [
-        "Europe/Paris",
-        "Australia/Lord_Howe (transition de 30 min)",
-        "UTC (aucune transition)",
-        "Pacific/Kiritimati (UTC+14)",
-        "America/Los_Angeles (décalage négatif)",
-        "America/New_York",
-        "Pacific/Chatham (décalage à 45 min)",
-        "Asia/Kathmandu (décalage à 45 min)"
-      ],
-      "threeWayAgreement": {
-        "points": 38,
-        "implementations": [
-          "Python (resolve_wall)",
-          "TypeScript (resolveWallTime)",
-          "SQL (checkout_wall_time_status, EXTRAITE LITTÉRALEMENT du lot)"
-        ],
-        "divergences": 0,
-        "file": "wall-time-three-way-agreement.txt"
-      },
-      "tests": [
-        "[AUD02-1..4] bornes Paris printemps/automne, zones sans transition, décalage négatif",
-        "[AUD02-7] Lord Howe dans les DEUX sens + un dimanche ordinaire",
-        "[AUD02-8] structurel : aucune constante de 3 600 000 dans la décision TypeScript",
-        "[AUD02-9] les QUATRE fenêtres exigées par l'audit (01:30-02:30, 02:00-03:00, 01:30-03:30, 03:00-04:00)",
-        "[AUD02-10] le refus porte sur l'OCCURRENCE, pas sur la configuration",
-        "[AUD02-11] un cutoff non univoque ne compte pas la date comme ouverte",
-        "[AUD02-SQL-2] sondes présentes, aucune constante d'une heure, décision par comptage",
-        "[AUD02-SQL-3] fin + grille validées, verdict d'ensemble, fixtures exigées présentes",
-        "[MIRROR-9] catalogue des trois statuts, SQL ≡ TypeScript",
-        "post-vol SQL : sondes Lord Howe (ambiguë, inexistante, ordinaire) + cardinalité du catalogue",
-        "harnais SQL : 18 cas aud02-* rejoués par l'AUTORITÉ SQL, tous conformes"
-      ]
-    },
-    "CSDJ1-AUD-07": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — le harnais de restauration de rôles n'était pas isolé",
-      "invariants": [
-        "CSDJ-V1-HARNESS-CLEAN-ENV-01",
-        "CSDJ-V1-DESTINATION-PROOF-01"
-      ],
-      "problem": "q() héritait des variables libpq de l'environnement appelant. PGHOSTADDR l'emporte sur un « -h » explicite : le harnais pouvait donc muter les rôles globaux d'un AUTRE serveur que celui que le verrou de sûreté avait constaté, et le constater trop tard.",
-      "defenceInDepth": {
-        "1-refusalByName": {
-          "variables": 27,
-          "named": [
-            "PGHOST",
-            "PGHOSTADDR",
-            "PGPORT",
-            "PGDATABASE",
-            "PGUSER",
-            "PGPASSWORD",
-            "PGPASSFILE",
-            "PGSERVICE",
-            "PGSERVICEFILE",
-            "PGSYSCONFDIR",
-            "PGCLUSTER",
-            "PGREQUIRESSL",
-            "PGSSLMODE",
-            "PGSSLROOTCERT",
-            "PGSSLCERT",
-            "PGSSLKEY",
-            "PGOPTIONS",
-            "PGCONNECT_TIMEOUT",
-            "PGTARGETSESSIONATTRS",
-            "PGDATA",
-            "DATABASE_URL",
-            "POSTGRES_URL",
-            "POSTGRESQL_URL",
-            "PG_URL",
-            "SUPABASE_DB_URL",
-            "SCANYM_DB_URL",
-            "SCANYM_DATABASE_URL"
-          ],
-          "byNameOnly": "Le refus nomme la variable et JAMAIS sa valeur : une valeur peut être un secret.",
-          "defensiveSweep": "Toute autre PG* héritée est retirée, pour qu'aucun oubli de la liste ne subsiste.",
-          "exitCode": 2
-        },
-        "2-isolation": {
-          "mechanism": "env -i PATH=<sûr> HOME=<jetable> <binaire absolu> -X -A -q -t -h <socket> -p <port> -U <rôle> -d postgres",
-          "absoluteBinaries": "initdb, pg_ctl et psql sont résolus une fois en chemin ABSOLU : un binaire résolu par le PATH est un binaire que le PATH peut remplacer.",
-          "structuralCheck": "[E] reconstitue les LIGNES LOGIQUES du fichier (continuations recollées) et exige « env -i » devant chaque commande client. Le détecteur compte ce qu'il examine : un détecteur qui ne trouverait rien passerait pour vert.",
-          "singleDeliberateException": "[F] contient UN appel non isolé délibéré, nommé PSQL_UNISOLATED_ON_PURPOSE, en LECTURE SEULE. [E] exige qu'il soit unique et que sa requête soit un SELECT."
-        },
-        "3-destinationProof": {
-          "when": "immédiatement AVANT chaque mutation de rôle, pas au démarrage",
-          "facts": [
-            "socket unix (donc aucune destination réseau)",
-            "data_directory",
-            "config_file",
-            "port",
-            "current_user",
-            "is_superuser",
-            "nonce propre à cette exécution"
-          ],
-          "onFailure": "ABORT AVANT mutation. « aucune mutation tentée. »",
-          "discriminates": "La même preuve adressée au cluster TÉMOIN échoue, et le nonce n'existe que dans le cluster sous test.",
-          "mainHarness": "Le harnais principal ferme le même trou côté nettoyage : si la destination n'est plus celle qui a franchi le verrou, il ABANDONNE la restauration (« RESTAURATION DE RÔLES ABANDONNÉE ») plutôt que de muter le mauvais serveur."
-        }
-      },
-      "defectFoundInTheProofItself": {
-        "what": "« pg_catalog.current_user » n'est pas une fonction qualifiable mais un CONSTRUCTEUR DU PARSEUR : PostgreSQL le lit comme la colonne « current_user » de la table « pg_catalog » et la requête échoue (« missing FROM-clause entry for table pg_catalog », vérifié empiriquement). Même famille que coalesce, nullif, extract et unnest multi-tableaux.",
-        "fix": "Écrit non qualifié (sans risque : un mot-clé réservé n'est pas résoluble via search_path), des deux côtés.",
-        "guard": "[A] exige désormais qu'une exécution NOMINALE sur le cluster désigné n'abandonne JAMAIS la restauration. Le contrôle de mutation M4 prouve que cette garde voit une preuve cassée.",
-        "whyItMattered": "Une preuve d'identité CASSÉE se comporte comme une preuve ÉCHOUÉE : elle abandonne la restauration. Fermé, donc sans danger -- mais MUET, et le chemin de restauration aurait été mort sans que rien ne le dise."
-      },
-      "harmfulnessControl": {
-        "why": "Un refus qui protège d'un danger inexistant ne prouve rien.",
-        "witness": "un second cluster, créé par le même fichier, qui écoute en TCP sur 127.0.0.1 au MÊME NUMÉRO DE PORT que le cluster sous test -- lequel n'écoute AUCUN TCP. La redirection est donc réellement possible.",
-        "reproduction": "PGHOSTADDR=127.0.0.1 PGPORT=<port> psql -h <socket privée> -p <port> : sans isolation, la connexion aboutit AU TÉMOIN (data_directory du témoin). Le MÊME appel sous « env -i » aboutit au cluster SOUS TEST. Lecture seule : aucun rôle du témoin n'est muté.",
-        "result": "[F] NOCIF puis NEUTRALISÉ, et témoin intact."
-      },
-      "hostileEnvironmentTests": {
-        "method": "le harnais est relancé EN ENFANT avec la variable pointant vers le témoin",
-        "variables": [
-          "PGHOSTADDR",
-          "PGHOST",
-          "PGPORT",
-          "PGDATABASE",
-          "PGUSER",
-          "PGSERVICE",
-          "PGSERVICEFILE",
-          "PGPASSWORD",
-          "PGPASSFILE",
-          "PGSYSCONFDIR",
-          "DATABASE_URL"
-        ],
-        "assertedForEach": [
-          "refus avec le code 2",
-          "le refus NOMME la variable",
-          "la VALEUR n'apparaît nulle part dans la sortie",
-          "le témoin a subi ZÉRO mutation"
-        ],
-        "fullVector": "PGHOSTADDR=127.0.0.1 + PGPORT=<port du témoin> ensemble : refus, et témoin intact.",
-        "positiveControl": "un environnement propre ne déclenche PAS ce refus et atteint bien le cluster sous test -- sans quoi un harnais qui refuserait TOUT passerait pour protégé."
-      },
-      "results": {
-        "proofs": 87,
-        "failures": 0
-      }
-    }
-  },
-  "mutationControls": {
-    "file": "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh (VERSIONNÉ, rejouable)",
-    "log": "harness-mutation-controls.txt",
-    "rationale": "Un harnais vert ne prouve rien si le défaut qu'il interdit peut être réinjecté sans qu'il échoue.",
-    "M1": {
-      "defect": "un « env -i » retiré devant un appel client",
-      "result": "DÉTECTÉ, code 1"
-    },
-    "M2": {
-      "defect": "nocivité de PGHOSTADDR",
-      "result": "prouvée par démonstration directe ([F])"
-    },
-    "M3": {
-      "defect": "instantané de rôle en ::text comparé à « t » (AUD-06)",
-      "result": "DÉTECTÉ — 13 échecs"
-    },
-    "M4": {
-      "defect": "le MARQUEUR retiré du prédicat (AUD-07, 2e passe)",
-      "result": "DÉTECTÉ — marqueur retiré/changé acceptent la mutation, rôle témoin réellement muté"
-    },
-    "M5": {
-      "defect": "data_directory et config_file retirés du prédicat",
-      "result": "DÉTECTÉ"
-    },
-    "M6": {
-      "defect": "l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE (AUD-07, 4e passe)",
-      "result": "DÉTECTÉ — « PRÉFIXE d'une entrée » et « répertoire PARENT » sont ACCEPTÉS à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
-    },
-    "conclusive": 8,
-    "missing": 0,
-    "M7": {
-      "defect": "le parseur sensible aux guillemets remplacé par un DÉCOUPAGE BRUT à chaque virgule",
-      "result": "DÉTECTÉ — « FRAGMENT avant la virgule citée » est ACCEPTÉ à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
-    },
-    "M8": {
-      "defect": "la défense anti-collision des octets réservés retirée",
-      "result": "DÉTECTÉ — S1 et S2 ACCEPTENT la fausse identité et le rôle témoin passe RÉELLEMENT de NOBYPASSRLS à BYPASSRLS (empreinte « :00 » -> « :01 »)"
-    },
-    "M9": {
-      "defect": "la fuite d'état par les commentaires et les continuations, réinjectée",
-      "result": "DÉTECTÉ — R1 redevient GARDEE (plus r3, c1, c2 mal classées) et, dans la MÊME exécution, [I] montre la mutation réellement appliquée. Le contrôle prouve la NOCIVITÉ, pas seulement un changement d'étiquette."
-    }
-  },
-  "preservedAreasRetested": {
-    "AUD-PYTHON-01": "PASS — oracle, fixture, résolveur, SQL du lot et bibliothèque d'identité NON TOUCHÉS (git diff vide) ; 8 tests [ORACLE-*]",
-    "AUD-02": "PASS — 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL s'accordent avec l'oracle sans divergence",
-    "AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
-    "AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
-    "AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
-    "AUD-06": "PASS — quatre combinaisons LOGIN x BYPASSRLS et rôle initialement ABSENT restaurés EXACTEMENT, en mode cluster DÉSIGNÉ, APRÈS les deux corrections ; contrôle M3 toujours discriminant",
-    "LORD HOWE": "PASS — ambiguë, inexistante et ordinaire, dans les deux sens",
-    "OCCURRENCE ALL-OR-NOTHING": "PASS — [AUD02-SQL-3]",
-    "NONCE missing/changed": "PASS — [G] « marqueur RETIRÉ » et « marqueur CHANGÉ », zéro mutation ; M4",
-    "DATA_DIRECTORY guard": "PASS — [G] « data_directory faux », zéro mutation ; M5",
-    "CONFIG_FILE guard": "PASS — [G] « config_file faux », zéro mutation ; M5",
-    "PGHOSTADDR rejection": "PASS — code 2, valeur jamais journalisée (0 occurrence), aucune mutation tentée ; nocivité toujours démontrée en [F]",
-    "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète",
-    "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e], [NO-SECOND-ENGINE-1..2]",
-    "ROLLBACK": "PASS — harnais [13a..13g]",
-    "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (réserve d'intégration inchangée)",
-    "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base",
-    "SOCKET simple entries": "PASS — préfixe, suffixe, parent, sous-répertoire, /tm, /tmpx : tous refusés, zéro mutation ; M6 toujours concluant",
-    "SOCKET quoted-comma parsing": "PASS — M6 et M7 inchangés et rejoués, dix-huit contrôles de socket verts",
-    "SENTINEL / CSV / nonce / marker / data_directory / config_file / PGHOSTADDR": "PASS — csdj1-cluster-identity.sh non modifié ce tour ; M6, M7, M8 rejoués et concluants ; contrôles [G], [H], S1/S2 verts"
-  },
-  "scopeDiscipline": {
-    "redesign": "aucun",
-    "closedContractsAltered": "aucun, sauf l'ajout STRICTEMENT nécessaire du catalogue des trois statuts d'heure murale et le renommage de « ok » en « valid_unique » (le statut n'était pas encore exposé publiquement : aucune surface publique ne change).",
-    "csdj2Started": false,
-    "sameDefectElsewhere": "Le défaut d'isolation d'environnement existe aussi dans supabase/tests/merchant-customer-communications-v1-check.sh, dont ce harnais est dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Voir aud06-same-defect-elsewhere.txt."
-  },
-  "secondRemediation": {
-    "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
-    "tree": "659ec8a551bc35244fad87c08a96071a5eeed811",
-    "evidenceHead": "214eb7d9c9f6b13089f18ae35ee15a20fb9dc873",
-    "verdict": "FAIL (troisième re-audit delta) — AUD-02 fonctionnellement PASS, mais la PREUVE n'était plus indépendante ; AUD-07 encore partiel au nettoyage",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
-  },
-  "thirdRemediationBlockers": {
-    "CSDJ1-AUD-PYTHON-01": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — défaut d'INDÉPENDANCE DE PREUVE, non de comportement",
-      "problem": "`resolve_wall` reproduisait l'algorithme des deux implémentations livrées : échantillonnage de décalages, reconstruction d'instants candidats. Trois implémentations qui partagent une hypothèse ne se vérifient pas mutuellement -- elles se trompent ensemble, et leur accord n'établit rien. L'audit avait par ailleurs vérifié les zones obligatoires avec son propre oracle et n'avait trouvé AUCUNE erreur fonctionnelle : le défaut était bien dans la preuve.",
-      "whyItMattered": "Une preuve qui ne prouve rien est plus dangereuse qu'une absence de preuve, parce qu'on s'y fie.",
-      "foldRoundTripMethod": {
-        "name": "zoneinfo + fold=0 / fold=1 + validation par aller-retour",
-        "steps": [
-          "attacher le fuseau Z à l'heure murale naïve L avec fold=0 (première lecture possible)",
-          "attacher Z à L avec fold=1 (seconde lecture possible)",
-          "convertir chaque lecture en instant UTC par astimezone",
-          "reconvertir chaque instant vers Z  [ALLER-RETOUR]",
-          "ne garder que les instants dont l'heure murale relue vaut EXACTEMENT L",
-          "dédupliquer les instants UTC égaux"
-        ],
-        "classification": {
-          "0 instant": "nonexistent",
-          "1 instant": "valid_unique",
-          "2 instants": "ambiguous"
-        },
-        "noDurationAssumption": "En heure normale, fold=0 et fold=1 désignent le même instant : la déduplication en laisse un. Sur un recul d'horloge, deux instants distincts relisent tous deux L -- que le recouvrement fasse soixante minutes (Europe/Paris) ou TRENTE (Australia/Lord_Howe), le cardinal ne change pas. Sur un saut d'horloge, PEP 495 fait répondre fold=0 avec le décalage d'AVANT et fold=1 avec celui d'APRÈS ; l'un et l'autre relisent une heure murale décalée, et l'aller-retour les élimine tous les deux.",
-        "roundTripIsThePoint": "L'étape 4 est ce qui interdit d'accepter une normalisation : on ne fait jamais confiance à une conversion, on vérifie qu'elle rend ce qu'on avait demandé."
-      },
-      "whyIndependent": [
-        "Aucun décalage UTC n'est calculé : l'oracle n'appelle pas utcoffset() dans sa décision.",
-        "Aucun instant candidat n'est construit par soustraction d'un décalage.",
-        "Aucune sonde : les constantes -86400 / -14400 / +14400 / +86400 ont disparu du fichier.",
-        "La sémantique des fuseaux est entièrement déléguée à la bibliothèque standard (PEP 495).",
-        "Les deux implémentations JUGÉES continuent, elles, d'échantillonner : [ORACLE-2] l'exige, sans quoi l'indépendance pourrait disparaître par l'autre bout, par convergence."
-      ],
-      "fortyEightFixtureResult": "INCHANGÉS, octet pour octet. Le changement de méthode de l'oracle n'a modifié AUCUN des 48 attendus (comparaison des `cases` avant/après : identiques). La méthode a changé, les attendus non -- c'est exactement ce que vaut l'accord des trois.",
-      "byteReproducibility": "Deux exécutions successives du générateur produisent un fichier identique à l'octet. Empreinte du fichier livré : c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46. python 3.13.16 (CPython) / tzdata 2026c.",
-      "wallTimePoints": {
-        "count": 38,
-        "where": "tests/fixtures/checkout-scheduling-cases.json, clé wallTimeCases",
-        "judgedBy": "l'oracle indépendant",
-        "replayedBy": [
-          "resolveWallTime (TypeScript) — [ORACLE-3]",
-          "public.checkout_wall_time_status (SQL) — harnais [6o]"
-        ],
-        "divergences": 0,
-        "statusesExercised": {
-          "valid_unique": 19,
-          "nonexistent": 10,
-          "ambiguous": 9
-        }
-      },
-      "mandatoryCases": {
-        "Europe/Paris 2026-03-29 02:00": "nonexistent",
-        "Europe/Paris 2026-03-29 02:30": "nonexistent",
-        "Europe/Paris 2026-03-29 03:00": "valid_unique",
-        "Europe/Paris 2026-10-25 02:00 / 02:30 / 02:59": "ambiguous (intervalle vécu deux fois)",
-        "Australia/Lord_Howe 2026-04-05 01:45": "ambiguous",
-        "Australia/Lord_Howe 2026-04-05 01:00": "valid_unique",
-        "Australia/Lord_Howe 2026-04-05 02:00": "valid_unique",
-        "Australia/Lord_Howe 2026-10-04 02:10": "nonexistent",
-        "Australia/Lord_Howe 2026-05-03 01:45": "valid_unique",
-        "zonesAlsoCovered": [
-          "UTC",
-          "Pacific/Kiritimati",
-          "America/Los_Angeles",
-          "America/New_York",
-          "Pacific/Chatham",
-          "Asia/Kathmandu"
-        ]
-      },
-      "differentialControls": {
-        "rationale": "Le mandat le dit : ne pas se fier aux seules vérifications de chaîne de caractères. L'indépendance CONCEPTUELLE se démontre en confrontant l'oracle à des classificateurs délibérément faux.",
-        "brokenClassifiers": [
-          {
-            "defect": "ambiguïté cherchée à ±1 heure (le défaut du re-audit précédent)",
-            "contradictedOn": "Australia/Lord_Howe 2026-04-05 01:45"
-          },
-          {
-            "defect": "confiance à la normalisation du moteur, sans aller-retour (le défaut du premier candidat)",
-            "contradictedOn": "Europe/Paris 2026-03-29 02:30"
-          },
-          {
-            "defect": "sonde unique au point demandé",
-            "contradictedOn": "Europe/Paris 2026-10-25 02:30"
-          }
-        ],
-        "alsoRequired": "[ORACLE-5] exige que chaque classificateur faux soit JUSTE ailleurs : un classificateur faux partout serait trouvé le premier jour et ne dirait rien de la finesse de l'oracle."
-      },
-      "tests": [
-        "[ORACLE-1] méthode : fold + aller-retour, et AUCUNE sonde",
-        "[ORACLE-2] les deux jugés échantillonnent toujours (pas de convergence)",
-        "[ORACLE-3] TypeScript ≡ oracle sur les 38 points",
-        "[ORACLE-4] l'oracle contredit chaque classificateur faux sur le cas nommé",
-        "[ORACLE-5] chaque faux diverge quelque part, et pas partout",
-        "[ORACLE-6] les trois statuts sont exercés",
-        "[ORACLE-7] toutes les zones du mandat sont couvertes",
-        "[ORACLE-8] l'oracle ne dispose d'aucun mécanisme de lecture/exécution de ce qu'il juge",
-        "harnais [6o] SQL ≡ oracle sur les 38 points"
-      ]
-    },
-    "CSDJ1-AUD-07": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — identité de destination PARTIELLE au nettoyage",
-      "invariant": "CSDJ-V1-DESTINATION-PROOF-02",
-      "problem": "Le nettoyage ne vérifiait que quatre faits avant de muter des rôles : socket, port, utilisateur, superutilisateur. Il omettait data_directory, config_file et le marqueur d'exécution. Deux clusters différents peuvent satisfaire cette identité partielle -- même numéro de port, même nom d'utilisateur, même motif de nommage de socket -- et la requête extraite rendait le MÊME résultat que le marqueur fût changé ou retiré.",
-      "rootCause": "Pas la faiblesse d'un contrôle, mais l'EXISTENCE DE DEUX contrôles : un à la mise en place, un autre au nettoyage, subtilement différents. C'est la forme même du défaut.",
-      "fix": "UN seul prédicat, dans une bibliothèque sourcée par les deux harnais : supabase/tests/csdj1-cluster-identity.sh. Il n'existe plus deux versions de lui.",
-      "fullIdentityFields": [
-        "1. aucune destination réseau (inet_server_addr() vaut NULL)",
-        "2. la socket attendue figure dans unix_socket_directories",
-        "3. le port attendu",
-        "4. l'utilisateur attendu",
-        "5. le statut superutilisateur",
-        "6. le data_directory EXACT",
-        "7. le config_file EXACT",
-        "8. un MARQUEUR en base portant le nonce de CETTE exécution"
-      ],
-      "orderMatters": "Le statut superutilisateur est vérifié AVANT les réglages qui l'exigent : sinon un défaut de privilège se présenterait comme une erreur de permission et non comme un refus NOMMÉ. Un test structurel fixe cet ordre.",
-      "nonceDesign": {
-        "uniquePerRun": "nonce = étiquette d'exécution + 8 octets de /dev/urandom",
-        "storedInside": "une TABLE du cluster possédé, au nom étiqueté par l'exécution",
-        "readFromTheMutatingSession": "garde et mutation tiennent dans UN bloc DO unique : UNE session, UNE transaction. Prouver puis muter en deux connexions laissait un intervalle pendant lequel la destination pouvait changer.",
-        "notAFilesystemMarker": "un fichier témoin aurait prouvé que le SYSTÈME DE FICHIERS est le bon, pas que le SERVEUR joint est le bon. Le marqueur est lu en SQL : aucun autre serveur ne peut le présenter, quel que soit son port, son utilisateur ou le nom de sa socket.",
-        "refusesPreexisting": "si une table de ce nom existe déjà, le harnais REFUSE : il ne peut pas prouver qu'il en est le propriétaire.",
-        "removedUnderTheSameGuard": "le marqueur n'est retiré que du serveur qui vient de prouver son identité."
-      },
-      "everyMutatingPath": [
-        "mise en place des rôles globaux — déplacée hors de l'amorçage d'une base jetable, parce qu'un marqueur logé dans « postgres » n'y aurait pas été visible ; elle passe désormais par le point de passage commun, au niveau du cluster",
-        "mutations de rôles du harnais de rôles (set_role_attrs)",
-        "suppression de rôle du cas « initialement absent »",
-        "restauration des rôles au nettoyage — EN UNE SEULE transaction gardée : ou les trois rôles reviennent, ou aucun ne bouge",
-        "retrait du marqueur",
-        "aucun chemin de repli plus faible n'existe : en cas de refus, on ne « réessaie pas autrement »"
-      ],
-      "negativeControls": {
-        "requirement": "pour chacun : REFUS pour la BONNE raison, et ZÉRO mutation d'un rôle témoin",
-        "results": {
-          "data_directory faux": "REFUS « data_directory », zéro mutation",
-          "config_file faux": "REFUS « config_file », zéro mutation",
-          "marqueur RETIRÉ": "REFUS « marqueur_absent », zéro mutation — reproduction littérale du constat de l'audit",
-          "marqueur CHANGÉ": "REFUS « nonce », zéro mutation — reproduction littérale du constat de l'audit",
-          "nonce attendu faux": "REFUS « nonce », zéro mutation",
-          "port faux": "REFUS « port », zéro mutation",
-          "utilisateur faux": "REFUS « current_user », zéro mutation",
-          "non superutilisateur": "REFUS « is_superuser », zéro mutation",
-          "destination RÉSEAU (témoin)": "REFUS « destination_reseau », zéro mutation",
-          "socket attendue fausse": "REFUS « socket », zéro mutation"
-        },
-        "positiveControl": "le chemin NOMINAL mute toujours, et l'effet est observé sur le rôle témoin. Exigence explicite du mandat : « A harness that always aborts is not a PASS. »",
-        "whyRightReason": "exiger la BONNE raison interdit qu'un contrôle passe pour la mauvaise cause -- par exemple un refus de connexion qu'on prendrait pour un refus d'identité."
-      },
-      "pghostaddr": {
-        "preserved": true,
-        "gate": "27 variables, refus PAR LE NOM, jamais par la valeur",
-        "proof": "harness-refusal-redirect-var.txt : PGHOSTADDR=127.0.0.1 => code 2, « Aucune mutation n'a été tentée », et la valeur n'apparaît pas dans la sortie (0 occurrence).",
-        "harmfulnessStillDemonstrated": "section [F] : sans isolation la connexion aboutit AU TÉMOIN, sous env -i elle aboutit au cluster sous test."
-      },
-      "results": {
-        "proofs": 120,
-        "failures": 0
-      }
-    }
-  },
-  "integrationReservation": {
-    "whenRecomposing": "Le mandat l'ordonne au moment de l'intégration, pas maintenant : remplacer l'assertion fragile [OWNERSHIP-2] « exactement 14 clés MCC » par un invariant de PROPRIÉTÉ -- « CSDJ-1 n'ajoute ni ne modifie AUCUNE clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy, PR #134) a légitimement porté le catalogue à 17.",
-    "notChangedNow": "Ce candidat est construit sur 412dbb5, où 14 est la valeur juste. Le changer maintenant modifierait un contrat clos sans nécessité pour exécuter ce candidat.",
-    "currentMain": "2f45df7717b16b08075b51aabf9cec4afd4b2741 (non recomposé, lignée immuable)"
-  },
-  "thirdRemediation": {
-    "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
-    "tree": "cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce",
-    "evidenceHead": "662b00d0d58fde05f6d1aa62f7d9a3cd310d98af",
-    "verdict": "AUD-PYTHON-01, AUD-02, AUD-03, AUD-04, AUD-05, AUD-06 CLOS ; deux défauts d'AUD-07 restants",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
-  },
-  "fourthRemediationBlockers": {
-    "BLOCKER-1-witness-role-init": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — initialisation des rôles du TÉMOIN hors de la garde",
-      "problem": "Le cluster témoin recevait ses attributs distinctifs (service_role LOGIN BYPASSRLS, et de même pour anon et authenticated) par un appel brut `qw`, sans le prédicat d'identité complète. L'invariant exige que TOUTE mutation de rôle PostgreSQL ait lieu après la preuve complète, marqueur et nonce compris, dans le même chemin de mutation gardé.",
-      "whyItHappened": "Un cluster « qui ne sert que de témoin » paraît ne pas compter. Un appel brut qui ne compte pas est un appel brut qui comptera le jour où la destination n'est plus celle qu'on croit -- et ce fichier existe précisément pour prouver qu'on ne mute jamais le mauvais serveur.",
-      "fix": {
-        "witnessContract": [
-          "socket attendue (WIT_SOCK)",
-          "port (WIT_PORT)",
-          "utilisateur (OWNER)",
-          "assertion superutilisateur",
-          "data_directory (WIT_DATA_DIR_PROVEN)",
-          "config_file (WIT_CONFIG_FILE_PROVEN)",
-          "nonce d'exécution (WIT_NONCE)",
-          "marqueur en base (WIT_MARKER), au nom DISTINCT de celui du cluster sous test"
-        ],
-        "throughSharedGuard": "l'initialisation des rôles du témoin passe par csdj1_identity_mutate, le même prédicat atomique que toutes les autres mutations",
-        "namedContracts": "la bibliothèque gère désormais des contrats NOMMÉS. Quatre cohabitent : « test » (cluster sous test), « temoin », « banc » (banc d'essai de sockets) et « test_sans_privilege » (connexion non privilégiée). Les nommer, plutôt que sauvegarder et restaurer un contrat global à la main, évite exactement ce qui a produit le défaut d'origine : deux chemins presque identiques qui divergent sans qu'on le voie.",
-        "noRawCallRemains": "aucun appel brut `q` ou `qw` ne porte plus de mutation de rôle"
-      },
-      "structuralDetector": {
-        "where": "section [E] du harnais de rôles, et [AUD07-SQL-4] côté TypeScript",
-        "method": "raisonnement par COMMANDE ENGLOBANTE : une instruction de mutation vit presque toujours à l'intérieur d'un argument sur plusieurs lignes, et un contrôle ligne à ligne ne prouverait rien. Le détecteur suit l'ouvreur de commande le plus proche en amont et exige qu'il soit gardé.",
-        "scope": "les DEUX harnais, pour create role / alter role / drop role, dans les deux casses",
-        "wouldHaveCaughtThisDefect": true,
-        "alsoChecks": "les variables qui accumulent du SQL de mutation (RESTORE_SQL, PROBE_MUTATION) ne sont consommées que par une mutation gardée",
-        "countsWhatItExamines": "un détecteur qui ne trouverait rien à examiner passerait pour vert"
-      },
-      "verdict": "PASS"
-    },
-    "BLOCKER-2-socket-exact-match": {
-      "severity": "P1",
-      "verdictBefore": "FAIL — comparaison du répertoire de socket par SOUS-CHAÎNE",
-      "problem": "`strpos(unix_socket_directories, attendu) <> 0` acceptait tout fragment. Reproduction du rapport : socket réelle « /tmp », attendu « /tm » => accepté. Vérifié empiriquement : le répertoire PARENT et la LISTE ENTIÈRE passaient aussi.",
-      "whyItMattered": "Une identité qui accepte un fragment n'identifie rien. Sur un poste où plusieurs clusters jetables vivent côte à côte sous /tmp, le fragment est la règle et non l'exception.",
-      "fix": {
-        "entries": "`unix_socket_directories` est une LISTE séparée par des virgules, dont les entrées peuvent être encadrées de guillemets doubles (syntaxe PostgreSQL pour un chemin contenant une virgule ou un espace). Elle est découpée en ENTRÉES par string_to_array + unnest.",
-        "normalization": "chaque entrée est normalisée -- espaces extérieurs, guillemets, barre oblique finale ; « / » reste son propre répertoire -- et l'attendu est normalisé DE LA MÊME FAÇON côté shell (csdj1_identity_normalize_socket), sans quoi « /tmp/ » et « /tmp » seraient deux répertoires différents.",
-        "equality": "l'attendu doit être ÉGAL à une entrée complète. Aucun préfixe, suffixe ou fragment.",
-        "refusesEmptyExpected": "un attendu non absolu fait REFUSER la déclaration du contrat : un attendu vide aurait accepté une entrée vide.",
-        "listSyntaxPreserved": "la syntaxe de liste légitime de PostgreSQL reste prise en charge"
-      },
-      "socketLab": "un cluster de banc d'essai est créé par le harnais avec DEUX répertoires de socket (unix_socket_directories='A,B'). Sans lui, rien ne distingue « une entrée complète » de « la liste ».",
-      "negativeTests": {
-        "entrée EXACTE (membre 1)": "ACCEPTÉ",
-        "entrée EXACTE (membre 2)": "ACCEPTÉ",
-        "barre oblique finale, même répertoire": "ACCEPTÉ",
-        "PRÉFIXE d'une entrée": "REFUS « socket », zéro mutation",
-        "entrée + un caractère": "REFUS « socket », zéro mutation",
-        "répertoire PARENT": "REFUS « socket », zéro mutation",
-        "SOUS-répertoire d'une entrée": "REFUS « socket », zéro mutation",
-        "SUFFIXE d'une entrée": "REFUS « socket », zéro mutation",
-        "la LISTE entière": "REFUS « socket », zéro mutation",
-        "reproduction d'audit : /tmp vs /tm": "REFUS « socket », zéro mutation",
-        "reproduction d'audit : /tmp vs /tmpx": "REFUS « socket », zéro mutation"
-      },
-      "harmfulnessDemonstrated": "pour trois attendus partiels, le harnais montre EN LECTURE SEULE que l'ANCIEN prédicat (sous-chaîne) les acceptait et que le nouveau les refuse. La menace n'est pas déclarée, elle est reproduite.",
-      "verdict": "PASS"
-    },
-    "incidental": {
-      "backticksInHeredoc": "un commentaire du heredoc de la garde contenait des accents graves, que le shell exécutait comme des commandes -- le harnais imprimait « strpos: command not found » à chaque nettoyage. Sans conséquence sur le SQL émis, mais un harnais qui bruite est un harnais qu'on cesse de lire. Corrigé."
-    }
-  },
-  "fourthRemediation": {
-    "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
-    "tree": "e3492964cdfe33e81f9b642ddbbd25df3c1876ef",
-    "evidenceHead": "aae83cf7a6a70ea543baad61a9184eee3a71aecf",
-    "verdict": "FAIL — un blocker : CSDJ1-AUD-07-SOCKET-CSV-01",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit."
-  },
-  "fifthRemediationBlocker": {
-    "CSDJ1-AUD-07-SOCKET-CSV-01": {
-      "severity": "HIGH",
-      "problem": "Le découpage employait `string_to_array(unix_socket_directories, ',')` : il coupe à CHAQUE virgule, y compris celles qui sont DANS une entrée citée. PostgreSQL autorise une entrée citée contenant une virgule, et SHOW CONSERVE les guillemets.",
-      "measuredFacts": {
-        "file": "socket-csv-syntax.txt — rien n'y est supposé, tout est mesuré sur un serveur de ce poste",
-        "quotesPreservedBySHOW": true,
-        "commaInsideQuotesIsData": true,
-        "doubledQuoteIsLiteral": "oui : le serveur démarre sur \"<r>/quo\"\"te\" et SHOW le ré-encode doublé. Le parseur doit donc le traiter.",
-        "spacesAroundCommasPreserved": true,
-        "spacesInsideQuotesArePartOfTheName": true,
-        "duplicatesPreserved": "sans effet sur un test d'appartenance",
-        "malformedCannotArise": "une citation NON FERMÉE empêche le serveur de DÉMARRER (« invalid list syntax in parameter »), elle ne peut donc pas sortir de SHOW. L'hypothèse est documentée, et la garde la refuse quand même (socket_liste_malformee)."
-      },
-      "defectBothWays": {
-        "falseAccept": "« <r>/foo » et « bar », fragments de \"<r>/foo,bar\", étaient ACCEPTÉS",
-        "falseReject": "« <r>/foo,bar », « <r>/tr,ail » et « <r>/qu\"ote », entrées RÉELLES, étaient REFUSÉES -- le harnais aurait été inutilisable sur un serveur à entrée citée"
-      },
-      "parser": {
-        "method": "remplacer les guillemets doublés par une sentinelle, puis ne couper qu'aux virgules dont le nombre de guillemets qui précèdent est PAIR. La parité suffit : après la substitution, les guillemets restants sont exactement les délimiteurs, et ils alternent.",
-        "normalization": "espaces extérieurs retirés ; guillemets encadrants retirés SEULEMENT s'il y en a aux DEUX bouts -- n'en retirer qu'un est précisément ce qui transforme un fragment en chemin plausible ; sentinelle restituée en guillemet ; barre oblique finale retirée, « / » restant « / ». L'attendu est normalisé de la même façon côté shell.",
-        "singleImplementation": "csdj1_identity_socket_cte() est défini UNE fois. La garde et la démonstration de nocivité consomment la MÊME expression émise (csdj1_identity_socket_match_expr) : une démonstration conduite avec une copie prouverait la justesse de la copie.",
-        "failClosed": "liste mal formée (parité impaire) => refus nommé socket_liste_malformee",
-        "noApostrophe": "le contrat refuse de se déclarer si une de ses valeurs contient une apostrophe : ces valeurs sont interpolées dans des littéraux SQL, et une apostrophe y désarmerait la garde."
-      },
-      "socketLab": "cinq répertoires de socket, dont un à VIRGULE, un à ESPACE et un à barre oblique finale, tous trois CITÉS dans la configuration. Sur une liste sans guillemets, un découpage brut et un parseur correct sont indiscernables.",
-      "mandatoryCases": {
-        "1. /tmp attendu /tmp": "PASS (accepté)",
-        "2. /tmp attendu /tm": "refus « socket », zéro mutation",
-        "3. /tmp attendu /tmpx": "refus « socket », zéro mutation",
-        "4. liste citée, attendu l'entrée citée complète": "PASS (accepté)",
-        "5. liste citée, attendu le membre simple": "PASS (accepté)",
-        "6. liste citée, attendu le FRAGMENT avant la virgule": "refus « socket », zéro mutation",
-        "7. liste citée, attendu le FRAGMENT après la virgule": "refus « socket », zéro mutation",
-        "8. attendu = la LISTE ENTIÈRE rendue par SHOW": "refus « socket », zéro mutation",
-        "9. entrée citée à barre oblique finale": "PASS, normalisée des deux côtés",
-        "10. entrée citée contenant un ESPACE": "PASS (accepté), préservée comme UNE entrée"
-      },
-      "harmfulnessDemonstrated": "dans les deux sens : pour cinq attendus partiels, on montre lequel des anciens prédicats les acceptait ; pour trois entrées RÉELLES, on montre que le découpage brut les refusait.",
-      "verdict": "PASS"
-    },
-    "detectorLimitationClosed": {
-      "observation": "le détecteur de mutations brutes attrapait la mutation multi-lignes, mais une mutation PACKÉE SUR UNE SEULE LIGNE lui échappait : la règle d'ouvreur consommait la ligne avant qu'on y cherche la mutation.",
-      "fix": "il CLASSE la ligne avant de mettre à jour l'ouvreur, et vit dans UN fichier réutilisé pour s'éprouver lui-même.",
-      "fixtures": {
-        "raw-one-line": "q \"create role …;\" sur UNE ligne => DÉTECTÉ",
-        "raw-one-line-alter": "csdj1_runner_test \"alter role …;\" sur UNE ligne => DÉTECTÉ",
-        "raw-multiline": "mutation brute multi-lignes => DÉTECTÉ (non-régression)",
-        "guarded": "mutation gardée => NON dénoncée à tort"
-      },
-      "fixtureVerbsAssembled": "les verbes SQL des fixtures sont assemblés et non écrits en clair : écrits en clair, ils seraient eux-mêmes dénoncés par le détecteur qui analyse ce fichier. Une fixture ne doit pas devenir le défaut qu'elle éprouve.",
-      "scopeRespected": "le parseur shell n'a pas été redessiné, comme le mandat le demandait",
-      "verdict": "PASS"
-    }
-  },
-  "fifthRemediation": {
-    "sha": "7420bec0407040c6c3bec8f155db68ab9f8878ea",
-    "tree": "d36a9ddf997eb9694cc46cdb520b44f3ad35d520",
-    "evidenceHead": "0b9ff164ff84c70e47576a9768095114c056e346",
-    "verdict": "FAIL — deux blockers P2",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit."
-  },
-  "sixthRemediationBlockers": {
-    "CSDJ1-AUD-07-SOCKET-SENTINEL-01": {
-      "severity": "P2",
-      "problem": "Le parseur employait chr(1) et chr(2) comme sentinelles internes. Ces octets ne sont réservés par AUCUNE syntaxe PostgreSQL : Linux n'interdit dans un nom de fichier que « / » et l'octet nul. Un serveur démarre parfaitement sur un répertoire de socket les contenant -- vérifié sur ce poste.",
-      "reproducedBeforeFix": {
-        "chr(2)": "liste « <rép>/foo<chr(2)>bar,<rép>/plain », attendu « <rép>/foo » => ACCEPTÉ. L'octet des données est pris pour un séparateur, et le fragment devient une entrée : FAUSSE IDENTITÉ.",
-        "chr(1)": "liste « <rép>/foo<chr(1)>bar,... » => l'entrée est vue comme « <rép>/foo\"bar ». Un chemin qui N'EXISTE PAS est accepté, et l'entrée RÉELLE est refusée.",
-        "bothWays": "une fausse identité acceptée, et l'entrée réelle refusée."
-      },
-      "fix": {
-        "option": "A — refus des octets réservés dans la liste BRUTE, avant toute substitution",
-        "reason": "socket_octets_reserves",
-        "beforeSubstitution": true,
-        "alsoOnExpected": "le contrat refuse de se déclarer si l'attendu porte chr(1) ou chr(2) : accepter d'un côté ce qu'on refuse de l'autre serait une asymétrie, donc une faille.",
-        "whyRefuseRatherThanSupport": "PostgreSQL permet ces octets dans un chemin ; le harnais les refuse. Un cluster jetable n'a jamais besoin d'un répertoire de socket contenant un octet de contrôle, et si quelqu'un en rencontrait un, un refus NOMMÉ lui dirait exactement pourquoi -- là où une acceptation silencieuse lui aurait menti sur l'identité du serveur qu'il mute.",
-        "noSentinelMoved": "les sentinelles n'ont pas été déplacées ailleurs : l'entrée est refusée."
-      },
-      "controls": {
-        "S1 chr(1)": "REFUS « socket_octets_reserves », empreinte de rôle INCHANGÉE, collision prouvée réelle",
-        "S2 chr(2)": "REFUS « socket_octets_reserves », empreinte de rôle INCHANGÉE, collision prouvée réelle",
-        "positive": "un chemin ORDINAIRE passe toujours (aucun octet réservé, appartenance exacte)",
-        "method": "les contrôles tournent sur de VRAIS clusters portant ces octets. Chacun démarre d'abord avec une liste ORDINAIRE pour que le marqueur et le rôle témoin soient posés LÉGITIMEMENT -- sans cela le refus viendrait du marqueur absent, et le contrôle prouverait autre chose -- puis est reconfiguré avec l'octet. Le seul fait qui cloche est celui qu'on éprouve."
-      },
-      "verdict": "PASS"
-    },
-    "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
-      "severity": "P2",
-      "defects": [
-        "l'état « gardé » FUYAIT : un csdj1_identity_mutate complet laissait l'état actif, et la mutation brute suivante en héritait -- déclarée GARDÉE (D4).",
-        "seul le guillemet DOUBLE ouvrait un argument : q 'alter role ...' passait inaperçu (D1).",
-        "les mots-clés n'étaient cherchés qu'en minuscules et en capitales : « Alter Role » ne produisait AUCUNE sortie (D3)."
-      ],
-      "fix": [
-        "recherche du mot-clé insensible à la casse (tolower)",
-        "les DEUX formes de littéral ouvrent un argument",
-        "l'état ne se propage que tant qu'un argument reste OUVERT : un appel qui se ferme sur sa ligne ne laisse rien derrière lui -- c'est ce qui ferme la fuite",
-        "la ligne est CLASSÉE avant toute mise à jour de l'état"
-      ],
-      "foundWhileWritingFixtures": [
-        "un motif passé en ARGUMENT à une fonction awk doit être une CHAÎNE : une constante /re/ y vaut « $0 ~ /re/ », soit 0 ou 1, et la fonction cherchait « 0 » dans le texte. Le détecteur ne voyait RIEN. Sans les fixtures, la correction aurait été livrée inerte.",
-        "un jeton d'appel n'en est un que s'il est suivi d'une ouverture de chaîne ou d'un drapeau : sinon du SQL contenant « ..._probe nologin » était pris pour un appel au client « probe » et écrasait l'état au milieu d'un argument gardé."
-      ],
-      "fixtures": {
-        "D1 apostrophe": {
-          "ancien": "SANS-OUVREUR",
-          "nouveau": "NON-GARDEE"
-        },
-        "D2 guillemet": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D3 casse mixte": {
-          "ancien": "AUCUNE SORTIE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D4 fuite d'état": {
-          "ancien": "GARDEE (fuite)",
-          "nouveau": "NON-GARDEE"
-        },
-        "D5 multi-lignes": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D6 gardée": {
-          "ancien": "GARDEE",
-          "nouveau": "GARDEE"
-        },
-        "D7 SQL sans rôle": {
-          "ancien": "ignoré",
-          "nouveau": "ignoré"
-        }
-      },
-      "scopeRespected": "le parseur shell n'a pas été redessiné globalement",
-      "verdict": "PASS"
-    }
-  },
-  "sixthRemediation": {
-    "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
-    "tree": "2f4af841429f02f546f9bb88b00593a0aeb54af1",
-    "evidenceHead": "2b328a88949a653f8a24162df203c74c5f0798aa",
-    "verdict": "FAIL — un blocker P2 : le détecteur pouvait déclarer GARDÉE une mutation brute",
-    "disposition": "conservé INTACT : ni amendé, ni réécrit."
-  },
-  "seventhRemediationBlocker": {
-    "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
-      "severity": "P2",
-      "nature": "défaut de FIABILITÉ DE LA PREUVE, non de logique métier : aucun chemin nominal de mutation non gardée n'existait, mais le détecteur pouvait déclarer GARDÉE une mutation brute -- et c'est ce mensonge qui tenait AUD-07 ouvert.",
-      "auditorSequence": "csdj1_identity_mutate \"perform 1;\" # l'initialisation est terminee / q \\ / 'alter role fixture bypassrls;' => ancien verdict GARDEE, correct NON-GARDEE",
-      "rootCause": "l'apostrophe du COMMENTAIRE était comptée comme un délimiteur ; l'état « gardé » survivait donc à une commande terminée, et la continuation par barre oblique inverse n'était pas reconnue.",
-      "whyALexerRatherThanAFourthPatch": "trois audits ont trouvé trois façons de tromper le comptage de guillemets ligne par ligne : la casse, la forme du littéral, la fuite d'état. La quatrième n'était qu'une question de temps. Le comptage n'est donc pas corrigé, il est REMPLACÉ.",
-      "lexerModels": [
-        "texte ordinaire",
-        "apostrophes (aucun échappement : règle du shell)",
-        "guillemets (la barre oblique inverse échappe)",
-        "commentaire : « # » en début de mot, hors citation, jusqu'à la fin de la ligne physique, SANS effet sur aucun état",
-        "continuation par barre oblique inverse",
-        "fin de commande : « ; », « & », « | », ou fin de ligne",
-        "documents en ligne : corps = texte, mutations attribuées à la commande qui l'ouvre"
-      ],
-      "noStateAcrossCommands": "chaque commande est classée SEULE : la classe entière de défauts « fuite d'état » disparaît par CONSTRUCTION, et non par correctif.",
-      "failClosed": "une commande qu'on ne sait pas classer est rapportée SANS-OUVREUR, traitée comme un échec ; et un appel brut l'emporte sur un appel gardé présent dans la même commande.",
-      "ownFile": "supabase/tests/csdj1-raw-role-mutation-detector.awk. Logé dans le fichier qu'il analyse, un détecteur se dénonce lui-même, et l'on finit par lui ajouter des exceptions -- lesquelles sont autant de trous.",
-      "fixtures": {
-        "count": 17,
-        "validatedByBash": "chaque fixture passe « bash -n » : sinon elle ne représente aucune réalité lexicale",
-        "D1": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D2": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D3": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D4": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D5": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "D6": {
-          "ancien": "GARDEE",
-          "nouveau": "GARDEE"
-        },
-        "D7": {
-          "ancien": "ignoré",
-          "nouveau": "ignoré"
-        },
-        "R1 reproduction de l'audit": {
-          "ancien": "GARDEE (FAUX NÉGATIF)",
-          "nouveau": "NON-GARDEE"
-        },
-        "R2 commentaire avec apostrophe": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "R3 commentaire avec guillemet": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "R4 commentaire avec les deux + casse mixte": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "R5 « # » dans l'argument SQL": {
-          "ancien": "NON-GARDEE",
-          "nouveau": "NON-GARDEE"
-        },
-        "C1 continuation + apostrophe": {
-          "ancien": "SANS-OUVREUR",
-          "nouveau": "NON-GARDEE"
-        },
-        "C2 continuation qw + guillemet": {
-          "ancien": "SANS-OUVREUR",
-          "nouveau": "NON-GARDEE"
-        },
-        "C3 continuation + casse mixte": {
-          "ancien": "SANS-OUVREUR",
-          "nouveau": "NON-GARDEE"
-        },
-        "C4 continuation GARDÉE légitime": {
-          "ancien": "SANS-OUVREUR (FAUX POSITIF, non relevé)",
-          "nouveau": "GARDEE"
-        },
-        "C5 continuation sans mutation": {
-          "ancien": "ignoré",
-          "nouveau": "ignoré"
-        }
-      },
-      "twoDefectsNotOne": "R1 est un FAUX NÉGATIF -- une mutation brute déclarée gardée, le défaut dangereux. C4 est un FAUX POSITIF que personne n'avait relevé : une continuation gardée légitime déclarée SANS-OUVREUR, donc traitée comme un échec. Les deux sont corrigés.",
-      "harmfulnessObserved": "section [I] du harnais : la séquence de l'audit est EXÉCUTÉE sur le cluster jetable avec le vrai client brut, et le rôle témoin passe de NOBYPASSRLS à BYPASSRLS. Ce que le label « GARDEE » couvrait était une mutation effective.",
-      "verdict": "PASS"
-    }
+  "CSDJ1-AUD-06": {
+   "severity": "P2",
+   "problem": "`boolean::text` rend « true »/« false » ; « t »/« f » est la forme de l'affichage ALIGNÉ de psql. La capture employait ::text et la comparaison testait « t » : elle échouait toujours, et la branche de repli restaurait NOLOGIN NOBYPASSRLS. Invisible sur un cluster jetable détruit juste après, mais durable sur un cluster DÉSIGNÉ par l'opérateur.",
+   "fix": "L'instantané encode explicitement 1/0, la restauration compare à 1/0, et le verrou de sûreté n'accepte que les quatre instantanés bien formés -- un instantané d'une autre forme fait REFUSER l'exécution plutôt que muter un cluster non restaurable.",
+   "dedicatedHarness": "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh — 22 preuves : les quatre combinaisons LOGIN x BYPASSRLS sur les trois rôles, en mode CLUSTER DÉSIGNÉ (le seul où la restauration a des conséquences durables), plus le cas du rôle initialement ABSENT, plus quatre contrôles de forme.",
+   "mutationControl": "harness-role-restoration-mutation.txt : le défaut réinjecté dans une COPIE hors dépôt produit 13 échecs décrivant exactement la corruption que l'audit a décrite (LOGIN -> NOLOGIN, BYPASSRLS -> NOBYPASSRLS). Sans ce contrôle, 22 preuves vertes ne diraient pas si le harnais sait détecter quoi que ce soit.",
+   "sameDefectElsewhere": "Le MÊME défaut existe dans supabase/tests/merchant-customer-communications-v1-check.sh (lignes 340 et 376), d'où ce harnais a été dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Signalé pour planification -- voir aud06-same-defect-elsewhere.txt."
   }
+ },
+ "narrowObservationsClosed": {
+  "zeroUuidReserved": "Le zéro UUID, sentinelle interne de « portée de mode », est RÉSERVÉ : contrainte rfs_rule_id_not_sentinel et refus nommé CSDJ1_RESERVED_RULE_ID. Sans cela, « portée de mode » et « portée de cette règle-là » deviendraient indiscernables le jour où une règle porterait cette valeur.",
+  "bookingHorizonZero": "L'horizon accepte 0 (« aujourd'hui seulement »), forme minimale dans laquelle se reproduit AUD-01 -- et cas commerçant réel."
+ },
+ "nonBlockingLeftOpen": {
+  "displayOrder": "`display_order` est stocké mais n'ordonne rien : l'ordre des offres est celui des heures de début, déterministe et indépendant d'une saisie. La colonne est réservée à l'éditeur back-office (hors CSDJ-1). Aucun invariant v1 n'est violé.",
+  "overlappingNamedSlots": "Deux créneaux nommés peuvent se chevaucher, et c'est voulu : « matin » 09:00-13:00 et « midi » 12:00-14:00 sont une offre commerciale légitime. Les FENÊTRES, elles, ne peuvent pas se superposer, parce qu'elles décrivent une ouverture et non un choix. Aucun invariant v1 n'est violé.",
+  "csdj3RollbackCoordination": "Le point d'extension existe déjà : le retour arrière REFUSE de passer si public.order_fulfillment_schedule_snapshot (CSDJ-3) est présente, avec SCANYM_ROLLBACK_REFUSED. CSDJ-3 n'est pas implémenté."
+ },
+ "pythonFixtureEvidence": {
+  "claim": "MAINTENUE, et désormais vérifiable",
+  "source": "tests/fixtures/build-checkout-scheduling-cases.py (versionné au dépôt)",
+  "command": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
+  "log": "fixture-generation.log",
+  "python": "3.13.16 (CPython)",
+  "tzdata": "2026c (/usr/share/zoneinfo, paquet système tzdata 2026c-0ubuntu0.24.04.1)",
+  "byteReproducible": "Relancer le générateur reproduit tests/fixtures/checkout-scheduling-cases.json À L'OCTET (vérifié par comparaison d'empreinte avant/après).",
+  "independence": "Un test structurel [FIXTURE-SOURCE-1] vérifie que le générateur ne LIT ni n'EXÉCUTE aucune des deux implémentations qu'il juge, et qu'il tire ses fuseaux de la bibliothèque standard."
+ },
+ "results": {
+  "targetedTests": {
+   "pass": 156,
+   "fail": 0,
+   "files": {
+    "csdj1-scheduling-model": 10,
+    "csdj1-scheduling-eligibility": 78,
+    "csdj1-sql-structural": 60,
+    "csdj1-oracle-independence": 8
+   },
+   "added": "[AUD07-SQL-9] — la contre-épreuve adversariale et les deux réinjections sont STRUCTURELLEMENT exigées"
+  },
+  "requiredRegressions": {
+   "pass": 285,
+   "fail": 0,
+   "files": 12,
+   "note": "les douze fichiers exigés, exécutés UN PAR UN, comme au tour précédent : 10+35+21+25+6+6+55+41+32+28+21+5 = 285"
+  },
+  "sqlHarness": {
+   "proofs": 156,
+   "fail": 0,
+   "sections": 19
+  },
+  "roleRestorationHarness": {
+   "proofs": 218,
+   "fail": 0,
+   "sections": [
+    "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif",
+    "[B] forme de l'instantané",
+    "[C] rôle initialement absent",
+    "[D] onze variables hostiles + vecteur complet + contrôle positif",
+    "[E] isolation, prédicat partagé, détecteur externalisé + 36 fixtures D/R/C/E/F/P",
+    "[F] nocivité de PGHOSTADDR",
+    "[G] dix contrôles négatifs d'identité + contrôle positif",
+    "[H] dix-huit contrôles de socket + S1/S2 d'octets réservés + contrôle positif",
+    "[I] nocivité du détecteur : la séquence du septième audit mute réellement un rôle",
+    "[J] CONTRE-ÉPREUVE ADVERSARIALE : 34 formes équivalentes engendrées, exécutées et vues ; 12 non-mutations tues ; X1 (affectation -> SANS-OUVREUR) ; X2 (apostrophes + barre oblique inverse : PostgreSQL refuse)"
+   ]
+  },
+  "harnessRefusals": {
+   "withoutConsent": {
+    "exit": 2
+   },
+   "inheritedRedirectVar": {
+    "exit": 2,
+    "valueLeaked": 0
+   }
+  },
+  "typescript": {
+   "exit": 0,
+   "diagnostics": 0
+  },
+  "build": {
+   "exit": 0,
+   "routesAdded": [],
+   "routeLines": 38,
+   "identicalToBase": "les 38 lignes de route sont IDENTIQUES à celles de la base (comparaison mécanique)",
+   "envRequired": "NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY : « next build » collecte les données de page et lib/supabase.ts échoue FERMÉ si elles manquent. Deux espaces réservés locaux ; AUCUNE valeur réelle employée ni journalisée."
+  },
+  "fullSuite": {
+   "runOrder": "machine au repos, aucune autre tâche en cours",
+   "baseline": {
+    "sha": "412dbb53c5f180983860852b79425209c04b9c42",
+    "pass": 4768,
+    "fail": 10
+   },
+   "seventhRemediation": {
+    "sha": "de70c13de7fd3c9872b9f7eff6be24d76a65dace",
+    "tests": 4933,
+    "pass": 4923,
+    "fail": 10
+   },
+   "candidate": {
+    "sha": "f369c4b53e35604c5df9c349413c16ec695c4e88",
+    "tests": 4934,
+    "pass": 4924,
+    "fail": 10
+   },
+   "appeared": 0,
+   "disappeared": 0,
+   "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux d'échecs de la BASE, du septième candidat et de celui-ci sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5, dix identités, voir candidate-failures-sorted.txt). Le total passe de 4933 à 4934 pour UNE raison : [AUD07-SQL-9] est ajouté ; les deux tests structurels existants ont été RÉÉCRITS, pas multipliés.",
+   "nondeterminism": "aucun échec intermittent ; l'échec non déterministe signalé au cinquième tour (nondeterministic-failure.txt) ne s'est pas reproduit."
+  },
+  "fixtureThreeWay": {
+   "offerCases": 48,
+   "offerDivergences": 0,
+   "classificationPoints": 38,
+   "classificationDivergences": 0,
+   "note": "les attendus viennent d'un oracle qui ne partage PAS la méthode des deux jugés"
+  },
+  "detector": {
+   "architecture": "six étapes explicites : A reconstitution lexicale (deux textes : verbatim et expansé) / B normalisation du shell (continuation reconnue HORS CITATION ET ENTRE GUILLEMETS DOUBLES, et elle ne laisse rien ; un argument ouvert garde son saut de ligne) / C extraction de l'argument transmis / D normalisation SQL (commentaires retirés, corps à dollars CONSERVÉS, littéral = données sauf argument d'EXECUTE, TOUT blanc réduit à une espace) / E mot-clé insensible à la casse / F gardé ou brut sur le verbatim",
+   "invariant": "trois sorties, une seule silencieuse : NON-GARDEE, GARDEE, SANS-OUVREUR (fermé, traité comme un échec). Si Bash transmet du SQL que PostgreSQL lit comme CREATE/ALTER ROLE, le détecteur classe ou ferme -- il ne se tait jamais.",
+   "heredocBodies": "ACCUMULÉS puis analysés d'un seul bloc : du SQL logé dans un corps s'étend sur plusieurs lignes, et « alter » en fin de ligne suivi de « role » en tête de la suivante échappait à une analyse ligne à ligne.",
+   "fixtures": {
+    "count": 36,
+    "families": "D1-D7, R1-R5, C1-C5 (rejouées inchangées) ; E1-E10 (la classe) ; F1-F6 (formes combinées) ; P1-P3 (faux positifs)",
+    "validatedByBash": "chaque fixture passe « bash -n » : sinon elle ne représente aucune réalité lexicale",
+    "guardedEquivalents": "E5 et F4 sont les ÉQUIVALENTS GARDÉS des formes nouvellement reconnues : sans eux, « tout classer NON-GARDEE » passerait pour une réussite",
+    "verbsAssembledInTwoSteps": "l'étape C modélisant la concaténation des citations, « V_ALTER=\"alt\"\"er role\" » devenait un verbe ADJACENT et le harnais était son propre signalement (3 SANS-OUVREUR, constatés et NON contournés par une exception). Les verbes sont désormais assemblés en DEUX variables jamais adjacentes, et [AUD07-SQL-8] échoue si une affectation reconstitue le verbe d'un seul tenant."
+   },
+   "versusV17": {
+    "missedRealMutations": {
+     "v17": 11,
+     "v18": 0
+    },
+    "falsePositives": {
+     "v17": 4,
+     "v18": 0
+    },
+    "unchangedVerdicts": 21,
+    "regressions": 0,
+    "table": "raw-role-detector.txt"
+   },
+   "onRealFiles": {
+    "GARDEE": 26,
+    "NON-GARDEE": 0,
+    "SANS-OUVREUR": 0,
+    "comparedToV17": "joué sur LES MÊMES fichiers, v1.7 rend aussi 26/0/0, et les vingt-six textes de commande, blancs retirés, sont IDENTIQUES (diff vide). v1.8 est strictement plus sévère sur les fixtures sans rien dénoncer de nouveau dans le code réel."
+   },
+   "assumedLimits": [
+    "un littéral SQL est tenu pour des DONNÉES sauf comme argument d'EXECUTE (relecture exhaustive : seules formes employées « execute 'create role …' » et « execute 'alter role …' » ; aucun execute format(…), aucune requête préparée)",
+    "l'expansion des paramètres n'est pas modélisée : une affectation portant le verbe est rapportée SANS-OUVREUR -- fermé (cas X1)",
+    "entre apostrophes, « \\ » + saut de ligne n'est pas une continuation : PostgreSQL refuse l'instruction et le détecteur ne signale rien (cas X2, dont LES DEUX MOITIÉS sont vérifiées)"
+   ]
+  },
+  "adversarialCounterProof": {
+   "section": "[J] du harnais d'isolation et de rôles, rejouée à chaque exécution",
+   "dimensions": "verbe (ALTER/CREATE) x casse (minuscules/MAJUSCULES/Mixte, rotation) x séparateur (une espace / plusieurs espaces / tabulation / saut de ligne / CRLF / barre oblique inverse + saut de ligne) x citation (guillemets / apostrophes / CONCATÉNATION) x appel (q/qw, alternance) x commentaire (un cas sur quatre précédé d'un appel gardé et d'un commentaire à apostrophe)",
+   "equivalentMutations": 34,
+   "excludedAndTreatedSeparately": "apostrophes + barre oblique inverse : PostgreSQL REFUSE l'instruction, ce n'est donc pas une forme équivalente (cas X2)",
+   "fourFactsPerCase": [
+    "« bash -n » l'accepte",
+    "l'argument RÉELLEMENT transmis est relevé en faisant jouer à BASH le rôle d'oracle (« q() { printf \"%s\" \"$1\"; } »)",
+    "la forme est EXÉCUTÉE et le changement d'état OBSERVÉ (NOBYPASSRLS -> BYPASSRLS, ou 0 -> 1 rôle) : c'est PostgreSQL, et non une expression régulière, qui dit qu'il s'agit d'un CREATE/ALTER ROLE",
+    "le détecteur rend NON-GARDEE"
+   ],
+   "orderIsDeliberate": "l'exécution est éprouvée AVANT le verdict : un échec portant sur le verdict ÉTABLIT que PostgreSQL, lui, a muté. C'est cette paire que M10 et M11 exploitent.",
+   "nonMutations": 12,
+   "trapPresenceChecked": "chaque non-mutation vérifie d'abord que le verbe FIGURE dans l'argument transmis : un contrôle de faux positif qui ne contient pas le piège ne contrôle rien",
+   "generatedCaseSummary": "recopié dans la sortie du harnais (le répertoire temporaire disparaît au nettoyage) : voir detector-fixtures.txt et harness-role-restoration.txt",
+   "witnessUntouched": "dans les fichiers engendrés, « q » ET « qw » visent le cluster JETABLE : le témoin reste intact, comme [D] et [F] l'exigent"
+  },
+  "realPathInspection": {
+   "why": "le mandat exige, en plus des fixtures, d'inspecter les VRAIS chemins exécutables de q/qw et de mutation de rôle",
+   "method": "SECONDE implémentation, écrite séparément, en python, délibérément plus simple : aucune normalisation SQL, aucun corps de document en ligne accumulé, aucune équivalence de blancs. Elle attribue chaque ligne physique à la COMMANDE qui la porte, puis lit le texte de cette commande.",
+   "source": "role-mutation-paths-inspector.py",
+   "output": "role-mutation-paths-inspection.txt",
+   "verbOccurrences": 42,
+   "comments": 5,
+   "guarded": 37,
+   "raw": 0,
+   "indeterminate": 0,
+   "verdict": "ALL REAL ROLE MUTATION PATHS GUARDED = PASS",
+   "unitOfCount": "le détecteur awk rapporte 26 SIGNALEMENTS et l'inspecteur python 37 OCCURRENCES : ce n'est pas une divergence, c'est l'unité de compte -- le détecteur classe des COMMANDES, et plusieurs commandes gardées portent plusieurs instructions (le bloc d'amorçage du harnais principal en porte six)."
+  }
+ },
+ "preserved": [
+  "isolation multi-locataires",
+  "réutilisation de l'autorité de tarification",
+  "retour arrière",
+  "frontière de propriété Debussy",
+  "aucune fuite de fournisseur",
+  "aucun second moteur de prix",
+  "aucun texte Theme/MCC",
+  "aucune interface de paiement",
+  "aucun instantané de commande",
+  "aucune API transporteur",
+  "aucune application hébergée",
+  "aucun merge, aucun déploiement"
+ ],
+ "productionTouched": false,
+ "firstRemediation": {
+  "sha": "d94a1100b7149e60bde1a7f770cb756ecda8b174",
+  "tree": "dd4163c8c9303974ebd81a676f51953f207e420d",
+  "evidenceHead": "54ccccd",
+  "verdict": "FAIL (re-audit delta) — six blockers clos, deux restants",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit. Il est le grand-parent du nouveau candidat."
+ },
+ "secondRemediationBlockers": {
+  "CSDJ1-AUD-02": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — validation DST/heure murale INCOMPLÈTE",
+   "invariants": [
+    "CSDJ-V1-TRANSITION-SAFE-CLASSIFY-01",
+    "CSDJ-V1-OCCURRENCE-ALL-OR-NOTHING-01"
+   ],
+   "reproductionsFromAudit": {
+    "window-0130-0230-paris-2026-03-29": "offerte alors que 02:30 n'existe pas",
+    "window-0130-0330-paris-2026-03-29": "pouvait exposer des heures murales inexistantes de la grille",
+    "lord-howe-2026-04-05-0145": "traitée comme valide alors qu'elle est AMBIGUË — la transition fait TRENTE minutes"
+   },
+   "rootCauses": [
+    "Hypothèse de TAILLE : chercher l'ambiguïté « à plus ou moins une heure » rate toute transition d'une autre durée.",
+    "Hypothèse de SUFFISANCE : valider le seul DÉBUT laisse passer une fin et des points de grille inexistants."
+   ],
+   "classificationAlgorithm": {
+    "name": "échantillonnage des décalages réellement en vigueur, puis comptage des candidats",
+    "probes": [
+     "-1 jour",
+     "-4 heures",
+     "0",
+     "+4 heures",
+     "+1 jour"
+    ],
+    "steps": [
+     "Lire le décalage UTC en vigueur à chacune des cinq sondes autour de l'instant naïf ; ne retenir que les décalages DISTINCTS.",
+     "Pour chaque décalage distinct, construire un instant candidat = (heure murale) - (décalage).",
+     "Ne garder que les candidats qui, re-rendus dans le fuseau, redonnent EXACTEMENT la date et la minute demandées.",
+     "Compter : 0 => nonexistent, 1 => valid_unique, >= 2 => ambiguous."
+    ],
+    "noAssumption": "Aucune durée de transition n'intervient. Aucune constante d'une heure (1 hour, 3600, interval '01:00', hours => 1) n'existe dans la décision, et [AUD02-SQL-2] l'interdit structurellement des deux côtés.",
+    "noEngineNormalization": "La classification n'accepte jamais le résultat d'une normalisation PostgreSQL : elle vérifie par ALLER-RETOUR que l'instant retenu rend bien l'heure demandée.",
+    "statuses": [
+     "valid_unique",
+     "nonexistent",
+     "ambiguous"
+    ],
+    "catalogue": "public.checkout_wall_time_statuses(), miroir de CHECKOUT_WALL_TIME_STATUSES ([MIRROR-9])",
+    "refusalNotAbsence": "checkout_wall_time_instant() rend NULL dès que le statut n'est pas valid_unique : un REFUS, pas une absence de valeur."
+   },
+   "windowGridPolicy": {
+    "rule": "Une occurrence est exposée EN ENTIER ou pas du tout. Début, FIN et CHAQUE point de la grille sélectionnable doivent être valid_unique. Un seul point non univoque et l'occurrence disparaît CE JOUR-LÀ.",
+    "scope": "l'OCCURRENCE d'une date, jamais la configuration : la même fenêtre reste valide les autres jours.",
+    "noInvention": "Aucune heure de remplacement n'est proposée. Le refus est fermé et nommé.",
+    "gridAnchoring": "La grille reste ancrée sur le DÉBUT CONFIGURÉ -- elle doit rester celle que le commerçant a décrite -- et tous ses points sont validés, pas seulement la part encore réalisable : sur une date ordinaire, le client pourrait choisir n'importe lequel."
+   },
+   "lordHoweResult": {
+    "2026-04-05 01:00": "valid_unique",
+    "2026-04-05 01:29": "valid_unique",
+    "2026-04-05 01:30": "ambiguous",
+    "2026-04-05 01:45": "ambiguous  <= le cas exact du re-audit : désormais REFUSÉ",
+    "2026-04-05 01:59": "ambiguous",
+    "2026-04-05 02:00": "valid_unique",
+    "2026-10-04 02:00 / 02:10 / 02:29": "nonexistent (saut de trente minutes)",
+    "2026-05-03 01:45": "valid_unique — la politique ne SUR-REFUSE pas une date ordinaire",
+    "offerConsequence": "fixture aud02-lord-howe-autumn-30min-ambiguous : les créneaux exposés sont t0100 et t0200 UNIQUEMENT ; t0145 a disparu. fixture aud02-lord-howe-spring-30min-nonexistent : t0130 et t0230, t0210 a disparu."
+   },
+   "zonesCovered": [
+    "Europe/Paris",
+    "Australia/Lord_Howe (transition de 30 min)",
+    "UTC (aucune transition)",
+    "Pacific/Kiritimati (UTC+14)",
+    "America/Los_Angeles (décalage négatif)",
+    "America/New_York",
+    "Pacific/Chatham (décalage à 45 min)",
+    "Asia/Kathmandu (décalage à 45 min)"
+   ],
+   "threeWayAgreement": {
+    "points": 38,
+    "implementations": [
+     "Python (resolve_wall)",
+     "TypeScript (resolveWallTime)",
+     "SQL (checkout_wall_time_status, EXTRAITE LITTÉRALEMENT du lot)"
+    ],
+    "divergences": 0,
+    "file": "wall-time-three-way-agreement.txt"
+   },
+   "tests": [
+    "[AUD02-1..4] bornes Paris printemps/automne, zones sans transition, décalage négatif",
+    "[AUD02-7] Lord Howe dans les DEUX sens + un dimanche ordinaire",
+    "[AUD02-8] structurel : aucune constante de 3 600 000 dans la décision TypeScript",
+    "[AUD02-9] les QUATRE fenêtres exigées par l'audit (01:30-02:30, 02:00-03:00, 01:30-03:30, 03:00-04:00)",
+    "[AUD02-10] le refus porte sur l'OCCURRENCE, pas sur la configuration",
+    "[AUD02-11] un cutoff non univoque ne compte pas la date comme ouverte",
+    "[AUD02-SQL-2] sondes présentes, aucune constante d'une heure, décision par comptage",
+    "[AUD02-SQL-3] fin + grille validées, verdict d'ensemble, fixtures exigées présentes",
+    "[MIRROR-9] catalogue des trois statuts, SQL ≡ TypeScript",
+    "post-vol SQL : sondes Lord Howe (ambiguë, inexistante, ordinaire) + cardinalité du catalogue",
+    "harnais SQL : 18 cas aud02-* rejoués par l'AUTORITÉ SQL, tous conformes"
+   ]
+  },
+  "CSDJ1-AUD-07": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — le harnais de restauration de rôles n'était pas isolé",
+   "invariants": [
+    "CSDJ-V1-HARNESS-CLEAN-ENV-01",
+    "CSDJ-V1-DESTINATION-PROOF-01"
+   ],
+   "problem": "q() héritait des variables libpq de l'environnement appelant. PGHOSTADDR l'emporte sur un « -h » explicite : le harnais pouvait donc muter les rôles globaux d'un AUTRE serveur que celui que le verrou de sûreté avait constaté, et le constater trop tard.",
+   "defenceInDepth": {
+    "1-refusalByName": {
+     "variables": 27,
+     "named": [
+      "PGHOST",
+      "PGHOSTADDR",
+      "PGPORT",
+      "PGDATABASE",
+      "PGUSER",
+      "PGPASSWORD",
+      "PGPASSFILE",
+      "PGSERVICE",
+      "PGSERVICEFILE",
+      "PGSYSCONFDIR",
+      "PGCLUSTER",
+      "PGREQUIRESSL",
+      "PGSSLMODE",
+      "PGSSLROOTCERT",
+      "PGSSLCERT",
+      "PGSSLKEY",
+      "PGOPTIONS",
+      "PGCONNECT_TIMEOUT",
+      "PGTARGETSESSIONATTRS",
+      "PGDATA",
+      "DATABASE_URL",
+      "POSTGRES_URL",
+      "POSTGRESQL_URL",
+      "PG_URL",
+      "SUPABASE_DB_URL",
+      "SCANYM_DB_URL",
+      "SCANYM_DATABASE_URL"
+     ],
+     "byNameOnly": "Le refus nomme la variable et JAMAIS sa valeur : une valeur peut être un secret.",
+     "defensiveSweep": "Toute autre PG* héritée est retirée, pour qu'aucun oubli de la liste ne subsiste.",
+     "exitCode": 2
+    },
+    "2-isolation": {
+     "mechanism": "env -i PATH=<sûr> HOME=<jetable> <binaire absolu> -X -A -q -t -h <socket> -p <port> -U <rôle> -d postgres",
+     "absoluteBinaries": "initdb, pg_ctl et psql sont résolus une fois en chemin ABSOLU : un binaire résolu par le PATH est un binaire que le PATH peut remplacer.",
+     "structuralCheck": "[E] reconstitue les LIGNES LOGIQUES du fichier (continuations recollées) et exige « env -i » devant chaque commande client. Le détecteur compte ce qu'il examine : un détecteur qui ne trouverait rien passerait pour vert.",
+     "singleDeliberateException": "[F] contient UN appel non isolé délibéré, nommé PSQL_UNISOLATED_ON_PURPOSE, en LECTURE SEULE. [E] exige qu'il soit unique et que sa requête soit un SELECT."
+    },
+    "3-destinationProof": {
+     "when": "immédiatement AVANT chaque mutation de rôle, pas au démarrage",
+     "facts": [
+      "socket unix (donc aucune destination réseau)",
+      "data_directory",
+      "config_file",
+      "port",
+      "current_user",
+      "is_superuser",
+      "nonce propre à cette exécution"
+     ],
+     "onFailure": "ABORT AVANT mutation. « aucune mutation tentée. »",
+     "discriminates": "La même preuve adressée au cluster TÉMOIN échoue, et le nonce n'existe que dans le cluster sous test.",
+     "mainHarness": "Le harnais principal ferme le même trou côté nettoyage : si la destination n'est plus celle qui a franchi le verrou, il ABANDONNE la restauration (« RESTAURATION DE RÔLES ABANDONNÉE ») plutôt que de muter le mauvais serveur."
+    }
+   },
+   "defectFoundInTheProofItself": {
+    "what": "« pg_catalog.current_user » n'est pas une fonction qualifiable mais un CONSTRUCTEUR DU PARSEUR : PostgreSQL le lit comme la colonne « current_user » de la table « pg_catalog » et la requête échoue (« missing FROM-clause entry for table pg_catalog », vérifié empiriquement). Même famille que coalesce, nullif, extract et unnest multi-tableaux.",
+    "fix": "Écrit non qualifié (sans risque : un mot-clé réservé n'est pas résoluble via search_path), des deux côtés.",
+    "guard": "[A] exige désormais qu'une exécution NOMINALE sur le cluster désigné n'abandonne JAMAIS la restauration. Le contrôle de mutation M4 prouve que cette garde voit une preuve cassée.",
+    "whyItMattered": "Une preuve d'identité CASSÉE se comporte comme une preuve ÉCHOUÉE : elle abandonne la restauration. Fermé, donc sans danger -- mais MUET, et le chemin de restauration aurait été mort sans que rien ne le dise."
+   },
+   "harmfulnessControl": {
+    "why": "Un refus qui protège d'un danger inexistant ne prouve rien.",
+    "witness": "un second cluster, créé par le même fichier, qui écoute en TCP sur 127.0.0.1 au MÊME NUMÉRO DE PORT que le cluster sous test -- lequel n'écoute AUCUN TCP. La redirection est donc réellement possible.",
+    "reproduction": "PGHOSTADDR=127.0.0.1 PGPORT=<port> psql -h <socket privée> -p <port> : sans isolation, la connexion aboutit AU TÉMOIN (data_directory du témoin). Le MÊME appel sous « env -i » aboutit au cluster SOUS TEST. Lecture seule : aucun rôle du témoin n'est muté.",
+    "result": "[F] NOCIF puis NEUTRALISÉ, et témoin intact."
+   },
+   "hostileEnvironmentTests": {
+    "method": "le harnais est relancé EN ENFANT avec la variable pointant vers le témoin",
+    "variables": [
+     "PGHOSTADDR",
+     "PGHOST",
+     "PGPORT",
+     "PGDATABASE",
+     "PGUSER",
+     "PGSERVICE",
+     "PGSERVICEFILE",
+     "PGPASSWORD",
+     "PGPASSFILE",
+     "PGSYSCONFDIR",
+     "DATABASE_URL"
+    ],
+    "assertedForEach": [
+     "refus avec le code 2",
+     "le refus NOMME la variable",
+     "la VALEUR n'apparaît nulle part dans la sortie",
+     "le témoin a subi ZÉRO mutation"
+    ],
+    "fullVector": "PGHOSTADDR=127.0.0.1 + PGPORT=<port du témoin> ensemble : refus, et témoin intact.",
+    "positiveControl": "un environnement propre ne déclenche PAS ce refus et atteint bien le cluster sous test -- sans quoi un harnais qui refuserait TOUT passerait pour protégé."
+   },
+   "results": {
+    "proofs": 87,
+    "failures": 0
+   }
+  }
+ },
+ "mutationControls": {
+  "file": "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh (versionné, rejouable)",
+  "conclusive": 10,
+  "missing": 0,
+  "list": {
+   "M1": "un « env -i » retiré devant un appel client",
+   "M2": "sans objet : démonstration directe, section [F]",
+   "M3": "l'instantané de rôle en ::text comparé à « t » (défaut d'AUD-06)",
+   "M4": "le MARQUEUR retiré du prédicat d'identité",
+   "M5": "data_directory et config_file retirés du prédicat",
+   "M6": "l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE",
+   "M7": "le parseur sensible aux guillemets remplacé par un découpage brut",
+   "M8": "la défense anti-collision des octets réservés retirée",
+   "M9": "la fuite d'état par les commentaires et les continuations",
+   "M10": "la continuation ENTRE GUILLEMETS DOUBLES, non normalisée : E1 redevient invisible ET [J] montre PostgreSQL muter réellement",
+   "M11": "l'ÉQUIVALENCE DES BLANCS SQL retirée : E2 et E8 redeviennent invisibles ET [J] montre PostgreSQL muter réellement"
+  },
+  "realHarmRequired": "M9, M10 et M11 exigent chacune, DANS LA MÊME EXÉCUTION, un dommage RÉEL : « le détecteur rend AUCUNE alors que PostgreSQL a muté (NOBYPASSRLS -> BYPASSRLS) ». Une étiquette changée ne suffit pas.",
+  "m9ExpectationChanged": "au septième tour, la réinjection faisait classer R1 « GARDÉE » : un MENSONGE. Le classement par COMMANDE, sur le texte verbatim où l'appel brut « q ' » est visible, a rendu ce mensonge IMPRODUISIBLE -- R1 reste NON-GARDEE même avec les deux règles retirées, et le contrôle le CONSTATE. La même réinjection produit désormais le défaut restant, qui est le pire des deux : le SILENCE. R3 -- un commentaire portant un GUILLEMET -- redevient AUCUNE. Le changement d'attendu est écrit dans le fichier, et [AUD07-SQL-9] exige qu'il le soit."
+ },
+ "preservedAreasRetested": {
+  "AUD-PYTHON-01": "PASS — oracle, fixture, résolveur, SQL du lot et bibliothèque d'identité NON TOUCHÉS (git diff vide) ; 8 tests [ORACLE-*]",
+  "AUD-02": "PASS — 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL s'accordent avec l'oracle sans divergence",
+  "AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
+  "AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
+  "AUD-05": "PASS — harnais [18] : contrôle positif + cinq sosies, [AUD05-SQL]",
+  "AUD-06": "PASS — quatre combinaisons LOGIN x BYPASSRLS et rôle initialement ABSENT restaurés EXACTEMENT, en mode cluster DÉSIGNÉ, APRÈS les deux corrections ; contrôle M3 toujours discriminant",
+  "LORD HOWE": "PASS — ambiguë, inexistante et ordinaire, dans les deux sens",
+  "OCCURRENCE ALL-OR-NOTHING": "PASS — [AUD02-SQL-3]",
+  "NONCE missing/changed": "PASS — [G] « marqueur RETIRÉ » et « marqueur CHANGÉ », zéro mutation ; M4",
+  "DATA_DIRECTORY guard": "PASS — [G] « data_directory faux », zéro mutation ; M5",
+  "CONFIG_FILE guard": "PASS — [G] « config_file faux », zéro mutation ; M5",
+  "PGHOSTADDR rejection": "PASS — code 2, valeur jamais journalisée (0 occurrence), aucune mutation tentée ; nocivité toujours démontrée en [F]",
+  "TENANT ISOLATION": "PASS — harnais [3], tests de tenant obsolète",
+  "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e], [NO-SECOND-ENGINE-1..2]",
+  "ROLLBACK": "PASS — harnais [13a..13g]",
+  "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (réserve d'intégration inchangée)",
+  "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base",
+  "SOCKET simple entries": "PASS — préfixe, suffixe, parent, sous-répertoire, /tm, /tmpx : tous refusés, zéro mutation ; M6 toujours concluant",
+  "SOCKET quoted-comma parsing": "PASS — M6 et M7 inchangés et rejoués, dix-huit contrôles de socket verts",
+  "SENTINEL / CSV / nonce / marker / data_directory / config_file / PGHOSTADDR": "PASS — csdj1-cluster-identity.sh non modifié ce tour ; M6, M7, M8 rejoués et concluants ; contrôles [G], [H], S1/S2 verts"
+ },
+ "scopeDiscipline": {
+  "redesign": "aucun",
+  "closedContractsAltered": "aucun, sauf l'ajout STRICTEMENT nécessaire du catalogue des trois statuts d'heure murale et le renommage de « ok » en « valid_unique » (le statut n'était pas encore exposé publiquement : aucune surface publique ne change).",
+  "csdj2Started": false,
+  "sameDefectElsewhere": "Le défaut d'isolation d'environnement existe aussi dans supabase/tests/merchant-customer-communications-v1-check.sh, dont ce harnais est dérivé. NON corrigé ici : le mandat interdit d'élargir la portée. Voir aud06-same-defect-elsewhere.txt."
+ },
+ "secondRemediation": {
+  "sha": "993cb7b1424fc1eb4c8e948cda54e3b1e16068e3",
+  "tree": "659ec8a551bc35244fad87c08a96071a5eeed811",
+  "evidenceHead": "214eb7d9c9f6b13089f18ae35ee15a20fb9dc873",
+  "verdict": "FAIL (troisième re-audit delta) — AUD-02 fonctionnellement PASS, mais la PREUVE n'était plus indépendante ; AUD-07 encore partiel au nettoyage",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
+ },
+ "thirdRemediationBlockers": {
+  "CSDJ1-AUD-PYTHON-01": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — défaut d'INDÉPENDANCE DE PREUVE, non de comportement",
+   "problem": "`resolve_wall` reproduisait l'algorithme des deux implémentations livrées : échantillonnage de décalages, reconstruction d'instants candidats. Trois implémentations qui partagent une hypothèse ne se vérifient pas mutuellement -- elles se trompent ensemble, et leur accord n'établit rien. L'audit avait par ailleurs vérifié les zones obligatoires avec son propre oracle et n'avait trouvé AUCUNE erreur fonctionnelle : le défaut était bien dans la preuve.",
+   "whyItMattered": "Une preuve qui ne prouve rien est plus dangereuse qu'une absence de preuve, parce qu'on s'y fie.",
+   "foldRoundTripMethod": {
+    "name": "zoneinfo + fold=0 / fold=1 + validation par aller-retour",
+    "steps": [
+     "attacher le fuseau Z à l'heure murale naïve L avec fold=0 (première lecture possible)",
+     "attacher Z à L avec fold=1 (seconde lecture possible)",
+     "convertir chaque lecture en instant UTC par astimezone",
+     "reconvertir chaque instant vers Z  [ALLER-RETOUR]",
+     "ne garder que les instants dont l'heure murale relue vaut EXACTEMENT L",
+     "dédupliquer les instants UTC égaux"
+    ],
+    "classification": {
+     "0 instant": "nonexistent",
+     "1 instant": "valid_unique",
+     "2 instants": "ambiguous"
+    },
+    "noDurationAssumption": "En heure normale, fold=0 et fold=1 désignent le même instant : la déduplication en laisse un. Sur un recul d'horloge, deux instants distincts relisent tous deux L -- que le recouvrement fasse soixante minutes (Europe/Paris) ou TRENTE (Australia/Lord_Howe), le cardinal ne change pas. Sur un saut d'horloge, PEP 495 fait répondre fold=0 avec le décalage d'AVANT et fold=1 avec celui d'APRÈS ; l'un et l'autre relisent une heure murale décalée, et l'aller-retour les élimine tous les deux.",
+    "roundTripIsThePoint": "L'étape 4 est ce qui interdit d'accepter une normalisation : on ne fait jamais confiance à une conversion, on vérifie qu'elle rend ce qu'on avait demandé."
+   },
+   "whyIndependent": [
+    "Aucun décalage UTC n'est calculé : l'oracle n'appelle pas utcoffset() dans sa décision.",
+    "Aucun instant candidat n'est construit par soustraction d'un décalage.",
+    "Aucune sonde : les constantes -86400 / -14400 / +14400 / +86400 ont disparu du fichier.",
+    "La sémantique des fuseaux est entièrement déléguée à la bibliothèque standard (PEP 495).",
+    "Les deux implémentations JUGÉES continuent, elles, d'échantillonner : [ORACLE-2] l'exige, sans quoi l'indépendance pourrait disparaître par l'autre bout, par convergence."
+   ],
+   "fortyEightFixtureResult": "INCHANGÉS, octet pour octet. Le changement de méthode de l'oracle n'a modifié AUCUN des 48 attendus (comparaison des `cases` avant/après : identiques). La méthode a changé, les attendus non -- c'est exactement ce que vaut l'accord des trois.",
+   "byteReproducibility": "Deux exécutions successives du générateur produisent un fichier identique à l'octet. Empreinte du fichier livré : c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46. python 3.13.16 (CPython) / tzdata 2026c.",
+   "wallTimePoints": {
+    "count": 38,
+    "where": "tests/fixtures/checkout-scheduling-cases.json, clé wallTimeCases",
+    "judgedBy": "l'oracle indépendant",
+    "replayedBy": [
+     "resolveWallTime (TypeScript) — [ORACLE-3]",
+     "public.checkout_wall_time_status (SQL) — harnais [6o]"
+    ],
+    "divergences": 0,
+    "statusesExercised": {
+     "valid_unique": 19,
+     "nonexistent": 10,
+     "ambiguous": 9
+    }
+   },
+   "mandatoryCases": {
+    "Europe/Paris 2026-03-29 02:00": "nonexistent",
+    "Europe/Paris 2026-03-29 02:30": "nonexistent",
+    "Europe/Paris 2026-03-29 03:00": "valid_unique",
+    "Europe/Paris 2026-10-25 02:00 / 02:30 / 02:59": "ambiguous (intervalle vécu deux fois)",
+    "Australia/Lord_Howe 2026-04-05 01:45": "ambiguous",
+    "Australia/Lord_Howe 2026-04-05 01:00": "valid_unique",
+    "Australia/Lord_Howe 2026-04-05 02:00": "valid_unique",
+    "Australia/Lord_Howe 2026-10-04 02:10": "nonexistent",
+    "Australia/Lord_Howe 2026-05-03 01:45": "valid_unique",
+    "zonesAlsoCovered": [
+     "UTC",
+     "Pacific/Kiritimati",
+     "America/Los_Angeles",
+     "America/New_York",
+     "Pacific/Chatham",
+     "Asia/Kathmandu"
+    ]
+   },
+   "differentialControls": {
+    "rationale": "Le mandat le dit : ne pas se fier aux seules vérifications de chaîne de caractères. L'indépendance CONCEPTUELLE se démontre en confrontant l'oracle à des classificateurs délibérément faux.",
+    "brokenClassifiers": [
+     {
+      "defect": "ambiguïté cherchée à ±1 heure (le défaut du re-audit précédent)",
+      "contradictedOn": "Australia/Lord_Howe 2026-04-05 01:45"
+     },
+     {
+      "defect": "confiance à la normalisation du moteur, sans aller-retour (le défaut du premier candidat)",
+      "contradictedOn": "Europe/Paris 2026-03-29 02:30"
+     },
+     {
+      "defect": "sonde unique au point demandé",
+      "contradictedOn": "Europe/Paris 2026-10-25 02:30"
+     }
+    ],
+    "alsoRequired": "[ORACLE-5] exige que chaque classificateur faux soit JUSTE ailleurs : un classificateur faux partout serait trouvé le premier jour et ne dirait rien de la finesse de l'oracle."
+   },
+   "tests": [
+    "[ORACLE-1] méthode : fold + aller-retour, et AUCUNE sonde",
+    "[ORACLE-2] les deux jugés échantillonnent toujours (pas de convergence)",
+    "[ORACLE-3] TypeScript ≡ oracle sur les 38 points",
+    "[ORACLE-4] l'oracle contredit chaque classificateur faux sur le cas nommé",
+    "[ORACLE-5] chaque faux diverge quelque part, et pas partout",
+    "[ORACLE-6] les trois statuts sont exercés",
+    "[ORACLE-7] toutes les zones du mandat sont couvertes",
+    "[ORACLE-8] l'oracle ne dispose d'aucun mécanisme de lecture/exécution de ce qu'il juge",
+    "harnais [6o] SQL ≡ oracle sur les 38 points"
+   ]
+  },
+  "CSDJ1-AUD-07": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — identité de destination PARTIELLE au nettoyage",
+   "invariant": "CSDJ-V1-DESTINATION-PROOF-02",
+   "problem": "Le nettoyage ne vérifiait que quatre faits avant de muter des rôles : socket, port, utilisateur, superutilisateur. Il omettait data_directory, config_file et le marqueur d'exécution. Deux clusters différents peuvent satisfaire cette identité partielle -- même numéro de port, même nom d'utilisateur, même motif de nommage de socket -- et la requête extraite rendait le MÊME résultat que le marqueur fût changé ou retiré.",
+   "rootCause": "Pas la faiblesse d'un contrôle, mais l'EXISTENCE DE DEUX contrôles : un à la mise en place, un autre au nettoyage, subtilement différents. C'est la forme même du défaut.",
+   "fix": "UN seul prédicat, dans une bibliothèque sourcée par les deux harnais : supabase/tests/csdj1-cluster-identity.sh. Il n'existe plus deux versions de lui.",
+   "fullIdentityFields": [
+    "1. aucune destination réseau (inet_server_addr() vaut NULL)",
+    "2. la socket attendue figure dans unix_socket_directories",
+    "3. le port attendu",
+    "4. l'utilisateur attendu",
+    "5. le statut superutilisateur",
+    "6. le data_directory EXACT",
+    "7. le config_file EXACT",
+    "8. un MARQUEUR en base portant le nonce de CETTE exécution"
+   ],
+   "orderMatters": "Le statut superutilisateur est vérifié AVANT les réglages qui l'exigent : sinon un défaut de privilège se présenterait comme une erreur de permission et non comme un refus NOMMÉ. Un test structurel fixe cet ordre.",
+   "nonceDesign": {
+    "uniquePerRun": "nonce = étiquette d'exécution + 8 octets de /dev/urandom",
+    "storedInside": "une TABLE du cluster possédé, au nom étiqueté par l'exécution",
+    "readFromTheMutatingSession": "garde et mutation tiennent dans UN bloc DO unique : UNE session, UNE transaction. Prouver puis muter en deux connexions laissait un intervalle pendant lequel la destination pouvait changer.",
+    "notAFilesystemMarker": "un fichier témoin aurait prouvé que le SYSTÈME DE FICHIERS est le bon, pas que le SERVEUR joint est le bon. Le marqueur est lu en SQL : aucun autre serveur ne peut le présenter, quel que soit son port, son utilisateur ou le nom de sa socket.",
+    "refusesPreexisting": "si une table de ce nom existe déjà, le harnais REFUSE : il ne peut pas prouver qu'il en est le propriétaire.",
+    "removedUnderTheSameGuard": "le marqueur n'est retiré que du serveur qui vient de prouver son identité."
+   },
+   "everyMutatingPath": [
+    "mise en place des rôles globaux — déplacée hors de l'amorçage d'une base jetable, parce qu'un marqueur logé dans « postgres » n'y aurait pas été visible ; elle passe désormais par le point de passage commun, au niveau du cluster",
+    "mutations de rôles du harnais de rôles (set_role_attrs)",
+    "suppression de rôle du cas « initialement absent »",
+    "restauration des rôles au nettoyage — EN UNE SEULE transaction gardée : ou les trois rôles reviennent, ou aucun ne bouge",
+    "retrait du marqueur",
+    "aucun chemin de repli plus faible n'existe : en cas de refus, on ne « réessaie pas autrement »"
+   ],
+   "negativeControls": {
+    "requirement": "pour chacun : REFUS pour la BONNE raison, et ZÉRO mutation d'un rôle témoin",
+    "results": {
+     "data_directory faux": "REFUS « data_directory », zéro mutation",
+     "config_file faux": "REFUS « config_file », zéro mutation",
+     "marqueur RETIRÉ": "REFUS « marqueur_absent », zéro mutation — reproduction littérale du constat de l'audit",
+     "marqueur CHANGÉ": "REFUS « nonce », zéro mutation — reproduction littérale du constat de l'audit",
+     "nonce attendu faux": "REFUS « nonce », zéro mutation",
+     "port faux": "REFUS « port », zéro mutation",
+     "utilisateur faux": "REFUS « current_user », zéro mutation",
+     "non superutilisateur": "REFUS « is_superuser », zéro mutation",
+     "destination RÉSEAU (témoin)": "REFUS « destination_reseau », zéro mutation",
+     "socket attendue fausse": "REFUS « socket », zéro mutation"
+    },
+    "positiveControl": "le chemin NOMINAL mute toujours, et l'effet est observé sur le rôle témoin. Exigence explicite du mandat : « A harness that always aborts is not a PASS. »",
+    "whyRightReason": "exiger la BONNE raison interdit qu'un contrôle passe pour la mauvaise cause -- par exemple un refus de connexion qu'on prendrait pour un refus d'identité."
+   },
+   "pghostaddr": {
+    "preserved": true,
+    "gate": "27 variables, refus PAR LE NOM, jamais par la valeur",
+    "proof": "harness-refusal-redirect-var.txt : PGHOSTADDR=127.0.0.1 => code 2, « Aucune mutation n'a été tentée », et la valeur n'apparaît pas dans la sortie (0 occurrence).",
+    "harmfulnessStillDemonstrated": "section [F] : sans isolation la connexion aboutit AU TÉMOIN, sous env -i elle aboutit au cluster sous test."
+   },
+   "results": {
+    "proofs": 120,
+    "failures": 0
+   }
+  }
+ },
+ "integrationReservation": {
+  "whenRecomposing": "Le mandat l'ordonne au moment de l'intégration, pas maintenant : remplacer l'assertion fragile [OWNERSHIP-2] « exactement 14 clés MCC » par un invariant de PROPRIÉTÉ -- « CSDJ-1 n'ajoute ni ne modifie AUCUNE clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy, PR #134) a légitimement porté le catalogue à 17.",
+  "notChangedNow": "Ce candidat est construit sur 412dbb5, où 14 est la valeur juste. Le changer maintenant modifierait un contrat clos sans nécessité pour exécuter ce candidat.",
+  "currentMain": "2f45df7717b16b08075b51aabf9cec4afd4b2741 (non recomposé, lignée immuable)"
+ },
+ "thirdRemediation": {
+  "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
+  "tree": "cbca392e623d0bd6a8d7afbcf2a9e1e256e2acce",
+  "evidenceHead": "662b00d0d58fde05f6d1aa62f7d9a3cd310d98af",
+  "verdict": "AUD-PYTHON-01, AUD-02, AUD-03, AUD-04, AUD-05, AUD-06 CLOS ; deux défauts d'AUD-07 restants",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit. Ancêtre direct du nouveau candidat."
+ },
+ "fourthRemediationBlockers": {
+  "BLOCKER-1-witness-role-init": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — initialisation des rôles du TÉMOIN hors de la garde",
+   "problem": "Le cluster témoin recevait ses attributs distinctifs (service_role LOGIN BYPASSRLS, et de même pour anon et authenticated) par un appel brut `qw`, sans le prédicat d'identité complète. L'invariant exige que TOUTE mutation de rôle PostgreSQL ait lieu après la preuve complète, marqueur et nonce compris, dans le même chemin de mutation gardé.",
+   "whyItHappened": "Un cluster « qui ne sert que de témoin » paraît ne pas compter. Un appel brut qui ne compte pas est un appel brut qui comptera le jour où la destination n'est plus celle qu'on croit -- et ce fichier existe précisément pour prouver qu'on ne mute jamais le mauvais serveur.",
+   "fix": {
+    "witnessContract": [
+     "socket attendue (WIT_SOCK)",
+     "port (WIT_PORT)",
+     "utilisateur (OWNER)",
+     "assertion superutilisateur",
+     "data_directory (WIT_DATA_DIR_PROVEN)",
+     "config_file (WIT_CONFIG_FILE_PROVEN)",
+     "nonce d'exécution (WIT_NONCE)",
+     "marqueur en base (WIT_MARKER), au nom DISTINCT de celui du cluster sous test"
+    ],
+    "throughSharedGuard": "l'initialisation des rôles du témoin passe par csdj1_identity_mutate, le même prédicat atomique que toutes les autres mutations",
+    "namedContracts": "la bibliothèque gère désormais des contrats NOMMÉS. Quatre cohabitent : « test » (cluster sous test), « temoin », « banc » (banc d'essai de sockets) et « test_sans_privilege » (connexion non privilégiée). Les nommer, plutôt que sauvegarder et restaurer un contrat global à la main, évite exactement ce qui a produit le défaut d'origine : deux chemins presque identiques qui divergent sans qu'on le voie.",
+    "noRawCallRemains": "aucun appel brut `q` ou `qw` ne porte plus de mutation de rôle"
+   },
+   "structuralDetector": {
+    "where": "section [E] du harnais de rôles, et [AUD07-SQL-4] côté TypeScript",
+    "method": "raisonnement par COMMANDE ENGLOBANTE : une instruction de mutation vit presque toujours à l'intérieur d'un argument sur plusieurs lignes, et un contrôle ligne à ligne ne prouverait rien. Le détecteur suit l'ouvreur de commande le plus proche en amont et exige qu'il soit gardé.",
+    "scope": "les DEUX harnais, pour create role / alter role / drop role, dans les deux casses",
+    "wouldHaveCaughtThisDefect": true,
+    "alsoChecks": "les variables qui accumulent du SQL de mutation (RESTORE_SQL, PROBE_MUTATION) ne sont consommées que par une mutation gardée",
+    "countsWhatItExamines": "un détecteur qui ne trouverait rien à examiner passerait pour vert"
+   },
+   "verdict": "PASS"
+  },
+  "BLOCKER-2-socket-exact-match": {
+   "severity": "P1",
+   "verdictBefore": "FAIL — comparaison du répertoire de socket par SOUS-CHAÎNE",
+   "problem": "`strpos(unix_socket_directories, attendu) <> 0` acceptait tout fragment. Reproduction du rapport : socket réelle « /tmp », attendu « /tm » => accepté. Vérifié empiriquement : le répertoire PARENT et la LISTE ENTIÈRE passaient aussi.",
+   "whyItMattered": "Une identité qui accepte un fragment n'identifie rien. Sur un poste où plusieurs clusters jetables vivent côte à côte sous /tmp, le fragment est la règle et non l'exception.",
+   "fix": {
+    "entries": "`unix_socket_directories` est une LISTE séparée par des virgules, dont les entrées peuvent être encadrées de guillemets doubles (syntaxe PostgreSQL pour un chemin contenant une virgule ou un espace). Elle est découpée en ENTRÉES par string_to_array + unnest.",
+    "normalization": "chaque entrée est normalisée -- espaces extérieurs, guillemets, barre oblique finale ; « / » reste son propre répertoire -- et l'attendu est normalisé DE LA MÊME FAÇON côté shell (csdj1_identity_normalize_socket), sans quoi « /tmp/ » et « /tmp » seraient deux répertoires différents.",
+    "equality": "l'attendu doit être ÉGAL à une entrée complète. Aucun préfixe, suffixe ou fragment.",
+    "refusesEmptyExpected": "un attendu non absolu fait REFUSER la déclaration du contrat : un attendu vide aurait accepté une entrée vide.",
+    "listSyntaxPreserved": "la syntaxe de liste légitime de PostgreSQL reste prise en charge"
+   },
+   "socketLab": "un cluster de banc d'essai est créé par le harnais avec DEUX répertoires de socket (unix_socket_directories='A,B'). Sans lui, rien ne distingue « une entrée complète » de « la liste ».",
+   "negativeTests": {
+    "entrée EXACTE (membre 1)": "ACCEPTÉ",
+    "entrée EXACTE (membre 2)": "ACCEPTÉ",
+    "barre oblique finale, même répertoire": "ACCEPTÉ",
+    "PRÉFIXE d'une entrée": "REFUS « socket », zéro mutation",
+    "entrée + un caractère": "REFUS « socket », zéro mutation",
+    "répertoire PARENT": "REFUS « socket », zéro mutation",
+    "SOUS-répertoire d'une entrée": "REFUS « socket », zéro mutation",
+    "SUFFIXE d'une entrée": "REFUS « socket », zéro mutation",
+    "la LISTE entière": "REFUS « socket », zéro mutation",
+    "reproduction d'audit : /tmp vs /tm": "REFUS « socket », zéro mutation",
+    "reproduction d'audit : /tmp vs /tmpx": "REFUS « socket », zéro mutation"
+   },
+   "harmfulnessDemonstrated": "pour trois attendus partiels, le harnais montre EN LECTURE SEULE que l'ANCIEN prédicat (sous-chaîne) les acceptait et que le nouveau les refuse. La menace n'est pas déclarée, elle est reproduite.",
+   "verdict": "PASS"
+  },
+  "incidental": {
+   "backticksInHeredoc": "un commentaire du heredoc de la garde contenait des accents graves, que le shell exécutait comme des commandes -- le harnais imprimait « strpos: command not found » à chaque nettoyage. Sans conséquence sur le SQL émis, mais un harnais qui bruite est un harnais qu'on cesse de lire. Corrigé."
+  }
+ },
+ "fourthRemediation": {
+  "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
+  "tree": "e3492964cdfe33e81f9b642ddbbd25df3c1876ef",
+  "evidenceHead": "aae83cf7a6a70ea543baad61a9184eee3a71aecf",
+  "verdict": "FAIL — un blocker : CSDJ1-AUD-07-SOCKET-CSV-01",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit."
+ },
+ "fifthRemediationBlocker": {
+  "CSDJ1-AUD-07-SOCKET-CSV-01": {
+   "severity": "HIGH",
+   "problem": "Le découpage employait `string_to_array(unix_socket_directories, ',')` : il coupe à CHAQUE virgule, y compris celles qui sont DANS une entrée citée. PostgreSQL autorise une entrée citée contenant une virgule, et SHOW CONSERVE les guillemets.",
+   "measuredFacts": {
+    "file": "socket-csv-syntax.txt — rien n'y est supposé, tout est mesuré sur un serveur de ce poste",
+    "quotesPreservedBySHOW": true,
+    "commaInsideQuotesIsData": true,
+    "doubledQuoteIsLiteral": "oui : le serveur démarre sur \"<r>/quo\"\"te\" et SHOW le ré-encode doublé. Le parseur doit donc le traiter.",
+    "spacesAroundCommasPreserved": true,
+    "spacesInsideQuotesArePartOfTheName": true,
+    "duplicatesPreserved": "sans effet sur un test d'appartenance",
+    "malformedCannotArise": "une citation NON FERMÉE empêche le serveur de DÉMARRER (« invalid list syntax in parameter »), elle ne peut donc pas sortir de SHOW. L'hypothèse est documentée, et la garde la refuse quand même (socket_liste_malformee)."
+   },
+   "defectBothWays": {
+    "falseAccept": "« <r>/foo » et « bar », fragments de \"<r>/foo,bar\", étaient ACCEPTÉS",
+    "falseReject": "« <r>/foo,bar », « <r>/tr,ail » et « <r>/qu\"ote », entrées RÉELLES, étaient REFUSÉES -- le harnais aurait été inutilisable sur un serveur à entrée citée"
+   },
+   "parser": {
+    "method": "remplacer les guillemets doublés par une sentinelle, puis ne couper qu'aux virgules dont le nombre de guillemets qui précèdent est PAIR. La parité suffit : après la substitution, les guillemets restants sont exactement les délimiteurs, et ils alternent.",
+    "normalization": "espaces extérieurs retirés ; guillemets encadrants retirés SEULEMENT s'il y en a aux DEUX bouts -- n'en retirer qu'un est précisément ce qui transforme un fragment en chemin plausible ; sentinelle restituée en guillemet ; barre oblique finale retirée, « / » restant « / ». L'attendu est normalisé de la même façon côté shell.",
+    "singleImplementation": "csdj1_identity_socket_cte() est défini UNE fois. La garde et la démonstration de nocivité consomment la MÊME expression émise (csdj1_identity_socket_match_expr) : une démonstration conduite avec une copie prouverait la justesse de la copie.",
+    "failClosed": "liste mal formée (parité impaire) => refus nommé socket_liste_malformee",
+    "noApostrophe": "le contrat refuse de se déclarer si une de ses valeurs contient une apostrophe : ces valeurs sont interpolées dans des littéraux SQL, et une apostrophe y désarmerait la garde."
+   },
+   "socketLab": "cinq répertoires de socket, dont un à VIRGULE, un à ESPACE et un à barre oblique finale, tous trois CITÉS dans la configuration. Sur une liste sans guillemets, un découpage brut et un parseur correct sont indiscernables.",
+   "mandatoryCases": {
+    "1. /tmp attendu /tmp": "PASS (accepté)",
+    "2. /tmp attendu /tm": "refus « socket », zéro mutation",
+    "3. /tmp attendu /tmpx": "refus « socket », zéro mutation",
+    "4. liste citée, attendu l'entrée citée complète": "PASS (accepté)",
+    "5. liste citée, attendu le membre simple": "PASS (accepté)",
+    "6. liste citée, attendu le FRAGMENT avant la virgule": "refus « socket », zéro mutation",
+    "7. liste citée, attendu le FRAGMENT après la virgule": "refus « socket », zéro mutation",
+    "8. attendu = la LISTE ENTIÈRE rendue par SHOW": "refus « socket », zéro mutation",
+    "9. entrée citée à barre oblique finale": "PASS, normalisée des deux côtés",
+    "10. entrée citée contenant un ESPACE": "PASS (accepté), préservée comme UNE entrée"
+   },
+   "harmfulnessDemonstrated": "dans les deux sens : pour cinq attendus partiels, on montre lequel des anciens prédicats les acceptait ; pour trois entrées RÉELLES, on montre que le découpage brut les refusait.",
+   "verdict": "PASS"
+  },
+  "detectorLimitationClosed": {
+   "observation": "le détecteur de mutations brutes attrapait la mutation multi-lignes, mais une mutation PACKÉE SUR UNE SEULE LIGNE lui échappait : la règle d'ouvreur consommait la ligne avant qu'on y cherche la mutation.",
+   "fix": "il CLASSE la ligne avant de mettre à jour l'ouvreur, et vit dans UN fichier réutilisé pour s'éprouver lui-même.",
+   "fixtures": {
+    "raw-one-line": "q \"create role …;\" sur UNE ligne => DÉTECTÉ",
+    "raw-one-line-alter": "csdj1_runner_test \"alter role …;\" sur UNE ligne => DÉTECTÉ",
+    "raw-multiline": "mutation brute multi-lignes => DÉTECTÉ (non-régression)",
+    "guarded": "mutation gardée => NON dénoncée à tort"
+   },
+   "fixtureVerbsAssembled": "les verbes SQL des fixtures sont assemblés et non écrits en clair : écrits en clair, ils seraient eux-mêmes dénoncés par le détecteur qui analyse ce fichier. Une fixture ne doit pas devenir le défaut qu'elle éprouve.",
+   "scopeRespected": "le parseur shell n'a pas été redessiné, comme le mandat le demandait",
+   "verdict": "PASS"
+  }
+ },
+ "fifthRemediation": {
+  "sha": "7420bec0407040c6c3bec8f155db68ab9f8878ea",
+  "tree": "d36a9ddf997eb9694cc46cdb520b44f3ad35d520",
+  "evidenceHead": "0b9ff164ff84c70e47576a9768095114c056e346",
+  "verdict": "FAIL — deux blockers P2",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit."
+ },
+ "sixthRemediationBlockers": {
+  "CSDJ1-AUD-07-SOCKET-SENTINEL-01": {
+   "severity": "P2",
+   "problem": "Le parseur employait chr(1) et chr(2) comme sentinelles internes. Ces octets ne sont réservés par AUCUNE syntaxe PostgreSQL : Linux n'interdit dans un nom de fichier que « / » et l'octet nul. Un serveur démarre parfaitement sur un répertoire de socket les contenant -- vérifié sur ce poste.",
+   "reproducedBeforeFix": {
+    "chr(2)": "liste « <rép>/foo<chr(2)>bar,<rép>/plain », attendu « <rép>/foo » => ACCEPTÉ. L'octet des données est pris pour un séparateur, et le fragment devient une entrée : FAUSSE IDENTITÉ.",
+    "chr(1)": "liste « <rép>/foo<chr(1)>bar,... » => l'entrée est vue comme « <rép>/foo\"bar ». Un chemin qui N'EXISTE PAS est accepté, et l'entrée RÉELLE est refusée.",
+    "bothWays": "une fausse identité acceptée, et l'entrée réelle refusée."
+   },
+   "fix": {
+    "option": "A — refus des octets réservés dans la liste BRUTE, avant toute substitution",
+    "reason": "socket_octets_reserves",
+    "beforeSubstitution": true,
+    "alsoOnExpected": "le contrat refuse de se déclarer si l'attendu porte chr(1) ou chr(2) : accepter d'un côté ce qu'on refuse de l'autre serait une asymétrie, donc une faille.",
+    "whyRefuseRatherThanSupport": "PostgreSQL permet ces octets dans un chemin ; le harnais les refuse. Un cluster jetable n'a jamais besoin d'un répertoire de socket contenant un octet de contrôle, et si quelqu'un en rencontrait un, un refus NOMMÉ lui dirait exactement pourquoi -- là où une acceptation silencieuse lui aurait menti sur l'identité du serveur qu'il mute.",
+    "noSentinelMoved": "les sentinelles n'ont pas été déplacées ailleurs : l'entrée est refusée."
+   },
+   "controls": {
+    "S1 chr(1)": "REFUS « socket_octets_reserves », empreinte de rôle INCHANGÉE, collision prouvée réelle",
+    "S2 chr(2)": "REFUS « socket_octets_reserves », empreinte de rôle INCHANGÉE, collision prouvée réelle",
+    "positive": "un chemin ORDINAIRE passe toujours (aucun octet réservé, appartenance exacte)",
+    "method": "les contrôles tournent sur de VRAIS clusters portant ces octets. Chacun démarre d'abord avec une liste ORDINAIRE pour que le marqueur et le rôle témoin soient posés LÉGITIMEMENT -- sans cela le refus viendrait du marqueur absent, et le contrôle prouverait autre chose -- puis est reconfiguré avec l'octet. Le seul fait qui cloche est celui qu'on éprouve."
+   },
+   "verdict": "PASS"
+  },
+  "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
+   "severity": "P2",
+   "defects": [
+    "l'état « gardé » FUYAIT : un csdj1_identity_mutate complet laissait l'état actif, et la mutation brute suivante en héritait -- déclarée GARDÉE (D4).",
+    "seul le guillemet DOUBLE ouvrait un argument : q 'alter role ...' passait inaperçu (D1).",
+    "les mots-clés n'étaient cherchés qu'en minuscules et en capitales : « Alter Role » ne produisait AUCUNE sortie (D3)."
+   ],
+   "fix": [
+    "recherche du mot-clé insensible à la casse (tolower)",
+    "les DEUX formes de littéral ouvrent un argument",
+    "l'état ne se propage que tant qu'un argument reste OUVERT : un appel qui se ferme sur sa ligne ne laisse rien derrière lui -- c'est ce qui ferme la fuite",
+    "la ligne est CLASSÉE avant toute mise à jour de l'état"
+   ],
+   "foundWhileWritingFixtures": [
+    "un motif passé en ARGUMENT à une fonction awk doit être une CHAÎNE : une constante /re/ y vaut « $0 ~ /re/ », soit 0 ou 1, et la fonction cherchait « 0 » dans le texte. Le détecteur ne voyait RIEN. Sans les fixtures, la correction aurait été livrée inerte.",
+    "un jeton d'appel n'en est un que s'il est suivi d'une ouverture de chaîne ou d'un drapeau : sinon du SQL contenant « ..._probe nologin » était pris pour un appel au client « probe » et écrasait l'état au milieu d'un argument gardé."
+   ],
+   "fixtures": {
+    "D1 apostrophe": {
+     "ancien": "SANS-OUVREUR",
+     "nouveau": "NON-GARDEE"
+    },
+    "D2 guillemet": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D3 casse mixte": {
+     "ancien": "AUCUNE SORTIE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D4 fuite d'état": {
+     "ancien": "GARDEE (fuite)",
+     "nouveau": "NON-GARDEE"
+    },
+    "D5 multi-lignes": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D6 gardée": {
+     "ancien": "GARDEE",
+     "nouveau": "GARDEE"
+    },
+    "D7 SQL sans rôle": {
+     "ancien": "ignoré",
+     "nouveau": "ignoré"
+    }
+   },
+   "scopeRespected": "le parseur shell n'a pas été redessiné globalement",
+   "verdict": "PASS"
+  }
+ },
+ "sixthRemediation": {
+  "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
+  "tree": "2f4af841429f02f546f9bb88b00593a0aeb54af1",
+  "evidenceHead": "2b328a88949a653f8a24162df203c74c5f0798aa",
+  "verdict": "FAIL — un blocker P2 : le détecteur pouvait déclarer GARDÉE une mutation brute",
+  "disposition": "conservé INTACT : ni amendé, ni réécrit."
+ },
+ "seventhRemediationBlocker": {
+  "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
+   "severity": "P2",
+   "nature": "défaut de FIABILITÉ DE LA PREUVE, non de logique métier : aucun chemin nominal de mutation non gardée n'existait, mais le détecteur pouvait déclarer GARDÉE une mutation brute -- et c'est ce mensonge qui tenait AUD-07 ouvert.",
+   "auditorSequence": "csdj1_identity_mutate \"perform 1;\" # l'initialisation est terminee / q \\ / 'alter role fixture bypassrls;' => ancien verdict GARDEE, correct NON-GARDEE",
+   "rootCause": "l'apostrophe du COMMENTAIRE était comptée comme un délimiteur ; l'état « gardé » survivait donc à une commande terminée, et la continuation par barre oblique inverse n'était pas reconnue.",
+   "whyALexerRatherThanAFourthPatch": "trois audits ont trouvé trois façons de tromper le comptage de guillemets ligne par ligne : la casse, la forme du littéral, la fuite d'état. La quatrième n'était qu'une question de temps. Le comptage n'est donc pas corrigé, il est REMPLACÉ.",
+   "lexerModels": [
+    "texte ordinaire",
+    "apostrophes (aucun échappement : règle du shell)",
+    "guillemets (la barre oblique inverse échappe)",
+    "commentaire : « # » en début de mot, hors citation, jusqu'à la fin de la ligne physique, SANS effet sur aucun état",
+    "continuation par barre oblique inverse",
+    "fin de commande : « ; », « & », « | », ou fin de ligne",
+    "documents en ligne : corps = texte, mutations attribuées à la commande qui l'ouvre"
+   ],
+   "noStateAcrossCommands": "chaque commande est classée SEULE : la classe entière de défauts « fuite d'état » disparaît par CONSTRUCTION, et non par correctif.",
+   "failClosed": "une commande qu'on ne sait pas classer est rapportée SANS-OUVREUR, traitée comme un échec ; et un appel brut l'emporte sur un appel gardé présent dans la même commande.",
+   "ownFile": "supabase/tests/csdj1-raw-role-mutation-detector.awk. Logé dans le fichier qu'il analyse, un détecteur se dénonce lui-même, et l'on finit par lui ajouter des exceptions -- lesquelles sont autant de trous.",
+   "fixtures": {
+    "count": 17,
+    "validatedByBash": "chaque fixture passe « bash -n » : sinon elle ne représente aucune réalité lexicale",
+    "D1": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D2": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D3": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D4": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D5": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "D6": {
+     "ancien": "GARDEE",
+     "nouveau": "GARDEE"
+    },
+    "D7": {
+     "ancien": "ignoré",
+     "nouveau": "ignoré"
+    },
+    "R1 reproduction de l'audit": {
+     "ancien": "GARDEE (FAUX NÉGATIF)",
+     "nouveau": "NON-GARDEE"
+    },
+    "R2 commentaire avec apostrophe": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "R3 commentaire avec guillemet": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "R4 commentaire avec les deux + casse mixte": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "R5 « # » dans l'argument SQL": {
+     "ancien": "NON-GARDEE",
+     "nouveau": "NON-GARDEE"
+    },
+    "C1 continuation + apostrophe": {
+     "ancien": "SANS-OUVREUR",
+     "nouveau": "NON-GARDEE"
+    },
+    "C2 continuation qw + guillemet": {
+     "ancien": "SANS-OUVREUR",
+     "nouveau": "NON-GARDEE"
+    },
+    "C3 continuation + casse mixte": {
+     "ancien": "SANS-OUVREUR",
+     "nouveau": "NON-GARDEE"
+    },
+    "C4 continuation GARDÉE légitime": {
+     "ancien": "SANS-OUVREUR (FAUX POSITIF, non relevé)",
+     "nouveau": "GARDEE"
+    },
+    "C5 continuation sans mutation": {
+     "ancien": "ignoré",
+     "nouveau": "ignoré"
+    }
+   },
+   "twoDefectsNotOne": "R1 est un FAUX NÉGATIF -- une mutation brute déclarée gardée, le défaut dangereux. C4 est un FAUX POSITIF que personne n'avait relevé : une continuation gardée légitime déclarée SANS-OUVREUR, donc traitée comme un échec. Les deux sont corrigés.",
+   "harmfulnessObserved": "section [I] du harnais : la séquence de l'audit est EXÉCUTÉE sur le cluster jetable avec le vrai client brut, et le rôle témoin passe de NOBYPASSRLS à BYPASSRLS. Ce que le label « GARDEE » couvrait était une mutation effective.",
+   "verdict": "PASS"
+  }
+ },
+ "eighthRemediationBlocker": {
+  "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
+   "severity": "P2",
+   "nature": "défaut de FIABILITÉ DE LA PREUVE, non de logique métier : aucun chemin nominal de mutation non gardée n'existe, mais un détecteur qui peut TAIRE une mutation brute ne prouve rien.",
+   "formsFound": {
+    "E1": "q \"alter \\\\\" + saut de ligne + \"role fixture bypassrls;\" -- Bash retire « barre oblique inverse + saut de ligne » JUSQUE DANS les guillemets doubles",
+    "E2": "q \"alter\" + saut de ligne + \"role fixture bypassrls;\" -- le saut de ligne reste dans l'argument, et PostgreSQL le lit comme un blanc"
+   },
+   "rootCause": "le détecteur cherchait « (create|alter|drop)[ \\t]+role » : ni la barre oblique inverse ni le saut de ligne ne satisfaisaient « [ \\t] ».",
+   "whyNotTwoExceptions": "le mandat nomme la bonne cause : « le détecteur doit cesser d'être rapiécé exemple par exemple ». Deux exceptions auraient déplacé la frontière une huitième fois. On ne compare plus des textes : on CONSTRUIT la représentation que le serveur verra.",
+   "whatChanged": "voir results.detector.architecture : six étapes, dont la normalisation des continuations DANS LES DEUX ÉTATS et l'équivalence de TOUS les blancs SQL. Les corps de documents en ligne, encore analysés ligne à ligne, le sont désormais d'un seul bloc -- même classe, un étage plus bas.",
+   "evidence": [
+    "raw-role-detector.txt",
+    "detector-adversarial.txt",
+    "detector-fixtures.txt",
+    "role-mutation-paths-inspection.txt",
+    "role-mutation-paths-inspector.py",
+    "harness-role-restoration.txt",
+    "harness-mutation-controls.txt"
+   ]
+  }
+ }
 }
