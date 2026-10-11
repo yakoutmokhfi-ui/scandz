@@ -63,6 +63,31 @@ export interface CgvDocumentChapter {
    *  reader/diff never trust a heading string found inside an
    *  imported DOCX; they trust the bookmark it was wrapped in). */
   heading: string;
+  /**
+   * W1.1 — the chapter's VISIBLE numbering label, exactly as
+   * `renderCgv()` published it (the literal text of the
+   * `<span class="cgv-chapter-number">` it emits, e.g. `"3."`), or
+   * `null` for the one section that is deliberately not a numbered
+   * chapter (the D.211-2 regulatory encadré — see
+   * `LEGAL_GUARANTEE_ENCADRE_BOOKMARK` below, and render.ts's own
+   * comment: « pas de numéro, pas de `data-chapter` »).
+   *
+   * READ, never recomputed. The number is the published document's
+   * own, assigned by `renderCgv()` at render time (a conditional
+   * section that is absent consumes no number, so the sequence has no
+   * gaps) — this module copies that label through so the DOCX can SHOW
+   * it, and never derives a numbering of its own. Nothing downstream
+   * is allowed to renumber: a Word auto-numbering field could easily
+   * display a number that differs from the published CGV, which for a
+   * legal document would be a defect, not a convenience.
+   *
+   * NOT an identity. `bookmarkName` stays derived from the HEADING
+   * alone (see file header, "STABLE STRUCTURAL IDENTITY"): the number
+   * shifts whenever an earlier conditional section appears or
+   * disappears, which is exactly why it must never take part in
+   * matching.
+   */
+  chapterNumber: string | null;
   /** One entry per paragraph / identity row, in document order. */
   paragraphs: string[];
 }
@@ -109,6 +134,33 @@ export function slugifyCgvHeading(heading: string): string {
  */
 export function toOoxmlBookmarkName(bookmarkName: string): string {
   return `cgv_${bookmarkName.replace(/-/g, "_")}`;
+}
+
+/**
+ * W1.1 — the ONE place that decides what a chapter's heading LINE
+ * looks like outside the HTML page: `"3. Prix"` for a numbered
+ * chapter, and the bare heading for the unnumbered D.211-2 encadré.
+ *
+ * Why a shared function rather than string concatenation at each call
+ * site: this line is written by the DOCX writer AND re-read, as the
+ * imported chapter's first body line, by the diff engine (the writer
+ * puts the heading inside the bookmarked paragraph, so the reader
+ * recovers it as that chapter's first line — see
+ * lib/docx/docx-reader.ts's `groupIntoChapters`). The two sides MUST
+ * compose it identically, or an untouched export → import round trip
+ * would report a phantom "modified" heading on every single chapter.
+ * One function, imported by both, makes that impossible to get wrong.
+ *
+ * Presentation only. It never feeds `bookmarkName`, never reaches
+ * `renderCgv()`, and never changes what gets published.
+ */
+export function cgvChapterHeadingLine(
+  chapter: Pick<CgvDocumentChapter, "chapterNumber" | "heading">
+): string {
+  // The published page renders `<span>3.</span> <span>Prix</span>` —
+  // i.e. the label, one space, the title. Reproduced exactly, so the
+  // Word document reads like the document it is a copy of.
+  return chapter.chapterNumber ? `${chapter.chapterNumber} ${chapter.heading}` : chapter.heading;
 }
 
 /** Stable bookmark name for the one section `renderCgv()` deliberately
@@ -164,6 +216,7 @@ export function parseCgvDocumentModel(renderedHtml: string): CgvDocumentModel {
     const inner = sectionMatch[2];
 
     let heading: string | null = null;
+    let chapterNumber: string | null = null;
     let bodyHtml = inner;
     if (kind === "cgv-section") {
       const h2Match = /<h2 class="cgv-section-heading">[\s\S]*?<span class="cgv-chapter-title">([\s\S]*?)<\/span><\/h2>/.exec(
@@ -171,6 +224,13 @@ export function parseCgvDocumentModel(renderedHtml: string): CgvDocumentModel {
       );
       if (!h2Match) continue; // defensive -- renderCgv() always emits this shape; never a crash on a future shape change.
       heading = unescapeXmlEntities(h2Match[1]);
+      // W1.1 -- the VISIBLE numbering label, read from the same `<h2>`
+      // (a SEPARATE, optional match: the heading extraction above is
+      // left byte-identical to before this lot, and a render that one
+      // day stopped emitting the number span simply yields `null` here
+      // instead of breaking the export).
+      const numberMatch = /<span class="cgv-chapter-number">([\s\S]*?)<\/span>/.exec(h2Match[0]);
+      chapterNumber = numberMatch ? unescapeXmlEntities(numberMatch[1]).trim() || null : null;
       bodyHtml = inner.slice(h2Match.index + h2Match[0].length);
     } else {
       const h2Match = /<h2 class="cgv-encadre-heading">([\s\S]*?)<\/h2>/.exec(inner);
@@ -194,7 +254,9 @@ export function parseCgvDocumentModel(renderedHtml: string): CgvDocumentModel {
     }
     usedBookmarks.add(bookmarkName);
 
-    chapters.push({ bookmarkName, heading, paragraphs: extractParagraphs(bodyHtml) });
+    // `chapterNumber` stays null for the D.211-2 encadré: `renderCgv()`
+    // deliberately gives it no number, and the DOCX must not invent one.
+    chapters.push({ bookmarkName, heading, chapterNumber, paragraphs: extractParagraphs(bodyHtml) });
   }
 
   return { frontMatter, chapters };

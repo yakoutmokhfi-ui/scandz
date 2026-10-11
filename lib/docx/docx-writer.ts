@@ -23,6 +23,35 @@
  * module itself produced, and nothing a merchant's own edits in Word
  * could corrupt beyond ordinary paragraph text (bookmarks survive
  * ordinary text edits inside the paragraph they wrap).
+ *
+ * ====================================================================
+ * W1.1 — VISIBLE CHAPTER NUMBERING (presentation only)
+ * ====================================================================
+ *
+ * W1 exported each heading as its bare title ("Prix"), while the
+ * published CGV page shows the chapter's number in front of it
+ * ("3. Prix"). A merchant opening the Word copy of their own CGV
+ * therefore saw an unnumbered list of chapters, and could not refer to
+ * "article 3" of a document that nowhere said "3".
+ *
+ * Fixed by writing the PUBLISHED number as ordinary run text in the
+ * heading paragraph, via the single shared composer
+ * `cgvChapterHeadingLine()` (lib/legal/cgv-document-model.ts).
+ *
+ * Deliberately NOT Word auto-numbering (`w:numPr` + a
+ * `word/numbering.xml` part, or a `SEQ`/`LISTNUM` field): Word would
+ * then compute its own counter, and any later edit by the merchant
+ * (deleting a chapter, adding a heading-styled line) would silently
+ * renumber the document away from the numbering Scanym actually
+ * published — on a legal document, a number that disagrees with the
+ * published text is a defect, not a convenience. Literal text cannot
+ * drift: it says what was published, and if the merchant changes it,
+ * the import diff surfaces that edit like any other.
+ *
+ * Nothing about identity changes: the bookmark this writer embeds is
+ * still derived from the HEADING alone, never from the number (which
+ * legitimately shifts whenever a conditional section appears or
+ * disappears).
  */
 
 // WINDOWS/FFLATE HARNESS FIX (W1 SECOND REMEDIATION, see deliverable's
@@ -72,7 +101,7 @@
 // suite passing unchanged under the new import.)
 import { zipSync } from "fflate/browser";
 import type { CgvDocumentModel } from "@/lib/legal/cgv-document-model";
-import { toOoxmlBookmarkName } from "@/lib/legal/cgv-document-model";
+import { cgvChapterHeadingLine, toOoxmlBookmarkName } from "@/lib/legal/cgv-document-model";
 
 function escapeXml(value: string): string {
   return value
@@ -167,7 +196,14 @@ export function buildCgvDocx(model: CgvDocumentModel): Uint8Array {
 
   let bookmarkId = 0;
   for (const chapter of model.chapters) {
-    bodyParts.push(headingParagraphWithBookmark(bookmarkId, chapter.bookmarkName, chapter.heading));
+    // W1.1 -- the heading paragraph carries the chapter's VISIBLE
+    // number, exactly as published ("3. Prix"), composed by the one
+    // shared function the diff engine also uses. Plain run text, never
+    // a Word numbering field: see this file's "VISIBLE CHAPTER
+    // NUMBERING" note in the header.
+    bodyParts.push(
+      headingParagraphWithBookmark(bookmarkId, chapter.bookmarkName, cgvChapterHeadingLine(chapter))
+    );
     bookmarkId += 1;
     for (const p of chapter.paragraphs) {
       bodyParts.push(paragraph(p));
