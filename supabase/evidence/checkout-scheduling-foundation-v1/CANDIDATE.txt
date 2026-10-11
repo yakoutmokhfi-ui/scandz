@@ -1,23 +1,24 @@
-CHECKOUT SCHEDULING FOUNDATION v1.6 (CSDJ-1)
-SIXIÈME REMÉDIATION CIBLÉE — CANDIDAT
+CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1)
+SEPTIÈME REMÉDIATION CIBLÉE — CANDIDAT
 ======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   8dafd787c84aa8b3b7e3d89f384b416518a11f22
-arbre du candidat           2f4af841429f02f546f9bb88b00593a0aeb54af1
+CANDIDAT (implémentation)   de70c13de7fd3c9872b9f7eff6be24d76a65dace
+arbre du candidat           676b2ca2cee97e8bebd13f26570971992a6487b7
 base de développement       412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
 
 LIGNÉE — AUCUN CANDIDAT RÉÉCRIT
 -------------------------------
-  091c3f0  candidat initial        FAIL (6 blockers)
-  d94a110  première remédiation    FAIL (2 restants)
-  993cb7b  seconde                 FAIL (2 blockers)
-  9c940e1  troisième               FAIL (2 défauts AUD-07)
-  610e356  quatrième               FAIL (1 blocker : socket CSV)
-  7420bec  cinquième               FAIL (2 blockers P2)
-  8dafd78  CE CANDIDAT             à auditer
+  091c3f0  candidat initial     FAIL (6 blockers)
+  d94a110  première            FAIL (2 restants)
+  993cb7b  seconde             FAIL (2 blockers)
+  9c940e1  troisième           FAIL (2 défauts AUD-07)
+  610e356  quatrième           FAIL (socket CSV)
+  7420bec  cinquième           FAIL (2 blockers P2)
+  8dafd78  sixième             FAIL (détecteur P2)
+  de70c13  CE CANDIDAT         à auditer
 
 PAS DE RECOMPOSITION
 --------------------
@@ -28,10 +29,10 @@ STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    8dafd78 = LE CANDIDAT : 4 fichiers, tous modifiés
-  HEAD~2    0b9ff16 = scellement de la cinquième remédiation
-  HEAD~3    7420bec = cinquième remédiation
-  HEAD~14   412dbb5 = base de développement
+  HEAD~1    de70c13 = LE CANDIDAT : 4 fichiers, 3 modifiés, 1 ajouté
+  HEAD~2    2b328a8 = scellement de la sixième remédiation
+  HEAD~3    8dafd78 = sixième remédiation
+  HEAD~16   412dbb5 = base de développement
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -40,33 +41,38 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 4 FICHIERS CHANGÉS DEPUIS 7420bec
+LES 4 FICHIERS CHANGÉS DEPUIS 8dafd78
 -------------------------------------
-  M  supabase/tests/csdj1-cluster-identity.sh
-         refus des octets chr(1)/chr(2) dans la liste BRUTE, avant
-         toute substitution (socket_octets_reserves) ; même refus sur
-         l'ATTENDU à la déclaration du contrat.
+  A  supabase/tests/csdj1-raw-role-mutation-detector.awk
+         LE DÉTECTEUR, désormais dans son propre fichier : un lexeur
+         qui reconstitue les COMMANDES du shell (citations,
+         commentaires, continuations, documents en ligne) au lieu de
+         compter les guillemets ligne par ligne. Chaque commande est
+         classée seule ; aucun état ne traverse une frontière de
+         commande. Fermé par défaut.
   M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
-         contrôles S1 et S2 sur de VRAIS clusters portant ces octets,
-         avec marqueur posé légitimement avant reconfiguration ;
-         détecteur de mutations brutes réécrit (casse, formes de
-         littéral, fuite d'état) ; fixtures D1 à D7.
+         emploie le détecteur externalisé ; 17 fixtures D1-D7, R1-R5,
+         C1-C5, chacune validée par « bash -n » ; section [I] qui
+         EXÉCUTE la séquence de l'audit et observe la mutation réelle
+         du rôle témoin.
   M  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
-         M8 (défense anti-collision retirée). M6 et M7 inchangés.
+         M9 (fuite d'état par commentaires et continuations).
+         M6, M7, M8 inchangés.
   M  tests/csdj1-sql-structural.test.ts
-         [AUD07-SQL-7] octets réservés
-         [AUD07-SQL-8] détecteur : casse, littéraux, fuite d'état
+         [AUD07-SQL-6] et [AUD07-SQL-8] réécrits pour juger le lexeur.
 
 INTACTS — ET SEULEMENT REJOUÉS EN RÉGRESSION
 --------------------------------------------
-  tests/fixtures/build-checkout-scheduling-cases.py   (oracle, plis)
-  tests/fixtures/checkout-scheduling-cases.json       (48 cas + 38 points)
+  supabase/tests/csdj1-cluster-identity.sh   (parseur de sockets,
+                                              sentinelles, nonce,
+                                              marqueur, data_directory,
+                                              config_file, PGHOSTADDR)
+  tests/fixtures/build-checkout-scheduling-cases.py
+  tests/fixtures/checkout-scheduling-cases.json
   tests/csdj1-oracle-independence.test.ts
   tests/csdj1-scheduling-eligibility.test.ts
-  lib/scheduling/*                                    (résolveur)
-  supabase/DRAFT-lot-checkout-scheduling-foundation-v1*.sql
-  `git diff` sur ces chemins est VIDE, et la fixture est reproduite à
-  l'octet par le générateur inchangé.
+  lib/scheduling/*  et  supabase/DRAFT-lot-checkout-scheduling-*.sql
+  `git diff` sur ces chemins est VIDE.
 
 REJOUER LES PREUVES
 -------------------

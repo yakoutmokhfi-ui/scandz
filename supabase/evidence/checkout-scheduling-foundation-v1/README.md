@@ -1,24 +1,123 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.6 (CSDJ-1) — paquet de preuves
-## Sixième remédiation : collision de sentinelle, détecteur de mutations brutes
+# CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1) — paquet de preuves
+## Septième remédiation : le détecteur reconstitue les commandes du shell
 
 | candidat | verdict |
 | --- | --- |
-| `091c3f0` → `7420bec` | six verdicts FAIL successifs, détaillés plus bas |
-| `8dafd78` | **ce candidat** |
+| `091c3f0` → `8dafd78` | sept verdicts FAIL successifs, détaillés plus bas |
+| `de70c13` | **ce candidat** |
 
-Aucun des six candidats refusés n'est amendé ni réécrit. **Aucune
-recomposition.** L'oracle Python, la fixture, le résolveur et le SQL du
-lot sont **intacts** — `git diff` sur ces chemins est vide — et seulement
-**rejoués en régression**. **CSDJ-2 n'est pas commencé.**
+Aucun candidat refusé n'est amendé ni réécrit. **Aucune recomposition.**
+La bibliothèque d'identité, l'oracle Python, la fixture, le résolveur et
+le SQL du lot sont **intacts** — `git diff` sur ces chemins est vide — et
+seulement **rejoués en régression**. **CSDJ-2 n'est pas commencé.**
 
 ---
 
-## §0 — Les deux blockers de ce tour
+## §0 — Le blocker de ce tour
+
+### §0.1 Le détecteur pouvait déclarer GARDÉE une mutation brute
+
+C'est un défaut de **fiabilité de la preuve**, non de logique métier :
+aucun chemin nominal de mutation non gardée n'existait. Mais un
+détecteur qui peut couvrir une mutation brute d'un label rassurant ne
+prouve rien — et c'est ce mensonge qui tenait AUD-07 ouvert.
+
+**La séquence de l'audit :**
+
+```
+csdj1_identity_mutate "perform 1;" # l'initialisation est terminee
+q \
+'alter role fixture bypassrls;'
+```
+
+L'apostrophe du **commentaire** était comptée comme un délimiteur.
+L'état « gardé » survivait donc à une commande pourtant terminée ; la
+continuation par barre oblique inverse n'était pas reconnue ; et la
+mutation brute de la troisième ligne était déclarée **GARDÉE**.
+
+**Pourquoi un lexeur, et pas un quatrième correctif.** Trois audits ont
+trouvé trois façons de tromper le comptage de guillemets ligne par
+ligne : la casse, la forme du littéral, la fuite d'état. La quatrième
+n'était qu'une question de temps. Le comptage n'est donc pas corrigé :
+il est **remplacé**.
+
+Le détecteur reconstitue les **commandes**, en modélisant ce qu'il faut
+de la syntaxe du shell et rien de plus : texte ordinaire ; apostrophes
+(sans échappement, c'est la règle) ; guillemets (où la barre oblique
+inverse échappe) ; **commentaire** — `#` en début de mot, hors citation,
+jusqu'à la fin de la ligne physique, et **sans effet sur aucun état** ;
+continuation ; fin de commande sur `;`, `&`, `|` ou fin de ligne ;
+documents en ligne, dont le corps est du texte mais dont les mutations
+appartiennent à la commande qui les ouvre.
+
+Chaque commande est classée **seule**. Aucun état ne traverse une
+frontière de commande : la classe entière de défauts « fuite d'état »
+disparaît **par construction**, et non par correctif. C'est la
+différence entre boucher un trou et retirer la cause des trous.
+
+**Fermé par défaut** : une commande qu'on ne sait pas classer est
+rapportée défavorablement, et un appel brut l'emporte sur un appel gardé
+présent dans la même commande.
+
+Le détecteur vit désormais dans **son propre fichier**. Logé dans le
+fichier qu'il analyse, il se dénonçait lui-même, et on lui ajoutait des
+exceptions — lesquelles sont autant de trous.
+
+### §0.2 Dix-sept fixtures, et un second défaut que personne n'avait vu
+
+| fixture | ancien | nouveau |
+| --- | --- | --- |
+| **D1**–**D5** mutations brutes (littéraux, casse, multi-lignes) | `NON-GARDEE` | `NON-GARDEE` |
+| **D6** mutation gardée | `GARDEE` | `GARDEE` |
+| **D7** SQL sans rôle | ignoré | ignoré |
+| **R1** *la reproduction de l'audit* | **`GARDEE`** | `NON-GARDEE` |
+| **R2** commentaire avec apostrophe | `NON-GARDEE` | `NON-GARDEE` |
+| **R3** commentaire avec guillemet | `NON-GARDEE` | `NON-GARDEE` |
+| **R4** commentaire avec les deux, casse mixte | `NON-GARDEE` | `NON-GARDEE` |
+| **R5** `#` **à l'intérieur** de l'argument SQL | `NON-GARDEE` | `NON-GARDEE` |
+| **C1**–**C3** continuations brutes | `SANS-OUVREUR` | `NON-GARDEE` |
+| **C4** continuation **gardée légitime** | **`SANS-OUVREUR`** | `GARDEE` |
+| **C5** continuation sans mutation | ignoré | ignoré |
+
+Deux défauts, donc, et non un seul : **R1** est un faux négatif — une
+mutation brute déclarée gardée, le dangereux. **C4** est un faux positif
+que personne n'avait relevé : une continuation gardée légitime traitée
+comme un échec, qui aurait fait échouer le harnais sur du code correct.
+
+Chaque fixture est d'abord validée par `bash -n` : une fixture que le
+shell lui-même refuserait ne représenterait aucune réalité lexicale.
+
+### §0.3 `[I]` — la nocivité est observée, pas déduite
+
+Dire que l'ancien détecteur se trompait ne suffit pas. La section `[I]`
+du harnais **exécute** la séquence de l'audit sur le cluster jetable,
+avec le vrai client brut :
+
+| rôle témoin | |
+| --- | --- |
+| avant | `NOBYPASSRLS` |
+| après | `BYPASSRLS` |
+
+Ce que le label « GARDEE » couvrait était une mutation effective.
+
+### §0.4 M9
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M9** | les règles de commentaire et de continuation retirées | **détecté** — R1 redevient `GARDEE`, et dans la **même** exécution `[I]` montre la mutation appliquée |
+
+M6, M7 et M8 sont **inchangés** et rejoués. Huit contrôles concluants.
+
+---
+
+## §00 — Les deux blockers du tour précédent
+
+
 
 Le premier est le plus instructif : mon propre parseur se réservait deux
 octets sans le dire à personne.
 
-### §0.1 Collision de sentinelle — `CSDJ1-AUD-07-SOCKET-SENTINEL-01`
+### §00.1 Collision de sentinelle — `CSDJ1-AUD-07-SOCKET-SENTINEL-01`
 
 Le parseur employait `chr(1)` et `chr(2)` comme sentinelles internes :
 `chr(1)` pour mettre de côté un guillemet doublé, `chr(2)` pour marquer
@@ -64,7 +163,7 @@ seul fait qui cloche est celui qu'on éprouve.
 | **S2** `chr(2)` | refus `socket_octets_reserves`, empreinte de rôle **inchangée**, collision prouvée réelle |
 | positif | un chemin **ordinaire** passe toujours |
 
-### §0.2 Détecteur de mutations brutes — `CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01`
+### §00.2 Détecteur de mutations brutes — `CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01`
 
 Trois défauts, tous dans le contrôle censé prouver que **toute** mutation
 brute est vue. Voici ce que l'ancien détecteur disait des sept fixtures du
@@ -97,7 +196,7 @@ chaîne ou d'un drapeau : sinon du SQL contenant `..._probe nologin` était
 pris pour un appel au client `probe`, et écrasait l'état au milieu d'un
 argument gardé.
 
-### §0.3 M8
+### §00.3 M8
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -964,28 +1063,26 @@ juge.
 | tests ciblés CSDJ-1 | **155 / 0** (10 + 78 + 59 + 8) |
 | régressions exigées | **285 / 0** (12 fichiers) |
 | harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
-| harnais d'isolation et de rôles | **183 preuves / 0 échec** (`[A]`–`[H]`) |
-| contrôles de mutation M1/M3/M4/M5/M6/M7/**M8** | **7 concluants / 0 manquant** |
-| contrôles de socket | **18**, plus **S1/S2** d'octets réservés |
-| fixtures du détecteur | **D1–D7**, toutes correctes |
+| harnais d'isolation et de rôles | **195 preuves / 0 échec** (`[A]`–`[I]`) |
+| contrôles de mutation M1/M3/M4/M5/M6/M7/M8/**M9** | **8 concluants / 0 manquant** |
+| fixtures du détecteur | **17 / 17** (D1–D7, R1–R5, C1–C5) |
+| contrôles de socket et d'octets réservés | **18 + S1/S2**, zéro mutation |
 | contrôles négatifs d'identité | **10**, zéro mutation |
-| oracle Python, fixture, résolveur, SQL du lot | **NON TOUCHÉS** (`git diff` vide) |
+| bibliothèque d'identité, oracle, fixture, résolveur, SQL | **NON TOUCHÉS** (`git diff` vide) |
 | TypeScript | **0 diagnostic** |
 | build | **EXIT 0**, 39 routes, aucune ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, cinquième remédiation `7420bec` | 4931 tests, 4921 / 10 |
-| suite complète, ce candidat `8dafd78` | **4933 tests, 4923 / 10** |
+| suite complète, sixième remédiation `8dafd78` | 4933 tests, 4923 / 10 |
+| suite complète, ce candidat `de70c13` | **4933 tests, 4923 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
 La comparaison porte sur les **identités**. Les jeux de la **base**, du
-**cinquième candidat** et de **celui-ci** sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+2** réussites est
-exactement le nombre de tests ajoutés : `[AUD07-SQL-7]` et
-`[AUD07-SQL-8]`.
+**sixième candidat** et de **celui-ci** sont **octet-identiques** (md5
+`d788b58cd63f6c59be1b1195c76bc1c5`). Aucun test ajouté ni retiré : les
+deux tests structurels concernés ont été **réécrits**, pas multipliés —
+d'où un total inchangé.
 
-**Aucun échec intermittent ce tour** : la suite a tourné machine au
-repos, les contrôles de mutation étant terminés. L'échec documenté au
-tour précédent (`nondeterministic-failure.txt`) ne s'est pas reproduit.
+**Aucun échec intermittent** : la suite a tourné machine au repos.
 
 ---
 

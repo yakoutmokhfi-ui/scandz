@@ -1,7 +1,7 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.6 (CSDJ-1) — sixième remédiation ciblée",
-  "status": "READY FOR SIXTH DELTA RE-AUDIT",
-  "mandate": "NOUGARO — SIXTH TARGETED REMEDIATION / CSDJ-1. Verdict du sixième re-audit delta sur 7420bec : deux blockers P2 (collision de sentinelle du parseur de sockets ; détecteur de mutations brutes). Lignée IMMUABLE, aucune recomposition, oracle Python / fixture / résolveur / SQL du lot INTACTS, CSDJ-2 non commencé.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.7 (CSDJ-1) — septième remédiation ciblée",
+  "status": "READY FOR SEVENTH DELTA RE-AUDIT",
+  "mandate": "NOUGARO — SEVENTH TARGETED REMEDIATION / CSDJ-1. Verdict du septième re-audit delta sur 8dafd78 : un seul blocker P2, CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01. Lignée IMMUABLE, aucune recomposition, oracle / fixture / résolveur / SQL / bibliothèque d'identité INTACTS, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
     "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
@@ -14,11 +14,11 @@
     "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
   "candidate": {
-    "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
-    "tree": "2f4af841429f02f546f9bb88b00593a0aeb54af1",
-    "parent": "0b9ff164ff84c70e47576a9768095114c056e346",
+    "sha": "de70c13de7fd3c9872b9f7eff6be24d76a65dace",
+    "tree": "676b2ca2cee97e8bebd13f26570971992a6487b7",
+    "parent": "2b328a88949a653f8a24162df203c74c5f0798aa",
     "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceFifthRemediation": 4,
+    "filesChangedSinceSixthRemediation": 4,
     "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
     "amended": false,
     "pushed": false,
@@ -165,17 +165,18 @@
       "sections": 19
     },
     "roleRestorationHarness": {
-      "proofs": 183,
+      "proofs": 195,
       "fail": 0,
       "sections": [
         "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif",
         "[B] forme de l'instantané",
         "[C] rôle initialement absent",
         "[D] onze variables hostiles + vecteur complet + contrôle positif",
-        "[E] isolation, prédicat partagé, détecteur de mutations brutes + 7 fixtures D1-D7",
+        "[E] isolation, prédicat partagé, détecteur externalisé + 17 fixtures D/R/C",
         "[F] nocivité de PGHOSTADDR",
         "[G] dix contrôles négatifs d'identité + contrôle positif",
-        "[H] dix-huit contrôles de socket + S1/S2 d'octets réservés + contrôle positif"
+        "[H] dix-huit contrôles de socket + S1/S2 d'octets réservés + contrôle positif",
+        "[I] nocivité du détecteur : la séquence de l'audit mute réellement un rôle"
       ]
     },
     "harnessRefusals": {
@@ -203,22 +204,22 @@
         "pass": 4768,
         "fail": 10
       },
-      "fifthRemediation": {
-        "sha": "7420bec0407040c6c3bec8f155db68ab9f8878ea",
-        "tests": 4931,
-        "pass": 4921,
+      "sixthRemediation": {
+        "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
+        "tests": 4933,
+        "pass": 4923,
         "fail": 10
       },
       "candidate": {
-        "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
+        "sha": "de70c13de7fd3c9872b9f7eff6be24d76a65dace",
         "tests": 4933,
         "pass": 4923,
         "fail": 10
       },
       "appeared": 0,
       "disappeared": 0,
-      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux de la BASE, du cinquième candidat et de celui-ci sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +2 réussites est exactement le nombre de tests ajoutés ce tour ([AUD07-SQL-7] et [AUD07-SQL-8]).",
-      "nondeterminism": "Aucun échec intermittent ce tour : la suite a été exécutée machine au repos, les contrôles de mutation étant terminés. L'échec intermittent documenté au tour précédent (nondeterministic-failure.txt) ne s'est pas reproduit."
+      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux de la BASE, du sixième candidat et de celui-ci sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Aucun test ajouté ni retiré ce tour : les deux tests structurels concernés ont été RÉÉCRITS, pas multipliés -- d'où un total inchangé.",
+      "nondeterminism": "aucun échec intermittent : suite exécutée machine au repos."
     },
     "fixtureThreeWay": {
       "offerCases": 48,
@@ -479,7 +480,7 @@
       "defect": "l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE (AUD-07, 4e passe)",
       "result": "DÉTECTÉ — « PRÉFIXE d'une entrée » et « répertoire PARENT » sont ACCEPTÉS à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
     },
-    "conclusive": 7,
+    "conclusive": 8,
     "missing": 0,
     "M7": {
       "defect": "le parseur sensible aux guillemets remplacé par un DÉCOUPAGE BRUT à chaque virgule",
@@ -488,10 +489,14 @@
     "M8": {
       "defect": "la défense anti-collision des octets réservés retirée",
       "result": "DÉTECTÉ — S1 et S2 ACCEPTENT la fausse identité et le rôle témoin passe RÉELLEMENT de NOBYPASSRLS à BYPASSRLS (empreinte « :00 » -> « :01 »)"
+    },
+    "M9": {
+      "defect": "la fuite d'état par les commentaires et les continuations, réinjectée",
+      "result": "DÉTECTÉ — R1 redevient GARDEE (plus r3, c1, c2 mal classées) et, dans la MÊME exécution, [I] montre la mutation réellement appliquée. Le contrôle prouve la NOCIVITÉ, pas seulement un changement d'étiquette."
     }
   },
   "preservedAreasRetested": {
-    "AUD-PYTHON-01": "PASS — oracle, fixture, résolveur et SQL du lot NON TOUCHÉS (git diff vide) ; fixture reproduite À L'OCTET (sha256 c266e5ce…) ; 8 tests [ORACLE-*]",
+    "AUD-PYTHON-01": "PASS — oracle, fixture, résolveur, SQL du lot et bibliothèque d'identité NON TOUCHÉS (git diff vide) ; 8 tests [ORACLE-*]",
     "AUD-02": "PASS — 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL s'accordent avec l'oracle sans divergence",
     "AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
     "AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
@@ -509,7 +514,8 @@
     "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (réserve d'intégration inchangée)",
     "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base",
     "SOCKET simple entries": "PASS — préfixe, suffixe, parent, sous-répertoire, /tm, /tmpx : tous refusés, zéro mutation ; M6 toujours concluant",
-    "SOCKET quoted-comma parsing": "PASS — M6 et M7 inchangés et rejoués, dix-huit contrôles de socket verts"
+    "SOCKET quoted-comma parsing": "PASS — M6 et M7 inchangés et rejoués, dix-huit contrôles de socket verts",
+    "SENTINEL / CSV / nonce / marker / data_directory / config_file / PGHOSTADDR": "PASS — csdj1-cluster-identity.sh non modifié ce tour ; M6, M7, M8 rejoués et concluants ; contrôles [G], [H], S1/S2 verts"
   },
   "scopeDiscipline": {
     "redesign": "aucun",
@@ -902,6 +908,109 @@
         }
       },
       "scopeRespected": "le parseur shell n'a pas été redessiné globalement",
+      "verdict": "PASS"
+    }
+  },
+  "sixthRemediation": {
+    "sha": "8dafd787c84aa8b3b7e3d89f384b416518a11f22",
+    "tree": "2f4af841429f02f546f9bb88b00593a0aeb54af1",
+    "evidenceHead": "2b328a88949a653f8a24162df203c74c5f0798aa",
+    "verdict": "FAIL — un blocker P2 : le détecteur pouvait déclarer GARDÉE une mutation brute",
+    "disposition": "conservé INTACT : ni amendé, ni réécrit."
+  },
+  "seventhRemediationBlocker": {
+    "CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01": {
+      "severity": "P2",
+      "nature": "défaut de FIABILITÉ DE LA PREUVE, non de logique métier : aucun chemin nominal de mutation non gardée n'existait, mais le détecteur pouvait déclarer GARDÉE une mutation brute -- et c'est ce mensonge qui tenait AUD-07 ouvert.",
+      "auditorSequence": "csdj1_identity_mutate \"perform 1;\" # l'initialisation est terminee / q \\ / 'alter role fixture bypassrls;' => ancien verdict GARDEE, correct NON-GARDEE",
+      "rootCause": "l'apostrophe du COMMENTAIRE était comptée comme un délimiteur ; l'état « gardé » survivait donc à une commande terminée, et la continuation par barre oblique inverse n'était pas reconnue.",
+      "whyALexerRatherThanAFourthPatch": "trois audits ont trouvé trois façons de tromper le comptage de guillemets ligne par ligne : la casse, la forme du littéral, la fuite d'état. La quatrième n'était qu'une question de temps. Le comptage n'est donc pas corrigé, il est REMPLACÉ.",
+      "lexerModels": [
+        "texte ordinaire",
+        "apostrophes (aucun échappement : règle du shell)",
+        "guillemets (la barre oblique inverse échappe)",
+        "commentaire : « # » en début de mot, hors citation, jusqu'à la fin de la ligne physique, SANS effet sur aucun état",
+        "continuation par barre oblique inverse",
+        "fin de commande : « ; », « & », « | », ou fin de ligne",
+        "documents en ligne : corps = texte, mutations attribuées à la commande qui l'ouvre"
+      ],
+      "noStateAcrossCommands": "chaque commande est classée SEULE : la classe entière de défauts « fuite d'état » disparaît par CONSTRUCTION, et non par correctif.",
+      "failClosed": "une commande qu'on ne sait pas classer est rapportée SANS-OUVREUR, traitée comme un échec ; et un appel brut l'emporte sur un appel gardé présent dans la même commande.",
+      "ownFile": "supabase/tests/csdj1-raw-role-mutation-detector.awk. Logé dans le fichier qu'il analyse, un détecteur se dénonce lui-même, et l'on finit par lui ajouter des exceptions -- lesquelles sont autant de trous.",
+      "fixtures": {
+        "count": 17,
+        "validatedByBash": "chaque fixture passe « bash -n » : sinon elle ne représente aucune réalité lexicale",
+        "D1": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "D2": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "D3": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "D4": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "D5": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "D6": {
+          "ancien": "GARDEE",
+          "nouveau": "GARDEE"
+        },
+        "D7": {
+          "ancien": "ignoré",
+          "nouveau": "ignoré"
+        },
+        "R1 reproduction de l'audit": {
+          "ancien": "GARDEE (FAUX NÉGATIF)",
+          "nouveau": "NON-GARDEE"
+        },
+        "R2 commentaire avec apostrophe": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "R3 commentaire avec guillemet": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "R4 commentaire avec les deux + casse mixte": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "R5 « # » dans l'argument SQL": {
+          "ancien": "NON-GARDEE",
+          "nouveau": "NON-GARDEE"
+        },
+        "C1 continuation + apostrophe": {
+          "ancien": "SANS-OUVREUR",
+          "nouveau": "NON-GARDEE"
+        },
+        "C2 continuation qw + guillemet": {
+          "ancien": "SANS-OUVREUR",
+          "nouveau": "NON-GARDEE"
+        },
+        "C3 continuation + casse mixte": {
+          "ancien": "SANS-OUVREUR",
+          "nouveau": "NON-GARDEE"
+        },
+        "C4 continuation GARDÉE légitime": {
+          "ancien": "SANS-OUVREUR (FAUX POSITIF, non relevé)",
+          "nouveau": "GARDEE"
+        },
+        "C5 continuation sans mutation": {
+          "ancien": "ignoré",
+          "nouveau": "ignoré"
+        }
+      },
+      "twoDefectsNotOne": "R1 est un FAUX NÉGATIF -- une mutation brute déclarée gardée, le défaut dangereux. C4 est un FAUX POSITIF que personne n'avait relevé : une continuation gardée légitime déclarée SANS-OUVREUR, donc traitée comme un échec. Les deux sont corrigés.",
+      "harmfulnessObserved": "section [I] du harnais : la séquence de l'audit est EXÉCUTÉE sur le cluster jetable avec le vrai client brut, et le rôle témoin passe de NOBYPASSRLS à BYPASSRLS. Ce que le label « GARDEE » couvrait était une mutation effective.",
       "verdict": "PASS"
     }
   }

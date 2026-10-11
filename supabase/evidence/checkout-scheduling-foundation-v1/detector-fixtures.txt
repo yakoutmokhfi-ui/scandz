@@ -1,0 +1,53 @@
+[11:59:40] PASS: [E] l'identité COMPLÈTE (8 faits) passe sur le cluster créé ici
+[11:59:40] PASS: [E] la preuve DISCRIMINE : adressée au témoin elle refuse (destination_reseau)
+[11:59:40] PASS: [E] le marqueur d'identité n'existe QUE dans le cluster sous test
+[12:00:59] === [E] isolation structurelle des appels clients ===
+[12:00:59] PASS: [E] le détecteur d'isolation examine bien les appels clients (27 commandes)
+[12:00:59] PASS: [E] l'unique appel non isolé délibéré est bien unique
+[12:00:59] PASS: [E] l'appel non isolé délibéré ne passe qu'une requête de lecture
+[12:00:59] PASS: [E] tous les appels clients de ce fichier passent par env -i
+[12:00:59] PASS: [E] la liste des variables refusées nomme PGHOSTADDR
+[12:00:59] PASS: [E] les mutations passent par le prédicat d'identité PARTAGÉ
+[12:00:59] PASS: [E] aucun prédicat d'identité local ne subsiste
+[12:00:59] PASS: [E] fixture « d1 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d2 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d3 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d4 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d5 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d6 » : GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « d7 » : AUCUNE (attendu)
+[12:00:59] PASS: [E] fixture « r1 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « r2 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « r3 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « r4 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « r5 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « c1 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « c2 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « c3 » : NON-GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « c4 » : GARDEE (attendu)
+[12:00:59] PASS: [E] fixture « c5 » : AUCUNE (attendu)
+[12:00:59] PASS: [E] R1 — l'apostrophe d'un COMMENTAIRE ne fait plus survivre l'état gardé
+[12:00:59] PASS: [E] le détecteur de mutations de rôle examine bien les deux harnais (69 instructions)
+[12:00:59] PASS: [E] TOUTE mutation de rôle est portée par une commande gardée, témoin compris
+[12:00:59] PASS: [E] « RESTORE_SQL » n'est consommée que par une mutation gardée
+[12:00:59] PASS: [E] « PROBE_MUTATION » n'est consommée que par une mutation gardée
+[12:00:59] PASS: [E] la comparaison d'appartenance n'emploie pas strpos
+[12:00:59] PASS: [E] les seuls emplois de strpos sont dans la défense anti-collision (1)
+[12:00:59] PASS: [E] la liste de sockets est comparée à l'ÉGALITÉ d'une entrée analysée
+[12:00:59] PASS: [E] la liste de sockets n'est plus découpée brutalement à chaque virgule
+[12:00:59] PASS: [E] le parseur est SENSIBLE AUX GUILLEMETS (doublés traités, virgules citées protégées)
+[12:00:59] PASS: [E] le parseur de sockets est défini UNE SEULE FOIS
+[12:00:59] PASS: [E] la démonstration de nocivité emploie l'expression de la GARDE, pas une copie
+[12:00:59] PASS: [E] le harnais principal emploie le MÊME prédicat partagé
+[12:00:59] PASS: [E] le prédicat partagé vérifie « destination_reseau »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « port »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « current_user »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « is_superuser »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « socket »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « data_directory »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « config_file »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « marqueur_absent »
+[12:00:59] PASS: [E] le prédicat partagé vérifie « nonce »
+[12:00:59] === [I] la séquence de l'audit mute-t-elle réellement un rôle ? ===
+[12:00:59] PASS: [I] NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle (NOBYPASSRLS -> BYPASSRLS)
+[12:00:59] PASS: [I] et le détecteur la classe NON-GARDEE : le label correspond enfin au fait

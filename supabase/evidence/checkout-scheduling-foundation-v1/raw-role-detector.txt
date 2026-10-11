@@ -1,0 +1,94 @@
+CSDJ-1 v1.7 — LE DÉTECTEUR DE MUTATIONS BRUTES : AVANT / APRÈS
+==============================================================
+
+CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+
+LA SÉQUENCE DE L'AUDIT
+----------------------
+  csdj1_identity_mutate "perform 1;" # l'initialisation est terminee
+  q \
+  'alter role fixture bypassrls;'
+
+Sémantique de Bash : la première commande est complète ; le commentaire
+s'arrête à la fin de la ligne ; « q » est une NOUVELLE commande brute,
+dont l'argument SQL est « alter role fixture bypassrls; » ; PostgreSQL
+exécute la mutation.
+
+Ancien détecteur : GARDEE.   Correct : NON-GARDEE.
+
+LES DIX-SEPT FIXTURES, JOUÉES CONTRE LES DEUX DÉTECTEURS
+--------------------------------------------------------
+fixture                                   ancien          nouveau
+----------------------------------------- --------------- -----------
+D1  q 'alter role ...'   (apostrophe)     NON-GARDEE      NON-GARDEE
+D2  q "alter role ..."   (guillemet)      NON-GARDEE      NON-GARDEE
+D3  q 'Alter Role ...'   (casse mixte)    NON-GARDEE      NON-GARDEE
+D4  garde complète puis mutation brute    NON-GARDEE      NON-GARDEE
+D5  mutation brute multi-lignes           NON-GARDEE      NON-GARDEE
+D6  mutation correctement gardée          GARDEE          GARDEE
+D7  SQL sans mutation de rôle             (ignoré)        (ignoré)
+
+R1  LA REPRODUCTION DE L'AUDIT            GARDEE  <<<<    NON-GARDEE
+R2  commentaire avec apostrophe           NON-GARDEE      NON-GARDEE
+R3  commentaire avec guillemet            NON-GARDEE      NON-GARDEE
+R4  commentaire avec les deux, casse mixte NON-GARDEE     NON-GARDEE
+R5  « # » À L'INTÉRIEUR de l'argument SQL NON-GARDEE      NON-GARDEE
+
+C1  q \ puis 'alter role ...'             SANS-OUVREUR    NON-GARDEE
+C2  qw \ puis "alter role ..."            SANS-OUVREUR    NON-GARDEE
+C3  q \ puis 'Alter Role ...'             SANS-OUVREUR    NON-GARDEE
+C4  csdj1_identity_mutate \ puis "..."    SANS-OUVREUR    GARDEE
+C5  q \ puis 'select 1;'                  (ignoré)        (ignoré)
+
+DEUX DÉFAUTS, ET NON UN SEUL
+----------------------------
+R1  FAUX NÉGATIF : une mutation brute déclarée gardée. C'est le défaut
+    que l'audit a trouvé, et le dangereux.
+C4  FAUX POSITIF : une continuation GARDÉE légitime déclarée
+    SANS-OUVREUR, donc traitée comme un échec. Personne ne l'avait
+    relevé ; il aurait fait échouer le harnais sur du code correct.
+
+Chaque fixture est d'abord validée par « bash -n » : une fixture que le
+shell lui-même refuserait ne représenterait aucune réalité lexicale.
+
+POURQUOI UN LEXEUR, ET PAS UN QUATRIÈME CORRECTIF
+-------------------------------------------------
+Trois audits ont trouvé trois façons de tromper le comptage de
+guillemets ligne par ligne : la casse, la forme du littéral, la fuite
+d'état. La quatrième -- l'apostrophe d'un commentaire -- n'était qu'une
+question de temps.
+
+Le détecteur reconstitue donc les COMMANDES, et chaque commande est
+classée SEULE. Aucun état ne traverse une frontière de commande : la
+classe entière de défauts « fuite d'état » disparaît par construction,
+et non par correctif.
+
+Ce qui est modélisé, et rien de plus : texte ordinaire ; apostrophes
+(sans échappement, c'est la règle du shell) ; guillemets (où la barre
+oblique inverse échappe) ; commentaire -- « # » en début de mot, hors
+citation, jusqu'à la fin de la ligne physique, sans effet sur aucun
+état ; continuation par barre oblique inverse ; fin de commande sur
+« ; », « & », « | » ou fin de ligne ; documents en ligne, dont le corps
+est du texte mais dont les mutations appartiennent à la commande qui
+les ouvre.
+
+FERMÉ PAR DÉFAUT : une commande qu'on ne sait pas classer est rapportée
+défavorablement, et un appel brut l'emporte sur un appel gardé présent
+dans la même commande.
+
+[I] — LA NOCIVITÉ N'EST PAS DÉDUITE, ELLE EST OBSERVÉE
+------------------------------------------------------
+La section [I] du harnais EXÉCUTE la séquence de l'audit sur le cluster
+jetable, avec le vrai client brut :
+
+  rôle témoin avant   NOBYPASSRLS
+  rôle témoin après   BYPASSRLS
+
+Ce que le label « GARDEE » couvrait était une mutation effective.
+
+M9 — LE CONTRÔLE
+----------------
+Les deux règles (commentaire, continuation) retirées dans une copie :
+R1 redevient GARDEE, et dans la MÊME exécution [I] montre la mutation
+appliquée. Le contrôle prouve donc la NOCIVITÉ du défaut, et pas
+seulement un changement d'étiquette.
