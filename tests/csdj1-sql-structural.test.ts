@@ -1331,8 +1331,11 @@ test("[AUD07-SQL-3] le répertoire de socket se compare à l'ÉGALITÉ EXACTE", 
     libExec.includes("string_to_array(") && libExec.includes("pg_catalog.unnest("),
     "la liste unix_socket_directories doit être découpée en entrées"
   );
+  // L'égalité est portée par l'expression que le parseur émet ; sa
+  // forme interne est éprouvée par [AUD07-SQL-5].
   assert.ok(
-    /end = '\$\{CSDJ1_ID_SOCKET\}'/.test(libExec),
+    libExec.includes("csdj1_sock_norm where entry = ") &&
+      libExec.includes('"$CSDJ1_ID_SOCKET"'),
     "l'entrée normalisée doit être comparée à l'attendu par égalité"
   );
   // Les deux côtés sont normalisés DE LA MÊME FAÇON, sans quoi
@@ -1361,13 +1364,13 @@ test("[AUD07-SQL-3] le répertoire de socket se compare à l'ÉGALITÉ EXACTE", 
   const role = readFileSync(rolePath, "utf8");
   assert.ok(role.includes("socket_control"), "les contrôles de socket doivent exister");
   for (const label of [
-    "entrée EXACTE (membre 1)",
-    "entrée EXACTE (membre 2)",
+    "entrée EXACTE (membre simple)",
+    "entrée EXACTE (autre membre)",
     "PRÉFIXE d'une entrée",
     "SUFFIXE d'une entrée",
     "SOUS-répertoire d'une entrée",
     "répertoire PARENT",
-    "la LISTE entière",
+    "la LISTE ENTIÈRE rendue par SHOW",
     "reproduction d'audit : /tmp vs /tm",
     "reproduction d'audit : /tmp vs /tmpx",
   ]) {
@@ -1376,13 +1379,13 @@ test("[AUD07-SQL-3] le répertoire de socket se compare à l'ÉGALITÉ EXACTE", 
   // Un cluster à PLUSIEURS répertoires de socket est nécessaire : sans
   // lui, rien ne distingue « une entrée complète » de « la liste ».
   assert.ok(
-    /unix_socket_directories='\$LAB_SOCK_A,\$LAB_SOCK_B'/.test(role),
-    "un cluster à deux répertoires de socket doit être créé pour éprouver la liste"
+    /unix_socket_directories='[^']*\$LAB_SOCK_A[^']*\$LAB_SOCK_B/.test(role),
+    "un cluster à PLUSIEURS répertoires de socket doit être créé pour éprouver la liste"
   );
   // Et la nocivité de l'ancien prédicat est démontrée, pas déclarée.
   assert.ok(
-    role.includes("l'ancien prédicat (sous-chaîne) l'acceptait"),
-    "le harnais doit démontrer que l'ancien prédicat acceptait ces fragments"
+    role.includes("accepté par au moins un ancien prédicat"),
+    "le harnais doit démontrer que les anciens prédicats acceptaient ces fragments"
   );
 });
 
@@ -1455,6 +1458,157 @@ test("[AUD07-SQL-4] AUCUNE mutation de rôle hors de la garde, témoin compris",
       `le contrat « ${ctx} » doit être déclaré`
     );
   }
+});
+
+test("[AUD07-SQL-5] la liste de sockets est analysée SELON LA SYNTAXE PostgreSQL", () => {
+  // Défaut du cinquième re-audit : la comparaison était bien une
+  // ÉGALITÉ, mais le DÉCOUPAGE restait faux. `string_to_array(liste,
+  // ',')` coupe à CHAQUE virgule, y compris celles qui sont DANS une
+  // entrée citée. Vérifié empiriquement sur un serveur de ce poste :
+  //
+  //   configuration  "<rép>/foo,bar",<rép>/plain
+  //   SHOW rend      "<rép>/foo,bar",<rép>/plain
+  //
+  // Un découpage brut ACCEPTE « <rép>/foo » -- qui n'est pas un
+  // répertoire configuré -- et REFUSE « <rép>/foo,bar » -- qui en est
+  // un. Les deux erreurs sont graves ; la première est une fausse
+  // identité.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  const lib = readFileSync(LIB_PATH, "utf8");
+  const libExec = lib
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.replace(/\s*--.*$/, ""))
+    .join("\n");
+
+  // Plus de découpage BRUT du réglage.
+  assert.ok(
+    !/string_to_array\(\s*\n?\s*coalesce\(pg_catalog\.current_setting\('unix_socket_directories'/.test(
+      libExec
+    ),
+    "la liste ne doit plus être découpée à chaque virgule"
+  );
+  // Le découpage est conditionné par la PARITÉ des guillemets : après
+  // substitution des guillemets doublés, les guillemets restants sont
+  // les délimiteurs, et ils alternent.
+  assert.ok(
+    libExec.includes("outside_quotes"),
+    "le découpage doit distinguer les virgules HORS citation"
+  );
+  assert.ok(
+    /% 2 = 0\s*\n?\s*as outside_quotes/.test(libExec),
+    "la position hors citation doit se décider par parité des guillemets"
+  );
+  // Les guillemets DOUBLÉS valent un guillemet littéral : PostgreSQL
+  // les accepte en configuration et SHOW les ré-encode doublés.
+  assert.ok(
+    libExec.includes(`replace(r.raw, '""', pg_catalog.chr(1))`),
+    "un guillemet doublé doit être traité comme un guillemet littéral"
+  );
+  assert.ok(
+    libExec.includes(`replace(u.e, pg_catalog.chr(1), '"')`),
+    "la sentinelle doit être restituée en guillemet dans la valeur finale"
+  );
+  // Les guillemets encadrants sont retirés SEULEMENT s'il y en a aux
+  // deux bouts : les retirer d'un seul bord est ce qui transforme un
+  // fragment en chemin plausible.
+  assert.ok(
+    /left\(t\.e, 1\) = '"'[\s\S]{0,120}right\(t\.e, 1\) = '"'/.test(libExec),
+    "les guillemets ne doivent être retirés que s'ils encadrent l'entrée"
+  );
+  assert.ok(
+    !/btrim\(t\.e, '"'\)/.test(libExec),
+    "btrim des guillemets accepterait une entrée à guillemet unique, donc un fragment"
+  );
+  // Normalisation : espaces extérieurs, barre oblique finale, « / ».
+  assert.ok(libExec.includes("btrim(s.e)"), "les espaces extérieurs doivent être retirés");
+  assert.ok(
+    /case when r\.e = '\/' then '\/' else pg_catalog\.rtrim\(r\.e, '\/'\) end/.test(libExec),
+    "la barre oblique finale doit être normalisée, « / » restant « / »"
+  );
+  // Fail-closed sur une syntaxe mal formée, même si SHOW ne peut pas la
+  // produire (PostgreSQL refuse de démarrer sur une citation non fermée).
+  assert.ok(
+    lib.includes("socket_liste_malformee"),
+    "une liste mal formée doit être refusée, pas devinée"
+  );
+
+  // UN SEUL parseur, partagé par tous les chemins de garde.
+  assert.equal(
+    (lib.match(/^csdj1_identity_socket_cte\(\)/gm) ?? []).length,
+    1,
+    "le parseur doit être défini une seule fois"
+  );
+  assert.ok(
+    lib.includes("csdj1_identity_socket_match_expr"),
+    "la garde doit consommer le parseur par une expression émise"
+  );
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+  assert.ok(
+    role.includes("csdj1_identity_socket_match_expr"),
+    "la démonstration de nocivité doit employer l'expression de la GARDE, pas une copie"
+  );
+
+  // Le banc d'essai configure réellement des entrées CITÉES : sur une
+  // liste sans guillemets, un découpage brut et un parseur correct sont
+  // indiscernables.
+  assert.ok(
+    /LAB_SOCK_C="\$TMP_DIR\/foo,bar"/.test(role),
+    "un répertoire de socket contenant une VIRGULE doit être configuré"
+  );
+  assert.ok(
+    /LAB_SOCK_D="\$TMP_DIR\/lab d"/.test(role),
+    "un répertoire de socket contenant un ESPACE doit être configuré"
+  );
+  for (const label of [
+    "membre CITÉ à virgule, exact",
+    "FRAGMENT avant la virgule citée",
+    "FRAGMENT après la virgule citée",
+    "membre CITÉ à ESPACE, exact",
+    "membre CITÉ, barre oblique finale dans la configuration",
+    "la LISTE ENTIÈRE rendue par SHOW",
+  ]) {
+    assert.ok(role.includes(label), `le contrôle « ${label} » doit exister`);
+  }
+});
+
+test("[AUD07-SQL-6] le détecteur voit une mutation brute tenant sur UNE ligne", () => {
+  // Observation du cinquième re-audit : le détecteur attrapait la
+  // mutation multi-lignes, mais une mutation brute PACKÉE SUR UNE SEULE
+  // LIGNE pouvait lui échapper -- la règle d'ouvreur consommait la
+  // ligne avant que la mutation n'y soit cherchée.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+
+  // Le détecteur CLASSE la ligne avant de mettre à jour l'ouvreur.
+  assert.ok(
+    /if \(has_mut\) \{[\s\S]*?\}\s*\n\s*if \(is_guard\) opener = "garde"/.test(role),
+    "la classification doit précéder la mise à jour de l'ouvreur"
+  );
+  assert.ok(
+    role.includes('printf "NON-GARDEE\\t%s\\t%s\\t%s\\n", FILENAME, line, "meme ligne"'),
+    "une mutation brute sur la même ligne doit être rapportée comme telle"
+  );
+  // Et il est ÉPROUVÉ par des fixtures, dont une sur une seule ligne.
+  for (const fx of ["raw-one-line", "raw-one-line-alter", "raw-multiline", "guarded"]) {
+    assert.ok(role.includes(fx), `la fixture « ${fx} » doit exister`);
+  }
+  // Les fixtures assemblent leurs verbes au lieu de les écrire en
+  // clair : écrits en clair, ils seraient eux-mêmes dénoncés par le
+  // détecteur qui analyse ce fichier.
+  assert.ok(
+    /V_CREATE="crea""te role"/.test(role) || role.includes('V_CREATE="crea""te role"'),
+    "les verbes des fixtures doivent être assemblés, non écrits en clair"
+  );
+  // Le détecteur vit dans UN fichier, employé pour les harnais ET pour
+  // les fixtures.
+  assert.ok(
+    role.includes('awk -f "$MUT_AWK"'),
+    "le détecteur doit être un seul programme, réutilisé pour les fixtures"
+  );
 });
 
 test("[AUD03-SQL] la lecture publique vérifie l'activation du mode de vente", () => {

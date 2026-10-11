@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte CINQ
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte SIX
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -14,6 +14,7 @@
 #     seconde passe : la preuve partielle que l'audit a trouvée)
 # M5  data_directory et config_file retirés du prédicat
 # M6  l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE
+# M7  le parseur sensible aux guillemets remplacé par un découpage brut
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -223,9 +224,9 @@ src, dst = sys.argv[1:3]
 s = open(src, encoding='utf-8').read()
 # On remonte du « raise ... socket » au « if not exists ( » qui le porte,
 # et on remplace tout le prédicat par l'ancienne sémantique.
-needle = "SCANYM_IDENTITY_REFUS|socket"
+needle = "SCANYM_IDENTITY_REFUS|socket';"
 i = s.index(needle)
-start = s.rindex("  if not exists (", 0, i)
+start = s.rindex("  if not ${CSDJ1_ID_SOCKET_MATCH} then", 0, i)
 end = s.index("  end if;\n", i) + len("  end if;\n")
 weak = (
     "  if pg_catalog.strpos(\n"
@@ -247,6 +248,49 @@ if [ "$M6_RC" != "0" ] \
   grep -m4 'FAIL:' /tmp/csdj1-mut-m6.log | sed 's/^/       /' | tee -a "$OUT"
 else
   ko "M6 — l'affaiblissement du prédicat de socket passe inaperçu (code $M6_RC) : [H] ne prouve rien"
+fi
+
+# ────────────────────────────────────────────────────────────
+# M7 — AUD-07 (cinquième passe) : le parseur sensible aux
+#      guillemets remplacé par un DÉCOUPAGE BRUT à chaque virgule.
+#
+# C'est le défaut littéral du cinquième re-audit. Le banc d'essai
+# configure une entrée citée contenant une virgule ; sous découpage
+# brut, le FRAGMENT qui précède la virgule devient une fausse identité
+# acceptée, et le rôle témoin du banc est réellement muté.
+# ────────────────────────────────────────────────────────────
+say "--- M7 : parseur sensible aux guillemets remplacé par un découpage brut"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+python3 -I - "$LIB_SRC" "$MUT_LIB" <<'PYM7'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+# 1) la virgule redevient un séparateur INCONDITIONNEL
+old_split = "case when c.c = ',' and c.outside_quotes then pg_catalog.chr(2) else c.c end"
+assert old_split in s, "ancre de decoupage introuvable"
+s = s.replace(old_split, "case when c.c = ',' then pg_catalog.chr(2) else c.c end", 1)
+# 2) les guillemets sont retirés des DEUX bords, comme le faisait la
+#    version precedente -- c'est ce qui transforme un fragment en
+#    chemin plausible.
+i = s.index("csdj1_sock_unquote as (")
+j = s.index("csdj1_sock_restore as (", i)
+s = (s[:i]
+     + "csdj1_sock_unquote as (\n"
+       "    select pg_catalog.btrim(t.e, '\"') as e from csdj1_sock_trim t),\n  "
+     + s[j:])
+open(dst, 'w', encoding='utf-8').write(s)
+PYM7
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")"
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M7_RC="$(run_mut_role /tmp/csdj1-mut-m7.log)"
+if [ "$M7_RC" != "0" ] \
+   && grep -q "FRAGMENT avant la virgule citée — ACCEPTÉ à tort" /tmp/csdj1-mut-m7.log \
+   && grep -q "FRAGMENT avant la virgule citée — le rôle témoin a été MUTÉ" /tmp/csdj1-mut-m7.log; then
+  ok "M7 — le découpage BRUT est VU : le fragment d'une entrée citée devient une fausse identité (code $M7_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m7.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M7 — le découpage brut passe inaperçu (code $M7_RC) : [H] ne prouve pas la syntaxe citée"
 fi
 
 clean

@@ -213,21 +213,30 @@ log "cluster TÉMOIN créé par CE fichier (TCP 127.0.0.1:$WIT_PORT -- MÊME por
 # le prouver qu'avec un serveur qui en a réellement plusieurs.
 # ────────────────────────────────────────────────────────────
 LAB_DATA="$TMP_DIR/sockets"
+# Quatre répertoires, dont trois EXIGENT des guillemets dans la
+# configuration : un nom contenant une VIRGULE, un nom contenant un
+# ESPACE, un nom contenant un GUILLEMET (doublé dans la configuration).
+# C'est la seule façon d'éprouver un parseur sensible aux guillemets :
+# sur une liste sans guillemets, un découpage brut et un parseur correct
+# sont indiscernables.
 LAB_SOCK_A="$TMP_DIR/lab-a"
 LAB_SOCK_B="$TMP_DIR/lab-b"
+LAB_SOCK_C="$TMP_DIR/foo,bar"
+LAB_SOCK_D="$TMP_DIR/lab d"
+LAB_SOCK_E="$TMP_DIR/tr,ail"
 LAB_PORT=$(( PORT + 1 ))
 LAB_UP=0
-mkdir -p "$LAB_SOCK_A" "$LAB_SOCK_B"
+mkdir -p "$LAB_SOCK_A" "$LAB_SOCK_B" "$LAB_SOCK_C" "$LAB_SOCK_D" "$LAB_SOCK_E"
 env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
   "$INITDB" -D "$LAB_DATA" -A trust -E UTF8 --locale=C >"$TMP_DIR/initdb-lab.log" 2>&1 \
   || fatal "initdb du banc de sockets a échoué : $(tail -3 "$TMP_DIR/initdb-lab.log" | tr '\n' ' ')"
 env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
   "$PG_CTL" -D "$LAB_DATA" -l "$LAB_DATA.log" \
-    -o "-p $LAB_PORT -c unix_socket_directories='$LAB_SOCK_A,$LAB_SOCK_B' -c listen_addresses=''" start \
+    -o "-p $LAB_PORT -c unix_socket_directories='\"$LAB_SOCK_C\",$LAB_SOCK_A , $LAB_SOCK_B,\"$LAB_SOCK_D\",\"$LAB_SOCK_E/\"' -c listen_addresses=''" start \
     >/dev/null 2>&1 \
   || fatal "démarrage du banc de sockets impossible : $(tail -3 "$LAB_DATA.log" 2>/dev/null | tr '\n' ' ')"
 LAB_UP=1
-log "cluster BANC DE SOCKETS créé par CE fichier (deux répertoires : $LAB_SOCK_A et $LAB_SOCK_B, aucun TCP)."
+log "cluster BANC DE SOCKETS créé par CE fichier (cinq répertoires, dont un à VIRGULE, un à ESPACE et un à barre oblique finale, tous trois CITÉS dans la configuration ; aucun TCP)."
 
 csdj1_runner_lab() {
   env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
@@ -235,6 +244,7 @@ csdj1_runner_lab() {
       -h "$LAB_SOCK_A" -p "$LAB_PORT" -U "$OWNER" -d postgres \
       -c "$1" </dev/null 2>&1
 }
+log "   liste telle que le serveur la rend : $(csdj1_runner_lab "show unix_socket_directories;" | tail -1)"
 
 # ============================================================
 # §4  CONTRAT D'IDENTITÉ COMPLÈTE — CSDJ-V1-DESTINATION-PROOF-02
@@ -844,42 +854,105 @@ socket_control() {
   fi
 }
 
-# Les cas exigés par le mandat, dans son ordre.
-socket_control "entrée EXACTE (membre 1)"        "$LAB_SOCK_A"            accept
-socket_control "entrée EXACTE (membre 2)"        "$LAB_SOCK_B"            accept
+# ── Entrées SIMPLES, sans guillemets (déjà closes au tour précédent,
+#    rejouées en régression).
+socket_control "entrée EXACTE (membre simple)"   "$LAB_SOCK_A"            accept
+socket_control "entrée EXACTE (autre membre)"    "$LAB_SOCK_B"            accept
 socket_control "barre oblique finale, même répertoire" "$LAB_SOCK_A/"     accept
 socket_control "PRÉFIXE d'une entrée"            "${LAB_SOCK_A%?}"        reject
 socket_control "entrée + un caractère"           "${LAB_SOCK_A}x"         reject
 socket_control "répertoire PARENT"               "$TMP_DIR"               reject
 socket_control "SOUS-répertoire d'une entrée"    "$LAB_SOCK_A/sous"       reject
 socket_control "SUFFIXE d'une entrée"            "/lab-a"                 reject
-socket_control "la LISTE entière"                "$LAB_SOCK_A,$LAB_SOCK_B" reject
-
-# La reproduction LITTÉRALE du rapport d'audit : actuel « /tmp »,
-# attendu « /tm ». Le banc vit sous /tmp, on l'éprouve donc tel quel.
 socket_control "reproduction d'audit : /tmp vs /tm" "/tm"                 reject
 socket_control "reproduction d'audit : /tmp vs /tmpx" "/tmpx"             reject
 
-# Et l'on prouve que la MENACE était réelle : l'ancien prédicat, par
-# sous-chaîne, aurait accepté ces attendus-là. On le montre en lecture
-# seule, sans muter quoi que ce soit.
-for bad in "${LAB_SOCK_A%?}" "/tm" "$TMP_DIR"; do
-  OLD_VERDICT="$(csdj1_runner_lab "select pg_catalog.strpos(
+# ── Entrées CITÉES — CSDJ1-AUD-07-SOCKET-CSV-01.
+#
+# Le défaut : un découpage à CHAQUE virgule fabrique des fragments à
+# partir de « "<rép>/foo,bar" ». Il ACCEPTE « <rép>/foo », qui n'est pas
+# un répertoire configuré, et REFUSE « <rép>/foo,bar », qui en est un.
+socket_control "membre CITÉ à virgule, exact"    "$LAB_SOCK_C"            accept
+socket_control "membre simple, liste contenant une entrée citée" "$LAB_SOCK_A" accept
+socket_control "FRAGMENT avant la virgule citée" "${LAB_SOCK_C%%,*}"      reject
+socket_control "FRAGMENT après la virgule citée" "${LAB_SOCK_C##*,}"      reject
+socket_control "membre CITÉ à ESPACE, exact"     "$LAB_SOCK_D"            accept
+socket_control "membre CITÉ, barre oblique finale dans la configuration" "$LAB_SOCK_E" accept
+socket_control "membre CITÉ, attendu avec barre oblique" "$LAB_SOCK_E/"   accept
+
+# La LISTE ENTIÈRE, telle que le serveur la rend : une fausse identité.
+LAB_WHOLE_LIST="$(csdj1_runner_lab "show unix_socket_directories;" | tail -1)"
+socket_control "la LISTE ENTIÈRE rendue par SHOW" "$LAB_WHOLE_LIST"       reject
+
+# Un guillemet DOUBLÉ dans la configuration vaut un guillemet littéral
+# dans le nom : vérifié empiriquement sur ce serveur. On ne l'éprouve
+# que si le serveur a réellement accepté une telle entrée -- la
+# configuration de ce banc n'en contient pas, et inventer un cas que le
+# serveur ne produit pas ne prouverait rien.
+if printf '%s' "$LAB_WHOLE_LIST" | grep -q '""'; then
+  pass "[H] la liste rendue contient un guillemet doublé : le cas est éprouvé en conditions réelles"
+else
+  log "   (aucun guillemet doublé dans la liste de ce banc : le parseur le traite, le banc ne l'exerce pas)"
+fi
+
+# ── DÉMONSTRATION DE NOCIVITÉ, par le parseur PARTAGÉ.
+#
+# Le verdict « nouveau » est produit par l'EXPRESSION QUE LA GARDE
+# EMPLOIE -- la même fonction d'émission, pas une copie. Sans cela, la
+# démonstration prouverait la justesse d'un second parseur, et non celle
+# du premier.
+csdj1_identity_use banc || fatal "[H] contrat du banc indisponible."
+for bad in "${LAB_SOCK_A%?}" "/tm" "$TMP_DIR" "${LAB_SOCK_C%%,*}" "${LAB_SOCK_C##*,}"; do
+  OLD_SUBSTR="$(csdj1_runner_lab "select pg_catalog.strpos(
       coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),
       '$bad') <> 0;" | tail -1 | tr -d ' ')"
-  NEW_VERDICT="$(csdj1_runner_lab "select exists (
+  OLD_SPLIT="$(csdj1_runner_lab "select exists (
       select 1 from pg_catalog.unnest(pg_catalog.string_to_array(
         coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''), ',')) as sd(entry)
       where case
               when pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')) = '/' then '/'
               else pg_catalog.rtrim(pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')), '/')
             end = '$bad');" | tail -1 | tr -d ' ')"
-  if [ "$OLD_VERDICT" = "t" ] && [ "$NEW_VERDICT" = "f" ]; then
-    pass "[H] « $bad » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse"
+  NEW_VERDICT="$(csdj1_runner_lab "select $(csdj1_identity_socket_match_expr "$bad");" | tail -1 | tr -d ' ')"
+  if [ "$NEW_VERDICT" != "f" ]; then
+    fail "[H] « $bad » : le parseur PARTAGÉ l'accepte -- ce n'est pas une entrée complète"
+  elif [ "$OLD_SUBSTR" = "t" ] || [ "$OLD_SPLIT" = "t" ]; then
+    pass "[H] « $bad » : accepté par au moins un ancien prédicat (sous-chaîne=$OLD_SUBSTR, découpage brut=$OLD_SPLIT), REFUSÉ par le parseur partagé"
   else
-    fail "[H] « $bad » : ancien=$OLD_VERDICT nouveau=$NEW_VERDICT -- la correction ne se distingue pas de l'ancien comportement"
+    fail "[H] « $bad » : aucun ancien prédicat ne l'acceptait -- ce cas ne distingue rien"
   fi
 done
+
+# Et les entrées LÉGITIMES que le découpage brut REFUSAIT : l'erreur
+# allait dans les deux sens, et la seconde aurait rendu le harnais
+# inutilisable sur un serveur à entrée citée.
+for good in "$LAB_SOCK_C" "$LAB_SOCK_D" "$LAB_SOCK_E"; do
+  OLD_SPLIT="$(csdj1_runner_lab "select exists (
+      select 1 from pg_catalog.unnest(pg_catalog.string_to_array(
+        coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''), ',')) as sd(entry)
+      where case
+              when pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')) = '/' then '/'
+              else pg_catalog.rtrim(pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '\"')), '/')
+            end = '$good');" | tail -1 | tr -d ' ')"
+  NEW_VERDICT="$(csdj1_runner_lab "select $(csdj1_identity_socket_match_expr "$good");" | tail -1 | tr -d ' ')"
+  if [ "$NEW_VERDICT" = "t" ] && [ "$OLD_SPLIT" = "f" ]; then
+    pass "[H] « $good » : entrée RÉELLE que le découpage brut refusait, acceptée par le parseur partagé"
+  elif [ "$NEW_VERDICT" != "t" ]; then
+    fail "[H] « $good » : le parseur partagé refuse une entrée RÉELLE"
+  else
+    pass "[H] « $good » : entrée réelle acceptée (le découpage brut l'acceptait aussi)"
+  fi
+done
+
+# Une liste MAL FORMÉE ne peut pas sortir de SHOW -- PostgreSQL refuse de
+# démarrer dessus (« invalid list syntax in parameter »). On vérifie
+# néanmoins que la garde porte le refus correspondant : une hypothèse
+# qu'on ne vérifie pas est une hypothèse qu'on finit par violer.
+if grep -q 'socket_liste_malformee' "$SCRIPT_DIR/csdj1-cluster-identity.sh"; then
+  pass "[H] la garde refuse explicitement une liste mal formée (citation non fermée)"
+else
+  fail "[H] aucune garde contre une liste de sockets mal formée"
+fi
 
 csdj1_identity_mutate "  drop role if exists $LAB_PROBE;" >/dev/null
 csdj1_identity_use test || fatal "[H] contrat du cluster sous test indisponible."
@@ -1051,33 +1124,88 @@ fi
 # qui la porte. On suit l'ouvreur de commande le plus proche en amont,
 # et on exige qu'il soit gardé.
 MUT_REPORT="$TMP_DIR/role-mutations.txt"
-for mfile in "$SELF" "$HARNESS"; do
-  awk -v src="$mfile" '
-    /^[[:space:]]*#/ { next }
-    /SELF-REFERENCE/ { next }
-    # Ouvreurs GARDES : la mutation portee passe par le predicat.
-    /csdj1_identity_mutate|csdj1_identity_install|csdj1_identity_uninstall/ {
-      opener = "garde"; next
-    }
-    # Variables qui ACCUMULENT du SQL de mutation, consommees ensuite
-    # par une mutation gardee (verifie separement ci-dessous).
-    /RESTORE_SQL=|PROBE_MUTATION=/ { opener = "garde"; next }
-    # Ouvreurs BRUTS : un client appele directement.
-    /(^|[^a-z_])(q|qw)[ ]*"/ { opener = "brut:" $0; next }   # SELF-REFERENCE
-    /csdj1_runner_[a-z_]+[ ]*"/ { opener = "brut:" $0; next }   # SELF-REFERENCE
-    /psql |probe |sql_value |run_sql / { opener = "brut:" $0; next }   # SELF-REFERENCE
-    /create role|alter role|drop role|CREATE ROLE|ALTER ROLE|DROP ROLE/ {   # SELF-REFERENCE
-      total++
-      if (opener ~ /^brut:/) {
-        printf "NON-GARDEE\t%s\t%s\t%s\n", src, $0, substr(opener, 6)
-      } else if (opener == "garde") {
-        printf "GARDEE\t%s\t%s\n", src, $0
-      } else {
-        printf "SANS-OUVREUR\t%s\t%s\n", src, $0
-      }
-    }
-  ' "$mfile"
-done > "$MUT_REPORT"
+MUT_AWK="$TMP_DIR/role-mutation-detector.awk"
+# Le détecteur vit dans UN fichier, employé pour analyser les harnais ET
+# pour s'éprouver lui-même sur des fixtures. Deux copies divergeraient.
+#
+# Il classe la ligne AVANT de mettre à jour l'ouvreur : sans cela, une
+# mutation BRUTE tenant sur UNE SEULE LIGNE serait consommée par la
+# règle d'ouvreur et jamais examinée. C'est la limite que l'audit a
+# signalée, et elle est fermée.
+cat > "$MUT_AWK" <<'AWKDET'
+/^[[:space:]]*#/ { next }
+/SELF-REFERENCE/ { next }
+{
+  line = $0
+  has_mut  = (line ~ /create role|alter role|drop role|CREATE ROLE|ALTER ROLE|DROP ROLE/)
+  is_guard = (line ~ /csdj1_identity_mutate|csdj1_identity_install|csdj1_identity_uninstall/) \
+             || (line ~ /RESTORE_SQL=|PROBE_MUTATION=/)
+  is_raw   = (line ~ /(^|[^a-z_])(q|qw)[ ]*"/) \
+             || (line ~ /csdj1_runner_[a-z_]+[ ]*"/) \
+             || (line ~ /psql |probe |sql_value |run_sql /)
+
+  if (has_mut) {
+    if (is_raw)
+      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, "meme ligne"
+    else if (is_guard)
+      printf "GARDEE\t%s\t%s\n", FILENAME, line
+    else if (opener ~ /^brut:/)
+      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, substr(opener, 6)
+    else if (opener == "garde")
+      printf "GARDEE\t%s\t%s\n", FILENAME, line
+    else
+      printf "SANS-OUVREUR\t%s\t%s\n", FILENAME, line
+  }
+
+  if (is_guard) opener = "garde"
+  else if (is_raw) opener = "brut:" line
+}
+AWKDET
+awk -f "$MUT_AWK" "$SELF" "$HARNESS" > "$MUT_REPORT"
+
+# ── FIXTURES DU DÉTECTEUR — il doit voir ce qu'il prétend voir.
+#
+# Exigence du mandat : une mutation BRUTE tenant sur UNE SEULE LIGNE,
+# hors de csdj1_identity_mutate, doit être détectée.
+DET_FIXT="$TMP_DIR/detector-fixtures"
+mkdir -p "$DET_FIXT"
+# Les verbes SQL des fixtures sont ASSEMBLÉS, et non écrits en clair :
+# écrits en clair, ils apparaîtraient dans CE fichier, que le détecteur
+# analyse aussi -- et il les dénoncerait, à juste titre, comme des
+# mutations brutes. Une fixture ne doit pas devenir le défaut qu'elle
+# éprouve.
+V_CREATE="crea""te role"
+V_ALTER="alt""er role"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'q "%s scanym_fixture_role login;"\n' "$V_CREATE"
+} > "$DET_FIXT/raw-one-line.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_runner_test "%s scanym_fixture_role bypassrls;"\n' "$V_ALTER"
+} > "$DET_FIXT/raw-one-line-alter.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'qw "do \\$\\$ begin\n'
+  printf '      %s scanym_fixture_role login bypassrls;\n' "$V_CREATE"
+  printf '    end \\$\\$;"\n'
+} > "$DET_FIXT/raw-multiline.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate "\n'
+  printf '  %s scanym_fixture_role login;\n' "$V_CREATE"
+  printf '"\n'
+} > "$DET_FIXT/guarded.sh"
+
+for fx in raw-one-line raw-one-line-alter raw-multiline; do
+  FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/$fx.sh")"
+  case "$FX_OUT" in
+    NON-GARDEE*) pass "[E] fixture « $fx » : la mutation brute est DÉTECTÉE" ;;
+    *) fail "[E] fixture « $fx » : mutation brute NON détectée (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-70) »)" ;;
+  esac
+done
+FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/guarded.sh")"
+case "$FX_OUT" in
+  GARDEE*) pass "[E] fixture « guarded » : une mutation GARDÉE n'est pas dénoncée à tort" ;;
+  *) fail "[E] fixture « guarded » : une mutation gardée est signalée à tort (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-70) »)" ;;
+esac
+
 MUT_SEEN="$(wc -l < "$MUT_REPORT")"
 MUT_BAD="$(grep -c '^NON-GARDEE' "$MUT_REPORT" || true)"
 MUT_ORPHAN="$(grep -c '^SANS-OUVREUR' "$MUT_REPORT" || true)"
@@ -1120,10 +1248,36 @@ if grep -q 'strpos' "$LIB_EXEC"; then
 else
   pass "[E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)"
 fi
-if grep -q 'string_to_array' "$LIB_EXEC" && grep -q "end = '\${CSDJ1_ID_SOCKET}'" "$LIB_EXEC"; then
-  pass "[E] la liste de sockets est découpée en ENTRÉES et comparée à l'ÉGALITÉ"
+if grep -q 'csdj1_sock_norm where entry = ' "$LIB_EXEC"; then
+  pass "[E] la liste de sockets est comparée à l'ÉGALITÉ d'une entrée analysée"
 else
   fail "[E] la comparaison de socket n'est pas une égalité d'entrée complète"
+fi
+# Le découpage ne doit PAS être brut : couper à chaque virgule fabrique
+# des fragments à partir d'une entrée citée (CSDJ1-AUD-07-SOCKET-CSV-01).
+if grep -q "string_to_array(coalesce(pg_catalog.current_setting('unix_socket_directories'" "$LIB_EXEC"; then
+  fail "[E] la liste de sockets est encore découpée BRUTALEMENT à chaque virgule"
+else
+  pass "[E] la liste de sockets n'est plus découpée brutalement à chaque virgule"
+fi
+if grep -q "replace(r.raw, '\"\"', pg_catalog.chr(1))" "$LIB_EXEC" \
+   && grep -q 'outside_quotes' "$LIB_EXEC"; then
+  pass "[E] le parseur est SENSIBLE AUX GUILLEMETS (doublés traités, virgules citées protégées)"
+else
+  fail "[E] le parseur n'est pas sensible aux guillemets"
+fi
+# UN SEUL parseur : la garde et la démonstration de nocivité doivent
+# passer par la MÊME fonction d'émission.
+PARSER_DEFS="$(grep -c '^csdj1_identity_socket_cte()' "$SCRIPT_DIR/csdj1-cluster-identity.sh")"
+if [ "$PARSER_DEFS" = "1" ]; then
+  pass "[E] le parseur de sockets est défini UNE SEULE FOIS"
+else
+  fail "[E] $PARSER_DEFS définition(s) du parseur de sockets : un second parseur divergerait"
+fi
+if grep -q 'csdj1_identity_socket_match_expr' "$SELF"; then
+  pass "[E] la démonstration de nocivité emploie l'expression de la GARDE, pas une copie"
+else
+  fail "[E] la démonstration de nocivité emploie son propre prédicat"
 fi
 
 # Et le harnais PRINCIPAL emploie le même, pour le même motif.

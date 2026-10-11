@@ -113,6 +113,18 @@ csdj1_identity_declare() {
     *) printf 'csdj1_identity_declare: répertoire de socket attendu invalide (« %s »)\n' "$3" >&2
        return 1 ;;
   esac
+  # Les valeurs du contrat sont interpolées dans des littéraux SQL entre
+  # apostrophes. Une apostrophe dans l'une d'elles briserait la garde --
+  # c'est-à-dire la désarmerait. On refuse de déclarer un tel contrat
+  # plutôt que d'échapper à la main ce qui ne devrait jamais survenir
+  # sur un cluster jetable.
+  local f
+  for f in "$sock" "$4" "$5" "$6" "$7" "$8" "$9"; do
+    case "$f" in
+      *\'*) printf "csdj1_identity_declare: apostrophe interdite dans une valeur du contrat\n" >&2
+            return 1 ;;
+    esac
+  done
   CSDJ1_ID_CTX_RUNNER[$name]="$2"
   CSDJ1_ID_CTX_SOCKET[$name]="$sock"
   CSDJ1_ID_CTX_PORT[$name]="$4"
@@ -153,7 +165,113 @@ csdj1_identity_use() {
 # opaque. Et `current_user` s'écrit NON qualifié : c'est un
 # constructeur du parseur, pas une fonction (« pg_catalog.current_user »
 # est lu comme une colonne et la requête échoue).
+# ────────────────────────────────────────────────────────────
+# PARSEUR DE unix_socket_directories — UNIQUE ET DÉTERMINISTE
+# CSDJ1-AUD-07-SOCKET-CSV-01
+#
+# Le quatrième re-audit avait fait remplacer une comparaison par
+# SOUS-CHAÎNE par une égalité d'entrée. Le cinquième a montré que le
+# DÉCOUPAGE restait faux : `string_to_array(liste, ',')` coupe à CHAQUE
+# virgule, y compris celles qui sont DANS une entrée citée.
+#
+# Ce que PostgreSQL rend réellement, vérifié empiriquement sur un
+# serveur de ce poste :
+#
+#   configuration  "<rép>/foo,bar",<rép>/plain
+#   SHOW rend      "<rép>/foo,bar",<rép>/plain       (guillemets CONSERVÉS)
+#
+# Un découpage brut en tire trois fragments -- «"<rép>/foo», «bar"» et
+# «<rép>/plain» -- et, les guillemets retirés, ACCEPTE «<rép>/foo» qui
+# n'est pas un répertoire configuré, tout en REFUSANT «<rép>/foo,bar»
+# qui en est un. Les deux erreurs sont graves, et la première est une
+# fausse identité.
+#
+# Faits établis empiriquement (voir socket-csv-syntax.txt du paquet de
+# preuves) :
+#   - SHOW conserve les guillemets des entrées qui en ont besoin ;
+#   - une virgule DANS une entrée citée est une donnée ;
+#   - un guillemet DOUBLÉ («""») à l'intérieur d'une entrée citée vaut
+#     un guillemet littéral, et SHOW le ré-encode doublé ;
+#   - les espaces autour des virgules sont conservés par SHOW ;
+#   - les espaces À L'INTÉRIEUR des guillemets font partie du nom ;
+#   - une syntaxe MAL FORMÉE (guillemet non fermé) empêche le serveur de
+#     DÉMARRER (« invalid list syntax in parameter »), elle ne peut donc
+#     pas sortir de SHOW. On la refuse malgré tout : une hypothèse qu'on
+#     ne vérifie pas est une hypothèse qu'on finit par violer.
+#
+# Le parseur ne découpe donc PAS aveuglément. Il remplace d'abord les
+# guillemets doublés par une sentinelle, puis ne coupe qu'aux virgules
+# dont le nombre de guillemets qui précèdent est PAIR -- c'est-à-dire
+# celles qui sont hors citation. La parité suffit : après la
+# substitution des guillemets doublés, les guillemets restants sont
+# exactement les délimiteurs, et ils alternent.
+#
+# Il n'existe qu'UNE définition de ce parseur. La garde et la
+# démonstration de nocivité du harnais emploient la MÊME.
+# ────────────────────────────────────────────────────────────
+csdj1_identity_socket_cte() {
+  cat <<'SQLCTE'
+csdj1_sock_raw as (
+    select coalesce(pg_catalog.current_setting('unix_socket_directories', true), '') as raw),
+  csdj1_sock_esc as (
+    select pg_catalog.replace(r.raw, '""', pg_catalog.chr(1)) as t from csdj1_sock_raw r),
+  csdj1_sock_chars as (
+    select g.i,
+           pg_catalog.substr(e.t, g.i, 1) as c,
+           (pg_catalog.length(pg_catalog.substr(e.t, 1, g.i - 1))
+            - pg_catalog.length(
+                pg_catalog.replace(pg_catalog.substr(e.t, 1, g.i - 1), '"', ''))) % 2 = 0
+             as outside_quotes
+    from csdj1_sock_esc e, pg_catalog.generate_series(1, pg_catalog.length(e.t)) as g(i)),
+  csdj1_sock_marked as (
+    select pg_catalog.string_agg(
+             case when c.c = ',' and c.outside_quotes then pg_catalog.chr(2) else c.c end,
+             '' order by c.i) as t
+    from csdj1_sock_chars c),
+  csdj1_sock_split as (
+    select pg_catalog.unnest(
+             pg_catalog.string_to_array(coalesce(m.t, ''), pg_catalog.chr(2))) as e
+    from csdj1_sock_marked m),
+  csdj1_sock_trim as (select pg_catalog.btrim(s.e) as e from csdj1_sock_split s),
+  csdj1_sock_unquote as (
+    select case
+             when pg_catalog.length(t.e) >= 2
+                  and pg_catalog.left(t.e, 1) = '"'
+                  and pg_catalog.right(t.e, 1) = '"'
+               then pg_catalog.substr(t.e, 2, pg_catalog.length(t.e) - 2)
+             else t.e
+           end as e
+    from csdj1_sock_trim t),
+  csdj1_sock_restore as (
+    select pg_catalog.replace(u.e, pg_catalog.chr(1), '"') as e from csdj1_sock_unquote u),
+  csdj1_sock_norm as (
+    select case when r.e = '/' then '/' else pg_catalog.rtrim(r.e, '/') end as entry
+    from csdj1_sock_restore r)
+SQLCTE
+}
+
+# Expression SQL booléenne : « l'attendu est-il une entrée COMPLÈTE ? »
+# Employée par la garde ET par la démonstration de nocivité du harnais,
+# afin qu'il n'existe pas deux parseurs.
+csdj1_identity_socket_match_expr() {
+  printf 'exists (with %s select 1 from csdj1_sock_norm where entry = %s)' \
+    "$(csdj1_identity_socket_cte)" "'$1'"
+}
+
+# Expression SQL booléenne : la liste est-elle bien formée ? Un nombre
+# IMPAIR de guillemets (après substitution des guillemets doublés)
+# signale une citation non fermée. PostgreSQL refuse de démarrer sur une
+# telle liste, donc SHOW ne peut pas la produire -- on le vérifie quand
+# même, et on refuse plutôt que de deviner.
+csdj1_identity_socket_balanced_expr() {
+  printf '(select (pg_catalog.length(e.t) - pg_catalog.length(pg_catalog.replace(e.t, %s, %s))) %% 2 = 0 from (with %s select t from csdj1_sock_esc) e)' \
+    "'\"'" "''" "$(csdj1_identity_socket_cte)"
+}
+
 csdj1_identity_guard_sql() {
+  local CSDJ1_ID_SOCKET_MATCH CSDJ1_ID_SOCKET_BALANCED
+  CSDJ1_ID_SOCKET_MATCH="$(csdj1_identity_socket_match_expr "$CSDJ1_ID_SOCKET")"
+  CSDJ1_ID_SOCKET_BALANCED="$(csdj1_identity_socket_balanced_expr)"
   cat <<SQL
   if pg_catalog.inet_server_addr() is not null then
     raise exception 'SCANYM_IDENTITY_REFUS|destination_reseau';
@@ -167,36 +285,19 @@ csdj1_identity_guard_sql() {
   if coalesce(pg_catalog.current_setting('is_superuser', true), '') <> 'on' then
     raise exception 'SCANYM_IDENTITY_REFUS|is_superuser';
   end if;
-  -- SOCKET : ÉGALITÉ EXACTE avec UNE ENTRÉE COMPLÈTE de la liste.
+  -- SOCKET : ÉGALITÉ EXACTE avec UNE ENTRÉE COMPLÈTE de la liste,
+  -- celle-ci étant analysée par le parseur UNIQUE défini plus haut --
+  -- sensible aux guillemets, donc aux virgules qu'ils protègent.
   --
-  -- La version précédente employait « strpos » -- une sémantique de
-  -- SOUS-CHAÎNE. Elle acceptait donc « /tm » pour un serveur dont la
-  -- socket est « /tmp », et plus généralement tout préfixe, suffixe ou
-  -- fragment d'une entrée. Une identité qui accepte un fragment
-  -- n'identifie rien.
-  --
-  -- « unix_socket_directories » est une LISTE séparée par des virgules,
-  -- dont les entrées peuvent être encadrées de guillemets doubles
-  -- (c'est la syntaxe que PostgreSQL accepte pour un chemin contenant
-  -- une virgule ou un espace). On la découpe donc en ENTRÉES, on
-  -- normalise chacune -- espaces extérieurs, guillemets, barre oblique
-  -- finale -- et on exige l'égalité avec l'attendu, lui-même normalisé
-  -- de la même façon côté shell. Aucun préfixe, aucun suffixe, aucun
-  -- fragment.
-  if not exists (
-    select 1
-    from pg_catalog.unnest(
-           pg_catalog.string_to_array(
-             coalesce(pg_catalog.current_setting('unix_socket_directories', true), ''),
-             ',')) as sd(entry)
-    where case
-            when pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '"')) = '/'
-              then '/'
-            else pg_catalog.rtrim(
-                   pg_catalog.btrim(pg_catalog.btrim(pg_catalog.btrim(sd.entry), '"')),
-                   '/')
-          end = '${CSDJ1_ID_SOCKET}'
-  ) then
+  -- Historique du défaut, en deux temps : la comparaison était d'abord
+  -- une SOUS-CHAÎNE (« /tm » acceptait « /tmp ») ; corrigée en égalité,
+  -- elle reposait encore sur un découpage à CHAQUE virgule, qui
+  -- fabriquait des fragments à partir d'une entrée citée. Une identité
+  -- qui accepte un fragment n'identifie rien.
+  if not ${CSDJ1_ID_SOCKET_BALANCED} then
+    raise exception 'SCANYM_IDENTITY_REFUS|socket_liste_malformee';
+  end if;
+  if not ${CSDJ1_ID_SOCKET_MATCH} then
     raise exception 'SCANYM_IDENTITY_REFUS|socket';
   end if;
   if coalesce(pg_catalog.current_setting('data_directory', true), '') <> '${CSDJ1_ID_DATADIR}' then
