@@ -80,6 +80,9 @@ declare -A CSDJ1_ID_CTX_CONFIG=()
 declare -A CSDJ1_ID_CTX_MARKER=()
 declare -A CSDJ1_ID_CTX_NONCE=()
 declare -A CSDJ1_ID_CTX_INSTALLED=()
+# Nom du rôle du chemin BRUT, par contrat, quand la frontière d'exécution
+# y est posée. Vide = pas de frontière sur ce cluster (bancs d'essai).
+declare -A CSDJ1_ID_CTX_BOUNDARY=()
 
 # Normalise un répertoire de socket ATTENDU, du côté shell, exactement
 # comme la garde normalise les entrées lues du serveur : espaces
@@ -407,22 +410,196 @@ csdj1_identity_install() {
   return 0
 }
 
+# ────────────────────────────────────────────────────────────
+# FRONTIÈRE DE MUTATION IMPOSÉE À L'EXÉCUTION
+# CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-01
+#
+# Huit tours de suite, la preuve que « aucune mutation de rôle ne passe
+# hors garde » reposait sur la LECTURE DU TEXTE SOURCE des harnais. À
+# chaque tour, un audit a trouvé une orthographe que le lecteur ne
+# voyait pas : la casse, la forme du littéral, la fuite d'état,
+# l'apostrophe d'un commentaire, la continuation entre guillemets, le
+# saut de ligne comme blanc SQL. Le neuvième mandat tire la conclusion :
+# on arrête de lire du texte.
+#
+# La preuve porte désormais sur le CHEMIN D'EXÉCUTION, et elle est
+# établie par PostgreSQL lui-même. Deux mécanismes, indépendants.
+#
+#   1. LE PRIVILÈGE. Le chemin BRUT (les enveloppes génériques d'un
+#      harnais) se connecte avec un rôle NOSUPERUSER NOCREATEROLE. Une
+#      mutation d'attribut de rôle y est IMPOSSIBLE : PostgreSQL la
+#      refuse avant de l'appliquer, quelle que soit son orthographe --
+#      commentaires entre mots-clés, DO $$ ... $$, E'...', multiligne,
+#      casse, tabulations, continuations, citations du shell. Aucun
+#      analyseur n'intervient. Le chemin GARDÉ, lui, exige
+#      « is_superuser » : les deux chemins sont donc disjoints PAR
+#      CONSTRUCTION, et c'est le serveur qui l'impose.
+#
+#   2. L'EMPREINTE. Le catalogue de rôles -- attributs, options de
+#      connexion, mots de passe, réglages par rôle, appartenances -- est
+#      condensé par une fonction SECURITY DEFINER, et son empreinte est
+#      stockée dans une table que SEUL le chemin gardé rafraîchit, DANS
+#      LA MÊME TRANSACTION que la mutation. Après chaque exécution
+#      brute, l'enveloppe demande au serveur si l'empreinte correspond
+#      encore. Si elle ne correspond pas, une mutation de rôle a eu lieu
+#      hors garde -- et on l'apprend du CATALOGUE, pas d'une expression
+#      régulière appliquée au SQL.
+#
+# Le premier mécanisme REJETTE. Le second DÉTECTE, y compris ce que le
+# premier autoriserait (un rôle peut modifier ses propres réglages par
+# « ALTER ROLE ... SET », que NOCREATEROLE n'interdit pas) et y compris
+# si le premier était désarmé. Le mandat demande « rejeté OU détecté » :
+# ici, les deux.
+#
+# Les noms des objets DÉRIVENT du marqueur du contrat : ils sont donc
+# propres à CETTE exécution et à CE cluster, comme le marqueur lui-même.
+# ────────────────────────────────────────────────────────────
+csdj1_identity_boundary_table()  { printf '%s_roledigest' "$CSDJ1_ID_MARKER"; }
+csdj1_identity_boundary_digest() { printf '%s_digest' "$CSDJ1_ID_MARKER"; }
+csdj1_identity_boundary_check()  { printf '%s_boundary' "$CSDJ1_ID_MARKER"; }
+
+# Le RAFRAÎCHISSEMENT, appendu au corps de CHAQUE mutation gardée. Il
+# est conditionnel : les contrats sans frontière (bancs d'essai de
+# sockets, cluster de sentinelles) ne la portent pas, et
+# « to_regclass » rend NULL sans lever.
+#
+# Il est DANS la transaction de la mutation : une mutation gardée et son
+# empreinte ne peuvent pas diverger, puisqu'une exception annule les
+# deux. C'est ce qui rend l'empreinte une autorité et non un indice.
+csdj1_identity_boundary_refresh_sql() {
+  local t d
+  t="$(csdj1_identity_boundary_table)"
+  d="$(csdj1_identity_boundary_digest)"
+  cat <<SQL
+  if pg_catalog.to_regclass('public.${t}') is not null then
+    delete from public.${t};
+    insert into public.${t} select public.${d}();
+  end if;
+SQL
+}
+
 # LE point de passage. Toute mutation d'état PostgreSQL d'un harnais
 # CSDJ-1 -- mise en place, restauration, nettoyage, repli -- passe par
-# ici, et par le MÊME prédicat.
+# ici, et par le MÊME prédicat. Et c'est ici, et nulle part ailleurs,
+# que l'empreinte des rôles est rafraîchie.
 csdj1_identity_mutate() {
   csdj1_identity_run_guarded \
     "$(csdj1_identity_guard_sql)
-$(csdj1_identity_marker_sql)" "$1"
+$(csdj1_identity_marker_sql)" "$1
+$(csdj1_identity_boundary_refresh_sql)"
+}
+
+# Pose la frontière sur le cluster du contrat ACTIF, PAR LE CHEMIN
+# GARDÉ -- la frontière elle-même ne s'installe donc pas hors garde.
+#
+#   $1  le rôle du chemin BRUT : créé NOSUPERUSER NOCREATEROLE
+#       NOCREATEDB NOBYPASSRLS NOREPLICATION, autorisé à se connecter et
+#       à appeler la seule fonction de vérification.
+csdj1_identity_boundary_install() {
+  local raw="$1" t d c
+  case "$raw" in
+    [A-Za-z_]*) : ;;
+    *) CSDJ1_ID_LAST="role_brut_invalide"; return 1 ;;
+  esac
+  case "$raw" in
+    *[^A-Za-z0-9_]*) CSDJ1_ID_LAST="role_brut_invalide"; return 1 ;;
+  esac
+  t="$(csdj1_identity_boundary_table)"
+  d="$(csdj1_identity_boundary_digest)"
+  c="$(csdj1_identity_boundary_check)"
+  csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname = '${raw}') then
+    create role ${raw} login nosuperuser nocreaterole nocreatedb nobypassrls noreplication inherit;
+  else
+    alter role ${raw} login nosuperuser nocreaterole nocreatedb nobypassrls noreplication inherit;
+  end if;
+  create table public.${t} (digest text primary key);
+  -- L'EMPREINTE. Elle couvre ce que « ALTER ROLE » peut changer :
+  -- les attributs, la limite de connexions, la date de validité, le
+  -- mot de passe, les réglages par rôle (« ALTER ROLE ... SET ... »)
+  -- et les appartenances (« GRANT role TO role »). Lire pg_authid
+  -- demande le privilège : la fonction est donc SECURITY DEFINER, et
+  -- son exécution est RETIRÉE à PUBLIC.
+  create function public.${d}() returns text
+  language sql stable security definer
+  set search_path = pg_catalog, pg_temp
+  as \$csdj1dig\$
+    select pg_catalog.md5(coalesce(pg_catalog.string_agg(x, '|' order by x), ''))
+      from (
+        select 'R:' || r.rolname || ':'
+            || r.rolsuper::text || r.rolinherit::text || r.rolcreaterole::text
+            || r.rolcreatedb::text || r.rolcanlogin::text || r.rolreplication::text
+            || r.rolbypassrls::text || ':' || r.rolconnlimit::text
+            || ':' || coalesce(r.rolvaliduntil::text, '')
+            || ':' || coalesce(r.rolpassword, '') as x
+          from pg_catalog.pg_authid r
+        union all
+        select 'S:' || r.rolname || ':' || coalesce(pg_catalog.array_to_string(s.setconfig, ','), '')
+          from pg_catalog.pg_db_role_setting s
+          join pg_catalog.pg_authid r on r.oid = s.setrole
+        union all
+        select 'M:' || a.rolname || '>' || b.rolname || ':' || m.admin_option::text
+          from pg_catalog.pg_auth_members m
+          join pg_catalog.pg_authid a on a.oid = m.roleid
+          join pg_catalog.pg_authid b on b.oid = m.member
+      ) t(x)
+  \$csdj1dig\$;
+  -- LA VÉRIFICATION, seule fonction accessible au chemin brut. Elle ne
+  -- rend qu'un verdict : ni l'empreinte, ni le catalogue.
+  create function public.${c}() returns text
+  language sql stable security definer
+  set search_path = pg_catalog, pg_temp
+  as \$csdj1chk\$
+    select case
+      when (select pg_catalog.count(*) from public.${t}) <> 1 then 'FRONTIERE-NON-ARMEE'
+      when (select g.digest from public.${t} g) = public.${d}() then 'OK'
+      else 'MUTATION-BRUTE'
+    end
+  \$csdj1chk\$;
+  revoke all on function public.${d}() from public;
+  revoke all on function public.${c}() from public;
+  grant execute on function public.${c}() to ${raw};
+" || return 1
+  CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]="$raw"
+  return 0
+}
+
+# Retire la frontière, par le chemin gardé. Le rôle brut est conservé :
+# il n'a aucun privilège, et le harnais le supprime avec ses autres
+# rôles de sonde.
+csdj1_identity_boundary_uninstall() {
+  local t d c
+  [ -n "${CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]:-}" ] || return 0
+  t="$(csdj1_identity_boundary_table)"
+  d="$(csdj1_identity_boundary_digest)"
+  c="$(csdj1_identity_boundary_check)"
+  csdj1_identity_mutate "
+  drop function if exists public.${c}();
+  drop function if exists public.${d}();
+  drop table if exists public.${t};
+" && CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]=""
 }
 
 # Retire le marqueur. Gardé comme tout le reste : le marqueur n'est
 # supprimé que du serveur qui vient de prouver qu'il est bien le nôtre.
+#
+# La frontière part DANS LA MÊME instruction gardée : la retirer après
+# le marqueur serait impossible -- la garde exige le marqueur -- et la
+# retirer avant, dans un appel séparé, laisserait un ordre à respecter,
+# donc un ordre à oublier.
 csdj1_identity_uninstall() {
+  local t d c
   [ "$CSDJ1_ID_INSTALLED" = "1" ] || return 0
+  t="$(csdj1_identity_boundary_table)"
+  d="$(csdj1_identity_boundary_digest)"
+  c="$(csdj1_identity_boundary_check)"
   csdj1_identity_mutate "
+  drop function if exists public.${c}();
+  drop function if exists public.${d}();
+  drop table if exists public.${t};
   drop table if exists public.${CSDJ1_ID_MARKER};
-" && { CSDJ1_ID_INSTALLED=0; CSDJ1_ID_CTX_INSTALLED[$CSDJ1_ID_CONTEXT]=0; }
+" && { CSDJ1_ID_INSTALLED=0; CSDJ1_ID_CTX_INSTALLED[$CSDJ1_ID_CONTEXT]=0
+       CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]=""; }
 }
 
 # Preuve SEULE, sans mutation : pour journaliser ou assertionner. Le

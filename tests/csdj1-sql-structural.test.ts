@@ -2022,6 +2022,176 @@ test("[AUD07-SQL-9] le détecteur a été ADVERSARIALEMENT éprouvé, et ses ver
   );
 });
 
+test("[AUD07-SQL-10] la preuve porte sur le CHEMIN D'EXÉCUTION, et non sur le texte source", () => {
+  // Neuvième mandat, et il nomme la bonne cause : « arrêtez d'étendre
+  // le détecteur AWK vers un analyseur Bash/SQL ». Huit tours de suite,
+  // la preuve que rien ne mute hors garde reposait sur la LECTURE du
+  // texte source, et huit fois un audit a trouvé une orthographe que le
+  // lecteur ne voyait pas.
+  //
+  // L'autorité est désormais PostgreSQL. Deux mécanismes, et ce test
+  // exige les deux.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  const lib = readFileSync(LIB_PATH, "utf8");
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+
+  // ── MÉCANISME 1 : LE PRIVILÈGE. Le chemin brut n'en a pas.
+  assert.ok(
+    /create role \$\{raw\} login nosuperuser nocreaterole nocreatedb nobypassrls noreplication/.test(
+      lib
+    ),
+    "le rôle du chemin brut doit être créé NOSUPERUSER NOCREATEROLE : c'est PostgreSQL qui refuse, pas un analyseur"
+  );
+  assert.ok(
+    lib.includes("SCANYM_IDENTITY_REFUS|is_superuser"),
+    "le chemin gardé doit, lui, EXIGER le privilège : sans quoi les deux chemins ne seraient pas disjoints"
+  );
+  // Une seule enveloppe d'exécution brute, et elle se connecte avec le
+  // rôle non privilégié -- jamais avec le propriétaire du cluster.
+  assert.ok(
+    role.includes("csdj1_raw_exec() {"),
+    "l'exécution brute doit passer par UNE enveloppe"
+  );
+  assert.ok(
+    (role.match(/-U "\$RAW_ROLE" -d postgres/g) ?? []).length === 2,
+    "les deux branches de l'enveloppe brute doivent employer le rôle non privilégié"
+  );
+  assert.ok(
+    /^q\(\)\s+\{ csdj1_raw_exec test\b/m.test(role) &&
+      /^qw\(\)\s+\{ csdj1_raw_exec temoin\b/m.test(role),
+    "« q » et « qw » ne doivent être que deux VUES de cette enveloppe"
+  );
+  // L'enveloppe d'amorçage ne prend pas du SQL : elle prend un NOM DE
+  // RÉGLAGE. Une mutation de rôle ne s'exprime pas ainsi.
+  assert.ok(
+    role.includes("data_directory|config_file) : ;;"),
+    "l'enveloppe d'amorçage privilégiée doit n'accepter qu'un nom de réglage, en énumération fermée"
+  );
+
+  // ── MÉCANISME 2 : L'EMPREINTE, rafraîchie DANS la transaction de la
+  // mutation gardée -- sans quoi elle serait un indice, pas une autorité.
+  assert.ok(
+    lib.includes("csdj1_identity_boundary_refresh_sql()"),
+    "le rafraîchissement de l'empreinte doit être une fonction nommée"
+  );
+  const mutateBlock = lib.slice(
+    lib.indexOf("csdj1_identity_mutate() {"),
+    lib.indexOf("csdj1_identity_boundary_install() {")
+  );
+  assert.ok(
+    mutateBlock.includes("$(csdj1_identity_boundary_refresh_sql)"),
+    "le rafraîchissement doit être appendu au CORPS de la mutation gardée, donc exécuté dans SA transaction"
+  );
+  // L'empreinte couvre ce qu'« ALTER ROLE » peut changer.
+  for (const cat of [
+    "pg_catalog.pg_authid",
+    "pg_catalog.pg_db_role_setting",
+    "pg_catalog.pg_auth_members",
+  ]) {
+    assert.ok(lib.includes(cat), `l'empreinte doit couvrir ${cat}`);
+  }
+  // Lire pg_authid demande le privilège : la fonction est SECURITY
+  // DEFINER, et le chemin brut n'obtient QUE le verdict.
+  assert.ok(
+    (lib.match(/security definer/g) ?? []).length >= 2,
+    "les deux fonctions de la frontière doivent être SECURITY DEFINER"
+  );
+  assert.ok(
+    lib.includes("revoke all on function public.${d}() from public;") &&
+      lib.includes("revoke all on function public.${c}() from public;") &&
+      lib.includes("grant execute on function public.${c}() to ${raw};"),
+    "le chemin brut ne doit pouvoir appeler QUE la vérification : ni le condensé, ni la table"
+  );
+  // Le verdict voyage dans la MÊME invocation de psql : il ne peut pas
+  // être oublié, et il ne coûte pas un appel de plus.
+  assert.ok(
+    role.includes('-c "$sql" -c "select public.$chk();"'),
+    "le verdict de frontière doit voyager dans la même connexion que le SQL exécuté"
+  );
+
+  // ── LA SECTION [K] : les deux reproductions du mandat, et la CLASSE.
+  assert.ok(
+    role.includes("[K] LA FRONTIÈRE DE MUTATION IMPOSÉE À L'EXÉCUTION"),
+    "la section [K] doit exister"
+  );
+  assert.ok(
+    role.includes("k_raw_blocked") && role.includes("k_guarded_allowed"),
+    "chaque forme doit être éprouvée des DEUX côtés : bloquée en brut, autorisée en gardé"
+  );
+  assert.ok(
+    /K_DO1="do \\\$\\\$ begin \$\{V_W_ALTER\}\/\* commentaire \*\/\$\{V_W_ROLE\}/.test(role),
+    "la reproduction 1 du mandat -- DO $$ et commentaire entre les mots-clés -- doit être présente"
+  );
+  assert.ok(
+    /K_E2="select E'it\\\\'s'; \$\{V_W_ALTER\} \$\{V_W_ROLE\}/.test(role),
+    "la reproduction 2 du mandat -- E'...' échappé puis la mutation -- doit être présente"
+  );
+  for (const form of [
+    "K7 commentaire de fin de ligne entre les mots-clés",
+    "K8 casse mixte",
+    "K9 tabulation et sauts de ligne",
+    "K10 corps à dollars étiqueté",
+    "K11 EXECUTE d'un littéral assemblé",
+    "K12 continuation du shell dans un argument cité",
+  ]) {
+    assert.ok(role.includes(form), `la forme « ${form} » doit être éprouvée`);
+  }
+  // Une frontière qui refuse TOUT ne distingue rien : il faut le
+  // contrôle positif, et la preuve que le chemin brut lit encore.
+  assert.ok(
+    role.includes("[K13] CONTRÔLE POSITIF"),
+    "la frontière ne doit pas avoir rendu le chemin brut inutilisable"
+  );
+  // Et elle DÉTECTE, pas seulement refuse : une mutation appliquée sans
+  // rafraîchir l'empreinte doit être dénoncée.
+  assert.ok(
+    role.includes("csdj1_identity_run_guarded \"$(csdj1_identity_guard_sql)"),
+    "K14 doit muter par le niveau INFÉRIEUR, qui ne rafraîchit pas l'empreinte"
+  );
+  assert.ok(
+    role.includes("MUTATION-BRUTE"),
+    "la dénonciation doit être NOMMÉE"
+  );
+  // [K] ne doit RIEN devoir au détecteur statique : c'est tout l'objet
+  // du neuvième mandat.
+  const kBlock = role.slice(role.indexOf("[K] LA FRONTIÈRE DE MUTATION"));
+  assert.ok(
+    !kBlock.includes("MUT_AWK"),
+    "la section [K] ne doit pas appeler le détecteur : la preuve porte sur l'exécution"
+  );
+
+  // ── Les deux réinjections exigées, et le DOMMAGE RÉEL.
+  const MUT_PATH =
+    "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh";
+  const mut = readFileSync(MUT_PATH, "utf8");
+  assert.ok(
+    mut.includes("strip-raw-privilege"),
+    "une réinjection doit RETIRER la protection d'exécution"
+  );
+  assert.ok(
+    mut.includes("mut_raw_privilege \"M12\" 'K3 reproduction 1'") &&
+      mut.includes("mut_raw_privilege \"M13\" 'K5 reproduction 2'"),
+    "M12 et M13 doivent porter sur les deux reproductions du mandat"
+  );
+  assert.ok(
+    mut.includes("grep -q 'rôle NOBYPASSRLS -> BYPASSRLS' \"$3\""),
+    "M12 et M13 doivent exiger que le rôle CHANGE réellement, et non qu'une étiquette change"
+  );
+
+  // ── ET LE DÉTECTEUR N'A PAS ÉTÉ ÉTENDU : il ignore jusqu'au nom de la
+  // frontière. Il reste en non-régression, il n'est plus l'autorité.
+  const det = readFileSync(
+    "supabase/tests/csdj1-raw-role-mutation-detector.awk",
+    "utf8"
+  );
+  assert.ok(
+    !det.includes("csdj1_raw_exec") && !det.includes("boundary"),
+    "le détecteur ne doit PAS avoir été étendu vers la frontière : le mandat l'interdit"
+  );
+});
+
 test("[AUD03-SQL] la lecture publique vérifie l'activation du mode de vente", () => {
   assert.ok(
     sql.includes("CSDJ-V1-MODE-ENABLED-GATE-01"),

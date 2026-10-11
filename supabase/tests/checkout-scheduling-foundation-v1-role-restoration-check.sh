@@ -173,17 +173,111 @@ trap cleanup EXIT
 # ABSOLU. Les quatre paramètres de connexion en clair. Aucun état de
 # routage ambiant ne peut survivre à cela.
 # ────────────────────────────────────────────────────────────
-q() {
-  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
-    "$PSQL" -X -A -q -t \
-      -h "$SOCKET_DIR" -p "$PORT" -U "$OWNER" -d postgres \
-      -c "$1" </dev/null 2>/dev/null | tail -1 | tr -d ' '
+# ────────────────────────────────────────────────────────────
+# LE CHEMIN BRUT — UNE SEULE ENVELOPPE, ET UNE FRONTIÈRE IMPOSÉE PAR
+# POSTGRESQL
+# CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-01
+#
+# Huit tours de suite, la preuve que « rien ne mute hors garde »
+# reposait sur la lecture du TEXTE SOURCE de ce fichier, et huit fois un
+# audit a trouvé une orthographe que le lecteur ne voyait pas. On
+# arrête. La preuve porte maintenant sur le CHEMIN D'EXÉCUTION.
+#
+# `q` et `qw` ne sont plus deux commandes : ce sont deux vues d'UNE
+# enveloppe, `csdj1_raw_exec`, et cette enveloppe
+#
+#   - se connecte avec $RAW_ROLE, qui est NOSUPERUSER NOCREATEROLE :
+#     PostgreSQL REFUSE toute mutation d'attribut de rôle, quelle qu'en
+#     soit l'orthographe. Aucun analyseur n'intervient ;
+#   - demande au serveur, APRÈS chaque exécution, si l'empreinte du
+#     catalogue de rôles correspond encore à celle que SEUL le chemin
+#     gardé rafraîchit. La vérification voyage dans la MÊME invocation
+#     de psql, en seconde instruction : elle ne coûte pas un appel de
+#     plus, et elle ne peut pas être oubliée ;
+#   - NOMME ce qu'elle observe, dans des fichiers que les sections
+#     suivantes relisent : tentative, refus de privilège, brèche.
+#
+# `$RAW_ROLE` n'est PAS le propriétaire du cluster. Le chemin gardé,
+# lui, exige « is_superuser » dans son prédicat. Les deux chemins sont
+# donc disjoints par construction, et c'est le SERVEUR qui l'impose.
+# ────────────────────────────────────────────────────────────
+RAW_ROLE="scanym_csdj1_raw"
+RAW_ARMED=0
+BND_CHECK_TEST=""
+BND_CHECK_WIT=""
+RAW_ERR="$TMP_DIR/raw-stderr.txt"
+RAW_ATTEMPTS="$TMP_DIR/raw-attempts.txt"
+RAW_BREACHES="$TMP_DIR/raw-breaches.txt"
+RAW_REFUSALS="$TMP_DIR/raw-refusals.txt"
+: > "$RAW_ATTEMPTS"; : > "$RAW_BREACHES"; : > "$RAW_REFUSALS"; : > "$RAW_ERR"
+
+csdj1_raw_exec() {
+  local target="$1" sql="$2" host port chk out rc verdict
+  case "$target" in
+    test)   host="$SOCKET_DIR"; port="$PORT";     chk="$BND_CHECK_TEST" ;;
+    temoin) host="$WIT_SOCK";   port="$WIT_PORT"; chk="$BND_CHECK_WIT" ;;
+    *) printf 'csdj1_raw_exec: cible inconnue\n' >&2; return 9 ;;
+  esac
+  if [ "$RAW_ARMED" = "1" ] && [ -n "$chk" ]; then
+    # DEUX instructions, UNE connexion : le SQL demandé, puis le verdict
+    # de la frontière. Sans « ON_ERROR_STOP », le verdict est rendu même
+    # quand le SQL demandé a été REFUSÉ -- c'est précisément le cas qui
+    # nous intéresse.
+    out="$(env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+      "$PSQL" -X -A -q -t \
+        -h "$host" -p "$port" -U "$RAW_ROLE" -d postgres \
+        -c "$sql" -c "select public.$chk();" </dev/null 2>"$RAW_ERR")"
+    rc=$?
+    verdict="$(printf '%s\n' "$out" | tail -1 | tr -d ' ')"
+    out="$(printf '%s\n' "$out" | head -n -1)"
+    printf '%s\t%s\t%s\n' "$target" "$verdict" "$rc" >> "$RAW_ATTEMPTS"
+    case "$verdict" in
+      OK) : ;;
+      *) printf '%s\t%s\t%s\n' "$target" "$verdict" \
+           "$(printf '%s' "$sql" | tr '\n\t' '  ' | cut -c1-120)" >> "$RAW_BREACHES" ;;
+    esac
+    if grep -qiE 'permission denied|must be superuser|must have (createrole|superuser)|droit' "$RAW_ERR" 2>/dev/null; then
+      printf '%s\t%s\n' "$target" \
+        "$(tr '\n' ' ' < "$RAW_ERR" | cut -c1-160)" >> "$RAW_REFUSALS"
+    fi
+  else
+    out="$(env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+      "$PSQL" -X -A -q -t \
+        -h "$host" -p "$port" -U "$RAW_ROLE" -d postgres \
+        -c "$sql" </dev/null 2>"$RAW_ERR")"
+    rc=$?
+  fi
+  printf '%s\n' "$out"
+  return "$rc"
 }
-qw() {
+q()  { csdj1_raw_exec test   "$1" | tail -1 | tr -d ' '; }
+qw() { csdj1_raw_exec temoin "$1" | tail -1 | tr -d ' '; }
+
+# LECTURE D'AMORÇAGE — privilégiée, et qui n'est PAS un chemin brut.
+#
+# Le contrat d'identité se construit avec le data_directory et le
+# config_file du serveur : il faut donc les LIRE avant que la frontière
+# puisse exister. Cette enveloppe ne prend pas du SQL : elle prend un
+# NOM DE RÉGLAGE, et fabrique elle-même la requête. Aucune mutation de
+# rôle ne s'exprime comme un nom de réglage -- ce n'est donc pas un
+# chemin de mutation, et [K] vérifie qu'elle n'est employée que pour
+# cela.
+csdj1_bootstrap_setting() {
+  local target="$1" setting="$2" host port
+  case "$setting" in
+    data_directory|config_file) : ;;
+    *) printf 'csdj1_bootstrap_setting: réglage non autorisé\n' >&2; return 9 ;;
+  esac
+  case "$target" in
+    test)   host="$SOCKET_DIR"; port="$PORT" ;;
+    temoin) host="$WIT_SOCK";   port="$WIT_PORT" ;;
+    *) printf 'csdj1_bootstrap_setting: cible inconnue\n' >&2; return 9 ;;
+  esac
   env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
     "$PSQL" -X -A -q -t \
-      -h "$WIT_SOCK" -p "$WIT_PORT" -U "$OWNER" -d postgres \
-      -c "$1" </dev/null 2>/dev/null | tail -1 | tr -d ' '
+      -h "$host" -p "$port" -U "$OWNER" -d postgres \
+      -c "select pg_catalog.current_setting('$setting');" </dev/null 2>/dev/null \
+    | tail -1 | tr -d ' '
 }
 
 start_cluster() {
@@ -297,8 +391,8 @@ csdj1_runner_witness_tcp() {
       -c "$1" </dev/null 2>&1
 }
 
-DATA_DIR_PROVEN="$(q "select pg_catalog.current_setting('data_directory');")"
-CONFIG_FILE_PROVEN="$(q "select pg_catalog.current_setting('config_file');")"
+DATA_DIR_PROVEN="$(csdj1_bootstrap_setting test data_directory)"
+CONFIG_FILE_PROVEN="$(csdj1_bootstrap_setting test config_file)"
 IDENTITY_MARKER="scanym_csdj1_identity_$$"
 
 # ────────────────────────────────────────────────────────────
@@ -315,8 +409,8 @@ IDENTITY_MARKER="scanym_csdj1_identity_$$"
 # chaque usage : inventer un second chemin de mutation est précisément
 # ce qui a produit le défaut d'origine.
 # ────────────────────────────────────────────────────────────
-WIT_DATA_DIR_PROVEN="$(qw "select pg_catalog.current_setting('data_directory');")"
-WIT_CONFIG_FILE_PROVEN="$(qw "select pg_catalog.current_setting('config_file');")"
+WIT_DATA_DIR_PROVEN="$(csdj1_bootstrap_setting temoin data_directory)"
+WIT_CONFIG_FILE_PROVEN="$(csdj1_bootstrap_setting temoin config_file)"
 WIT_NONCE="csdj1-temoin-$$-$(date -u '+%Y%m%d%H%M%S')"
 WIT_MARKER="scanym_csdj1_identity_temoin_$$"
 
@@ -333,6 +427,27 @@ csdj1_identity_declare test csdj1_runner_test \
   || fatal "contrat d'identité du cluster sous test invalide -- aucune mutation tentée."
 csdj1_identity_install \
   || fatal "[E] pose du marqueur d'identité REFUSÉE ($CSDJ1_ID_LAST) -- aucune mutation tentée."
+
+# ────────────────────────────────────────────────────────────
+# ARMEMENT DE LA FRONTIÈRE D'EXÉCUTION.
+#
+# Elle est posée PAR LE CHEMIN GARDÉ, sur les DEUX clusters que `q` et
+# `qw` atteignent. À partir de la ligne « RAW_ARMED=1 », aucune
+# exécution brute de ce fichier n'est privilégiée, et chacune rend un
+# verdict de frontière.
+# ────────────────────────────────────────────────────────────
+csdj1_identity_use temoin || fatal "contrat du témoin indisponible."
+csdj1_identity_boundary_install "$RAW_ROLE" \
+  || fatal "[K] pose de la frontière d'exécution sur le TÉMOIN refusée ($CSDJ1_ID_LAST)."
+BND_CHECK_WIT="$(csdj1_identity_boundary_check)"
+csdj1_identity_use test || fatal "contrat du cluster sous test indisponible."
+csdj1_identity_boundary_install "$RAW_ROLE" \
+  || fatal "[K] pose de la frontière d'exécution refusée ($CSDJ1_ID_LAST)."
+BND_CHECK_TEST="$(csdj1_identity_boundary_check)"
+BND_TABLE_TEST="$(csdj1_identity_boundary_table)"
+BND_DIGEST_TEST="$(csdj1_identity_boundary_digest)"
+RAW_ARMED=1
+log "frontière d'exécution ARMÉE : le chemin brut se connecte avec « $RAW_ROLE » (NOSUPERUSER NOCREATEROLE), et chaque exécution brute rend un verdict de frontière."
 
 if csdj1_identity_prove; then
   pass "[E] l'identité COMPLÈTE (8 faits) passe sur le cluster créé ici"
@@ -1663,6 +1778,21 @@ done
 # Le rôle témoin est posé et restauré par le chemin GARDÉ. Seule la
 # mutation que l'on démontre nocive passe en brut.
 # ============================================================
+# Les sections [I] et [J] mutent des rôles DÉLIBÉRÉMENT, par des
+# scripts engendrés qui portent leur propre connexion PRIVILÉGIÉE :
+# c'est tout leur objet, démontrer que les formes en question sont de
+# vraies mutations. La frontière d'exécution les DÉNONCE, et c'est une
+# preuve de plus -- mais ces dénonciations-là sont attendues. Elles sont
+# donc enregistrées À PART, pour que le bilan global de [K17] reste
+# celui d'une exécution propre.
+DEMO_BREACHES="$TMP_DIR/raw-breaches-demo.txt"
+: > "$DEMO_BREACHES"
+RAW_BREACHES_CLEAN="$RAW_BREACHES"
+RAW_BREACHES="$DEMO_BREACHES"
+RAW_ATTEMPTS_CLEAN="$RAW_ATTEMPTS"
+RAW_ATTEMPTS="$TMP_DIR/raw-attempts-demo.txt"
+: > "$RAW_ATTEMPTS"
+
 log "=== [I] la séquence de l'audit mute-t-elle réellement un rôle ? ==="
 R1_PROBE="scanym_csdj1_r1_probe"
 csdj1_identity_use test || fatal "[I] contrat du cluster sous test indisponible."
@@ -1713,6 +1843,15 @@ else
     pass "[I] et le détecteur la classe NON-GARDEE : le label correspond enfin au fait"
   else
     fail "[I] le détecteur ne classe pas NON-GARDEE une mutation qui vient de s'exécuter"
+  fi
+  # ET LA FRONTIÈRE D'EXÉCUTION, elle, l'a dénoncée sans lire une seule
+  # ligne de SQL : l'empreinte du catalogue de rôles ne correspondait
+  # plus. C'est la preuve que la nouvelle autorité ne dépend pas du
+  # détecteur.
+  if grep -q 'MUTATION-BRUTE' "$DEMO_BREACHES"; then
+    pass "[I] et la FRONTIÈRE D'EXÉCUTION la dénonce (MUTATION-BRUTE) : l'empreinte du catalogue, pas le texte du SQL"
+  else
+    fail "[I] la frontière d'exécution n'a pas dénoncé une mutation qui vient de s'exécuter"
   fi
 fi
 
@@ -1993,11 +2132,237 @@ fi
 
 csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null
 csdj1_identity_mutate "  drop role if exists $ADV_PROBE;" >/dev/null
+
+# ── ET LA FRONTIÈRE D'EXÉCUTION, sur les mêmes trente-quatre formes.
+#
+# Chaque forme a été exécutée pour de vrai par un script engendré qui
+# porte sa propre connexion PRIVILÉGIÉE -- c'est ainsi qu'on établit
+# qu'il s'agit bien de mutations. La lecture brute qui suit chaque
+# exécution a demandé au serveur si l'empreinte du catalogue de rôles
+# tenait encore. Trente-quatre fois, elle ne tenait plus.
+ADV_DENOUNCED="$(grep -c 'MUTATION-BRUTE' "$DEMO_BREACHES" || true)"
+if [ "$ADV_DENOUNCED" -ge "$ADV_MUT_TOTAL" ]; then
+  pass "[J] et la FRONTIÈRE D'EXÉCUTION dénonce les $ADV_MUT_TOTAL formes ($ADV_DENOUNCED dénonciations) sans lire une ligne de SQL"
+else
+  fail "[J] la frontière d'exécution n'a dénoncé que $ADV_DENOUNCED des $ADV_MUT_TOTAL mutations réellement appliquées"
+fi
+RAW_BREACHES="$RAW_BREACHES_CLEAN"
+RAW_ATTEMPTS="$RAW_ATTEMPTS_CLEAN"
 # La matrice est RECOPIÉE dans la sortie du harnais : le répertoire
 # temporaire disparaît au nettoyage, et le mandat demande que le
 # résumé des cas engendrés figure dans les preuves.
 log "--- [J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis"
 while IFS= read -r adv_line; do log "    $adv_line"; done < "$ADV_LOG"
+
+# ============================================================
+# [K] LA FRONTIÈRE DE MUTATION IMPOSÉE À L'EXÉCUTION
+#     CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-01
+#
+# Huit tours, huit orthographes. Les sections [E], [I] et [J]
+# établissaient la preuve en LISANT le texte source ; elles restent, en
+# non-régression, mais elles ne sont plus l'autorité. L'autorité, ici,
+# c'est PostgreSQL.
+#
+# Ce que cette section établit, pour chaque forme :
+#   - par le chemin BRUT : la mutation est REFUSÉE AVANT d'être
+#     appliquée, le refus est NOMMÉ, et le rôle sonde n'a PAS bougé ;
+#   - par le chemin GARDÉ : la MÊME forme est autorisée, et le rôle
+#     change RÉELLEMENT. Sans cette moitié, « tout refuser » passerait
+#     pour une réussite.
+#
+# Aucune de ces deux moitiés ne regarde le texte du SQL.
+# ============================================================
+log "=== [K] la frontière d'exécution : le serveur refuse-t-il la mutation brute ? ==="
+K_PROBE="scanym_csdj1_k_probe"
+csdj1_identity_use test || fatal "[K] contrat du cluster sous test indisponible."
+csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$K_PROBE') then
+    ${V_W_CREATE} ${V_W_ROLE} $K_PROBE nologin nobypassrls;
+  else
+    ${V_W_ALTER} ${V_W_ROLE} $K_PROBE nologin nobypassrls;
+  end if;
+" || fatal "[K] impossible de poser le rôle sonde ($CSDJ1_ID_LAST)."
+
+k_probe_state() {
+  q "select (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
+     from pg_catalog.pg_roles where rolname = '$K_PROBE';"
+}
+k_reset_probe() {
+  csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "  ${V_W_ALTER} ${V_W_ROLE} $K_PROBE nologin nobypassrls;" >/dev/null
+}
+
+# UNE tentative par le chemin brut. Trois faits exigés, et le troisième
+# est celui qui compte : le rôle n'a pas changé.
+k_raw_blocked() {
+  local label="$1" sql="$2" before after rb ra
+  k_reset_probe
+  before="$(k_probe_state)"
+  rb="$(wc -l < "$RAW_REFUSALS")"
+  q "$sql" >/dev/null 2>&1
+  after="$(k_probe_state)"
+  ra="$(wc -l < "$RAW_REFUSALS")"
+  if [ "$before" = "NOBYPASSRLS" ] && [ "$after" = "NOBYPASSRLS" ] && [ "$ra" -gt "$rb" ]; then
+    pass "[K] $label — BLOQUÉE AVANT MUTATION : le serveur a refusé, le rôle n'a pas bougé ($after)"
+  else
+    fail "[K] $label — rôle $before -> $after, refus nommés : $((ra - rb)) (une mutation brute a pu passer)"
+  fi
+}
+
+# La MÊME forme, par le chemin gardé : elle doit être AUTORISÉE, et
+# muter pour de vrai. Le corps est celui d'un bloc DO, puisque c'est
+# ainsi que la garde exécute.
+k_guarded_allowed() {
+  local label="$1" body="$2" before after
+  k_reset_probe
+  before="$(k_probe_state)"
+  csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "$body" >/dev/null
+  after="$(k_probe_state)"
+  if [ "$before" = "NOBYPASSRLS" ] && [ "$after" = "BYPASSRLS" ]; then
+    pass "[K] $label — AUTORISÉE par le chemin gardé, et le rôle change réellement ($before -> $after)"
+  else
+    fail "[K] $label — le chemin gardé n'a pas muté le rôle ($before -> $after) : la frontière refuse tout, elle ne distingue rien"
+  fi
+}
+
+# ── K1/K2 — les deux chemins sont DISJOINTS, et c'est le serveur qui le dit.
+K_RAW_IDENT="$(q "select current_user || ':' || (select rolsuper::text || rolcreaterole::text
+                  from pg_catalog.pg_roles where rolname = current_user);")"
+if [ "$K_RAW_IDENT" = "$RAW_ROLE:falsefalse" ]; then
+  pass "[K1] le chemin brut est « $RAW_ROLE », NOSUPERUSER et NOCREATEROLE (lu sur le serveur)"
+else
+  fail "[K1] le chemin brut se présente comme « $K_RAW_IDENT » : la frontière n'est pas celle qu'on croit"
+fi
+if [ "$RAW_ROLE" != "$OWNER" ] && [ "$CSDJ1_ID_USER" = "$OWNER" ] \
+   && grep -q "SCANYM_IDENTITY_REFUS|is_superuser" "$IDENTITY_LIB"; then
+  pass "[K2] le chemin gardé exige « is_superuser » et emploie « $OWNER » : les deux chemins ne se recouvrent pas"
+else
+  fail "[K2] les deux chemins ne sont pas démontrablement disjoints"
+fi
+
+# ── K3/K4 — REPRODUCTION 1 DU MANDAT : commentaire entre les mots-clés,
+#    dans un bloc DO.
+K_DO1="do \$\$ begin ${V_W_ALTER}/* commentaire */${V_W_ROLE} $K_PROBE bypassrls; end \$\$;"
+k_raw_blocked  "K3 reproduction 1 (DO \$\$ + commentaire entre les mots-clés)" "$K_DO1"
+k_guarded_allowed "K4 reproduction 1 gardée" "  ${V_W_ALTER}/* commentaire */${V_W_ROLE} $K_PROBE bypassrls;"
+
+# ── K5/K6 — REPRODUCTION 2 DU MANDAT : littéral E'...' avec apostrophe
+#    échappée, puis la mutation, dans la même instruction.
+K_E2="select E'it\\'s'; ${V_W_ALTER} ${V_W_ROLE} $K_PROBE bypassrls;"
+k_raw_blocked  "K5 reproduction 2 (E'...' échappé + mutation)" "$K_E2"
+k_guarded_allowed "K6 reproduction 2 gardée" "  perform (select E'it\\'s'); ${V_W_ALTER} ${V_W_ROLE} $K_PROBE bypassrls;"
+
+# ── K7..K12 — LA CLASSE, et non deux exemples. Chaque forme est une
+#    orthographe différente de la même mutation ; la frontière ne les
+#    distingue pas, parce qu'elle ne les lit pas.
+k_raw_blocked "K7 commentaire de fin de ligne entre les mots-clés" \
+  "${V_W_ALTER} -- commentaire
+${V_W_ROLE} $K_PROBE bypassrls;"
+k_raw_blocked "K8 casse mixte" \
+  "${V_W_ALTER_MIXED} ${V_W_ROLE_MIXED} $K_PROBE bypassrls;"
+k_raw_blocked "K9 tabulation et sauts de ligne" \
+  "$(printf '%s\t\n\n%s %s bypassrls;' "$V_W_ALTER" "$V_W_ROLE" "$K_PROBE")"
+k_raw_blocked "K10 corps à dollars étiqueté" \
+  "do \$tag\$ begin ${V_W_ALTER} ${V_W_ROLE} $K_PROBE bypassrls; end \$tag\$;"
+k_raw_blocked "K11 EXECUTE d'un littéral assemblé" \
+  "do \$\$ begin execute '${V_W_ALTER}' || ' ' || '${V_W_ROLE} $K_PROBE bypassrls'; end \$\$;"
+# K12 — CONTINUATION DU SHELL dans un argument entre guillemets : la
+# forme même du huitième audit (E1), portée cette fois à la frontière
+# d'exécution. Bash retire la barre oblique inverse et le saut de ligne.
+k_raw_blocked "K12 continuation du shell dans un argument cité" \
+  "${V_W_ALTER} \
+${V_W_ROLE} $K_PROBE bypassrls;"
+
+# ── K13 — CONTRÔLE POSITIF. Une frontière qui casse le harnais ne
+#    prouverait rien : le chemin brut doit continuer à LIRE.
+if [ "$(q "select 42;")" = "42" ] && [ "$(k_probe_state)" = "NOBYPASSRLS" ]; then
+  pass "[K13] CONTRÔLE POSITIF — le chemin brut lit toujours : la frontière n'a pas rendu le harnais inutilisable"
+else
+  fail "[K13] le chemin brut ne peut plus lire : la frontière est trop large"
+fi
+
+# ── K14 — la frontière ne fait pas que REFUSER : elle DÉTECTE.
+#
+# On mute par le niveau INFÉRIEUR -- « run_guarded », qui prouve
+# l'identité mais ne rafraîchit pas l'empreinte. Du point de vue de la
+# frontière, c'est exactement une mutation non autorisée. La première
+# exécution brute qui suit doit la DÉNONCER.
+#
+# La brèche délibérée est enregistrée dans un fichier À PART : le bilan
+# global de K15 doit rester celui d'une exécution propre.
+K_BREACH_SAVE="$RAW_BREACHES"
+K_ATT_SAVE="$RAW_ATTEMPTS"
+RAW_BREACHES="$TMP_DIR/raw-breaches-k14.txt"
+RAW_ATTEMPTS="$TMP_DIR/raw-attempts-k14.txt"
+: > "$RAW_BREACHES"; : > "$RAW_ATTEMPTS"
+k_reset_probe
+csdj1_identity_use test >/dev/null
+csdj1_identity_run_guarded "$(csdj1_identity_guard_sql)
+$(csdj1_identity_marker_sql)" "  ${V_W_ALTER} ${V_W_ROLE} $K_PROBE bypassrls;" >/dev/null
+K14_STATE="$(k_probe_state)"
+if [ "$K14_STATE" = "BYPASSRLS" ] && grep -q 'MUTATION-BRUTE' "$RAW_BREACHES"; then
+  pass "[K14] la frontière DÉTECTE : une mutation appliquée sans rafraîchir l'empreinte est dénoncée (MUTATION-BRUTE) par la première exécution brute"
+else
+  fail "[K14] état $K14_STATE, dénonciations : $(wc -l < "$RAW_BREACHES") -- l'empreinte ne discrimine pas"
+fi
+RAW_BREACHES="$K_BREACH_SAVE"
+RAW_ATTEMPTS="$K_ATT_SAVE"
+k_reset_probe
+if [ "$(k_probe_state)" = "NOBYPASSRLS" ] && [ "$(q "select public.$BND_CHECK_TEST();")" = "OK" ]; then
+  pass "[K14] et le chemin gardé la REMET en accord : l'empreinte redevient OK"
+else
+  fail "[K14] l'empreinte ne revient pas en accord après une mutation gardée"
+fi
+
+# ── K15 — MOINDRE PRIVILÈGE. Le chemin brut apprend le VERDICT, il ne
+#    peut ni lire l'empreinte, ni la réécrire, ni calculer le condensé.
+K15_OK=1
+q "select count(*) from public.$BND_TABLE_TEST;" >/dev/null 2>&1
+grep -qi 'permission denied' "$RAW_ERR" || K15_OK=0
+q "insert into public.$BND_TABLE_TEST values ('forge');" >/dev/null 2>&1
+grep -qi 'permission denied' "$RAW_ERR" || K15_OK=0
+q "select public.$BND_DIGEST_TEST();" >/dev/null 2>&1
+grep -qi 'permission denied' "$RAW_ERR" || K15_OK=0
+if [ "$K15_OK" = "1" ]; then
+  pass "[K15] MOINDRE PRIVILÈGE — le chemin brut ne peut ni lire, ni réécrire, ni recalculer l'empreinte : il n'en obtient que le verdict"
+else
+  fail "[K15] le chemin brut atteint l'empreinte elle-même : il pourrait la forger"
+fi
+
+# ── K16 — l'enveloppe d'AMORÇAGE n'est pas un chemin de mutation : elle
+#    ne prend pas du SQL, elle prend un NOM DE RÉGLAGE.
+if csdj1_bootstrap_setting test "${V_W_ALTER} ${V_W_ROLE} $K_PROBE bypassrls" >/dev/null 2>&1; then
+  fail "[K16] l'enveloppe d'amorçage accepte autre chose qu'un nom de réglage"
+else
+  pass "[K16] l'enveloppe d'amorçage REFUSE tout ce qui n'est pas « data_directory » ou « config_file »"
+fi
+K16_USES="$(grep -c 'csdj1_bootstrap_setting [a-z]* [a-z_]*)' "$SELF")"
+if [ "$K16_USES" = "4" ]; then
+  pass "[K16] et elle n'est employée que 4 fois : data_directory et config_file, sur les deux clusters"
+else
+  fail "[K16] l'enveloppe d'amorçage est employée $K16_USES fois au lieu de 4"
+fi
+
+# ── K17 — LE BILAN DE L'EXÉCUTION ENTIÈRE. Chaque exécution brute de ce
+#    fichier, depuis l'armement, a rendu un verdict de frontière.
+K_ATT="$(wc -l < "$RAW_ATTEMPTS")"
+K_VERDICTS="$(cut -f2 "$RAW_ATTEMPTS" | sort -u | tr '\n' ',' | sed 's/,$//')"
+K_BRE="$(wc -l < "$RAW_BREACHES")"
+if [ "$K_ATT" -ge 50 ] && [ "$K_VERDICTS" = "OK" ] && [ "$K_BRE" = "0" ]; then
+  pass "[K17] $K_ATT exécutions brutes, TOUTES avec le verdict « OK », zéro brèche sur l'exécution entière"
+else
+  fail "[K17] $K_ATT exécutions brutes, verdicts « $K_VERDICTS », $K_BRE brèche(s)"
+fi
+K_REF="$(wc -l < "$RAW_REFUSALS")"
+if [ "$K_REF" -ge 9 ]; then
+  pass "[K17] et $K_REF refus de privilège NOMMÉS : la frontière a réellement été éprouvée"
+else
+  fail "[K17] seulement $K_REF refus nommés : les tentatives n'ont pas atteint le serveur"
+fi
+
+csdj1_identity_use test >/dev/null
+csdj1_identity_mutate "  drop role if exists $K_PROBE;" >/dev/null
 
 log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
 [ "$FAIL" -eq 0 ] || exit 1

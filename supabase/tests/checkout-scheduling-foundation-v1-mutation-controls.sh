@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte DIX
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte DOUZE
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -22,6 +22,11 @@
 # M11 l'ÉQUIVALENCE DES BLANCS SQL retirée
 #     (défaut d'AUD-07, huitième passe : E2 et E8 redeviennent
 #      invisibles, pendant que PostgreSQL, lui, les exécute)
+# M12 la PROTECTION D'EXÉCUTION retirée — reproduction 1 du neuvième
+#     mandat : « do $$ begin alter/* commentaire */role … end $$; »
+#     mute RÉELLEMENT le rôle dès que le privilège revient
+# M13 la PROTECTION D'EXÉCUTION retirée — reproduction 2 :
+#     « select E'it\'s'; alter role … » mute RÉELLEMENT le rôle
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -77,6 +82,15 @@ if strip_isolation == 'strip-env-i':
     new = 'csdj1_runner_test() {\n    "$PSQL"'
     assert old in s, "ancre d'isolation introuvable"
     s = s.replace(old, new, 1)
+if strip_isolation == 'strip-raw-privilege':
+    # LA PROTECTION D'EXECUTION, retiree : le chemin BRUT se reconnecte
+    # avec le proprietaire du cluster, donc avec le privilege. Le role
+    # non privilegie continue d'exister, inutilise -- ce qui disparait,
+    # c'est la frontiere, pas le role.
+    needle = '-U "$RAW_ROLE" -d postgres'
+    n = s.count(needle)
+    assert n == 2, "ancre du role brut introuvable (%d)" % n
+    s = s.replace(needle, '-U "$OWNER" -d postgres')
 open(dst, 'w', encoding='utf-8').write(s)
 PY
 }
@@ -495,6 +509,49 @@ else
   ko "M11 — l'équivalence des blancs retirée passe inaperçue (code $M11_RC) : E2 et E8 ne prouvent rien"
 fi
 rm -f "$MUT_DET"
+
+# ────────────────────────────────────────────────────────────
+# M12 et M13 — AUD-07 (neuvième passe) : LA PROTECTION D'EXÉCUTION,
+#              retirée.
+#
+# Le neuvième mandat déplace la preuve : elle ne porte plus sur le texte
+# source, mais sur le CHEMIN D'EXÉCUTION. Le chemin brut se connecte
+# avec un rôle NOSUPERUSER NOCREATEROLE, et PostgreSQL refuse toute
+# mutation de rôle, quelle qu'en soit l'orthographe.
+#
+# Une protection dont on ne montre pas l'absence n'est pas une
+# protection démontrée. On rend donc au chemin brut le privilège du
+# propriétaire -- et SEULEMENT cela : le rôle non privilégié continue
+# d'exister, l'empreinte reste en place. Les deux reproductions du
+# mandat doivent alors MUTER LE RÔLE POUR DE VRAI, et le harnais doit le
+# dire dans ces termes-là.
+#
+# M12 porte sur la reproduction 1 : do $$ ... alter/* commentaire */role
+# M13 porte sur la reproduction 2 : select E'it\'s'; alter role ...
+# ────────────────────────────────────────────────────────────
+mut_raw_privilege() {        # $1 = nom du contrôle, $2 = motif attendu, $3 = journal
+  clean
+  cp "$MAIN_SRC" "$MUT_MAIN"
+  cp "$LIB_SRC" "$MUT_LIB"
+  make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" strip-raw-privilege
+  chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+  local rc
+  rc="$(run_mut_role "$3")"
+  if [ "$rc" != "0" ] \
+     && grep -q "$2" "$3" \
+     && grep -q 'rôle NOBYPASSRLS -> BYPASSRLS' "$3"; then
+    ok "$1 — la mutation s'applique RÉELLEMENT dès que le privilège revient (code $rc)"
+    grep -m2 "$2" "$3" | sed 's/^/       /' | tee -a "$OUT"
+  else
+    ko "$1 — la protection retirée passe inaperçue (code $rc) : la frontière ne prouve rien"
+  fi
+}
+
+say "--- M12 : protection d'exécution retirée, reproduction 1 (DO \$\$ + commentaire)"
+mut_raw_privilege "M12" 'K3 reproduction 1' /tmp/csdj1-mut-m12.log
+
+say "--- M13 : protection d'exécution retirée, reproduction 2 (E'...' échappé)"
+mut_raw_privilege "M13" 'K5 reproduction 2' /tmp/csdj1-mut-m13.log
 
 clean
 say "=== BILAN CONTRÔLES DE MUTATION : $PASS contrôle(s) concluant(s), $FAIL manquant(s) ==="
