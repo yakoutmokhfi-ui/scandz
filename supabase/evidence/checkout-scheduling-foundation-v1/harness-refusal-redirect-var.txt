@@ -1,3 +1,3 @@
-[20:11:10] REFUS DE SÛRETÉ : PGHOSTADDR est définie. Cette variable peut faire pointer un client PostgreSQL vers un autre serveur -- PGHOSTADDR l'emporte même sur un -h explicite. Relancez ce harnais dans un environnement sans configuration de connexion héritée. (La valeur n'est pas journalisée : elle peut être un secret.)
-[20:11:10] Aucune mutation n'a été tentée.
+[08:49:13] REFUS DE SÛRETÉ : PGHOSTADDR est définie. Cette variable peut faire pointer un client PostgreSQL vers un autre serveur -- PGHOSTADDR l'emporte même sur un -h explicite. Relancez ce harnais dans un environnement sans configuration de connexion héritée. (La valeur n'est pas journalisée : elle peut être un secret.)
+[08:49:13] Aucune mutation n'a été tentée.
 code de sortie : 2

@@ -1,7 +1,7 @@
 {
-  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1) — quatrième remédiation ciblée",
-  "status": "READY FOR FOURTH DELTA RE-AUDIT",
-  "mandate": "NOUGARO — FOURTH TARGETED REMEDIATION / CSDJ-1. Verdict du quatrième re-audit delta sur 9c940e1 : deux défauts d'AUD-07 restants (initialisation de rôles du témoin non gardée ; comparaison de socket par sous-chaîne). Lignée IMMUABLE, aucune recomposition, oracle Python et fixture INTACTS, CSDJ-2 non commencé.",
+  "lot": "CHECKOUT SCHEDULING FOUNDATION v1.5 (CSDJ-1) — cinquième remédiation ciblée",
+  "status": "READY FOR FIFTH DELTA RE-AUDIT",
+  "mandate": "NOUGARO — FIFTH TARGETED REMEDIATION / CSDJ-1. Verdict du cinquième re-audit delta sur 610e356 : un seul blocker, CSDJ1-AUD-07-SOCKET-CSV-01 (découpage de la liste de sockets non sensible aux guillemets), plus une limite signalée du détecteur de mutations brutes. Lignée IMMUABLE, aucune recomposition, oracle Python et fixture INTACTS, CSDJ-2 non commencé.",
   "base": {
     "sha": "412dbb53c5f180983860852b79425209c04b9c42",
     "tree": "b53db34c4897dff5dba150ba0bf9de1aff7ee873"
@@ -14,16 +14,16 @@
     "disposition": "conservé INTACT dans l'historique de la branche comme grand-parent du nouveau candidat ; jamais amendé, jamais réécrit"
   },
   "candidate": {
-    "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
-    "tree": "e3492964cdfe33e81f9b642ddbbd25df3c1876ef",
-    "parent": "662b00d0d58fde05f6d1aa62f7d9a3cd310d98af",
+    "sha": "7420bec0407040c6c3bec8f155db68ab9f8878ea",
+    "tree": "d36a9ddf997eb9694cc46cdb520b44f3ad35d520",
+    "parent": "aae83cf7a6a70ea543baad61a9184eee3a71aecf",
     "branch": "feature/checkout-scheduling-foundation-v1",
-    "filesChangedSinceThirdRemediation": 5,
-    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1 de la branche. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
+    "filesChangedSinceFourthRemediation": 4,
+    "note": "candidate.sha désigne le commit d'IMPLÉMENTATION, HEAD~1. HEAD est le scellement du paquet de preuves et ne touche QUE supabase/evidence/checkout-scheduling-foundation-v1/.",
     "amended": false,
     "pushed": false,
     "recomposedOnCurrentMain": false,
-    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture. Livraison par bundle vérifié, comme le mandat le prévoit."
+    "pushBlockedReason": "Le proxy git de la session refuse yakoutmokhfi-ui/scandz : 403 en écriture. Livraison par bundle vérifié."
   },
   "blockers": {
     "CSDJ1-AUD-01": {
@@ -145,12 +145,12 @@
   },
   "results": {
     "targetedTests": {
-      "pass": 151,
+      "pass": 153,
       "fail": 0,
       "files": {
         "csdj1-scheduling-model": 10,
         "csdj1-scheduling-eligibility": 78,
-        "csdj1-sql-structural": 55,
+        "csdj1-sql-structural": 57,
         "csdj1-oracle-independence": 8
       }
     },
@@ -165,17 +165,17 @@
       "sections": 19
     },
     "roleRestorationHarness": {
-      "proofs": 148,
+      "proofs": 171,
       "fail": 0,
       "sections": [
-        "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif de la preuve tardive",
+        "[A] quatre combinaisons LOGIN x BYPASSRLS + contrôle positif",
         "[B] forme de l'instantané",
         "[C] rôle initialement absent",
         "[D] onze variables hostiles + vecteur complet + contrôle positif",
-        "[E] isolation structurelle, prédicat PARTAGÉ, détecteur de mutations non gardées",
-        "[F] contrôle de nocivité de PGHOSTADDR",
+        "[E] isolation, prédicat partagé, détecteur de mutations brutes + 4 fixtures",
+        "[F] nocivité de PGHOSTADDR",
         "[G] dix contrôles négatifs d'identité + contrôle positif",
-        "[H] onze contrôles d'égalité exacte de socket + démonstration de nocivité"
+        "[H] dix-huit contrôles de socket (simples ET citées) + démonstrations de nocivité"
       ]
     },
     "harnessRefusals": {
@@ -194,8 +194,7 @@
     "build": {
       "exit": 0,
       "routesAdded": [],
-      "routes": 39,
-      "note": "39 routes, identiques aux trois remédiations précédentes. Valeurs d'environnement synthétiques."
+      "routes": 39
     },
     "fullSuite": {
       "runOrder": "SÉQUENTIEL (--test-concurrency=1)",
@@ -204,22 +203,22 @@
         "pass": 4768,
         "fail": 10
       },
-      "thirdRemediation": {
-        "sha": "9c940e1cdd488e73ace432df8f0fc259d31e59c2",
-        "tests": 4927,
-        "pass": 4917,
-        "fail": 10
-      },
-      "candidate": {
+      "fourthRemediation": {
         "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
         "tests": 4929,
         "pass": 4919,
         "fail": 10
       },
+      "candidate": {
+        "sha": "7420bec0407040c6c3bec8f155db68ab9f8878ea",
+        "tests": 4931,
+        "pass": 4921,
+        "fail": 10
+      },
       "appeared": 0,
       "disappeared": 0,
-      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux d'identités d'échec de la BASE, de la troisième remédiation et de ce candidat sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +2 réussites est exactement le nombre de tests ajoutés ce tour ([AUD07-SQL-3] et [AUD07-SQL-4]).",
-      "nondeterminism": "aucun constaté ; les dix échecs sont les dix échecs PRÉEXISTANTS de la base"
+      "identityComparison": "COMPARAISON D'IDENTITÉS, pas de comptes. Les jeux d'identités de la BASE, du quatrième candidat et de celui-ci sont OCTET-IDENTIQUES (md5 d788b58cd63f6c59be1b1195c76bc1c5). Le delta de +2 réussites est exactement le nombre de tests ajoutés ce tour ([AUD07-SQL-5] et [AUD07-SQL-6]).",
+      "nondeterminism": "UN échec intermittent observé et SIGNALÉ SÉPARÉMENT : voir nondeterministic-failure.txt. Une exécution conduite PENDANT les contrôles de mutation a produit 11 échecs ; le onzième est un test DOM asynchrone qui capture « Chargement… » sous charge. Relancée seule, la suite rend les dix identités de la base ; le fichier rejoué seul passe 3/3, trois fois ; et il n'est pas touché par le candidat. Les DEUX journaux sont fournis (candidate.tap.gz sans charge, candidate-under-load.tap.gz avec)."
     },
     "fixtureThreeWay": {
       "offerCases": 48,
@@ -480,11 +479,15 @@
       "defect": "l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE (AUD-07, 4e passe)",
       "result": "DÉTECTÉ — « PRÉFIXE d'une entrée » et « répertoire PARENT » sont ACCEPTÉS à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
     },
-    "conclusive": 5,
-    "missing": 0
+    "conclusive": 6,
+    "missing": 0,
+    "M7": {
+      "defect": "le parseur sensible aux guillemets remplacé par un DÉCOUPAGE BRUT à chaque virgule",
+      "result": "DÉTECTÉ — « FRAGMENT avant la virgule citée » est ACCEPTÉ à tort et le rôle témoin du banc est RÉELLEMENT muté (NOBYPASSRLS -> BYPASSRLS)"
+    }
   },
   "preservedAreasRetested": {
-    "AUD-PYTHON-01": "PASS — oracle Python INTACT (plis fold=0/fold=1, aller-retour) ; fichier inchangé par ce tour, fixture reproduite À L'OCTET (sha256 c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46) ; 8 tests [ORACLE-*] verts, dont les contrôles différentiels contre trois classificateurs faux",
+    "AUD-PYTHON-01": "PASS — oracle, plis, aller-retour, fixture : fichiers NON TOUCHÉS par ce tour (git diff vide) ; fixture reproduite À L'OCTET (sha256 c266e5ce1d21784619c7c862ea24d1dc05d252b233438aa80a74a43f27e52e46) ; 8 tests [ORACLE-*] verts",
     "AUD-02": "PASS — 48 cas d'offres et 38 points de classement inchangés ; TypeScript et SQL s'accordent avec l'oracle sans divergence",
     "AUD-03": "PASS — harnais [15a..15g], [AUD03-SQL]",
     "AUD-04": "PASS — harnais [16a..16i], [MODEL-8], [MODEL-10], [AUD04-1..2]",
@@ -500,7 +503,8 @@
     "DELIVERY PRICING REUSE": "PASS — harnais [10], [13e], [NO-SECOND-ENGINE-1..2]",
     "ROLLBACK": "PASS — harnais [13a..13g]",
     "DEBUSSY OWNERSHIP BOUNDARY": "PASS — [OWNERSHIP-1..3] (réserve d'intégration inchangée)",
-    "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base"
+    "REGRESSION IDENTITIES": "PASS — jeux d'identités octet-identiques à la base",
+    "SOCKET simple entries": "PASS — préfixe, suffixe, parent, sous-répertoire, /tm, /tmpx : tous refusés, zéro mutation ; M6 toujours concluant"
   },
   "scopeDiscipline": {
     "redesign": "aucun",
@@ -749,6 +753,68 @@
     },
     "incidental": {
       "backticksInHeredoc": "un commentaire du heredoc de la garde contenait des accents graves, que le shell exécutait comme des commandes -- le harnais imprimait « strpos: command not found » à chaque nettoyage. Sans conséquence sur le SQL émis, mais un harnais qui bruite est un harnais qu'on cesse de lire. Corrigé."
+    }
+  },
+  "fourthRemediation": {
+    "sha": "610e3560101ccd3d53fcb61b69f8c32c11f69956",
+    "tree": "e3492964cdfe33e81f9b642ddbbd25df3c1876ef",
+    "evidenceHead": "aae83cf7a6a70ea543baad61a9184eee3a71aecf",
+    "verdict": "FAIL — un blocker : CSDJ1-AUD-07-SOCKET-CSV-01",
+    "disposition": "conservé INTACT : ni amendé, ni réécrit."
+  },
+  "fifthRemediationBlocker": {
+    "CSDJ1-AUD-07-SOCKET-CSV-01": {
+      "severity": "HIGH",
+      "problem": "Le découpage employait `string_to_array(unix_socket_directories, ',')` : il coupe à CHAQUE virgule, y compris celles qui sont DANS une entrée citée. PostgreSQL autorise une entrée citée contenant une virgule, et SHOW CONSERVE les guillemets.",
+      "measuredFacts": {
+        "file": "socket-csv-syntax.txt — rien n'y est supposé, tout est mesuré sur un serveur de ce poste",
+        "quotesPreservedBySHOW": true,
+        "commaInsideQuotesIsData": true,
+        "doubledQuoteIsLiteral": "oui : le serveur démarre sur \"<r>/quo\"\"te\" et SHOW le ré-encode doublé. Le parseur doit donc le traiter.",
+        "spacesAroundCommasPreserved": true,
+        "spacesInsideQuotesArePartOfTheName": true,
+        "duplicatesPreserved": "sans effet sur un test d'appartenance",
+        "malformedCannotArise": "une citation NON FERMÉE empêche le serveur de DÉMARRER (« invalid list syntax in parameter »), elle ne peut donc pas sortir de SHOW. L'hypothèse est documentée, et la garde la refuse quand même (socket_liste_malformee)."
+      },
+      "defectBothWays": {
+        "falseAccept": "« <r>/foo » et « bar », fragments de \"<r>/foo,bar\", étaient ACCEPTÉS",
+        "falseReject": "« <r>/foo,bar », « <r>/tr,ail » et « <r>/qu\"ote », entrées RÉELLES, étaient REFUSÉES -- le harnais aurait été inutilisable sur un serveur à entrée citée"
+      },
+      "parser": {
+        "method": "remplacer les guillemets doublés par une sentinelle, puis ne couper qu'aux virgules dont le nombre de guillemets qui précèdent est PAIR. La parité suffit : après la substitution, les guillemets restants sont exactement les délimiteurs, et ils alternent.",
+        "normalization": "espaces extérieurs retirés ; guillemets encadrants retirés SEULEMENT s'il y en a aux DEUX bouts -- n'en retirer qu'un est précisément ce qui transforme un fragment en chemin plausible ; sentinelle restituée en guillemet ; barre oblique finale retirée, « / » restant « / ». L'attendu est normalisé de la même façon côté shell.",
+        "singleImplementation": "csdj1_identity_socket_cte() est défini UNE fois. La garde et la démonstration de nocivité consomment la MÊME expression émise (csdj1_identity_socket_match_expr) : une démonstration conduite avec une copie prouverait la justesse de la copie.",
+        "failClosed": "liste mal formée (parité impaire) => refus nommé socket_liste_malformee",
+        "noApostrophe": "le contrat refuse de se déclarer si une de ses valeurs contient une apostrophe : ces valeurs sont interpolées dans des littéraux SQL, et une apostrophe y désarmerait la garde."
+      },
+      "socketLab": "cinq répertoires de socket, dont un à VIRGULE, un à ESPACE et un à barre oblique finale, tous trois CITÉS dans la configuration. Sur une liste sans guillemets, un découpage brut et un parseur correct sont indiscernables.",
+      "mandatoryCases": {
+        "1. /tmp attendu /tmp": "PASS (accepté)",
+        "2. /tmp attendu /tm": "refus « socket », zéro mutation",
+        "3. /tmp attendu /tmpx": "refus « socket », zéro mutation",
+        "4. liste citée, attendu l'entrée citée complète": "PASS (accepté)",
+        "5. liste citée, attendu le membre simple": "PASS (accepté)",
+        "6. liste citée, attendu le FRAGMENT avant la virgule": "refus « socket », zéro mutation",
+        "7. liste citée, attendu le FRAGMENT après la virgule": "refus « socket », zéro mutation",
+        "8. attendu = la LISTE ENTIÈRE rendue par SHOW": "refus « socket », zéro mutation",
+        "9. entrée citée à barre oblique finale": "PASS, normalisée des deux côtés",
+        "10. entrée citée contenant un ESPACE": "PASS (accepté), préservée comme UNE entrée"
+      },
+      "harmfulnessDemonstrated": "dans les deux sens : pour cinq attendus partiels, on montre lequel des anciens prédicats les acceptait ; pour trois entrées RÉELLES, on montre que le découpage brut les refusait.",
+      "verdict": "PASS"
+    },
+    "detectorLimitationClosed": {
+      "observation": "le détecteur de mutations brutes attrapait la mutation multi-lignes, mais une mutation PACKÉE SUR UNE SEULE LIGNE lui échappait : la règle d'ouvreur consommait la ligne avant qu'on y cherche la mutation.",
+      "fix": "il CLASSE la ligne avant de mettre à jour l'ouvreur, et vit dans UN fichier réutilisé pour s'éprouver lui-même.",
+      "fixtures": {
+        "raw-one-line": "q \"create role …;\" sur UNE ligne => DÉTECTÉ",
+        "raw-one-line-alter": "csdj1_runner_test \"alter role …;\" sur UNE ligne => DÉTECTÉ",
+        "raw-multiline": "mutation brute multi-lignes => DÉTECTÉ (non-régression)",
+        "guarded": "mutation gardée => NON dénoncée à tort"
+      },
+      "fixtureVerbsAssembled": "les verbes SQL des fixtures sont assemblés et non écrits en clair : écrits en clair, ils seraient eux-mêmes dénoncés par le détecteur qui analyse ce fichier. Une fixture ne doit pas devenir le défaut qu'elle éprouve.",
+      "scopeRespected": "le parseur shell n'a pas été redessiné, comme le mandat le demandait",
+      "verdict": "PASS"
     }
   }
 }

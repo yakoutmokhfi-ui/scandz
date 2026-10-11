@@ -1,167 +1,192 @@
-[19:59:25] cluster SOUS TEST créé par CE fichier (socket /tmp/tmp.xE1wbVD2Cy/sock, port 50057, aucun TCP).
-[19:59:26] cluster TÉMOIN créé par CE fichier (TCP 127.0.0.1:50057 -- MÊME port que le cluster sous test, qui n'écoute aucun TCP) : cible réelle d'une redirection.
-[19:59:27] cluster BANC DE SOCKETS créé par CE fichier (deux répertoires : /tmp/tmp.xE1wbVD2Cy/lab-a et /tmp/tmp.xE1wbVD2Cy/lab-b, aucun TCP).
-[19:59:27] PASS: [E] l'identité COMPLÈTE (8 faits) passe sur le cluster créé ici
-[19:59:27] PASS: [E] la preuve DISCRIMINE : adressée au témoin elle refuse (destination_reseau)
-[19:59:27] PASS: [E] le marqueur d'identité n'existe QUE dans le cluster sous test
-[19:59:27] témoin préparé : anon=LOGIN+BYPASSRLS authenticated=LOGIN+BYPASSRLS service_role=LOGIN+BYPASSRLS 
-[19:59:27] === [A] état initial des rôles : NOLOGIN + NOBYPASSRLS ===
-[19:59:41] PASS: [A] NOLOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
-[19:59:41] PASS: [A] NOLOGIN+NOBYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
-[19:59:41] PASS: [A] NOLOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
-[19:59:41] PASS: [A] NOLOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
-[19:59:41] PASS: [A] NOLOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
-[19:59:41] === [A] état initial des rôles : LOGIN + NOBYPASSRLS ===
-[19:59:55] PASS: [A] LOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
-[19:59:55] PASS: [A] LOGIN+NOBYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
-[19:59:55] PASS: [A] LOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
-[19:59:55] PASS: [A] LOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
-[19:59:55] PASS: [A] LOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
-[19:59:55] === [A] état initial des rôles : NOLOGIN + BYPASSRLS ===
-[20:00:09] PASS: [A] NOLOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
-[20:00:09] PASS: [A] NOLOGIN+BYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
-[20:00:09] PASS: [A] NOLOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
-[20:00:09] PASS: [A] NOLOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
-[20:00:09] PASS: [A] NOLOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
-[20:00:09] === [A] état initial des rôles : LOGIN + BYPASSRLS ===
-[20:00:22] PASS: [A] LOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
-[20:00:22] PASS: [A] LOGIN+BYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
-[20:00:22] PASS: [A] LOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+BYPASSRLS)
-[20:00:23] PASS: [A] LOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+BYPASSRLS)
-[20:00:23] PASS: [A] LOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+BYPASSRLS)
-[20:00:23] === [B] forme de l'instantané de rôle ===
-[20:00:23] PASS: [B] l'instantané encode explicitement 1/0
-[20:00:23] PASS: [B] l'instantané n'emploie plus ::text sur un booléen
-[20:00:23] PASS: [B] la restauration compare bien à 1, et non à 't'
-[20:00:23] PASS: [B] le verrou de sûreté n'accepte que les quatre instantanés bien formés
-[20:00:23] PASS: [B] le harnais principal refuse PGHOSTADDR par son nom
-[20:00:23] PASS: [B] le harnais principal prouve sa destination AVANT de restaurer des rôles
-[20:00:23] === [C] un rôle absent avant doit être absent après ===
-[20:00:37] PASS: [C] le harnais principal s'exécute avec un rôle initialement absent
-[20:00:37] PASS: [C] 'service_role', absent avant, est bien absent après
-[20:00:37] === [D] environnement hostile : neuf variables de routage ===
-[20:00:37] PASS: [D] PGHOSTADDR seul — REFUS (code 2)
-[20:00:37] PASS: [D] PGHOSTADDR seul — le refus NOMME la variable
-[20:00:37] PASS: [D] PGHOSTADDR seul — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGHOSTADDR seul — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGHOST — REFUS (code 2)
-[20:00:37] PASS: [D] PGHOST — le refus NOMME la variable
-[20:00:37] PASS: [D] PGHOST — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGHOST — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGPORT — REFUS (code 2)
-[20:00:37] PASS: [D] PGPORT — le refus NOMME la variable
-[20:00:37] PASS: [D] PGPORT — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGPORT — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGDATABASE — REFUS (code 2)
-[20:00:37] PASS: [D] PGDATABASE — le refus NOMME la variable
-[20:00:37] PASS: [D] PGDATABASE — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGDATABASE — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGUSER — REFUS (code 2)
-[20:00:37] PASS: [D] PGUSER — le refus NOMME la variable
-[20:00:37] PASS: [D] PGUSER — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGUSER — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGSERVICE — REFUS (code 2)
-[20:00:37] PASS: [D] PGSERVICE — le refus NOMME la variable
-[20:00:37] PASS: [D] PGSERVICE — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGSERVICE — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGSERVICEFILE — REFUS (code 2)
-[20:00:37] PASS: [D] PGSERVICEFILE — le refus NOMME la variable
-[20:00:37] PASS: [D] PGSERVICEFILE — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGSERVICEFILE — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGPASSWORD — REFUS (code 2)
-[20:00:37] PASS: [D] PGPASSWORD — le refus NOMME la variable
-[20:00:37] PASS: [D] PGPASSWORD — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGPASSWORD — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGPASSFILE — REFUS (code 2)
-[20:00:37] PASS: [D] PGPASSFILE — le refus NOMME la variable
-[20:00:37] PASS: [D] PGPASSFILE — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGPASSFILE — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] PGSYSCONFDIR — REFUS (code 2)
-[20:00:37] PASS: [D] PGSYSCONFDIR — le refus NOMME la variable
-[20:00:37] PASS: [D] PGSYSCONFDIR — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] PGSYSCONFDIR — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] PASS: [D] DATABASE_URL — REFUS (code 2)
-[20:00:37] PASS: [D] DATABASE_URL — le refus NOMME la variable
-[20:00:37] PASS: [D] DATABASE_URL — la VALEUR n'est pas journalisée
-[20:00:37] PASS: [D] DATABASE_URL — le TÉMOIN n'a subi AUCUNE mutation
-[20:00:37] === [D] vecteur complet PGHOSTADDR + PGPORT vers le témoin ===
-[20:00:37] PASS: [D] vecteur complet — REFUS (code 2)
-[20:00:37] PASS: [D] vecteur complet — le témoin n'a subi AUCUNE mutation
-[20:00:37] === [D] contrôle positif : un environnement propre ne déclenche pas ce refus ===
-[20:00:37] PASS: [D] contrôle positif — un environnement propre atteint bien le cluster sous test
-[20:00:37] === [G] contrôles négatifs : chaque fait de l'identité, faussé à son tour ===
-[20:00:37] PASS: [G] rôle témoin posé (NOLOGIN+NOBYPASSRLS) par le chemin NOMINAL -- le prédicat laisse passer ce qui est légitime
-[20:00:37] PASS: [G] data_directory faux — REFUS, raison « data_directory »
-[20:00:37] PASS: [G] data_directory faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] config_file faux — REFUS, raison « config_file »
-[20:00:37] PASS: [G] config_file faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] marqueur RETIRÉ — REFUS, raison « marqueur_absent »
-[20:00:37] PASS: [G] marqueur RETIRÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] marqueur CHANGÉ — REFUS, raison « nonce »
-[20:00:37] PASS: [G] marqueur CHANGÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] nonce attendu faux — REFUS, raison « nonce »
-[20:00:37] PASS: [G] nonce attendu faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] port faux — REFUS, raison « port »
-[20:00:37] PASS: [G] port faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] utilisateur faux — REFUS, raison « current_user »
-[20:00:37] PASS: [G] utilisateur faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] destination RÉSEAU (témoin) — REFUS, raison « destination_reseau »
-[20:00:37] PASS: [G] destination RÉSEAU (témoin) — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] socket attendue fausse — REFUS, raison « socket »
-[20:00:37] PASS: [G] socket attendue fausse — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] non superutilisateur — REFUS, raison « is_superuser »
-[20:00:37] PASS: [G] non superutilisateur — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
-[20:00:37] PASS: [G] CONTRÔLE POSITIF — le chemin nominal MUTE toujours (le prédicat n'est pas devenu un refus universel)
-[20:00:37] === [H] égalité exacte du répertoire de socket ===
-[20:00:38] PASS: [H] entrée EXACTE (membre 1) — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-a »)
-[20:00:38] PASS: [H] entrée EXACTE (membre 2) — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-b »)
-[20:00:38] PASS: [H] barre oblique finale, même répertoire — ACCEPTÉ (attendu « /tmp/tmp.xE1wbVD2Cy/lab-a/ »)
-[20:00:38] PASS: [H] PRÉFIXE d'une entrée — REFUS, raison « socket »
-[20:00:38] PASS: [H] PRÉFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] entrée + un caractère — REFUS, raison « socket »
-[20:00:38] PASS: [H] entrée + un caractère — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] répertoire PARENT — REFUS, raison « socket »
-[20:00:38] PASS: [H] répertoire PARENT — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] SOUS-répertoire d'une entrée — REFUS, raison « socket »
-[20:00:38] PASS: [H] SOUS-répertoire d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] SUFFIXE d'une entrée — REFUS, raison « socket »
-[20:00:38] PASS: [H] SUFFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] la LISTE entière — REFUS, raison « socket »
-[20:00:38] PASS: [H] la LISTE entière — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tm — REFUS, raison « socket »
-[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tm — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tmpx — REFUS, raison « socket »
-[20:00:38] PASS: [H] reproduction d'audit : /tmp vs /tmpx — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
-[20:00:38] PASS: [H] « /tmp/tmp.xE1wbVD2Cy/lab- » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
-[20:00:38] PASS: [H] « /tm » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
-[20:00:38] PASS: [H] « /tmp/tmp.xE1wbVD2Cy » : l'ancien prédicat (sous-chaîne) l'acceptait, le nouveau le refuse
-[20:00:38] === [F] contrôle de nocivité : PGHOSTADDR l'emporte-t-il sur -h ? ===
-[20:00:38] PASS: [F] NOCIF : sans isolation, PGHOSTADDR l'emporte sur « -h » et la connexion aboutit AU TÉMOIN (/tmp/tmp.xE1wbVD2Cy/witness)
-[20:00:38] PASS: [F] NEUTRALISÉ : le même appel sous « env -i » aboutit au cluster SOUS TEST (/tmp/tmp.xE1wbVD2Cy/cluster)
-[20:00:38] PASS: [F] le contrôle de nocivité n'a muté AUCUN rôle du témoin
-[20:00:38] === [E] isolation structurelle des appels clients ===
-[20:00:38] PASS: [E] le détecteur d'isolation examine bien les appels clients (16 commandes)
-[20:00:38] PASS: [E] l'unique appel non isolé délibéré est bien unique
-[20:00:38] PASS: [E] l'appel non isolé délibéré ne passe qu'une requête de lecture
-[20:00:38] PASS: [E] tous les appels clients de ce fichier passent par env -i
-[20:00:38] PASS: [E] la liste des variables refusées nomme PGHOSTADDR
-[20:00:38] PASS: [E] les mutations passent par le prédicat d'identité PARTAGÉ
-[20:00:38] PASS: [E] aucun prédicat d'identité local ne subsiste
-[20:00:38] PASS: [E] le détecteur de mutations de rôle examine bien les deux harnais (15 instructions)
-[20:00:38] PASS: [E] TOUTE mutation de rôle est portée par une commande gardée, témoin compris
-[20:00:38] PASS: [E] « RESTORE_SQL » n'est consommée que par une mutation gardée
-[20:00:38] PASS: [E] « PROBE_MUTATION » n'est consommée que par une mutation gardée
-[20:00:38] PASS: [E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)
-[20:00:38] PASS: [E] la liste de sockets est découpée en ENTRÉES et comparée à l'ÉGALITÉ
-[20:00:38] PASS: [E] le harnais principal emploie le MÊME prédicat partagé
-[20:00:38] PASS: [E] le prédicat partagé vérifie « destination_reseau »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « port »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « current_user »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « is_superuser »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « socket »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « data_directory »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « config_file »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « marqueur_absent »
-[20:00:38] PASS: [E] le prédicat partagé vérifie « nonce »
-[20:00:38] === BILAN ISOLATION ET RESTAURATION : 148 preuve(s), 0 échec(s) ===
+[08:43:50] cluster SOUS TEST créé par CE fichier (socket /tmp/tmp.ngrE5kAyMd/sock, port 52365, aucun TCP).
+[08:43:51] cluster TÉMOIN créé par CE fichier (TCP 127.0.0.1:52365 -- MÊME port que le cluster sous test, qui n'écoute aucun TCP) : cible réelle d'une redirection.
+[08:43:51] cluster BANC DE SOCKETS créé par CE fichier (cinq répertoires, dont un à VIRGULE, un à ESPACE et un à barre oblique finale, tous trois CITÉS dans la configuration ; aucun TCP).
+[08:43:51]    liste telle que le serveur la rend : "/tmp/tmp.ngrE5kAyMd/foo,bar",/tmp/tmp.ngrE5kAyMd/lab-a , /tmp/tmp.ngrE5kAyMd/lab-b,"/tmp/tmp.ngrE5kAyMd/lab d","/tmp/tmp.ngrE5kAyMd/tr,ail/"
+[08:43:52] PASS: [E] l'identité COMPLÈTE (8 faits) passe sur le cluster créé ici
+[08:43:52] PASS: [E] la preuve DISCRIMINE : adressée au témoin elle refuse (destination_reseau)
+[08:43:52] PASS: [E] le marqueur d'identité n'existe QUE dans le cluster sous test
+[08:43:52] témoin préparé : anon=LOGIN+BYPASSRLS authenticated=LOGIN+BYPASSRLS service_role=LOGIN+BYPASSRLS 
+[08:43:52] === [A] état initial des rôles : NOLOGIN + NOBYPASSRLS ===
+[08:44:07] PASS: [A] NOLOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[08:44:07] PASS: [A] NOLOGIN+NOBYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
+[08:44:07] PASS: [A] NOLOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[08:44:07] PASS: [A] NOLOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[08:44:07] PASS: [A] NOLOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[08:44:07] === [A] état initial des rôles : LOGIN + NOBYPASSRLS ===
+[08:44:23] PASS: [A] LOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[08:44:23] PASS: [A] LOGIN+NOBYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
+[08:44:23] PASS: [A] LOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[08:44:23] PASS: [A] LOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[08:44:23] PASS: [A] LOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+NOBYPASSRLS)
+[08:44:23] === [A] état initial des rôles : NOLOGIN + BYPASSRLS ===
+[08:44:38] PASS: [A] NOLOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[08:44:38] PASS: [A] NOLOGIN+BYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
+[08:44:38] PASS: [A] NOLOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[08:44:38] PASS: [A] NOLOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[08:44:38] PASS: [A] NOLOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+BYPASSRLS)
+[08:44:38] === [A] état initial des rôles : LOGIN + BYPASSRLS ===
+[08:44:54] PASS: [A] LOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[08:44:54] PASS: [A] LOGIN+BYPASSRLS — la preuve d'identité tardive PASSE en nominal (la restauration n'est pas silencieusement morte)
+[08:44:54] PASS: [A] LOGIN+BYPASSRLS — 'anon' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[08:44:54] PASS: [A] LOGIN+BYPASSRLS — 'authenticated' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[08:44:54] PASS: [A] LOGIN+BYPASSRLS — 'service_role' restauré EXACTEMENT (LOGIN+BYPASSRLS)
+[08:44:54] === [B] forme de l'instantané de rôle ===
+[08:44:54] PASS: [B] l'instantané encode explicitement 1/0
+[08:44:54] PASS: [B] l'instantané n'emploie plus ::text sur un booléen
+[08:44:54] PASS: [B] la restauration compare bien à 1, et non à 't'
+[08:44:54] PASS: [B] le verrou de sûreté n'accepte que les quatre instantanés bien formés
+[08:44:54] PASS: [B] le harnais principal refuse PGHOSTADDR par son nom
+[08:44:54] PASS: [B] le harnais principal prouve sa destination AVANT de restaurer des rôles
+[08:44:54] === [C] un rôle absent avant doit être absent après ===
+[08:45:09] PASS: [C] le harnais principal s'exécute avec un rôle initialement absent
+[08:45:09] PASS: [C] 'service_role', absent avant, est bien absent après
+[08:45:09] === [D] environnement hostile : neuf variables de routage ===
+[08:45:09] PASS: [D] PGHOSTADDR seul — REFUS (code 2)
+[08:45:09] PASS: [D] PGHOSTADDR seul — le refus NOMME la variable
+[08:45:09] PASS: [D] PGHOSTADDR seul — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGHOSTADDR seul — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGHOST — REFUS (code 2)
+[08:45:09] PASS: [D] PGHOST — le refus NOMME la variable
+[08:45:09] PASS: [D] PGHOST — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGHOST — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGPORT — REFUS (code 2)
+[08:45:09] PASS: [D] PGPORT — le refus NOMME la variable
+[08:45:09] PASS: [D] PGPORT — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGPORT — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGDATABASE — REFUS (code 2)
+[08:45:09] PASS: [D] PGDATABASE — le refus NOMME la variable
+[08:45:09] PASS: [D] PGDATABASE — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGDATABASE — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGUSER — REFUS (code 2)
+[08:45:09] PASS: [D] PGUSER — le refus NOMME la variable
+[08:45:09] PASS: [D] PGUSER — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGUSER — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGSERVICE — REFUS (code 2)
+[08:45:09] PASS: [D] PGSERVICE — le refus NOMME la variable
+[08:45:09] PASS: [D] PGSERVICE — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGSERVICE — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGSERVICEFILE — REFUS (code 2)
+[08:45:09] PASS: [D] PGSERVICEFILE — le refus NOMME la variable
+[08:45:09] PASS: [D] PGSERVICEFILE — la VALEUR n'est pas journalisée
+[08:45:09] PASS: [D] PGSERVICEFILE — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:09] PASS: [D] PGPASSWORD — REFUS (code 2)
+[08:45:09] PASS: [D] PGPASSWORD — le refus NOMME la variable
+[08:45:09] PASS: [D] PGPASSWORD — la VALEUR n'est pas journalisée
+[08:45:10] PASS: [D] PGPASSWORD — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:10] PASS: [D] PGPASSFILE — REFUS (code 2)
+[08:45:10] PASS: [D] PGPASSFILE — le refus NOMME la variable
+[08:45:10] PASS: [D] PGPASSFILE — la VALEUR n'est pas journalisée
+[08:45:10] PASS: [D] PGPASSFILE — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:10] PASS: [D] PGSYSCONFDIR — REFUS (code 2)
+[08:45:10] PASS: [D] PGSYSCONFDIR — le refus NOMME la variable
+[08:45:10] PASS: [D] PGSYSCONFDIR — la VALEUR n'est pas journalisée
+[08:45:10] PASS: [D] PGSYSCONFDIR — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:10] PASS: [D] DATABASE_URL — REFUS (code 2)
+[08:45:10] PASS: [D] DATABASE_URL — le refus NOMME la variable
+[08:45:10] PASS: [D] DATABASE_URL — la VALEUR n'est pas journalisée
+[08:45:10] PASS: [D] DATABASE_URL — le TÉMOIN n'a subi AUCUNE mutation
+[08:45:10] === [D] vecteur complet PGHOSTADDR + PGPORT vers le témoin ===
+[08:45:10] PASS: [D] vecteur complet — REFUS (code 2)
+[08:45:10] PASS: [D] vecteur complet — le témoin n'a subi AUCUNE mutation
+[08:45:10] === [D] contrôle positif : un environnement propre ne déclenche pas ce refus ===
+[08:45:10] PASS: [D] contrôle positif — un environnement propre atteint bien le cluster sous test
+[08:45:10] === [G] contrôles négatifs : chaque fait de l'identité, faussé à son tour ===
+[08:45:10] PASS: [G] rôle témoin posé (NOLOGIN+NOBYPASSRLS) par le chemin NOMINAL -- le prédicat laisse passer ce qui est légitime
+[08:45:10] PASS: [G] data_directory faux — REFUS, raison « data_directory »
+[08:45:10] PASS: [G] data_directory faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] config_file faux — REFUS, raison « config_file »
+[08:45:10] PASS: [G] config_file faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] marqueur RETIRÉ — REFUS, raison « marqueur_absent »
+[08:45:10] PASS: [G] marqueur RETIRÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] marqueur CHANGÉ — REFUS, raison « nonce »
+[08:45:10] PASS: [G] marqueur CHANGÉ — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] nonce attendu faux — REFUS, raison « nonce »
+[08:45:10] PASS: [G] nonce attendu faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] port faux — REFUS, raison « port »
+[08:45:10] PASS: [G] port faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] utilisateur faux — REFUS, raison « current_user »
+[08:45:10] PASS: [G] utilisateur faux — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] destination RÉSEAU (témoin) — REFUS, raison « destination_reseau »
+[08:45:10] PASS: [G] destination RÉSEAU (témoin) — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] socket attendue fausse — REFUS, raison « socket »
+[08:45:10] PASS: [G] socket attendue fausse — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] non superutilisateur — REFUS, raison « is_superuser »
+[08:45:10] PASS: [G] non superutilisateur — ZÉRO mutation (le rôle témoin est resté NOLOGIN+NOBYPASSRLS)
+[08:45:10] PASS: [G] CONTRÔLE POSITIF — le chemin nominal MUTE toujours (le prédicat n'est pas devenu un refus universel)
+[08:45:10] === [H] égalité exacte du répertoire de socket ===
+[08:45:10] PASS: [H] entrée EXACTE (membre simple) — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/lab-a »)
+[08:45:10] PASS: [H] entrée EXACTE (autre membre) — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/lab-b »)
+[08:45:10] PASS: [H] barre oblique finale, même répertoire — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/lab-a/ »)
+[08:45:11] PASS: [H] PRÉFIXE d'une entrée — REFUS, raison « socket »
+[08:45:11] PASS: [H] PRÉFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] entrée + un caractère — REFUS, raison « socket »
+[08:45:11] PASS: [H] entrée + un caractère — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] répertoire PARENT — REFUS, raison « socket »
+[08:45:11] PASS: [H] répertoire PARENT — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] SOUS-répertoire d'une entrée — REFUS, raison « socket »
+[08:45:11] PASS: [H] SOUS-répertoire d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] SUFFIXE d'une entrée — REFUS, raison « socket »
+[08:45:11] PASS: [H] SUFFIXE d'une entrée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] reproduction d'audit : /tmp vs /tm — REFUS, raison « socket »
+[08:45:11] PASS: [H] reproduction d'audit : /tmp vs /tm — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] reproduction d'audit : /tmp vs /tmpx — REFUS, raison « socket »
+[08:45:11] PASS: [H] reproduction d'audit : /tmp vs /tmpx — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] membre CITÉ à virgule, exact — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/foo,bar »)
+[08:45:11] PASS: [H] membre simple, liste contenant une entrée citée — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/lab-a »)
+[08:45:11] PASS: [H] FRAGMENT avant la virgule citée — REFUS, raison « socket »
+[08:45:11] PASS: [H] FRAGMENT avant la virgule citée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] FRAGMENT après la virgule citée — REFUS, raison « socket »
+[08:45:11] PASS: [H] FRAGMENT après la virgule citée — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11] PASS: [H] membre CITÉ à ESPACE, exact — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/lab d »)
+[08:45:11] PASS: [H] membre CITÉ, barre oblique finale dans la configuration — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/tr,ail »)
+[08:45:11] PASS: [H] membre CITÉ, attendu avec barre oblique — ACCEPTÉ (attendu « /tmp/tmp.ngrE5kAyMd/tr,ail/ »)
+[08:45:11] PASS: [H] la LISTE ENTIÈRE rendue par SHOW — REFUS, raison « socket »
+[08:45:11] PASS: [H] la LISTE ENTIÈRE rendue par SHOW — ZÉRO mutation (le rôle témoin est resté NOBYPASSRLS)
+[08:45:11]    (aucun guillemet doublé dans la liste de ce banc : le parseur le traite, le banc ne l'exerce pas)
+[08:45:11] PASS: [H] « /tmp/tmp.ngrE5kAyMd/lab- » : accepté par au moins un ancien prédicat (sous-chaîne=t, découpage brut=f), REFUSÉ par le parseur partagé
+[08:45:11] PASS: [H] « /tm » : accepté par au moins un ancien prédicat (sous-chaîne=t, découpage brut=f), REFUSÉ par le parseur partagé
+[08:45:12] PASS: [H] « /tmp/tmp.ngrE5kAyMd » : accepté par au moins un ancien prédicat (sous-chaîne=t, découpage brut=f), REFUSÉ par le parseur partagé
+[08:45:12] PASS: [H] « /tmp/tmp.ngrE5kAyMd/foo » : accepté par au moins un ancien prédicat (sous-chaîne=t, découpage brut=t), REFUSÉ par le parseur partagé
+[08:45:12] PASS: [H] « bar » : accepté par au moins un ancien prédicat (sous-chaîne=t, découpage brut=t), REFUSÉ par le parseur partagé
+[08:45:12] PASS: [H] « /tmp/tmp.ngrE5kAyMd/foo,bar » : entrée RÉELLE que le découpage brut refusait, acceptée par le parseur partagé
+[08:45:12] PASS: [H] « /tmp/tmp.ngrE5kAyMd/lab d » : entrée réelle acceptée (le découpage brut l'acceptait aussi)
+[08:45:12] PASS: [H] « /tmp/tmp.ngrE5kAyMd/tr,ail » : entrée RÉELLE que le découpage brut refusait, acceptée par le parseur partagé
+[08:45:12] PASS: [H] la garde refuse explicitement une liste mal formée (citation non fermée)
+[08:45:12] === [F] contrôle de nocivité : PGHOSTADDR l'emporte-t-il sur -h ? ===
+[08:45:12] PASS: [F] NOCIF : sans isolation, PGHOSTADDR l'emporte sur « -h » et la connexion aboutit AU TÉMOIN (/tmp/tmp.ngrE5kAyMd/witness)
+[08:45:12] PASS: [F] NEUTRALISÉ : le même appel sous « env -i » aboutit au cluster SOUS TEST (/tmp/tmp.ngrE5kAyMd/cluster)
+[08:45:12] PASS: [F] le contrôle de nocivité n'a muté AUCUN rôle du témoin
+[08:45:12] === [E] isolation structurelle des appels clients ===
+[08:45:12] PASS: [E] le détecteur d'isolation examine bien les appels clients (16 commandes)
+[08:45:12] PASS: [E] l'unique appel non isolé délibéré est bien unique
+[08:45:12] PASS: [E] l'appel non isolé délibéré ne passe qu'une requête de lecture
+[08:45:12] PASS: [E] tous les appels clients de ce fichier passent par env -i
+[08:45:12] PASS: [E] la liste des variables refusées nomme PGHOSTADDR
+[08:45:12] PASS: [E] les mutations passent par le prédicat d'identité PARTAGÉ
+[08:45:12] PASS: [E] aucun prédicat d'identité local ne subsiste
+[08:45:12] PASS: [E] fixture « raw-one-line » : la mutation brute est DÉTECTÉE
+[08:45:12] PASS: [E] fixture « raw-one-line-alter » : la mutation brute est DÉTECTÉE
+[08:45:12] PASS: [E] fixture « raw-multiline » : la mutation brute est DÉTECTÉE
+[08:45:12] PASS: [E] fixture « guarded » : une mutation GARDÉE n'est pas dénoncée à tort
+[08:45:12] PASS: [E] le détecteur de mutations de rôle examine bien les deux harnais (24 instructions)
+[08:45:12] PASS: [E] TOUTE mutation de rôle est portée par une commande gardée, témoin compris
+[08:45:12] PASS: [E] « RESTORE_SQL » n'est consommée que par une mutation gardée
+[08:45:12] PASS: [E] « PROBE_MUTATION » n'est consommée que par une mutation gardée
+[08:45:12] PASS: [E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)
+[08:45:12] PASS: [E] la liste de sockets est comparée à l'ÉGALITÉ d'une entrée analysée
+[08:45:12] PASS: [E] la liste de sockets n'est plus découpée brutalement à chaque virgule
+[08:45:12] PASS: [E] le parseur est SENSIBLE AUX GUILLEMETS (doublés traités, virgules citées protégées)
+[08:45:12] PASS: [E] le parseur de sockets est défini UNE SEULE FOIS
+[08:45:12] PASS: [E] la démonstration de nocivité emploie l'expression de la GARDE, pas une copie
+[08:45:12] PASS: [E] le harnais principal emploie le MÊME prédicat partagé
+[08:45:12] PASS: [E] le prédicat partagé vérifie « destination_reseau »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « port »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « current_user »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « is_superuser »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « socket »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « data_directory »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « config_file »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « marqueur_absent »
+[08:45:12] PASS: [E] le prédicat partagé vérifie « nonce »
+[08:45:12] === BILAN ISOLATION ET RESTAURATION : 171 preuve(s), 0 échec(s) ===
 RC=0

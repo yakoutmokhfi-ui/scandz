@@ -1,24 +1,22 @@
-CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1)
-QUATRIÈME REMÉDIATION CIBLÉE — CANDIDAT
+CHECKOUT SCHEDULING FOUNDATION v1.5 (CSDJ-1)
+CINQUIÈME REMÉDIATION CIBLÉE — CANDIDAT
 ======================================================================
 
 branche                     feature/checkout-scheduling-foundation-v1
 
-CANDIDAT (implémentation)   610e3560101ccd3d53fcb61b69f8c32c11f69956
-arbre du candidat           e3492964cdfe33e81f9b642ddbbd25df3c1876ef
+CANDIDAT (implémentation)   7420bec0407040c6c3bec8f155db68ab9f8878ea
+arbre du candidat           d36a9ddf997eb9694cc46cdb520b44f3ad35d520
 base de développement       412dbb53c5f180983860852b79425209c04b9c42
 arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
 
 LIGNÉE — AUCUN CANDIDAT RÉÉCRIT
 -------------------------------
-  091c3f0  candidat initial                    FAIL (6 blockers)
-  d94a110  première remédiation                FAIL (2 restants)
-  993cb7b  seconde remédiation                 FAIL (2 blockers)
-  9c940e1  troisième remédiation               FAIL (2 défauts AUD-07)
-  610e356  CE CANDIDAT                         à auditer
-
-Aucun des quatre candidats refusés n'est amendé ni réécrit. Ils restent
-intacts dans l'historique, en ancêtres de celui-ci.
+  091c3f0  candidat initial            FAIL (6 blockers)
+  d94a110  première remédiation        FAIL (2 restants)
+  993cb7b  seconde remédiation         FAIL (2 blockers)
+  9c940e1  troisième remédiation       FAIL (2 défauts AUD-07)
+  610e356  quatrième remédiation       FAIL (1 blocker : socket CSV)
+  7420bec  CE CANDIDAT                 à auditer
 
 PAS DE RECOMPOSITION
 --------------------
@@ -29,13 +27,14 @@ STRUCTURE DE LA BRANCHE
 -----------------------
   HEAD      scellement du paquet de preuves — touche UNIQUEMENT
             supabase/evidence/checkout-scheduling-foundation-v1/
-  HEAD~1    610e356 = LE CANDIDAT : 5 fichiers, tous modifiés
-  HEAD~2    662b00d = scellement de la troisième remédiation
-  HEAD~3    9c940e1 = troisième remédiation
-  HEAD~4    214eb7d / 993cb7b = seconde remédiation et son scellement
-  HEAD~6    54ccccd / d94a110 = première remédiation et son scellement
-  HEAD~8    7546ace / 091c3f0 = candidat initial et son scellement
-  HEAD~10   412dbb5 = base de développement
+  HEAD~1    7420bec = LE CANDIDAT : 4 fichiers, tous modifiés
+  HEAD~2    aae83cf = scellement de la quatrième remédiation
+  HEAD~3    610e356 = quatrième remédiation
+  HEAD~5    662b00d / 9c940e1 = troisième remédiation et son scellement
+  HEAD~7    214eb7d / 993cb7b = seconde
+  HEAD~9    54ccccd / d94a110 = première
+  HEAD~11   7546ace / 091c3f0 = candidat initial
+  HEAD~12   412dbb5 = base de développement
 
 TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
 -----------------------------------------
@@ -44,41 +43,37 @@ TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
      supabase/evidence/checkout-scheduling-foundation-v1/
   3. sha256sum -c SHA256SUMS.txt
 
-LES 5 FICHIERS CHANGÉS DEPUIS 9c940e1
+LES 4 FICHIERS CHANGÉS DEPUIS 610e356
 -------------------------------------
   M  supabase/tests/csdj1-cluster-identity.sh
-         BLOCKER 2 — la liste unix_socket_directories est découpée en
-                  ENTRÉES, normalisée et comparée à l'ÉGALITÉ. strpos
-                  a disparu.
-         BLOCKER 1 — contrats NOMMÉS : plusieurs clusters, plusieurs
-                  contrats complets, aucun contrat global sauvegardé et
-                  restauré à la main.
-         Incident — accents graves retirés du heredoc (le shell les
-                  exécutait).
+         parseur de unix_socket_directories SENSIBLE AUX GUILLEMETS,
+         défini UNE fois et émis pour la garde comme pour la
+         démonstration ; refus d'une liste mal formée ; refus d'une
+         apostrophe dans une valeur du contrat.
   M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
-         BLOCKER 1 — contrat complet du TÉMOIN et initialisation de ses
-                  rôles SOUS GARDE ; détecteur de mutations non gardées
-                  dans les deux harnais ; contrat « non privilégié »
-                  distinct pour le contrôle is_superuser.
-         BLOCKER 2 — cluster de banc d'essai à DEUX répertoires de
-                  socket et section [H] : onze contrôles + démonstration
-                  de nocivité de l'ancien prédicat.
-  M  supabase/tests/checkout-scheduling-foundation-v1-check.sh
-         BLOCKER 1 — contrat nommé « lot ».
+         banc d'essai à CINQ répertoires de socket, dont un à virgule,
+         un à espace et un à barre oblique finale, tous trois cités ;
+         [H] porté à dix-huit contrôles + démonstrations de nocivité
+         dans les deux sens ; détecteur de mutations brutes classant la
+         ligne AVANT l'ouvreur, extrait dans un fichier, et quatre
+         fixtures dont deux sur une seule ligne.
   M  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
-         BLOCKER 2 — M6 : l'égalité exacte remplacée par une
-                  sous-chaîne doit faire ÉCHOUER les contrôles [H].
+         M7 (découpage brut réinjecté) ; M6 réancré sur la nouvelle
+         forme de la garde.
   M  tests/csdj1-sql-structural.test.ts
-         [AUD07-SQL-3] égalité exacte de socket
-         [AUD07-SQL-4] aucune mutation de rôle hors garde, témoin compris
+         [AUD07-SQL-5] syntaxe de la liste de sockets
+         [AUD07-SQL-6] mutation brute sur UNE seule ligne
 
-INTACTS — ET REJOUÉS EN RÉGRESSION
-----------------------------------
-  tests/fixtures/build-checkout-scheduling-cases.py   (oracle, plis,
-                                                       aller-retour)
+INTACTS — ET SEULEMENT REJOUÉS EN RÉGRESSION
+--------------------------------------------
+  tests/fixtures/build-checkout-scheduling-cases.py   (oracle, plis)
   tests/fixtures/checkout-scheduling-cases.json       (48 cas + 38 points)
   tests/csdj1-oracle-independence.test.ts             (8 tests)
-  La fixture est reproduite À L'OCTET par le générateur inchangé.
+  tests/csdj1-scheduling-eligibility.test.ts          (78 tests)
+  lib/scheduling/*                                    (résolveur)
+  supabase/DRAFT-lot-checkout-scheduling-foundation-v1*.sql
+  `git diff` sur ces chemins est VIDE, et la fixture est reproduite
+  à l'octet par le générateur inchangé.
 
 REJOUER LES PREUVES
 -------------------

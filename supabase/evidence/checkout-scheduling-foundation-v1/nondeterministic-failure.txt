@@ -1,0 +1,46 @@
+CSDJ-1 v1.5 — UN ÉCHEC NON DÉTERMINISTE, SIGNALÉ SÉPARÉMENT
+===========================================================
+
+Le mandat demande de distinguer les échecs déterministes des échecs
+intermittents. En voici un, et il n'est pas imputable au candidat.
+
+L'ÉCHEC
+-------
+  fichier : tests/gap-01-withdrawal-requests-backoffice.dom.test.ts
+  test    : « écran backoffice : affiche référence de commande, client,
+             produits/quantités et statut d'accusé (sent) »
+  message : « référence de commande visible »
+
+Le DOM capturé au moment de l'assertion contient encore
+« Chargement… » : le rendu asynchrone n'était pas terminé. C'est une
+sensibilité au TEMPS, non au contenu.
+
+CE QUI S'EST PASSÉ
+------------------
+La suite complète a été lancée PENDANT que les contrôles de mutation
+tournaient -- sept exécutions, chacune créant et détruisant deux à trois
+clusters PostgreSQL. La machine était chargée.
+
+  suite sous charge      4931 tests, 4920 réussites, 11 échecs
+  suite SEULE            4931 tests, 4921 réussites, 10 échecs
+
+CE QUI LE DISQUALIFIE COMME RÉGRESSION
+--------------------------------------
+1. Suite relancée SANS charge concurrente : les identités d'échec sont
+   celles de la base, au nombre de dix, empreinte md5
+   d788b58cd63f6c59be1b1195c76bc1c5 -- OCTET-IDENTIQUE à la base et aux
+   quatre candidats précédents.
+2. Le fichier rejoué SEUL passe 3 tests sur 3, trois fois de suite.
+3. Ce fichier n'est pas touché par le candidat : son dernier commit est
+   a842ad6 (GAP-01 round 3), antérieur à tout ce lot. Les cinq fichiers
+   du candidat sont deux harnais shell, une bibliothèque shell, les
+   contrôles de mutation et un test STRUCTUREL -- aucun n'intervient
+   dans le rendu de cet écran.
+
+CONCLUSION
+----------
+Échec INTERMITTENT, lié à la charge de la machine au moment de
+l'exécution. AUCUN échec déterministe n'est imputable au candidat. Les
+deux journaux sont fournis : candidate.tap.gz (exécution sans charge,
+celle qui fait foi) et candidate-under-load.tap.gz (celle où l'échec
+apparaît), afin que l'audit puisse vérifier les deux.

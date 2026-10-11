@@ -1,30 +1,147 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.4 (CSDJ-1) — paquet de preuves
-## Quatrième remédiation ciblée : les deux derniers défauts d'AUD-07
+# CHECKOUT SCHEDULING FOUNDATION v1.5 (CSDJ-1) — paquet de preuves
+## Cinquième remédiation ciblée : CSDJ1-AUD-07-SOCKET-CSV-01
 
 | candidat | verdict |
 | --- | --- |
 | `091c3f0` | **FAIL** — six blockers |
-| `d94a110` | **FAIL** — six clos, deux restants |
+| `d94a110` | **FAIL** — deux restants |
 | `993cb7b` | **FAIL** — preuve Python non indépendante, AUD-07 partiel |
-| `9c940e1` | **FAIL** — AUD-PYTHON-01 et AUD-02..06 clos ; deux défauts d'AUD-07 |
-| `610e356` | **ce candidat** |
+| `9c940e1` | **FAIL** — deux défauts d'AUD-07 |
+| `610e356` | **FAIL** — un blocker : découpage de la liste de sockets |
+| `7420bec` | **ce candidat** |
 
-Aucun des quatre candidats refusés n'est amendé ni réécrit : ils restent
-**intacts** dans l'historique. **Aucune recomposition** sur le `main`
-courant : lignée immuable jusqu'au PASS d'audit.
-
-L'oracle Python, ses plis, son aller-retour, les 48 cas de fixture et les
-contrôles différentiels sont **intacts** et seulement **rejoués en
-régression**. **CSDJ-2 n'est pas commencé.**
+Aucun des cinq candidats refusés n'est amendé ni réécrit. **Aucune
+recomposition** sur le `main` courant. L'oracle Python, la fixture, le
+résolveur et les tests d'éligibilité sont **intacts** — `git diff` sur
+ces chemins est vide — et seulement **rejoués en régression**.
+**CSDJ-2 n'est pas commencé.**
 
 ---
 
-## §0 — Les deux défauts de ce tour
+## §0 — Le blocker de ce tour
+
+### §0.1 Le découpage de la liste de sockets n'était pas syntaxique
+
+Le tour précédent avait remplacé une comparaison par **sous-chaîne** par
+une **égalité d'entrée**. Le découpage, lui, restait faux :
+`string_to_array(liste, ',')` coupe à **chaque** virgule, y compris
+celles qui sont **dans** une entrée citée.
+
+**Ce que PostgreSQL rend vraiment** — mesuré sur un serveur de ce poste,
+pas supposé (`socket-csv-syntax.txt`) :
+
+| configuration | ce que `SHOW` rend |
+| --- | --- |
+| `"<r>/foo,bar",<r>/plain` | `"<r>/foo,bar",<r>/plain` *(guillemets conservés)* |
+| `"<r>/quo""te",<r>/plain` | `"<r>/quo""te",<r>/plain` *(guillemet doublé ré-encodé)* |
+| `<r>/plain , <r>/trail` | `<r>/plain , <r>/trail` *(espaces conservés)* |
+| `"<r>/plain,<r>/trail` *(citation non fermée)* | **le serveur refuse de démarrer** : `invalid list syntax in parameter` |
+
+La dernière ligne est la réponse à la question du mandat : une syntaxe
+mal formée **ne peut pas** sortir de `SHOW`. L'hypothèse est donc
+documentée — et la garde la refuse quand même, sous le nom
+`socket_liste_malformee`. Une hypothèse qu'on ne vérifie pas est une
+hypothèse qu'on finit par violer.
+
+**Le défaut allait dans les deux sens.** Sur la liste réelle du banc
+d'essai :
+
+| attendu | découpage brut | parseur |
+| --- | --- | --- |
+| `<r>/foo,bar` *(entrée **réelle**)* | **refusé** | accepté |
+| `<r>/foo` *(fragment)* | **accepté** | refusé |
+| `bar` *(fragment)* | **accepté** | refusé |
+| `<r>/tr,ail` *(entrée **réelle**)* | **refusé** | accepté |
+| `<r>/qu"ote` *(entrée **réelle**)* | **refusé** | accepté |
+
+La première erreur est une fausse identité. La seconde aurait rendu le
+harnais inutilisable sur un serveur réel à entrée citée — et on ne
+l'aurait découvert que le jour où il aurait refusé de démarrer chez
+quelqu'un.
+
+**Le parseur.** Il ne découpe pas aveuglément. Il remplace d'abord les
+guillemets doublés par une sentinelle, puis ne coupe qu'aux virgules dont
+le nombre de guillemets qui précèdent est **pair** — celles qui sont hors
+citation. La parité suffit : après cette substitution, les guillemets
+restants sont exactement les délimiteurs, et ils alternent.
+
+Chaque entrée est ensuite dépouillée de ses espaces **extérieurs**, de
+ses guillemets encadrants — **seulement s'il y en a aux deux bouts**, car
+n'en retirer qu'un est précisément ce qui transforme un fragment en
+chemin plausible — puis de sa barre oblique finale, `/` restant son
+propre répertoire. Les espaces **intérieurs** aux guillemets sont
+conservés : ils font partie du nom, le serveur le prouve.
+
+**Une seule implémentation.** `csdj1_identity_socket_cte()` est défini
+une fois ; la garde et la démonstration de nocivité consomment la **même**
+expression émise. Une démonstration conduite avec une copie prouverait la
+justesse de la copie.
+
+**Dix-huit contrôles**, chacun exigeant le refus pour la raison `socket`
+et **zéro mutation** d'un rôle témoin. Le banc d'essai a cinq répertoires
+de socket, dont un à **virgule**, un à **espace** et un à **barre oblique
+finale**, tous trois cités : sur une liste sans guillemets, un découpage
+brut et un parseur correct sont indiscernables.
+
+| cas du mandat | résultat |
+| --- | --- |
+| 1 · `/tmp` attendu `/tmp` | **accepté** |
+| 2 · attendu `/tm` | refus `socket`, zéro mutation |
+| 3 · attendu `/tmpx` | refus `socket`, zéro mutation |
+| 4 · entrée citée complète | **accepté** |
+| 5 · membre simple d'une liste citée | **accepté** |
+| 6 · **fragment avant la virgule citée** | refus `socket`, zéro mutation |
+| 7 · **fragment après la virgule citée** | refus `socket`, zéro mutation |
+| 8 · la liste entière rendue par `SHOW` | refus `socket`, zéro mutation |
+| 9 · entrée citée à barre oblique finale | **accepté**, normalisée des deux côtés |
+| 10 · entrée citée contenant un espace | **accepté**, préservée comme une entrée |
+
+### §0.2 M7 — le contrôle qui rend tout cela probant
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M7** | le parseur remplacé par un découpage brut | **détecté** — le fragment devient une fausse identité **acceptée**, et le rôle témoin du banc est **réellement** muté |
+
+M1, M3, M4, M5 et M6 sont rejoués et restent concluants. Un prédicat
+qu'on ne peut pas faire échouer n'est pas un prédicat.
+
+### §0.3 La limite signalée du détecteur, fermée
+
+Le détecteur de mutations brutes attrapait la mutation multi-lignes, mais
+une mutation **packée sur une seule ligne** lui échappait : la règle
+d'ouvreur consommait la ligne avant qu'on y cherche la mutation.
+
+Il **classe** désormais la ligne avant de mettre à jour l'ouvreur, vit
+dans **un** fichier réutilisé pour s'éprouver lui-même, et quatre
+fixtures l'attestent : `q "create role …;"` sur une ligne,
+`csdj1_runner_test "alter role …;"` sur une ligne, la variante
+multi-lignes (non-régression), et une mutation **gardée** qu'il ne doit
+pas dénoncer à tort.
+
+Les verbes SQL des fixtures sont **assemblés** et non écrits en clair :
+écrits en clair, ils seraient eux-mêmes dénoncés par le détecteur qui
+analyse ce fichier. Une fixture ne doit pas devenir le défaut qu'elle
+éprouve. Le parseur shell n'a pas été redessiné, comme demandé.
+
+### §0.4 Un échec non déterministe, signalé séparément
+
+Une exécution de la suite conduite **pendant** les contrôles de mutation
+a produit un onzième échec : un test DOM asynchrone qui capture encore
+`Chargement…`. Relancée **seule**, la suite rend les dix identités de la
+base ; le fichier rejoué seul passe 3/3, trois fois ; et il n'est pas
+touché par le candidat. Les deux journaux sont fournis.
+`nondeterministic-failure.txt` détaille le raisonnement.
+
+---
+
+## §00 — Les deux défauts du tour précédent
+
+
 
 Les deux reproches sont justes, et tous deux sont de la même famille :
 une garde qui laisse passer ce qu'elle était censée arrêter.
 
-### §0.1 L'initialisation des rôles du TÉMOIN échappait à la garde
+### §00.1 L'initialisation des rôles du TÉMOIN échappait à la garde
 
 Le cluster témoin recevait ses attributs distinctifs — `service_role
 LOGIN BYPASSRLS`, et de même pour `anon` et `authenticated` — par un
@@ -66,7 +183,7 @@ vérifie aussi que les variables qui accumulent du SQL de mutation
 mutation gardée, et il **compte ce qu'il examine** : un détecteur qui ne
 trouverait rien à examiner passerait pour vert.
 
-### §0.2 Le répertoire de socket se comparait par SOUS-CHAÎNE
+### §00.2 Le répertoire de socket se comparait par SOUS-CHAÎNE
 
 `strpos(unix_socket_directories, attendu) <> 0` acceptait n'importe quel
 fragment. La reproduction du rapport, vérifiée ici :
@@ -117,7 +234,7 @@ Les deux dernières lignes sont la reproduction littérale du rapport.
 partiels, le harnais montre en lecture seule que l'ancien prédicat les
 acceptait et que le nouveau les refuse.
 
-### §0.3 Contrôle de sensibilité — M6
+### §00.3 Contrôle de sensibilité — M6
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -126,7 +243,7 @@ acceptait et que le nouveau les refuse.
 M1, M3, M4 et M5 sont rejoués et restent concluants. Un prédicat qu'on
 ne peut pas faire échouer n'est pas un prédicat.
 
-### §0.4 Un incident, réparé au passage
+### §00.4 Un incident, réparé au passage
 
 Un commentaire du heredoc de la garde contenait des accents graves, que
 le shell exécutait comme des commandes : le harnais imprimait `strpos:
@@ -135,11 +252,11 @@ mais un harnais qui bruite est un harnais qu'on cesse de lire.
 
 ---
 
-## §00 — Les deux blockers du tour précédent
+## §000 — Les deux blockers du tour -2
 
 
 
-### §00.1 CSDJ1-AUD-PYTHON-01 (P1) — l'oracle n'était plus un oracle
+### §000.1 CSDJ1-AUD-PYTHON-01 (P1) — l'oracle n'était plus un oracle
 
 Le reproche est juste, et il est plus sérieux qu'un défaut de
 comportement : `resolve_wall` **reproduisait l'algorithme des deux
@@ -230,7 +347,7 @@ doivent continuer d'échantillonner. Si elles migraient un jour vers la
 méthode des plis, les trois convergeraient de nouveau et `[ORACLE-1]`
 resterait vert sans plus rien garantir.
 
-### §00.2 CSDJ1-AUD-07 (P1) — l'identité de destination était partielle
+### §000.2 CSDJ1-AUD-07 (P1) — l'identité de destination était partielle
 
 Le nettoyage vérifiait quatre faits avant de muter des rôles : socket,
 port, utilisateur, superutilisateur. Il **omettait** `data_directory`,
@@ -317,7 +434,7 @@ section `[F]` continue de démontrer que la menace est réelle : sans
 isolation la connexion aboutit **au témoin**, sous `env -i` au cluster
 sous test.
 
-### §00.3 Contrôles de mutation
+### §000.3 Contrôles de mutation
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -332,11 +449,11 @@ négatifs verts ne diraient pas s'ils savent voir quoi que ce soit.
 
 ---
 
-## §000 — Les deux blockers du tour antérieur
+## §0000 — Les deux blockers du tour -3
 
 
 
-### §000.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
+### §0000.1 CSDJ1-AUD-02 (P1) — la validation d'heure murale était incomplète
 
 Le re-audit delta a produit trois reproductions, et deux reproches
 distincts se cachaient derrière.
@@ -423,7 +540,7 @@ UTC (aucune transition), Pacific/Kiritimati (UTC+14),
 America/Los_Angeles et America/New_York (décalages négatifs),
 Pacific/Chatham et Asia/Kathmandu (décalages à 45 minutes de l'heure).
 
-### §000.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
+### §0000.2 CSDJ1-AUD-07 (P1) — le harnais de rôles n'était pas isolé
 
 `q()` héritait des variables libpq de l'environnement appelant.
 **`PGHOSTADDR` l'emporte sur un `-h` explicite** : le harnais pouvait
@@ -506,7 +623,7 @@ tout passerait pour protégé.
 
 **87 preuves, 0 échec** (`harness-role-restoration.txt`).
 
-### §000.3 Contrôles de mutation, et AUD-06 re-prouvé
+### §0000.3 Contrôles de mutation, et AUD-06 re-prouvé
 
 Un harnais vert ne prouve rien si le défaut qu'il interdit peut être
 réinjecté sans qu'il échoue.
@@ -533,7 +650,7 @@ exactement, en mode cluster **désigné** — le seul où la restauration a
 des conséquences durables — et le harnais voit encore le défaut quand on
 le réinjecte.
 
-### §000.4 Discipline de portée
+### §0000.4 Discipline de portée
 
 Aucun redesign. Aucun contrat déjà clos modifié, à une exception près et
 strictement nécessaire : l'ajout du catalogue des trois statuts d'heure
@@ -752,35 +869,34 @@ juge.
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **151 / 0** (10 + 78 + 55 + 8) |
+| tests ciblés CSDJ-1 | **153 / 0** (10 + 78 + 57 + 8) |
 | régressions exigées | **285 / 0** (12 fichiers) |
 | harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
-| harnais d'isolation et de rôles | **148 preuves / 0 échec** (`[A]`–`[H]`) |
-| contrôles de mutation M1/M3/M4/M5/**M6** | **5 concluants / 0 manquant** |
-| contrôles de socket | **11 / 11**, refus pour la raison `socket`, **zéro** mutation |
-| contrôles négatifs d'identité | **10 / 10**, refus pour la bonne raison, **zéro** mutation |
-| contrôles positifs | le chemin nominal **mute** toujours (identité et socket) |
-| oracle Python | **INTACT**, fixture reproduite **à l'octet** (`sha256 c266e5ce…`) |
-| oracle vs TypeScript / vs SQL | **38 points / 0 divergence** chacun |
-| refus sans consentement | **EXIT 2**, « aucune mutation n'a été tentée » |
-| refus d'un `PGHOSTADDR` hérité | **EXIT 2**, valeur jamais journalisée (0 occurrence) |
+| harnais d'isolation et de rôles | **171 preuves / 0 échec** (`[A]`–`[H]`) |
+| contrôles de mutation M1/M3/M4/M5/M6/**M7** | **6 concluants / 0 manquant** |
+| contrôles de socket | **18**, refus pour la raison `socket`, **zéro** mutation |
+| contrôles négatifs d'identité | **10**, refus pour la bonne raison, **zéro** mutation |
+| fixtures du détecteur de mutations brutes | **4 / 4**, dont deux sur une seule ligne |
+| oracle Python et fixture | **NON TOUCHÉS** (`git diff` vide), reproduits **à l'octet** |
 | TypeScript | **0 diagnostic** |
 | build | **EXIT 0**, 39 routes, aucune ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, troisième remédiation `9c940e1` | 4927 tests, 4917 / 10 |
-| suite complète, ce candidat `610e356` | **4929 tests, 4919 / 10** |
+| suite complète, quatrième remédiation `610e356` | 4929 tests, 4919 / 10 |
+| suite complète, ce candidat `7420bec` | **4931 tests, 4921 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
 La comparaison porte sur les **identités**, pas sur les comptes. Les jeux
-d'identités d'échec de la **base**, de la **troisième remédiation** et de
-**ce candidat** sont **octet-identiques** (md5
-`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+2** réussites est
-exactement le nombre de tests ajoutés ce tour : `[AUD07-SQL-3]` et
-`[AUD07-SQL-4]`.
+d'identités de la **base**, du **quatrième candidat** et de **celui-ci**
+sont **octet-identiques** (md5 `d788b58cd63f6c59be1b1195c76bc1c5`). Le
+delta de **+2** réussites est exactement le nombre de tests ajoutés ce
+tour : `[AUD07-SQL-5]` et `[AUD07-SQL-6]`.
 
-Les dix échecs sont les dix échecs **préexistants** de la base. Aucun
-non-déterminisme constaté ; l'exécution est séquentielle
-(`--test-concurrency=1`).
+**Un échec intermittent est signalé séparément** (§0.4 et
+`nondeterministic-failure.txt`) : il n'apparaît que lorsque la suite
+tourne pendant les contrôles de mutation, disparaît à vide, passe 3/3 en
+isolation, et concerne un fichier que le candidat ne touche pas. Les deux
+journaux sont fournis — `candidate.tap.gz` (sans charge, celui qui fait
+foi) et `candidate-under-load.tap.gz`.
 
 ---
 
