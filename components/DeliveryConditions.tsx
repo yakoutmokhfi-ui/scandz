@@ -3,7 +3,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { PublicDeliveryFulfillmentRule } from "@/lib/sale-modes-types";
 import type { DeliveryStatus } from "@/lib/delivery";
-import { computeDeliveryFee } from "@/lib/delivery";
 import { useI18n } from "@/lib/i18n-context";
 import { tCustomerNoticeText } from "@/lib/menu-i18n";
 import { formatPrice } from "@/lib/whatsapp";
@@ -45,34 +44,29 @@ function discountText(t: (key: string, vars?: Record<string, string | number>) =
   });
 }
 
-/** Public facts only: never render provider, fulfillment_code, or raw config. */
-export function DeliveryConditionsButton({ rules, currency }: { rules: PublicDeliveryFulfillmentRule[]; currency: string }) {
+/**
+ * DELIVERY PUBLIC TEXT v1 -- the "Modes et tarifs de livraison" popup shows ONLY the
+ * merchant-configured customer text of each rule (resolved with the existing translation
+ * contract). It never renders zone prefixes, postcodes, base fee, pricing mode, thresholds,
+ * minimum items, discount parameters, provider, fulfillment_code, order or any other metadata:
+ * those facts stay in the data (the engine and the postcode result use them) but are not
+ * presented here. A rule with a blank text stays active and usable by the engine; it simply
+ * contributes nothing to this popup. When no rule has a text, the button itself is hidden so
+ * the customer never opens an empty popup.
+ */
+export function DeliveryConditionsButton({ rules }: { rules: PublicDeliveryFulfillmentRule[]; currency?: string }) {
   const { t, lang, sourceLanguage } = useI18n();
   const [open, setOpen] = useState(false);
-  if (!rules.length) return null;
+  const texts = [...rules].sort((a, b) => a.displayOrder - b.displayOrder)
+    .map((rule) => ({ key: rule.displayOrder, text: (tCustomerNoticeText(rule, lang, sourceLanguage) ?? "").trim() }))
+    .filter((entry) => entry.text !== "");
+  if (!texts.length) return null;
   return <div className="mx-4 mt-3">
     <button type="button" onClick={() => setOpen(true)} className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-start text-sm font-semibold text-ink-on-bg">{t("deliveryConditionsTitle")}</button>
     <DeliveryDialog open={open} title={t("deliveryConditionsTitle")} marker="conditions" onDismiss={() => setOpen(false)}>
-      {[...rules].sort((a, b) => a.displayOrder - b.displayOrder).map((rule) => {
-        const base = computeDeliveryFee({ ...rule, discountEnabled: false }, 0);
-        const notice = tCustomerNoticeText(rule, lang, sourceLanguage);
-        // STOREFRONT UX POLISH v1 -- une ligne principale « zone — tarif »
-        // puis UNE ligne courte de conditions ; mêmes faits publics,
-        // même calcul (computeDeliveryFee), jamais provider/fulfillment_code.
-        const area = rule.isFallback ? t("deliveryAreaOther") : t("deliveryAreaZones", { zones: rule.zonePrefixes.join(", ") });
-        const conditions = [
-          rule.pricingMode === "free_above_threshold" && rule.freeThreshold != null
-            ? t("deliveryRuleFreeFrom", { threshold: formatPrice(rule.freeThreshold, currency) }) : null,
-          rule.minItems != null && rule.minItems > 0 ? t("deliveryRuleMinItems", { count: rule.minItems }) : null,
-          discountText(t, rule, currency),
-        ].filter((x): x is string => !!x);
-        return <section key={rule.displayOrder} data-delivery-rule-card data-sc-surface="delivery-card" className="space-y-1 rounded-xl border border-espresso/10 px-3 py-2.5">
-          <h3 className="font-semibold">{base === undefined ? area : `${area} — ${formatPrice(base, currency)}`}</h3>
-          {base === undefined && <p className="text-sm">{t("deliveryPriceUnavailable")}</p>}
-          {conditions.length > 0 && <p data-delivery-rule-conditions className="text-sm">{conditions.join(" · ")}</p>}
-          {notice && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink-on-bg-muted">{notice}</p>}
-        </section>;
-      })}
+      {texts.map((entry) => <section key={entry.key} data-delivery-rule-card data-sc-surface="delivery-card" className="rounded-xl border border-espresso/10 px-3 py-2.5">
+        <p data-delivery-rule-text className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p>
+      </section>)}
     </DeliveryDialog>
   </div>;
 }
