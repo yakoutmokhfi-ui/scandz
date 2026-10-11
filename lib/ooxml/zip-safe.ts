@@ -1,6 +1,12 @@
 /** ZIP primitives: callers validate the manifest before targeted extraction.
  * The error factory keeps format-specific public errors at the caller boundary. */
-import { unzipSync } from "fflate";
+// WINDOWS/FFLATE HARNESS FIX (W1 SECOND REMEDIATION) -- imports the
+// EXPLICIT "fflate/browser" subpath rather than the bare "fflate"
+// specifier. See this file's own module-resolution rationale in
+// lib/docx/docx-writer.ts's matching import (same fix, same reason) --
+// duplicated there rather than re-explained, so each file stays
+// independently readable.
+import { unzipSync } from "fflate/browser";
 
 export type OoxmlZipFailure =
   | "FILE_TOO_LARGE"
