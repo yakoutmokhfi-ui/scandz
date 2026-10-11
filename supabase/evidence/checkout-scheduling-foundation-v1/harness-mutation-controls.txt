@@ -1,35 +1,41 @@
 === CONTRÔLES DE MUTATION CSDJ-1 (AUD-06 / AUD-07) ===
 --- M1 : retrait d'un « env -i » devant un appel psql
 CONTROL PASS: M1 — le harnais DÉTECTE un appel client non isolé (code 1)
-       [08:26:30]    appel non isolé :     "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1        -h "$SOCKET_DIR" -p "$PORT" -U "$OWNE
+       [09:51:18]    appel non isolé :     "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1        -h "$SOCKET_DIR" -p "$PORT" -U "$OWNE
 --- M3 : réinjection du défaut d'instantané de rôle (::text / 't')
 CONTROL PASS: M3 — le défaut d'instantané est VU : 13 échec(s), code 1
-       [08:27:08] FAIL: [A] LOGIN+NOBYPASSRLS — 'anon' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
-       [08:27:08] FAIL: [A] LOGIN+NOBYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
-       [08:27:08] FAIL: [A] LOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
-       [08:27:26] FAIL: [A] NOLOGIN+BYPASSRLS — 'anon' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [09:51:55] FAIL: [A] LOGIN+NOBYPASSRLS — 'anon' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [09:51:55] FAIL: [A] LOGIN+NOBYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [09:51:55] FAIL: [A] LOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [09:52:11] FAIL: [A] NOLOGIN+BYPASSRLS — 'anon' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
 --- M4 : marqueur/nonce retiré du prédicat d'identité
 CONTROL PASS: M4 — l'identité PARTIELLE est VUE : le marqueur retiré n'arrête plus la mutation (code 1)
-       [08:29:39] FAIL: [G] marqueur RETIRÉ — la mutation a été ACCEPTÉE malgré une identité fausse
-       [08:29:39] FAIL: [G] marqueur RETIRÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
-       [08:29:39] FAIL: [G] marqueur CHANGÉ — la mutation a été ACCEPTÉE malgré une identité fausse
-       [08:29:39] FAIL: [G] marqueur CHANGÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [09:54:18] FAIL: [G] marqueur RETIRÉ — la mutation a été ACCEPTÉE malgré une identité fausse
+       [09:54:18] FAIL: [G] marqueur RETIRÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [09:54:18] FAIL: [G] marqueur CHANGÉ — la mutation a été ACCEPTÉE malgré une identité fausse
+       [09:54:18] FAIL: [G] marqueur CHANGÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
 --- M5 : data_directory et config_file retirés du prédicat
 CONTROL PASS: M5 — les deux champs retirés sont VUS : data_directory et config_file (code 1)
-       [08:31:10] FAIL: [G] data_directory faux — la mutation a été ACCEPTÉE malgré une identité fausse
-       [08:31:10] FAIL: [G] data_directory faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
-       [08:31:10] FAIL: [G] config_file faux — la mutation a été ACCEPTÉE malgré une identité fausse
-       [08:31:10] FAIL: [G] config_file faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [09:55:47] FAIL: [G] data_directory faux — la mutation a été ACCEPTÉE malgré une identité fausse
+       [09:55:47] FAIL: [G] data_directory faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [09:55:47] FAIL: [G] config_file faux — la mutation a été ACCEPTÉE malgré une identité fausse
+       [09:55:47] FAIL: [G] config_file faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
 --- M6 : égalité exacte de socket remplacée par une sous-chaîne
 CONTROL PASS: M6 — la sémantique de sous-chaîne est VUE : les attendus partiels passent de nouveau (code 1)
-       [08:32:40] FAIL: [H] PRÉFIXE d'une entrée — ACCEPTÉ à tort : « /tmp/tmp.JppoqRPD5V/lab- » n'est pas une entrée complète de la liste
-       [08:32:40] FAIL: [H] PRÉFIXE d'une entrée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
-       [08:32:40] FAIL: [H] répertoire PARENT — ACCEPTÉ à tort : « /tmp/tmp.JppoqRPD5V » n'est pas une entrée complète de la liste
-       [08:32:41] FAIL: [H] répertoire PARENT — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+       [09:57:17] FAIL: [H] PRÉFIXE d'une entrée — ACCEPTÉ à tort : « /tmp/tmp.GWzXfBv9RC/lab- » n'est pas une entrée complète de la liste
+       [09:57:17] FAIL: [H] PRÉFIXE d'une entrée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+       [09:57:17] FAIL: [H] répertoire PARENT — ACCEPTÉ à tort : « /tmp/tmp.GWzXfBv9RC » n'est pas une entrée complète de la liste
+       [09:57:17] FAIL: [H] répertoire PARENT — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
 --- M7 : parseur sensible aux guillemets remplacé par un découpage brut
 CONTROL PASS: M7 — le découpage BRUT est VU : le fragment d'une entrée citée devient une fausse identité (code 1)
-       [08:34:18] FAIL: [H] membre CITÉ à virgule, exact — refusé à tort (socket) : le prédicat refuserait l'entrée légitime
-       [08:34:18] FAIL: [H] FRAGMENT avant la virgule citée — ACCEPTÉ à tort : « /tmp/tmp.0dtp4zlT5R/foo » n'est pas une entrée complète de la liste
-       [08:34:18] FAIL: [H] FRAGMENT avant la virgule citée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
-       [08:34:18] FAIL: [H] FRAGMENT après la virgule citée — ACCEPTÉ à tort : « bar » n'est pas une entrée complète de la liste
-=== BILAN CONTRÔLES DE MUTATION : 6 contrôle(s) concluant(s), 0 manquant(s) ===
+       [09:58:46] FAIL: [H] membre CITÉ à virgule, exact — refusé à tort (socket) : le prédicat refuserait l'entrée légitime
+       [09:58:46] FAIL: [H] FRAGMENT avant la virgule citée — ACCEPTÉ à tort : « /tmp/tmp.5TMyZdFtdg/foo » n'est pas une entrée complète de la liste
+       [09:58:46] FAIL: [H] FRAGMENT avant la virgule citée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+       [09:58:46] FAIL: [H] FRAGMENT après la virgule citée — ACCEPTÉ à tort : « bar » n'est pas une entrée complète de la liste
+--- M8 : défense anti-collision des octets réservés retirée
+CONTROL PASS: M8 — la collision de sentinelle est VUE : la fausse identité passe et le rôle témoin est muté (code 1)
+       [10:00:18] FAIL: [H] S2 chr(2), fausse identité « $TMP_DIR/foo » — la mutation a été ACCEPTÉE : « /tmp/tmp.AbZHzAj47z/foo » est une fausse identité fabriquée par la collision
+       [10:00:18] FAIL: [H] S2 chr(2), fausse identité « $TMP_DIR/foo » — empreinte de rôle MODIFIÉE : « scanym_csdj1_sent_probe:00 » -> « scanym_csdj1_sent_probe:01 »
+       [10:00:19] FAIL: [H] S1 chr(1), chemin FABRIQUÉ « $TMP_DIR/foo"bar » — la mutation a été ACCEPTÉE : « /tmp/tmp.AbZHzAj47z/foo"bar » est une fausse identité fabriquée par la collision
+       [10:00:19] FAIL: [H] S1 chr(1), chemin FABRIQUÉ « $TMP_DIR/foo"bar » — empreinte de rôle MODIFIÉE : « scanym_csdj1_sent_probe:00 » -> « scanym_csdj1_sent_probe:01 »
+=== BILAN CONTRÔLES DE MUTATION : 7 contrôle(s) concluant(s), 0 manquant(s) ===

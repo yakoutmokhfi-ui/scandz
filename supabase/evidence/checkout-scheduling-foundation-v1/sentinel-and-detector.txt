@@ -1,0 +1,80 @@
+CSDJ-1 v1.6 — COLLISION DE SENTINELLE ET DÉTECTEUR DE MUTATIONS BRUTES
+======================================================================
+
+PARTIE 1 — CSDJ1-AUD-07-SOCKET-SENTINEL-01
+------------------------------------------
+
+Le parseur se réservait chr(1) et chr(2) comme sentinelles internes.
+Ces octets ne sont réservés par AUCUNE syntaxe PostgreSQL : Linux
+n'interdit dans un nom de fichier que « / » et l'octet nul.
+
+MESURÉ SUR CE POSTE, AVANT CORRECTION
+-------------------------------------
+  répertoire créé        <rép>/foo<chr(2)>bar
+  serveur démarré        OUI
+  SHOW rend (od -c)      .../foo 002 b a r , .../plain
+  attendu soumis         <rép>/foo
+  verdict du parseur     t   <= FAUSSE IDENTITÉ ACCEPTÉE
+
+  répertoire créé        <rép>/foo<chr(1)>bar
+  serveur démarré        OUI
+  entrée vue du parseur  [<rép>/foo"bar]
+  attendu « <rép>/foo"bar » (chemin INEXISTANT)   -> t   <= ACCEPTÉ
+  attendu réel (avec l'octet chr(1))              -> f   <= REFUSÉ
+
+L'erreur allait donc dans les deux sens : une fausse identité acceptée,
+et l'entrée réelle refusée.
+
+APRÈS CORRECTION
+----------------
+  cluster portant chr(1)   liste exempte d'octets réservés ? f  => REFUS
+  cluster portant chr(2)   liste exempte d'octets réservés ? f  => REFUS
+  cluster ORDINAIRE        liste exempte ? t, appartenance ? t  => PASSE
+
+Le refus est NOMMÉ : socket_octets_reserves. Il porte sur la liste
+BRUTE, donc AVANT toute substitution, et aussi sur l'ATTENDU à la
+déclaration du contrat.
+
+POURQUOI REFUSER PLUTÔT QUE SUPPORTER
+-------------------------------------
+PostgreSQL permet ces octets dans un chemin ; le harnais les refuse. Un
+cluster jetable n'a jamais besoin d'un répertoire de socket contenant un
+octet de contrôle, et si quelqu'un en rencontrait un, un refus nommé lui
+dirait exactement pourquoi -- là où une acceptation silencieuse lui
+aurait menti sur l'identité du serveur qu'il mute. C'est le choix fermé.
+
+PARTIE 2 — CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+--------------------------------------------
+
+Les sept fixtures du mandat, jouées contre l'ANCIEN et le NOUVEAU
+détecteur :
+
+fixture                               ancien détecteur      nouveau
+------------------------------------- --------------------- ------------
+D1  q 'alter role ...'  (apostrophe)  SANS-OUVREUR          NON-GARDEE
+D2  q "alter role ..."  (guillemet)   NON-GARDEE            NON-GARDEE
+D3  q 'Alter Role ...'  (casse mixte) (AUCUNE SORTIE)       NON-GARDEE
+D4  garde complète, puis mutation     GARDEE  <= FUITE      NON-GARDEE
+D5  mutation brute multi-lignes       NON-GARDEE            NON-GARDEE
+D6  mutation correctement gardée      GARDEE                GARDEE
+D7  SQL sans mutation de rôle         (ignoré)              (ignoré)
+
+Les trois défauts de l'ancien sont ceux que l'audit a décrits :
+  - D4 : l'état « gardé » FUYAIT d'un appel complet au suivant ;
+  - D1 : seul le guillemet DOUBLE ouvrait un argument ;
+  - D3 : les mots-clés n'étaient cherchés qu'en minuscules et en
+         capitales, jamais en casse mixte -- et ce cas-là ne produisait
+         AUCUNE sortie, pas même une ligne mal classée.
+
+TROUVÉ EN ÉCRIVANT LES FIXTURES
+-------------------------------
+Un motif passé en ARGUMENT à une fonction awk doit être une CHAÎNE :
+une constante /re/ y vaut « $0 ~ /re/ », soit 0 ou 1, et la fonction
+cherchait alors « 0 » dans le texte. Le détecteur ne voyait RIEN. Sans
+les fixtures, la correction aurait été livrée inerte -- c'est
+exactement ce à quoi servent des fixtures.
+
+Et un jeton d'appel n'en est un que s'il est suivi d'une ouverture de
+chaîne ou d'un drapeau : sans cela, du SQL contenant « ..._probe
+nologin » était pris pour un appel au client « probe » et écrasait
+l'état au milieu d'un argument gardé.

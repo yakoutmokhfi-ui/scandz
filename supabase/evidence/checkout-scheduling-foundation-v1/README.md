@@ -1,26 +1,118 @@
-# CHECKOUT SCHEDULING FOUNDATION v1.5 (CSDJ-1) — paquet de preuves
-## Cinquième remédiation ciblée : CSDJ1-AUD-07-SOCKET-CSV-01
+# CHECKOUT SCHEDULING FOUNDATION v1.6 (CSDJ-1) — paquet de preuves
+## Sixième remédiation : collision de sentinelle, détecteur de mutations brutes
 
 | candidat | verdict |
 | --- | --- |
-| `091c3f0` | **FAIL** — six blockers |
-| `d94a110` | **FAIL** — deux restants |
-| `993cb7b` | **FAIL** — preuve Python non indépendante, AUD-07 partiel |
-| `9c940e1` | **FAIL** — deux défauts d'AUD-07 |
-| `610e356` | **FAIL** — un blocker : découpage de la liste de sockets |
-| `7420bec` | **ce candidat** |
+| `091c3f0` → `7420bec` | six verdicts FAIL successifs, détaillés plus bas |
+| `8dafd78` | **ce candidat** |
 
-Aucun des cinq candidats refusés n'est amendé ni réécrit. **Aucune
-recomposition** sur le `main` courant. L'oracle Python, la fixture, le
-résolveur et les tests d'éligibilité sont **intacts** — `git diff` sur
-ces chemins est vide — et seulement **rejoués en régression**.
-**CSDJ-2 n'est pas commencé.**
+Aucun des six candidats refusés n'est amendé ni réécrit. **Aucune
+recomposition.** L'oracle Python, la fixture, le résolveur et le SQL du
+lot sont **intacts** — `git diff` sur ces chemins est vide — et seulement
+**rejoués en régression**. **CSDJ-2 n'est pas commencé.**
 
 ---
 
-## §0 — Le blocker de ce tour
+## §0 — Les deux blockers de ce tour
 
-### §0.1 Le découpage de la liste de sockets n'était pas syntaxique
+Le premier est le plus instructif : mon propre parseur se réservait deux
+octets sans le dire à personne.
+
+### §0.1 Collision de sentinelle — `CSDJ1-AUD-07-SOCKET-SENTINEL-01`
+
+Le parseur employait `chr(1)` et `chr(2)` comme sentinelles internes :
+`chr(1)` pour mettre de côté un guillemet doublé, `chr(2)` pour marquer
+une virgule hors citation. Or **ces octets ne sont réservés par aucune
+syntaxe PostgreSQL**. Linux n'interdit dans un nom de fichier que `/` et
+l'octet nul ; un répertoire peut donc les contenir, et un serveur démarre
+parfaitement sur un tel répertoire — mesuré sur ce poste, pas déduit.
+
+**Reproduit avant correction**, et dans les deux sens :
+
+| liste réelle | attendu | verdict |
+| --- | --- | --- |
+| `<r>/foo<chr(2)>bar,<r>/plain` | `<r>/foo` | **accepté** — l'octet des données est pris pour un séparateur, le fragment devient une entrée |
+| `<r>/foo<chr(1)>bar,…` | `<r>/foo"bar` *(chemin inexistant)* | **accepté** — le `chr(1)` est restitué en guillemet |
+| `<r>/foo<chr(1)>bar,…` | l'entrée **réelle** | **refusé** |
+
+Une fausse identité acceptée, et l'entrée réelle refusée.
+
+**La correction** est celle que le mandat préfère : la liste **brute** est
+refusée avant toute substitution, sous le nom `socket_octets_reserves`.
+Le refus porte aussi sur l'attendu, à la déclaration du contrat —
+accepter d'un côté ce qu'on refuse de l'autre serait une asymétrie, donc
+une faille. Les sentinelles ne sont pas déplacées ailleurs : l'entrée est
+refusée.
+
+**Pourquoi refuser plutôt que supporter.** PostgreSQL permet ces octets
+dans un chemin ; le harnais les refuse. Un cluster jetable n'a jamais
+besoin d'un répertoire de socket contenant un octet de contrôle, et si
+quelqu'un en rencontrait un, un refus **nommé** lui dirait exactement
+pourquoi — là où une acceptation silencieuse lui aurait menti sur
+l'identité du serveur qu'il mute.
+
+**Les contrôles tournent sur de vrais clusters** portant ces octets.
+Chacun démarre d'abord avec une liste **ordinaire**, pour que le marqueur
+et le rôle témoin soient posés **légitimement** : sans cela le refus
+viendrait du marqueur absent, et le contrôle prouverait autre chose que
+ce qu'il annonce. Le cluster est ensuite reconfiguré avec l'octet, et le
+seul fait qui cloche est celui qu'on éprouve.
+
+| contrôle | résultat |
+| --- | --- |
+| **S1** `chr(1)` | refus `socket_octets_reserves`, empreinte de rôle **inchangée**, collision prouvée réelle |
+| **S2** `chr(2)` | refus `socket_octets_reserves`, empreinte de rôle **inchangée**, collision prouvée réelle |
+| positif | un chemin **ordinaire** passe toujours |
+
+### §0.2 Détecteur de mutations brutes — `CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01`
+
+Trois défauts, tous dans le contrôle censé prouver que **toute** mutation
+brute est vue. Voici ce que l'ancien détecteur disait des sept fixtures du
+mandat, et ce que le nouveau en dit :
+
+| fixture | ancien | nouveau |
+| --- | --- | --- |
+| **D1** `q 'alter role …'` *(apostrophe)* | `SANS-OUVREUR` | `NON-GARDEE` |
+| **D2** `q "alter role …"` *(guillemet)* | `NON-GARDEE` | `NON-GARDEE` |
+| **D3** `q 'Alter Role …'` *(casse mixte)* | **aucune sortie** | `NON-GARDEE` |
+| **D4** garde complète, puis mutation brute | `GARDEE` — **fuite d'état** | `NON-GARDEE` |
+| **D5** mutation brute multi-lignes | `NON-GARDEE` | `NON-GARDEE` |
+| **D6** mutation correctement gardée | `GARDEE` | `GARDEE` |
+| **D7** SQL sans mutation de rôle | ignoré | ignoré |
+
+Désormais : la recherche du mot-clé est **insensible à la casse** ; les
+**deux** formes de littéral ouvrent un argument ; et l'état ne se propage
+que tant qu'un argument reste **ouvert** — un appel qui se ferme sur sa
+ligne ne laisse rien derrière lui. C'est ce qui ferme la fuite.
+
+**Trouvé en écrivant les fixtures.** Un motif passé en **argument** à une
+fonction awk doit être une **chaîne** : une constante `/re/` y vaut
+`$0 ~ /re/`, soit 0 ou 1, et la fonction cherchait alors « 0 » dans le
+texte — le détecteur ne voyait **rien du tout**. Sans les fixtures, la
+correction aurait été livrée inerte. C'est exactement à cela que servent
+des fixtures.
+
+Et un jeton d'appel n'en est un que s'il est suivi d'une ouverture de
+chaîne ou d'un drapeau : sinon du SQL contenant `..._probe nologin` était
+pris pour un appel au client `probe`, et écrasait l'état au milieu d'un
+argument gardé.
+
+### §0.3 M8
+
+| contrôle | défaut réinjecté | résultat |
+| --- | --- | --- |
+| **M8** | la défense anti-collision retirée | **détecté** — S1 et S2 **acceptent** la fausse identité et le rôle témoin passe **réellement** de `NOBYPASSRLS` à `BYPASSRLS` |
+
+M6 et M7 sont **inchangés** et rejoués ; M1, M3, M4, M5 aussi. Sept
+contrôles concluants.
+
+---
+
+## §00 — Le blocker du tour précédent
+
+
+
+### §00.1 Le découpage de la liste de sockets n'était pas syntaxique
 
 Le tour précédent avait remplacé une comparaison par **sous-chaîne** par
 une **égalité d'entrée**. Le découpage, lui, restait faux :
@@ -96,7 +188,7 @@ brut et un parseur correct sont indiscernables.
 | 9 · entrée citée à barre oblique finale | **accepté**, normalisée des deux côtés |
 | 10 · entrée citée contenant un espace | **accepté**, préservée comme une entrée |
 
-### §0.2 M7 — le contrôle qui rend tout cela probant
+### §00.2 M7 — le contrôle qui rend tout cela probant
 
 | contrôle | défaut réinjecté | résultat |
 | --- | --- | --- |
@@ -105,7 +197,7 @@ brut et un parseur correct sont indiscernables.
 M1, M3, M4, M5 et M6 sont rejoués et restent concluants. Un prédicat
 qu'on ne peut pas faire échouer n'est pas un prédicat.
 
-### §0.3 La limite signalée du détecteur, fermée
+### §00.3 La limite signalée du détecteur, fermée
 
 Le détecteur de mutations brutes attrapait la mutation multi-lignes, mais
 une mutation **packée sur une seule ligne** lui échappait : la règle
@@ -123,7 +215,7 @@ Les verbes SQL des fixtures sont **assemblés** et non écrits en clair :
 analyse ce fichier. Une fixture ne doit pas devenir le défaut qu'elle
 éprouve. Le parseur shell n'a pas été redessiné, comme demandé.
 
-### §0.4 Un échec non déterministe, signalé séparément
+### §00.4 Un échec non déterministe, signalé séparément
 
 Une exécution de la suite conduite **pendant** les contrôles de mutation
 a produit un onzième échec : un test DOM asynchrone qui capture encore
@@ -869,34 +961,31 @@ juge.
 
 | Vérification | Résultat |
 |---|---|
-| tests ciblés CSDJ-1 | **153 / 0** (10 + 78 + 57 + 8) |
+| tests ciblés CSDJ-1 | **155 / 0** (10 + 78 + 59 + 8) |
 | régressions exigées | **285 / 0** (12 fichiers) |
 | harnais PostgreSQL du lot | **156 preuves / 0 échec** (19 sections) |
-| harnais d'isolation et de rôles | **171 preuves / 0 échec** (`[A]`–`[H]`) |
-| contrôles de mutation M1/M3/M4/M5/M6/**M7** | **6 concluants / 0 manquant** |
-| contrôles de socket | **18**, refus pour la raison `socket`, **zéro** mutation |
-| contrôles négatifs d'identité | **10**, refus pour la bonne raison, **zéro** mutation |
-| fixtures du détecteur de mutations brutes | **4 / 4**, dont deux sur une seule ligne |
-| oracle Python et fixture | **NON TOUCHÉS** (`git diff` vide), reproduits **à l'octet** |
+| harnais d'isolation et de rôles | **183 preuves / 0 échec** (`[A]`–`[H]`) |
+| contrôles de mutation M1/M3/M4/M5/M6/M7/**M8** | **7 concluants / 0 manquant** |
+| contrôles de socket | **18**, plus **S1/S2** d'octets réservés |
+| fixtures du détecteur | **D1–D7**, toutes correctes |
+| contrôles négatifs d'identité | **10**, zéro mutation |
+| oracle Python, fixture, résolveur, SQL du lot | **NON TOUCHÉS** (`git diff` vide) |
 | TypeScript | **0 diagnostic** |
 | build | **EXIT 0**, 39 routes, aucune ajoutée |
 | suite complète, base `412dbb5` | 4768 / 10 |
-| suite complète, quatrième remédiation `610e356` | 4929 tests, 4919 / 10 |
-| suite complète, ce candidat `7420bec` | **4931 tests, 4921 / 10** |
+| suite complète, cinquième remédiation `7420bec` | 4931 tests, 4921 / 10 |
+| suite complète, ce candidat `8dafd78` | **4933 tests, 4923 / 10** |
 | identités d'échec | **0 apparue, 0 disparue** |
 
-La comparaison porte sur les **identités**, pas sur les comptes. Les jeux
-d'identités de la **base**, du **quatrième candidat** et de **celui-ci**
-sont **octet-identiques** (md5 `d788b58cd63f6c59be1b1195c76bc1c5`). Le
-delta de **+2** réussites est exactement le nombre de tests ajoutés ce
-tour : `[AUD07-SQL-5]` et `[AUD07-SQL-6]`.
+La comparaison porte sur les **identités**. Les jeux de la **base**, du
+**cinquième candidat** et de **celui-ci** sont **octet-identiques** (md5
+`d788b58cd63f6c59be1b1195c76bc1c5`). Le delta de **+2** réussites est
+exactement le nombre de tests ajoutés : `[AUD07-SQL-7]` et
+`[AUD07-SQL-8]`.
 
-**Un échec intermittent est signalé séparément** (§0.4 et
-`nondeterministic-failure.txt`) : il n'apparaît que lorsque la suite
-tourne pendant les contrôles de mutation, disparaît à vide, passe 3/3 en
-isolation, et concerne un fichier que le candidat ne touche pas. Les deux
-journaux sont fournis — `candidate.tap.gz` (sans charge, celui qui fait
-foi) et `candidate-under-load.tap.gz`.
+**Aucun échec intermittent ce tour** : la suite a tourné machine au
+repos, les contrôles de mutation étant terminés. L'échec documenté au
+tour précédent (`nondeterministic-failure.txt`) ne s'est pas reproduit.
 
 ---
 
