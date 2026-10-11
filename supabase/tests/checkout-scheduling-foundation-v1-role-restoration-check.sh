@@ -1304,179 +1304,130 @@ fi
 # qui la porte. On suit l'ouvreur de commande le plus proche en amont,
 # et on exige qu'il soit gardé.
 MUT_REPORT="$TMP_DIR/role-mutations.txt"
-MUT_AWK="$TMP_DIR/role-mutation-detector.awk"
-# Le détecteur vit dans UN fichier, employé pour analyser les harnais ET
-# pour s'éprouver lui-même sur des fixtures. Deux copies divergeraient.
-#
-# Il classe la ligne AVANT de mettre à jour l'ouvreur : sans cela, une
-# mutation BRUTE tenant sur UNE SEULE LIGNE serait consommée par la
-# règle d'ouvreur et jamais examinée. C'est la limite que l'audit a
-# signalée, et elle est fermée.
-cat > "$MUT_AWK" <<'AWKDET'
-# Détecteur de mutations de rôle NON GARDÉES.
-# CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
-#
-# Trois défauts corriges ici, tous signales par l audit :
-#
-#   1. l etat « garde » FUITAIT d un appel a l autre. Un
-#      csdj1_identity_mutate "perform 1;" complet laissait l etat actif,
-#      et la mutation BRUTE de la ligne suivante en heritait.
-#      => l etat ne se propage que tant qu un argument reste OUVERT.
-#
-#   2. seul le guillemet DOUBLE etait reconnu comme ouverture d argument.
-#      q 'alter role ...' passait inapercu.
-#      => les deux formes de litteral sont reconnues.
-#
-#   3. les mots-cles SQL etaient cherches en minuscules et en capitales,
-#      jamais en casse mixte. « Alter Role » passait inapercu.
-#      => la recherche est insensible a la casse.
-#
-# Principe : pour chaque ligne, on cherche la position du mot-cle de
-# mutation, puis celle des APPELS qui la precedent SUR LA MEME LIGNE.
-# Le plus proche en amont decide. S il n y en a aucun, on herite de
-# l etat -- mais seulement si un argument est encore ouvert.
-
-function firstpos(str, re) {
-  if (match(str, re)) return RSTART
-  return 0
-}
-
-/^[[:space:]]*#/ { next }
-/SELF-REFERENCE/ { next }
-
-{
-  line  = $0
-  lower = tolower(line)
-
-  # Les motifs sont des CHAINES, et non des constantes /re/ : en awk,
-  # une constante regex passee en ARGUMENT vaut « $0 ~ /re/ », soit 0 ou
-  # 1, et la fonction chercherait alors « 0 » dans le texte.
-  mp = firstpos(lower, "(create|alter|drop)[ \t]+role")
-  gp = firstpos(line, "csdj1_identity_(mutate|install|uninstall)|RESTORE_SQL=|PROBE_MUTATION=")
-  # Un jeton d appel ne compte que s il est suivi d une ouverture de
-  # chaine ou d un drapeau. Sans cela, du SQL contenant « ..._probe
-  # nologin » serait pris pour un appel au client « probe », et
-  # ecraserait l etat au milieu d un argument garde.
-  rp = firstpos(line, "(^|[^a-z_])(q|qw)[ \t]*[\"']|csdj1_runner_[a-z_]+[ \t]*[\"']|(psql|probe|sql_value|run_sql)[ \t]+(-|[\"']|\\$)")
-
-  if (mp > 0) {
-    gbefore = (gp > 0 && gp < mp) ? gp : 0
-    rbefore = (rp > 0 && rp < mp) ? rp : 0
-
-    if (rbefore > 0 && rbefore >= gbefore)
-      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, "meme ligne"
-    else if (gbefore > 0)
-      printf "GARDEE\t%s\t%s\n", FILENAME, line
-    else if (pending == "brut")
-      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, "argument ouvert en amont"
-    else if (pending == "garde")
-      printf "GARDEE\t%s\t%s\n", FILENAME, line
-    else
-      printf "SANS-OUVREUR\t%s\t%s\n", FILENAME, line
-  }
-
-  # Mise a jour de l etat APRES classement. Un appel dont l argument se
-  # ferme sur la meme ligne ne laisse AUCUN etat derriere lui : c est ce
-  # qui fermait la fuite.
-  if (gp > 0 || rp > 0) {
-    if (rp > gp) { kind = "brut"; callpos = rp } else { kind = "garde"; callpos = gp }
-    rest = substr(line, callpos)
-    dq = gsub(/"/, "\"", rest)
-    sq = gsub(/'/, "'", rest)
-    if (dq % 2 == 1)      { pending = kind; pq = "\"" }
-    else if (sq % 2 == 1) { pending = kind; pq = "'" }
-    else                  { pending = ""; pq = "" }
-  } else if (pending != "") {
-    tmp = line
-    n = (pq == "\"") ? gsub(/"/, "\"", tmp) : gsub(/'/, "'", tmp)
-    if (n % 2 == 1) { pending = ""; pq = "" }
-  }
-}
-AWKDET
+# Le détecteur vit dans SON PROPRE FICHIER, et non dans celui qu'il
+# analyse : un détecteur logé dans le fichier qu'il scrute se dénonce
+# lui-même, et l'on finit par lui ajouter des exceptions -- lesquelles
+# sont autant de trous. Il reconstitue les COMMANDES du shell
+# (citations, commentaires, continuations, documents en ligne) au lieu
+# de compter des guillemets ligne par ligne : trois audits ont trouvé
+# trois façons de tromper ce comptage.
+MUT_AWK="$SCRIPT_DIR/csdj1-raw-role-mutation-detector.awk"
+[ -f "$MUT_AWK" ] || fatal "détecteur de mutations de rôle absent : $MUT_AWK"
 awk -f "$MUT_AWK" "$SELF" "$HARNESS" > "$MUT_REPORT"
 
-# ── FIXTURES DU DÉTECTEUR — il doit voir ce qu'il prétend voir.
+# ── FIXTURES DU DÉTECTEUR — il doit voir ce qu'il prétend voir, et ne
+#    pas dénoncer ce qui est correct.
 #
-# Exigence du mandat : une mutation BRUTE tenant sur UNE SEULE LIGNE,
-# hors de csdj1_identity_mutate, doit être détectée.
+# Les verbes SQL sont ASSEMBLÉS, et non écrits en clair : écrits en
+# clair, ils apparaîtraient dans CE fichier, que le détecteur analyse
+# aussi. Une fixture ne doit pas devenir le défaut qu'elle éprouve.
 DET_FIXT="$TMP_DIR/detector-fixtures"
 mkdir -p "$DET_FIXT"
-# Les verbes SQL des fixtures sont ASSEMBLÉS, et non écrits en clair :
-# écrits en clair, ils apparaîtraient dans CE fichier, que le détecteur
-# analyse aussi -- et il les dénoncerait, à juste titre, comme des
-# mutations brutes. Une fixture ne doit pas devenir le défaut qu'elle
-# éprouve.
 V_CREATE="crea""te role"
 V_ALTER="alt""er role"
 V_ALTER_MIXED="Alt""er Role"
 SQ="'"
 DQ='"'
-# D1 — appel brut d'UNE ligne, argument entre APOSTROPHES.
-{ printf '#!/usr/bin/env bash\n'
-  printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
-} > "$DET_FIXT/d1-raw-single-quote.sh"
-# D2 — même chose entre GUILLEMETS.
-{ printf '#!/usr/bin/env bash\n'
-  printf 'q %s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"
-} > "$DET_FIXT/d2-raw-double-quote.sh"
-# D3 — casse MIXTE.
-{ printf '#!/usr/bin/env bash\n'
-  printf 'q %s%s fixture BYPASSRLS;%s\n' "$SQ" "$V_ALTER_MIXED" "$SQ"
-} > "$DET_FIXT/d3-mixed-case.sh"
-# D4 — un appel GARDÉ et COMPLET, puis une mutation BRUTE. L'état
-#      « gardé » ne doit pas fuir de l'un à l'autre : c'est le défaut
-#      que l'audit a trouvé.
+
+# D1 .. D7 — acquis des tours précédents, rejoués en non-régression.
+printf '#!/usr/bin/env bash\nq %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ" > "$DET_FIXT/d1.sh"
+printf '#!/usr/bin/env bash\nq %s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ" > "$DET_FIXT/d2.sh"
+printf '#!/usr/bin/env bash\nq %s%s fixture BYPASSRLS;%s\n' "$SQ" "$V_ALTER_MIXED" "$SQ" > "$DET_FIXT/d3.sh"
 { printf '#!/usr/bin/env bash\n'
   printf 'csdj1_identity_mutate %sperform 1;%s\n' "$DQ" "$DQ"
   printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
-} > "$DET_FIXT/d4-guard-state-leak.sh"
-# D5 — mutation brute MULTI-LIGNES (non-régression du tour précédent).
+} > "$DET_FIXT/d4.sh"
 { printf '#!/usr/bin/env bash\n'
   printf 'qw %sdo \\$\\$ begin\n' "$DQ"
   printf '      %s fixture login bypassrls;\n' "$V_CREATE"
   printf '    end \\$\\$;%s\n' "$DQ"
-} > "$DET_FIXT/d5-raw-multiline.sh"
-# D6 — mutation correctement GARDÉE : elle ne doit pas être dénoncée.
+} > "$DET_FIXT/d5.sh"
 { printf '#!/usr/bin/env bash\n'
   printf 'csdj1_identity_mutate %s\n' "$DQ"
   printf '  %s fixture login;\n' "$V_CREATE"
   printf '%s\n' "$DQ"
-} > "$DET_FIXT/d6-guarded.sh"
-# D7 — du SQL qui ne touche AUCUN rôle : il doit être ignoré.
-{ printf '#!/usr/bin/env bash\n'
-  printf 'q %sselect 1; drop table if exists x;%s\n' "$DQ" "$DQ"
-} > "$DET_FIXT/d7-non-role-sql.sh"
+} > "$DET_FIXT/d6.sh"
+printf '#!/usr/bin/env bash\nq %sselect 1; drop table if exists x;%s\n' "$DQ" "$DQ" > "$DET_FIXT/d7.sh"
 
-# D1, D2, D3, D4, D5 : la mutation brute doit être DÉTECTÉE.
-for fx in d1-raw-single-quote d2-raw-double-quote d3-mixed-case \
-          d4-guard-state-leak d5-raw-multiline; do
-  FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/$fx.sh")"
-  case "$FX_OUT" in
-    NON-GARDEE*) pass "[E] fixture « $fx » : la mutation brute est DÉTECTÉE" ;;
-    "") fail "[E] fixture « $fx » : la mutation brute est INVISIBLE au détecteur" ;;
-    *) fail "[E] fixture « $fx » : mal classée (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)" ;;
-  esac
-done
-# D4 encore : il ne suffit pas qu'elle soit détectée, il faut qu'elle ne
-# soit pas ATTRIBUÉE à l'appel gardé qui précède.
-FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d4-guard-state-leak.sh")"
-if printf '%s' "$FX_OUT" | grep -q '^GARDEE'; then
-  fail "[E] fixture « d4 » : la mutation brute HÉRITE de l'état gardé de l'appel précédent"
+# R1 — LA REPRODUCTION DE L'AUDIT, mot pour mot. Une apostrophe dans un
+#      COMMENTAIRE, puis une continuation par barre oblique inverse.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate %sperform 1;%s # l%sinitialisation est terminee\n' "$DQ" "$DQ" "$SQ"
+  printf 'q \\\n'
+  printf '%s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/r1.sh"
+# R2 — commentaire contenant une APOSTROPHE.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate %sperform 1;%s # commentaire avec apostrophe %s\n' "$DQ" "$DQ" "$SQ"
+  printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/r2.sh"
+# R3 — commentaire contenant un GUILLEMET.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate %sperform 1;%s # commentaire avec guillemet %s\n' "$DQ" "$DQ" "$DQ"
+  printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/r3.sh"
+# R4 — commentaire contenant LES DEUX, et mutation en casse mixte.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate %sperform 1;%s # commentaire avec %s et %s\n' "$DQ" "$DQ" "$SQ" "$DQ"
+  printf 'q %s%s fixture BYPASSRLS;%s\n' "$SQ" "$V_ALTER_MIXED" "$SQ"
+} > "$DET_FIXT/r4.sh"
+# R5 — un « # » À L'INTÉRIEUR de l'argument SQL n'est PAS un
+#      commentaire : la mutation doit rester visible.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'q %sselect %s%s#%s%s; %s fixture bypassrls;%s\n' \
+    "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/r5.sh"
+
+# C1 .. C5 — continuations par barre oblique inverse.
+{ printf '#!/usr/bin/env bash\nq \\\n'; printf '%s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"; } > "$DET_FIXT/c1.sh"
+{ printf '#!/usr/bin/env bash\nqw \\\n'; printf '%s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"; } > "$DET_FIXT/c2.sh"
+{ printf '#!/usr/bin/env bash\nq \\\n'; printf '%s%s fixture BYPASSRLS;%s\n' "$SQ" "$V_ALTER_MIXED" "$SQ"; } > "$DET_FIXT/c3.sh"
+{ printf '#!/usr/bin/env bash\ncsdj1_identity_mutate \\\n'; printf '%s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"; } > "$DET_FIXT/c4.sh"
+{ printf '#!/usr/bin/env bash\nq \\\n'; printf '%sselect 1;%s\n' "$SQ" "$SQ"; } > "$DET_FIXT/c5.sh"
+
+# Chaque fixture est d'abord vérifiée SYNTAXIQUEMENT par bash : une
+# fixture que le shell lui-même n'accepterait pas ne prouverait rien sur
+# la « réalité lexicale de Bash » que le mandat invoque.
+detector_fixture() {
+  local fx="$1" want="$2" out
+  if ! bash -n "$DET_FIXT/$fx.sh" 2>/dev/null; then
+    fail "[E] fixture « $fx » : bash la refuse -- elle ne représente aucune réalité"
+    return
+  fi
+  out="$(awk -f "$MUT_AWK" "$DET_FIXT/$fx.sh" | head -1 | cut -d"$(printf '\t')" -f1)"
+  [ -n "$out" ] || out="AUCUNE"
+  if [ "$out" = "$want" ]; then
+    pass "[E] fixture « $fx » : $out (attendu)"
+  else
+    fail "[E] fixture « $fx » : $out au lieu de $want"
+  fi
+}
+
+detector_fixture d1 NON-GARDEE
+detector_fixture d2 NON-GARDEE
+detector_fixture d3 NON-GARDEE
+detector_fixture d4 NON-GARDEE
+detector_fixture d5 NON-GARDEE
+detector_fixture d6 GARDEE
+detector_fixture d7 AUCUNE
+detector_fixture r1 NON-GARDEE
+detector_fixture r2 NON-GARDEE
+detector_fixture r3 NON-GARDEE
+detector_fixture r4 NON-GARDEE
+detector_fixture r5 NON-GARDEE
+detector_fixture c1 NON-GARDEE
+detector_fixture c2 NON-GARDEE
+detector_fixture c3 NON-GARDEE
+detector_fixture c4 GARDEE
+detector_fixture c5 AUCUNE
+
+# R1 mérite un mot de plus : ce n'est pas seulement qu'elle est
+# détectée, c'est qu'elle n'est plus ATTRIBUÉE à l'appel gardé qui la
+# précède. Le détecteur du tour précédent la déclarait GARDÉE.
+if awk -f "$MUT_AWK" "$DET_FIXT/r1.sh" | grep -q '^GARDEE'; then
+  fail "[E] R1 — la mutation brute est encore attribuée à l'appel gardé précédent"
 else
-  pass "[E] fixture « d4 » : l'état « gardé » ne FUIT pas d'un appel complet au suivant"
-fi
-# D6 : une mutation gardée n'est pas dénoncée à tort.
-FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d6-guarded.sh")"
-case "$FX_OUT" in
-  GARDEE*) pass "[E] fixture « d6-guarded » : une mutation GARDÉE n'est pas dénoncée à tort" ;;
-  *) fail "[E] fixture « d6-guarded » : une mutation gardée est signalée à tort (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)" ;;
-esac
-# D7 : du SQL sans rôle ne produit aucun verdict.
-FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d7-non-role-sql.sh")"
-if [ -z "$FX_OUT" ]; then
-  pass "[E] fixture « d7-non-role-sql » : du SQL sans mutation de rôle est IGNORÉ"
-else
-  fail "[E] fixture « d7-non-role-sql » : verdict inattendu (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)"
+  pass "[E] R1 — l'apostrophe d'un COMMENTAIRE ne fait plus survivre l'état gardé"
 fi
 
 MUT_SEEN="$(wc -l < "$MUT_REPORT")"
@@ -1579,6 +1530,80 @@ for ifact in destination_reseau port current_user is_superuser socket data_direc
     fail "[E] le prédicat partagé ne vérifie PAS « $ifact »"
   fi
 done
+
+# ============================================================
+# [I] CONTRÔLE DE NOCIVITÉ DU DÉTECTEUR
+#     CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+#
+# Le détecteur du tour précédent déclarait GARDÉE la séquence de
+# l'audit. Dire qu'il se trompait ne suffit pas : il faut montrer que ce
+# qu'il couvrait d'un label rassurant MUTE RÉELLEMENT un rôle.
+#
+# On exécute donc la séquence, pour de vrai, sur le cluster jetable de
+# ce fichier. La mutation vit dans un fichier GÉNÉRÉ -- verbe assemblé,
+# comme les fixtures -- afin que ce fichier-ci n'en contienne jamais le
+# texte : il serait sinon dénoncé, à juste titre, par le détecteur qui
+# l'analyse.
+#
+# Le rôle témoin est posé et restauré par le chemin GARDÉ. Seule la
+# mutation que l'on démontre nocive passe en brut.
+# ============================================================
+log "=== [I] la séquence de l'audit mute-t-elle réellement un rôle ? ==="
+R1_PROBE="scanym_csdj1_r1_probe"
+csdj1_identity_use test || fatal "[I] contrat du cluster sous test indisponible."
+csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$R1_PROBE') then
+    create role $R1_PROBE nologin nobypassrls;
+  else
+    alter role $R1_PROBE nologin nobypassrls;
+  end if;
+" || fatal "[I] impossible de poser le rôle témoin ($CSDJ1_ID_LAST)."
+
+r1_probe_state() {
+  q "select (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
+     from pg_catalog.pg_roles where rolname = '$R1_PROBE';"
+}
+R1_BEFORE="$(r1_probe_state)"
+
+R1_LIVE="$TMP_DIR/r1-live.sh"
+{ printf '#!/usr/bin/env bash\n'
+  # `q` est le VRAI client brut, celui que le harnais emploie. Écrit
+  # sur UNE ligne : le détecteur d'isolation de [E] analyse ce
+  # fichier-ci, et une ligne de `printf` portant « "$PSQL" » sans
+  # « env -i » y passerait pour un appel client non isolé.
+  printf 'q() { env -i PATH=%s HOME=%s "%s" -X -A -q -t -v ON_ERROR_STOP=1 -h %s -p %s -U %s -d postgres -c "$1" </dev/null 2>&1; }\n' \
+    "$SAFE_PATH" "$SAFE_HOME" "$PSQL" "$SOCKET_DIR" "$PORT" "$OWNER"
+  # Un appel gardé FACTICE, sans effet : seul son TEXTE compte ici,
+  # puisque c'est lui que l'ancien détecteur prenait pour couverture.
+  printf 'csdj1_identity_mutate() { :; }\n'
+  printf 'csdj1_identity_mutate %sperform 1;%s # l%sinitialisation est terminee\n' "$DQ" "$DQ" "$SQ"
+  printf 'q \\\n'
+  printf '%s%s %s bypassrls;%s\n' "$SQ" "$V_ALTER" "$R1_PROBE" "$SQ"
+} > "$R1_LIVE"
+
+if ! bash -n "$R1_LIVE" 2>/dev/null; then
+  fail "[I] la séquence générée n'est pas du shell valide : elle ne démontre rien"
+else
+  # La destination est ÉCRITE dans le fichier généré : rien ne transite
+  # par l'environnement, et la séquence est exactement celle de l'audit.
+  bash "$R1_LIVE" >/dev/null 2>&1
+  R1_AFTER="$(r1_probe_state)"
+  if [ "$R1_BEFORE" = "NOBYPASSRLS" ] && [ "$R1_AFTER" = "BYPASSRLS" ]; then
+    pass "[I] NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle ($R1_BEFORE -> $R1_AFTER)"
+  else
+    fail "[I] la séquence n'a pas muté le rôle ($R1_BEFORE -> $R1_AFTER) : le cas ne démontre aucune nocivité"
+  fi
+  # Et le détecteur, lui, la voit.
+  if awk -f "$MUT_AWK" "$R1_LIVE" | grep -q '^NON-GARDEE'; then
+    pass "[I] et le détecteur la classe NON-GARDEE : le label correspond enfin au fait"
+  else
+    fail "[I] le détecteur ne classe pas NON-GARDEE une mutation qui vient de s'exécuter"
+  fi
+fi
+
+# Remise en état par le chemin GARDÉ, puis suppression du rôle témoin.
+csdj1_identity_mutate "  alter role $R1_PROBE nologin nobypassrls;" >/dev/null
+csdj1_identity_mutate "  drop role if exists $R1_PROBE;" >/dev/null
 
 log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
 [ "$FAIL" -eq 0 ] || exit 1

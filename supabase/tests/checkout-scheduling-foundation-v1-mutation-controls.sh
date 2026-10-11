@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte SEPT
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte HUIT
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -16,6 +16,7 @@
 # M6  l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE
 # M7  le parseur sensible aux guillemets remplacé par un découpage brut
 # M8  la défense anti-collision des octets réservés retirée
+# M9  la fuite d'état par les commentaires et les continuations
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -27,12 +28,13 @@ TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROLE_SRC="$TESTS_DIR/checkout-scheduling-foundation-v1-role-restoration-check.sh"
 MAIN_SRC="$TESTS_DIR/checkout-scheduling-foundation-v1-check.sh"
 LIB_SRC="$TESTS_DIR/csdj1-cluster-identity.sh"
+DET_SRC="$TESTS_DIR/csdj1-raw-role-mutation-detector.awk"
 MUT_ROLE="$TESTS_DIR/.mut-role-check.sh"
 MUT_MAIN="$TESTS_DIR/.mut-main-check.sh"
 MUT_LIB="$TESTS_DIR/.mut-cluster-identity.sh"
 OUT="${OUT_DIR:-/tmp}/csdj1-mutation-controls.log"
 
-for f in "$ROLE_SRC" "$MAIN_SRC" "$LIB_SRC"; do
+for f in "$ROLE_SRC" "$MAIN_SRC" "$LIB_SRC" "$DET_SRC"; do
   [ -f "$f" ] || { printf 'source absente : %s\n' "$f"; exit 1; }
 done
 
@@ -41,7 +43,7 @@ FAIL=0
 say() { printf '%s\n' "$*" | tee -a "$OUT"; }
 ok()  { PASS=$((PASS + 1)); say "CONTROL PASS: $*"; }
 ko()  { FAIL=$((FAIL + 1)); say "CONTROL FAIL: $*"; }
-clean() { rm -f "$MUT_ROLE" "$MUT_MAIN" "$MUT_LIB"; }
+clean() { rm -f "$MUT_ROLE" "$MUT_MAIN" "$MUT_LIB" "$TESTS_DIR/.mut-raw-role-detector.awk"; }
 trap clean EXIT
 
 : > "$OUT"
@@ -330,6 +332,64 @@ if [ "$M8_RC" != "0" ] \
 else
   ko "M8 — le retrait de la défense anti-collision passe inaperçu (code $M8_RC) : [H] S1/S2 ne prouvent rien"
 fi
+
+# ────────────────────────────────────────────────────────────
+# M9 — AUD-07 (septième passe) : la fuite d'état par les
+#      COMMENTAIRES et les CONTINUATIONS, réinjectée.
+#
+# C'est le défaut littéral du sixième re-audit. Le détecteur ne doit
+# plus laisser une apostrophe de COMMENTAIRE ouvrir une citation, ni
+# ignorer une continuation par barre oblique inverse. On lui retire
+# les deux règles : la reproduction R1 doit alors être classée GARDÉE
+# -- un mensonge sur une mutation qui, [I] le montre, s'exécute
+# réellement.
+# ────────────────────────────────────────────────────────────
+say "--- M9 : fuite d'état par les commentaires et les continuations"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+cp "$LIB_SRC" "$MUT_LIB"
+MUT_DET="$TESTS_DIR/.mut-raw-role-detector.awk"
+python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM9'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+# 1) un « # » hors citation ne termine plus la ligne : son contenu
+#    redevient du shell, et une apostrophe y ouvre une citation.
+needle = 'if (c == "#" && (buf == "" || substr(buf, length(buf), 1) ~ /[ \\t\\n;&|(]/)) break'
+assert needle in s, "ancre de commentaire introuvable"
+s = s.replace(needle, 'if (0) break', 1)
+# 2) la continuation par barre oblique inverse n est plus reconnue.
+cont = '        if (i == n) { cont = 1; i++; continue }          # continuation'
+assert cont in s, "ancre de continuation introuvable"
+s = s.replace(cont, '        if (i == n) { i++; continue }', 1)
+open(dst, 'w', encoding='utf-8').write(s)
+PYM9
+python3 -I - "$ROLE_SRC" "$MUT_ROLE" "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" <<'PYR9'
+import sys
+src, dst, main_name, lib_name = sys.argv[1:5]
+s = open(src, encoding='utf-8').read()
+s = s.replace('HARNESS="$SCRIPT_DIR/checkout-scheduling-foundation-v1-check.sh"',
+              'HARNESS="$SCRIPT_DIR/%s"' % main_name, 1)
+s = s.replace('IDENTITY_LIB="$SCRIPT_DIR/csdj1-cluster-identity.sh"',
+              'IDENTITY_LIB="$SCRIPT_DIR/%s"' % lib_name, 1)
+s = s.replace('MUT_AWK="$SCRIPT_DIR/csdj1-raw-role-mutation-detector.awk"',
+              'MUT_AWK="$SCRIPT_DIR/.mut-raw-role-detector.awk"', 1)
+open(dst, 'w', encoding='utf-8').write(s)
+PYR9
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M9_RC="$(run_mut_role /tmp/csdj1-mut-m9.log)"
+if [ "$M9_RC" != "0" ] \
+   && grep -q "fixture « r1 » : GARDEE au lieu de NON-GARDEE" /tmp/csdj1-mut-m9.log \
+   && grep -q "R1 — la mutation brute est encore attribuée à l'appel gardé précédent" /tmp/csdj1-mut-m9.log; then
+  ok "M9 — la fuite d'état est VUE : R1 redevient GARDÉE, alors que [I] prouve qu'elle mute (code $M9_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m9.log | sed 's/^/       /' | tee -a "$OUT"
+  if grep -q "\\[I\\] NOCIF" /tmp/csdj1-mut-m9.log; then
+    say "       (et dans la MÊME exécution, [I] montre la mutation réellement appliquée)"
+  fi
+else
+  ko "M9 — la fuite d'état passe inaperçue (code $M9_RC) : R1 ne prouve rien"
+fi
+rm -f "$MUT_DET"
 
 clean
 say "=== BILAN CONTRÔLES DE MUTATION : $PASS contrôle(s) concluant(s), $FAIL manquant(s) ==="

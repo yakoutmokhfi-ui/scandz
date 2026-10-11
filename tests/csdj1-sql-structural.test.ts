@@ -1581,39 +1581,42 @@ test("[AUD07-SQL-5] la liste de sockets est analysée SELON LA SYNTAXE PostgreSQ
   }
 });
 
-test("[AUD07-SQL-6] le détecteur voit une mutation brute tenant sur UNE ligne", () => {
-  // Observation du cinquième re-audit : le détecteur attrapait la
-  // mutation multi-lignes, mais une mutation brute PACKÉE SUR UNE SEULE
-  // LIGNE pouvait lui échapper. Le sixième a montré que la correction
-  // était incomplète -- voir [AUD07-SQL-8] pour les trois défauts
-  // restants et leur fermeture.
+test("[AUD07-SQL-6] une mutation brute tenant sur UNE ligne est classée par sa COMMANDE", () => {
+  // Historique : la mutation multi-lignes fut d'abord attrapée, puis la
+  // mutation packée sur une seule ligne, puis les formes de littéral et
+  // la casse. Le détecteur ne classe plus des LIGNES mais des
+  // COMMANDES ([AUD07-SQL-8]) -- ce qui règle la famille entière.
   const rolePath =
     "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
   const role = readFileSync(rolePath, "utf8");
+  const DET_PATH = "supabase/tests/csdj1-raw-role-mutation-detector.awk";
+  const det = readFileSync(DET_PATH, "utf8");
 
-  // Le détecteur CLASSE la ligne avant de mettre à jour l'état.
+  // Le classement porte sur la commande reconstituée, pas sur la ligne.
   assert.ok(
-    role.indexOf("if (mp > 0) {") <
-      role.indexOf("# Mise a jour de l etat APRES classement"),
-    "la classification doit précéder la mise à jour de l'état"
+    det.includes('report(kind, buf, "commande complete")'),
+    "le verdict doit porter sur la COMMANDE reconstituée"
   );
   assert.ok(
-    role.includes('printf "NON-GARDEE\\t%s\\t%s\\t%s\\n", FILENAME, line, "meme ligne"'),
-    "une mutation brute sur la même ligne doit être rapportée comme telle"
+    det.includes("function finish(") && det.includes("buf = \"\""),
+    "chaque commande doit être classée puis remise à zéro"
   );
-  // Et il est ÉPROUVÉ par des fixtures, dont plusieurs sur une seule ligne.
-  for (const fx of ["d1-raw-single-quote", "d2-raw-double-quote", "d5-raw-multiline", "d6-guarded"]) {
-    assert.ok(role.includes(fx), `la fixture « ${fx} » doit exister`);
-  }
-  // Les fixtures assemblent leurs verbes au lieu de les écrire en
-  // clair : écrits en clair, ils seraient eux-mêmes dénoncés par le
-  // détecteur qui analyse ce fichier.
+  // Les formes d'une seule ligne, dans les deux littéraux.
   assert.ok(
-    role.includes('V_CREATE="crea""te role"'),
-    "les verbes des fixtures doivent être assemblés, non écrits en clair"
+    role.includes("detector_fixture d1 NON-GARDEE") &&
+      role.includes("detector_fixture d2 NON-GARDEE"),
+    "les deux formes de littéral sur une seule ligne doivent être détectées"
   );
-  // Le détecteur vit dans UN fichier, employé pour les harnais ET pour
-  // les fixtures.
+  // Et une mutation gardée n'est pas dénoncée.
+  assert.ok(
+    role.includes("detector_fixture d6 GARDEE"),
+    "une mutation gardée ne doit pas être dénoncée à tort"
+  );
+  assert.ok(
+    role.includes("detector_fixture d7 AUCUNE"),
+    "du SQL sans mutation de rôle ne doit produire aucun verdict"
+  );
+  // Le détecteur est un seul programme, réutilisé pour les fixtures.
   assert.ok(
     role.includes('awk -f "$MUT_AWK"'),
     "le détecteur doit être un seul programme, réutilisé pour les fixtures"
@@ -1720,70 +1723,117 @@ test("[AUD07-SQL-7] les octets que le parseur se RÉSERVE sont refusés dans l'e
   );
 });
 
-test("[AUD07-SQL-8] le détecteur ne confond plus les formes de littéral, la casse, ni les appels", () => {
-  // Trois défauts signalés par le sixième re-audit, tous dans le
-  // contrôle censé prouver que toute mutation brute est vue.
+test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+  // Trois audits successifs ont trouvé trois façons de tromper un
+  // détecteur qui comptait les guillemets ligne par ligne. Le dernier
+  // est le plus parlant : une apostrophe dans un COMMENTAIRE faisait
+  // survivre l'état « gardé » à une commande terminée, la continuation
+  // par barre oblique inverse n'était pas reconnue, et la mutation
+  // brute qui suivait était déclarée GARDÉE -- alors qu'elle
+  // s'exécutait.
+  //
+  // On ne corrige plus le comptage : il est remplacé par un lexeur qui
+  // reconstitue les COMMANDES. Chaque commande est classée SEULE, donc
+  // la classe entière de défauts « fuite d'état » disparaît par
+  // construction.
+  const DET_PATH = "supabase/tests/csdj1-raw-role-mutation-detector.awk";
+  assert.ok(
+    existsSync(DET_PATH),
+    "le détecteur doit vivre dans SON PROPRE fichier : logé dans celui qu'il analyse, il se dénonce lui-même"
+  );
+  const det = readFileSync(DET_PATH, "utf8");
+
+  // Les cinq états du mandat sont modélisés.
+  assert.ok(
+    /if \(c == "#" && \(buf == "" \|\| substr\(buf, length\(buf\), 1\) ~/.test(det),
+    "un « # » en début de mot, hors citation, doit terminer la ligne sans toucher l'état"
+  );
+  assert.ok(
+    /if \(i == n\) \{ cont = 1;/.test(det),
+    "une barre oblique inverse en fin de ligne doit être une continuation"
+  );
+  assert.ok(
+    det.includes(`if (q == "'") {`) && det.includes("aucune échappement"),
+    "les apostrophes n'admettent aucun échappement : c'est la règle du shell"
+  );
+  assert.ok(
+    /if \(c == "\\\\" && i < n\) \{ buf = buf substr\(line, i, 2\)/.test(det),
+    "entre guillemets, la barre oblique inverse échappe le caractère suivant"
+  );
+  assert.ok(
+    det.includes('if (c == ";" || c == "&" || c == "|") { finish(); i++; continue }'),
+    "« ; », « & » et « | » hors citation terminent une commande"
+  );
+  // Les documents en ligne : leur corps est du texte, mais une mutation
+  // qu'il contient appartient à la commande qui l'a ouvert.
+  assert.ok(
+    det.includes('substr(line, i, 2) == "<<"') && det.includes("hdkind"),
+    "un document en ligne doit être reconnu, et son corps attribué à la commande qui l'ouvre"
+  );
+  // Aucun état ne se propage d'une commande à l'autre.
+  assert.ok(
+    !/(^|[^a-z])pending\b/m.test(det),
+    "aucun état « gardé » ne doit subsister entre deux commandes : c'est la classe de défauts à supprimer (hdpending, intra-ligne, ne compte pas)"
+  );
+  // Fermé par défaut.
+  assert.ok(
+    det.includes("SANS-OUVREUR") && det.includes("commande non terminee en fin de fichier"),
+    "une commande qu'on ne sait pas classer doit être rapportée défavorablement"
+  );
+  // Casse insensible.
+  assert.ok(
+    det.includes("tolower(cmd)") &&
+      /\(create\|alter\|drop\)\[ \\t\]\+role/.test(det),
+    "le mot-clé doit être cherché sur le texte en minuscules"
+  );
+  // Un appel BRUT l'emporte sur un appel gardé dans la même commande.
+  assert.ok(
+    det.indexOf('kind = "garde"') < det.indexOf('kind = "brut"'),
+    "en cas de doute, le classement défavorable doit l'emporter"
+  );
+
+  // Les dix-sept fixtures : D1-D7, R1-R5, C1-C5.
   const rolePath =
     "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
   const role = readFileSync(rolePath, "utf8");
-  const awkProg = role.slice(
-    role.indexOf("cat > \"$MUT_AWK\" <<'AWKDET'"),
-    role.indexOf("\nAWKDET\n")
-  );
-  assert.ok(awkProg.length > 0, "le programme du détecteur doit être identifiable");
-
-  // 1. Les deux formes de littéral ouvrent un argument.
   assert.ok(
-    /\[\\"'\]/.test(awkProg),
-    "un appel suivi d'une APOSTROPHE doit compter autant qu'un appel suivi d'un guillemet"
+    role.includes('MUT_AWK="$SCRIPT_DIR/csdj1-raw-role-mutation-detector.awk"'),
+    "le harnais doit employer le détecteur externalisé"
   );
-  // 2. La casse ne compte pas.
-  assert.ok(
-    awkProg.includes("tolower(line)"),
-    "la recherche du mot-clé doit être insensible à la casse"
-  );
-  assert.ok(
-    /\(create\|alter\|drop\)\[ \\t\]\+role/.test(awkProg),
-    "le mot-clé doit être cherché sur le texte en minuscules"
-  );
-  // 3. L'état « gardé » ne fuit pas d'un appel COMPLET au suivant.
-  assert.ok(
-    /if \(dq % 2 == 1\)/.test(awkProg) && /else *\{ pending = ""/.test(awkProg),
-    "un appel dont l'argument se ferme sur la même ligne ne doit laisser aucun état"
-  );
-  // 4. Un motif passé en ARGUMENT doit être une chaîne : en awk, une
-  //    constante /re/ en argument vaut « $0 ~ /re/ », soit 0 ou 1.
-  assert.ok(
-    /firstpos\(lower, "/.test(awkProg) && /firstpos\(line, "/.test(awkProg),
-    "les motifs passés à firstpos doivent être des chaînes"
-  );
-  // 5. Un jeton d'appel ne compte que s'il est suivi d'une ouverture de
-  //    chaîne ou d'un drapeau : sinon du SQL contenant « ..._probe
-  //    nologin » serait pris pour un appel.
-  assert.ok(
-    /\(psql\|probe\|sql_value\|run_sql\)\[ \\t\]\+\(-\|/.test(awkProg),
-    "un jeton d'appel sans guillemet immédiat doit exiger un drapeau ou une ouverture de chaîne"
-  );
-
-  // Les sept fixtures du mandat.
-  for (const fx of [
-    "d1-raw-single-quote",
-    "d2-raw-double-quote",
-    "d3-mixed-case",
-    "d4-guard-state-leak",
-    "d5-raw-multiline",
-    "d6-guarded",
-    "d7-non-role-sql",
-  ]) {
-    assert.ok(role.includes(fx), `la fixture « ${fx} » doit exister`);
+  const EXPECTED: ReadonlyArray<[string, string]> = [
+    ["d1", "NON-GARDEE"], ["d2", "NON-GARDEE"], ["d3", "NON-GARDEE"],
+    ["d4", "NON-GARDEE"], ["d5", "NON-GARDEE"], ["d6", "GARDEE"], ["d7", "AUCUNE"],
+    ["r1", "NON-GARDEE"], ["r2", "NON-GARDEE"], ["r3", "NON-GARDEE"],
+    ["r4", "NON-GARDEE"], ["r5", "NON-GARDEE"],
+    ["c1", "NON-GARDEE"], ["c2", "NON-GARDEE"], ["c3", "NON-GARDEE"],
+    ["c4", "GARDEE"], ["c5", "AUCUNE"],
+  ];
+  for (const [fx, want] of EXPECTED) {
+    assert.ok(
+      role.includes(`detector_fixture ${fx} ${want}`),
+      `la fixture « ${fx} » doit être attendue en ${want}`
+    );
   }
+  // Chaque fixture est d'abord validée par bash : une fixture que le
+  // shell refuserait ne représenterait aucune réalité lexicale.
   assert.ok(
-    role.includes("l'état « gardé » ne FUIT pas d'un appel complet au suivant"),
-    "D4 doit vérifier l'absence de fuite d'état, et pas seulement la détection"
+    role.includes('if ! bash -n "$DET_FIXT/$fx.sh"'),
+    "chaque fixture doit être syntaxiquement valide pour bash"
+  );
+  // Et la séquence de l'audit est démontrée NOCIVE, pas seulement
+  // mal étiquetée.
+  assert.ok(
+    role.includes("[I] la séquence de l'audit mute-t-elle réellement un rôle ?"),
+    "la nocivité de la séquence doit être démontrée, et non déduite"
   );
   assert.ok(
-    role.includes("du SQL sans mutation de rôle est IGNORÉ"),
-    "D7 doit vérifier qu'un SQL sans rôle ne produit aucun verdict"
+    role.includes("NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle"),
+    "le contrôle doit observer la mutation effective d'un rôle"
+  );
+  // Les verbes des fixtures restent assemblés.
+  assert.ok(
+    role.includes('V_CREATE="crea""te role"'),
+    "les verbes des fixtures doivent être assemblés, non écrits en clair"
   );
 });
 
