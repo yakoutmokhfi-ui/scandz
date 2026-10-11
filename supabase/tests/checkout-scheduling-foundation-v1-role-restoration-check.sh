@@ -1323,11 +1323,27 @@ awk -f "$MUT_AWK" "$SELF" "$HARNESS" > "$MUT_REPORT"
 # aussi. Une fixture ne doit pas devenir le défaut qu'elle éprouve.
 DET_FIXT="$TMP_DIR/detector-fixtures"
 mkdir -p "$DET_FIXT"
-V_CREATE="crea""te role"
-V_ALTER="alt""er role"
-V_ALTER_MIXED="Alt""er Role"
+#
+# Les verbes sont assemblés EN DEUX TEMPS, et non « crea""te role » d'un
+# seul tenant : le détecteur de cette remédiation modélise la
+# CONCATÉNATION des citations du shell, donc « crea""te role » lui est
+# désormais un verbe adjacent -- et ce fichier serait son propre
+# signalement. Deux variables, jamais adjacentes, ne le sont pas.
+V_W_CREATE="crea""te"
+V_W_ALTER="alt""er"
+V_W_ALTER_MIXED="Alt""er"
+V_W_ALTER_UPPER="ALT""ER"
+V_W_ROLE="ro""le"
+V_W_ROLE_MIXED="Ro""le"
+V_W_ROLE_UPPER="RO""LE"
+V_CREATE="$V_W_CREATE $V_W_ROLE"
+V_ALTER="$V_W_ALTER $V_W_ROLE"
+V_ALTER_MIXED="$V_W_ALTER_MIXED $V_W_ROLE_MIXED"
+V_ALTER_UPPER="$V_W_ALTER_UPPER $V_W_ROLE_UPPER"
 SQ="'"
 DQ='"'
+TAB="$(printf '\t')"
+CR="$(printf '\r')"
 
 # D1 .. D7 — acquis des tours précédents, rejoués en non-régression.
 printf '#!/usr/bin/env bash\nq %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ" > "$DET_FIXT/d1.sh"
@@ -1385,6 +1401,86 @@ printf '#!/usr/bin/env bash\nq %sselect 1; drop table if exists x;%s\n' "$DQ" "$
 { printf '#!/usr/bin/env bash\ncsdj1_identity_mutate \\\n'; printf '%s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"; } > "$DET_FIXT/c4.sh"
 { printf '#!/usr/bin/env bash\nq \\\n'; printf '%sselect 1;%s\n' "$SQ" "$SQ"; } > "$DET_FIXT/c5.sh"
 
+# ── E1 .. E10 — LA CLASSE visée par la huitième remédiation : les
+#    blancs et les continuations À L'INTÉRIEUR de l'argument SQL.
+#
+# Ce ne sont pas dix orthographes à rattraper une à une : ce sont dix
+# points d'une même équivalence. Bash retire « barre oblique inverse +
+# saut de ligne » jusque DANS les guillemets doubles ; PostgreSQL lit
+# l'espace, la tabulation, le retour chariot et le saut de ligne comme
+# un seul et même blanc. Le détecteur normalise les deux, puis juge.
+H='#!/usr/bin/env bash'
+# E1 — la reproduction du huitième audit : continuation entre guillemets.
+{ printf '%s\nq %s%s \\\n' "$H" "$DQ" "$V_W_ALTER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e1.sh"
+# E2 — la seconde reproduction : un simple saut de ligne.
+{ printf '%s\nq %s%s\n' "$H" "$DQ" "$V_W_ALTER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e2.sh"
+# E3 — tabulation pour séparateur.
+printf '%s\nq %s%s%s%s fixture bypassrls;%s\n' \
+  "$H" "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ" > "$DET_FIXT/e3.sh"
+# E4 — plusieurs espaces.
+printf '%s\nq %s%s    %s fixture bypassrls;%s\n' \
+  "$H" "$DQ" "$V_W_ALTER" "$V_W_ROLE" "$DQ" > "$DET_FIXT/e4.sh"
+# E5 — L'ÉQUIVALENT GARDÉ de E1 : même forme, appel gardé. Sans ce
+#      point, « tout classer NON-GARDEE » passerait pour une réussite.
+{ printf '%s\ncsdj1_identity_mutate %s%s \\\n' "$H" "$DQ" "$V_W_ALTER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e5.sh"
+# E6 — la même mécanique SANS mutation : rien à signaler.
+{ printf '%s\nq %sselect \\\n' "$H" "$DQ"; printf ' 1;%s\n' "$DQ"; } > "$DET_FIXT/e6.sh"
+# E7 — CREATE ROLE coupé par une continuation.
+{ printf '%s\nq %s%s \\\n' "$H" "$DQ" "$V_W_CREATE"
+  printf '%s fixture login;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e7.sh"
+# E8 — CREATE ROLE coupé par un saut de ligne, puis tabulation.
+{ printf '%s\nqw %s%s\n' "$H" "$DQ" "$V_W_CREATE"
+  printf '%s%sfixture login;%s\n' "$V_W_ROLE" "$TAB" "$DQ"; } > "$DET_FIXT/e8.sh"
+# E9 — apostrophes, saut de ligne, MAJUSCULES.
+{ printf '%s\nq %s%s\n' "$H" "$SQ" "$V_W_ALTER_UPPER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE_UPPER" "$SQ"; } > "$DET_FIXT/e9.sh"
+# E10 — casse mixte, retour chariot PUIS saut de ligne.
+{ printf '%s\nqw %s%s%s\n' "$H" "$DQ" "$V_W_ALTER_MIXED" "$CR"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE_MIXED" "$DQ"; } > "$DET_FIXT/e10.sh"
+
+# ── F1 .. F6 — formes COMBINÉES : là où deux règles se rencontrent.
+# F1 — appel gardé, commentaire avec apostrophe, puis mutation brute
+#      coupée par une continuation entre guillemets.
+{ printf '%s\n' "$H"
+  printf 'csdj1_identity_mutate %sperform 1;%s # l%setat est reinitialise\n' "$DQ" "$DQ" "$SQ"
+  printf 'q %s%s \\\n' "$DQ" "$V_W_ALTER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f1.sh"
+# F2 — un COMMENTAIRE qui contient le verbe ne déclenche rien ; la
+#      mutation brute qui le suit, elle, est vue.
+{ printf '%s\n' "$H"
+  printf '# ce commentaire parle de %s et ne doit rien declencher\n' "$V_ALTER"
+  printf 'q %s%s%s%s fixture bypassrls;%s\n' "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f2.sh"
+# F3 — document en ligne : la mutation s'étend sur deux lignes du corps.
+#      Un corps analysé ligne à ligne la manquerait.
+{ printf '%s\n' "$H"
+  printf 'q %sEOSQL\n' '<<'
+  printf '  %s\n' "$V_W_ALTER"
+  printf '  %s fixture bypassrls;\n' "$V_W_ROLE"
+  printf 'EOSQL\n'; } > "$DET_FIXT/f3.sh"
+# F4 — appel GARDÉ dont l'argument court sur trois lignes.
+{ printf '%s\n' "$H"
+  printf 'csdj1_identity_mutate %s%s \\\n' "$DQ" "$V_W_ALTER"
+  printf '  %s \\\n' "$V_W_ROLE"
+  printf '  fixture bypassrls;%s\n' "$DQ"; } > "$DET_FIXT/f4.sh"
+# F5 — un « # » dans un littéral SQL reste du SQL, et la mutation qui
+#      le suit, coupée par un saut de ligne, est vue.
+{ printf '%s\nq %sselect %s#%s; %s\n' "$H" "$DQ" "$SQ" "$SQ" "$V_W_ALTER"
+  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f5.sh"
+# F6 — le verbe DANS un littéral de données n'est PAS exécutable.
+printf '%s\nq %sselect %s%s%s;%s\n' \
+  "$H" "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ" > "$DET_FIXT/f6.sh"
+
+# ── P1 .. P3 — contrôles de FAUX POSITIF exigés par le mandat.
+printf '%s\nq %sselect %s%s foo%s;%s\n' \
+  "$H" "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ" > "$DET_FIXT/p1.sh"
+printf '%s\nq %sselect 1; -- %s foo%s\n' \
+  "$H" "$DQ" "$V_ALTER_UPPER" "$DQ" > "$DET_FIXT/p2.sh"
+printf '%s\nq %sselect %s%s foo%s;%s\n' \
+  "$H" "$DQ" "$SQ" "$(printf '%s %s' "$V_W_CREATE" "$V_W_ROLE" | tr 'a-z' 'A-Z')" "$SQ" "$DQ" > "$DET_FIXT/p3.sh"
+
 # Chaque fixture est d'abord vérifiée SYNTAXIQUEMENT par bash : une
 # fixture que le shell lui-même n'accepterait pas ne prouverait rien sur
 # la « réalité lexicale de Bash » que le mandat invoque.
@@ -1420,6 +1516,25 @@ detector_fixture c2 NON-GARDEE
 detector_fixture c3 NON-GARDEE
 detector_fixture c4 GARDEE
 detector_fixture c5 AUCUNE
+detector_fixture e1 NON-GARDEE
+detector_fixture e2 NON-GARDEE
+detector_fixture e3 NON-GARDEE
+detector_fixture e4 NON-GARDEE
+detector_fixture e5 GARDEE
+detector_fixture e6 AUCUNE
+detector_fixture e7 NON-GARDEE
+detector_fixture e8 NON-GARDEE
+detector_fixture e9 NON-GARDEE
+detector_fixture e10 NON-GARDEE
+detector_fixture f1 NON-GARDEE
+detector_fixture f2 NON-GARDEE
+detector_fixture f3 NON-GARDEE
+detector_fixture f4 GARDEE
+detector_fixture f5 NON-GARDEE
+detector_fixture f6 AUCUNE
+detector_fixture p1 AUCUNE
+detector_fixture p2 AUCUNE
+detector_fixture p3 AUCUNE
 
 # R1 mérite un mot de plus : ce n'est pas seulement qu'elle est
 # détectée, c'est qu'elle n'est plus ATTRIBUÉE à l'appel gardé qui la
@@ -1604,6 +1719,285 @@ fi
 # Remise en état par le chemin GARDÉ, puis suppression du rôle témoin.
 csdj1_identity_mutate "  alter role $R1_PROBE nologin nobypassrls;" >/dev/null
 csdj1_identity_mutate "  drop role if exists $R1_PROBE;" >/dev/null
+
+# ============================================================
+# [J] CONTRE-ÉPREUVE ADVERSARIALE DU DÉTECTEUR
+#     CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01 (huitième remédiation)
+#
+# Sept tours de suite, un audit a trouvé une orthographe que le
+# détecteur ne voyait pas. Montrer qu'il voit E1 et E2 ne vaut donc
+# rien : ce qu'il faut montrer, c'est qu'on a CHERCHÉ À LE TROMPER, et
+# comment.
+#
+# On engendre donc une MATRICE de formes sémantiquement équivalentes --
+# verbe, casse, séparateur, forme de citation, forme d'appel,
+# commentaire -- et, pour chacune, on établit quatre faits :
+#
+#   1. bash l'accepte            (« bash -n »)
+#   2. l'argument RÉELLEMENT transmis est relevé, en faisant jouer à
+#      bash lui-même le rôle d'oracle : la forme est exécutée avec un
+#      « q » factice qui n'imprime que son premier argument ;
+#   3. PostgreSQL l'exécute, et le rôle sonde CHANGE pour de vrai --
+#      c'est PostgreSQL, et non une expression régulière, qui dit que
+#      la forme est bien un CREATE ROLE ou un ALTER ROLE ;
+#   4. le détecteur la classe NON-GARDEE.
+#
+# Et symétriquement, des formes qui CONTIENNENT le verbe sans
+# l'exécuter : elles ne doivent produire aucun signalement.
+#
+# Dans les fichiers engendrés, « q » ET « qw » visent le cluster
+# JETABLE de ce fichier : la démonstration porte sur le verdict et sur
+# l'acceptation par PostgreSQL, non sur la destination -- le témoin,
+# lui, reste intact, comme [D] et [F] l'exigent.
+# ============================================================
+log "=== [J] contre-épreuve adversariale : a-t-on cherché à tromper le détecteur ? ==="
+ADV="$TMP_DIR/adversarial"
+mkdir -p "$ADV"
+ADV_PROBE="scanym_csdj1_adv_probe"
+ADV_LOG="$TMP_DIR/adversarial-cases.txt"
+: > "$ADV_LOG"
+csdj1_identity_use test || fatal "[J] contrat du cluster sous test indisponible."
+csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='$ADV_PROBE') then
+    create role $ADV_PROBE nologin nobypassrls;
+  else
+    alter role $ADV_PROBE nologin nobypassrls;
+  end if;
+" || fatal "[J] impossible de poser le rôle sonde ($CSDJ1_ID_LAST)."
+
+adv_probe_state() {
+  q "select (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
+     from pg_catalog.pg_roles where rolname = '$ADV_PROBE';"
+}
+adv_role_exists() {
+  q "select count(*) from pg_catalog.pg_roles where rolname = '$1';"
+}
+# L'en-tête d'un fichier EXÉCUTABLE : les deux enveloppes brutes, avec
+# la destination ÉCRITE DEDANS. Une seule ligne par définition, pour la
+# même raison qu'en [I] : le détecteur d'isolation analyse CE
+# fichier-ci, pas celui qu'on engendre.
+adv_header() {
+  printf 'q() { env -i PATH=%s HOME=%s "%s" -X -A -q -t -v ON_ERROR_STOP=1 -h %s -p %s -U %s -d postgres -c "$1" </dev/null 2>&1; }\n' \
+    "$SAFE_PATH" "$SAFE_HOME" "$PSQL" "$SOCKET_DIR" "$PORT" "$OWNER"
+  printf 'qw() { q "$1"; }\n'
+  printf 'csdj1_identity_mutate() { :; }\n'
+}
+# L'ARGUMENT, dans la forme voulue. C'est ici, et nulle part ailleurs,
+# que vivent les équivalences : séparateur et forme de citation.
+#   $1 citation : dq | sq | cat     $2 séparateur : sp|spn|tab|lf|crlf|bsl
+#   $3 premier mot   $4 second mot   $5 fin de l'instruction
+adv_arg() {
+  local qk="$1" sk="$2" w1="$3" w2="$4" tail="$5" open body
+  case "$qk" in
+    dq)  open="$DQ"; body="$w1" ;;
+    sq)  open="$SQ"; body="$w1" ;;
+    cat) open="$DQ"; body="${w1:0:3}$DQ$DQ${w1:3}" ;;   # concaténation du shell
+  esac
+  case "$sk" in
+    sp)   printf '%s%s %s %s%s'       "$open" "$body" "$w2" "$tail" "$open" ;;
+    spn)  printf '%s%s    %s %s%s'    "$open" "$body" "$w2" "$tail" "$open" ;;
+    tab)  printf '%s%s%s%s %s%s'      "$open" "$body" "$TAB" "$w2" "$tail" "$open" ;;
+    lf)   printf '%s%s\n%s %s%s'      "$open" "$body" "$w2" "$tail" "$open" ;;
+    crlf) printf '%s%s%s\n%s %s%s'    "$open" "$body" "$CR" "$w2" "$tail" "$open" ;;
+    bsl)  printf '%s%s \\\n%s %s%s'   "$open" "$body" "$w2" "$tail" "$open" ;;
+  esac
+}
+# Un cas : on écrit l'APPEL une seule fois, et on le réemploie pour les
+# deux fichiers. Le fichier jugé par le détecteur et le fichier exécuté
+# portent ainsi, par construction, le même texte d'appel.
+adv_build() {
+  local id="$1" call="$2" prefix="$3" arg="$4"
+  { [ -n "$prefix" ] && printf '%s\n' "$prefix"
+    printf '%s %s\n' "$call" "$arg"; } > "$ADV/call-$id.txt"
+  { printf '#!/usr/bin/env bash\n'; cat "$ADV/call-$id.txt"; } > "$ADV/case-$id.sh"
+  { printf '#!/usr/bin/env bash\n'; adv_header; cat "$ADV/call-$id.txt"; } > "$ADV/exec-$id.sh"
+}
+adv_verdict() {
+  local out
+  out="$(awk -f "$MUT_AWK" "$ADV/case-$1.sh" | head -1 | cut -d"$TAB" -f1)"
+  [ -n "$out" ] || out="AUCUNE"
+  printf '%s' "$out"
+}
+# L'argument réellement transmis : c'est BASH qui le dit.
+adv_derive() {
+  bash --norc --noprofile -c \
+    'q() { printf "%s" "$1"; }; qw() { printf "%s" "$1"; }; csdj1_identity_mutate() { :; }; . "$1"' \
+    _ "$ADV/case-$1.sh" 2>/dev/null
+}
+
+ADV_SEPS="sp spn tab lf crlf bsl"
+ADV_QUOTES="dq sq cat"
+ADV_MUT_OK=0
+ADV_MUT_TOTAL=0
+ADV_CASES=0
+adv_case_n=0
+for adv_verb in alter create; do
+  for adv_q in $ADV_QUOTES; do
+    for adv_s in $ADV_SEPS; do
+      # Entre APOSTROPHES, « barre oblique inverse + saut de ligne »
+      # n'est PAS une continuation : bash les transmet tels quels et
+      # PostgreSQL refuse l'instruction. Ce n'est donc pas une mutation
+      # équivalente, et ce cas est traité à part (X2).
+      [ "$adv_q" = "sq" ] && [ "$adv_s" = "bsl" ] && continue
+      adv_case_n=$((adv_case_n + 1))
+      case $((adv_case_n % 3)) in
+        0) adv_w1="$V_W_ALTER";       adv_w2="$V_W_ROLE";       adv_c1="$V_W_CREATE" ;;
+        1) adv_w1="$V_W_ALTER_UPPER"; adv_w2="$V_W_ROLE_UPPER"; adv_c1="$(printf '%s' "$V_W_CREATE" | tr 'a-z' 'A-Z')" ;;
+        2) adv_w1="$V_W_ALTER_MIXED"; adv_w2="$V_W_ROLE_MIXED";  adv_c1="$(printf '%s' "$V_W_CREATE" | sed 's/^./\U&/')" ;;
+      esac
+      if [ $((adv_case_n % 2)) -eq 0 ]; then adv_call="q"; else adv_call="qw"; fi
+      # Un cas sur quatre est précédé d'un appel GARDÉ et d'un
+      # commentaire contenant une apostrophe : la fuite d'état du
+      # septième tour, rejouée dans chaque famille.
+      adv_prefix=""
+      if [ $((adv_case_n % 4)) -eq 0 ]; then
+        adv_prefix="$(printf 'csdj1_identity_mutate %sperform 1;%s # l%setat est pose' "$DQ" "$DQ" "$SQ")"
+      fi
+      if [ "$adv_verb" = "alter" ]; then
+        adv_id="m$adv_case_n"
+        adv_build "$adv_id" "$adv_call" "$adv_prefix" \
+          "$(adv_arg "$adv_q" "$adv_s" "$adv_w1" "$adv_w2" "$ADV_PROBE bypassrls;")"
+        adv_expect_role="$ADV_PROBE"
+        adv_mode="alter"
+      else
+        adv_id="c$adv_case_n"
+        adv_expect_role="scanym_csdj1_adv_$adv_case_n"
+        adv_build "$adv_id" "$adv_call" "$adv_prefix" \
+          "$(adv_arg "$adv_q" "$adv_s" "$adv_c1" "$adv_w2" "$adv_expect_role nologin nobypassrls;")"
+        adv_mode="create"
+      fi
+
+      ADV_MUT_TOTAL=$((ADV_MUT_TOTAL + 1))
+      adv_why=""
+      if ! bash -n "$ADV/case-$adv_id.sh" 2>/dev/null; then
+        adv_why="bash refuse la forme"
+      else
+        adv_sql="$(adv_derive "$adv_id")"
+        adv_verd="$(adv_verdict "$adv_id")"
+        if [ "$adv_mode" = "alter" ]; then
+          csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null \
+            || adv_why="remise à zéro du rôle sonde impossible"
+          adv_before="$(adv_probe_state)"
+          bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
+          adv_after="$(adv_probe_state)"
+          [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "NOBYPASSRLSBYPASSRLS" ] \
+            || adv_why="PostgreSQL ne l'a pas exécutée comme une mutation ($adv_before -> $adv_after)"
+        else
+          adv_before="$(adv_role_exists "$adv_expect_role")"
+          bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
+          adv_after="$(adv_role_exists "$adv_expect_role")"
+          [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "01" ] \
+            || adv_why="PostgreSQL n'a pas créé le rôle ($adv_before -> $adv_after)"
+          csdj1_identity_mutate "  drop role if exists $adv_expect_role;" >/dev/null
+        fi
+        # L'ORDRE compte : l'exécution est éprouvée AVANT le verdict.
+        # Un échec portant sur le verdict signifie donc que PostgreSQL,
+        # lui, a bien muté -- c'est la paire qui discrimine.
+        [ -n "$adv_why" ] || [ "$adv_verd" = "NON-GARDEE" ] \
+          || adv_why="le détecteur rend $adv_verd alors que PostgreSQL a muté ($adv_before -> $adv_after)"
+        printf '%-5s %-6s %-5s %-4s %-11s %s\n' \
+          "$adv_id" "$adv_q" "$adv_s" "$adv_call" "$adv_verd" "$(printf '%s' "$adv_sql" | tr '\r\n\t' '   ')" >> "$ADV_LOG"
+      fi
+      if [ -z "$adv_why" ]; then
+        ADV_MUT_OK=$((ADV_MUT_OK + 1))
+      else
+        fail "[J] cas « $adv_id » ($adv_q/$adv_s/$adv_call) : $adv_why"
+      fi
+    done
+  done
+done
+csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null
+
+if [ "$ADV_MUT_TOTAL" -ge 20 ] && [ "$ADV_MUT_OK" = "$ADV_MUT_TOTAL" ]; then
+  pass "[J] $ADV_MUT_TOTAL formes équivalentes engendrées : bash les accepte, PostgreSQL les exécute, le détecteur les voit toutes"
+else
+  fail "[J] $ADV_MUT_OK/$ADV_MUT_TOTAL formes seulement (il en faut au moins 20, toutes vues)"
+fi
+
+# ── Et le revers : des formes qui CONTIENNENT le verbe sans l'exécuter.
+#    Un détecteur qui signale tout ne signale rien.
+ADV_NEG_OK=0
+ADV_NEG_TOTAL=0
+adv_negative() {
+  local id="$1" arg="$2"
+  ADV_NEG_TOTAL=$((ADV_NEG_TOTAL + 1))
+  adv_build "n$id" "q" "" "$arg"
+  local verd sql before after why=""
+  if ! bash -n "$ADV/case-n$id.sh" 2>/dev/null; then
+    why="bash refuse la forme"
+  else
+    sql="$(adv_derive "n$id")"
+    verd="$(adv_verdict "n$id")"
+    # Le piège doit être PRÉSENT : une forme qui ne contient pas le
+    # verbe ne contrôlerait aucun faux positif.
+    printf '%s' "$sql" | tr -d ' \t\r\n' | tr 'A-Z' 'a-z' \
+      | grep -q "$(printf '%s%s' "$V_W_ALTER" "$V_W_ROLE")\|$(printf '%s%s' "$V_W_CREATE" "$V_W_ROLE")" \
+      || why="le piège est absent : cette forme ne contient pas le verbe"
+    before="$(adv_probe_state)"
+    bash "$ADV/exec-n$id.sh" >/dev/null 2>&1
+    after="$(adv_probe_state)"
+    [ -n "$why" ] || [ "$before" = "$after" ] || why="le rôle sonde a changé ($before -> $after)"
+    [ -n "$why" ] || [ "$verd" = "AUCUNE" ] || why="le détecteur rend $verd"
+    printf '%-5s %-6s %-5s %-4s %-11s %s\n' "n$id" "-" "-" "q" "$verd" \
+      "$(printf '%s' "$sql" | tr '\r\n\t' '   ')" >> "$ADV_LOG"
+  fi
+  if [ -z "$why" ]; then ADV_NEG_OK=$((ADV_NEG_OK + 1))
+  else fail "[J] non-mutation « n$id » : $why"; fi
+}
+adv_negative 1  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ")"
+adv_negative 2  "$(printf '%sselect 1; -- %s foo%s' "$DQ" "$V_ALTER_UPPER" "$DQ")"
+adv_negative 3  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$(printf '%s %s' "$V_W_CREATE" "$V_W_ROLE" | tr 'a-z' 'A-Z')" "$SQ" "$DQ")"
+adv_negative 4  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$V_ALTER" "$SQ" "$DQ")"
+adv_negative 5  "$(printf '%sselect /* %s foo */ 1;%s' "$DQ" "$V_ALTER" "$DQ")"
+adv_negative 6  "$(printf '%sselect %s%s%s || %sx%s;%s' "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$SQ" "$SQ" "$DQ")"
+adv_negative 7  "$(printf '%sselect %s%s\n foo%s;%s' "$DQ" "$SQ" "$V_ALTER" "$SQ" "$DQ")"
+adv_negative 8  "$(printf '%sselect 1; -- %s%s%s foo%s' "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ")"
+adv_negative 9  "$(printf '%sselect %s%s foo%s as x, %s%s bar%s as y;%s' \
+                    "$DQ" "$SQ" "$V_ALTER" "$SQ" "$SQ" "$V_CREATE" "$SQ" "$DQ")"
+adv_negative 10 "$(printf '%sselect 1 where %sx%s = %s%s%s;%s' "$DQ" "$SQ" "$SQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ")"
+adv_negative 11 "$(printf '%sselect %s%s%s::text;%s' "$DQ" "$SQ" "$V_ALTER_MIXED" "$SQ" "$DQ")"
+adv_negative 12 "$(printf '%sselect %sdo not run: %s foo%s;%s' "$DQ" "$SQ" "$V_CREATE" "$SQ" "$DQ")"
+
+if [ "$ADV_NEG_TOTAL" -ge 10 ] && [ "$ADV_NEG_OK" = "$ADV_NEG_TOTAL" ]; then
+  pass "[J] $ADV_NEG_TOTAL formes contenant le verbe SANS l'exécuter : aucune n'est signalée, et le rôle sonde n'a pas bougé"
+else
+  fail "[J] $ADV_NEG_OK/$ADV_NEG_TOTAL non-mutations seulement (il en faut au moins 10)"
+fi
+
+# ── X1, X2 — les deux cas que le détecteur assume : il FERME.
+# X1 : une AFFECTATION qui porte le verbe. Le détecteur modélise les
+#      citations du shell, donc il voit le verbe ; il ne modélise pas
+#      l'expansion des paramètres, donc il ne sait pas où ce texte sera
+#      exécuté. Il ferme : SANS-OUVREUR.
+adv_build "x1" "ADV_NOTE=" "" "$(printf '%s%s foo;%s' "$DQ" "$V_ALTER" "$DQ")"
+X1_V="$(adv_verdict x1)"
+if [ "$X1_V" = "SANS-OUVREUR" ]; then
+  pass "[J] X1 — une affectation portant le verbe FERME ($X1_V) : l'expansion n'est pas modélisée, donc rien n'est présumé"
+else
+  fail "[J] X1 — une affectation portant le verbe rend $X1_V au lieu de SANS-OUVREUR"
+fi
+# X2 : entre APOSTROPHES, « \ » suivi d'un saut de ligne n'est pas une
+#      continuation : PostgreSQL REFUSE l'instruction. Ce n'est donc pas
+#      une mutation, et le détecteur ne la signale pas -- les deux
+#      moitiés du fait sont vérifiées, pas seulement l'étiquette.
+adv_build "x2" "q" "" "$(adv_arg sq bsl "$V_W_ALTER" "$V_W_ROLE" "$ADV_PROBE bypassrls;")"
+X2_V="$(adv_verdict x2)"
+X2_BEFORE="$(adv_probe_state)"
+bash "$ADV/exec-x2.sh" >/dev/null 2>&1
+X2_AFTER="$(adv_probe_state)"
+if [ "$X2_BEFORE" = "$X2_AFTER" ] && [ "$X2_V" = "AUCUNE" ]; then
+  pass "[J] X2 — « \\ » + saut de ligne entre apostrophes : PostgreSQL refuse, le rôle ne bouge pas, rien n'est signalé"
+else
+  fail "[J] X2 — verdict $X2_V, rôle $X2_BEFORE -> $X2_AFTER : l'un des deux faits ne tient pas"
+fi
+
+csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null
+csdj1_identity_mutate "  drop role if exists $ADV_PROBE;" >/dev/null
+# La matrice est RECOPIÉE dans la sortie du harnais : le répertoire
+# temporaire disparaît au nettoyage, et le mandat demande que le
+# résumé des cas engendrés figure dans les preuves.
+log "--- [J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis"
+while IFS= read -r adv_line; do log "    $adv_line"; done < "$ADV_LOG"
 
 log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
 [ "$FAIL" -eq 0 ] || exit 1

@@ -1594,12 +1594,14 @@ test("[AUD07-SQL-6] une mutation brute tenant sur UNE ligne est classée par sa 
 
   // Le classement porte sur la commande reconstituée, pas sur la ligne.
   assert.ok(
-    det.includes('report(kind, buf, "commande complete")'),
+    det.includes('report(kind, cmdraw, "commande complete")'),
     "le verdict doit porter sur la COMMANDE reconstituée"
   );
   assert.ok(
-    det.includes("function finish(") && det.includes("buf = \"\""),
-    "chaque commande doit être classée puis remise à zéro"
+    det.includes("function finish(") &&
+      det.includes('cmdraw = ""') &&
+      det.includes('cmdexp = ""'),
+    "chaque commande doit être classée puis remise à zéro, dans ses DEUX textes"
   );
   // Les formes d'une seule ligne, dans les deux littéraux.
   assert.ok(
@@ -1743,32 +1745,82 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
   );
   const det = readFileSync(DET_PATH, "utf8");
 
-  // Les cinq états du mandat sont modélisés.
+  // Les SIX ÉTAPES du mandat de la huitième remédiation existent, et
+  // chacune est une fonction qu'on peut éprouver seule.
+  for (const fn of [
+    "function sql_normalize(",
+    "function has_role_mutation(",
+    "function classify(",
+    "function finish(",
+  ]) {
+    assert.ok(det.includes(fn), `l'étape « ${fn} » doit être une fonction distincte`);
+  }
+  // Les cinq états du shell sont modélisés.
   assert.ok(
-    /if \(c == "#" && \(buf == "" \|\| substr\(buf, length\(buf\), 1\) ~/.test(det),
+    /if \(c == "#" && \(cmdraw == "" \|\| substr\(cmdraw, length\(cmdraw\), 1\) ~/.test(det),
     "un « # » en début de mot, hors citation, doit terminer la ligne sans toucher l'état"
   );
   assert.ok(
-    /if \(i == n\) \{ cont = 1;/.test(det),
-    "une barre oblique inverse en fin de ligne doit être une continuation"
-  );
-  assert.ok(
-    det.includes(`if (q == "'") {`) && det.includes("aucune échappement"),
+    det.includes(`if (q == "'") {`) && det.includes("aucun échappement"),
     "les apostrophes n'admettent aucun échappement : c'est la règle du shell"
-  );
-  assert.ok(
-    /if \(c == "\\\\" && i < n\) \{ buf = buf substr\(line, i, 2\)/.test(det),
-    "entre guillemets, la barre oblique inverse échappe le caractère suivant"
   );
   assert.ok(
     det.includes('if (c == ";" || c == "&" || c == "|") { finish(); i++; continue }'),
     "« ; », « & » et « | » hors citation terminent une commande"
   );
+  // LA CORRECTION DE LA HUITIÈME PASSE, premier volet : la continuation
+  // est reconnue DANS LES DEUX ÉTATS -- hors citation ET entre
+  // guillemets doubles, où bash retire aussi « \ » + saut de ligne.
+  const contOccurrences = det.split("cont = 1").length - 1;
+  assert.ok(
+    contOccurrences === 2,
+    "la continuation doit être reconnue hors citation ET entre guillemets doubles"
+  );
+  // Et une continuation ne laisse RIEN, alors qu'un argument encore
+  // ouvert garde son saut de ligne : l'ordre de ces deux règles EST la
+  // correction.
+  assert.ok(
+    det.indexOf("if (cont) { cont = 0; next }") <
+      det.indexOf('if (q != "") { cmdraw = cmdraw "\\n"'),
+    "la continuation doit être traitée AVANT l'argument resté ouvert"
+  );
+  // Second volet : l'équivalence des blancs SQL. PostgreSQL lit
+  // l'espace, la tabulation, le retour chariot et le saut de ligne
+  // comme un seul et même blanc.
+  assert.ok(
+    det.includes('gsub(/[ \\t\\r\\n\\013\\f]+/, " ", out)'),
+    "tout blanc SQL doit être réduit à une espace unique"
+  );
+  // Les littéraux sont des DONNÉES -- sauf l'argument d'EXECUTE, seule
+  // forme par laquelle ces harnais exécutent du SQL logé dans un
+  // littéral. Et « lastword » est le dernier MOT COMPLET : un espace
+  // ne doit pas l'effacer, sans quoi « execute 'alter role …' »
+  // échapperait à la règle.
+  assert.ok(
+    det.includes('keep = (lastword == "execute")'),
+    "un littéral n'est conservé que s'il est l'argument d'EXECUTE"
+  );
+  assert.ok(
+    det.includes('if (curword != "") { lastword = curword; curword = "" }'),
+    "le dernier mot complet ne doit pas être effacé par un blanc"
+  );
+  // Un corps à dollars est EXÉCUTÉ : il est conservé.
+  assert.ok(
+    det.includes('closing = "$" tag "$"'),
+    "un corps à dollars doit être reconnu et CONSERVÉ : le corps d'un DO s'exécute"
+  );
   // Les documents en ligne : leur corps est du texte, mais une mutation
-  // qu'il contient appartient à la commande qui l'a ouvert.
+  // qu'il contient appartient à la commande qui l'a ouvert -- et il est
+  // analysé D'UN SEUL BLOC, car le SQL d'un corps s'étend sur
+  // plusieurs lignes.
   assert.ok(
     det.includes('substr(line, i, 2) == "<<"') && det.includes("hdkind"),
     "un document en ligne doit être reconnu, et son corps attribué à la commande qui l'ouvre"
+  );
+  assert.ok(
+    det.includes('hdbody = hdbody $0 "\\n"') &&
+      det.includes("if (has_role_mutation(hdbody))"),
+    "le corps d'un document en ligne doit être analysé d'un seul bloc, et non ligne à ligne"
   );
   // Aucun état ne se propage d'une commande à l'autre.
   assert.ok(
@@ -1780,11 +1832,11 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
     det.includes("SANS-OUVREUR") && det.includes("commande non terminee en fin de fichier"),
     "une commande qu'on ne sait pas classer doit être rapportée défavorablement"
   );
-  // Casse insensible.
+  // Casse insensible, sur la REPRÉSENTATION NORMALISÉE.
   assert.ok(
-    det.includes("tolower(cmd)") &&
-      /\(create\|alter\|drop\)\[ \\t\]\+role/.test(det),
-    "le mot-clé doit être cherché sur le texte en minuscules"
+    det.includes("norm = tolower(sql_normalize(expanded))") &&
+      /\(create\|alter\|drop\) role/.test(det),
+    "le mot-clé doit être cherché sur la représentation normalisée, en minuscules"
   );
   // Un appel BRUT l'emporte sur un appel gardé dans la même commande.
   assert.ok(
@@ -1792,7 +1844,10 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
     "en cas de doute, le classement défavorable doit l'emporter"
   );
 
-  // Les dix-sept fixtures : D1-D7, R1-R5, C1-C5.
+  // Les trente-six fixtures : D1-D7, R1-R5, C1-C5, E1-E10, F1-F6,
+  // P1-P3. E5 et F4 sont les ÉQUIVALENTS GARDÉS de E1 et des formes
+  // multi-lignes : sans eux, « tout classer NON-GARDEE » passerait pour
+  // une réussite.
   const rolePath =
     "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
   const role = readFileSync(rolePath, "utf8");
@@ -1807,6 +1862,13 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
     ["r4", "NON-GARDEE"], ["r5", "NON-GARDEE"],
     ["c1", "NON-GARDEE"], ["c2", "NON-GARDEE"], ["c3", "NON-GARDEE"],
     ["c4", "GARDEE"], ["c5", "AUCUNE"],
+    ["e1", "NON-GARDEE"], ["e2", "NON-GARDEE"], ["e3", "NON-GARDEE"],
+    ["e4", "NON-GARDEE"], ["e5", "GARDEE"], ["e6", "AUCUNE"],
+    ["e7", "NON-GARDEE"], ["e8", "NON-GARDEE"], ["e9", "NON-GARDEE"],
+    ["e10", "NON-GARDEE"],
+    ["f1", "NON-GARDEE"], ["f2", "NON-GARDEE"], ["f3", "NON-GARDEE"],
+    ["f4", "GARDEE"], ["f5", "NON-GARDEE"], ["f6", "AUCUNE"],
+    ["p1", "AUCUNE"], ["p2", "AUCUNE"], ["p3", "AUCUNE"],
   ];
   for (const [fx, want] of EXPECTED) {
     assert.ok(
@@ -1830,10 +1892,133 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
     role.includes("NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle"),
     "le contrôle doit observer la mutation effective d'un rôle"
   );
-  // Les verbes des fixtures restent assemblés.
+  // Les verbes des fixtures restent assemblés -- et désormais EN DEUX
+  // TEMPS : le détecteur modélise la concaténation des citations du
+  // shell, donc « crea""te role » d'un seul tenant serait, à juste
+  // titre, son propre signalement.
   assert.ok(
-    role.includes('V_CREATE="crea""te role"'),
-    "les verbes des fixtures doivent être assemblés, non écrits en clair"
+    role.includes('V_W_ALTER="alt""er"') &&
+      role.includes('V_W_ROLE="ro""le"') &&
+      role.includes('V_ALTER="$V_W_ALTER $V_W_ROLE"'),
+    "les verbes doivent être assemblés en deux temps, jamais adjacents dans le texte du harnais"
+  );
+  assert.ok(
+    !/V_[A-Z_]*="(crea""te|alt""er|Alt""er|ALT""ER) role"/.test(role),
+    "aucune affectation ne doit reconstituer le verbe d'un seul tenant"
+  );
+});
+
+test("[AUD07-SQL-9] le détecteur a été ADVERSARIALEMENT éprouvé, et ses verdicts confrontés à PostgreSQL", () => {
+  // Sept tours de suite, un audit a trouvé une orthographe que le
+  // détecteur ne voyait pas. Montrer qu'il voit les deux dernières ne
+  // vaut donc rien : il faut montrer qu'on a cherché à le tromper, et
+  // confronter chaque verdict à ce que PostgreSQL fait RÉELLEMENT.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+
+  assert.ok(
+    role.includes("[J] CONTRE-ÉPREUVE ADVERSARIALE DU DÉTECTEUR"),
+    "une contre-épreuve adversariale doit exister"
+  );
+  // La matrice couvre les dimensions du mandat.
+  assert.ok(
+    role.includes('ADV_SEPS="sp spn tab lf crlf bsl"'),
+    "les six séparateurs doivent être engendrés : espace, espaces, tabulation, saut de ligne, CRLF, continuation"
+  );
+  assert.ok(
+    role.includes('ADV_QUOTES="dq sq cat"'),
+    "les trois formes de citation doivent être engendrées, concaténation comprise"
+  );
+  assert.ok(
+    role.includes('for adv_verb in alter create'),
+    "les deux verbes doivent être engendrés"
+  );
+  assert.ok(
+    /adv_call="q"/.test(role) && /adv_call="qw"/.test(role),
+    "les deux formes d'appel doivent être engendrées"
+  );
+  // Les quatre faits établis pour chaque cas. Le troisième est le
+  // seul qui compte vraiment : c'est PostgreSQL, et non une expression
+  // régulière, qui dit qu'une forme est bien un CREATE/ALTER ROLE.
+  assert.ok(
+    role.includes('if ! bash -n "$ADV/case-$adv_id.sh"'),
+    "bash doit accepter chaque forme engendrée"
+  );
+  assert.ok(
+    role.includes("adv_derive()") && role.includes('q() { printf "%s" "$1"; }'),
+    "l'argument réellement transmis doit être relevé en faisant jouer à bash le rôle d'oracle"
+  );
+  assert.ok(
+    role.includes('[ "$adv_before$adv_after" = "NOBYPASSRLSBYPASSRLS" ]') &&
+      role.includes('[ "$adv_before$adv_after" = "01" ]'),
+    "chaque forme doit être exécutée, et le changement d'état OBSERVÉ"
+  );
+  assert.ok(
+    role.indexOf('adv_why="PostgreSQL ne l\'a pas exécutée comme une mutation') <
+      role.indexOf('adv_why="le détecteur rend $adv_verd alors que PostgreSQL a muté'),
+    "l'exécution doit être éprouvée AVANT le verdict, pour que la paire discrimine"
+  );
+  // Les seuils du mandat : au moins vingt mutations, au moins dix
+  // non-mutations.
+  assert.ok(
+    role.includes('[ "$ADV_MUT_TOTAL" -ge 20 ]'),
+    "au moins vingt formes équivalentes doivent être exigées"
+  );
+  assert.ok(
+    role.includes('[ "$ADV_NEG_TOTAL" -ge 10 ]'),
+    "au moins dix non-mutations doivent être exigées"
+  );
+  // Un contrôle de faux positif qui ne contient pas le piège ne
+  // contrôle rien.
+  assert.ok(
+    role.includes("le piège est absent : cette forme ne contient pas le verbe"),
+    "chaque non-mutation doit vérifier que le verbe y figure bel et bien"
+  );
+  // Les deux cas que le détecteur assume.
+  assert.ok(
+    role.includes("[J] X1 —") && role.includes("[J] X2 —"),
+    "les deux cas assumés -- affectation, et « \\ » entre apostrophes -- doivent être nommés"
+  );
+  // Et le résumé des cas engendrés figure dans les preuves.
+  assert.ok(
+    role.includes("[J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis"),
+    "le résumé des cas engendrés doit être recopié dans la sortie du harnais"
+  );
+
+  // Les deux réinjections de la huitième passe existent, et chacune
+  // doit montrer un DOMMAGE RÉEL, pas seulement une étiquette changée.
+  const MUT_PATH =
+    "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh";
+  const mut = readFileSync(MUT_PATH, "utf8");
+  assert.ok(
+    mut.includes("M10 : la continuation entre guillemets doubles, non normalisée"),
+    "M10 doit réinjecter la continuation non normalisée"
+  );
+  assert.ok(
+    mut.includes("M11 : l'équivalence des blancs SQL, retirée"),
+    "M11 doit réinjecter l'absence d'équivalence des blancs"
+  );
+  assert.ok(
+    mut.includes('grep -q "fixture « e1 » : AUCUNE au lieu de NON-GARDEE"'),
+    "M10 doit exiger que E1 redevienne invisible"
+  );
+  assert.ok(
+    mut.includes('grep -q "fixture « e2 » : AUCUNE au lieu de NON-GARDEE"') &&
+      mut.includes('grep -q "fixture « e8 » : AUCUNE au lieu de NON-GARDEE"'),
+    "M11 doit exiger que E2 et E8 redeviennent invisibles"
+  );
+  // M9, M10 et M11 exigent chacune la MÊME preuve : que PostgreSQL ait
+  // muté pour de vrai. Une étiquette changée ne suffit pas.
+  assert.ok(
+    (mut.match(/grep -q "alors que PostgreSQL a muté"/g) ?? []).length === 3,
+    "M9, M10 et M11 doivent chacune exiger la preuve que PostgreSQL a muté pour de vrai"
+  );
+  // Et M9 documente ce que la huitième remédiation a changé pour elle :
+  // l'héritage de garde n'est plus produisible, donc l'attendu a changé.
+  assert.ok(
+    mut.includes("CE QUE LA HUITIÈME REMÉDIATION A CHANGÉ ICI, ET POURQUOI L'ATTENDU"),
+    "le changement d'attendu de M9 doit être expliqué, non subi"
   );
 });
 

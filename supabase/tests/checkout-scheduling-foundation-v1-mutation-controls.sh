@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte HUIT
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte DIX
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -17,6 +17,11 @@
 # M7  le parseur sensible aux guillemets remplacé par un découpage brut
 # M8  la défense anti-collision des octets réservés retirée
 # M9  la fuite d'état par les commentaires et les continuations
+# M10 la continuation ENTRE GUILLEMETS DOUBLES, non normalisée
+#     (défaut d'AUD-07, huitième passe : E1 redevient invisible)
+# M11 l'ÉQUIVALENCE DES BLANCS SQL retirée
+#     (défaut d'AUD-07, huitième passe : E2 et E8 redeviennent
+#      invisibles, pendant que PostgreSQL, lui, les exécute)
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -340,31 +345,29 @@ fi
 # C'est le défaut littéral du sixième re-audit. Le détecteur ne doit
 # plus laisser une apostrophe de COMMENTAIRE ouvrir une citation, ni
 # ignorer une continuation par barre oblique inverse. On lui retire
-# les deux règles : la reproduction R1 doit alors être classée GARDÉE
-# -- un mensonge sur une mutation qui, [I] le montre, s'exécute
-# réellement.
+# les deux règles.
+#
+# CE QUE LA HUITIÈME REMÉDIATION A CHANGÉ ICI, ET POURQUOI L'ATTENDU
+# N'EST PLUS LE MÊME : au septième tour, la réinjection faisait classer
+# R1 « GARDÉE » -- un MENSONGE, l'état gardé de la commande précédente
+# survivant à une commande terminée. Le détecteur classe désormais
+# chaque commande sur SON texte verbatim, où l'appel brut « q ' » est
+# visible : l'héritage de garde a disparu PAR CONSTRUCTION, et ce
+# mensonge-là n'est plus produisible. La même réinjection produit donc
+# le défaut restant, qui est le pire des deux : le SILENCE. R3 -- un
+# commentaire portant un GUILLEMET -- redevient « AUCUNE », et [J]
+# montre, dans la même exécution, PostgreSQL exécuter la mutation.
 # ────────────────────────────────────────────────────────────
 say "--- M9 : fuite d'état par les commentaires et les continuations"
 clean
 cp "$MAIN_SRC" "$MUT_MAIN"
 cp "$LIB_SRC" "$MUT_LIB"
 MUT_DET="$TESTS_DIR/.mut-raw-role-detector.awk"
-python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM9'
-import sys
-src, dst = sys.argv[1:3]
-s = open(src, encoding='utf-8').read()
-# 1) un « # » hors citation ne termine plus la ligne : son contenu
-#    redevient du shell, et une apostrophe y ouvre une citation.
-needle = 'if (c == "#" && (buf == "" || substr(buf, length(buf), 1) ~ /[ \\t\\n;&|(]/)) break'
-assert needle in s, "ancre de commentaire introuvable"
-s = s.replace(needle, 'if (0) break', 1)
-# 2) la continuation par barre oblique inverse n est plus reconnue.
-cont = '        if (i == n) { cont = 1; i++; continue }          # continuation'
-assert cont in s, "ancre de continuation introuvable"
-s = s.replace(cont, '        if (i == n) { i++; continue }', 1)
-open(dst, 'w', encoding='utf-8').write(s)
-PYM9
-python3 -I - "$ROLE_SRC" "$MUT_ROLE" "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" <<'PYR9'
+
+# Le RECÂBLAGE du harnais de rôles vers le détecteur abîmé est le même
+# pour M9, M10 et M11 : il est écrit une fois.
+wire_role_to_mut_det() {
+  python3 -I - "$ROLE_SRC" "$MUT_ROLE" "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" <<'PYWIRE'
 import sys
 src, dst, main_name, lib_name = sys.argv[1:5]
 s = open(src, encoding='utf-8').read()
@@ -375,19 +378,121 @@ s = s.replace('IDENTITY_LIB="$SCRIPT_DIR/csdj1-cluster-identity.sh"',
 s = s.replace('MUT_AWK="$SCRIPT_DIR/csdj1-raw-role-mutation-detector.awk"',
               'MUT_AWK="$SCRIPT_DIR/.mut-raw-role-detector.awk"', 1)
 open(dst, 'w', encoding='utf-8').write(s)
-PYR9
-chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+PYWIRE
+  chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+}
+
+python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM9'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+# 1) un « # » hors citation ne termine plus la ligne : son contenu
+#    redevient du shell, et une apostrophe y ouvre une citation.
+needle = 'if (c == "#" && (cmdraw == "" || substr(cmdraw, length(cmdraw), 1) ~ /[ \\t\\n;&|(]/)) break'
+assert needle in s, "ancre de commentaire introuvable"
+s = s.replace(needle, 'if (0) break', 1)
+# 2) la continuation par barre oblique inverse, HORS citation, n est
+#    plus reconnue. C est la ligne qui porte le commentaire.
+lines = s.split('\n')
+idx = [k for k, l in enumerate(lines) if 'cont = 1' in l and '# continuation' in l]
+assert len(idx) == 1, "ancre de continuation hors citation introuvable"
+lines[idx[0]] = lines[idx[0]].replace('cont = 1; ', '')
+open(dst, 'w', encoding='utf-8').write('\n'.join(lines))
+PYM9
+wire_role_to_mut_det
 M9_RC="$(run_mut_role /tmp/csdj1-mut-m9.log)"
 if [ "$M9_RC" != "0" ] \
-   && grep -q "fixture « r1 » : GARDEE au lieu de NON-GARDEE" /tmp/csdj1-mut-m9.log \
-   && grep -q "R1 — la mutation brute est encore attribuée à l'appel gardé précédent" /tmp/csdj1-mut-m9.log; then
-  ok "M9 — la fuite d'état est VUE : R1 redevient GARDÉE, alors que [I] prouve qu'elle mute (code $M9_RC)"
+   && grep -q "fixture « r3 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m9.log \
+   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m9.log; then
+  ok "M9 — la fuite d'état est VUE : R3 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code $M9_RC)"
   grep -m4 'FAIL:' /tmp/csdj1-mut-m9.log | sed 's/^/       /' | tee -a "$OUT"
   if grep -q "\\[I\\] NOCIF" /tmp/csdj1-mut-m9.log; then
-    say "       (et dans la MÊME exécution, [I] montre la mutation réellement appliquée)"
+    say "       (et [I] montre, dans la même exécution, la mutation de la séquence de l'audit)"
+  fi
+  # L'héritage de garde, lui, a disparu par construction : R1 reste
+  # NON-GARDEE même avec les deux règles retirées. On le CONSTATE, pour
+  # que l'auditeur n'ait pas à le déduire.
+  if grep -q "fixture « r1 » : NON-GARDEE (attendu)" /tmp/csdj1-mut-m9.log; then
+    say "       (et R1 reste NON-GARDEE : l'héritage de garde n'est plus produisible)"
   fi
 else
-  ko "M9 — la fuite d'état passe inaperçue (code $M9_RC) : R1 ne prouve rien"
+  ko "M9 — la fuite d'état passe inaperçue (code $M9_RC) : R3 ne prouve rien"
+fi
+rm -f "$MUT_DET"
+
+# ────────────────────────────────────────────────────────────
+# M10 — AUD-07 (huitième passe) : la continuation ENTRE GUILLEMETS
+#       DOUBLES, réinjectée telle qu'elle était avant.
+#
+# Avant cette remédiation, le détecteur gardait la barre oblique
+# inverse comme un caractère ordinaire : l'argument reconstitué
+# contenait « alter \ » puis un saut de ligne, et aucune normalisation
+# ne les rapprochait. Bash, lui, retire les deux et transmet
+# « alter role ». On remet cette lecture-là, et deux faits doivent
+# apparaître DANS LA MÊME EXÉCUTION : E1 n'est plus vue, et [J] montre
+# PostgreSQL muter réellement le rôle sonde.
+# ────────────────────────────────────────────────────────────
+say "--- M10 : la continuation entre guillemets doubles, non normalisée"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+cp "$LIB_SRC" "$MUT_LIB"
+python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM10'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+lines = s.split('\n')
+# La ligne SANS le commentaire est celle de l etat « guillemet double ».
+idx = [k for k, l in enumerate(lines) if 'cont = 1' in l and '# continuation' not in l]
+assert len(idx) == 1, "ancre de continuation entre guillemets introuvable"
+indent = lines[idx[0]][:len(lines[idx[0]]) - len(lines[idx[0]].lstrip())]
+lines[idx[0]] = indent + 'if (i == n) { cmdraw = cmdraw "\\\\"; cmdexp = cmdexp "\\\\"; i++; continue }'
+open(dst, 'w', encoding='utf-8').write('\n'.join(lines))
+PYM10
+wire_role_to_mut_det
+M10_RC="$(run_mut_role /tmp/csdj1-mut-m10.log)"
+if [ "$M10_RC" != "0" ] \
+   && grep -q "fixture « e1 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m10.log \
+   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m10.log; then
+  ok "M10 — E1 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code $M10_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m10.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M10 — la continuation non normalisée passe inaperçue (code $M10_RC) : E1 ne prouve rien"
+fi
+rm -f "$MUT_DET"
+
+# ────────────────────────────────────────────────────────────
+# M11 — AUD-07 (huitième passe) : l'ÉQUIVALENCE DES BLANCS SQL,
+#       réinjectée telle qu'elle était avant.
+#
+# PostgreSQL lit l'espace, la tabulation, le retour chariot et le saut
+# de ligne comme un seul et même blanc. On rend la normalisation
+# aveugle à tout ce qui n'est pas l'espace : E2 et E8 -- le verbe coupé
+# par un saut de ligne -- redeviennent invisibles, pendant que [J]
+# montre PostgreSQL les exécuter.
+# ────────────────────────────────────────────────────────────
+say "--- M11 : l'équivalence des blancs SQL, retirée"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+cp "$LIB_SRC" "$MUT_LIB"
+python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM11'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+needle = 'gsub(/[ \\t\\r\\n\\013\\f]+/, " ", out)'
+assert needle in s, "ancre de normalisation des blancs introuvable"
+s = s.replace(needle, 'gsub(/[ ]+/, " ", out)', 1)
+open(dst, 'w', encoding='utf-8').write(s)
+PYM11
+wire_role_to_mut_det
+M11_RC="$(run_mut_role /tmp/csdj1-mut-m11.log)"
+if [ "$M11_RC" != "0" ] \
+   && grep -q "fixture « e2 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m11.log \
+   && grep -q "fixture « e8 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m11.log \
+   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m11.log; then
+  ok "M11 — E2 et E8 redeviennent invisibles, et [J] montre la mutation RÉELLEMENT appliquée (code $M11_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m11.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M11 — l'équivalence des blancs retirée passe inaperçue (code $M11_RC) : E2 et E8 ne prouvent rien"
 fi
 rm -f "$MUT_DET"
 
