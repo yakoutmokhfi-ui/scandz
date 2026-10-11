@@ -51,6 +51,7 @@ import {
 } from "@/lib/customer";
 import {
   EMPTY_INVOICE_REQUEST,
+  composeBillingContactName,
   getInvoiceRequestErrors,
   hasInvoiceRequestErrors,
   normalizeOptional,
@@ -1344,11 +1345,20 @@ export default function MenuView({
    *  littéral : "If NO: preserve current checkout") -- une commande
    *  sans demande de facture n'est JAMAIS bloquée par ce contrat. */
   const invoiceRequestErrors = useMemo(
-    () => (invoiceRequest.wantsInvoice ? getInvoiceRequestErrors(invoiceRequest) : {}),
-    [invoiceRequest]
+    () =>
+      invoiceRequest.wantsInvoice
+        ? // v2.1 (CBP-01) -- le repli est fourni pour que la limite de
+          // stockage du nom de contact soit vérifiée sur le nom
+          // RÉELLEMENT transmis, jamais sur une composition partielle.
+          getInvoiceRequestErrors(invoiceRequest, customer)
+        : {},
+    // `customer` entre dans le calcul depuis v2.1 : il DOIT figurer
+    // dans les dépendances, sinon la validation du nom final se
+    // figerait sur un prénom/nom de commande périmé.
+    [invoiceRequest, customer]
   );
   const invoiceRequestValid =
-    !invoiceRequest.wantsInvoice || !hasInvoiceRequestErrors(invoiceRequest);
+    !invoiceRequest.wantsInvoice || !hasInvoiceRequestErrors(invoiceRequest, customer);
 
   /** Contrat fail-closed (section 11, LOT 2B.4a.1) appliqué ICI pour
    *  la première fois par un formulaire actif : tant que
@@ -1424,7 +1434,16 @@ export default function MenuView({
       addressLine2: normalizeOptional(info.addressLine2) ?? null,
       companyLegalName: normalizeOptional(info.companyLegalName) ?? null,
       vatNumber: normalizeOptional(info.vatNumber) ?? null,
-      contactName: normalizeOptional(info.contactName) ?? null,
+      // CUSTOMER BILLING PROFILE v2 -- SIREN transmis TEL QUEL (seul
+      // le blanc de bordure est retiré, comme pour tout autre champ
+      // optionnel) : aucune normalisation, aucune correction.
+      siren: normalizeOptional(info.siren) ?? null,
+      // CUSTOMER BILLING PROFILE v2 -- prénom et nom saisis séparément
+      // sont RECOMPOSÉS dans le champ de contact existant par
+      // `composeBillingContactName` (lib/invoice-request.ts, qui
+      // réutilise formatCustomerDisplayName) : aucune colonne
+      // dupliquée, aucun second concept de nom.
+      contactName: normalizeOptional(composeBillingContactName(info, customer)) ?? null,
       contactEmail: normalizeOptional(info.contactEmail) ?? null,
     };
   }
@@ -1691,7 +1710,7 @@ export default function MenuView({
     // Revalidation cliente de CONFORT avant l'appel réseau -- la RPC
     // SQL reste la SEULE autorité réelle (fail-closed), mais évite un
     // aller-retour inutile si la correction n'est pas encore valide.
-    if (hasInvoiceRequestErrors(invoiceRequest)) return;
+    if (hasInvoiceRequestErrors(invoiceRequest, customer)) return;
     setIsRetryingInvoice(true);
     try {
       const { order, frozenLines, frozenOrderContext, frozenNote } = pendingInvoiceCompletion;

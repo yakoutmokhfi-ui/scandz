@@ -160,6 +160,11 @@ export interface DashboardOrderInvoiceRequest {
   invoice_type: "individual" | "company";
   company_legal_name: string | null;
   vat_number: string | null;
+  /** CUSTOMER BILLING PROFILE v2 -- SIREN tel que saisi par le client,
+   *  OPTIONNEL. `null` = non renseigné, y compris pour toute commande
+   *  antérieure à ce lot (aucun backfill). Optionnel dans le type pour
+   *  ne pas invalider un appelant/fixture antérieur à ce lot. */
+  siren?: string | null;
   contact_name: string | null;
   contact_email: string | null;
   address_line_1: string;

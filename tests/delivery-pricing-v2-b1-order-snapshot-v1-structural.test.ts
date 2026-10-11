@@ -181,13 +181,26 @@ test("B1-T-22 — getDashboardOrders : liste de colonnes inchangée, aucune requ
   const m = src.match(/export async function getDashboardOrders\([\s\S]*?\.select\(\s*`([\s\S]*?)`/);
   assert.ok(m, "select de getDashboardOrders introuvable");
   const columns = m[1].replace(/\s+/g, " ").trim();
-  // Empreinte de la liste figée sur la base 497efb9 (avant B1).
+  // Empreinte de la liste de colonnes. Figée à l'origine sur la base
+  // 497efb9 (avant B1), puis REPOSÉE une fois par CUSTOMER BILLING
+  // PROFILE v2 (Claude Monet), qui ajoute `siren` à la relation
+  // `order_invoice_request` DÉJÀ lue par cette même requête -- un
+  // champ de facturation optionnel saisi par le client, que le
+  // commerçant doit pouvoir lire dans sa commande.
+  //
+  // Ce que ce test protège n'est pas l'immobilité de la liste pour
+  // elle-même : c'est que le lot B1 (et tout lot ultérieur) n'y
+  // glisse pas l'instantané de livraison, ni une seconde requête.
+  // Cet invariant est vérifié juste en dessous, et il est INCHANGÉ.
   assert.equal(
     createHash("sha256").update(columns).digest("hex"),
-    "b374d168a88088b6b84e6c4e9bc3fb7d550a29dfa3ab070fead5771e3bdf6b64",
+    "4f6ae141f17622ba900b4a03349f1da40ed17b52b1e7b2ed9b02c4198e9989f0",
     `liste de colonnes modifiée : ${columns}`
   );
   assert.doesNotMatch(columns, /order_delivery_fulfillment_snapshot/);
+  // Et la seule différence admise par rapport à l'empreinte d'origine
+  // est nommée explicitement ici.
+  assert.match(columns, /order_invoice_request \( invoice_type, company_legal_name, vat_number, siren,/);
 });
 
 test("B1 — §12.1 : aucune surface applicative ne lit l'instantané", () => {

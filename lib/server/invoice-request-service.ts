@@ -26,6 +26,11 @@ export interface InvoiceRequestInput {
   addressLine2?: string | null;
   companyLegalName?: string | null;
   vatNumber?: string | null;
+  /** CUSTOMER BILLING PROFILE v2 -- OPTIONNEL. Relayé TEL QUEL vers
+   *  `set_order_invoice_request` : aucune validation, aucune
+   *  normalisation, aucune dérivation ici -- la RPC SQL reste la seule
+   *  autorité, et elle ne fait elle-même qu'un contrôle de longueur. */
+  siren?: string | null;
   contactName?: string | null;
   contactEmail?: string | null;
 }
@@ -40,6 +45,9 @@ export interface InvoiceRequestRecord {
   invoiceType: InvoiceType;
   companyLegalName: string | null;
   vatNumber: string | null;
+  /** CUSTOMER BILLING PROFILE v2 -- `null` = non renseigné (cas
+   *  normal, y compris pour toute commande antérieure à ce lot). */
+  siren: string | null;
   contactName: string | null;
   contactEmail: string | null;
   addressLine1: string;
@@ -97,6 +105,10 @@ export async function setOrderInvoiceRequest(
     p_address_line_2: input.addressLine2 ?? null,
     p_company_legal_name: input.companyLegalName ?? null,
     p_vat_number: input.vatNumber ?? null,
+    // CUSTOMER BILLING PROFILE v2 -- DERNIER paramètre de la RPC
+    // (optionnel) : un appelant qui ne le fournit pas obtient NULL,
+    // exactement comme avant ce lot.
+    p_siren: input.siren ?? null,
     p_contact_name: input.contactName ?? null,
     p_contact_email: input.contactEmail ?? null,
   });
@@ -146,6 +158,10 @@ export async function getOrderInvoiceRequest(
     invoiceType: row.invoice_type,
     companyLegalName: row.company_legal_name,
     vatNumber: row.vat_number,
+    // Repli `?? null` : une base non encore migrée ne renvoie pas
+    // cette colonne -- l'absence vaut « non renseigné », jamais une
+    // erreur de lecture (compatibilité arrière).
+    siren: row.siren ?? null,
     contactName: row.contact_name,
     contactEmail: row.contact_email,
     addressLine1: row.address_line_1,

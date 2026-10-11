@@ -487,6 +487,7 @@ const fr: Dict = {
   stCommKey_email_confirmation_subject: "E-mail de confirmation — objet",
   stCommKey_email_confirmation_body: "E-mail de confirmation — message",
   stCommKey_confirmation_withdrawal_request: "Accusé de demande de rétractation",
+  stCommKey_billing_profile_explanation: "Explication des informations de facturation (checkout)",
   stCommEvent_carrier_handoff: "E-mail « commande remise au transporteur »",
   stCommEvent_local_delivery_handoff: "E-mail « commande en cours de livraison »",
   stCommEvent_withdrawal_request_received: "E-mail « demande de rétractation enregistrée »",
@@ -1116,6 +1117,14 @@ const fr: Dict = {
   invCountry: "Pays",
   invCompanyLegalName: "Raison sociale",
   invVatNumber: "Numéro de TVA (optionnel)",
+  // CUSTOMER BILLING PROFILE v2 -- le libellé PORTE la mention
+  // « optionnel », comme invVatNumber : l'optionalité est visible dans
+  // le champ lui-même, pas seulement dans une ligne d'aide.
+  invSiren: "SIREN (optionnel)",
+  invCompanyIdentifiersOptionalHint:
+    "Le SIREN et le numéro de TVA sont facultatifs : vous pouvez laisser ces champs vides. Aucun SIRET n'est demandé.",
+  invFirstName: "Prénom",
+  invLastName: "Nom",
   invContactName: "Nom du contact",
   invContactEmail: "Email du contact",
   invAddressRequired: "L'adresse de facturation est requise.",
@@ -1129,6 +1138,9 @@ const fr: Dict = {
   invoicePostalCodeTooLong: "Le code postal dépasse la longueur maximale autorisée (10 caractères).",
   invoiceCompanyNameTooLong: "La raison sociale dépasse la longueur maximale autorisée (120 caractères).",
   invoiceVatNumberTooLong: "Le numéro de TVA dépasse la longueur maximale autorisée (30 caractères).",
+  invoiceSirenTooLong: "Le SIREN dépasse la longueur maximale autorisée (14 caractères).",
+  invoiceFirstNameTooLong: "Le prénom dépasse la longueur maximale autorisée (45 caractères).",
+  invoiceLastNameTooLong: "Le nom dépasse la longueur maximale autorisée (45 caractères).",
   invoiceContactNameTooLong: "Le nom du contact dépasse la longueur maximale autorisée (45 caractères).",
   invoiceContactEmailTooLong: "L'email du contact dépasse la longueur maximale autorisée (100 caractères).",
   invoiceContactEmailInvalid: "Adresse e-mail invalide",
@@ -1138,6 +1150,7 @@ const fr: Dict = {
   invBillingAddressDiffers: "Adresse de facturation différente de l'adresse de livraison ?",
   dsInvoiceRequested: "Facture demandée",
   dsInvoiceVatNumber: "N° TVA",
+  dsInvoiceSiren: "SIREN",
 };
 
 const en: Dict = {
@@ -1499,6 +1512,7 @@ const en: Dict = {
   stCommKey_email_confirmation_subject: "Confirmation email — subject",
   stCommKey_email_confirmation_body: "Confirmation email — message",
   stCommKey_confirmation_withdrawal_request: "Withdrawal request acknowledgement",
+  stCommKey_billing_profile_explanation: "Billing details explanation (checkout)",
   stCommEvent_carrier_handoff: "\"Order handed to the carrier\" email",
   stCommEvent_local_delivery_handoff: "\"Order out for delivery\" email",
   stCommEvent_withdrawal_request_received: "\"Withdrawal request recorded\" email",
@@ -2058,6 +2072,11 @@ const en: Dict = {
   invCountry: "Country",
   invCompanyLegalName: "Company legal name",
   invVatNumber: "VAT number (optional)",
+  invSiren: "SIREN (optional)",
+  invCompanyIdentifiersOptionalHint:
+    "SIREN and VAT number are optional: you may leave these fields empty. No SIRET is requested.",
+  invFirstName: "First name",
+  invLastName: "Last name",
   invContactName: "Contact name",
   invContactEmail: "Contact email",
   invAddressRequired: "Billing address is required.",
@@ -2071,6 +2090,9 @@ const en: Dict = {
   invoicePostalCodeTooLong: "Postal code exceeds the maximum allowed length (10 characters).",
   invoiceCompanyNameTooLong: "Company legal name exceeds the maximum allowed length (120 characters).",
   invoiceVatNumberTooLong: "VAT number exceeds the maximum allowed length (30 characters).",
+  invoiceSirenTooLong: "SIREN exceeds the maximum allowed length (14 characters).",
+  invoiceFirstNameTooLong: "First name exceeds the maximum allowed length (45 characters).",
+  invoiceLastNameTooLong: "Last name exceeds the maximum allowed length (45 characters).",
   invoiceContactNameTooLong: "Contact name exceeds the maximum allowed length (45 characters).",
   invoiceContactEmailTooLong: "Contact email exceeds the maximum allowed length (100 characters).",
   invoiceContactEmailInvalid: "Invalid email address",
@@ -2080,6 +2102,7 @@ const en: Dict = {
   invBillingAddressDiffers: "Billing address different from delivery address?",
   dsInvoiceRequested: "Invoice requested",
   dsInvoiceVatNumber: "VAT number",
+  dsInvoiceSiren: "SIREN",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -2436,6 +2459,7 @@ const ar: Dict = {
   stCommKey_email_confirmation_subject: "رسالة التأكيد — الموضوع",
   stCommKey_email_confirmation_body: "رسالة التأكيد — النص",
   stCommKey_confirmation_withdrawal_request: "إشعار استلام طلب الانسحاب",
+  stCommKey_billing_profile_explanation: "شرح معلومات الفاتورة (صفحة الدفع)",
   stCommEvent_carrier_handoff: "رسالة «تم تسليم الطلب إلى الناقل»",
   stCommEvent_local_delivery_handoff: "رسالة «الطلب في طريقه إليكم»",
   stCommEvent_withdrawal_request_received: "رسالة «تم تسجيل طلب الانسحاب»",
@@ -2990,6 +3014,11 @@ const ar: Dict = {
   invCountry: "الدولة",
   invCompanyLegalName: "الاسم القانوني للشركة",
   invVatNumber: "رقم التعريف الضريبي (اختياري)",
+  invSiren: "رقم SIREN (اختياري)",
+  invCompanyIdentifiersOptionalHint:
+    "رقم SIREN ورقم التعريف الضريبي اختياريان: يمكنك ترك هذين الحقلين فارغين. ولا يُطلب رقم SIRET.",
+  invFirstName: "الاسم الأول",
+  invLastName: "اسم العائلة",
   invContactName: "اسم جهة الاتصال",
   invContactEmail: "البريد الإلكتروني لجهة الاتصال",
   invAddressRequired: "عنوان الفوترة مطلوب.",
@@ -3003,6 +3032,9 @@ const ar: Dict = {
   invoicePostalCodeTooLong: "الرمز البريدي يتجاوز الحد الأقصى المسموح به (10 أحرف).",
   invoiceCompanyNameTooLong: "الاسم القانوني للشركة يتجاوز الحد الأقصى المسموح به (120 حرفًا).",
   invoiceVatNumberTooLong: "رقم التعريف الضريبي يتجاوز الحد الأقصى المسموح به (30 حرفًا).",
+  invoiceSirenTooLong: "رقم SIREN يتجاوز الحد الأقصى المسموح به (14 حرفًا).",
+  invoiceFirstNameTooLong: "الاسم الأول يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
+  invoiceLastNameTooLong: "اسم العائلة يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
   invoiceContactNameTooLong: "اسم جهة الاتصال يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
   invoiceContactEmailTooLong: "البريد الإلكتروني لجهة الاتصال يتجاوز الحد الأقصى المسموح به (100 حرف).",
   invoiceContactEmailInvalid: "بريد إلكتروني غير صالح",
@@ -3012,6 +3044,7 @@ const ar: Dict = {
   invBillingAddressDiffers: "هل عنوان الفوترة مختلف عن عنوان التوصيل؟",
   dsInvoiceRequested: "طلب فاتورة",
   dsInvoiceVatNumber: "رقم التعريف الضريبي",
+  dsInvoiceSiren: "رقم SIREN",
 };
 
 /**

@@ -315,11 +315,36 @@ test("[MIR-1] theme_token_keys() est le MIROIR EXACT de THEME_TOKEN_KEYS", () =>
   assert.deepEqual(sqlArray(sql, "theme_token_keys"), [...THEME_TOKEN_KEYS]);
 });
 
+/**
+ * Emplacements ajoutés au catalogue par des lots POSTÉRIEURS à THEME &
+ * CONTENT SETTINGS v1. Le fichier SQL de Theme est un FAIT historique :
+ * il porte l'état du catalogue au moment de Theme, et un lot suivant
+ * porte son delta dans SON fichier (ici CUSTOMER BILLING PROFILE v2,
+ * `billing_profile_explanation`). Comparer le fichier de Theme à la
+ * liste TypeScript COURANTE exige donc de retirer ces ajouts -- sans
+ * quoi l'arrivée d'un lot légitime ferait échouer un test de Theme qui
+ * ne parle pas de lui. L'invariant de Theme reste intégralement
+ * vérifié : son fichier = le catalogue d'alors, ses 3 emplacements
+ * compris.
+ */
+const KEYS_ADDED_AFTER_THEME = ["billing_profile_explanation"] as const;
+const atThemeTime = (keys: readonly string[]) =>
+  keys.filter((k) => !(KEYS_ADDED_AFTER_THEME as readonly string[]).includes(k));
+
 test("[MIR-2] le catalogue MCC étendu (aller) est le MIROIR EXACT des listes TypeScript", () => {
-  assert.deepEqual(sqlArray(sql, "communication_text_keys"), [...COMMUNICATION_TEXT_KEYS]);
-  assert.deepEqual(sqlArray(sql, "public_communication_text_keys"), [...PUBLIC_COMMUNICATION_TEXT_KEYS]);
-  assert.equal(COMMUNICATION_TEXT_KEYS.length, 17);
-  assert.equal(PUBLIC_COMMUNICATION_TEXT_KEYS.length, 14);
+  assert.deepEqual(sqlArray(sql, "communication_text_keys"), atThemeTime(COMMUNICATION_TEXT_KEYS));
+  assert.deepEqual(
+    sqlArray(sql, "public_communication_text_keys"),
+    atThemeTime(PUBLIC_COMMUNICATION_TEXT_KEYS)
+  );
+  // Le fichier de Theme porte son propre état : 17 / 14.
+  assert.equal(sqlArray(sql, "communication_text_keys").length, 17);
+  assert.equal(sqlArray(sql, "public_communication_text_keys").length, 14);
+  // …et les 3 emplacements de Theme sont bien les SIENS, toujours
+  // présents dans la liste TypeScript courante.
+  for (const key of ["order_help_button_label", "order_help_title", "order_help_body"] as const) {
+    assert.ok(COMMUNICATION_TEXT_KEYS.includes(key), `${key} a disparu du catalogue courant`);
+  }
 });
 
 test("[MIR-3] le rollback restaure EXACTEMENT les listes de MCC v1", () => {
@@ -329,7 +354,7 @@ test("[MIR-3] le rollback restaure EXACTEMENT les listes de MCC v1", () => {
   // Les 14 d'origine sont exactement le catalogue étendu privé des 3 nouveaux emplacements.
   assert.deepEqual(
     sqlArray(mccSql, "communication_text_keys"),
-    COMMUNICATION_TEXT_KEYS.filter((k) => !k.startsWith("order_help_"))
+    atThemeTime(COMMUNICATION_TEXT_KEYS).filter((k) => !k.startsWith("order_help_"))
   );
 });
 
@@ -389,8 +414,12 @@ test("[SQL-3] les RPC/CHECK MCC ne sont PAS redéfinis (seulement les 3 fonction
 // ------------------------------------------------- MCC : textes d'aide à la commande
 
 test("[MCC-1] catalogue étendu : 3 emplacements d'aide, publics, SANS texte plateforme par défaut", () => {
-  assert.equal(COMMUNICATION_TEXT_KEYS.length, 17);
-  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, 17);
+  // L'invariant de ce test est la PROPRIÉTÉ de Theme sur ses trois
+  // emplacements, pas l'effectif total du catalogue (qu'un lot suivant
+  // fait légitimement croître). Reste vérifié : catalogue sans doublon,
+  // et les trois emplacements présents, publics, sans défaut, bornés.
+  assert.equal(new Set(COMMUNICATION_TEXT_KEYS).size, COMMUNICATION_TEXT_KEYS.length);
+  assert.equal(atThemeTime(COMMUNICATION_TEXT_KEYS).length, 17);
   for (const key of ["order_help_button_label", "order_help_title", "order_help_body"] as const) {
     assert.ok(COMMUNICATION_TEXT_KEYS.includes(key));
     assert.equal(COMMUNICATION_TEXT_SPEC[key].publicProjection, true);

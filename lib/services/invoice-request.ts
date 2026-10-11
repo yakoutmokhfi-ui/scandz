@@ -31,6 +31,9 @@ export interface SubmitInvoiceRequestParams {
   addressLine2?: string | null;
   companyLegalName?: string | null;
   vatNumber?: string | null;
+  /** CUSTOMER BILLING PROFILE v2 -- OPTIONNEL, transmis tel que saisi
+   *  (aucune normalisation côté client). */
+  siren?: string | null;
   contactName?: string | null;
   contactEmail?: string | null;
 }
