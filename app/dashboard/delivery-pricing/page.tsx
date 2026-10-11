@@ -11,6 +11,7 @@ import {
   updateMerchantDeliveryMethodNotice,
   saveMerchantDeliveryRule,
   moveMerchantDeliveryRule,
+  deleteMerchantDeliveryRule,
   previewMerchantDeliveryRuleSave,
   type DeliveryRulePayload,
 } from "@/lib/services/dashboard";
@@ -157,6 +158,7 @@ export default function DeliveryPricingPage() {
   const [testerRevision, setTesterRevision] = useState(0);
   const rulesBusy = structureBusy || Object.values(drafts).some((draft) => draft.saving);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
 
@@ -240,6 +242,7 @@ export default function DeliveryPricingPage() {
       setModeDrafts({});
       setPricingLoadedRestaurantId(null);
       setNoticesLoadedRestaurantId(null);
+      setPageNotice(null);
       setRestaurantId(id);
     },
     [enterDashboardContext]
@@ -393,6 +396,7 @@ export default function DeliveryPricingPage() {
     const draft = drafts[ruleId];
     if (!draft) return;
     const targetRestaurantId = restaurantId;
+    setPageNotice(null);
     // v1.3 (QA-MSDD-PRICING-ABA-03) -- même principe que saveModeNotice
     // (v1.2), même mécanisme de génération (contextGenerationRef, aucun
     // second modèle de contexte) : l'opération est identifiée par le
@@ -505,12 +509,52 @@ export default function DeliveryPricingPage() {
     if (!canEdit || rulesBusy || creating) return;
     const id = restaurantId, generation = contextGenerationRef.current;
     const current = () => guard.currentRestaurantId() === id && contextGenerationRef.current === generation;
-    setStructureBusy(true); setPageError(null); setTesterRevision((v) => v + 1);
+    setStructureBusy(true); setPageError(null); setPageNotice(null); setTesterRevision((v) => v + 1);
     try {
       await moveMerchantDeliveryRule(id, ruleId, otherRuleId);
       if (current()) await load(id);
     } catch (error) { if (current()) setPageError(t(deliveryRuleErrorKey(error))); }
     finally { if (current()) setStructureBusy(false); }
+  }
+
+  /**
+   * DELIVERY RULE DELETE v1 -- explicit deletion of ONE saved rule.
+   * Same context protection as moveRule/save: the target restaurant and the context generation are
+   * captured at launch; every continuation (after the preview, after the confirmation, after the
+   * mutation, on failure) is a silent UI no-op unless BOTH are still current. Only the captured
+   * (restaurant, rule) pair is sent; the server re-verifies tenant, role and ownership (the UI
+   * `canEdit` is a convenience, never the security boundary).
+   */
+  async function deleteRule(ruleId: string) {
+    if (!canEdit || rulesBusy || creating || ruleId === "new") return;
+    const rule = rowsInContext.find((candidate) => candidate.ruleId === ruleId);
+    if (!rule) return;
+    const id = restaurantId, generation = contextGenerationRef.current;
+    const current = () => guard.currentRestaurantId() === id && contextGenerationRef.current === generation;
+    const isOnlyRule = rowsInContext.length === 1;
+    const isActive = rule.enabled !== false;
+    setStructureBusy(true); setPageError(null); setPageNotice(null); setTesterRevision((v) => v + 1);
+    try {
+      // Only removing the last ACTIVE rule changes the effective delivery behavior; the transition
+      // comes from the same server helper as the save/disable path (no UI-side legacy rules).
+      const transition = isActive ? await previewMerchantDeliveryRuleSave(id, ruleId, false) : "none";
+      if (!current()) return;
+      const message = transition === "legacy-zones" ? t("dpDeleteConfirmLastLegacyZones")
+        : transition === "legacy-unavailable" ? t("dpDeleteConfirmLastUnavailable")
+        : isOnlyRule ? t("dpDeleteConfirmLastRule") : t("dpDeleteConfirm");
+      if (!window.confirm(message)) return;
+      if (!current()) return;
+      await deleteMerchantDeliveryRule(id, ruleId, transition !== "none" ? transition : undefined);
+      if (!current()) return;
+      await load(id);
+      if (current()) setPageNotice(t("dpDeleted"));
+    } catch (error) {
+      if (!current()) return;
+      const key = deliveryRuleErrorKey(error);
+      // Re-read first (load() clears pageError), then show the translated refusal if still current.
+      await load(id);
+      if (current()) setPageError(t(key === "dpSaveFailed" ? "dpDeleteFailed" : key));
+    } finally { if (current()) setStructureBusy(false); }
   }
 
   const newRule: MerchantDeliveryFulfillmentPricingRule = {
@@ -569,6 +613,12 @@ export default function DeliveryPricingPage() {
         {pageError && (
           <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
             {pageError}
+          </p>
+        )}
+
+        {pageNotice && !pageError && (
+          <p role="status" data-delivery-rule-deleted className="mt-3 rounded-xl bg-green-50 p-3 text-sm font-semibold text-green-800">
+            {pageNotice}
           </p>
         )}
 
@@ -750,6 +800,19 @@ export default function DeliveryPricingPage() {
                 <button type="button" disabled={rulesBusy || creating || index === 0} onClick={() => void moveRule(rule.ruleId, rowsInContext[index - 1].ruleId)}>{t("dpMoveUp")}</button>
                 <button type="button" disabled={rulesBusy || creating || index >= rowsInContext.length - 1} onClick={() => void moveRule(rule.ruleId, rowsInContext[index + 1].ruleId)}>{t("dpMoveDown")}</button>
               </div>}
+              {canEdit && rule.ruleId !== "new" && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    data-delete-rule={rule.ruleId}
+                    disabled={rulesBusy || creating}
+                    onClick={() => void deleteRule(rule.ruleId)}
+                    className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-bold text-red-700 disabled:opacity-50"
+                  >
+                    {t("dpDeleteRule")}
+                  </button>
+                </div>
+              )}
               {canEdit && (
                 <div className="mt-3 flex items-center gap-3">
                   <button

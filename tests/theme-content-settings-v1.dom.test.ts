@@ -224,7 +224,8 @@ test("[BL-1] sans configuration, le rendu est IDENTIQUE à celui de main (emprei
   const baseline = JSON.parse(readFileSync(FIXTURE, "utf8"));
   assert.equal(baseline.provenance.capturedAtCommit, "412dbb53c5f180983860852b79425209c04b9c42", "empreinte capturée sur la baseline");
   assert.equal(now.menuHtml, baseline.menuHtml, "MenuView sans configuration : balisage identique à main");
-  assert.equal(now.deliveryHtml, baseline.deliveryHtml, "cartouche livraison sans configuration : balisage identique à main");
+  assert.equal(baseline.deliveryProvenance.supersededBy, "DELIVERY PUBLIC TEXT v1", "empreinte livraison recapturée pour la décision produit (voir fixture)");
+  assert.equal(now.deliveryHtml, baseline.deliveryHtml, "cartouche livraison sans configuration : balisage stable (customer_text seul ; empreinte 412dbb5 conservée dans la fixture à titre d'archive)");
 });
 
 const itCand = CAPTURE ? test.skip : test;
@@ -295,8 +296,10 @@ itCand("[TOK-2] le panneau adresse/horaires porte la surface info-panel, la fich
   } finally { await m.unmount(); }
 });
 
-itCand("[TOK-3] les cartes de tarifs de livraison portent la surface delivery-card (une par règle), pas la fenêtre", async () => {
-  const m = await mount(withI18n(React.createElement(core.DeliveryConditionsButton, { rules: RULES, currency: "EUR" })));
+itCand("[TOK-3] les cartes de textes de livraison portent la surface delivery-card (une par règle AYANT un texte), pas la fenêtre", async () => {
+  // DELIVERY PUBLIC TEXT v1 : une carte par règle dont le texte marchand n'est pas vide.
+  const withTexts = [RULES[0], { ...RULES[1], customerText: "Colis refrigere.", displayOrder: 2 }, { ...RULES[1], customerText: null, displayOrder: 3 }];
+  const m = await mount(withI18n(React.createElement(core.DeliveryConditionsButton, { rules: withTexts, currency: "EUR" })));
   try {
     const cards = [...m.container.querySelectorAll('[data-delivery-rule-card]')];
     assert.equal(cards.length, 2);
