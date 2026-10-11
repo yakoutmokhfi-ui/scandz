@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import {
@@ -139,6 +139,25 @@ export default function DeliveryPricingPage() {
    * invaliderait un chargement légitime en vol, et inversement).
    */
   const contextGenerationRef = useRef(0);
+  /**
+   * DTR-AUDIT-01 -- FRONTIÈRE DE VIE DU COMPOSANT. Restaurant + génération
+   * décrivent le contexte, pas l'INSTANCE : après un démontage, la fermeture
+   * d'une opération (capturée avec ce même `contextGenerationRef` et le guard
+   * de CETTE instance) resterait « courante » alors que plus rien n'est
+   * affiché, et pourrait encore confirmer puis ENVOYER une suppression
+   * pendant qu'une NOUVELLE instance affiche un autre établissement (ou le
+   * même, après A -> B -> A). Le démontage invalide donc la génération de CETTE
+   * instance (chaque instance possède son propre compteur : aucune ambiguïté
+   * inter-instances), de façon SYNCHRONE au commit du démontage (layout effect :
+   * aucune continuation ne peut s'intercaler). Toute continuation lancée avant le démontage devient
+   * définitivement périmée -> retour silencieux, sans confirmation, sans
+   * DELETE, sans load(), sans écriture d'état. Une mutation DÉJÀ envoyée n'est
+   * ni annulée ni compensée (contrat inchangé). Même modèle de contexte, pas
+   * de second mécanisme.
+   */
+  useLayoutEffect(() => {
+    return () => { contextGenerationRef.current += 1; };
+  }, []);
   const enterDashboardContext = useCallback(
     (id: string) => {
       contextGenerationRef.current += 1;

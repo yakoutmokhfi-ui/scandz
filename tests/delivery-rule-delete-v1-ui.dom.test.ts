@@ -30,7 +30,8 @@ Object.defineProperty(globalThis,"navigator",{value:window.navigator,configurabl
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const React=await import("react"); const {createRoot}=await import("react-dom/client");
 const confirmations:string[]=[]; let confirmationAnswer=false;
-window.confirm=(message?:string)=>{confirmations.push(message??"");return confirmationAnswer;};
+let confirmHook:(()=>void)|null=null;
+window.confirm=(message?:string)=>{confirmations.push(message??"");confirmHook?.();return confirmationAnswer;};
 const calls:Array<{name:string; args:Record<string,any>}>=[];
 let hold:((name:string,args:Record<string,any>)=>boolean)|null=null; let release:(()=>void)|null=null;
 let operator=false;
@@ -97,6 +98,7 @@ function field(scope:ParentNode,label:string){const l=[...scope.querySelectorAll
 const cardNames=()=>[...container.querySelectorAll('[data-delivery-rule] h3')].map(h=>h.textContent);
 const cardOf=(code:string)=>{const c=[...container.querySelectorAll('[data-delivery-rule]')].find(c=>c.querySelector('h3')?.textContent===code);assert.ok(c,code);return c;};
 const deleteButton=(code:string)=>cardOf(code).querySelector<HTMLButtonElement>('[data-delete-rule]');
+async function unmountPage(){if(root){await React.act(()=>root.unmount());container.remove();root=null;}}
 async function mountPage(){
   if(root){await React.act(()=>root.unmount());container.remove();}
   container=window.document.createElement("div");window.document.body.append(container);root=createRoot(container);
@@ -267,4 +269,94 @@ test("STALE B->A and A->B->A (ABA): the delete started in the FIRST visit of a t
   hold=null;await React.act(async()=>{release!();release=null;await tick();});await React.act(tick);
   assert.deepEqual(cardNames(),["A1"],"A's list is not replaced by B's outcome");
   assert.equal(container.querySelector('[data-delivery-rule-deleted]'),null);
+});
+
+// ---------------------------------------------------------------- DTR-AUDIT-01
+// UNMOUNT / REMOUNT: restaurant + generation do not prove the ORIGINATING INSTANCE is still alive.
+async function seedTwoTenants(){
+  await resetRules();await seed(A,"A1",1,{zones:["75"]});await seed(A,"A2",2,{zones:["92"]});await seed(B,"B1",1,{zones:["13"]});await seed(B,"B2",2,{zones:["31"]});
+  confirmationAnswer=true;hold=null;release=null;confirmHook=null;
+}
+const settle=async()=>{for(let i=0;i<4;i++)await React.act(tick);};
+const noStaleUi=()=>{assert.equal(container.querySelector('[data-delivery-rule-deleted]'),null,"no success notice");assert.ok(!container.textContent!.includes("Suppression refusée"),"no delete error notice");};
+
+test("DTR-AUDIT-01 / 1. UNMOUNT then a NEW instance on B: the abandoned preview cannot confirm, delete, reload or write state",async()=>{
+  await seedTwoTenants();await mountPage();
+  hold=(name,args)=>name==="preview_merchant_delivery_rule_save"&&args.p_restaurant_id===A;
+  const c0=confirmations.length,d0=count("mutate_merchant_delivery_rule","delete");
+  await click(deleteButton("A1")!);await until(()=>release!==null);
+  await unmountPage();hold=null;
+  await mountPage();await change(field(container,"Tenant"),B);await until(()=>cardNames().includes("B1"));
+  const loads0=count("get_merchant_delivery_fulfillment_pricing");
+  await React.act(async()=>{release!();release=null;await tick();});await settle();
+  assert.equal(confirmations.length,c0,"no confirmation from the abandoned instance");
+  assert.equal(count("mutate_merchant_delivery_rule","delete"),d0,"no DELETE from the abandoned instance");
+  assert.equal(count("get_merchant_delivery_fulfillment_pricing"),loads0,"no load()");
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A1","A2"]);assert.deepEqual((await dbRules(B)).map(r=>r.fulfillment_code),["B1","B2"]);
+  assert.deepEqual(cardNames(),["B1","B2"]);noStaleUi();
+});
+
+test("DTR-AUDIT-01 / 2. UNMOUNT then A -> B -> A in the NEW instance: the abandoned preview still cannot confirm or delete",async()=>{
+  await seedTwoTenants();await mountPage();
+  hold=(name,args)=>name==="preview_merchant_delivery_rule_save"&&args.p_restaurant_id===A;
+  const c0=confirmations.length,d0=count("mutate_merchant_delivery_rule","delete");
+  await click(deleteButton("A1")!);await until(()=>release!==null);
+  await unmountPage();hold=null;
+  await mountPage();await change(field(container,"Tenant"),B);await until(()=>cardNames().includes("B1"));
+  await change(field(container,"Tenant"),A);await until(()=>cardNames().includes("A1"));
+  const loads0=count("get_merchant_delivery_fulfillment_pricing");
+  await React.act(async()=>{release!();release=null;await tick();});await settle();
+  assert.equal(confirmations.length,c0);assert.equal(count("mutate_merchant_delivery_rule","delete"),d0);
+  assert.equal(count("get_merchant_delivery_fulfillment_pricing"),loads0);
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A1","A2"]);
+  assert.deepEqual(cardNames(),["A1","A2"],"the new A view stays consistent with the database");noStaleUi();
+  // and the NEW instance still works normally afterwards
+  await click(deleteButton("A2")!);await until(()=>!cardNames().includes("A2"));
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A1"]);
+});
+
+test("DTR-AUDIT-01 / 2b. UNMOUNT + a new instance on the SAME tenant (no navigation): the abandoned preview is still dead",async()=>{
+  await seedTwoTenants();await mountPage();
+  hold=(name,args)=>name==="preview_merchant_delivery_rule_save"&&args.p_restaurant_id===A;
+  const c0=confirmations.length,d0=count("mutate_merchant_delivery_rule","delete");
+  await click(deleteButton("A1")!);await until(()=>release!==null);
+  await unmountPage();hold=null;await mountPage();
+  await React.act(async()=>{release!();release=null;await tick();});await settle();
+  assert.equal(confirmations.length,c0);assert.equal(count("mutate_merchant_delivery_rule","delete"),d0);
+  assert.deepEqual((await dbRules(A)).length,2);assert.deepEqual(cardNames(),["A1","A2"]);noStaleUi();
+});
+
+test("DTR-AUDIT-01 / 3. UNMOUNT inside the confirmation (answer = OK) but before dispatch: DELETE is never sent",async()=>{
+  await seedTwoTenants();await mountPage();
+  const d0=count("mutate_merchant_delivery_rule","delete"),loads0=count("get_merchant_delivery_fulfillment_pricing");
+  // The user accepts, but the instance is torn down at that very moment (synchronously, inside confirm()).
+  confirmHook=()=>{root.unmount();};
+  const c0=confirmations.length;
+  await click(deleteButton("A1")!);await until(()=>confirmations.length>c0);await settle();
+  confirmHook=null;root=null;container.remove();
+  assert.equal(count("mutate_merchant_delivery_rule","delete"),d0,"the check right before deleteMerchantDeliveryRule is permanent");
+  assert.equal(count("get_merchant_delivery_fulfillment_pricing"),loads0);
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A1","A2"]);
+});
+
+test("DTR-AUDIT-01 / 3b. CONTROL: a still-mounted, still-current instance accepting the same confirmation dispatches exactly one DELETE",async()=>{
+  await seedTwoTenants();await mountPage();
+  const d0=count("mutate_merchant_delivery_rule","delete"),c0=confirmations.length;
+  await click(deleteButton("A1")!);await until(()=>confirmations.length>c0);await until(()=>!cardNames().includes("A1"));
+  assert.equal(count("mutate_merchant_delivery_rule","delete"),d0+1);
+});
+
+test("DTR-AUDIT-01 / 4. UNMOUNT while the DELETE is already in flight: not compensated, no reload, no state write, new instance not polluted",async()=>{
+  await seedTwoTenants();await mountPage();
+  hold=(name,args)=>name==="mutate_merchant_delivery_rule"&&args.p_action==="delete";
+  await click(deleteButton("A1")!);await until(()=>release!==null);
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A2"],"the server already executed the DELETE");
+  await unmountPage();hold=null;await mountPage();
+  await until(()=>cardNames().length===1);
+  const loads0=count("get_merchant_delivery_fulfillment_pricing"),m0=count("mutate_merchant_delivery_rule");
+  await React.act(async()=>{release!();release=null;await tick();});await settle();
+  assert.equal(count("get_merchant_delivery_fulfillment_pricing"),loads0,"the abandoned instance performs NO reload");
+  assert.equal(count("mutate_merchant_delivery_rule"),m0,"nothing compensating / re-sent");
+  assert.deepEqual((await dbRules(A)).map(r=>r.fulfillment_code),["A2"],"the already-sent mutation is neither undone nor repeated");
+  assert.deepEqual(cardNames(),["A2"]);noStaleUi();
 });
