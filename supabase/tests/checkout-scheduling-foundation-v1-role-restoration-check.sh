@@ -159,6 +159,8 @@ cleanup() {
     "$PG_CTL" -D "$WIT_DATA" stop -m immediate >/dev/null 2>&1
   [ "${LAB_UP:-0}" = "1" ] && env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
     "$PG_CTL" -D "$LAB_DATA" stop -m immediate >/dev/null 2>&1
+  [ "${SENT_UP:-0}" = "1" ] && env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" stop -m immediate >/dev/null 2>&1
   rm -rf "$TMP_DIR"
   exit "$rc"
 }
@@ -944,6 +946,184 @@ for good in "$LAB_SOCK_C" "$LAB_SOCK_D" "$LAB_SOCK_E"; do
   fi
 done
 
+# ── OCTETS RÉSERVÉS PAR L'ENCODAGE DU PARSEUR
+#    CSDJ1-AUD-07-SOCKET-SENTINEL-01
+#
+# Le parseur emploie chr(1) et chr(2) comme sentinelles internes. Ces
+# octets ne sont réservés par AUCUNE syntaxe PostgreSQL : un nom de
+# répertoire peut les contenir -- Linux n'interdit que « / » et l'octet
+# nul -- et un serveur démarre parfaitement sur un tel répertoire.
+#
+# La collision se produit, et dans les DEUX sens :
+#   chr(2) dans un nom est pris pour un séparateur => le fragment qui le
+#          précède devient une entrée, donc une FAUSSE IDENTITÉ ;
+#   chr(1) dans un nom est restitué en guillemet => un chemin qui
+#          N'EXISTE PAS est accepté, et l'entrée réelle refusée.
+#
+# On l'éprouve sur de VRAIS clusters portant ces octets, et non sur une
+# chaîne fabriquée : le défaut n'existe que parce que PostgreSQL rend
+# réellement ces octets.
+log "=== [H] octets réservés par l'encodage du parseur (chr(1), chr(2)) ==="
+
+SENT_DATA="$TMP_DIR/sentinelles"
+SENT_PORT=$(( PORT + 2 ))
+SENT_PLAIN="$TMP_DIR/sent-plain"
+SENT_UP=0
+SENT_MARKER="scanym_csdj1_identity_sent_$$"
+SENT_NONCE="csdj1-sent-$$-$(date -u '+%Y%m%d%H%M%S')"
+SENT_MARKER_DONE=0
+SENT_B1="$TMP_DIR/foo$(printf '\001')bar"
+SENT_B2="$TMP_DIR/foo$(printf '\002')bar"
+mkdir -p "$SENT_PLAIN" "$SENT_B1" "$SENT_B2"
+env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+  "$INITDB" -D "$SENT_DATA" -A trust -E UTF8 --locale=C >"$TMP_DIR/initdb-sent.log" 2>&1 \
+  || fatal "[H] initdb du cluster à sentinelles a échoué."
+
+csdj1_runner_sent() {
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1 \
+      -h "$SENT_PLAIN" -p "$SENT_PORT" -U "$OWNER" -d postgres \
+      -c "$1" </dev/null 2>&1
+}
+
+# Un contrôle par octet. Le cluster est démarré avec un répertoire de
+# socket PORTANT l'octet, l'attendu est la fausse identité que la
+# collision fabrique, et l'on exige : refus NOMMÉ, et empreinte de rôle
+# INCHANGÉE.
+sentinel_control() {
+  local label="$1" badsock="$2" expected="$3"
+
+  # ── 1. Le cluster démarre avec une liste de sockets ORDINAIRE.
+  #    Tout le reste de l'identité est ainsi LÉGITIME -- marqueur
+  #    compris -- et le seul fait qui clochera à l'étape 4 sera l'octet
+  #    réservé. Sans cela, le refus pourrait venir du marqueur absent,
+  #    et le contrôle prouverait autre chose que ce qu'il annonce.
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" -l "$SENT_DATA.log" \
+      -o "-p $SENT_PORT -c unix_socket_directories='$SENT_PLAIN' -c listen_addresses=''" \
+      start >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    fail "[H] $label — le cluster à sentinelles n'a pas démarré"
+    return
+  fi
+  SENT_UP=1
+
+  csdj1_identity_declare sentinelles csdj1_runner_sent \
+    "$SENT_PLAIN" "$SENT_PORT" "$OWNER" \
+    "$(csdj1_runner_sent "select pg_catalog.current_setting('data_directory');" | tail -1 | tr -d ' ')" \
+    "$(csdj1_runner_sent "select pg_catalog.current_setting('config_file');" | tail -1 | tr -d ' ')" \
+    "$SENT_MARKER" "$SENT_NONCE" \
+    || fatal "[H] contrat du cluster à sentinelles invalide."
+  if [ "${SENT_MARKER_DONE:-0}" != "1" ]; then
+    csdj1_identity_install || fatal "[H] pose du marqueur sur le cluster à sentinelles REFUSÉE ($CSDJ1_ID_LAST)."
+    SENT_MARKER_DONE=1
+  fi
+  csdj1_identity_mutate "
+  if not exists (select 1 from pg_catalog.pg_roles where rolname='scanym_csdj1_sent_probe') then
+    create role scanym_csdj1_sent_probe nologin nobypassrls;
+  else
+    alter role scanym_csdj1_sent_probe nologin nobypassrls;
+  end if;
+" || fatal "[H] impossible de poser le rôle témoin du cluster à sentinelles ($CSDJ1_ID_LAST)."
+
+  sent_fingerprint() {
+    csdj1_runner_sent "select coalesce(pg_catalog.string_agg(
+        r.rolname || ':' || (case when r.rolcanlogin then '1' else '0' end)
+                  || (case when r.rolbypassrls then '1' else '0' end), ',' order by r.rolname), 'AUCUN')
+      from pg_catalog.pg_roles r where r.rolname = 'scanym_csdj1_sent_probe';" | tail -1 | tr -d ' '
+  }
+  local before after reason collides
+  before="$(sent_fingerprint)"
+  if [ "$before" != "scanym_csdj1_sent_probe:00" ]; then
+    fail "[H] $label — rôle témoin dans un état inattendu (« $before »)"
+    env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" "$PG_CTL" -D "$SENT_DATA" stop -m immediate >/dev/null 2>&1
+    SENT_UP=0
+    csdj1_identity_use test
+    return
+  fi
+
+  # ── 2. Le cluster est RECONFIGURÉ avec un répertoire de socket
+  #    portant l'octet réservé, et redémarré. Rien d'autre ne change :
+  #    même data_directory, même config_file, même port, même
+  #    utilisateur, même marqueur.
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" stop -m immediate >/dev/null 2>&1
+  SENT_UP=0
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" -l "$SENT_DATA.log" \
+      -o "-p $SENT_PORT -c unix_socket_directories='$badsock,$SENT_PLAIN' -c listen_addresses=''" \
+      start >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
+    fail "[H] $label — le cluster n'a pas redémarré avec l'octet réservé : le cas ne peut pas être éprouvé"
+    csdj1_identity_use test
+    return
+  fi
+  SENT_UP=1
+
+  # ── 3. La collision est-elle RÉELLE ? Le parseur SEUL -- sans la
+  #    défense -- accepte-t-il la fausse identité ?
+  collides="$(csdj1_runner_sent "select $(csdj1_identity_socket_match_expr "$(csdj1_identity_normalize_socket "$expected")");" | tail -1 | tr -d ' ')"
+
+  # ── 4. La mutation est tentée avec l'attendu FABRIQUÉ par la collision.
+  csdj1_identity_use sentinelles || fatal "[H] contrat des sentinelles indisponible."
+  CSDJ1_ID_SOCKET="$(csdj1_identity_normalize_socket "$expected")"
+  local accepted=0
+  if csdj1_identity_mutate "  alter role scanym_csdj1_sent_probe bypassrls;"; then accepted=1; fi
+  reason="$CSDJ1_ID_LAST"
+  after="$(sent_fingerprint)"
+
+  if [ "$accepted" = "1" ]; then
+    fail "[H] $label — la mutation a été ACCEPTÉE : « $expected » est une fausse identité fabriquée par la collision"
+  elif [ "$reason" = "socket_octets_reserves" ]; then
+    pass "[H] $label — REFUS, raison « $reason »"
+  else
+    fail "[H] $label — refus pour la MAUVAISE raison : « $reason » au lieu de « socket_octets_reserves »"
+  fi
+  if [ "$after" = "$before" ]; then
+    pass "[H] $label — empreinte de rôle INCHANGÉE ($after)"
+  else
+    fail "[H] $label — empreinte de rôle MODIFIÉE : « $before » -> « $after »"
+  fi
+  if [ "$collides" = "t" ]; then
+    pass "[H] $label — la collision est RÉELLE : le parseur seul accepte l'attendu, c'est la défense qui l'arrête"
+  else
+    fail "[H] $label — le parseur n'accepte pas l'attendu : ce cas ne démontre aucune collision"
+  fi
+
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" stop -m immediate >/dev/null 2>&1
+  SENT_UP=0
+  csdj1_identity_use test || fatal "[H] contrat du cluster sous test indisponible."
+}
+
+# S2 : chr(2) dans le nom => le fragment avant l'octet devient une entrée.
+sentinel_control "S2 chr(2), fausse identité « \$TMP_DIR/foo »" "$SENT_B2" "$TMP_DIR/foo"
+# S1 : chr(1) dans le nom => un chemin à guillemet, qui n'existe pas.
+sentinel_control "S1 chr(1), chemin FABRIQUÉ « \$TMP_DIR/foo\"bar »" "$SENT_B1" "$TMP_DIR/foo\"bar"
+
+# Un cluster ORDINAIRE n'est pas refusé pour autant : la défense ne doit
+# pas rendre le harnais inutilisable là où rien ne cloche.
+env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+  "$PG_CTL" -D "$SENT_DATA" -l "$SENT_DATA.log" \
+    -o "-p $SENT_PORT -k $SENT_PLAIN -c unix_socket_directories='$SENT_PLAIN' -c listen_addresses=''" \
+    start >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+  SENT_UP=1
+  SENT_OK="$(csdj1_runner_sent "select $(csdj1_identity_socket_reserved_expr);" | tail -1 | tr -d ' ')"
+  SENT_MATCH="$(csdj1_runner_sent "select $(csdj1_identity_socket_match_expr "$SENT_PLAIN");" | tail -1 | tr -d ' ')"
+  if [ "$SENT_OK" = "t" ] && [ "$SENT_MATCH" = "t" ]; then
+    pass "[H] CONTRÔLE POSITIF — un chemin ORDINAIRE passe toujours (aucun octet réservé, appartenance exacte)"
+  else
+    fail "[H] CONTRÔLE POSITIF — un chemin ordinaire est refusé (réservés=$SENT_OK, appartenance=$SENT_MATCH)"
+  fi
+  env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
+    "$PG_CTL" -D "$SENT_DATA" stop -m immediate >/dev/null 2>&1
+  SENT_UP=0
+else
+  fail "[H] CONTRÔLE POSITIF — le cluster ordinaire n'a pas démarré"
+fi
+csdj1_identity_use test || fatal "[H] contrat du cluster sous test indisponible."
+
 # Une liste MAL FORMÉE ne peut pas sortir de SHOW -- PostgreSQL refuse de
 # démarrer dessus (« invalid list syntax in parameter »). On vérifie
 # néanmoins que la garde porte le refus correspondant : une hypothèse
@@ -1133,32 +1313,84 @@ MUT_AWK="$TMP_DIR/role-mutation-detector.awk"
 # règle d'ouvreur et jamais examinée. C'est la limite que l'audit a
 # signalée, et elle est fermée.
 cat > "$MUT_AWK" <<'AWKDET'
+# Détecteur de mutations de rôle NON GARDÉES.
+# CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+#
+# Trois défauts corriges ici, tous signales par l audit :
+#
+#   1. l etat « garde » FUITAIT d un appel a l autre. Un
+#      csdj1_identity_mutate "perform 1;" complet laissait l etat actif,
+#      et la mutation BRUTE de la ligne suivante en heritait.
+#      => l etat ne se propage que tant qu un argument reste OUVERT.
+#
+#   2. seul le guillemet DOUBLE etait reconnu comme ouverture d argument.
+#      q 'alter role ...' passait inapercu.
+#      => les deux formes de litteral sont reconnues.
+#
+#   3. les mots-cles SQL etaient cherches en minuscules et en capitales,
+#      jamais en casse mixte. « Alter Role » passait inapercu.
+#      => la recherche est insensible a la casse.
+#
+# Principe : pour chaque ligne, on cherche la position du mot-cle de
+# mutation, puis celle des APPELS qui la precedent SUR LA MEME LIGNE.
+# Le plus proche en amont decide. S il n y en a aucun, on herite de
+# l etat -- mais seulement si un argument est encore ouvert.
+
+function firstpos(str, re) {
+  if (match(str, re)) return RSTART
+  return 0
+}
+
 /^[[:space:]]*#/ { next }
 /SELF-REFERENCE/ { next }
-{
-  line = $0
-  has_mut  = (line ~ /create role|alter role|drop role|CREATE ROLE|ALTER ROLE|DROP ROLE/)
-  is_guard = (line ~ /csdj1_identity_mutate|csdj1_identity_install|csdj1_identity_uninstall/) \
-             || (line ~ /RESTORE_SQL=|PROBE_MUTATION=/)
-  is_raw   = (line ~ /(^|[^a-z_])(q|qw)[ ]*"/) \
-             || (line ~ /csdj1_runner_[a-z_]+[ ]*"/) \
-             || (line ~ /psql |probe |sql_value |run_sql /)
 
-  if (has_mut) {
-    if (is_raw)
+{
+  line  = $0
+  lower = tolower(line)
+
+  # Les motifs sont des CHAINES, et non des constantes /re/ : en awk,
+  # une constante regex passee en ARGUMENT vaut « $0 ~ /re/ », soit 0 ou
+  # 1, et la fonction chercherait alors « 0 » dans le texte.
+  mp = firstpos(lower, "(create|alter|drop)[ \t]+role")
+  gp = firstpos(line, "csdj1_identity_(mutate|install|uninstall)|RESTORE_SQL=|PROBE_MUTATION=")
+  # Un jeton d appel ne compte que s il est suivi d une ouverture de
+  # chaine ou d un drapeau. Sans cela, du SQL contenant « ..._probe
+  # nologin » serait pris pour un appel au client « probe », et
+  # ecraserait l etat au milieu d un argument garde.
+  rp = firstpos(line, "(^|[^a-z_])(q|qw)[ \t]*[\"']|csdj1_runner_[a-z_]+[ \t]*[\"']|(psql|probe|sql_value|run_sql)[ \t]+(-|[\"']|\\$)")
+
+  if (mp > 0) {
+    gbefore = (gp > 0 && gp < mp) ? gp : 0
+    rbefore = (rp > 0 && rp < mp) ? rp : 0
+
+    if (rbefore > 0 && rbefore >= gbefore)
       printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, "meme ligne"
-    else if (is_guard)
+    else if (gbefore > 0)
       printf "GARDEE\t%s\t%s\n", FILENAME, line
-    else if (opener ~ /^brut:/)
-      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, substr(opener, 6)
-    else if (opener == "garde")
+    else if (pending == "brut")
+      printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, line, "argument ouvert en amont"
+    else if (pending == "garde")
       printf "GARDEE\t%s\t%s\n", FILENAME, line
     else
       printf "SANS-OUVREUR\t%s\t%s\n", FILENAME, line
   }
 
-  if (is_guard) opener = "garde"
-  else if (is_raw) opener = "brut:" line
+  # Mise a jour de l etat APRES classement. Un appel dont l argument se
+  # ferme sur la meme ligne ne laisse AUCUN etat derriere lui : c est ce
+  # qui fermait la fuite.
+  if (gp > 0 || rp > 0) {
+    if (rp > gp) { kind = "brut"; callpos = rp } else { kind = "garde"; callpos = gp }
+    rest = substr(line, callpos)
+    dq = gsub(/"/, "\"", rest)
+    sq = gsub(/'/, "'", rest)
+    if (dq % 2 == 1)      { pending = kind; pq = "\"" }
+    else if (sq % 2 == 1) { pending = kind; pq = "'" }
+    else                  { pending = ""; pq = "" }
+  } else if (pending != "") {
+    tmp = line
+    n = (pq == "\"") ? gsub(/"/, "\"", tmp) : gsub(/'/, "'", tmp)
+    if (n % 2 == 1) { pending = ""; pq = "" }
+  }
 }
 AWKDET
 awk -f "$MUT_AWK" "$SELF" "$HARNESS" > "$MUT_REPORT"
@@ -1176,35 +1408,76 @@ mkdir -p "$DET_FIXT"
 # éprouve.
 V_CREATE="crea""te role"
 V_ALTER="alt""er role"
+V_ALTER_MIXED="Alt""er Role"
+SQ="'"
+DQ='"'
+# D1 — appel brut d'UNE ligne, argument entre APOSTROPHES.
 { printf '#!/usr/bin/env bash\n'
-  printf 'q "%s scanym_fixture_role login;"\n' "$V_CREATE"
-} > "$DET_FIXT/raw-one-line.sh"
+  printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/d1-raw-single-quote.sh"
+# D2 — même chose entre GUILLEMETS.
 { printf '#!/usr/bin/env bash\n'
-  printf 'csdj1_runner_test "%s scanym_fixture_role bypassrls;"\n' "$V_ALTER"
-} > "$DET_FIXT/raw-one-line-alter.sh"
+  printf 'q %s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"
+} > "$DET_FIXT/d2-raw-double-quote.sh"
+# D3 — casse MIXTE.
 { printf '#!/usr/bin/env bash\n'
-  printf 'qw "do \\$\\$ begin\n'
-  printf '      %s scanym_fixture_role login bypassrls;\n' "$V_CREATE"
-  printf '    end \\$\\$;"\n'
-} > "$DET_FIXT/raw-multiline.sh"
+  printf 'q %s%s fixture BYPASSRLS;%s\n' "$SQ" "$V_ALTER_MIXED" "$SQ"
+} > "$DET_FIXT/d3-mixed-case.sh"
+# D4 — un appel GARDÉ et COMPLET, puis une mutation BRUTE. L'état
+#      « gardé » ne doit pas fuir de l'un à l'autre : c'est le défaut
+#      que l'audit a trouvé.
 { printf '#!/usr/bin/env bash\n'
-  printf 'csdj1_identity_mutate "\n'
-  printf '  %s scanym_fixture_role login;\n' "$V_CREATE"
-  printf '"\n'
-} > "$DET_FIXT/guarded.sh"
+  printf 'csdj1_identity_mutate %sperform 1;%s\n' "$DQ" "$DQ"
+  printf 'q %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ"
+} > "$DET_FIXT/d4-guard-state-leak.sh"
+# D5 — mutation brute MULTI-LIGNES (non-régression du tour précédent).
+{ printf '#!/usr/bin/env bash\n'
+  printf 'qw %sdo \\$\\$ begin\n' "$DQ"
+  printf '      %s fixture login bypassrls;\n' "$V_CREATE"
+  printf '    end \\$\\$;%s\n' "$DQ"
+} > "$DET_FIXT/d5-raw-multiline.sh"
+# D6 — mutation correctement GARDÉE : elle ne doit pas être dénoncée.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'csdj1_identity_mutate %s\n' "$DQ"
+  printf '  %s fixture login;\n' "$V_CREATE"
+  printf '%s\n' "$DQ"
+} > "$DET_FIXT/d6-guarded.sh"
+# D7 — du SQL qui ne touche AUCUN rôle : il doit être ignoré.
+{ printf '#!/usr/bin/env bash\n'
+  printf 'q %sselect 1; drop table if exists x;%s\n' "$DQ" "$DQ"
+} > "$DET_FIXT/d7-non-role-sql.sh"
 
-for fx in raw-one-line raw-one-line-alter raw-multiline; do
+# D1, D2, D3, D4, D5 : la mutation brute doit être DÉTECTÉE.
+for fx in d1-raw-single-quote d2-raw-double-quote d3-mixed-case \
+          d4-guard-state-leak d5-raw-multiline; do
   FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/$fx.sh")"
   case "$FX_OUT" in
     NON-GARDEE*) pass "[E] fixture « $fx » : la mutation brute est DÉTECTÉE" ;;
-    *) fail "[E] fixture « $fx » : mutation brute NON détectée (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-70) »)" ;;
+    "") fail "[E] fixture « $fx » : la mutation brute est INVISIBLE au détecteur" ;;
+    *) fail "[E] fixture « $fx » : mal classée (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)" ;;
   esac
 done
-FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/guarded.sh")"
+# D4 encore : il ne suffit pas qu'elle soit détectée, il faut qu'elle ne
+# soit pas ATTRIBUÉE à l'appel gardé qui précède.
+FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d4-guard-state-leak.sh")"
+if printf '%s' "$FX_OUT" | grep -q '^GARDEE'; then
+  fail "[E] fixture « d4 » : la mutation brute HÉRITE de l'état gardé de l'appel précédent"
+else
+  pass "[E] fixture « d4 » : l'état « gardé » ne FUIT pas d'un appel complet au suivant"
+fi
+# D6 : une mutation gardée n'est pas dénoncée à tort.
+FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d6-guarded.sh")"
 case "$FX_OUT" in
-  GARDEE*) pass "[E] fixture « guarded » : une mutation GARDÉE n'est pas dénoncée à tort" ;;
-  *) fail "[E] fixture « guarded » : une mutation gardée est signalée à tort (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-70) »)" ;;
+  GARDEE*) pass "[E] fixture « d6-guarded » : une mutation GARDÉE n'est pas dénoncée à tort" ;;
+  *) fail "[E] fixture « d6-guarded » : une mutation gardée est signalée à tort (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)" ;;
 esac
+# D7 : du SQL sans rôle ne produit aucun verdict.
+FX_OUT="$(awk -f "$MUT_AWK" "$DET_FIXT/d7-non-role-sql.sh")"
+if [ -z "$FX_OUT" ]; then
+  pass "[E] fixture « d7-non-role-sql » : du SQL sans mutation de rôle est IGNORÉ"
+else
+  fail "[E] fixture « d7-non-role-sql » : verdict inattendu (« $(printf '%s' "$FX_OUT" | head -1 | cut -c1-60) »)"
+fi
 
 MUT_SEEN="$(wc -l < "$MUT_REPORT")"
 MUT_BAD="$(grep -c '^NON-GARDEE' "$MUT_REPORT" || true)"
@@ -1243,10 +1516,22 @@ done
 # dire précisément qu'on ne l'emploie plus.
 LIB_EXEC="$TMP_DIR/identity-exec.sh"
 sed 's/[[:space:]]*--.*$//; /^[[:space:]]*#/d' "$SCRIPT_DIR/csdj1-cluster-identity.sh" > "$LIB_EXEC"
-if grep -q 'strpos' "$LIB_EXEC"; then
-  fail "[E] le prédicat emploie encore strpos : sémantique de sous-chaîne"
+# L'interdiction de `strpos` porte sur la COMPARAISON D'APPARTENANCE.
+# La défense anti-collision l'emploie légitimement pour CHERCHER un
+# octet réservé : y voir un défaut serait confondre « chercher un octet
+# interdit » et « comparer un chemin par sous-chaîne ».
+MATCH_EXPR_BODY="$(sed -n '/^csdj1_identity_socket_match_expr()/,/^}/p' "$LIB_EXEC")"
+if printf '%s' "$MATCH_EXPR_BODY" | grep -q 'strpos'; then
+  fail "[E] la comparaison d'appartenance emploie strpos : sémantique de sous-chaîne"
 else
-  pass "[E] le prédicat n'emploie plus strpos (sémantique de sous-chaîne)"
+  pass "[E] la comparaison d'appartenance n'emploie pas strpos"
+fi
+STRPOS_TOTAL="$(grep -c 'strpos' "$LIB_EXEC" || true)"
+STRPOS_RESERVED="$(sed -n '/^csdj1_identity_socket_reserved_expr()/,/^}/p' "$LIB_EXEC" | grep -c 'strpos' || true)"
+if [ "$STRPOS_TOTAL" = "$STRPOS_RESERVED" ]; then
+  pass "[E] les seuls emplois de strpos sont dans la défense anti-collision ($STRPOS_RESERVED)"
+else
+  fail "[E] $((STRPOS_TOTAL - STRPOS_RESERVED)) emploi(s) de strpos hors de la défense anti-collision"
 fi
 if grep -q 'csdj1_sock_norm where entry = ' "$LIB_EXEC"; then
   pass "[E] la liste de sockets est comparée à l'ÉGALITÉ d'une entrée analysée"

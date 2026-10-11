@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte SIX
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte SEPT
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -15,6 +15,7 @@
 # M5  data_directory et config_file retirés du prédicat
 # M6  l'égalité EXACTE de socket remplacée par une SOUS-CHAÎNE
 # M7  le parseur sensible aux guillemets remplacé par un découpage brut
+# M8  la défense anti-collision des octets réservés retirée
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -291,6 +292,43 @@ if [ "$M7_RC" != "0" ] \
   grep -m4 'FAIL:' /tmp/csdj1-mut-m7.log | sed 's/^/       /' | tee -a "$OUT"
 else
   ko "M7 — le découpage brut passe inaperçu (code $M7_RC) : [H] ne prouve pas la syntaxe citée"
+fi
+
+# ────────────────────────────────────────────────────────────
+# M8 — AUD-07 (sixième passe) : la défense anti-collision retirée.
+#
+# Le parseur se réserve chr(1) et chr(2) comme sentinelles internes, et
+# PostgreSQL autorise ces octets dans un nom de répertoire. La défense
+# refuse donc la liste AVANT toute substitution. M8 la neutralise : les
+# contrôles [H] S1 et S2 doivent alors ACCEPTER une fausse identité, et
+# le rôle témoin du cluster à sentinelles doit être RÉELLEMENT muté.
+# ────────────────────────────────────────────────────────────
+say "--- M8 : défense anti-collision des octets réservés retirée"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+python3 -I - "$LIB_SRC" "$MUT_LIB" <<'PYM8'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+# L expression de defense rend desormais « true » quoi qu il arrive :
+# la liste n est plus examinee avant substitution.
+start = s.index("csdj1_identity_socket_reserved_expr() {")
+end = s.index("\n}\n", start) + len("\n}\n")
+s = (s[:start]
+     + "csdj1_identity_socket_reserved_expr() {\n  printf 'true'\n}\n"
+     + s[end:])
+open(dst, 'w', encoding='utf-8').write(s)
+PYM8
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")"
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M8_RC="$(run_mut_role /tmp/csdj1-mut-m8.log)"
+if [ "$M8_RC" != "0" ] \
+   && grep -q "la mutation a été ACCEPTÉE : .* est une fausse identité fabriquée par la collision" /tmp/csdj1-mut-m8.log \
+   && grep -q "empreinte de rôle MODIFIÉE" /tmp/csdj1-mut-m8.log; then
+  ok "M8 — la collision de sentinelle est VUE : la fausse identité passe et le rôle témoin est muté (code $M8_RC)"
+  grep -m4 'FAIL:' /tmp/csdj1-mut-m8.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M8 — le retrait de la défense anti-collision passe inaperçu (code $M8_RC) : [H] S1/S2 ne prouvent rien"
 fi
 
 clean

@@ -1317,9 +1317,16 @@ test("[AUD07-SQL-3] le répertoire de socket se compare à l'ÉGALITÉ EXACTE", 
     .map((l) => l.replace(/\s*--.*$/, ""))
     .join("\n");
 
+  // `strpos` est légitime dans la défense anti-collision, qui y cherche
+  // un octet interdit ([AUD07-SQL-7]) ; il reste interdit dans la
+  // COMPARAISON d'appartenance, qui est le défaut d'origine.
+  const matchExprBody = libExec.slice(
+    libExec.indexOf("csdj1_identity_socket_match_expr() {"),
+    libExec.indexOf("csdj1_identity_socket_balanced_expr() {")
+  );
   assert.ok(
-    !libExec.includes("strpos"),
-    "le prédicat ne doit plus comparer la liste de sockets par sous-chaîne"
+    !matchExprBody.includes("strpos"),
+    "la comparaison d'appartenance ne doit plus employer strpos"
   );
   assert.ok(
     !/like\s*'%/.test(libExec) && !/position\s*\(/.test(libExec),
@@ -1577,30 +1584,32 @@ test("[AUD07-SQL-5] la liste de sockets est analysée SELON LA SYNTAXE PostgreSQ
 test("[AUD07-SQL-6] le détecteur voit une mutation brute tenant sur UNE ligne", () => {
   // Observation du cinquième re-audit : le détecteur attrapait la
   // mutation multi-lignes, mais une mutation brute PACKÉE SUR UNE SEULE
-  // LIGNE pouvait lui échapper -- la règle d'ouvreur consommait la
-  // ligne avant que la mutation n'y soit cherchée.
+  // LIGNE pouvait lui échapper. Le sixième a montré que la correction
+  // était incomplète -- voir [AUD07-SQL-8] pour les trois défauts
+  // restants et leur fermeture.
   const rolePath =
     "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
   const role = readFileSync(rolePath, "utf8");
 
-  // Le détecteur CLASSE la ligne avant de mettre à jour l'ouvreur.
+  // Le détecteur CLASSE la ligne avant de mettre à jour l'état.
   assert.ok(
-    /if \(has_mut\) \{[\s\S]*?\}\s*\n\s*if \(is_guard\) opener = "garde"/.test(role),
-    "la classification doit précéder la mise à jour de l'ouvreur"
+    role.indexOf("if (mp > 0) {") <
+      role.indexOf("# Mise a jour de l etat APRES classement"),
+    "la classification doit précéder la mise à jour de l'état"
   );
   assert.ok(
     role.includes('printf "NON-GARDEE\\t%s\\t%s\\t%s\\n", FILENAME, line, "meme ligne"'),
     "une mutation brute sur la même ligne doit être rapportée comme telle"
   );
-  // Et il est ÉPROUVÉ par des fixtures, dont une sur une seule ligne.
-  for (const fx of ["raw-one-line", "raw-one-line-alter", "raw-multiline", "guarded"]) {
+  // Et il est ÉPROUVÉ par des fixtures, dont plusieurs sur une seule ligne.
+  for (const fx of ["d1-raw-single-quote", "d2-raw-double-quote", "d5-raw-multiline", "d6-guarded"]) {
     assert.ok(role.includes(fx), `la fixture « ${fx} » doit exister`);
   }
   // Les fixtures assemblent leurs verbes au lieu de les écrire en
   // clair : écrits en clair, ils seraient eux-mêmes dénoncés par le
   // détecteur qui analyse ce fichier.
   assert.ok(
-    /V_CREATE="crea""te role"/.test(role) || role.includes('V_CREATE="crea""te role"'),
+    role.includes('V_CREATE="crea""te role"'),
     "les verbes des fixtures doivent être assemblés, non écrits en clair"
   );
   // Le détecteur vit dans UN fichier, employé pour les harnais ET pour
@@ -1608,6 +1617,173 @@ test("[AUD07-SQL-6] le détecteur voit une mutation brute tenant sur UNE ligne",
   assert.ok(
     role.includes('awk -f "$MUT_AWK"'),
     "le détecteur doit être un seul programme, réutilisé pour les fixtures"
+  );
+});
+
+test("[AUD07-SQL-7] les octets que le parseur se RÉSERVE sont refusés dans l'entrée brute", () => {
+  // Défaut du sixième re-audit : le parseur emploie chr(1) et chr(2)
+  // comme sentinelles internes. Ces octets ne sont réservés par AUCUNE
+  // syntaxe PostgreSQL -- un nom de répertoire peut les contenir, Linux
+  // n'interdit que « / » et l'octet nul -- et un serveur démarre
+  // parfaitement sur un tel répertoire (vérifié empiriquement).
+  //
+  // La collision se produit dans les DEUX sens : un chr(2) dans un nom
+  // est pris pour un séparateur, et le fragment qui le précède devient
+  // une FAUSSE IDENTITÉ acceptée ; un chr(1) est restitué en guillemet,
+  // ce qui FABRIQUE un chemin inexistant et refuse l'entrée réelle.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  const lib = readFileSync(LIB_PATH, "utf8");
+
+  assert.ok(
+    lib.includes("csdj1_identity_socket_reserved_expr"),
+    "une défense contre les octets réservés doit exister"
+  );
+  assert.ok(
+    lib.includes("SCANYM_IDENTITY_REFUS|socket_octets_reserves"),
+    "le refus doit être NOMMÉ : un refus sans nom ne se distingue pas d'une panne"
+  );
+  // La défense s'applique à l'entrée BRUTE, donc AVANT toute
+  // substitution de sentinelle.
+  const guard = lib.slice(
+    lib.indexOf("csdj1_identity_guard_sql() {"),
+    lib.indexOf("csdj1_identity_marker_sql() {")
+  );
+  assert.ok(
+    guard.indexOf("socket_octets_reserves") < guard.indexOf("socket_liste_malformee"),
+    "le refus des octets réservés doit précéder l'analyse de la liste"
+  );
+  assert.ok(
+    guard.indexOf("socket_octets_reserves") < guard.indexOf("REFUS|socket'"),
+    "le refus des octets réservés doit précéder le test d'appartenance"
+  );
+  // Les DEUX octets, et sur le réglage lu du serveur.
+  const reserved = lib.slice(
+    lib.indexOf("csdj1_identity_socket_reserved_expr() {"),
+    lib.indexOf("# Expression SQL booléenne : « l'attendu est-il une entrée COMPLÈTE ? »")
+  );
+  assert.ok(reserved.includes("chr(1)"), "chr(1) doit être refusé");
+  assert.ok(reserved.includes("chr(2)"), "chr(2) doit être refusé");
+  assert.ok(
+    reserved.includes("unix_socket_directories"),
+    "la défense doit porter sur le réglage lu du serveur, et non sur une copie transformée"
+  );
+  // Et l'ATTENDU est refusé lui aussi : accepter d'un côté ce qu'on
+  // refuse de l'autre serait une asymétrie, donc une faille.
+  assert.ok(
+    /\*\$'\\001'\*\|\*\$'\\002'\*\)/.test(lib),
+    "un attendu portant chr(1) ou chr(2) doit faire refuser la déclaration du contrat"
+  );
+  // L'emploi de strpos est CANTONNÉ à cette défense : il y cherche un
+  // octet interdit, ce qui n'est pas comparer un chemin par sous-chaîne.
+  const libExec = lib
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .map((l) => l.replace(/\s*--.*$/, ""))
+    .join("\n");
+  const matchExpr = libExec.slice(
+    libExec.indexOf("csdj1_identity_socket_match_expr() {"),
+    libExec.indexOf("csdj1_identity_socket_balanced_expr() {")
+  );
+  assert.ok(
+    !matchExpr.includes("strpos"),
+    "la comparaison d'appartenance ne doit pas employer strpos"
+  );
+
+  // Les contrôles existent, sur de VRAIS clusters portant ces octets.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+  assert.ok(role.includes("sentinel_control"), "les contrôles de sentinelle doivent exister");
+  assert.ok(
+    /SENT_B1="\$TMP_DIR\/foo\$\(printf '\\001'\)bar"/.test(role) &&
+      /SENT_B2="\$TMP_DIR\/foo\$\(printf '\\002'\)bar"/.test(role),
+    "deux répertoires portant réellement chr(1) et chr(2) doivent être créés"
+  );
+  assert.ok(
+    role.includes("empreinte de rôle INCHANGÉE"),
+    "chaque contrôle doit vérifier l'empreinte de rôle, et non seulement le refus"
+  );
+  assert.ok(
+    role.includes("la collision est RÉELLE"),
+    "chaque contrôle doit démontrer que le parseur SEUL accepterait la fausse identité"
+  );
+  // Le cluster est d'abord configuré ORDINAIREMENT pour que le marqueur
+  // soit posé légitimement : sans cela le refus pourrait venir du
+  // marqueur absent, et le contrôle prouverait autre chose.
+  assert.ok(
+    role.includes("Tout le reste de l'identité est ainsi LÉGITIME"),
+    "le marqueur doit être posé avant la reconfiguration, pour isoler le fait éprouvé"
+  );
+  assert.ok(
+    role.includes("CONTRÔLE POSITIF — un chemin ORDINAIRE passe toujours"),
+    "la défense ne doit pas rendre le harnais inutilisable là où rien ne cloche"
+  );
+});
+
+test("[AUD07-SQL-8] le détecteur ne confond plus les formes de littéral, la casse, ni les appels", () => {
+  // Trois défauts signalés par le sixième re-audit, tous dans le
+  // contrôle censé prouver que toute mutation brute est vue.
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+  const awkProg = role.slice(
+    role.indexOf("cat > \"$MUT_AWK\" <<'AWKDET'"),
+    role.indexOf("\nAWKDET\n")
+  );
+  assert.ok(awkProg.length > 0, "le programme du détecteur doit être identifiable");
+
+  // 1. Les deux formes de littéral ouvrent un argument.
+  assert.ok(
+    /\[\\"'\]/.test(awkProg),
+    "un appel suivi d'une APOSTROPHE doit compter autant qu'un appel suivi d'un guillemet"
+  );
+  // 2. La casse ne compte pas.
+  assert.ok(
+    awkProg.includes("tolower(line)"),
+    "la recherche du mot-clé doit être insensible à la casse"
+  );
+  assert.ok(
+    /\(create\|alter\|drop\)\[ \\t\]\+role/.test(awkProg),
+    "le mot-clé doit être cherché sur le texte en minuscules"
+  );
+  // 3. L'état « gardé » ne fuit pas d'un appel COMPLET au suivant.
+  assert.ok(
+    /if \(dq % 2 == 1\)/.test(awkProg) && /else *\{ pending = ""/.test(awkProg),
+    "un appel dont l'argument se ferme sur la même ligne ne doit laisser aucun état"
+  );
+  // 4. Un motif passé en ARGUMENT doit être une chaîne : en awk, une
+  //    constante /re/ en argument vaut « $0 ~ /re/ », soit 0 ou 1.
+  assert.ok(
+    /firstpos\(lower, "/.test(awkProg) && /firstpos\(line, "/.test(awkProg),
+    "les motifs passés à firstpos doivent être des chaînes"
+  );
+  // 5. Un jeton d'appel ne compte que s'il est suivi d'une ouverture de
+  //    chaîne ou d'un drapeau : sinon du SQL contenant « ..._probe
+  //    nologin » serait pris pour un appel.
+  assert.ok(
+    /\(psql\|probe\|sql_value\|run_sql\)\[ \\t\]\+\(-\|/.test(awkProg),
+    "un jeton d'appel sans guillemet immédiat doit exiger un drapeau ou une ouverture de chaîne"
+  );
+
+  // Les sept fixtures du mandat.
+  for (const fx of [
+    "d1-raw-single-quote",
+    "d2-raw-double-quote",
+    "d3-mixed-case",
+    "d4-guard-state-leak",
+    "d5-raw-multiline",
+    "d6-guarded",
+    "d7-non-role-sql",
+  ]) {
+    assert.ok(role.includes(fx), `la fixture « ${fx} » doit exister`);
+  }
+  assert.ok(
+    role.includes("l'état « gardé » ne FUIT pas d'un appel complet au suivant"),
+    "D4 doit vérifier l'absence de fuite d'état, et pas seulement la détection"
+  );
+  assert.ok(
+    role.includes("du SQL sans mutation de rôle est IGNORÉ"),
+    "D7 doit vérifier qu'un SQL sans rôle ne produit aucun verdict"
   );
 });
 

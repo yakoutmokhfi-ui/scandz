@@ -125,6 +125,15 @@ csdj1_identity_declare() {
             return 1 ;;
     esac
   done
+  # Les deux octets que l'encodage du parseur se réserve sont refusés
+  # dans l'ATTENDU comme dans la liste lue du serveur : accepter d'un
+  # côté ce qu'on refuse de l'autre serait une asymétrie, donc une
+  # faille (CSDJ1-AUD-07-SOCKET-SENTINEL-01).
+  case "$sock" in
+    *$'\001'*|*$'\002'*)
+      printf "csdj1_identity_declare: octet de controle reserve (chr(1)/chr(2)) dans le repertoire de socket attendu\n" >&2
+      return 1 ;;
+  esac
   CSDJ1_ID_CTX_RUNNER[$name]="$2"
   CSDJ1_ID_CTX_SOCKET[$name]="$sock"
   CSDJ1_ID_CTX_PORT[$name]="$4"
@@ -250,6 +259,34 @@ csdj1_sock_raw as (
 SQLCTE
 }
 
+# Expression SQL booléenne : la liste BRUTE est-elle exempte des octets
+# que l'encodage du parseur se RÉSERVE ?
+#
+# CSDJ1-AUD-07-SOCKET-SENTINEL-01. Le parseur emploie chr(1) et chr(2)
+# comme sentinelles internes : chr(1) remplace temporairement un
+# guillemet doublé, chr(2) marque une virgule hors citation. Ces deux
+# octets ne sont réservés par AUCUNE syntaxe PostgreSQL -- un nom de
+# répertoire peut les contenir, Linux n'interdit que « / » et l'octet
+# nul, et un serveur démarre parfaitement sur un tel répertoire
+# (vérifié empiriquement).
+#
+# La collision se produit donc, et dans les DEUX sens :
+#   - un chr(2) dans un nom est pris pour un séparateur, et le fragment
+#     qui le précède devient une entrée -- une FAUSSE IDENTITÉ acceptée ;
+#   - un chr(1) dans un nom est restitué en guillemet, ce qui FABRIQUE
+#     un chemin qui n'existe pas et REFUSE l'entrée réelle.
+#
+# On refuse donc la liste AVANT toute substitution. C'est le choix
+# fermé : le harnais préfère ne pas s'exécuter sur un tel cluster plutôt
+# que d'en parler de façon ambiguë. Un cluster jetable n'a jamais besoin
+# d'un répertoire de socket contenant un octet de contrôle, et si
+# quelqu'un en rencontrait un, le refus NOMMÉ lui dirait exactement
+# pourquoi -- là où une acceptation silencieuse lui aurait menti.
+csdj1_identity_socket_reserved_expr() {
+  printf '(pg_catalog.strpos(coalesce(pg_catalog.current_setting(%s, true), %s), pg_catalog.chr(1)) = 0 and pg_catalog.strpos(coalesce(pg_catalog.current_setting(%s, true), %s), pg_catalog.chr(2)) = 0)' \
+    "'unix_socket_directories'" "''" "'unix_socket_directories'" "''"
+}
+
 # Expression SQL booléenne : « l'attendu est-il une entrée COMPLÈTE ? »
 # Employée par la garde ET par la démonstration de nocivité du harnais,
 # afin qu'il n'existe pas deux parseurs.
@@ -269,9 +306,10 @@ csdj1_identity_socket_balanced_expr() {
 }
 
 csdj1_identity_guard_sql() {
-  local CSDJ1_ID_SOCKET_MATCH CSDJ1_ID_SOCKET_BALANCED
+  local CSDJ1_ID_SOCKET_MATCH CSDJ1_ID_SOCKET_BALANCED CSDJ1_ID_SOCKET_RESERVED
   CSDJ1_ID_SOCKET_MATCH="$(csdj1_identity_socket_match_expr "$CSDJ1_ID_SOCKET")"
   CSDJ1_ID_SOCKET_BALANCED="$(csdj1_identity_socket_balanced_expr)"
+  CSDJ1_ID_SOCKET_RESERVED="$(csdj1_identity_socket_reserved_expr)"
   cat <<SQL
   if pg_catalog.inet_server_addr() is not null then
     raise exception 'SCANYM_IDENTITY_REFUS|destination_reseau';
@@ -294,6 +332,9 @@ csdj1_identity_guard_sql() {
   -- elle reposait encore sur un découpage à CHAQUE virgule, qui
   -- fabriquait des fragments à partir d'une entrée citée. Une identité
   -- qui accepte un fragment n'identifie rien.
+  if not ${CSDJ1_ID_SOCKET_RESERVED} then
+    raise exception 'SCANYM_IDENTITY_REFUS|socket_octets_reserves';
+  end if;
   if not ${CSDJ1_ID_SOCKET_BALANCED} then
     raise exception 'SCANYM_IDENTITY_REFUS|socket_liste_malformee';
   end if;
