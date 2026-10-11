@@ -242,8 +242,14 @@ const buildResult = await esbuild.build({
   format: "esm",
   jsx: "automatic",
   target: "es2022",
+  // W1 THIRD REMEDIATION (Windows DOM harness) -- `fflate`/`saxes` are
+  // externalized rather than bundled, so Node's own module resolver
+  // (not esbuild's) loads them when this bundle is later `import()`ed
+  // -- see the full root-cause/fix writeup in the IDENTICAL comment on
+  // tests/cgv-publication-boundary-v1.dom.test.ts's own client build.
+  platform: "browser",
   plugins: [mockPlugin],
-  external: ["react", "react-dom", "react-dom/client"],
+  external: ["react", "react-dom", "react-dom/client", "fflate", "fflate/browser", "saxes"],
 });
 const code = buildResult.outputFiles[0].text;
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-"));
