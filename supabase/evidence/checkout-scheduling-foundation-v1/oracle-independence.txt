@@ -1,0 +1,75 @@
+CSDJ-1 v1.3 — ORACLE INDÉPENDANT : ACCORD À TROIS VOIES SUR LE CLASSEMENT
+=========================================================================
+
+CSDJ1-AUD-PYTHON-01
+
+MÉTHODES, délibérément DIFFÉRENTES
+----------------------------------
+  Python (oracle)   zoneinfo, fold=0 / fold=1, validation par
+                    ALLER-RETOUR, classement par CARDINAL.
+                    Aucun décalage calculé, aucun candidat construit.
+  TypeScript        échantillonnage des décalages en vigueur
+                    (-1 j, -4 h, 0, +4 h, +1 j), un candidat par
+                    décalage distinct, survivants comptés.
+  SQL               même méthode que TypeScript, en SQL.
+
+L'oracle ne partage donc PAS l'hypothèse des deux implémentations
+qu'il juge. C'est ce qui donne une valeur de preuve à leur accord.
+
+38 POINTS DE CLASSEMENT — attendus produits par l'oracle Python
+--------------------------------------------------------------
+  Europe/Paris           2026-03-29 01:30  ->  valid_unique
+  Europe/Paris           2026-03-29 01:59  ->  valid_unique
+  Europe/Paris           2026-03-29 02:00  ->  nonexistent
+  Europe/Paris           2026-03-29 02:10  ->  nonexistent
+  Europe/Paris           2026-03-29 02:30  ->  nonexistent
+  Europe/Paris           2026-03-29 02:59  ->  nonexistent
+  Europe/Paris           2026-03-29 03:00  ->  valid_unique
+  Europe/Paris           2026-03-29 03:30  ->  valid_unique
+  Europe/Paris           2026-03-29 04:00  ->  valid_unique
+  Europe/Paris           2026-10-25 01:59  ->  valid_unique
+  Europe/Paris           2026-10-25 02:00  ->  ambiguous
+  Europe/Paris           2026-10-25 02:30  ->  ambiguous
+  Europe/Paris           2026-10-25 02:59  ->  ambiguous
+  Europe/Paris           2026-10-25 03:00  ->  valid_unique
+  Europe/Paris           2026-06-15 02:30  ->  valid_unique
+  Australia/Lord_Howe    2026-04-05 01:00  ->  valid_unique
+  Australia/Lord_Howe    2026-04-05 01:29  ->  valid_unique
+  Australia/Lord_Howe    2026-04-05 01:30  ->  ambiguous
+  Australia/Lord_Howe    2026-04-05 01:45  ->  ambiguous
+  Australia/Lord_Howe    2026-04-05 01:59  ->  ambiguous
+  Australia/Lord_Howe    2026-04-05 02:00  ->  valid_unique
+  Australia/Lord_Howe    2026-10-04 01:59  ->  valid_unique
+  Australia/Lord_Howe    2026-10-04 02:00  ->  nonexistent
+  Australia/Lord_Howe    2026-10-04 02:10  ->  nonexistent
+  Australia/Lord_Howe    2026-10-04 02:29  ->  nonexistent
+  Australia/Lord_Howe    2026-10-04 02:30  ->  valid_unique
+  Australia/Lord_Howe    2026-05-03 01:45  ->  valid_unique
+  UTC                    2026-03-29 02:30  ->  valid_unique
+  UTC                    2026-10-25 02:30  ->  valid_unique
+  Pacific/Kiritimati     2026-03-29 02:30  ->  valid_unique
+  Pacific/Kiritimati     2026-10-25 02:30  ->  valid_unique
+  America/Los_Angeles    2026-03-08 02:30  ->  nonexistent
+  America/Los_Angeles    2026-11-01 01:30  ->  ambiguous
+  America/New_York       2026-03-08 02:30  ->  nonexistent
+  America/New_York       2026-11-01 01:30  ->  ambiguous
+  Asia/Kathmandu         2026-06-15 02:45  ->  valid_unique
+  Pacific/Chatham        2026-04-05 02:45  ->  ambiguous
+  Pacific/Chatham        2026-09-27 02:45  ->  nonexistent
+
+VÉRIFICATIONS
+-------------
+  TypeScript vs oracle   [ORACLE-3]  0 divergence sur 38 points
+  SQL        vs oracle   [6o]        0 divergence sur 38 points
+  48 cas d'offres        inchangés OCTET POUR OCTET après le
+                         changement de méthode de l'oracle
+
+CONTRÔLES DIFFÉRENTIELS — l'oracle DISCRIMINE  [ORACLE-4] [ORACLE-5]
+--------------------------------------------------------------------
+  classificateur faux                  cas où l'oracle le contredit
+  ambiguïté cherchée à ±1 heure        Australia/Lord_Howe 2026-04-05 01:45
+  confiance à la normalisation         Europe/Paris 2026-03-29 02:30
+  sonde unique au point demandé        Europe/Paris 2026-10-25 02:30
+
+Chacun est JUSTE ailleurs : un classificateur faux partout serait
+trouvé le premier jour et ne dirait rien de la finesse de l'oracle.

@@ -1,0 +1,61 @@
+=== CONTRÔLES DE MUTATION CSDJ-1 (AUD-06 / AUD-07) ===
+--- M1 : retrait d'un « env -i » devant un appel psql
+CONTROL PASS: M1 — le harnais DÉTECTE un appel client non isolé (code 1)
+       [14:15:23]    appel non isolé :     "$PSQL" -X -A -q -t -v ON_ERROR_STOP=1        -h "$SOCKET_DIR" -p "$PORT" -U "$OWNE
+--- M3 : réinjection du défaut d'instantané de rôle (::text / 't')
+CONTROL PASS: M3 — le défaut d'instantané est VU : 13 échec(s), code 1
+       [14:16:05] FAIL: [A] LOGIN+NOBYPASSRLS — 'anon' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [14:16:05] FAIL: [A] LOGIN+NOBYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [14:16:05] FAIL: [A] LOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+       [14:16:21] FAIL: [A] NOLOGIN+BYPASSRLS — 'anon' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+--- M4 : marqueur/nonce retiré du prédicat d'identité
+CONTROL PASS: M4 — l'identité PARTIELLE est VUE : le marqueur retiré n'arrête plus la mutation (code 1)
+       [14:18:32] FAIL: [G] marqueur RETIRÉ — la mutation a été ACCEPTÉE malgré une identité fausse
+       [14:18:32] FAIL: [G] marqueur RETIRÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [14:18:32] FAIL: [G] marqueur CHANGÉ — la mutation a été ACCEPTÉE malgré une identité fausse
+       [14:18:32] FAIL: [G] marqueur CHANGÉ — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+--- M5 : data_directory et config_file retirés du prédicat
+CONTROL PASS: M5 — les deux champs retirés sont VUS : data_directory et config_file (code 1)
+       [14:20:09] FAIL: [G] data_directory faux — la mutation a été ACCEPTÉE malgré une identité fausse
+       [14:20:09] FAIL: [G] data_directory faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+       [14:20:09] FAIL: [G] config_file faux — la mutation a été ACCEPTÉE malgré une identité fausse
+       [14:20:09] FAIL: [G] config_file faux — le rôle témoin a été MUTÉ : NOLOGIN+NOBYPASSRLS -> NOLOGIN+BYPASSRLS
+--- M6 : égalité exacte de socket remplacée par une sous-chaîne
+CONTROL PASS: M6 — la sémantique de sous-chaîne est VUE : les attendus partiels passent de nouveau (code 1)
+       [14:21:51] FAIL: [H] PRÉFIXE d'une entrée — ACCEPTÉ à tort : « /tmp/tmp.mAH7SckefV/lab- » n'est pas une entrée complète de la liste
+       [14:21:51] FAIL: [H] PRÉFIXE d'une entrée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+       [14:21:51] FAIL: [H] répertoire PARENT — ACCEPTÉ à tort : « /tmp/tmp.mAH7SckefV » n'est pas une entrée complète de la liste
+       [14:21:51] FAIL: [H] répertoire PARENT — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+--- M7 : parseur sensible aux guillemets remplacé par un découpage brut
+CONTROL PASS: M7 — le découpage BRUT est VU : le fragment d'une entrée citée devient une fausse identité (code 1)
+       [14:23:30] FAIL: [H] membre CITÉ à virgule, exact — refusé à tort (socket) : le prédicat refuserait l'entrée légitime
+       [14:23:31] FAIL: [H] FRAGMENT avant la virgule citée — ACCEPTÉ à tort : « /tmp/tmp.qHVwbJmhVy/foo » n'est pas une entrée complète de la liste
+       [14:23:31] FAIL: [H] FRAGMENT avant la virgule citée — le rôle témoin a été MUTÉ : NOBYPASSRLS -> BYPASSRLS
+       [14:23:31] FAIL: [H] FRAGMENT après la virgule citée — ACCEPTÉ à tort : « bar » n'est pas une entrée complète de la liste
+--- M8 : défense anti-collision des octets réservés retirée
+CONTROL PASS: M8 — la collision de sentinelle est VUE : la fausse identité passe et le rôle témoin est muté (code 1)
+       [14:25:11] FAIL: [H] S2 chr(2), fausse identité « $TMP_DIR/foo » — la mutation a été ACCEPTÉE : « /tmp/tmp.N3dMvL97L4/foo » est une fausse identité fabriquée par la collision
+       [14:25:11] FAIL: [H] S2 chr(2), fausse identité « $TMP_DIR/foo » — empreinte de rôle MODIFIÉE : « scanym_csdj1_sent_probe:00 » -> « scanym_csdj1_sent_probe:01 »
+       [14:25:12] FAIL: [H] S1 chr(1), chemin FABRIQUÉ « $TMP_DIR/foo"bar » — la mutation a été ACCEPTÉE : « /tmp/tmp.N3dMvL97L4/foo"bar » est une fausse identité fabriquée par la collision
+       [14:25:12] FAIL: [H] S1 chr(1), chemin FABRIQUÉ « $TMP_DIR/foo"bar » — empreinte de rôle MODIFIÉE : « scanym_csdj1_sent_probe:00 » -> « scanym_csdj1_sent_probe:01 »
+--- M9 : fuite d'état par les commentaires et les continuations
+CONTROL PASS: M9 — la fuite d'état est VUE : R3 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code 1)
+       [14:26:47] FAIL: [E] fixture « r3 » : AUCUNE au lieu de NON-GARDEE
+       [14:26:47] FAIL: [E] fixture « c1 » : SANS-OUVREUR au lieu de NON-GARDEE
+       [14:26:47] FAIL: [E] fixture « c2 » : SANS-OUVREUR au lieu de NON-GARDEE
+       [14:26:47] FAIL: [E] fixture « c3 » : SANS-OUVREUR au lieu de NON-GARDEE
+       (et [I] montre, dans la même exécution, la mutation de la séquence de l'audit)
+       (et R1 reste NON-GARDEE : l'héritage de garde n'est plus produisible)
+--- M10 : la continuation entre guillemets doubles, non normalisée
+CONTROL PASS: M10 — E1 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code 1)
+       [14:28:25] FAIL: [E] fixture « e1 » : AUCUNE au lieu de NON-GARDEE
+       [14:28:25] FAIL: [E] fixture « e5 » : AUCUNE au lieu de GARDEE
+       [14:28:25] FAIL: [E] fixture « e7 » : AUCUNE au lieu de NON-GARDEE
+       [14:28:25] FAIL: [E] fixture « f1 » : AUCUNE au lieu de NON-GARDEE
+--- M11 : l'équivalence des blancs SQL, retirée
+CONTROL PASS: M11 — E2 et E8 redeviennent invisibles, et [J] montre la mutation RÉELLEMENT appliquée (code 1)
+       [14:30:03] FAIL: [E] fixture « e2 » : AUCUNE au lieu de NON-GARDEE
+       [14:30:03] FAIL: [E] fixture « e3 » : AUCUNE au lieu de NON-GARDEE
+       [14:30:03] FAIL: [E] fixture « e8 » : AUCUNE au lieu de NON-GARDEE
+       [14:30:03] FAIL: [E] fixture « e9 » : AUCUNE au lieu de NON-GARDEE
+=== BILAN CONTRÔLES DE MUTATION : 10 contrôle(s) concluant(s), 0 manquant(s) ===
