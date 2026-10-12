@@ -76,11 +76,39 @@ lock table public.order_delivery_fulfillment_snapshot in share mode;
 --    TOUTE la suite inatteignable, et le `commit;` final se comporte
 --    en ROLLBACK.
 -- ------------------------------------------------------------
+-- ------------------------------------------------------------
+-- SWCT-AUDIT-01 (R1/R2) — RECONNAISSANCE EXACTE DES CONTRAINTES.
+--
+-- La version auditée reconnaissait une contrainte par
+-- `pg_get_constraintdef(...) like '%500%'`. Insuffisant, et Planck 2 a
+-- raison : cette reconnaissance accepte `length(customer_text) <= 1500`
+-- (le motif « 500 » y figure) et accepte un CHECK COMBINÉ du type
+-- `(length(customer_text) <= 500 and customer_text !~ '[<>]')`, dont le
+-- second prédicat aurait été SILENCIEUSEMENT SUPPRIMÉ par le
+-- remplacement. Dans les deux cas le fichier aurait affaibli ou perdu
+-- une règle qu'il ne connaît pas.
+--
+-- La reconnaissance porte désormais sur la définition CANONIQUE
+-- COMPLÈTE rendue par `pg_get_constraintdef`, comparée à la référence
+-- attendue, espaces normalisés (seule tolérance : la mise en forme).
+-- Toute autre définition -> ARRÊT, échec fermé, schéma intact.
+-- ------------------------------------------------------------
 do $dct1000_preflight$
 declare
-  v_src_def  text;
-  v_snap_def text;
-  v_fn_def   text;
+  -- Définitions de RÉFÉRENCE, telles que PostgreSQL les rend pour les
+  -- contraintes posées par DRAFT-lot-fulfillment-routing-model.sql et
+  -- par le lot B1. Ce sont les SEULES définitions que ce fichier sait
+  -- remplacer.
+  c_baseline constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 500)))';
+  c_target   constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 1000)))';
+  v_src_def   text;
+  v_src_name  text;
+  v_src_count integer;
+  v_snap_def  text;
+  v_snap_count integer;
+  v_mode_def  text;
+  v_mode_count integer;
+  v_fn_def    text;
 begin
   if to_regclass('public.restaurant_sale_mode_fulfillments') is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: public.restaurant_sale_mode_fulfillments absente -- DRAFT-lot-fulfillment-routing-model.sql doit être appliqué avant, annulé.';
@@ -92,60 +120,79 @@ begin
     raise exception 'SCANYM_SCHEMA_DRIFT: update_merchant_delivery_fulfillment_pricing introuvable -- annulé.';
   end if;
 
-  -- Contrainte SOURCE : une seule, et portant bien une borne de
-  -- longueur sur customer_text. Le nom est GÉNÉRÉ par PostgreSQL
-  -- (CHECK en ligne dans la déclaration de colonne), donc il est
-  -- RETROUVÉ par sa définition, jamais supposé.
-  select pg_get_constraintdef(c.oid) into v_src_def
+  -- ---- SOURCE : restaurant_sale_mode_fulfillments.customer_text ----
+  -- TOUTE contrainte CHECK mentionnant la colonne est prise en compte,
+  -- pas seulement celles qui parlent de longueur : une contrainte
+  -- supplémentaire posée par un lot inconnu doit être VUE, pas ignorée.
+  select count(*) into v_src_count
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
     and c.contype = 'c'
-    and pg_get_constraintdef(c.oid) like '%customer_text%length%';
-  if v_src_def is null then
-    raise exception 'SCANYM_SCHEMA_DRIFT: aucun CHECK de longueur sur restaurant_sale_mode_fulfillments.customer_text -- annulé.';
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_src_count <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: % contrainte(s) CHECK portent sur restaurant_sale_mode_fulfillments.customer_text, une seule est connue de ce lot -- annulé, schéma inchangé.', v_src_count;
   end if;
 
-  select pg_get_constraintdef(c.oid) into v_snap_def
+  select c.conname, regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g')
+    into v_src_name, v_src_def
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+
+  -- ---- CLICHÉ : order_delivery_fulfillment_snapshot.customer_text ----
+  select count(*) into v_snap_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_snap_count <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: % contrainte(s) CHECK portent sur order_delivery_fulfillment_snapshot.customer_text, une seule est connue de ce lot -- annulé, schéma inchangé.', v_snap_count;
+  end if;
+
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_snap_def
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
     and c.conname = 'odfs_customer_text_length';
   if v_snap_def is null then
-    raise exception 'SCANYM_SCHEMA_DRIFT: odfs_customer_text_length introuvable sur le cliché de commande -- annulé.';
+    raise exception 'SCANYM_SCHEMA_DRIFT: odfs_customer_text_length introuvable sur le cliché de commande (une autre contrainte porte sur customer_text) -- annulé, schéma inchangé.';
   end if;
 
   v_fn_def := pg_get_functiondef('public.update_merchant_delivery_fulfillment_pricing(uuid,text,numeric,numeric,text)'::regprocedure);
 
-  -- Anti-double-application : si les trois endroits portent déjà 1000,
-  -- ce lot est déjà appliqué.
-  if v_src_def like '%1000%' and v_snap_def like '%1000%' and v_fn_def like '%exceeds 1000 characters%' then
+  -- ---- Anti-double-application : état d'arrivée EXACT partout -------
+  if v_src_def = c_target and v_snap_def = c_target
+     and v_fn_def like '%exceeds 1000 characters%' then
     raise exception 'SCANYM_ALREADY_APPLIED: la borne du texte client de règle est déjà à 1000 caractères -- annulé.';
   end if;
 
-  -- Anti-dérive : l'état d'entrée doit être EXACTEMENT l'état connu
-  -- (500 partout). Un état mixte ou une autre valeur signifie qu'un
-  -- travail non revu est passé par là ; ce fichier refuse plutôt que
-  -- d'écraser une décision qu'il ne connaît pas.
-  if v_src_def not like '%500%' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: le CHECK source ne porte pas la borne 500 attendue (%) -- annulé.', v_src_def;
+  -- ---- Anti-dérive : état de départ EXACT, prédicat par prédicat ----
+  if v_src_def <> c_baseline then
+    raise exception 'SCANYM_SCHEMA_DRIFT: la contrainte « % » de restaurant_sale_mode_fulfillments.customer_text n''est pas la définition attendue. Attendu : %. Lu : %. Ce fichier ne remplace QUE la définition de référence (un prédicat supplémentaire serait perdu, une autre borne serait écrasée) -- annulé, schéma inchangé.', v_src_name, c_baseline, v_src_def;
   end if;
-  if v_snap_def not like '%500%' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: odfs_customer_text_length ne porte pas la borne 500 attendue (%) -- annulé.', v_snap_def;
+  if v_snap_def <> c_baseline then
+    raise exception 'SCANYM_SCHEMA_DRIFT: odfs_customer_text_length n''est pas la définition attendue. Attendu : %. Lu : % -- annulé, schéma inchangé.', c_baseline, v_snap_def;
   end if;
   if v_fn_def not like '%customer_text exceeds 500 characters%' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: update_merchant_delivery_fulfillment_pricing ne porte pas la garde 500 attendue -- annulé.';
+    raise exception 'SCANYM_SCHEMA_DRIFT: update_merchant_delivery_fulfillment_pricing ne porte pas la garde 500 attendue -- annulé, schéma inchangé.';
   end if;
 
-  -- Le texte générique PAR MODE n'est PAS concerné : si sa borne avait
-  -- déjà bougé, ce serait un état inattendu dont ce lot n'est pas
-  -- l'auteur.
-  if exists (
-    select 1 from pg_catalog.pg_constraint c
-    where c.conrelid = 'public.restaurant_sale_modes'::regclass
-      and c.contype = 'c'
-      and pg_get_constraintdef(c.oid) like '%customer_text%length%'
-      and pg_get_constraintdef(c.oid) not like '%500%'
-  ) then
-    raise exception 'SCANYM_UNEXPECTED_STATE: restaurant_sale_modes.customer_text ne porte plus la borne 500 -- hors périmètre de ce lot, annulé.';
+  -- ---- HORS PÉRIMÈTRE : le texte générique PAR MODE reste à 500 -----
+  select count(*) into v_mode_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_modes'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_mode_count <> 1 then
+    raise exception 'SCANYM_UNEXPECTED_STATE: % contrainte(s) CHECK portent sur restaurant_sale_modes.customer_text -- état hors périmètre inattendu, annulé.', v_mode_count;
+  end if;
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_mode_def
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_modes'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_mode_def <> c_baseline then
+    raise exception 'SCANYM_UNEXPECTED_STATE: restaurant_sale_modes.customer_text ne porte pas la définition attendue (lu : %) -- hors périmètre de ce lot, annulé.', v_mode_def;
   end if;
 end $dct1000_preflight$;
 
@@ -158,13 +205,21 @@ end $dct1000_preflight$;
 -- ------------------------------------------------------------
 do $dct1000_source$
 declare
+  c_baseline constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 500)))';
   v_name text;
 begin
+  -- Le nom généré est retrouvé par la définition CANONIQUE EXACTE
+  -- (SWCT-AUDIT-01 R1) : la garde ci-dessus l'a déjà vérifiée, cette
+  -- résolution refuse quand même de supprimer autre chose que ce qui a
+  -- été reconnu -- une suppression ne se fait jamais sur un motif.
   select c.conname into v_name
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
     and c.contype = 'c'
-    and pg_get_constraintdef(c.oid) like '%customer_text%length%';
+    and regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') = c_baseline;
+  if v_name is null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: aucune contrainte ne porte EXACTEMENT la définition de référence au moment de la suppression -- annulé.';
+  end if;
   execute format('alter table public.restaurant_sale_mode_fulfillments drop constraint %I', v_name);
 end $dct1000_source$;
 
@@ -214,37 +269,46 @@ end $dct1000_patch$;
 -- ------------------------------------------------------------
 do $dct1000_postcheck$
 declare
+  c_target constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 1000)))';
+  c_baseline constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 500)))';
   v_src_def  text;
   v_snap_def text;
   v_fn_def   text;
   v_count    integer;
 begin
-  select pg_get_constraintdef(c.oid) into v_src_def
-  from pg_catalog.pg_constraint c
-  where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
-    and c.conname = 'rsmf_customer_text_length';
-  if v_src_def is null or v_src_def not like '%1000%' then
-    raise exception 'SCANYM_POSTCHECK_FAILED: rsmf_customer_text_length absente ou pas à 1000.';
-  end if;
-
-  -- Une seule contrainte de longueur sur cette colonne : deux
-  -- coexistantes (l''ancienne générée + la nouvelle) laisseraient la
-  -- plus stricte gagner en silence.
+  -- SWCT-AUDIT-01 (R1) : les postchecks comparent eux aussi la
+  -- définition CANONIQUE COMPLÈTE, jamais un fragment.
   select count(*) into v_count
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
     and c.contype = 'c'
-    and pg_get_constraintdef(c.oid) like '%customer_text%length%';
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
   if v_count <> 1 then
-    raise exception 'SCANYM_POSTCHECK_FAILED: % contrainte(s) de longueur sur customer_text, une seule attendue.', v_count;
+    raise exception 'SCANYM_POSTCHECK_FAILED: % contrainte(s) CHECK sur customer_text après migration, une seule attendue.', v_count;
   end if;
 
-  select pg_get_constraintdef(c.oid) into v_snap_def
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_src_def
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
+    and c.conname = 'rsmf_customer_text_length';
+  if v_src_def is distinct from c_target then
+    raise exception 'SCANYM_POSTCHECK_FAILED: rsmf_customer_text_length n''est pas la définition attendue. Attendu : %. Lu : %.', c_target, coalesce(v_src_def, '<absente>');
+  end if;
+
+  select count(*) into v_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_count <> 1 then
+    raise exception 'SCANYM_POSTCHECK_FAILED: % contrainte(s) CHECK sur le customer_text du cliché, une seule attendue.', v_count;
+  end if;
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_snap_def
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
     and c.conname = 'odfs_customer_text_length';
-  if v_snap_def is null or v_snap_def not like '%1000%' then
-    raise exception 'SCANYM_POSTCHECK_FAILED: odfs_customer_text_length absente ou pas à 1000 -- le cliché refuserait une règle longue.';
+  if v_snap_def is distinct from c_target then
+    raise exception 'SCANYM_POSTCHECK_FAILED: odfs_customer_text_length n''est pas la définition attendue (le cliché refuserait une règle longue). Attendu : %. Lu : %.', c_target, coalesce(v_snap_def, '<absente>');
   end if;
 
   v_fn_def := pg_get_functiondef('public.update_merchant_delivery_fulfillment_pricing(uuid,text,numeric,numeric,text)'::regprocedure);
@@ -270,15 +334,15 @@ begin
     raise exception 'SCANYM_POSTCHECK_FAILED: une troncature est apparue dans la garde de longueur.';
   end if;
 
-  -- HORS PÉRIMÈTRE : le texte générique PAR MODE est toujours à 500.
+  -- HORS PÉRIMÈTRE : le texte générique PAR MODE est toujours à 500,
+  -- dans sa définition EXACTE.
   if not exists (
     select 1 from pg_catalog.pg_constraint c
     where c.conrelid = 'public.restaurant_sale_modes'::regclass
       and c.contype = 'c'
-      and pg_get_constraintdef(c.oid) like '%customer_text%length%'
-      and pg_get_constraintdef(c.oid) like '%500%'
+      and regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') = c_baseline
   ) then
-    raise exception 'SCANYM_POSTCHECK_FAILED: restaurant_sale_modes.customer_text n''est plus à 500 -- hors périmètre.';
+    raise exception 'SCANYM_POSTCHECK_FAILED: restaurant_sale_modes.customer_text n''est plus dans sa définition de référence -- hors périmètre.';
   end if;
 end $dct1000_postcheck$;
 
