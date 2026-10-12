@@ -332,6 +332,11 @@ test("[SW-15] la ré-empreinte de la baseline THEME est une pure substitution de
     deliveryHtmlOnBase412dbb5: string;
     deliveryProvenance: Record<string, string>;
   };
+  // CENTER ORDER HELP BUTTON v1 : la même empreinte porte désormais
+  // `text-center` sur le bouton, et rien d'autre n'a changé.
+  assert.ok(fixture.deliveryHtml.includes("text-center"), "le libellé de la cartouche est centré");
+  assert.ok(!fixture.deliveryHtml.includes("text-start"), "plus d'alignement à gauche sur le bouton");
+  assert.match(fixture.deliveryProvenance.recentredBy ?? "", /CENTER ORDER HELP BUTTON/);
   const occurrences = [...fixture.deliveryHtml.matchAll(/Comment passer commande/g)].length;
   assert.equal(occurrences, 2, "le libellé apparaît deux fois : la cartouche et le titre");
   assert.ok(!fixture.deliveryHtml.includes("Modes et tarifs de livraison"), "plus aucune trace de l'ancien libellé");
