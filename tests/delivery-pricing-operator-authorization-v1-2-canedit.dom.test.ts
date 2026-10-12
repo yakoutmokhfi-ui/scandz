@@ -122,6 +122,7 @@ export async function testMerchantDeliveryPostcode(args) { globalThis.__mockTest
 export async function saveMerchantDeliveryRule() { throw new Error("Unexpected creation call"); }
 export async function previewMerchantDeliveryRuleSave() { return "none"; }
 export async function moveMerchantDeliveryRule() { throw new Error("Unexpected move call"); }
+export async function deleteMerchantDeliveryRule() { throw new Error("Unexpected delete call"); }
 `;
 
 const mocks: Record<string, string> = {

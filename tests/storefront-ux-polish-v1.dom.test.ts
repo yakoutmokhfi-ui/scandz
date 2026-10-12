@@ -13,10 +13,9 @@ import * as esbuild from "esbuild";
 //      target/rel et nom accessible inchangés, traitement de marque
 //      (dégradé Instagram, échos cyan/rouge TikTok), cible 40 px.
 //   2. Facebook et le comportement des URL sociales inchangés.
-//   3. Cartouche livraison : aucun provider / fulfillment_code, frais
-//      affiché une seule fois et issu des faits publics existants
-//      (computeDeliveryFee / status.deliveryFee), jamais « 0 € » quand le
-//      frais est indisponible, aucune remise si discountEnabled=false.
+//   3. Cartouche livraison : (DELIVERY PUBLIC TEXT v1) la fenêtre des
+//      conditions n'affiche QUE le texte marchand ; le résultat code
+//      postal garde frais / remise / minimum (status.deliveryFee).
 //   4. Navigation catalogue : catégories / collections fonctionnelles,
 //      état sélectionné (aria-pressed), pas de « Tout le catalogue »,
 //      rangée mobile défilable, pas de marge vide sans collection.
@@ -220,7 +219,12 @@ async function openConditions(rules: unknown[]) {
 
 const count = (text: string, needle: string) => text.split(needle).length - 1;
 
-test("4a. cartouche conditions : une ligne « zone — tarif », frais unique issu de computeDeliveryFee, aucun provider", async () => {
+// DELIVERY PUBLIC TEXT v1 -- 4a/4b/4c asserted the former technical rendering of the conditions
+// popup (zone line, "zone — tarif", conditions line, discount line). That rendering is retired by
+// product decision: the popup now shows ONLY the merchant customer_text. The assertions are
+// INVERTED here (same fixtures, same rules) and the full contract lives in
+// tests/delivery-public-text-v1.dom.test.ts. The postcode result tests (4d+) are untouched.
+test("4a. cartouche conditions : seul le texte marchand est affiché (aucune zone, tarif, condition, provider, code)", async () => {
   const rules = [
     rule(),
     rule({ fulfillmentCode: "fallback-code", zonePrefixes: [], isFallback: true, displayOrder: 9, customerText: null,
@@ -231,43 +235,33 @@ test("4a. cartouche conditions : une ligne « zone — tarif », frais unique is
     const text = r.dialog.textContent!;
     assert.doesNotMatch(text, /secret-routing|fallback-code|internal|chronofresh|stuart|other_external/i, "aucun code ni prestataire");
     const cards = [...r.dialog.querySelectorAll("[data-delivery-rule-card]")];
-    assert.equal(cards.length, 2);
-    for (const [i, rl] of rules.entries()) {
-      const fee = mod.formatPrice(mod.computeDeliveryFee({ ...rl, discountEnabled: false }, 0), "EUR");
-      assert.equal(count(cards[i].textContent!, fee), 1, `frais ${fee} affiché une seule fois`);
-      assert.ok(cards[i].querySelector("h3")!.textContent!.endsWith(`— ${fee}`), "ligne principale zone — tarif");
-    }
-    assert.equal(cards[0].querySelector("h3")!.textContent, `Codes postaux 75, 92 — ${mod.formatPrice(6.9, "EUR")}`);
-    assert.equal(cards[1].querySelector("h3")!.textContent, `Autres codes postaux — ${mod.formatPrice(18.9, "EUR")}`);
-    assert.equal(cards[1].querySelector("[data-delivery-rule-conditions]")!.textContent,
-      `Offerte dès ${mod.formatPrice(150, "EUR")} · Min. 3 articles`);
-    assert.doesNotMatch(text, /%/, "aucune remise affichée quand discountEnabled=false");
-    assert.match(text, /Livraison à votre adresse\./, "le texte marchand est conservé");
-    assert.equal(count(text, "Tarif de base"), 0, "plus de libellé redondant");
+    assert.equal(cards.length, 1, "la règle sans texte ne produit aucun bloc");
+    assert.equal(cards[0].textContent, "Livraison à votre adresse.");
+    assert.equal(r.dialog.querySelectorAll("h3,[data-delivery-rule-conditions]").length, 0);
+    for (const forbidden of [mod.formatPrice(6.9, "EUR"), mod.formatPrice(18.9, "EUR"), mod.formatPrice(150, "EUR"), "75", "Codes postaux", "Autres codes postaux", "Offerte", "Min.", "%"])
+      assert.ok(!text.includes(forbidden), `${forbidden} n'est pas affiché`);
   } finally { await r.unmount(); }
 });
 
-test("4b. cartouche conditions : la remise ne vient que des faits publics activés (aucune valeur codée en dur)", async () => {
+test("4b. cartouche conditions : les paramètres de remise ne sont jamais affichés dans la fenêtre des conditions", async () => {
   const r = await openConditions([rule({ discountEnabled: true, discountThreshold: 120, discountPercentage: 37.5 })]);
   try {
-    const conditions = r.dialog.querySelector("[data-delivery-rule-conditions]")!.textContent!;
-    assert.equal(conditions, `−37.5 % dès ${mod.formatPrice(120, "EUR")}`);
-    assert.equal(count(r.dialog.textContent!, mod.formatPrice(6.9, "EUR")), 1, "tarif de base non dupliqué");
+    assert.equal(r.dialog.querySelector("[data-delivery-rule-conditions]"), null);
+    assert.doesNotMatch(r.dialog.textContent!, /%|37|120/);
+    assert.equal(r.dialog.textContent!.includes(mod.formatPrice(6.9, "EUR")), false);
   } finally { await r.unmount(); }
-  const disabledWithValues = await openConditions([rule({ discountEnabled: false, discountThreshold: 120, discountPercentage: 37.5 })]);
-  try {
-    assert.doesNotMatch(disabledWithValues.dialog.textContent!, /%|37/, "valeurs conservées mais politique désactivée : rien affiché");
-  } finally { await disabledWithValues.unmount(); }
 });
 
-test("4c. cartouche conditions : tarif indisponible -> texte d'indisponibilité, jamais 0 €", async () => {
+test("4c. cartouche conditions : tarif indisponible ou texte vide n'ajoute aucun libellé technique ; tout vide -> bouton masqué", async () => {
   const r = await openConditions([rule({ pricingMode: "fixed", fixedFee: null })]);
   try {
     const text = r.dialog.textContent!;
-    assert.match(text, /Tarif de livraison indisponible/);
+    assert.doesNotMatch(text, /Tarif de livraison indisponible/);
     assert.ok(!text.includes(mod.formatPrice(0, "EUR")), "aucun repli à 0 €");
-    assert.equal(r.dialog.querySelector("h3")!.textContent, "Codes postaux 75, 92");
+    assert.equal(r.dialog.querySelector("h3"), null);
   } finally { await r.unmount(); }
+  const none = await mount(withI18n(React.createElement(mod.DeliveryConditionsButton, { rules: [rule({ customerText: null }), rule({ customerText: "   ", displayOrder: 2 })], currency: "EUR" })));
+  try { assert.equal(none.container.querySelector("button"), null); assert.equal(none.container.querySelector("dialog"), null); } finally { await none.unmount(); }
 });
 
 async function postcodeDialog(status: Record<string, unknown>, subtotal = 50) {
