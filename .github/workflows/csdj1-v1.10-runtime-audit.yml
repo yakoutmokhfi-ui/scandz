@@ -30,6 +30,31 @@ name: CSDJ-1 v1.10 PostgreSQL runtime audit (manual, read-only)
 #     The verdict step and the evidence upload run with `if: always()`.
 #   * this file must never be added to integration/csdj1-v1.10 (it would change
 #     the audited tree).
+#
+# TIMEOUT BUDGET (CI-TIMEOUT-EVIDENCE-01). A job-level timeout cancels the job
+# and `if: always()` is NOT relied upon to survive it. Every inner limit is
+# therefore strictly smaller than the limit that contains it, so each phase is
+# stopped by its own `timeout` (exit code recorded) before its step deadline,
+# and every step deadline expires before the job deadline.
+#
+#   phase                         internal limit      step timeout-minutes
+#   guard                         -                     2
+#   checkout                      -                     5
+#   identity                      -                     2
+#   static scan                   -                     2
+#   preflight                     -                     5
+#   stage                         -                     5
+#   Proof 1 (role restoration)    1800 s (+60 s kill)  33   (observed ~3 min)
+#   Proof 2 (mutation controls)   6000 s (+60 s kill) 105   (observed 35-45 min)
+#   collect mutation logs         -                     5   (if: always())
+#   verdict                       -                     5   (if: always())
+#   upload evidence               -                    10   (if: always())
+#   -------------------------------------------------------------------------
+#   sum of all step deadlines                         179
+#   job timeout-minutes                               200   (21 min headroom)
+#
+# The mutation-controls script allows 2400 s per mutated run on its own (15 runs),
+# so without the outer `timeout` here it could outlive any step or job deadline.
 # ============================================================================
 
 on:
@@ -56,9 +81,10 @@ jobs:
   runtime-audit:
     name: CSDJ-1 v1.10 PostgreSQL runtime audit
     runs-on: ubuntu-24.04            # explicit image, not ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 200             # > sum of step deadlines (179), see TIMEOUT BUDGET
     steps:
       - name: Guard - dispatched from main (reviewed copy of this workflow)
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
@@ -68,6 +94,7 @@ jobs:
           : > "$RUNNER_TEMP/art/markers/guard-ref.ok"
 
       - name: Checkout the pinned candidate (full SHA, no credentials kept)
+        timeout-minutes: 5
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: f2af3cc13a3b33767ae59fe7854efddb385992ce
@@ -76,6 +103,7 @@ jobs:
           path: src
 
       - name: Verify candidate identity (fail closed)
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
@@ -94,6 +122,7 @@ jobs:
           : > "$RUNNER_TEMP/art/markers/identity.ok"
 
       - name: Static scan of the untrusted audit scripts (fail closed)
+        timeout-minutes: 2
         shell: bash
         run: |
           set -euo pipefail
@@ -113,6 +142,7 @@ jobs:
           : > "$RUNNER_TEMP/art/markers/scan.ok"
 
       - name: Environment preflight (record; fail closed if a prerequisite is absent)
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +178,7 @@ jobs:
           : > "$art/markers/preflight.ok"
 
       - name: Stage a verified, world-readable copy (the postgres OS user must read it)
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -162,44 +193,104 @@ jobs:
           : > "$RUNNER_TEMP/art/markers/staged.ok"
 
       - name: "Proof 1 - role-restoration harness (F1 [L], F2 [M], O1 [N], K1-K17, main harness)"
+        timeout-minutes: 33
+        env:
+          PROOF_TIMEOUT_S: "1800"       # internal limit; step deadline (33 min) leaves 2 min after the 60 s kill
+          PROOF_KILL_AFTER_S: "60"
         shell: bash
         run: |
           set +e
           art="$RUNNER_TEMP/art"
-          start=$(date -u +%FT%TZ)
+          mkdir -p "$art/markers"
+          rm -f "$art/role-restoration.rc" "$art/role-restoration.meta"
+          start=$(date -u +%FT%TZ); t0=$(date +%s)
+          echo "$start" > "$art/role-restoration.started"
           # shellcheck disable=SC2024  # the redirect is deliberately done by the runner user: the log must belong to it
           sudo -n -u postgres env -i PATH="$CLEAN_PATH" HOME=/tmp/csdj-audit-home SCANYM_DISPOSABLE_CLUSTER=1 \
-            timeout 1800 bash /tmp/csdj-audit/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+            timeout -k "$PROOF_KILL_AFTER_S" "$PROOF_TIMEOUT_S" bash /tmp/csdj-audit/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
             > "$art/role-restoration.log" 2>&1
           rc=$?
-          echo "$rc" > "$art/role-restoration.rc"
-          { echo "command: sudo -n -u postgres env -i PATH=\$CLEAN_PATH HOME=/tmp/csdj-audit-home SCANYM_DISPOSABLE_CLUSTER=1 timeout 1800 bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh"
-            echo "started: $start"; echo "ended: $(date -u +%FT%TZ)"; echo "exit_code: $rc"; } > "$art/role-restoration.meta"
+          elapsed=$(( $(date +%s) - t0 ))
+          timed_out=no
+          if { [ "$rc" = 124 ] || [ "$rc" = 137 ]; } && [ "$elapsed" -ge "$PROOF_TIMEOUT_S" ]; then timed_out=yes; fi
+          { echo "command: sudo -n -u postgres env -i PATH=\$CLEAN_PATH HOME=/tmp/csdj-audit-home SCANYM_DISPOSABLE_CLUSTER=1 timeout -k $PROOF_KILL_AFTER_S $PROOF_TIMEOUT_S bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh"
+            echo "started: $start"; echo "ended: $(date -u +%FT%TZ)"
+            echo "elapsed_s: $elapsed"; echo "timeout_limit_s: $PROOF_TIMEOUT_S"; echo "timed_out: $timed_out"
+            echo "exit_code: $rc"; } > "$art/role-restoration.meta.tmp" && mv "$art/role-restoration.meta.tmp" "$art/role-restoration.meta"
+          # the exit-code file is written LAST and atomically: its presence means the phase was recorded completely
+          echo "$rc" > "$art/role-restoration.rc.tmp" && mv "$art/role-restoration.rc.tmp" "$art/role-restoration.rc"
           tail -3 "$art/role-restoration.log"
           exit 0   # the verdict step decides; the log is evidence either way
 
       - name: "Proof 2 - mutation controls (M12, M13 and M1-M16)"
+        timeout-minutes: 105
+        env:
+          PROOF_TIMEOUT_S: "6000"       # internal limit (100 min); the script itself allows 2400 s per mutated run, 15 runs
+          PROOF_KILL_AFTER_S: "60"      # step deadline (105 min) leaves 4 min after the kill
         shell: bash
-        timeout-minutes: 120
         run: |
           set +e
           art="$RUNNER_TEMP/art"
-          start=$(date -u +%FT%TZ)
-          mkdir -p "$art/mutation"
+          mkdir -p "$art/markers" "$art/mutation"
+          rm -f "$art/mutation-controls.rc" "$art/mutation-controls.meta"
+          # the script writes its mutant logs to fixed /tmp paths: remove any stale one so nothing old can be collected
+          rm -f /tmp/csdj1-mut-m*.log
+          start=$(date -u +%FT%TZ); t0=$(date +%s)
+          echo "$start" > "$art/mutation-controls.started"
           # run as the unprivileged runner user: the script itself calls `sudo -u postgres` per mutated copy
           env -i PATH="$CLEAN_PATH" HOME="$RUNNER_TEMP" OUT_DIR="$art/mutation" \
+            timeout -k "$PROOF_KILL_AFTER_S" "$PROOF_TIMEOUT_S" \
             bash /tmp/csdj-audit/supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh \
             > "$art/mutation-controls.stdout" 2>&1
           rc=$?
-          echo "$rc" > "$art/mutation-controls.rc"
-          { echo "command: env -i PATH=\$CLEAN_PATH HOME=\$RUNNER_TEMP OUT_DIR=<art>/mutation bash supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh"
-            echo "started: $start"; echo "ended: $(date -u +%FT%TZ)"; echo "exit_code: $rc"; } > "$art/mutation-controls.meta"
-          cp /tmp/csdj1-mut-m*.log "$art/mutation/" 2>/dev/null
+          elapsed=$(( $(date +%s) - t0 ))
+          timed_out=no
+          if { [ "$rc" = 124 ] || [ "$rc" = 137 ]; } && [ "$elapsed" -ge "$PROOF_TIMEOUT_S" ]; then timed_out=yes; fi
+          { echo "command: env -i PATH=\$CLEAN_PATH HOME=\$RUNNER_TEMP OUT_DIR=<art>/mutation timeout -k $PROOF_KILL_AFTER_S $PROOF_TIMEOUT_S bash supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh"
+            echo "started: $start"; echo "ended: $(date -u +%FT%TZ)"
+            echo "elapsed_s: $elapsed"; echo "timeout_limit_s: $PROOF_TIMEOUT_S"; echo "timed_out: $timed_out"
+            echo "exit_code: $rc"; } > "$art/mutation-controls.meta.tmp" && mv "$art/mutation-controls.meta.tmp" "$art/mutation-controls.meta"
+          echo "$rc" > "$art/mutation-controls.rc.tmp" && mv "$art/mutation-controls.rc.tmp" "$art/mutation-controls.rc"
           tail -3 "$art/mutation-controls.stdout"
+          exit 0
+
+      - name: Collect mutant logs (always; before verdict and upload)
+        if: always()
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set +e
+          art="$RUNNER_TEMP/art"
+          mkdir -p "$art/markers"
+          rm -rf "$art/mutation-logs" "$art/mutation-logs.partial" "$art/markers/mutation-collect.ok"
+          mkdir "$art/mutation-logs.partial" || exit 1
+          collected=0; missing=""; copyerr=""
+          for m in m1 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16; do
+            src="/tmp/csdj1-mut-$m.log"
+            if [ -s "$src" ]; then
+              if cp -p "$src" "$art/mutation-logs.partial/" && cmp -s "$src" "$art/mutation-logs.partial/csdj1-mut-$m.log"; then
+                collected=$((collected + 1))
+              else
+                copyerr="$copyerr $m"
+              fi
+            else
+              missing="$missing $m"
+            fi
+          done
+          if [ "$collected" -gt 0 ]; then
+            ( cd "$art/mutation-logs.partial" && sha256sum -- csdj1-mut-m*.log > SHA256.txt ) || copyerr="$copyerr manifest"
+          fi
+          mv "$art/mutation-logs.partial" "$art/mutation-logs" || copyerr="$copyerr rename"
+          { echo "collected: $collected"; echo "expected: 15"; echo "missing:${missing:- none}"; echo "copy_errors:${copyerr:- none}"
+            echo "at: $(date -u +%FT%TZ)"; } > "$art/mutation-logs.index"
+          cat "$art/mutation-logs.index"
+          # the marker means "the collection ran to its end without a copy error"; completeness is judged by the verdict
+          if [ -z "$copyerr" ]; then : > "$art/markers/mutation-collect.ok"; fi
           exit 0
 
       - name: Verdict (exit codes + guard markers + required per-probe markers)
         if: always()
+        timeout-minutes: 5
         shell: bash
         run: |
           set +e
@@ -209,21 +300,34 @@ jobs:
           bad() { verdict=FAIL; reasons="$reasons\n- $1"; }
           inc() { [ "$verdict" = FAIL ] || verdict=INCONCLUSIVE; reasons="$reasons\n- $1"; }
 
+          # A proof is usable only if it was recorded completely: exit-code file (written last), meta, non-empty log.
+          # Returns 0 when its log may be inspected. A started proof with no exit code was INTERRUPTED, never passed.
+          chk_proof() { # name rc-file started-file meta-file log
+            local n=$1 rcf=$2 stf=$3 mf=$4 lg=$5 rc
+            if [ ! -f "$rcf" ]; then
+              if [ -f "$stf" ]; then inc "$n: INTERRUPTED (started, no exit code recorded)"; else inc "$n: was not executed (no exit code)"; fi
+              return 1
+            fi
+            rc="$(cat "$rcf")"
+            case "$rc" in ''|*[!0-9]*) bad "$n: exit-code file is not a number"; return 1 ;; esac
+            [ -f "$mf" ] || { inc "$n: no meta file"; return 1; }
+            grep -qx "exit_code: $rc" "$mf" || { bad "$n: meta exit_code disagrees with the exit-code file"; return 1; }
+            grep -q '^ended: ' "$mf" || { inc "$n: meta has no end timestamp"; return 1; }
+            if [ "$rc" != 0 ]; then
+              if grep -qx 'timed_out: yes' "$mf"; then inc "$n: TIMED OUT (exit $rc), no conclusion"; else bad "$n: exit code $rc"; fi
+            fi
+            [ -s "$lg" ] || { inc "$n: log missing or empty"; return 1; }
+            return 0
+          }
+
           # 1. every guard must have completed, otherwise nothing was audited
           for g in guard-ref identity scan preflight staged; do
             [ -f "$A/markers/$g.ok" ] || inc "guard step '$g' did not complete"
           done
           [ -s "$A/postgres-version.txt" ] || inc "no PostgreSQL version recorded"
 
-          # 2. both runtime proofs must have actually run
-          [ -f "$A/role-restoration.rc" ]  || inc "role-restoration harness was not executed (no exit code)"
-          [ -f "$A/mutation-controls.rc" ] || inc "mutation controls were not executed (no exit code)"
-          [ -s "$R" ] || inc "role-restoration log missing or empty"
-          [ -s "$M" ] || inc "mutation-controls log missing or empty"
-
-          # 3. proof 1
-          if [ -f "$A/role-restoration.rc" ] && [ -s "$R" ]; then
-            [ "$(cat "$A/role-restoration.rc")" = 0 ] || bad "role-restoration exit code $(cat "$A/role-restoration.rc")"
+          # 2. proof 1
+          if chk_proof "role-restoration" "$A/role-restoration.rc" "$A/role-restoration.started" "$A/role-restoration.meta" "$R"; then
             grep -qE "^\[[0-9:]+\] (FAIL|FATAL):|REFUS DE SÛRETÉ" "$R" && bad "role-restoration log contains FAIL / FATAL / safety refusal"
             grep -qE "BILAN ISOLATION ET RESTAURATION : ${EXPECTED_RESTORATION_PROOFS} preuve\(s\), 0 échec\(s\)" "$R" || inc "restoration summary line absent or count != ${EXPECTED_RESTORATION_PROOFS}"
             for id in K1 K2 K3 K4 K5 K6 K7 K8 K9 K10 K11 K12 K13 K14 K15 K16 K17 L0 L1 L2 L3 L4 L5 M1 M2 M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 N1 N2 N3 N4 N5; do
@@ -231,9 +335,8 @@ jobs:
             done
           fi
 
-          # 4. proof 2
-          if [ -f "$A/mutation-controls.rc" ] && [ -s "$M" ]; then
-            [ "$(cat "$A/mutation-controls.rc")" = 0 ] || bad "mutation-controls exit code $(cat "$A/mutation-controls.rc")"
+          # 3. proof 2
+          if chk_proof "mutation-controls" "$A/mutation-controls.rc" "$A/mutation-controls.started" "$A/mutation-controls.meta" "$M"; then
             grep -q "CONTROL FAIL" "$M" && bad "a mutation control did not conclude"
             grep -qE "BILAN CONTRÔLES DE MUTATION : ${EXPECTED_MUTATION_CONTROLS} contrôle\(s\) concluant\(s\), 0 manquant\(s\)" "$M" || inc "mutation summary line absent or count != ${EXPECTED_MUTATION_CONTROLS}"
             for id in M1 M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 M13 M14 M15 M16; do
@@ -241,11 +344,26 @@ jobs:
             done
           fi
 
+          # 4. mutant logs, collected by the dedicated always() step: all 15 present, non-empty, checksummed
+          [ -f "$A/markers/mutation-collect.ok" ] || inc "mutant-log collection did not complete (step skipped, interrupted or copy error)"
+          L="$A/mutation-logs"
+          if [ -d "$L" ]; then
+            for id in m1 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16; do
+              [ -s "$L/csdj1-mut-$id.log" ] || inc "collected mutant log $id missing or empty"
+            done
+            ( cd "$L" && sha256sum -c --quiet SHA256.txt ) > /dev/null 2>&1 || inc "collected mutant logs absent from or failing their checksum manifest"
+          else
+            inc "no collected mutant-log directory"
+          fi
+
           # 5. evidence index
           { echo "verdict: $verdict"
             echo "run_id: $GITHUB_RUN_ID  run_attempt: $GITHUB_RUN_ATTEMPT  job: $GITHUB_JOB  runner: ${RUNNER_NAME:-} ${ImageOS:-} ${ImageVersion:-}"
             echo "workflow_ref: ${GITHUB_WORKFLOW_REF:-}  workflow_sha: $GITHUB_SHA"
             echo "candidate_sha: $EXPECTED_SHA  tree: $EXPECTED_TREE  parent: $EXPECTED_PARENT"
+            for p in role-restoration mutation-controls; do
+              echo "$p: $(grep -hE '^(elapsed_s|timeout_limit_s|timed_out|exit_code):' "$A/$p.meta" 2>/dev/null | tr '\n' ' ')"
+            done
             printf 'reasons:%b\n' "${reasons:- none}"; } > "$A/VERDICT.txt"
           cat "$A/VERDICT.txt"
           grep -hE "PASS:|FAIL:" "$R" 2>/dev/null | sed -E 's/^\[[0-9:]+\] //' > "$A/probes-role-restoration.tsv"
@@ -258,6 +376,7 @@ jobs:
 
       - name: Upload evidence (always)
         if: always()
+        timeout-minutes: 10
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: csdj1-v1-10-runtime-evidence-${{ github.run_id }}-${{ github.run_attempt }}
