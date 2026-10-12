@@ -41,20 +41,61 @@ lock table public.order_delivery_fulfillment_snapshot in share mode;
 
 do $dct1000_rb_guard$
 declare
-  v_src_def   text;
+  -- SWCT-AUDIT-01 (R3) : l'état d'entrée ATTENDU est exactement celui
+  -- que le fichier aller a posé. Toute autre définition -- une borne
+  -- différente, un prédicat ajouté, une contrainte de plus -- signifie
+  -- qu'un travail non revu est passé entre l'aller et ce retour :
+  -- ARRÊT, échec fermé, schéma intact.
+  c_target   constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 1000)))';
+  v_src_def    text;
+  v_src_count  integer;
+  v_snap_def   text;
+  v_snap_count integer;
   v_long_rules bigint;
   v_long_snaps bigint;
-  v_fn_def    text;
+  v_fn_def     text;
 begin
-  select pg_get_constraintdef(c.oid) into v_src_def
+  if to_regclass('public.restaurant_sale_mode_fulfillments') is null
+     or to_regclass('public.order_delivery_fulfillment_snapshot') is null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: table attendue absente -- rien à annuler.';
+  end if;
+
+  -- ---- SOURCE : une seule contrainte, et c'est celle du lot aller ---
+  select count(*) into v_src_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_src_count <> 1 then
+    raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: % contrainte(s) CHECK portent sur restaurant_sale_mode_fulfillments.customer_text, une seule est attendue après ce lot -- révision manuelle requise, schéma inchangé.', v_src_count;
+  end if;
+
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_src_def
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
     and c.conname = 'rsmf_customer_text_length';
   if v_src_def is null then
     raise exception 'SCANYM_NOTHING_TO_ROLL_BACK: rsmf_customer_text_length absente -- DELIVERY CUSTOMER TEXT 1000 v1 n''est pas appliqué.';
   end if;
-  if v_src_def not like '%1000%' then
-    raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: rsmf_customer_text_length ne porte pas la borne 1000 attendue (%) -- révision manuelle requise.', v_src_def;
+  if v_src_def <> c_target then
+    raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: rsmf_customer_text_length n''est pas la définition posée par ce lot. Attendu : %. Lu : %. Révision manuelle requise, schéma inchangé.', c_target, v_src_def;
+  end if;
+
+  -- ---- CLICHÉ : idem, EXACTEMENT la définition posée par ce lot -----
+  select count(*) into v_snap_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_snap_count <> 1 then
+    raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: % contrainte(s) CHECK portent sur le customer_text du cliché, une seule est attendue -- révision manuelle requise, schéma inchangé.', v_snap_count;
+  end if;
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_snap_def
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
+    and c.conname = 'odfs_customer_text_length';
+  if v_snap_def is distinct from c_target then
+    raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: odfs_customer_text_length n''est pas la définition posée par ce lot. Attendu : %. Lu : %. Une modification intermédiaire non revue existe -- révision manuelle requise, schéma inchangé.', c_target, coalesce(v_snap_def, '<absente>');
   end if;
 
   v_fn_def := pg_get_functiondef('public.update_merchant_delivery_fulfillment_pricing(uuid,text,numeric,numeric,text)'::regprocedure);
@@ -62,7 +103,7 @@ begin
     raise exception 'SCANYM_ROLLBACK_DRIFT_GUARD: la garde applicative n''est pas dans l''état de ce lot -- une modification ultérieure non revue peut exister, révision manuelle requise.';
   end if;
 
-  -- GARDE DE DONNÉES : des textes réellement saisis au-delà de 500.
+  -- ---- GARDE DE DONNÉES (inchangée) : des textes réellement saisis --
   select count(*) into v_long_rules
   from public.restaurant_sale_mode_fulfillments
   where customer_text is not null and length(customer_text) > 500;
@@ -70,9 +111,6 @@ begin
     raise exception 'SCANYM_ROLLBACK_BLOCKED: % règle(s) de livraison portent un texte client de plus de 500 caractères saisi par le commerçant ; redescendre la borne les rendrait invalides. Exporter ou raccourcir ces textes et décider explicitement avant de rejouer ce rollback.', v_long_rules;
   end if;
 
-  -- Idem côté cliché de commande : une commande HISTORIQUE porte une
-  -- trace légale du texte affiché au client. Elle ne se raccourcit
-  -- pas : si une seule existe, le rollback est refusé.
   select count(*) into v_long_snaps
   from public.order_delivery_fulfillment_snapshot
   where customer_text is not null and length(customer_text) > 500;
@@ -129,24 +167,34 @@ end $dct1000_rb_patch$;
 -- 4. VÉRIFICATIONS DE ROLLBACK.
 do $dct1000_rb_check$
 declare
+  c_baseline constant text := 'CHECK (((customer_text IS NULL) OR (length(customer_text) <= 500)))';
   v_src_def  text;
   v_snap_def text;
   v_fn_def   text;
+  v_count    integer;
 begin
-  select pg_get_constraintdef(c.oid) into v_src_def
+  select count(*) into v_count
+  from pg_catalog.pg_constraint c
+  where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
+    and c.contype = 'c'
+    and pg_get_constraintdef(c.oid) like '%customer_text%';
+  if v_count <> 1 then
+    raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: % contrainte(s) CHECK sur customer_text après rollback, une seule attendue.', v_count;
+  end if;
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_src_def
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.restaurant_sale_mode_fulfillments'::regclass
     and c.conname = 'rsmf_customer_text_length';
-  if v_src_def is null or v_src_def not like '%500%' or v_src_def like '%1000%' then
-    raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: la borne source n''est pas revenue à 500.';
+  if v_src_def is distinct from c_baseline then
+    raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: la borne source n''est pas revenue à sa définition de référence. Attendu : %. Lu : %.', c_baseline, coalesce(v_src_def, '<absente>');
   end if;
 
-  select pg_get_constraintdef(c.oid) into v_snap_def
+  select regexp_replace(pg_get_constraintdef(c.oid), '\s+', ' ', 'g') into v_snap_def
   from pg_catalog.pg_constraint c
   where c.conrelid = 'public.order_delivery_fulfillment_snapshot'::regclass
     and c.conname = 'odfs_customer_text_length';
-  if v_snap_def is null or v_snap_def not like '%500%' or v_snap_def like '%1000%' then
-    raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: la borne du cliché n''est pas revenue à 500.';
+  if v_snap_def is distinct from c_baseline then
+    raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: la borne du cliché n''est pas revenue à sa définition de référence. Attendu : %. Lu : %.', c_baseline, coalesce(v_snap_def, '<absente>');
   end if;
 
   v_fn_def := pg_get_functiondef('public.update_merchant_delivery_fulfillment_pricing(uuid,text,numeric,numeric,text)'::regprocedure);
@@ -162,8 +210,7 @@ begin
   end if;
 
   -- HORS PÉRIMÈTRE, intact : le writer de règles de B5 / DELIVERY RULE
-  -- DELETE v1, dont l'empreinte est épinglée ailleurs, et le texte
-  -- générique PAR MODE.
+  -- DELETE v1, dont l'empreinte est épinglée ailleurs.
   if to_regprocedure('public.mutate_merchant_delivery_rule(uuid,text,uuid,jsonb)') is null then
     raise exception 'SCANYM_ROLLBACK_CHECK_FAILED: mutate_merchant_delivery_rule a disparu -- hors périmètre de ce lot.';
   end if;
