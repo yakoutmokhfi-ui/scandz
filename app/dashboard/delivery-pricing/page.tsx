@@ -22,7 +22,11 @@ import type {
 } from "@/lib/dashboard-types";
 import { isScanymOperator, getEstablishmentSummary } from "@/lib/services/establishments";
 import DeliveryPostcodeTester from "@/components/dashboard/DeliveryPostcodeTester";
-import { deliveryRuleErrorKey, parseZoneInput } from "@/lib/delivery-rule-editor";
+import {
+  DELIVERY_RULE_CUSTOMER_TEXT_MAX_LENGTH,
+  deliveryRuleErrorKey,
+  parseZoneInput,
+} from "@/lib/delivery-rule-editor";
 import { deliveryDecimalUnits } from "@/lib/delivery-discount";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
@@ -455,7 +459,13 @@ export default function DeliveryPricingPage() {
       updateDraft(ruleId, { error: t("dpInvalidDiscount") });
       return;
     }
-    if (customerText !== null && customerText.length > 500) {
+    // CUSTOMER TEXT LENGTH v1 -- borne du texte client de RÈGLE portée à
+    // 1000 caractères, miroir exact du CHECK de
+    // restaurant_sale_mode_fulfillments.customer_text (voir
+    // supabase/DRAFT-lot-delivery-customer-text-1000-v1.sql). Jamais une
+    // troncature : au-delà, la saisie est REFUSÉE avec un message, et le
+    // serveur la refuserait de toute façon.
+    if (customerText !== null && customerText.length > DELIVERY_RULE_CUSTOMER_TEXT_MAX_LENGTH) {
       updateDraft(ruleId, { error: t("dpTextTooLong") });
       return;
     }
@@ -787,7 +797,7 @@ export default function DeliveryPricingPage() {
               <textarea id={`rule-${rule.ruleId}-text`}
                 value={draft.customerText}
                 disabled={!canEdit || rulesBusy}
-                maxLength={500}
+                maxLength={DELIVERY_RULE_CUSTOMER_TEXT_MAX_LENGTH}
                 rows={3}
                 onChange={(e) => updateDraft(rule.ruleId, { customerText: e.target.value })}
                 className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"

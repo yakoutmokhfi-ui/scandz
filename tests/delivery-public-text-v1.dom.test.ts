@@ -8,7 +8,9 @@ import * as esbuild from "esbuild";
 
 // ============================================================
 // DELIVERY PUBLIC TEXT v1 -- storefront contract of the
-// "Modes et tarifs de livraison" popup (DeliveryConditionsButton).
+// "Comment passer commande" popup (DeliveryConditionsButton; relabelled
+// by STOREFRONT ORDER HELP WORDING v1 -- same button, same dialog, same
+// i18n key `deliveryConditionsTitle`).
 //
 // The popup renders ONLY the merchant-configured customer_text of each rule,
 // resolved with the existing tCustomerNoticeText. Rules keep ALL their
@@ -132,7 +134,7 @@ test("1-3. technical details never appear: zones, postcodes, base fee, mode, thr
     }
     assert.equal(r.dialog!.querySelectorAll("h3,[data-delivery-rule-conditions]").length, 0, "plus d'en-tête de règle ni de ligne de conditions");
     assert.doesNotMatch(html, /data-(display-order|fulfillment|rule-id|zone)/i);
-    assert.equal(r.dialog!.querySelector("h2")!.textContent, "Modes et tarifs de livraison", "titre i18n existant conservé");
+    assert.equal(r.dialog!.querySelector("h2")!.textContent, "Comment passer commande", "libellé de vitrine (STOREFRONT ORDER HELP WORDING v1)");
   } finally { await r.unmount(); }
 });
 
