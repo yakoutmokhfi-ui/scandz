@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { renderCgv, type RenderCgvInput } from "../lib/legal/render.ts";
-import { parseCgvDocumentModel, slugifyCgvHeading, toOoxmlBookmarkName, type CgvDocumentModel } from "../lib/legal/cgv-document-model.ts";
+import {
+  cgvChapterHeadingLine,
+  parseCgvDocumentModel,
+  slugifyCgvHeading,
+  toOoxmlBookmarkName,
+  type CgvDocumentModel,
+} from "../lib/legal/cgv-document-model.ts";
 import { buildCgvDocx } from "../lib/docx/docx-writer.ts";
 import { readDocxDocument, DocxReadError } from "../lib/docx/docx-reader.ts";
 import { diffCgvDocxImport, CgvDocxDiffError } from "../lib/legal/cgv-docx-diff.ts";
@@ -177,14 +183,21 @@ test("W1-T-04 | a body paragraph edit is detected as 'modified'", () => {
 test("W1-T-05 | a heading text edit is detected as 'modified' (first entry)", () => {
   const model = baseModel();
   let documentXml = extractDocumentXml(exportModel(model));
-  const original = "Annulation de commande";
-  const edited = "Annulation de commande (lu et approuvé)";
-  assert.ok(documentXml.includes(`>${original}<`), "fixture must contain the expected heading text");
+  const title = "Annulation de commande";
+  // W1.1 -- the exported heading paragraph is the published heading
+  // LINE (number + title). The merchant's edit is still an edit of
+  // that one line, so both sides of the expected `modified` entry are
+  // now that line, numbering included.
+  const modelChapter = model.chapters.find((c) => c.heading === title);
+  assert.ok(modelChapter, "fixture must contain the cancellation chapter");
+  const original = cgvChapterHeadingLine(modelChapter!);
+  const edited = `${original} (lu et approuvé)`;
+  assert.ok(documentXml.includes(`>${original}<`), "fixture must contain the expected heading line");
   documentXml = documentXml.replace(`>${original}<`, `>${edited}<`);
 
   const imported = readDocxDocument(buildMinimalDocx(documentXml));
   const diff = diffCgvDocxImport(model, imported);
-  const chapter = diff.chapters.find((c) => c.heading === original);
+  const chapter = diff.chapters.find((c) => c.heading === title);
   assert.ok(chapter);
   assert.deepEqual(chapter!.entries[0], { kind: "modified", before: original, after: edited });
 });
@@ -466,9 +479,16 @@ test("W1-T-21 | merchant isolation (N/A): the DOCX round trip persists nothing, 
  *  + body paragraphs), mirroring lib/docx/docx-writer.ts's own shape
  *  for a single chapter -- used below to hand-assemble FULL,
  *  reordered exports directly from a `CgvDocumentModel`'s chapters. */
-function chapterBlockXml(chapter: { bookmarkName: string; heading: string; paragraphs: string[] }, bookmarkId: number): string {
+function chapterBlockXml(
+  chapter: { bookmarkName: string; heading: string; chapterNumber: string | null; paragraphs: string[] },
+  bookmarkId: number
+): string {
   return (
-    bookmarkedParagraphXml(bookmarkId, toOoxmlBookmarkName(chapter.bookmarkName), chapter.heading) +
+    // W1.1 -- the heading paragraph carries the published heading LINE
+    // (number + title), exactly as lib/docx/docx-writer.ts emits it:
+    // these fixtures stand in for UNEDITED exports, so they must not
+    // manufacture a heading edit.
+    bookmarkedParagraphXml(bookmarkId, toOoxmlBookmarkName(chapter.bookmarkName), cgvChapterHeadingLine(chapter)) +
     chapter.paragraphs.map((p) => plainParagraphXml(p)).join("")
   );
 }

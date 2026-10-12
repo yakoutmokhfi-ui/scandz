@@ -104,10 +104,33 @@
  * diff for the matching UI update); `docx-reader.ts`'s
  * `DocxImportResult.leadingContent` is UNCHANGED, it is simply fed
  * into this new diff instead of being passed through unexamined.
+ *
+ * ====================================================================
+ * W1.1 — VISIBLE CHAPTER NUMBERING (presentation only)
+ * ====================================================================
+ *
+ * The exported heading paragraph now carries the chapter's published
+ * number ("3. Prix", see lib/docx/docx-writer.ts). Since the reader
+ * recovers that paragraph's text as the chapter's FIRST line, this
+ * module composes its own first line with the SAME shared function,
+ * `cgvChapterHeadingLine()` — otherwise an untouched export → import
+ * round trip would report a phantom heading edit on every chapter.
+ *
+ * Two consequences, both intended:
+ *   - a merchant who edits the number in Word ("3." → "III.") gets a
+ *     `modified` heading entry, like any other text edit. The number
+ *     is part of the document a human must review, so it is never
+ *     normalized away (mandate §4's rule, unchanged);
+ *   - re-importing an OLD export after a conditional section appeared
+ *     or disappeared (which legitimately shifts every later number)
+ *     surfaces those heading lines as `modified` — truthfully: that
+ *     file's numbering no longer matches the published document.
+ *     Chapter MATCHING is unaffected, because it has always been done
+ *     on the bookmark, which the number never feeds.
  */
 
 import type { CgvDocumentModel } from "@/lib/legal/cgv-document-model";
-import { toOoxmlBookmarkName } from "@/lib/legal/cgv-document-model";
+import { cgvChapterHeadingLine, toOoxmlBookmarkName } from "@/lib/legal/cgv-document-model";
 import type { DocxImportResult } from "@/lib/docx/docx-reader";
 
 export type CgvDocxDiffErrorCode = "EMPTY_IMPORT" | "UNRECOGNIZED_BOOKMARK" | "DUPLICATE_BOOKMARK";
@@ -345,7 +368,17 @@ export function diffCgvDocxImport(currentModel: CgvDocumentModel, imported: Docx
     // asymmetrically -- blanks dropped on import, kept on the current
     // model -- which is exactly the kind of noise mandate §4 asks this
     // diff to avoid.
-    const before = [modelChapter.heading, ...modelChapter.paragraphs.filter((line) => line.trim().length > 0)];
+    // W1.1 -- the first line is the heading LINE AS EXPORTED, i.e. the
+    // published number plus the title ("3. Prix"), composed by the same
+    // shared function the writer uses. The imported side recovers that
+    // whole line from the bookmarked heading paragraph, so comparing it
+    // against the bare title would report a phantom "modified" heading
+    // on every chapter of an untouched round trip. Matching is still
+    // done on the bookmark alone, never on this line.
+    const before = [
+      cgvChapterHeadingLine(modelChapter),
+      ...modelChapter.paragraphs.filter((line) => line.trim().length > 0),
+    ];
     const after = importedChapter.paragraphs;
     const entries = pairAdjacentReplacements(diffLines(before, after));
     chapters.push({ bookmarkName: modelChapter.bookmarkName, heading: modelChapter.heading, entries });
