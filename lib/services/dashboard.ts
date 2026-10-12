@@ -1589,6 +1589,21 @@ export async function moveMerchantDeliveryRule(restaurantId: string, ruleId: str
   if (error) throw new DeliveryRuleError(error.message, error.details);
 }
 
+/**
+ * DELIVERY RULE DELETE v1 -- explicit, tenant-scoped deletion through the existing controlled
+ * writer. The server re-verifies the (restaurant, rule) pair, the caller's role and, when the
+ * deletion removes the last active rule, that `legacyConfirmation` equals the server-computed
+ * transition. There is no table DELETE grant.
+ */
+export async function deleteMerchantDeliveryRule(restaurantId: string, ruleId: string, legacyConfirmation?: "legacy-zones" | "legacy-unavailable"): Promise<string> {
+  const { data, error } = await supabase.rpc("mutate_merchant_delivery_rule", {
+    p_restaurant_id: restaurantId, p_action: "delete", p_rule_id: ruleId,
+    p_payload: legacyConfirmation ? { legacyConfirmation } : {},
+  });
+  if (error) throw new DeliveryRuleError(error.message, error.details);
+  return String(data);
+}
+
 export async function previewMerchantDeliveryRuleSave(restaurantId: string, ruleId: string | null, enabled: boolean): Promise<"none" | "legacy-zones" | "legacy-unavailable"> {
   const { data, error } = await supabase.rpc("preview_merchant_delivery_rule_save", {
     p_restaurant_id: restaurantId, p_rule_id: ruleId, p_enabled: enabled,
