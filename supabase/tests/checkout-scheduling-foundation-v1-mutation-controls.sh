@@ -3,7 +3,7 @@
 # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
 #
 # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte DOUZE
+# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte QUINZE
 # défauts, chacun dans une COPIE, et exige que les harnais les voient.
 # (M2 est une démonstration directe, pas une mutation.)
 #
@@ -27,6 +27,12 @@
 #     mute RÉELLEMENT le rôle dès que le privilège revient
 # M13 la PROTECTION D'EXÉCUTION retirée — reproduction 2 :
 #     « select E'it\'s'; alter role … » mute RÉELLEMENT le rôle
+# M14 le CONTRAT D'INVOCATION retiré — « \! » redevient une exécution
+#     de shell (défaut F2 du micro-audit d'exécution)
+# M15 l'IDENTITÉ DE LA BASE retirée de l'empreinte — déplacer un réglage
+#     d'une base à l'autre redevient silencieux (défaut F1)
+# M16 la FERMETURE DE LA COURSE retirée — le rafraîchissement gardé
+#     BÉNIT de nouveau une mutation brute concurrente (observation O1)
 #
 # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
 # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
@@ -82,6 +88,14 @@ if strip_isolation == 'strip-env-i':
     new = 'csdj1_runner_test() {\n    "$PSQL"'
     assert old in s, "ancre d'isolation introuvable"
     s = s.replace(old, new, 1)
+if strip_isolation == 'restore-meta-escape':
+    # LE CONTRAT D'INVOCATION, retire : la chaine redevient celle que
+    # psql interprete, et une commande a barre oblique inverse en tete
+    # redevient une commande CLIENT.
+    needle = '-c "$RAW_SQL_PREFIX$sql"'
+    n = s.count(needle)
+    assert n == 2, "ancre du contrat d'invocation introuvable (%d)" % n
+    s = s.replace(needle, '-c "$sql"')
 if strip_isolation == 'strip-raw-privilege':
     # LA PROTECTION D'EXECUTION, retiree : le chemin BRUT se reconnecte
     # avec le proprietaire du cluster, donc avec le privilege. Le role
@@ -552,6 +566,119 @@ mut_raw_privilege "M12" 'K3 reproduction 1' /tmp/csdj1-mut-m12.log
 
 say "--- M13 : protection d'exécution retirée, reproduction 2 (E'...' échappé)"
 mut_raw_privilege "M13" 'K5 reproduction 2' /tmp/csdj1-mut-m13.log
+
+# ────────────────────────────────────────────────────────────
+# M14 — AUD-07 (dixième passe) : LE CONTRAT D'INVOCATION, retiré.
+#
+# Défaut F2 du micro-audit d'exécution : « psql -c » n'est pas un canal
+# SQL mais un canal CLIENT. On retire le préfixe SQL qui garantit que la
+# chaîne ne commence jamais par une barre oblique inverse -- et « \! »
+# redevient une exécution de shell. [M6] doit alors constater un EFFET
+# DE BORD SYSTÈME, c'est-à-dire un fichier créé par le shell.
+# ────────────────────────────────────────────────────────────
+say "--- M14 : le contrat d'invocation retiré (échappement par méta-commande psql)"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+cp "$LIB_SRC" "$MUT_LIB"
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" restore-meta-escape
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M14_RC="$(run_mut_role /tmp/csdj1-mut-m14.log)"
+if [ "$M14_RC" != "0" ] \
+   && grep -q 'M6 une méta-commande en tête' /tmp/csdj1-mut-m14.log \
+   && grep -qE 'M6 une méta-commande en tête.*effets de bord 0 -> 1' /tmp/csdj1-mut-m14.log; then
+  ok "M14 — l'échappement par méta-commande REVIENT : le shell s'exécute et crée un fichier (code $M14_RC)"
+  grep -m3 'FAIL:' /tmp/csdj1-mut-m14.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M14 — le retrait du contrat d'invocation passe inaperçu (code $M14_RC) : [M] ne prouve rien"
+fi
+
+# ────────────────────────────────────────────────────────────
+# M15 — AUD-07 (dixième passe) : L'IDENTITÉ DE LA BASE, retirée de
+#       l'empreinte.
+#
+# Défaut F1 du micro-audit : l'empreinte condensait le TEXTE des
+# réglages par rôle sans l'identité de la BASE. On remet cette lecture-là
+# -- et [L3], la reproduction du mandat, doit constater que le
+# déplacement d'un réglage d'une base à l'autre devient SILENCIEUX.
+# ────────────────────────────────────────────────────────────
+say "--- M15 : l'identité de la base retirée de l'empreinte"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+python3 -I - "$LIB_SRC" "$MUT_LIB" <<'PYM15'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+old = """        select pg_catalog.format('S:%s:%L:%s:%L:%L',
+                 (s.setdatabase = 0)::text,
+                 coalesce(d.datname, ''),
+                 (s.setrole = 0)::text,
+                 coalesce(r.rolname, ''),
+                 coalesce(pg_catalog.array_to_string(s.setconfig, ','), '')) as x
+          from pg_catalog.pg_db_role_setting s
+          left join pg_catalog.pg_database d on d.oid = s.setdatabase
+          left join pg_catalog.pg_authid   r on r.oid = s.setrole"""
+new = """        select pg_catalog.format('S:%L:%L',
+                 r.rolname,
+                 coalesce(pg_catalog.array_to_string(s.setconfig, ','), '')) as x
+          from pg_catalog.pg_db_role_setting s
+          join pg_catalog.pg_authid r on r.oid = s.setrole"""
+assert old in s, "ancre de l empreinte des reglages introuvable"
+s = s.replace(old, new, 1)
+open(dst, 'w', encoding='utf-8').write(s)
+PYM15
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")"
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M15_RC="$(run_mut_role /tmp/csdj1-mut-m15.log)"
+if [ "$M15_RC" != "0" ] \
+   && grep -q 'la mutation est SILENCIEUSE' /tmp/csdj1-mut-m15.log; then
+  ok "M15 — le déplacement d'un réglage d'une base à l'autre redevient SILENCIEUX (code $M15_RC)"
+  grep -m3 'FAIL:' /tmp/csdj1-mut-m15.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M15 — le retrait de l'identité de la base passe inaperçu (code $M15_RC) : [L] ne prouve rien"
+fi
+
+# ────────────────────────────────────────────────────────────
+# M16 — AUD-07 (dixième passe) : LA FERMETURE DE LA COURSE, retirée.
+#
+# Observation O1 : sans verrou ni vérification de l'état antérieur, le
+# rafraîchissement gardé -- qui recalcule l'état COURANT -- BÉNIT une
+# mutation brute concurrente. On retire les deux moitiés de la
+# correction, et [N1] comme [N2] doivent le constater.
+# ────────────────────────────────────────────────────────────
+say "--- M16 : la fermeture de la course O1 retirée (verrou et état antérieur)"
+clean
+cp "$MAIN_SRC" "$MUT_MAIN"
+python3 -I - "$LIB_SRC" "$MUT_LIB" <<'PYM16'
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+lock = """    perform pg_catalog.set_config('lock_timeout', '30s', true);
+    lock table pg_catalog.pg_authid,
+               pg_catalog.pg_db_role_setting,
+               pg_catalog.pg_auth_members in share mode;
+"""
+assert lock in s, "ancre du verrou introuvable"
+s = s.replace(lock, "", 1)
+pre = """    if exists (select 1 from public.${t})
+       and (select g.digest from public.${t} g) <> public.${d}() then
+      raise exception 'SCANYM_IDENTITY_REFUS|empreinte_desaccord';
+    end if;
+"""
+assert pre in s, "ancre de l etat anterieur introuvable"
+s = s.replace(pre, "", 1)
+open(dst, 'w', encoding='utf-8').write(s)
+PYM16
+make_mut_role "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")"
+chmod 755 "$MUT_ROLE" "$MUT_MAIN"
+M16_RC="$(run_mut_role /tmp/csdj1-mut-m16.log)"
+if [ "$M16_RC" != "0" ] \
+   && grep -q "\[N1\] l'opération gardée a ABSORBÉ une mutation brute antérieure" /tmp/csdj1-mut-m16.log \
+   && grep -q '\[N2\] attente' /tmp/csdj1-mut-m16.log; then
+  ok "M16 — la course REVIENT : l'opération gardée ABSORBE la mutation antérieure, et la concurrente n'attend plus (code $M16_RC)"
+  grep -m3 'FAIL:' /tmp/csdj1-mut-m16.log | sed 's/^/       /' | tee -a "$OUT"
+else
+  ko "M16 — le retrait de la fermeture de la course passe inaperçu (code $M16_RC) : [N] ne prouve rien"
+fi
 
 clean
 say "=== BILAN CONTRÔLES DE MUTATION : $PASS contrôle(s) concluant(s), $FAIL manquant(s) ==="

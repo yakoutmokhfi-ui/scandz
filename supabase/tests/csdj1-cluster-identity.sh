@@ -451,16 +451,98 @@ csdj1_identity_install() {
 # si le premier était désarmé. Le mandat demande « rejeté OU détecté » :
 # ici, les deux.
 #
-# Les noms des objets DÉRIVENT du marqueur du contrat : ils sont donc
-# propres à CETTE exécution et à CE cluster, comme le marqueur lui-même.
+# Les noms des objets sont FIXES, et non dérivés du marqueur : ce que
+# l'empreinte décrit, c'est le catalogue de rôles DU CLUSTER, et non
+# l'état vu par un contrat. Un même cluster peut porter plusieurs
+# contrats -- le harnais de rôles y lance le harnais du lot, qui a le
+# sien -- et TOUS doivent maintenir la MÊME empreinte attendue, sans
+# quoi la mutation gardée de l'un rendrait l'empreinte de l'autre
+# périmée. (v1.10 : c'était le cas, les noms étant dérivés du marqueur.)
+#
+# Un cluster sans frontière -- banc d'essai de sockets, cluster de
+# sentinelles, cluster du harnais du lot lancé seul -- ne porte pas ces
+# objets : « to_regclass » rend NULL, et tout ce qui suit est sans effet.
+CSDJ1_BND_TABLE="scanym_csdj1_role_boundary"
+CSDJ1_BND_DIGEST="scanym_csdj1_role_digest"
+CSDJ1_BND_CHECK="scanym_csdj1_role_boundary_check"
+csdj1_identity_boundary_table()  { printf '%s' "$CSDJ1_BND_TABLE"; }
+csdj1_identity_boundary_digest() { printf '%s' "$CSDJ1_BND_DIGEST"; }
+csdj1_identity_boundary_check()  { printf '%s' "$CSDJ1_BND_CHECK"; }
+
 # ────────────────────────────────────────────────────────────
-csdj1_identity_boundary_table()  { printf '%s_roledigest' "$CSDJ1_ID_MARKER"; }
-csdj1_identity_boundary_digest() { printf '%s_digest' "$CSDJ1_ID_MARKER"; }
-csdj1_identity_boundary_check()  { printf '%s_boundary' "$CSDJ1_ID_MARKER"; }
+# LE VERROU — CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02 (observation O1)
+#
+# Les lectures de CATALOGUE ne suivent pas l'instantané de la
+# transaction : chaque commande en prend un nouveau. Deux lectures de
+# pg_authid dans UNE transaction peuvent donc rendre des résultats
+# DIFFÉRENTS si un COMMIT concurrent s'est glissé entre elles (vérifié
+# empiriquement : voir runtime-role-boundary.txt, O1).
+#
+# Conséquence, et c'était la course signalée : entre la mutation gardée
+# et le rafraîchissement de l'empreinte, une mutation BRUTE concurrente
+# pouvait s'intercaler, et le rafraîchissement -- qui recalcule l'état
+# COURANT -- la BÉNISSAIT.
+#
+# On ferme la fenêtre là où elle est : un verrou SHARE sur les TROIS
+# catalogues de rôles, pris AVANT la première lecture et tenu jusqu'au
+# COMMIT.
+#
+# POURQUOI « SHARE » ET NON « ACCESS EXCLUSIVE ». Le mode SHARE entre en
+# conflit avec ROW EXCLUSIVE -- le mode que prend « ALTER ROLE » -- et
+# PAS avec ACCESS SHARE, le mode d'une simple lecture. La portée est donc
+# exactement celle qu'il faut : les ÉCRITURES d'état de rôle attendent,
+# les LECTURES ne sont pas gênées, et l'AUTHENTIFICATION -- qui lit
+# pg_authid -- n'est pas gênée non plus. Mesuré sur PostgreSQL 16.15 :
+# une mutation brute concurrente attend 3011 ms derrière une transaction
+# gardée de 3 s, tandis qu'une connexion neuve suivie d'une lecture
+# aboutit en 10 ms. Une mutation gardée NOMINALE tient le verrou 9 ms.
+# ACCESS EXCLUSIVE aurait bloqué les connexions, et rien ne l'exigeait.
+#
+# Une mutation brute concurrente ATTEND, puis s'applique APRÈS le commit
+# gardé : elle n'est donc pas bénie, et la première exécution brute
+# suivante la dénonce.
+#
+# « lock_timeout » est posé LOCAL : une attente anormale devient un
+# refus nommé, pas un gel.
+# ────────────────────────────────────────────────────────────
+csdj1_identity_boundary_lock_sql() {
+  cat <<'SQL'
+    perform pg_catalog.set_config('lock_timeout', '30s', true);
+    lock table pg_catalog.pg_authid,
+               pg_catalog.pg_db_role_setting,
+               pg_catalog.pg_auth_members in share mode;
+SQL
+}
+
+# LE PROLOGUE — l'état ANTÉRIEUR doit être celui qu'on croit.
+#
+# Seconde moitié de la correction d'O1 : si l'empreinte attendue ne
+# correspond PLUS au catalogue au moment où la mutation gardée commence,
+# c'est qu'une mutation est survenue hors garde. La mutation gardée
+# REFUSE alors -- elle ne l'absorbe pas. Le refus est nommé
+# « empreinte_desaccord », comme tous les autres.
+#
+# Remettre volontairement l'empreinte en accord est une opération
+# DISTINCTE et bruyamment nommée : csdj1_identity_boundary_resync. Les
+# démonstrations de nocivité du harnais -- qui mutent exprès hors garde --
+# sont les seules à l'employer.
+csdj1_identity_boundary_prologue_sql() {
+  local t d
+  t="$(csdj1_identity_boundary_table)"
+  d="$(csdj1_identity_boundary_digest)"
+  cat <<SQL
+  if pg_catalog.to_regclass('public.${t}') is not null then
+$(csdj1_identity_boundary_lock_sql)
+    if exists (select 1 from public.${t})
+       and (select g.digest from public.${t} g) <> public.${d}() then
+      raise exception 'SCANYM_IDENTITY_REFUS|empreinte_desaccord';
+    end if;
+  end if;
+SQL
+}
 
 # Le RAFRAÎCHISSEMENT, appendu au corps de CHAQUE mutation gardée. Il
-# est conditionnel : les contrats sans frontière (bancs d'essai de
-# sockets, cluster de sentinelles) ne la portent pas, et
+# est conditionnel : les clusters sans frontière ne la portent pas, et
 # « to_regclass » rend NULL sans lever.
 #
 # Il est DANS la transaction de la mutation : une mutation gardée et son
@@ -482,10 +564,30 @@ SQL
 # CSDJ-1 -- mise en place, restauration, nettoyage, repli -- passe par
 # ici, et par le MÊME prédicat. Et c'est ici, et nulle part ailleurs,
 # que l'empreinte des rôles est rafraîchie.
+#
+# L'ordre dans la transaction : verrou, état antérieur VÉRIFIÉ, corps,
+# état postérieur ENREGISTRÉ. Rien ne s'intercale.
 csdj1_identity_mutate() {
   csdj1_identity_run_guarded \
     "$(csdj1_identity_guard_sql)
-$(csdj1_identity_marker_sql)" "$1
+$(csdj1_identity_marker_sql)" "$(csdj1_identity_boundary_prologue_sql)
+$1
+$(csdj1_identity_boundary_refresh_sql)"
+}
+
+# REMISE EN ACCORD DÉLIBÉRÉE. Elle n'existe que pour les sections du
+# harnais qui mutent EXPRÈS hors garde afin d'en démontrer la nocivité :
+# elles ont causé le désaccord, elles l'assument. Elle prend le verrou,
+# ne vérifie PAS l'état antérieur, et enregistre l'état courant.
+#
+# Tout autre emploi réintroduirait le trou qu'elle sert à refermer : ses
+# appelants sont donc comptés par un test structurel.
+csdj1_identity_boundary_resync() {
+  csdj1_identity_run_guarded \
+    "$(csdj1_identity_guard_sql)
+$(csdj1_identity_marker_sql)" "  if pg_catalog.to_regclass('public.$(csdj1_identity_boundary_table)') is not null then
+$(csdj1_identity_boundary_lock_sql)
+  end if;
 $(csdj1_identity_boundary_refresh_sql)"
 }
 
@@ -526,19 +628,49 @@ csdj1_identity_boundary_install() {
   as \$csdj1dig\$
     select pg_catalog.md5(coalesce(pg_catalog.string_agg(x, '|' order by x), ''))
       from (
-        select 'R:' || r.rolname || ':'
-            || r.rolsuper::text || r.rolinherit::text || r.rolcreaterole::text
-            || r.rolcreatedb::text || r.rolcanlogin::text || r.rolreplication::text
-            || r.rolbypassrls::text || ':' || r.rolconnlimit::text
-            || ':' || coalesce(r.rolvaliduntil::text, '')
-            || ':' || coalesce(r.rolpassword, '') as x
+        -- ATTRIBUTS. « format(%L) » cite et échappe chaque champ : un
+        -- nom de rôle contenant « : » ne peut pas se faire passer pour
+        -- la frontière entre deux champs.
+        select pg_catalog.format('R:%L:%L:%L:%L:%L',
+                 r.rolname,
+                 r.rolsuper::text || r.rolinherit::text || r.rolcreaterole::text
+                   || r.rolcreatedb::text || r.rolcanlogin::text
+                   || r.rolreplication::text || r.rolbypassrls::text,
+                 r.rolconnlimit::text,
+                 coalesce(r.rolvaliduntil::text, ''),
+                 coalesce(r.rolpassword, '')) as x
           from pg_catalog.pg_authid r
         union all
-        select 'S:' || r.rolname || ':' || coalesce(pg_catalog.array_to_string(s.setconfig, ','), '')
+        -- RÉGLAGES PAR RÔLE ET PAR BASE.
+        --
+        -- CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02, défaut F1 : condenser
+        -- le seul TEXTE du réglage laissait passer, SANS RIEN CHANGER à
+        -- l'empreinte,
+        --     alter role R in database db1 reset work_mem;
+        --     alter role R in database db2 set   work_mem='1MB';
+        -- deux instructions que PostgreSQL accepte et qui déplacent le
+        -- réglage d'une base à l'autre. L'IDENTITÉ DE LA BASE fait donc
+        -- partie de l'empreinte.
+        --
+        -- « setdatabase = 0 » signifie « toutes les bases » et
+        -- « setrole = 0 » « tous les rôles » : les deux cas sont
+        -- CONSERVÉS (jointures EXTERNES -- une jointure interne les
+        -- perdait, ce qui rendait « alter database ... set ... »
+        -- invisible), et le DRAPEAU précède le nom, de sorte qu'aucune
+        -- base réellement nommée ne puisse se confondre avec « toutes ».
+        select pg_catalog.format('S:%s:%L:%s:%L:%L',
+                 (s.setdatabase = 0)::text,
+                 coalesce(d.datname, ''),
+                 (s.setrole = 0)::text,
+                 coalesce(r.rolname, ''),
+                 coalesce(pg_catalog.array_to_string(s.setconfig, ','), '')) as x
           from pg_catalog.pg_db_role_setting s
-          join pg_catalog.pg_authid r on r.oid = s.setrole
+          left join pg_catalog.pg_database d on d.oid = s.setdatabase
+          left join pg_catalog.pg_authid   r on r.oid = s.setrole
         union all
-        select 'M:' || a.rolname || '>' || b.rolname || ':' || m.admin_option::text
+        -- APPARTENANCES.
+        select pg_catalog.format('M:%L:%L:%L',
+                 a.rolname, b.rolname, m.admin_option::text) as x
           from pg_catalog.pg_auth_members m
           join pg_catalog.pg_authid a on a.oid = m.roleid
           join pg_catalog.pg_authid b on b.oid = m.member
@@ -588,15 +720,24 @@ csdj1_identity_boundary_uninstall() {
 # retirer avant, dans un appel séparé, laisserait un ordre à respecter,
 # donc un ordre à oublier.
 csdj1_identity_uninstall() {
-  local t d c
+  local extra="" t d c
   [ "$CSDJ1_ID_INSTALLED" = "1" ] || return 0
-  t="$(csdj1_identity_boundary_table)"
-  d="$(csdj1_identity_boundary_digest)"
-  c="$(csdj1_identity_boundary_check)"
-  csdj1_identity_mutate "
-  drop function if exists public.${c}();
+  # La frontière ne part AVEC le marqueur que si c'est CE contrat qui l'a
+  # posée. Les objets de la frontière portent un nom FIXE et sont donc
+  # partagés par tous les contrats du même cluster : un contrat qui ne
+  # les a pas installés ne doit pas les retirer sous les pieds des
+  # autres. (v1.10 : il le faisait, et le harnais du lot, lancé par le
+  # harnais de rôles sur le MÊME cluster, emportait la frontière à son
+  # nettoyage -- le chemin brut se retrouvait alors sans vérification.)
+  if [ -n "${CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]:-}" ]; then
+    t="$(csdj1_identity_boundary_table)"
+    d="$(csdj1_identity_boundary_digest)"
+    c="$(csdj1_identity_boundary_check)"
+    extra="  drop function if exists public.${c}();
   drop function if exists public.${d}();
-  drop table if exists public.${t};
+  drop table if exists public.${t};"
+  fi
+  csdj1_identity_mutate "${extra}
   drop table if exists public.${CSDJ1_ID_MARKER};
 " && { CSDJ1_ID_INSTALLED=0; CSDJ1_ID_CTX_INSTALLED[$CSDJ1_ID_CONTEXT]=0
        CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]=""; }

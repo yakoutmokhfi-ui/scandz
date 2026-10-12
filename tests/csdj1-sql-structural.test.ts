@@ -2107,7 +2107,7 @@ test("[AUD07-SQL-10] la preuve porte sur le CHEMIN D'EXÉCUTION, et non sur le t
   // Le verdict voyage dans la MÊME invocation de psql : il ne peut pas
   // être oublié, et il ne coûte pas un appel de plus.
   assert.ok(
-    role.includes('-c "$sql" -c "select public.$chk();"'),
+    role.includes('-c "$RAW_SQL_PREFIX$sql" -c "select public.$chk();"'),
     "le verdict de frontière doit voyager dans la même connexion que le SQL exécuté"
   );
 
@@ -2189,6 +2189,222 @@ test("[AUD07-SQL-10] la preuve porte sur le CHEMIN D'EXÉCUTION, et non sur le t
   assert.ok(
     !det.includes("csdj1_raw_exec") && !det.includes("boundary"),
     "le détecteur ne doit PAS avoir été étendu vers la frontière : le mandat l'interdit"
+  );
+});
+
+test("[AUD07-SQL-11] les deux défauts et la course du micro-audit d'exécution sont fermés", () => {
+  // Le micro-audit indépendant a exécuté PostgreSQL 16.13 et a rendu
+  // FAIL sur deux points concrets, plus une observation de concurrence.
+  // Ce test exige les trois corrections -- et il les exige dans leur
+  // MÉCANISME, non dans leur intention.
+  const LIB_PATH = "supabase/tests/csdj1-cluster-identity.sh";
+  const lib = readFileSync(LIB_PATH, "utf8");
+  const rolePath =
+    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+  const role = readFileSync(rolePath, "utf8");
+  const MUT_PATH =
+    "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh";
+  const mut = readFileSync(MUT_PATH, "utf8");
+
+  // ── F1 — l'IDENTITÉ DE LA BASE fait partie de l'empreinte.
+  //
+  // Condenser le seul TEXTE du réglage laissait passer, sans rien
+  // changer à l'empreinte, le déplacement d'un réglage d'une base à une
+  // autre -- deux instructions que le rôle brut peut exécuter sur
+  // lui-même sans aucun privilège.
+  assert.ok(
+    lib.includes("(s.setdatabase = 0)::text") &&
+      lib.includes("coalesce(d.datname, '')"),
+    "l'empreinte doit porter l'identité de la base, et distinguer « toutes les bases » d'une base nommée"
+  );
+  assert.ok(
+    lib.includes("(s.setrole = 0)::text") &&
+      lib.includes("coalesce(r.rolname, '')"),
+    "elle doit aussi distinguer « tous les rôles » d'un rôle nommé"
+  );
+  assert.ok(
+    lib.includes("left join pg_catalog.pg_database d on d.oid = s.setdatabase") &&
+      lib.includes("left join pg_catalog.pg_authid   r on r.oid = s.setrole"),
+    "les jointures doivent être EXTERNES : une jointure interne perdait les réglages de base entière"
+  );
+  // Les champs sont CITÉS : un nom de rôle ou de base contenant le
+  // séparateur ne peut pas se faire passer pour une frontière de champ.
+  assert.ok(
+    lib.includes("pg_catalog.format('S:%s:%L:%s:%L:%L'") &&
+      lib.includes("pg_catalog.format('R:%L:%L:%L:%L:%L'") &&
+      lib.includes("pg_catalog.format('M:%L:%L:%L'"),
+    "chaque champ de l'empreinte doit être cité et échappé par format(%L)"
+  );
+  // Et les preuves correspondantes existent, des deux côtés.
+  for (const proof of [
+    "[L1] un réglage par rôle ET par base change l'empreinte",
+    "[L2] la resynchronisation GARDÉE remet l'empreinte en accord",
+    "[L3] REPRODUCTION F1 : le même réglage déplacé",
+    "[L4] les quatre formes rendent QUATRE empreintes distinctes",
+    "[L5] le condensé est DÉTERMINISTE",
+  ]) {
+    assert.ok(role.includes(proof), `la preuve « ${proof} » doit exister`);
+  }
+
+  // ── F2 — le chemin brut n'accepte que du SQL, PAR CONSTRUCTION.
+  //
+  // « psql -c » n'est pas un canal SQL mais un canal CLIENT : une chaîne
+  // qui COMMENCE par une commande à barre oblique inverse est
+  // interprétée par psql, et « \! » exécute le shell. La correction est
+  // un CONTRAT D'INVOCATION : la chaîne commence toujours par une
+  // instruction SQL fixe, donc psql ne peut jamais y voir une commande
+  // client. Rien n'est lu, rien n'est énuméré.
+  assert.ok(
+    /^RAW_SQL_PREFIX='select [^']*; '$/m.test(role),
+    "le contrat d'invocation doit être une instruction SQL fixe, terminée et suivie d'une espace"
+  );
+  assert.ok(
+    (role.match(/-c "\$RAW_SQL_PREFIX\$sql"/g) ?? []).length === 2,
+    "les DEUX branches de l'enveloppe brute doivent appliquer le contrat"
+  );
+  assert.ok(
+    !/-c "\$sql"/.test(role),
+    "aucune branche ne doit transmettre la chaîne nue à psql"
+  );
+  // Et ce n'est PAS une liste noire : l'enveloppe n'inspecte pas son
+  // argument. On le vérifie sur le corps de l'enveloppe.
+  const wrapper = role.slice(
+    role.indexOf("csdj1_raw_exec() {"),
+    role.indexOf("q()  { csdj1_raw_exec test")
+  );
+  assert.ok(
+    !/case "\$sql"/.test(wrapper) && !/grep[^\n]*\$sql/.test(wrapper),
+    "l'enveloppe ne doit pas inspecter le SQL : une liste noire est explicitement interdite"
+  );
+  // Le verdict appartient à un ENSEMBLE FERMÉ : une vérification qui
+  // n'a pas eu lieu est une anomalie nommée, pas un silence.
+  assert.ok(
+    role.includes("OK|MUTATION-BRUTE|FRONTIERE-NON-ARMEE)") &&
+      role.includes('verdict="FRONTIERE-INDISPONIBLE"'),
+    "un verdict hors de l'ensemble fermé doit être nommé et compté comme une brèche"
+  );
+  for (const proof of [
+    "[M2] un bloc DO passe toujours",
+    "[M3] un corps à dollars étiqueté passe toujours",
+    "[M4] l'EXECUTE dynamique passe toujours",
+    "[M5] les littéraux à barre oblique inverse passent toujours",
+    "M6 une méta-commande en tête",
+    "M7 deux méta-commandes",
+    "M8 méta-commande PUIS du SQL valide",
+    "M9 du SQL valide PUIS une méta-commande",
+    "[M10] les $M_TOTAL commandes psql éprouvées",
+    "[M11] aucun effet de bord système",
+  ]) {
+    assert.ok(role.includes(proof), `la preuve « ${proof} » doit exister`);
+  }
+  // Les commandes nommées par le mandat sont toutes éprouvées.
+  for (const mc of [
+    "\\\\! touch", "\\\\connect", "\\\\copy", "\\\\g ", "\\\\gexec", "\\\\gset",
+    "\\\\include", "\\\\ir ", "\\\\set ", "\\\\unset", "\\\\o ", "\\\\w ",
+    "\\\\watch", "\\\\password",
+  ]) {
+    assert.ok(role.includes(mc), `la commande psql « ${mc} » doit être éprouvée`);
+  }
+
+  // ── O1 — la course est FERMÉE, en deux temps.
+  assert.ok(
+    lib.includes("pg_catalog.pg_auth_members in share mode;") &&
+      lib.includes("pg_catalog.pg_authid,") &&
+      lib.includes("pg_catalog.pg_db_role_setting,"),
+    "un verrou doit couvrir les TROIS catalogues de rôles"
+  );
+  assert.ok(
+    lib.includes("in share mode;") && !lib.includes("in access exclusive mode;"),
+    "le mode doit être SHARE : il fait attendre les écritures d'état de rôle sans gêner les lectures ni l'authentification"
+  );
+  assert.ok(
+    lib.includes("set_config('lock_timeout', '30s', true)"),
+    "une attente anormale doit devenir un refus nommé, pas un gel"
+  );
+  assert.ok(
+    lib.includes("SCANYM_IDENTITY_REFUS|empreinte_desaccord"),
+    "un état antérieur en désaccord doit produire un refus NOMMÉ"
+  );
+  // L'ORDRE dans la transaction : verrou et état antérieur AVANT le
+  // corps, état postérieur APRÈS.
+  const mutateBlock = lib.slice(
+    lib.indexOf("csdj1_identity_mutate() {"),
+    lib.indexOf("csdj1_identity_boundary_resync() {")
+  );
+  assert.ok(
+    mutateBlock.indexOf("$(csdj1_identity_boundary_prologue_sql)") <
+      mutateBlock.indexOf("$(csdj1_identity_boundary_refresh_sql)"),
+    "l'état antérieur doit être vérifié AVANT le corps, et l'état postérieur enregistré APRÈS"
+  );
+  // La remise en accord délibérée existe, est nommée, et n'est employée
+  // que par les sections qui mutent EXPRÈS hors garde.
+  assert.ok(
+    lib.includes("csdj1_identity_boundary_resync() {"),
+    "la remise en accord délibérée doit être une opération DISTINCTE et nommée"
+  );
+  assert.ok(
+    (role.match(/csdj1_identity_boundary_resync/g) ?? []).length <= 10,
+    "les appelants de la remise en accord doivent rester peu nombreux et traçables"
+  );
+  for (const proof of [
+    "[N1] une mutation brute ANTÉRIEURE fait REFUSER l'opération gardée",
+    "[N2] la mutation brute concurrente a ATTENDU",
+    "[N3] le verrou est SCOPÉ",
+    "[N4] une mutation gardée NOMINALE tient le verrou",
+    "[N5] le banc d'essai de sockets ne porte AUCUNE frontière",
+  ]) {
+    assert.ok(role.includes(proof), `la preuve « ${proof} » doit exister`);
+  }
+
+  // ── Les objets de la frontière portent un nom FIXE : l'empreinte
+  // décrit le catalogue DU CLUSTER, et tout contrat gardé du même
+  // cluster la maintient.
+  assert.ok(
+    lib.includes('CSDJ1_BND_TABLE="scanym_csdj1_role_boundary"'),
+    "les objets de la frontière doivent porter un nom fixe, non dérivé du marqueur"
+  );
+  assert.ok(
+    lib.includes('if [ -n "${CSDJ1_ID_CTX_BOUNDARY[$CSDJ1_ID_CONTEXT]:-}" ]; then'),
+    "un contrat qui n'a pas posé la frontière ne doit pas la retirer sous les pieds des autres"
+  );
+
+  // ── Les trois réinjections, et le dommage qu'elles doivent produire.
+  assert.ok(
+    mut.includes("restore-meta-escape") &&
+      mut.includes("M14 : le contrat d'invocation retiré"),
+    "M14 doit réinjecter l'échappement par méta-commande"
+  );
+  assert.ok(
+    mut.includes("M15 : l'identité de la base retirée de l'empreinte"),
+    "M15 doit réinjecter l'empreinte aveugle à la base"
+  );
+  assert.ok(
+    mut.includes("M16 : la fermeture de la course O1 retirée"),
+    "M16 doit réinjecter la course"
+  );
+  assert.ok(
+    mut.includes("effets de bord 0 -> 1"),
+    "M14 doit exiger un EFFET DE BORD SYSTÈME, et non une étiquette changée"
+  );
+  assert.ok(
+    mut.includes("la mutation est SILENCIEUSE"),
+    "M15 doit exiger que le déplacement redevienne silencieux"
+  );
+  assert.ok(
+    mut.includes("ABSORBÉ une mutation brute antérieure"),
+    "M16 doit exiger que l'opération gardée absorbe de nouveau"
+  );
+
+  // ── ET LE DÉTECTEUR N'A TOUJOURS PAS BOUGÉ.
+  const det = readFileSync(
+    "supabase/tests/csdj1-raw-role-mutation-detector.awk",
+    "utf8"
+  );
+  assert.ok(
+    !det.includes("csdj1_raw_exec") &&
+      !det.includes("boundary") &&
+      !det.includes("setdatabase"),
+    "le détecteur reste non autoritaire, et aucune correction ne passe par lui"
   );
 });
 

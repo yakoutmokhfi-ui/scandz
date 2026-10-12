@@ -203,6 +203,41 @@ trap cleanup EXIT
 # ────────────────────────────────────────────────────────────
 RAW_ROLE="scanym_csdj1_raw"
 RAW_ARMED=0
+# ────────────────────────────────────────────────────────────
+# LE CONTRAT D'INVOCATION — CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02,
+# défaut F2 : l'ÉCHAPPEMENT PAR MÉTA-COMMANDE psql.
+#
+# `psql -c` n'est pas un canal SQL : c'est un canal CLIENT. Vérifié
+# empiriquement sur PostgreSQL 16.15 (voir runtime-role-boundary.txt) :
+#
+#   psql -c '\! touch /tmp/x'              => LE SHELL S'EXÉCUTE
+#   psql -c '\! touch /tmp/x <LF> select 1' => LE SHELL S'EXÉCUTE
+#   psql -c 'select 1; \! touch /tmp/x'    => ERROR: syntax error at «\»
+#   psql -c 'select 1 where false; \! …'   => ERROR: syntax error at «\»
+#
+# La règle de psql est exactement celle-ci : si la chaîne COMMENCE par
+# une commande à barre oblique inverse, elle est interprétée par le
+# CLIENT ; sinon la chaîne ENTIÈRE part au serveur, et toute barre
+# oblique inverse qui s'y trouve n'est plus qu'une erreur de syntaxe
+# SQL -- côté SERVEUR.
+#
+# On ne lit donc PAS l'entrée, on ne cherche PAS « \! », on n'énumère
+# AUCUNE commande : on garantit que la chaîne ne commence JAMAIS par une
+# barre oblique inverse, en la faisant commencer par une instruction SQL
+# fixe. Le contrat vaut pour toute commande psql, connue ou non, par
+# CONSTRUCTION.
+#
+# L'instruction choisie est sans sortie et sans effet -- « select 1 where
+# false; » -- de sorte que ni la valeur rendue par `q` ni l'état du
+# serveur n'en dépendent.
+#
+# Conséquence assumée : la chaîne devient multi-instructions, donc une
+# transaction implicite. Les instructions qui refusent un bloc
+# transactionnel (CREATE DATABASE, VACUUM, ALTER SYSTEM) ne passent plus
+# par le chemin brut -- il ne leur a jamais servi, et aucune d'elles
+# n'est une mutation de rôle.
+# ────────────────────────────────────────────────────────────
+RAW_SQL_PREFIX='select 1 where false; '
 BND_CHECK_TEST=""
 BND_CHECK_WIT=""
 RAW_ERR="$TMP_DIR/raw-stderr.txt"
@@ -226,10 +261,19 @@ csdj1_raw_exec() {
     out="$(env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
       "$PSQL" -X -A -q -t \
         -h "$host" -p "$port" -U "$RAW_ROLE" -d postgres \
-        -c "$sql" -c "select public.$chk();" </dev/null 2>"$RAW_ERR")"
+        -c "$RAW_SQL_PREFIX$sql" -c "select public.$chk();" </dev/null 2>"$RAW_ERR")"
     rc=$?
     verdict="$(printf '%s\n' "$out" | tail -1 | tr -d ' ')"
-    out="$(printf '%s\n' "$out" | head -n -1)"
+    # Le verdict appartient à un ENSEMBLE FERMÉ. S'il n'en fait pas
+    # partie, la vérification n'a pas eu lieu -- fonction absente,
+    # connexion refusée, sortie inattendue -- et c'est une anomalie, non
+    # un silence : on la nomme, on la compte comme une brèche, et on ne
+    # retire AUCUNE ligne de la sortie rendue à l'appelant.
+    case "$verdict" in
+      OK|MUTATION-BRUTE|FRONTIERE-NON-ARMEE)
+        out="$(printf '%s\n' "$out" | head -n -1)" ;;
+      *) verdict="FRONTIERE-INDISPONIBLE" ;;
+    esac
     printf '%s\t%s\t%s\n' "$target" "$verdict" "$rc" >> "$RAW_ATTEMPTS"
     case "$verdict" in
       OK) : ;;
@@ -244,7 +288,7 @@ csdj1_raw_exec() {
     out="$(env -i PATH="$SAFE_PATH" HOME="$SAFE_HOME" \
       "$PSQL" -X -A -q -t \
         -h "$host" -p "$port" -U "$RAW_ROLE" -d postgres \
-        -c "$sql" </dev/null 2>"$RAW_ERR")"
+        -c "$RAW_SQL_PREFIX$sql" </dev/null 2>"$RAW_ERR")"
     rc=$?
   fi
   printf '%s\n' "$out"
@@ -1855,6 +1899,12 @@ else
   fi
 fi
 
+# REMISE EN ACCORD DÉLIBÉRÉE. [I] vient de muter un rôle HORS GARDE :
+# l'empreinte attendue est donc, à juste titre, en désaccord, et toute
+# mutation gardée la REFUSERAIT désormais (« empreinte_desaccord »).
+# C'est [I] qui a causé le désaccord, c'est [I] qui l'assume.
+csdj1_identity_boundary_resync >/dev/null
+
 # Remise en état par le chemin GARDÉ, puis suppression du rôle témoin.
 csdj1_identity_mutate "  alter role $R1_PROBE nologin nobypassrls;" >/dev/null
 csdj1_identity_mutate "  drop role if exists $R1_PROBE;" >/dev/null
@@ -2019,12 +2069,17 @@ for adv_verb in alter create; do
           adv_before="$(adv_probe_state)"
           bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
           adv_after="$(adv_probe_state)"
+          # La forme vient de muter un rôle HORS GARDE : on assume le
+          # désaccord qu'on a causé, sans quoi la mutation gardée
+          # suivante refuserait (« empreinte_desaccord »).
+          csdj1_identity_boundary_resync >/dev/null
           [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "NOBYPASSRLSBYPASSRLS" ] \
             || adv_why="PostgreSQL ne l'a pas exécutée comme une mutation ($adv_before -> $adv_after)"
         else
           adv_before="$(adv_role_exists "$adv_expect_role")"
           bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
           adv_after="$(adv_role_exists "$adv_expect_role")"
+          csdj1_identity_boundary_resync >/dev/null
           [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "01" ] \
             || adv_why="PostgreSQL n'a pas créé le rôle ($adv_before -> $adv_after)"
           csdj1_identity_mutate "  drop role if exists $adv_expect_role;" >/dev/null
@@ -2308,6 +2363,10 @@ else
 fi
 RAW_BREACHES="$K_BREACH_SAVE"
 RAW_ATTEMPTS="$K_ATT_SAVE"
+# K14 a muté par le niveau inférieur : le désaccord est voulu, et c'est
+# la remise en accord DÉLIBÉRÉE qui le lève -- pas une mutation gardée
+# ordinaire, qui refuserait.
+csdj1_identity_boundary_resync >/dev/null
 k_reset_probe
 if [ "$(k_probe_state)" = "NOBYPASSRLS" ] && [ "$(q "select public.$BND_CHECK_TEST();")" = "OK" ]; then
   pass "[K14] et le chemin gardé la REMET en accord : l'empreinte redevient OK"
@@ -2363,6 +2422,365 @@ fi
 
 csdj1_identity_use test >/dev/null
 csdj1_identity_mutate "  drop role if exists $K_PROBE;" >/dev/null
+
+# ============================================================
+# [L] L'EMPREINTE DISTINGUE L'IDENTITÉ DE LA BASE
+#     CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02, défaut F1
+#
+# Le micro-audit d'exécution a trouvé ceci : l'empreinte condensait le
+# TEXTE des réglages par rôle, sans l'identité de la BASE. Deux
+# instructions que PostgreSQL accepte, et que le rôle brut peut exécuter
+# SUR LUI-MÊME sans aucun privilège,
+#
+#     alter role <brut> in database db1 reset work_mem;
+#     alter role <brut> in database db2 set   work_mem='1MB';
+#
+# déplaçaient donc un réglage d'une base à l'autre SANS CHANGER
+# l'empreinte. Le verdict restait « OK ». C'était une mutation d'état de
+# rôle SILENCIEUSE.
+#
+# Deux bases suffisent à l'éprouver, et le cluster en a deux dès
+# « initdb » : « postgres » et « template1 ». Aucune base n'est créée --
+# CREATE DATABASE n'est pas transactionnel, et le chemin gardé est une
+# transaction.
+# ============================================================
+log "=== [L] l'empreinte distingue-t-elle la BASE d'un réglage de rôle ? ==="
+L_DB_A="postgres"
+L_DB_B="template1"
+l_digest()  { csdj1_runner_test "select public.$BND_DIGEST_TEST();" | tail -1 | tr -d ' '; }
+l_verdict() { q "select public.$BND_CHECK_TEST();"; }
+l_clear() {
+  # Remise à zéro de TOUS les réglages éprouvés, par le chemin gardé --
+  # qui rafraîchit l'empreinte, de sorte que chaque mesure part d'un
+  # état en accord.
+  csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "
+  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE reset all;
+  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_A reset all;
+  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_B reset all;
+  alter database $L_DB_A reset work_mem;
+" >/dev/null
+}
+
+l_clear
+L_D0="$(l_digest)"
+if [ "$(l_verdict)" = "OK" ]; then
+  pass "[L0] point de départ : empreinte en accord"
+else
+  fail "[L0] l'empreinte n'est pas en accord au départ : la suite ne prouverait rien"
+fi
+
+# ── L1 — le réglage posé dans la PREMIÈRE base change l'empreinte, et
+#    la mutation brute est DÉNONCÉE.
+q "${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_A set work_mem='1MB';" >/dev/null 2>&1
+L_D1="$(l_digest)"
+L_V1="$(l_verdict)"
+if [ "$L_D1" != "$L_D0" ] && [ "$L_V1" = "MUTATION-BRUTE" ]; then
+  pass "[L1] un réglage par rôle ET par base change l'empreinte, et il est DÉNONCÉ ($L_V1)"
+else
+  fail "[L1] empreinte ${L_D0:0:8} -> ${L_D1:0:8}, verdict $L_V1"
+fi
+
+# ── L2 — LA RÉSYNCHRONISATION GARDÉE remet en accord. C'est la seule
+#    façon légitime, et elle est bruyamment nommée.
+csdj1_identity_boundary_resync >/dev/null
+if [ "$(l_verdict)" = "OK" ]; then
+  pass "[L2] la resynchronisation GARDÉE remet l'empreinte en accord (OK)"
+else
+  fail "[L2] la resynchronisation gardée ne remet pas l'empreinte en accord"
+fi
+
+# ── L3 — LA REPRODUCTION DU MANDAT : le MÊME réglage, le MÊME rôle,
+#    déplacé de la première base à la seconde. Le texte du réglage est
+#    IDENTIQUE ; seule la base change.
+q "${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_A reset work_mem;
+${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_B set work_mem='1MB';" >/dev/null 2>&1
+L_D2="$(l_digest)"
+L_V2="$(l_verdict)"
+L_ROWS="$(csdj1_runner_test "select coalesce(pg_catalog.string_agg(coalesce(d.datname,'*') || '=' || pg_catalog.array_to_string(s.setconfig, ','), ' '), 'aucun')
+  from pg_catalog.pg_db_role_setting s
+  left join pg_catalog.pg_database d on d.oid = s.setdatabase
+  left join pg_catalog.pg_authid r on r.oid = s.setrole
+  where r.rolname = '$RAW_ROLE';" | tail -1)"
+if [ "$L_D2" != "$L_D1" ] && [ "$L_V2" = "MUTATION-BRUTE" ]; then
+  pass "[L3] REPRODUCTION F1 : le même réglage déplacé de « $L_DB_A » à « $L_DB_B » change l'empreinte et est DÉNONCÉ ($L_V2 ; état : $L_ROWS)"
+else
+  fail "[L3] empreinte ${L_D1:0:8} -> ${L_D2:0:8}, verdict $L_V2 (état : $L_ROWS) -- la mutation est SILENCIEUSE"
+fi
+csdj1_identity_boundary_resync >/dev/null
+
+# ── L4 — QUATRE FORMES, QUATRE EMPREINTES. base+rôle, base+rôle (autre
+#    base), rôle pour TOUTES les bases, base pour TOUS les rôles : aucune
+#    paire ne doit se confondre.
+l_measure() {
+  local label="$1" sql="$2"
+  l_clear
+  csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "$sql" >/dev/null || { fail "[L4] mise en place « $label » refusée ($CSDJ1_ID_LAST)"; printf 'KO'; return; }
+  l_digest
+}
+L_A="$(l_measure "rôle dans $L_DB_A"  "  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_A set work_mem='1MB';")"
+L_B="$(l_measure "rôle dans $L_DB_B"  "  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE in database $L_DB_B set work_mem='1MB';")"
+L_C="$(l_measure "rôle, toutes bases" "  ${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE set work_mem='1MB';")"
+L_D="$(l_measure "base, tous rôles"   "  alter database $L_DB_A set work_mem='1MB';")"
+L_DISTINCT="$(printf '%s\n%s\n%s\n%s\n' "$L_A" "$L_B" "$L_C" "$L_D" | sort -u | grep -c .)"
+if [ "$L_DISTINCT" = "4" ]; then
+  pass "[L4] les quatre formes rendent QUATRE empreintes distinctes : rôle+base, rôle+autre base, rôle toutes bases, base tous rôles"
+else
+  fail "[L4] seulement $L_DISTINCT empreinte(s) distincte(s) sur 4 : ${L_A:0:8} ${L_B:0:8} ${L_C:0:8} ${L_D:0:8}"
+fi
+
+# ── L5 — DÉTERMINISME. À état constant, le condensé ne bouge pas.
+L_R1="$(l_digest)"; L_R2="$(l_digest)"; L_R3="$(l_digest)"
+if [ "$L_R1" = "$L_R2" ] && [ "$L_R2" = "$L_R3" ] && [ -n "$L_R1" ]; then
+  pass "[L5] le condensé est DÉTERMINISTE : trois lectures d'un état constant rendent la même empreinte"
+else
+  fail "[L5] le condensé varie à état constant : ${L_R1:0:8} ${L_R2:0:8} ${L_R3:0:8}"
+fi
+l_clear
+if [ "$(l_verdict)" = "OK" ] && [ "$(l_digest)" = "$L_D0" ]; then
+  pass "[L5] et l'état initial est EXACTEMENT retrouvé après les quatre formes"
+else
+  fail "[L5] l'état initial n'est pas retrouvé : la section a laissé des traces"
+fi
+
+# ============================================================
+# [M] LE CHEMIN BRUT N'ACCEPTE QUE DU SQL
+#     CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02, défaut F2
+#
+# Le micro-audit a montré que « psql -c » n'est pas un canal SQL mais un
+# canal CLIENT : une chaîne qui COMMENCE par une commande à barre
+# oblique inverse est interprétée par psql, et « \! » exécute le shell.
+# L'auditeur a démontré un chemin complet : le shell se reconnecte avec
+# le compte propriétaire, mute un rôle, rafraîchit l'empreinte attendue,
+# et laisse le verdict final à « OK ».
+#
+# La correction est un CONTRAT D'INVOCATION, et non une liste noire :
+# l'enveloppe fait commencer la chaîne par une instruction SQL fixe, de
+# sorte que psql ne puisse JAMAIS y voir une commande client. Toute
+# barre oblique inverse qui suit n'est plus qu'une erreur de syntaxe
+# SQL -- côté SERVEUR. Le contrat vaut pour toute commande psql, connue
+# ou non, par CONSTRUCTION : rien n'est lu, rien n'est énuméré.
+# ============================================================
+log "=== [M] le chemin brut n'accepte-t-il que du SQL ? ==="
+M_WIT="$TMP_DIR/f2-witness"
+mkdir -p "$M_WIT"
+m_side_effects() { find "$M_WIT" -mindepth 1 | grep -c . || true; }
+
+# ── M1..M5 — LE SQL ORDINAIRE PASSE TOUJOURS. Une protection qui casse
+#    le chemin brut ne protège rien.
+[ "$(q "select 42;")" = "42" ] \
+  && pass "[M1] SQL ordinaire : « select 42 » rend 42" \
+  || fail "[M1] le SQL ordinaire ne passe plus"
+[ "$(qw "select 7;")" = "7" ] \
+  && pass "[M1] et sur le témoin : « select 7 » rend 7" \
+  || fail "[M1] le SQL ordinaire ne passe plus sur le témoin"
+[ "$(q "do \$\$ begin perform 1; end \$\$; select 'bloc-do';")" = "bloc-do" ] \
+  && pass "[M2] un bloc DO passe toujours" \
+  || fail "[M2] un bloc DO ne passe plus"
+[ "$(q "select \$tag\$corps-a-dollars\$tag\$;")" = "corps-a-dollars" ] \
+  && pass "[M3] un corps à dollars étiqueté passe toujours" \
+  || fail "[M3] un corps à dollars ne passe plus"
+[ "$(q "do \$\$ begin execute 'select 1'; end \$\$; select 'execute-dynamique';")" = "execute-dynamique" ] \
+  && pass "[M4] l'EXECUTE dynamique passe toujours" \
+  || fail "[M4] l'EXECUTE dynamique ne passe plus"
+M_BS="$(q "select 'a\b';")"
+M_ES="$(q "select E'it\\'s';")"
+M_DS="$(q "select \$bs\$c:\\chemin\$bs\$;")"
+if [ "$M_BS" = 'a\b' ] && [ "$M_ES" = "it's" ] && [ "$M_DS" = 'c:\chemin' ]; then
+  pass "[M5] les littéraux à barre oblique inverse passent toujours (« $M_BS », « $M_ES », « $M_DS »)"
+else
+  fail "[M5] un littéral à barre oblique inverse est cassé (« $M_BS », « $M_ES », « $M_DS »)"
+fi
+
+# ── M6..M9 — LES MÉTA-COMMANDES NE S'EXÉCUTENT PAS.
+m_meta_blocked() {
+  local label="$1" sql="$2" before after
+  before="$(m_side_effects)"
+  : > "$RAW_ERR"
+  q "$sql" >/dev/null 2>&1
+  after="$(m_side_effects)"
+  if [ "$before" = "$after" ] && grep -q 'syntax error' "$RAW_ERR"; then
+    pass "[M] $label — REFUSÉE PAR LE SERVEUR (erreur de syntaxe SQL), aucun effet de bord"
+  else
+    fail "[M] $label — effets de bord $before -> $after ; le serveur a-t-il refusé ? $(head -1 "$RAW_ERR" | cut -c1-80)"
+  fi
+}
+m_meta_blocked "M6 une méta-commande en tête (\\!)" \
+  "\\! touch $M_WIT/m6"
+m_meta_blocked "M7 deux méta-commandes" \
+  "\\! touch $M_WIT/m7a
+\\! touch $M_WIT/m7b"
+m_meta_blocked "M8 méta-commande PUIS du SQL valide" \
+  "\\! touch $M_WIT/m8
+select 1;"
+m_meta_blocked "M9 du SQL valide PUIS une méta-commande" \
+  "select 1; \\! touch $M_WIT/m9"
+
+# ── M10 — TOUTES les commandes psql nommées par le mandat, et pas une
+#    liste noire : chacune est refusée par le SERVEUR, parce que la
+#    chaîne ne commence jamais par une barre oblique inverse.
+M_BLOCKED=0
+M_TOTAL=0
+for mc in "\\! touch $M_WIT/mc-bang" \
+          "\\connect $L_DB_B" \
+          "\\copy (select 1) to '$M_WIT/mc-copy'" \
+          "\\g $M_WIT/mc-g" \
+          "\\gexec" \
+          "\\gset mc_" \
+          "\\include $M_WIT/mc-include" \
+          "\\ir $M_WIT/mc-ir" \
+          "\\set mc_x 1" \
+          "\\unset mc_x" \
+          "\\o $M_WIT/mc-o" \
+          "\\w $M_WIT/mc-w" \
+          "\\watch 1" \
+          "\\password $RAW_ROLE" \
+          "\\lo_import /etc/hostname" \
+          "\\setenv PATH /tmp" \
+          "\\cd /tmp" \
+          "\\s $M_WIT/mc-s"; do
+  M_TOTAL=$((M_TOTAL + 1))
+  : > "$RAW_ERR"
+  q "$mc" >/dev/null 2>&1
+  grep -q 'syntax error' "$RAW_ERR" && M_BLOCKED=$((M_BLOCKED + 1))
+done
+M_SIDE="$(m_side_effects)"
+if [ "$M_BLOCKED" = "$M_TOTAL" ] && [ "$M_SIDE" = "0" ]; then
+  pass "[M10] les $M_TOTAL commandes psql éprouvées sont TOUTES refusées par le serveur, et AUCUN fichier n'a été créé"
+else
+  fail "[M10] $M_BLOCKED/$M_TOTAL refusées, $M_SIDE effet(s) de bord"
+fi
+
+# ── M11 — AUCUN EFFET DE BORD SYSTÈME sur l'exécution entière de la
+#    section, et le rôle sonde n'a pas bougé.
+if [ "$(m_side_effects)" = "0" ] && [ "$(l_verdict)" = "OK" ]; then
+  pass "[M11] aucun effet de bord système, et l'empreinte reste en accord : rien n'a muté"
+else
+  fail "[M11] des effets de bord subsistent, ou l'empreinte n'est plus en accord"
+fi
+
+# ── M12 — LE CONTRAT est bien celui qu'on croit : la chaîne transmise
+#    commence par du SQL. On le LIT sur la définition, pas sur une
+#    intention.
+if [ "${RAW_SQL_PREFIX#select }" != "$RAW_SQL_PREFIX" ] \
+   && [ "${RAW_SQL_PREFIX%; }" != "$RAW_SQL_PREFIX" ] \
+   && [ -z "$(q "$RAW_SQL_PREFIX")" ]; then
+  pass "[M12] le préfixe du contrat est une instruction SQL sans sortie ni effet"
+else
+  fail "[M12] le préfixe du contrat n'est pas une instruction SQL inerte"
+fi
+
+# ============================================================
+# [N] LA COURSE ENTRE MUTATION GARDÉE ET RAFRAÎCHISSEMENT
+#     CSDJ1-AUD-07-RUNTIME-ROLE-BOUNDARY-02, observation O1
+#
+# L'auditeur a signalé, sans le classer comme échec, que le
+# rafraîchissement de l'empreinte -- qui recalcule l'état COURANT --
+# pouvait BÉNIR une mutation brute survenue pendant la transaction
+# gardée. La course est RÉELLE : les lectures de catalogue ne suivent
+# pas l'instantané de la transaction, chaque commande en prend un
+# nouveau (vérifié : deux lectures de l'empreinte dans UNE transaction
+# rendent des résultats différents de part et d'autre d'un COMMIT
+# concurrent).
+#
+# Elle est CORRIGÉE, en deux temps :
+#
+#   N1  l'état ANTÉRIEUR est vérifié. Si l'empreinte attendue ne
+#       correspond plus au catalogue quand la mutation gardée commence,
+#       la mutation gardée REFUSE -- elle n'absorbe pas.
+#   N2  la FENÊTRE est fermée. Un verrou SHARE sur les trois catalogues
+#       de rôles, pris avant la première lecture et tenu jusqu'au commit,
+#       fait ATTENDRE toute écriture d'état de rôle concurrente -- qui
+#       s'applique donc APRÈS, et se fait dénoncer.
+# ============================================================
+log "=== [N] la course O1 : un rafraîchissement gardé peut-il bénir une mutation brute ? ==="
+l_clear
+# ── N1 — une mutation brute ANTÉRIEURE fait ÉCHOUER l'opération gardée.
+q "${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE set work_mem='1MB';" >/dev/null 2>&1
+N1_VERDICT="$(l_verdict)"
+csdj1_identity_use test >/dev/null
+if csdj1_identity_mutate "  perform 1;" >/dev/null 2>&1; then
+  fail "[N1] l'opération gardée a ABSORBÉ une mutation brute antérieure"
+else
+  N1_REASON="$CSDJ1_ID_LAST"
+  if [ "$N1_VERDICT" = "MUTATION-BRUTE" ] && [ "$N1_REASON" = "empreinte_desaccord" ]; then
+    pass "[N1] une mutation brute ANTÉRIEURE fait REFUSER l'opération gardée, et le refus est NOMMÉ ($N1_REASON)"
+  else
+    fail "[N1] verdict « $N1_VERDICT », refus « $N1_REASON » : la paire ne discrimine pas"
+  fi
+fi
+csdj1_identity_boundary_resync >/dev/null
+l_clear
+
+# ── N2 — une mutation brute CONCURRENTE n'est PAS bénie.
+#
+# On ouvre une transaction gardée qui tient le verrou trois secondes,
+# et on tente la mutation brute pendant ce temps. Elle doit ATTENDRE,
+# s'appliquer APRÈS le commit, et être DÉNONCÉE ensuite.
+N2_GUARD_LOG="$TMP_DIR/n2-guard.log"
+( csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "  perform pg_catalog.pg_sleep(3);" >"$N2_GUARD_LOG" 2>&1 ) &
+N2_PID=$!
+sleep 1
+N2_T0="$(date +%s%N)"
+q "${V_W_ALTER} ${V_W_ROLE} $RAW_ROLE set work_mem='2MB';" >/dev/null 2>&1
+N2_T1="$(date +%s%N)"
+wait "$N2_PID"
+N2_WAIT_MS=$(( (N2_T1 - N2_T0) / 1000000 ))
+N2_VERDICT="$(l_verdict)"
+N2_SETTING="$(csdj1_runner_test "select coalesce((select pg_catalog.array_to_string(s.setconfig, ',')
+  from pg_catalog.pg_db_role_setting s
+  join pg_catalog.pg_authid r on r.oid = s.setrole
+  where r.rolname = '$RAW_ROLE' and s.setdatabase = 0), 'aucun');" | tail -1 | tr -d ' ')"
+if [ "$N2_WAIT_MS" -ge 1000 ] && [ "$N2_VERDICT" = "MUTATION-BRUTE" ] && [ "$N2_SETTING" = "work_mem=2MB" ]; then
+  pass "[N2] la mutation brute concurrente a ATTENDU ${N2_WAIT_MS} ms, s'est appliquée APRÈS le commit gardé, et est DÉNONCÉE ($N2_VERDICT) : elle n'est pas bénie"
+else
+  fail "[N2] attente ${N2_WAIT_MS} ms, verdict « $N2_VERDICT », réglage « $N2_SETTING » : la course reste ouverte"
+fi
+csdj1_identity_boundary_resync >/dev/null
+l_clear
+
+# ── N3 — LE VERROU EST SCOPÉ. Il fait attendre les ÉCRITURES d'état de
+#    rôle, et PAS les lectures : une connexion neuve, donc une
+#    authentification, aboutit pendant qu'il est tenu.
+N3_GUARD_LOG="$TMP_DIR/n3-guard.log"
+( csdj1_identity_use test >/dev/null
+  csdj1_identity_mutate "  perform pg_catalog.pg_sleep(3);" >"$N3_GUARD_LOG" 2>&1 ) &
+N3_PID=$!
+sleep 1
+N3_T0="$(date +%s%N)"
+N3_READ="$(q "select 4242;")"
+N3_T1="$(date +%s%N)"
+wait "$N3_PID"
+N3_MS=$(( (N3_T1 - N3_T0) / 1000000 ))
+if [ "$N3_READ" = "4242" ] && [ "$N3_MS" -lt 1500 ]; then
+  pass "[N3] le verrou est SCOPÉ : une connexion neuve et une lecture aboutissent en ${N3_MS} ms pendant qu'il est tenu"
+else
+  fail "[N3] la lecture a pris ${N3_MS} ms et rendu « $N3_READ » : le verrou est trop large"
+fi
+
+# ── N4 — LE VERROU EST BREF en nominal : la fenêtre est bornée.
+N4_T0="$(date +%s%N)"
+csdj1_identity_use test >/dev/null
+csdj1_identity_mutate "  perform 1;" >/dev/null 2>&1
+N4_T1="$(date +%s%N)"
+N4_MS=$(( (N4_T1 - N4_T0) / 1000000 ))
+if [ "$N4_MS" -lt 1000 ]; then
+  pass "[N4] une mutation gardée NOMINALE tient le verrou ${N4_MS} ms : la sérialisation est bornée"
+else
+  fail "[N4] une mutation gardée nominale dure ${N4_MS} ms : la sérialisation n'est pas bornée"
+fi
+
+# ── N5 — les clusters SANS frontière ne sont pas verrouillés du tout :
+#    le banc d'essai de sockets et le cluster de sentinelles ont muté
+#    leurs rôles dans cette même exécution, et [H] l'a prouvé.
+if [ "$(csdj1_runner_lab "select pg_catalog.to_regclass('public.$BND_TABLE_TEST') is null;" | tail -1 | tr -d ' ')" = "t" ]; then
+  pass "[N5] le banc d'essai de sockets ne porte AUCUNE frontière : ni verrou, ni empreinte, ni vérification"
+else
+  fail "[N5] le banc d'essai porte une frontière qu'on ne lui a pas posée"
+fi
+l_clear
 
 log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
 [ "$FAIL" -eq 0 ] || exit 1
