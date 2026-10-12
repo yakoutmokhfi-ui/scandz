@@ -45,7 +45,9 @@ function discountText(t: (key: string, vars?: Record<string, string | number>) =
 }
 
 /**
- * DELIVERY PUBLIC TEXT v1 -- the "Modes et tarifs de livraison" popup shows ONLY the
+ * DELIVERY PUBLIC TEXT v1 -- the "Comment passer commande" popup (relabelled by
+ * STOREFRONT ORDER HELP WORDING v1; same button, same dialog, same i18n key
+ * `deliveryConditionsTitle`) shows ONLY the
  * merchant-configured customer text of each rule (resolved with the existing translation
  * contract). It never renders zone prefixes, postcodes, base fee, pricing mode, thresholds,
  * minimum items, discount parameters, provider, fulfillment_code, order or any other metadata:
