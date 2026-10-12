@@ -64,7 +64,7 @@ export function DeliveryConditionsButton({ rules }: { rules: PublicDeliveryFulfi
     .filter((entry) => entry.text !== "");
   if (!texts.length) return null;
   return <div className="mx-4 mt-3">
-    <button type="button" onClick={() => setOpen(true)} className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-start text-sm font-semibold text-ink-on-bg">{t("deliveryConditionsTitle")}</button>
+    <button type="button" onClick={() => setOpen(true)} className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-center text-sm font-semibold text-ink-on-bg">{t("deliveryConditionsTitle")}</button>
     <DeliveryDialog open={open} title={t("deliveryConditionsTitle")} marker="conditions" onDismiss={() => setOpen(false)}>
       {texts.map((entry) => <section key={entry.key} data-delivery-rule-card data-sc-surface="delivery-card" className="rounded-xl border border-espresso/10 px-3 py-2.5">
         <p data-delivery-rule-text className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p>

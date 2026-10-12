@@ -215,3 +215,80 @@ test("[SWD-06] la vitrine n'est pas l'endroit où la borne s'applique : elle AFF
     await r.unmount();
   }
 });
+
+// ====================================================================
+// MICRO-LOT UX — CENTER ORDER HELP BUTTON
+// La cartouche garde sa géométrie (pleine largeur, mêmes bordure, fond,
+// hauteur, marges) ; SEUL son libellé est centré. La fenêtre qui
+// s'ouvre au clic garde son texte et son alignement.
+// ====================================================================
+
+test("[CB-01] le libellé de la cartouche est CENTRÉ, et rien d'autre ne bouge", async () => {
+  const r = await openConditions([rule({ customerText: "Texte." })]);
+  try {
+    const cls = r.button!.className;
+    assert.match(cls, /\btext-center\b/, "le libellé doit être centré");
+    assert.ok(!/\btext-(start|left|right|end)\b/.test(cls), "aucun autre alignement résiduel");
+    // Géométrie INCHANGÉE : pleine largeur, même hauteur, mêmes bordure,
+    // fond, rayon, espacements, graisse.
+    for (const kept of [
+      "min-h-11",
+      "w-full",
+      "rounded-xl",
+      "border",
+      "border-espresso/15",
+      "bg-espresso/5",
+      "px-4",
+      "py-2.5",
+      "text-sm",
+      "font-semibold",
+      "text-ink-on-bg",
+    ]) {
+      assert.ok(cls.includes(kept), `la classe « ${kept} » doit être conservée`);
+    }
+    // Le conteneur de la cartouche n'a pas bougé non plus.
+    assert.equal(r.container.firstElementChild!.className, "mx-4 mt-3");
+  } finally {
+    await r.unmount();
+  }
+});
+
+test("[CB-02] le CONTENU et le COMPORTEMENT du bouton sont inchangés", async () => {
+  const r = await openConditions([rule({ customerText: "Texte." })]);
+  try {
+    assert.equal(r.button!.textContent, "Comment passer commande", "même libellé");
+    assert.equal(r.button!.getAttribute("type"), "button");
+    assert.equal(r.dialog!.open, true, "le clic ouvre toujours la fenêtre");
+  } finally {
+    await r.unmount();
+  }
+});
+
+test("[CB-03] la FENÊTRE garde son texte et son alignement : rien n'y est centré", async () => {
+  const r = await openConditions([rule({ customerText: "Ligne 1\nLigne 2" })]);
+  try {
+    const dialogHtml = r.dialog!.innerHTML;
+    assert.ok(!dialogHtml.includes("text-center"), "aucun centrage introduit dans la fenêtre");
+    const paragraph = r.dialog!.querySelector("[data-delivery-rule-text]")!;
+    assert.equal(paragraph.className, "whitespace-pre-wrap break-words text-sm leading-relaxed");
+    assert.equal(paragraph.textContent, "Ligne 1\nLigne 2");
+    // Titre et bouton de fermeture de la fenêtre : classes inchangées.
+    assert.equal(r.dialog!.querySelector("h2")!.className, "text-xl font-bold");
+  } finally {
+    await r.unmount();
+  }
+});
+
+test("[CB-04] le centrage ne dépend d'aucune largeur : même classe en mobile et en desktop", async () => {
+  // `text-center` n'est pas préfixé par un point de rupture (sm:/md:/lg:)
+  // et la cartouche reste `w-full` : le libellé est donc centré dans le
+  // conteneur à TOUTE largeur de viewport, sans règle conditionnelle.
+  const r = await openConditions([rule({ customerText: "Texte." })]);
+  try {
+    const cls = r.button!.className;
+    assert.ok(/(^|\s)text-center(\s|$)/.test(cls), "classe non préfixée");
+    assert.ok(!/(sm|md|lg|xl):text-(center|start|left)/.test(cls), "aucun centrage conditionnel");
+  } finally {
+    await r.unmount();
+  }
+});
