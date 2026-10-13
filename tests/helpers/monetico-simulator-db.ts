@@ -30,6 +30,18 @@ export interface OrderRow {
   currentTransactionId: string | null;
   total: string;
   currency: string;
+  /** v1.1 (MSIM-SIDE-04): delivery orders exercise the Stuart post-payment hook. */
+  serviceMode?: "pickup" | "delivery";
+}
+
+export interface StuartJobRow {
+  id: string;
+  orderId: string;
+  restaurantId: string;
+  environment: string;
+  clientReference: string;
+  sendState: "allocated" | "send_started" | "send_ambiguous" | "created_confirmed" | "terminal_failure";
+  stuartJobId: string | null;
 }
 
 export interface TransactionRow {
@@ -77,6 +89,7 @@ export class InMemoryPaymentDb {
   orders = new Map<string, OrderRow>();
   transactions = new Map<string, TransactionRow>();
   events = new Map<string, EventRow>();
+  stuartJobs = new Map<string, StuartJobRow>();
   calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   nowMs = 1_700_000_000_000;
   private seq = 0;
@@ -125,11 +138,14 @@ export class InMemoryPaymentDb {
         if (!o || o.publicToken !== a.p_public_token) return empty();
         return ok({ currency: o.currency });
       }
-      case "get_order_service_mode":
-        return ok({ service_mode: "pickup" });
-      case "get_order_billing_context":
+      case "get_order_service_mode": {
+        const o = this.orders.get(String(a.p_order_id));
+        return ok({ service_mode: o?.serviceMode ?? "pickup" });
+      }
+      case "get_order_billing_context": {
+        const o = this.orders.get(String(a.p_order_id));
         return ok({
-          source: "manual",
+          source: o?.serviceMode === "delivery" ? "delivery_reuse" : "manual",
           address_line_1: "1 rue de Test",
           address_line_2: null,
           city: "Paris",
@@ -140,6 +156,7 @@ export class InMemoryPaymentDb {
           customer_email: null,
           customer_phone: null,
         });
+      }
       case "get_order_active_payment_attempt": {
         const o = this.orders.get(String(a.p_order_id));
         if (!o || o.publicToken !== a.p_public_token || o.paymentStatus !== "pending") return empty();
@@ -311,10 +328,39 @@ export class InMemoryPaymentDb {
         if (o.currentTransactionId === t.id) o.paymentStatus = status;
         return ok({ transaction_id: t.id, order_id: t.orderId, status });
       }
-      case "get_stuart_delivery_eligibility":
-        // Post-payment Stuart hook (D1 v1.1) read-only first step. All
-        // orders in this model are pickup -> not eligible, hook stops here.
-        return ok({ eligible: false, reason_code: "FULFILLMENT_MODE_NOT_DELIVERY" });
+      case "get_stuart_delivery_eligibility": {
+        // Post-payment Stuart hook (D1 v1.1) read-only first step.
+        const o = this.orders.get(String(a.p_order_id));
+        if (!o || o.restaurantId !== a.p_restaurant_id) return ok({ eligible: false, reason_code: "ORDER_NOT_FOUND", merchant_environment: null });
+        if (o.paymentStatus !== "paid") return ok({ eligible: false, reason_code: "PAYMENT_NOT_CONFIRMED", merchant_environment: null });
+        if (o.serviceMode !== "delivery") return ok({ eligible: false, reason_code: "FULFILLMENT_MODE_NOT_DELIVERY", merchant_environment: null });
+        return ok({ eligible: true, reason_code: "ELIGIBLE", merchant_environment: "sandbox" });
+      }
+      case "allocate_stuart_delivery_job": {
+        for (const j of this.stuartJobs.values()) {
+          if (j.orderId === a.p_order_id) {
+            return ok({ id: j.id, client_reference: j.clientReference, is_new_allocation: false, send_state: j.sendState, stuart_job_id: j.stuartJobId, collision: false });
+          }
+        }
+        const id = this.nextId("stuart-job");
+        const j: StuartJobRow = { id, orderId: String(a.p_order_id), restaurantId: String(a.p_restaurant_id), environment: String(a.p_environment), clientReference: String(a.p_candidate_reference), sendState: "allocated", stuartJobId: null };
+        this.stuartJobs.set(id, j);
+        return ok({ id, client_reference: j.clientReference, is_new_allocation: true, send_state: "allocated", stuart_job_id: null, collision: false });
+      }
+      case "mark_stuart_delivery_job_send_started":
+      case "mark_stuart_delivery_job_ambiguous":
+      case "mark_stuart_delivery_job_terminal_failure":
+      case "confirm_stuart_delivery_job_created": {
+        const j = this.stuartJobs.get(String(a.p_id));
+        if (!j) return reject("P0002", "job introuvable");
+        j.sendState =
+          name === "mark_stuart_delivery_job_send_started" ? "send_started"
+          : name === "mark_stuart_delivery_job_ambiguous" ? "send_ambiguous"
+          : name === "mark_stuart_delivery_job_terminal_failure" ? "terminal_failure"
+          : "created_confirmed";
+        if (name === "confirm_stuart_delivery_job_created") j.stuartJobId = String(a.p_stuart_job_id);
+        return { data: null, error: null };
+      }
       case "get_order_payment_status_snapshot": {
         const o = this.orders.get(String(a.p_order_id));
         if (!o || o.publicToken !== a.p_public_token) return empty();

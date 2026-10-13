@@ -9,6 +9,7 @@ import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-orig
 import {
   evaluateSimulatorEnvironment,
   isSimulatorRoutingActive,
+  isTpeAllowed,
 } from "@/lib/server/payment-providers/monetico/simulator/policy";
 import { verifySimulatorOperatorSecret } from "@/lib/server/payment-providers/monetico/simulator/auth";
 import {
@@ -26,8 +27,8 @@ import {
   type NotifyResult,
 } from "@/lib/server/payment-providers/monetico/simulator/notifier";
 import {
-  createHostedPageBinding,
-  verifyHostedPageBinding,
+  issueDecisionToken,
+  consumeDecisionToken,
   isSameCanonicalOrigin,
 } from "@/lib/server/payment-providers/monetico/simulator/session";
 import { renderHostedPage } from "@/lib/server/payment-providers/monetico/simulator/page";
@@ -56,6 +57,14 @@ import { renderHostedPage } from "@/lib/server/payment-providers/monetico/simula
  * mode `test` -> credential. A `live` merchant reference is refused
  * BEFORE any credential read. No RPC is called when the gate is closed.
  *
+ * v1.1 (MSIM-SEC-01 / MSIM-AUTH-03): the merchant credential's TPE must
+ * be on the synthetic allowlist (`isTpeAllowed`) -- a real merchant's
+ * TPE is never served even in a test project; the hosted page issues a
+ * SINGLE-USE, SHORT-LIVED, ORDER-BOUND decision token (session.ts) that
+ * the decision consumes; and a decision is refused unless the attempt
+ * is still `pending` (replayed decisions on a terminal attempt are
+ * refused BEFORE any notification is built).
+ *
  * NO ORDER/TRANSACTION WRITE happens in this module: the ONLY mutation
  * path is the application's own callback pipeline reacting to a
  * MAC-valid notification -- exactly what a real Monetico event does.
@@ -82,6 +91,8 @@ export type DecisionResult =
 interface ResolvedMerchantContext {
   restaurantId: string;
   orderId: string;
+  transactionId: string;
+  attemptStatus: string;
   amount: string;
   currency: string;
   credential: ReturnType<typeof parseMoneticoCredential>;
@@ -129,12 +140,21 @@ async function resolveMerchantContext(
   } catch {
     return { ok: false, failure: { kind: "rejected", reason: "credential_unavailable" } };
   }
+  // MSIM-SEC-01: synthetic credentials only -- the TPE must be explicitly
+  // allowlisted for the simulator. A real merchant's TPE is refused here
+  // even though it was readable (the read happens through the SAME Vault
+  // RPC as production; nothing about it is simulated).
+  if (!isTpeAllowed(credential.tpe)) {
+    return { ok: false, failure: { kind: "gate_closed", reason: "merchant_tpe_not_allowlisted" } };
+  }
 
   return {
     ok: true,
     context: {
       restaurantId: correlation.restaurantId,
       orderId: correlation.orderId,
+      transactionId: correlation.transactionId,
+      attemptStatus: correlation.status,
       amount: String(correlation.amount),
       currency: correlation.currency,
       credential,
@@ -186,8 +206,15 @@ export async function handleSimulatorHostedPage(raw: Record<string, unknown>): P
     return { kind: "rejected", reason: "return_url_foreign_origin" };
   }
 
-  const binding = createHostedPageBinding({
+  // MSIM-AUTH-03: only a PENDING attempt can be decided upon. A terminal
+  // attempt (paid/failed/cancelled) never gets a decision token.
+  if (context.attemptStatus !== "pending") {
+    return { kind: "rejected", reason: "attempt_not_pending" };
+  }
+
+  const binding = issueDecisionToken({
     reference: verified.reference,
+    transactionId: context.transactionId,
     urlRetourOk: verified.urlRetourOk,
     urlRetourErr: verified.urlRetourErr,
   });
@@ -227,8 +254,13 @@ export async function handleSimulatorDecision(input: DecisionInput): Promise<Dec
   if (typeof reference !== "string" || typeof urlRetourOk !== "string" || typeof urlRetourErr !== "string") {
     return { kind: "invalid", reason: "malformed" };
   }
-  if (!verifyHostedPageBinding({ reference, urlRetourOk, urlRetourErr }, input.body["binding"])) {
-    return { kind: "invalid", reason: "binding_invalid" };
+  const consumed = consumeDecisionToken({
+    token: input.body["binding"],
+    expected: { reference, urlRetourOk, urlRetourErr },
+    now: input.now,
+  });
+  if (!consumed.ok) {
+    return { kind: "invalid", reason: consumed.reason };
   }
 
   let origin: string;
@@ -248,6 +280,17 @@ export async function handleSimulatorDecision(input: DecisionInput): Promise<Dec
       : { kind: "invalid", reason: resolved.failure.reason };
   }
   const { context } = resolved;
+
+  // MSIM-AUTH-03: the token was issued for THIS attempt, and the attempt
+  // must still be pending -- a decision replayed after the attempt
+  // reached a terminal state (or re-targeted to a later attempt of the
+  // same order) is refused before any notification is built.
+  if (context.transactionId !== consumed.payload.transactionId) {
+    return { kind: "invalid", reason: "token_binding_mismatch" };
+  }
+  if (context.attemptStatus !== "pending") {
+    return { kind: "invalid", reason: "attempt_not_pending" };
+  }
 
   const now = input.now ?? new Date();
   const notifications: NotifyResult[] = [];
