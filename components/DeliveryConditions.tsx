@@ -45,7 +45,9 @@ function discountText(t: (key: string, vars?: Record<string, string | number>) =
 }
 
 /**
- * DELIVERY PUBLIC TEXT v1 -- the "Modes et tarifs de livraison" popup shows ONLY the
+ * DELIVERY PUBLIC TEXT v1 -- the "Comment passer commande" popup (relabelled by
+ * STOREFRONT ORDER HELP WORDING v1; same button, same dialog, same i18n key
+ * `deliveryConditionsTitle`) shows ONLY the
  * merchant-configured customer text of each rule (resolved with the existing translation
  * contract). It never renders zone prefixes, postcodes, base fee, pricing mode, thresholds,
  * minimum items, discount parameters, provider, fulfillment_code, order or any other metadata:
@@ -62,7 +64,7 @@ export function DeliveryConditionsButton({ rules }: { rules: PublicDeliveryFulfi
     .filter((entry) => entry.text !== "");
   if (!texts.length) return null;
   return <div className="mx-4 mt-3">
-    <button type="button" onClick={() => setOpen(true)} className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-start text-sm font-semibold text-ink-on-bg">{t("deliveryConditionsTitle")}</button>
+    <button type="button" onClick={() => setOpen(true)} className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-center text-sm font-semibold text-ink-on-bg">{t("deliveryConditionsTitle")}</button>
     <DeliveryDialog open={open} title={t("deliveryConditionsTitle")} marker="conditions" onDismiss={() => setOpen(false)}>
       {texts.map((entry) => <section key={entry.key} data-delivery-rule-card data-sc-surface="delivery-card" className="rounded-xl border border-espresso/10 px-3 py-2.5">
         <p data-delivery-rule-text className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</p>

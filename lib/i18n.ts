@@ -49,7 +49,7 @@ const fr: Dict = {
   "dpDiscountPercentage": "Remise (%)",
   "dpDiscountHint": "À partir du seuil inclus, le pourcentage réduit les frais de livraison. Les produits ne sont pas remisés. Une livraison déjà gratuite reste gratuite.",
   "dpInvalidDiscount": "Indiquez un seuil positif ou nul et un pourcentage de 0 à 100, avec deux décimales maximum.",
-  "deliveryConditionsTitle": "Modes et tarifs de livraison",
+  "deliveryConditionsTitle": "Comment passer commande",
   "deliveryRuleNumber": "Zone de livraison {number}",
   "deliveryFallbackArea": "Autres codes postaux dans les pays desservis",
   "deliveryPostcodeArea": "Codes postaux / préfixes : {zones}",
@@ -1179,7 +1179,7 @@ const en: Dict = {
   "dpDiscountPercentage": "Discount (%)",
   "dpDiscountHint": "At or above the threshold, the percentage reduces the delivery fee. Products are not discounted. Free delivery remains free.",
   "dpInvalidDiscount": "Enter a non-negative threshold and a percentage from 0 to 100, with at most two decimal places.",
-  "deliveryConditionsTitle": "Delivery options and prices",
+  "deliveryConditionsTitle": "How to order",
   "deliveryRuleNumber": "Delivery area {number}",
   "deliveryFallbackArea": "Other postcodes in supported countries",
   "deliveryPostcodeArea": "Postcodes / prefixes: {zones}",
@@ -2151,7 +2151,7 @@ const ar: Dict = {
   "dpDiscountPercentage": "التخفيض (%)",
   "dpDiscountHint": "عند بلوغ الحد أو تجاوزه، تُخفض رسوم التوصيل بالنسبة المحددة دون أسعار المنتجات. ويبقى التوصيل المجاني مجانياً.",
   "dpInvalidDiscount": "أدخل حداً غير سالب ونسبة من 0 إلى 100، بخانتين عشريتين كحد أقصى.",
-  "deliveryConditionsTitle": "خيارات التوصيل وأسعاره",
+  "deliveryConditionsTitle": "كيفية الطلب",
   "deliveryRuleNumber": "منطقة التوصيل {number}",
   "deliveryFallbackArea": "الرموز البريدية الأخرى في البلدان المشمولة",
   "deliveryPostcodeArea": "الرموز البريدية / البادئات: {zones}",
@@ -3111,7 +3111,36 @@ const ar: Dict = {
  * (`Object.keys(DICTS)`), jamais une seconde liste littérale
  * dupliquée et potentiellement divergente.
  */
-export const DICTS: Record<Lang, Dict> = { fr, en, ar };
+/**
+ * STOREFRONT ORDER HELP WORDING v1 — dictionnaire NÉERLANDAIS PARTIEL.
+ *
+ * Pourquoi partiel, et pourquoi c'est sûr : `translate()` replie clé par
+ * clé (`dict[key] ?? fr[key] ?? key`), jamais dictionnaire par
+ * dictionnaire. Une clé absente d'ici rend donc EXACTEMENT ce qu'elle
+ * rendait avant ce lot pour un établissement néerlandophone — le
+ * français — et la seule clé présente rend le néerlandais demandé par
+ * le mandat. Aucun texte n'est inventé : traduire les ~1 000 autres
+ * clés de l'interface est un lot de traduction à part entière, pas une
+ * correction de libellé.
+ *
+ * `LANGUAGES` n'est PAS élargi : cette liste pilote le sélecteur de
+ * langue de l'interface marchande, et y ajouter NL annoncerait une
+ * interface néerlandaise qui n'existe pas. NL reste ce qu'il est
+ * aujourd'hui — une langue du catalogue `supported_languages`, activable
+ * par établissement (voir le commentaire de `Lang` plus haut).
+ *
+ * CONSÉQUENCE ASSUMÉE, documentée : `resolveLangFromParam("nl")` rend
+ * désormais « nl » au lieu de se replier sur « fr », puisque sa seule
+ * autorité est `Object.keys(DICTS)`. Le texte rendu est inchangé pour
+ * toutes les autres clés (repli français par clé) ; seule cette
+ * étiquette-ci devient néerlandaise, ce qui est précisément l'objet du
+ * mandat.
+ */
+const nl: Dict = {
+  "deliveryConditionsTitle": "Hoe bestellen",
+};
+
+export const DICTS: Record<Lang, Dict> = { fr, en, ar, nl };
 
 /**
  * CUSTOMER CONFIRMATION + TRACKING FINAL v1 — SEULE autorité pour
