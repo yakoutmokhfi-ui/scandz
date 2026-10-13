@@ -395,3 +395,125 @@ export interface WithdrawalRequestRow {
   acknowledgement_cc: string | null;
   declaration_snapshot: WithdrawalRequestDeclarationSnapshot;
 }
+
+/**
+ * CSDJ-BO-1 — MISE À DISPOSITION (back-office commerçant).
+ *
+ * Projections marchandes des deux lectures de planification. Même
+ * convention que MerchantDeliveryFulfillmentPricingRule : camelCase
+ * côté éditeur, mappé depuis les colonnes snake_case de la RPC.
+ *
+ * Les agrégats JSONB de public.get_merchant_fulfillment_schedules
+ * arrivent DÉJÀ en camelCase (`{weekday, startsAt, endsAt}`, etc.) :
+ * ils sont donc repris tels quels, sans second mapping, et les
+ * vocabulaires ouverts côté base (modes de politique) restent `string`
+ * — un libellé inconnu se replie, il ne fait jamais planter la page.
+ */
+export interface MerchantFulfillmentWindow {
+  weekday: number;
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface MerchantFulfillmentSlot {
+  weekday: number;
+  slotKey: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface MerchantFulfillmentClosure {
+  closedOn: string;
+  label: string | null;
+}
+
+export interface MerchantFulfillmentSchedule {
+  modeCode: string;
+  fulfillmentRuleId: string | null;
+  timezone: string;
+  enabled: boolean;
+  dateSelectionMode: string;
+  slotSelectionMode: string;
+  timeGranularityMinutes: number | null;
+  leadTimeMinutes: number;
+  minLeadDays: number;
+  cutoffTime: string | null;
+  cutoffOffsetDays: number;
+  bookingHorizonDays: number;
+  windows: MerchantFulfillmentWindow[];
+  slots: MerchantFulfillmentSlot[];
+  closures: MerchantFulfillmentClosure[];
+}
+
+/**
+ * Extensions CSDJ v1.2 (PR #146 de Boulez) — LIVRÉES, NON APPLIQUÉES.
+ * La lecture correspondante peut donc être ABSENTE du serveur : c'est
+ * un état normal, modélisé (voir MerchantFulfillmentV12Read), jamais
+ * une erreur affichée au commerçant.
+ */
+export interface MerchantFulfillmentPrepClosure {
+  closedOn: string;
+  label: string | null;
+}
+
+export interface MerchantFulfillmentV12Extension {
+  modeCode: string;
+  fulfillmentRuleId: string | null;
+  scheduleMethodVersion: string;
+  holidayCalendarId: string | null;
+  preparationOnHolidays: string;
+  availabilityOnHolidays: string;
+  capacityEnabled: boolean;
+  capacityMaxOrders: number | null;
+  preparationWeekdays: number[];
+  preparationClosures: MerchantFulfillmentPrepClosure[];
+}
+
+/**
+ * Résultat de la lecture v1.2, avec son absence modélisée.
+ * `"absent"` = la fonction n'existe pas encore sur ce serveur (PR #146
+ * non appliquée) ; `"forbidden"` = refus de rôle ; `"error"` = tout
+ * autre échec. Dans les trois cas la page reste utilisable sur le
+ * socle v1 appliqué.
+ */
+export type MerchantFulfillmentV12Read =
+  | { status: "available"; rows: MerchantFulfillmentV12Extension[] }
+  | { status: "absent" }
+  | { status: "forbidden" }
+  | { status: "error" };
+
+/**
+ * Aperçu serveur des disponibilités : projection de la lecture
+ * publique sûre public.get_checkout_fulfillment_schedule, c'est-à-dire
+ * EXACTEMENT ce qu'un client verrait. Aucun compte, aucune place
+ * restante — la lecture publique n'en expose aucun, par conception.
+ */
+/**
+ * Une offre de la lecture PUBLIQUE. Attention : contrairement aux
+ * agrégats de la lecture marchande, la lecture publique renvoie ses
+ * offres en snake_case (`slot_key`/`starts_at`/`ends_at`) et les
+ * regroupe par date (clé `"YYYY-MM-DD"`). Elles sont reprises telles
+ * quelles, sans renommage : cette page AFFICHE la réponse du serveur,
+ * elle ne la réinterprète pas.
+ */
+export interface CheckoutFulfillmentPreviewOffer {
+  slot_key: string | null;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface CheckoutFulfillmentPreview {
+  deliveryApplicable: boolean;
+  deliveryEligible: boolean;
+  deliveryBlock: string | null;
+  deliveryCustomerText: string | null;
+  scheduleStatus: string;
+  unfulfillableReason: string | null;
+  scheduleTimezone: string | null;
+  dateSelectionMode: string | null;
+  slotSelectionMode: string | null;
+  timeGranularityMinutes: number | null;
+  firstEligibleDate: string | null;
+  eligibleDates: string[];
+  offers: Record<string, CheckoutFulfillmentPreviewOffer[]> | null;
+}

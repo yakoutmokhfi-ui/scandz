@@ -258,7 +258,22 @@ function headerName(c: Element): string {
 }
 
 function navLinkHref(c: Element, label: string): string | null {
-  const a = [...c.querySelectorAll("a")].find((x) => x.textContent?.trim() === label);
+  // CSDJ-BO-1 : depuis la compaction mobile de la barre d'onglets,
+  // certains onglets portent DEUX libellés dans le DOM -- un court
+  // (visible sous `sm`) et le complet (visible au-dessus). Le
+  // `textContent` d'un tel onglet vaut donc « CarteMa carte », et une
+  // égalité stricte ne le retrouve plus. L'intention de ce test est
+  // inchangée (retrouver le lien de navigation d'un module par son
+  // libellé) : la recherche accepte désormais soit l'onglet dont le
+  // texte entier est exactement le libellé, soit celui dont un libellé
+  // interne l'est. Aucun assouplissement sur le `href`, qui reste la
+  // chose réellement vérifiée.
+  const links = [...c.querySelectorAll("a")];
+  const a =
+    links.find((x) => x.textContent?.trim() === label) ??
+    links.find((x) =>
+      [...x.querySelectorAll("span")].some((s) => s.textContent?.trim() === label)
+    );
   return a ? a.getAttribute("href") : null;
 }
 

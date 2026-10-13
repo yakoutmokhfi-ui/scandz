@@ -889,8 +889,21 @@ test("P2B-B DOM: navigation Dashboard -- stratégie explicite anti-débordement 
   // attendu passe de 6 à 7. La preuve elle-même (flex-wrap, aucun
   // onglet masqué) reste inchangée et continue de s'appliquer à tous
   // les onglets, ancien compte ou nouveau.
+  // Mis à jour par CSDJ-BO-1 : un 8e onglet (« Mise à disposition ») a
+  // été ajouté à DashboardNav.tsx -- décompte attendu passe de 7 à 8.
+  // Même raisonnement que la mise à jour 6 -> 7 ci-dessus : la preuve
+  // (flex-wrap, aucun onglet masqué ni inatteignable) est inchangée et
+  // continue de s'appliquer à tous les onglets. CSDJ-BO-1 ajoute en
+  // outre une compaction mobile (quatre onglets par ligne sous « sm »),
+  // qui reste du retour à la ligne dans le flux normal : aucun
+  // défilement, aucun onglet caché -- vérifié par la boucle ci-dessous
+  // et, en détail, par tests/csdj-bo1-availability-mobile.dom.test.ts.
   const tabs = Array.from(navEl!.querySelectorAll("a"));
-  assert.equal(tabs.length, 7, "les 7 onglets doivent tous être présents dans le DOM (6 + CGV, Seller Legal Profile v1)");
+  assert.equal(
+    tabs.length,
+    8,
+    "les 8 onglets doivent tous être présents dans le DOM (7 + Mise à disposition, CSDJ-BO-1)"
+  );
   for (const tabEl of tabs) {
     assert.notEqual((tabEl as HTMLElement).hidden, true, "aucun onglet ne doit être masqué (hidden)");
     assert.notEqual(tabEl.getAttribute("aria-hidden"), "true", "aucun onglet ne doit être aria-hidden");

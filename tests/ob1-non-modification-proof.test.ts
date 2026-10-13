@@ -329,13 +329,45 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
       "-                  <option key={m.restaurant_id} value={m.restaurant_id}>",
       "-                    {m.restaurants?.name ?? m.restaurant_id}",
     ]);
+    // CSDJ-BO-1 (huitième onglet « Mise à disposition ») -- même
+    // méthode d'élargissement NARROW que §17 juste au-dessus : une
+    // liste EXACTE de lignes retirées, jamais un motif générique,
+    // jamais une exemption de fichier entier. Les quatre lignes sont :
+    //   - la chaîne de classes de `tab()`, remplacée par sa version
+    //     compactée sur téléphone (revue R2 point 6 : huit onglets
+    //     passaient à trois lignes à 390 px) ;
+    //   - trois libellés d'onglet `{t("…")}`, remplacés par le couple
+    //     court/complet (`sm:hidden` / `hidden sm:inline`). Les appels
+    //     t("mcTitle"), t("dsDeliveryPricing") et t("dsTranslations")
+    //     restent présents dans le fichier : aucune clé i18n n'est
+    //     retirée, et les gardes de non-régression des onglets
+    //     existants continuent de les voir.
+    const CSDJ_BO1_ALLOWED_REMOVALS = new Set([
+      '-    "flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-bold sm:flex-none " +',
+      '-            {t("mcTitle")}',
+      '-            {t("dsDeliveryPricing")}',
+      '-            {t("dsTranslations")}',
+    ]);
     for (const removed of removedLines) {
       if (CONTEXT_HARDENING_ALLOWED_REMOVALS.has(removed)) continue;
+      if (CSDJ_BO1_ALLOWED_REMOVALS.has(removed)) continue;
       const removedContent = removed.slice(1);
-      const expectedExtended = `+${removedContent} && !onLegalCgv`;
+      // Un élargissement de condition reste autorisé, pour l'onglet CGV
+      // (garantie historique) comme pour l'onglet « Mise à disposition »
+      // -- jetons NOMMÉS, jamais un motif générique.
+      // La ligne retirée est celle de la BASELINE OB-1, antérieure à
+      // l'onglet CGV : la ligne ajoutée peut donc porter l'un OU
+      // l'autre élargissement, ou les DEUX, dans cet ordre. Les trois
+      // formes sont énumérées exactement -- jamais un motif générique
+      // qui laisserait passer n'importe quel ajout de condition.
+      const allowedExtensions = [
+        `+${removedContent} && !onLegalCgv`,
+        `+${removedContent} && !onAvailability`,
+        `+${removedContent} && !onLegalCgv && !onAvailability`,
+      ];
       assert.ok(
-        addedLines.includes(expectedExtended),
-        `DashboardNav.tsx : ligne retirée non reconnue comme un simple élargissement de condition existante pour l'onglet CGV -- ligne interdite : ${removed}`
+        allowedExtensions.some((candidate) => addedLines.includes(candidate)),
+        `DashboardNav.tsx : ligne retirée non reconnue comme un simple élargissement de condition existante (onglet CGV ou onglet Mise à disposition) -- ligne interdite : ${removed}`
       );
     }
     // Chaque ligne AJOUTÉE doit soit être ce même élargissement de
@@ -357,15 +389,25 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
       '+                className="rounded-xl border border-stone-300 bg-stone-50 px-3 py-2 text-sm font-semibold text-stone-700"',
     ]);
     for (const added of addedLines) {
-      const isConditionExtension = removedLines.some((removed) => `+${removed.slice(1)} && !onLegalCgv` === added);
+      const isConditionExtension = removedLines.some((removed) =>
+        [
+          `+${removed.slice(1)} && !onLegalCgv`,
+          `+${removed.slice(1)} && !onAvailability`,
+          `+${removed.slice(1)} && !onLegalCgv && !onAvailability`,
+        ].includes(added)
+      );
       if (isConditionExtension) continue;
       if (CONTEXT_HARDENING_ALLOWED_STRUCTURE.has(added.trimEnd())) continue;
       assert.match(
         added,
-        // Onglet CGV (garantie historique) OU §17 -- jetons NOMMÉS du
-        // durcissement de contexte, jamais un motif générique.
-        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|selectorModel|buildRestaurantSelectorModel|data-current-context|CONTEXT HARDENING|o[.]restaurantId|o[.]label|restaurantId,|mappings,|currentContextName|^\+\s*\/\/|^\+\s*\*|^\+\s*<\/a>\s*$|^\+\s*$/,
-        `DashboardNav.tsx : ligne ajoutée hors-sujet (ni onglet CGV, ni durcissement de contexte §17) -- ligne interdite : ${added}`
+        // Onglet CGV (garantie historique) OU §17 (durcissement de
+        // contexte) OU CSDJ-BO-1 (huitième onglet « Mise à disposition »
+        // et sa compaction mobile) -- jetons NOMMÉS, jamais un motif
+        // générique : `basis-[calc` et le couple sm:hidden /
+        // hidden sm:inline sont les deux seules formes de style
+        // autorisées, et elles ne touchent que la barre d'onglets.
+        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|selectorModel|buildRestaurantSelectorModel|data-current-context|CONTEXT HARDENING|o[.]restaurantId|o[.]label|restaurantId,|mappings,|currentContextName|onAvailability|dashboard\/availability|dsAvailability|mcTitleShort|dsDeliveryPricingShort|dsTranslationsShort|CSDJ-BO-1|basis-\[calc|sm:hidden|hidden sm:inline|^\+\s*\/\/|^\+\s*\*|^\+\s*<\/a>\s*$|^\+\s*$/,
+        `DashboardNav.tsx : ligne ajoutée hors-sujet (ni onglet CGV, ni durcissement de contexte §17, ni onglet Mise à disposition CSDJ-BO-1) -- ligne interdite : ${added}`
       );
     }
   }
