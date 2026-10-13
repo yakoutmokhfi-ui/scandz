@@ -49,7 +49,7 @@ const fr: Dict = {
   "dpDiscountPercentage": "Remise (%)",
   "dpDiscountHint": "À partir du seuil inclus, le pourcentage réduit les frais de livraison. Les produits ne sont pas remisés. Une livraison déjà gratuite reste gratuite.",
   "dpInvalidDiscount": "Indiquez un seuil positif ou nul et un pourcentage de 0 à 100, avec deux décimales maximum.",
-  "deliveryConditionsTitle": "Comment passer commande",
+  "deliveryConditionsTitle": "Comment passer commande ?",
   "deliveryRuleNumber": "Zone de livraison {number}",
   "deliveryFallbackArea": "Autres codes postaux dans les pays desservis",
   "deliveryPostcodeArea": "Codes postaux / préfixes : {zones}",
