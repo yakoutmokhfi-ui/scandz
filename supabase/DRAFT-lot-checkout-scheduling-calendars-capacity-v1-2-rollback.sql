@@ -30,6 +30,25 @@
 --   enregistrements de commande et ne sont jamais détruites par un
 --   retour. Ce refus est testé (harnais, section « Retour arrière »).
 --
+-- ORDRE INVERSE DU DÉPLOIEMENT (CSDJ12-RB-02, audit Cat Greco)
+--   Déploiement : CSDJ-1 v1.10 -> CSDJ v1.2 -> CSDJ-3.
+--   Retour      : CSDJ-3 d'abord, PUIS CE FICHIER.
+--   CSDJ-3 fait appeler le moteur par create_order (validate_fulfillment_selection
+--   TOUJOURS, reserve_fulfillment_capacity si la capacité s'applique). Ces
+--   fonctions sont supprimées par ce retour : PostgreSQL ne suit PAS les
+--   dépendances d'un corps plpgsql, le DROP réussirait et CHAQUE commande
+--   échouerait ensuite (« function ... does not exist »). Le retour REFUSE
+--   donc, avant toute modification, si :
+--     R-1  la table marqueur de CSDJ-3 existe
+--          (public.order_fulfillment_schedule_snapshot, contrat §9) ;
+--     R-2  create_order n'est pas EXACTEMENT le prédécesseur pré-CSDJ-3 :
+--          une seule surcharge, arité 8, md5(prosrc, fins de ligne LF) =
+--          c327445751333e7908d60e6d7f838eb5 (contrat §12.2 / §12.3, valeur
+--          lue en production) ;
+--     R-3  une autre fonction de public (hors moteur) cite une fonction ou
+--          la table du moteur dans son corps.
+--   R-1 et R-2 sont indépendants : chacun suffit à refuser.
+--
 -- ATOMICITÉ : une seule transaction, pré-vol et post-vol dedans.
 -- ============================================================
 
@@ -37,12 +56,57 @@ begin;
 
 do $csdj12_rb_preflight$
 declare
-  v_n bigint;
+  v_n      bigint;
+  v_md5    text;
+  v_caller text;
 begin
   if pg_catalog.to_regclass('public.order_fulfillment_capacity_reservation') is null
      or pg_catalog.to_regprocedure('public.resolve_fulfillment_schedule_v1(uuid,text,uuid,timestamp with time zone)') is null then
     raise exception 'SCANYM_ROLLBACK_NOT_APPLICABLE: CSDJ v1.2 n''est pas appliqué (ou déjà retiré) -- retour annulé.'
       using errcode = '42P01';
+  end if;
+
+  -- R-1. Marqueur de schéma de CSDJ-3.
+  if pg_catalog.to_regclass('public.order_fulfillment_schedule_snapshot') is not null then
+    raise exception 'SCANYM_ROLLBACK_REFUSED: [CSDJ3_INSTALLED] CSDJ-3 est installé (table order_fulfillment_schedule_snapshot présente) -- retirer CSDJ-3 d''abord, puis ce retour (ordre inverse du déploiement).'
+      using errcode = '55000';
+  end if;
+
+  -- R-2. create_order est EXACTEMENT le prédécesseur pré-CSDJ-3.
+  select pg_catalog.count(*) into v_n
+    from pg_catalog.pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'create_order';
+  if v_n <> 1 then
+    raise exception 'SCANYM_ROLLBACK_REFUSED: [CREATE_ORDER_FINGERPRINT] create_order a % surcharge(s), 1 attendue -- retour annulé.', v_n
+      using errcode = '55000';
+  end if;
+  select pg_catalog.md5(pg_catalog.replace(p.prosrc, pg_catalog.chr(13) || pg_catalog.chr(10), pg_catalog.chr(10)))
+    into v_md5
+    from pg_catalog.pg_proc p
+   where p.oid = pg_catalog.to_regprocedure('public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)');
+  if v_md5 is distinct from 'c327445751333e7908d60e6d7f838eb5' then
+    raise exception 'SCANYM_ROLLBACK_REFUSED: [CREATE_ORDER_FINGERPRINT] create_order n''est pas le prédécesseur pré-CSDJ-3 (md5 LF %, c327445751333e7908d60e6d7f838eb5 attendu) -- CSDJ-3 (ou une autre version) est probablement installé : le retirer d''abord.', coalesce(v_md5, '<absent>')
+      using errcode = '55000';
+  end if;
+
+  -- R-3. Aucun autre appelant du moteur : un corps plpgsql ne déclare pas
+  --      ses dépendances, le DROP ne les verrait pas.
+  select p.oid::regprocedure::text into v_caller
+    from pg_catalog.pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and p.proname not in ('validate_fulfillment_selection','reserve_fulfillment_capacity',
+                           'release_fulfillment_capacity','fulfillment_capacity_used',
+                           'fulfillment_capacity_is_holding','fulfillment_selection_reasons_v12',
+                           'resolve_fulfillment_schedule_v12','checkout_unfulfillable_reasons_v12',
+                           'checkout_schedule_day_offers_v12','csdj12_preparation_open',
+                           'csdj12_availability_closed','mutate_merchant_fulfillment_schedule_v12',
+                           'get_merchant_fulfillment_schedules_v12','resolve_fulfillment_schedule')
+     and p.prosrc ~* '(validate_fulfillment_selection|reserve_fulfillment_capacity|release_fulfillment_capacity|fulfillment_capacity_used|fulfillment_capacity_is_holding|fulfillment_selection_reasons_v12|resolve_fulfillment_schedule_v12|checkout_unfulfillable_reasons_v12|checkout_schedule_day_offers_v12|csdj12_preparation_open|csdj12_availability_closed|mutate_merchant_fulfillment_schedule_v12|get_merchant_fulfillment_schedules_v12|order_fulfillment_capacity_reservation)'
+   order by 1
+   limit 1;
+  if v_caller is not null then
+    raise exception 'SCANYM_ROLLBACK_REFUSED: [ENGINE_CALLER] la fonction % cite un objet du moteur v1.2 -- le retirer d''abord (ordre inverse du déploiement).', v_caller
+      using errcode = '55000';
   end if;
 
   select pg_catalog.count(*) into v_n from public.restaurant_fulfillment_schedule

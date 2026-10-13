@@ -43,6 +43,15 @@
 #   [16] contrôles par mutation : chaque détecteur voit un mutant
 #   [13] retour arrière : refus explicites, fidélité EXACTE à l'état
 #        d'avant, aller/retour/aller convergent
+#   [17] CSDJ12-DEPLOY-01 : l'aller REFUSE toute dérive d'un prédécesseur
+#        (corps, propriétaire, SECURITY, proconfig, ACL -- PUBLIC, donneur,
+#        option de transmission --, privilèges effectifs, surcharge, type de
+#        retour), tout exécutant autre que « postgres » ; un post-vol en
+#        échec ne laisse RIEN ; un stockage CRLF est neutre
+#   [18] CSDJ12-RB-02 : le retour REFUSE si CSDJ-3 est installé (marqueur
+#        de schéma, empreinte de create_order, appelant orphelin) ; ordre
+#        inverse du déploiement démontré de bout en bout
+#   [19] contrôles par mutation de chacune de ces gardes (retirée => vue)
 #
 # CE QU'IL NE FAIT PAS : aucun appel réseau, aucune base hébergée,
 # aucune donnée réelle, aucun jour férié réel, aucune écriture hors des
@@ -313,11 +322,14 @@ DB_ATOMIC="scanym_csdj12_atomic_$RUN_TAG"
 DB_RB="scanym_csdj12_rb_$RUN_TAG"
 DB_PRE="scanym_csdj12_pre_$RUN_TAG"       # v1.2 sur un schéma SANS CSDJ-1 (pré-vol)
 DB_MUT="scanym_csdj12_mut_$RUN_TAG"       # mutants (recréée pour chaque mutant)
+DB_NEG="scanym_csdj12_neg_$RUN_TAG"       # cas négatifs DEPLOY-01 / RB-02 (recréée pour chaque cas)
+NEG_ROLES_CREATED=0                       # rôles jetables de [17] créés (nettoyage)
+NEG_MEMBERSHIP=0                          # adhésion de rôle de test posée (nettoyage)
 
 # Et si malgré tout l'un de ces noms existe déjà, le harnais REFUSE :
 # il ne peut pas prouver qu'il en est le propriétaire, donc il n'y
 # touche pas. Jamais un `drop database` sur une base qu'il n'a pas créée.
-for d in "$DB_BASE" "$DB_V1" "$DB_FWD" "$DB_ATOMIC" "$DB_RB" "$DB_PRE" "$DB_MUT"; do
+for d in "$DB_BASE" "$DB_V1" "$DB_FWD" "$DB_ATOMIC" "$DB_RB" "$DB_PRE" "$DB_MUT" "$DB_NEG"; do
   EXISTS="$(probe "select count(*) from pg_database where datname = '$d';")"
   [ "${EXISTS:-1}" = "0" ] \
     || refuse "la base « $d » existe déjà et n'a pas été créée par cette exécution. Le harnais ne peut pas prouver qu'il en est le propriétaire : il refuse plutôt que de la détruire."
@@ -406,6 +418,11 @@ csdj1_identity_install \
 log "[sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « $IDENTITY_MARKER » (nonce propre à cette exécution)."
 
 SAFETY_LOCK_PASSED=1
+# CSDJ12-DEPLOY-01 : l'aller épingle l'exécutant « postgres » (propriétaire des
+# prédécesseurs et des fonctions créées). Le superutilisateur d'amorçage d'un
+# cluster jetable porte le nom de l'utilisateur système qui l'a créé.
+[ "$CUR_USER" = "postgres" ] \
+  || fatal "le SQL v1.2 exige l'exécutant « postgres » (CSDJ12-DEPLOY-01) ; ce harnais s'exécute sous « $CUR_USER ». Lancez-le sous l'utilisateur système postgres (sudo -u postgres -E ...) : le cluster jetable en tire son superutilisateur d'amorçage."
 log "verrou de sûreté franchi : $( [ "$OWN_CLUSTER" = 1 ] && echo 'cluster créé par le harnais' || echo 'cluster jetable désigné' ), bases nommées pour cette exécution uniquement."
 
 # ============================================================
@@ -420,6 +437,19 @@ cleanup() {
     for d in $CREATED_DBS; do
       psql -X -q -d postgres -c "drop database if exists \"$d\";" </dev/null >/dev/null 2>&1
     done
+    # Rôles jetables de [17]/[19] et adhésion de test : retirés par le point de
+    # passage gardé, seulement si le cluster n'est PAS le nôtre.
+    if [ "$OWN_CLUSTER" != "1" ] && { [ "$NEG_ROLES_CREATED" = "1" ] || [ "$NEG_MEMBERSHIP" = "1" ]; }; then
+      NEG_CLEAN=""
+      [ "$NEG_MEMBERSHIP" = "1" ] && NEG_CLEAN="$NEG_CLEAN
+  revoke authenticated from anon;"
+      [ "$NEG_ROLES_CREATED" = "1" ] && NEG_CLEAN="$NEG_CLEAN
+  drop role if exists ${NEG_ROLE:-csdj12_neg_absent};
+  drop role if exists ${NEG_SU:-csdj12_negsu_absent};
+  drop role if exists ${NEG_PLAIN:-csdj12_negpl_absent};"
+      csdj1_identity_mutate "$NEG_CLEAN" >/dev/null 2>&1 \
+        || log "[sûreté] rôles jetables de test NON retirés ($CSDJ1_ID_LAST) : à retirer à la main (${NEG_ROLE:-?}, ${NEG_SU:-?}, ${NEG_PLAIN:-?}) et « revoke authenticated from anon »."
+    fi
     # Rôles : seulement si le cluster n'est PAS le nôtre (sinon il
     # disparaît entier juste après, et toucher ses rôles est inutile).
     if [ "$ROLE_SNAPSHOT_TAKEN" = "1" ] && [ "$OWN_CLUSTER" != "1" ]; then
@@ -618,6 +648,10 @@ REPLAY_V1_GEN="$SCRIPT_DIR/checkout-scheduling-v1-replay-gen.py"
 V1_SQL="DRAFT-lot-checkout-scheduling-foundation-v1.sql"
 LOT_SQL="DRAFT-lot-checkout-scheduling-calendars-capacity-v1-2.sql"
 LOT_ROLLBACK="DRAFT-lot-checkout-scheduling-calendars-capacity-v1-2-rollback.sql"
+# Prédécesseur PRODUCTION de create_order (contrat v3.1 §12.2 / §12.3) : épinglé par le retour (CSDJ12-RB-02).
+PROD_CO_FIXTURE="$SCRIPT_DIR/../../tests/fixtures/csdj12-prod-predecessor-create_order.sql"
+PROD_CO_MD5="c327445751333e7908d60e6d7f838eb5"
+[ -f "$PROD_CO_FIXTURE" ] || fatal "fixture create_order PROD absente : tests/fixtures/csdj12-prod-predecessor-create_order.sql"
 
 # ============================================================
 # [0] Chaîne PRÉDÉCESSEUR dans une base jetable modèle.
@@ -717,6 +751,17 @@ for f in $TRACKING_TAIL; do
   apply_file "$f" || fatal "chaîne de suivi, $f : $(head -3 "$ERR" | tr '\n' ' ')"
 done
 log "chaîne prédécesseur appliquée (schema .. CUSTOMER CONTACT LIVE TRACKING v1)."
+
+# CSDJ12-RB-02 : la chaîne du harnais s'arrête à CGV v2.5 (create_order ccbff371...) ;
+# la PRODUCTION porte c3274457... (contrat §12.2/§12.3). Cette fixture aligne la SEULE
+# fonction dont l'empreinte diffère, pour que le retour -- qui épingle cette empreinte --
+# soit éprouvé sur le même prédécesseur que la production. Jamais exécutée ici.
+psql -X -d "$DB" -v ON_ERROR_STOP=1 -q -f "$PROD_CO_FIXTURE" >/dev/null 2>"$ERR" \
+  || fatal "fixture create_order PROD : $(head -3 "$ERR" | tr '\n' ' ')"
+PROD_CO_NOW="$(sql_value "select md5(replace(prosrc, chr(13)||chr(10), chr(10))) from pg_proc where proname='create_order' and pronamespace='public'::regnamespace;")"
+[ "$PROD_CO_NOW" = "$PROD_CO_MD5" ] \
+  || fatal "la fixture create_order ne reproduit pas l'empreinte PROD ($PROD_CO_NOW, attendu $PROD_CO_MD5)."
+log "create_order aligné sur le prédécesseur PRODUCTION (md5 LF $PROD_CO_MD5)."
 
 # --- Fixtures POSÉES AVANT le lot (commerçants historiques, SANS la
 #     moindre planification : c'est l'état de 100 % des commerçants).
@@ -1768,6 +1813,297 @@ else fail "[13g] ré-application après retour impossible : $(tail -3 "$OUT" | t
 inventory "$DB_RB" | sort > "$TMP_DIR/inv.rb.reapplied"
 if cmp -s "$TMP_DIR/inv.rb.reapplied" "$TMP_DIR/inv.fwd"; then pass "[13h] et l'état obtenu est IDENTIQUE à celui de la première application"
 else fail "[13h] aller / retour / aller ne converge pas"; fi
+
+# ============================================================
+# [17] CSDJ12-DEPLOY-01 -- l'aller REFUSE toute dérive des prédécesseurs,
+#      tout exécutant inattendu, et un post-vol qui échoue ne laisse RIEN.
+#
+# Chaque cas part de l'état PROD (DB_V1 : prédécesseur + CSDJ-1 v1.10),
+# y introduit UNE dérive, applique l'aller RÉEL, et exige : (1) un refus
+# NOMMÉ pour la bonne raison, (2) l'inventaire complet du schéma identique
+# avant/après le refus (rien n'a été créé ni modifié).
+# Les rôles jetables sont créés/supprimés par le point de passage gardé
+# (csdj1_identity_mutate), jamais en SQL brut.
+# ============================================================
+log "=== [17] DEPLOY-01 : dérive des prédécesseurs, exécutant, post-vol ==="
+NEG_ROLE="csdj12_neg_$RUN_TAG"; NEG_SU="csdj12_negsu_$RUN_TAG"; NEG_PLAIN="csdj12_negpl_$RUN_TAG"
+for r in "$NEG_ROLE" "$NEG_SU" "$NEG_PLAIN"; do
+  [ "$(probe "select count(*) from pg_roles where rolname = '$r';")" = "0" ] \
+    || fatal "le rôle jetable « $r » existe déjà : le harnais ne peut pas prouver qu'il en est le propriétaire."
+done
+NEG_ROLES_CREATED=1
+csdj1_identity_mutate "
+  create role $NEG_ROLE nologin;
+  create role $NEG_SU nologin superuser;
+  create role $NEG_PLAIN nologin;
+" || fatal "création des rôles jetables de [17] REFUSÉE ($CSDJ1_ID_LAST)."
+
+neg_db() { # recrée DB_NEG depuis $1 (défaut : l'état PROD)
+  psql -X -q -d postgres -c "drop database if exists \"$DB_NEG\";" >/dev/null 2>&1
+  create_tracked_db "$DB_NEG" -T "${1:-$DB_V1}"
+}
+fwd_tables_n() { sql_on "$1" "select count(*) from pg_class where relnamespace='public'::regnamespace and (relname like 'public_holiday%' or relname like 'restaurant_fulfillment_prep%' or relname like 'order_fulfillment_capacity%');"; }
+fwd_refused() { # $1 étiquette ; $2 mise en place (SQL) ; $3 fragment ; $4 préfixe (défaut SCANYM_SCHEMA_DRIFT) ; $5 rôle exécutant (optionnel)
+  local label="$1" setup="$2" frag="$3" pfx="${4:-SCANYM_SCHEMA_DRIFT}" as="${5:-}"
+  neg_db
+  [ "$(outcome_on "$DB_NEG" "$setup")" = "OK" ] || fatal "mise en place du cas « $label » impossible ($(outcome_on "$DB_NEG" "$setup")) : le test ne testerait rien."
+  inventory "$DB_NEG" | sort > "$TMP_DIR/inv.neg.before"
+  local rc=0
+  if [ -n "$as" ]; then
+    psql -X -d "$DB_NEG" -v ON_ERROR_STOP=1 -c "set role $as" -f "$SUPABASE_DIR/$LOT_SQL" >"$OUT" 2>&1 || rc=$?
+  else
+    apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_NEG" || rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
+    fail "[17] l'aller s'applique malgré : $label"
+  elif grep -q "$pfx" "$OUT" && grep -qF -- "$frag" "$OUT"; then
+    pass "[17] l'aller REFUSE nommément ($pfx) devant : $label"
+  else
+    fail "[17] refus pour la mauvaise raison devant « $label » : $(grep -m1 ERROR "$OUT" | cut -c1-260)"
+  fi
+  inventory "$DB_NEG" | sort > "$TMP_DIR/inv.neg.after"
+  if cmp -s "$TMP_DIR/inv.neg.before" "$TMP_DIR/inv.neg.after"; then pass "[17] et le refus ne change RIEN au schéma ($label)"
+  else fail "[17] le refus a modifié le schéma ($label)"; fi
+  assert_eq "[17] et aucune table v1.2 n'existe ($label)" "0" "$(fwd_tables_n "$DB_NEG")"
+}
+
+HAS_ROLE_BODY_SQL="create or replace function public.has_role_in(p_restaurant_id uuid, p_roles text[]) returns boolean language sql stable security definer set search_path = '' as \$\$ select true \$\$;"
+fwd_refused "corps d'un prédécesseur modifié (has_role_in := true, attributs identiques)" "$HAS_ROLE_BODY_SQL" "corps modifié"
+fwd_refused "propriétaire d'un prédécesseur modifié (is_member_of)" "alter function public.is_member_of(uuid) owner to $NEG_ROLE;" "propriétaire « $NEG_ROLE »"
+fwd_refused "proconfig modifié (search_path=public sur is_scanym_operator)" "alter function public.is_scanym_operator() set search_path = public;" "proconfig « search_path=public »"
+fwd_refused "proconfig supprimé (reset search_path sur is_scanym_operator)" "alter function public.is_scanym_operator() reset search_path;" "<null-config>"
+fwd_refused "EXECUTE accordé à PUBLIC sur la mutation marchande CSDJ-1" "grant execute on function public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb) to public;" "PUBLIC/postgres:EXECUTE"
+fwd_refused "EXECUTE accordé à anon sur la mutation marchande CSDJ-1" "grant execute on function public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb) to anon;" "anon/postgres:EXECUTE"
+fwd_refused "option de transmission (grant option) ajoutée à authenticated" "grant execute on function public.has_role_in(uuid,text[]) to authenticated with grant option;" "authenticated/postgres:EXECUTE*"
+fwd_refused "donneur (grantor) différent du propriétaire" "grant usage on schema public to $NEG_ROLE; grant execute on function public.has_role_in(uuid,text[]) to $NEG_ROLE with grant option; set role $NEG_ROLE; grant execute on function public.has_role_in(uuid,text[]) to service_role; reset role;" "service_role/$NEG_ROLE:EXECUTE"
+fwd_refused "SECURITY DEFINER devenu INVOKER (is_scanym_operator)" "alter function public.is_scanym_operator() security invoker;" "SECURITY INVOKER"
+fwd_refused "seconde surcharge d'un prédécesseur (is_member_of(text))" "create function public.is_member_of(p_x text) returns boolean language sql as \$\$ select false \$\$;" "surcharge(s) du même nom"
+fwd_refused "propriétaire d'une table que l'aller modifie" "alter table public.restaurant_fulfillment_schedule_window owner to $NEG_ROLE;" "n'appartient pas à « postgres »"
+RET_SQL="do \$r\$ declare v_src text; begin select prosrc into v_src from pg_proc where oid = 'public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb)'::regprocedure; drop function public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb); perform set_config('check_function_bodies', 'off', true); execute format('create function public.mutate_merchant_fulfillment_schedule(p_restaurant_id uuid, p_action text, p_payload jsonb) returns jsonb language plpgsql security definer set search_path = %L as %L', '', v_src); revoke all on function public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb) from public; grant execute on function public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb) to authenticated; end \$r\$;"
+fwd_refused "type de retour modifié (mutation marchande CSDJ-1 : void -> jsonb, corps et droits identiques)" "$RET_SQL" "type de retour modifié"
+fwd_refused "exécutant inattendu : superutilisateur autre que postgres (SET ROLE)" "select 1;" "« postgres » exigé" SCANYM_DEPLOY_IDENTITY "$NEG_SU"
+fwd_refused "exécutant inattendu : rôle ordinaire sans privilège (refus d'identité AVANT tout refus de droit)" "select 1;" "« postgres » exigé" SCANYM_DEPLOY_IDENTITY "$NEG_PLAIN"
+
+# Privilège EFFECTIF par héritage de rôle (ACL inchangée) : anon hérite d'authenticated.
+csdj1_identity_mutate "  grant authenticated to anon;" || fatal "[17] adhésion de rôle de test REFUSÉE ($CSDJ1_ID_LAST)"
+NEG_MEMBERSHIP=1
+fwd_refused "privilège EFFECTIF d'anon obtenu par héritage de rôle (ACL des fonctions intactes)" "select 1;" "privilèges effectifs"
+csdj1_identity_mutate "  revoke authenticated from anon;" >/dev/null || fatal "[17] retrait de l'adhésion de test REFUSÉ ($CSDJ1_ID_LAST) : état de rôles incertain."
+NEG_MEMBERSHIP=0
+assert_eq "[17] l'adhésion de test est retirée (anon n'hérite plus d'authenticated)" "0" "$(probe "select count(*) from pg_auth_members m join pg_roles r on r.oid=m.roleid join pg_roles g on g.oid=m.member where r.rolname='authenticated' and g.rolname='anon';")"
+
+# Témoin POSITIF : un stockage CRLF d'un prédécesseur est NEUTRE (empreinte LF), comme pour update_order_status en PRODUCTION.
+CRLF_SQL="do \$crlf\$ declare v_oid oid := 'public.is_member_of(uuid)'::regprocedure; v_def text; v_src text; begin select pg_get_functiondef(v_oid), prosrc into v_def, v_src from pg_proc where oid = v_oid; execute replace(v_def, v_src, replace(v_src, E'\\n', E'\\r\\n')); end \$crlf\$;"
+neg_db
+[ "$(outcome_on "$DB_NEG" "$CRLF_SQL")" = "OK" ] || fatal "[17] mise en place CRLF impossible."
+assert_eq "[17-crlf] le corps de is_member_of est bien stocké en CRLF (le témoin teste quelque chose)" "true" \
+  "$(sql_on "$DB_NEG" "select (md5(prosrc) <> md5(replace(prosrc, chr(13)||chr(10), chr(10))))::text from pg_proc where oid='public.is_member_of(uuid)'::regprocedure;")"
+if apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_NEG"; then pass "[17-crlf] l'aller s'applique : le stockage CRLF d'un prédécesseur est NEUTRE (empreinte normalisée en LF)"
+else fail "[17-crlf] l'aller refuse un simple stockage CRLF : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+
+# Post-vol : un échec après les créations n'en laisse AUCUNE (transaction annulée).
+pyedit() { # $1 source ; $2 destination ; puis paires <ancien> <nouveau> (chaque ancien : exactement 1 occurrence)
+  python3 -I - "$@" <<'PYEDIT'
+import sys
+src, dst, *pairs = sys.argv[1:]
+s = open(src, encoding="utf-8").read()
+assert len(pairs) % 2 == 0
+for old, new in zip(pairs[0::2], pairs[1::2]):
+    n = s.count(old)
+    if n != 1:
+        sys.exit(f"motif trouvé {n} fois (1 attendue) : {old[:70]!r}")
+    s = s.replace(old, new, 1)
+open(dst, "w", encoding="utf-8").write(s)
+PYEDIT
+}
+PF_MARK='do $csdj12_postflight$'
+postflight_fails() { # $1 étiquette ; $2 SQL injecté AVANT le post-vol ; $3 fragment attendu
+  local label="$1" inject="$2" frag="$3"
+  neg_db
+  pyedit "$SUPABASE_DIR/$LOT_SQL" "$TMP_DIR/pf.sql" "$PF_MARK" "$inject
+$PF_MARK" || fatal "[17] construction du cas post-vol « $label » impossible."
+  if apply_path "$TMP_DIR/pf.sql" "$DB_NEG"; then
+    fail "[17] le post-vol LAISSE PASSER : $label"
+  elif grep -q "SCANYM_POSTFLIGHT" "$OUT" && grep -qF -- "$frag" "$OUT"; then
+    pass "[17] le post-vol ÉCHOUE nommément devant : $label"
+  else
+    fail "[17] post-vol : mauvaise raison devant « $label » : $(grep -m1 ERROR "$OUT" | cut -c1-260)"
+  fi
+  inventory "$DB_NEG" | sort > "$TMP_DIR/inv.neg.pf"
+  if cmp -s "$TMP_DIR/inv.v1" "$TMP_DIR/inv.neg.pf"; then pass "[17] et le post-vol en échec ne laisse RIEN : inventaire identique à l'état PROD ($label)"
+  else fail "[17] un post-vol en échec a laissé des objets ($label)"; fi
+  assert_eq "[17] aucune table v1.2 après l'échec du post-vol ($label)" "0" "$(fwd_tables_n "$DB_NEG")"
+}
+postflight_fails "propriétaire d'une fonction créée modifié" "alter function public.fulfillment_capacity_used(uuid,text,uuid,date,text) owner to $NEG_ROLE;" "propriétaire « $NEG_ROLE »"
+postflight_fails "proconfig d'une fonction créée modifié" "alter function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone) set search_path = public;" "proconfig « search_path=public »"
+postflight_fails "SECURITY DEFINER d'une fonction créée devenu INVOKER" "alter function public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone) security invoker;" "SECURITY INVOKER"
+postflight_fails "ACL d'une fonction créée : EXECUTE donné à un rôle non applicatif" "grant execute on function public.csdj12_preparation_open(public.restaurant_fulfillment_schedule,date) to $NEG_ROLE;" "ACL « $NEG_ROLE/postgres:EXECUTE,postgres/postgres:EXECUTE »"
+postflight_fails "ACL d'une RPC marchande : service_role y accède" "grant execute on function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb) to service_role;" "service_role/postgres:EXECUTE"
+postflight_fails "un prédécesseur est modifié PAR l'aller (proconfig de has_role_in)" "alter function public.has_role_in(uuid,text[]) set search_path = public;" "has_role_in"
+postflight_fails "propriétaire d'une table créée modifié" "alter table public.public_holiday_calendar owner to $NEG_ROLE;" "n'appartient pas à « postgres »"
+
+# ============================================================
+# [18] CSDJ12-RB-02 -- le retour REFUSE si CSDJ-3 est installé ; il n'est
+#      sûr que dans l'ORDRE INVERSE du déploiement (CSDJ-3 puis v1.2).
+#
+# Le DRAFT CSDJ-3 de Debussy n'existe pas encore : l'état « CSDJ-3
+# installé » est représenté par DEUX éléments indépendants du contrat v3.1
+# -- le marqueur de schéma (§9 : table order_fulfillment_schedule_snapshot)
+# et un create_order qui APPELLE le moteur (§6 T2 : validate_fulfillment_selection
+# TOUJOURS). Ce n'est pas le patch de Debussy : c'est le plus petit état
+# qui reproduit la dépendance que le retour détruirait.
+# ============================================================
+log "=== [18] RB-02 : retour v1.2 et CSDJ-3 (ordre inverse du déploiement) ==="
+read -r -d '' CS3_STANDIN_SQL <<'CS3SQL' || true
+create or replace function public.create_order(p_slug text, p_service_mode text, p_items jsonb, p_table_number integer default null::integer, p_customer jsonb default '{}'::jsonb, p_note text default null::text, p_language text default null::text, p_cgv_accepted boolean default false)
+ returns table(order_id uuid, order_number bigint, public_token uuid, subtotal numeric, delivery_fee numeric, total numeric)
+ language plpgsql security definer set search_path to ''
+as $cs3$
+declare v_row record;
+begin
+  select * into v_row from public.validate_fulfillment_selection('__RID__'::uuid, 'pickup', null::uuid);
+  return query select gen_random_uuid(), 1::bigint, gen_random_uuid(), 0::numeric, 0::numeric, 0::numeric;
+end $cs3$;
+CS3SQL
+CS3_STANDIN_SQL="${CS3_STANDIN_SQL//__RID__/$RID_A}"
+CS3_MARKER_SQL="create table public.order_fulfillment_schedule_snapshot (order_id uuid primary key references public.orders(id) on delete cascade, restaurant_id uuid not null);"
+CS3_CALL_SQL="select order_number from public.create_order('s','pickup','[]'::jsonb);"
+PINNED_CO_MD5="c327445751333e7908d60e6d7f838eb5"
+
+rb_db() { # DB_NEG = état PROD + v1.2 appliqué ; create_order = prédécesseur PRODUCTION
+  neg_db
+  apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_NEG" || fatal "[18] aller v1.2 sur la base de test impossible : $(tail -3 "$OUT" | tr '\n' ' ')"
+  assert_eq "[18-0] create_order = le prédécesseur pré-CSDJ-3 épinglé par le retour (contrat §12.2)" "$PINNED_CO_MD5" \
+    "$(sql_on "$DB_NEG" "select md5(replace(prosrc, chr(13)||chr(10), chr(10))) from pg_proc where proname='create_order' and pronamespace='public'::regnamespace;")"
+}
+rb_refused() { # $1 étiquette ; $2 mise en place ; $3 jeton attendu ; $4 fichier de retour (défaut : le vrai)
+  local label="$1" setup="$2" tok="$3" file="${4:-$SUPABASE_DIR/$LOT_ROLLBACK}"
+  rb_db
+  [ "$(outcome_on "$DB_NEG" "$setup")" = "OK" ] || fatal "[18] mise en place du cas « $label » impossible : $(outcome_on "$DB_NEG" "$setup")"
+  inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rbn.before"
+  if apply_path "$file" "$DB_NEG"; then
+    fail "[18] le retour s'applique malgré : $label"
+  elif grep -q "SCANYM_ROLLBACK_REFUSED" "$OUT" && grep -qF -- "[$tok]" "$OUT"; then
+    pass "[18] le retour REFUSE nommément [$tok] devant : $label"
+  else
+    fail "[18] refus pour la mauvaise raison devant « $label » : $(grep -m1 ERROR "$OUT" | cut -c1-240)"
+  fi
+  inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rbn.after"
+  if cmp -s "$TMP_DIR/inv.rbn.before" "$TMP_DIR/inv.rbn.after"; then pass "[18] et le refus ne change RIEN au schéma ($label)"
+  else fail "[18] le refus a modifié le schéma ($label)"; fi
+}
+rb_refused "marqueur de schéma CSDJ-3 seul (table snapshot présente, create_order intact)" "$CS3_MARKER_SQL" CSDJ3_INSTALLED
+rb_refused "create_order modifié seul (empreinte ≠ prédécesseur pré-CSDJ-3, aucune table snapshot)" "$CS3_STANDIN_SQL" CREATE_ORDER_FINGERPRINT
+rb_refused "create_order dont le corps ne diffère que d'un octet (commentaire ajouté)" "do \$o\$ declare v_def text; v_src text; begin select pg_get_functiondef(p.oid), p.prosrc into v_def, v_src from pg_proc p where p.oid='public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)'::regprocedure; set check_function_bodies = off; execute replace(v_def, v_src, v_src || E'\\n-- x'); end \$o\$;" CREATE_ORDER_FINGERPRINT
+rb_refused "seconde surcharge de create_order" "create function public.create_order(p_x text) returns void language sql as \$\$ select 1 \$\$;" CREATE_ORDER_FINGERPRINT
+rb_refused "appelant orphelin du moteur (fonction tierce citant reserve_fulfillment_capacity)" "create function public.some_caller() returns void language plpgsql set search_path = '' as \$f\$ begin perform 1 from public.reserve_fulfillment_capacity(null,null,null,null,null); end \$f\$;" ENGINE_CALLER
+rb_refused "appelant orphelin du moteur (cite la TABLE de réservation)" "create function public.some_reader() returns bigint language sql set search_path = '' as \$f\$ select count(*) from public.order_fulfillment_capacity_reservation \$f\$;" ENGINE_CALLER
+
+# Témoin POSITIF : create_order stocké en CRLF (comme PROD pour update_order_status) = même empreinte LF.
+rb_db
+[ "$(outcome_on "$DB_NEG" "do \$o\$ declare v_def text; v_src text; begin select pg_get_functiondef(p.oid), p.prosrc into v_def, v_src from pg_proc p where p.oid='public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)'::regprocedure; set check_function_bodies = off; execute replace(v_def, v_src, replace(v_src, E'\\n', E'\\r\\n')); end \$o\$;")" = "OK" ] || fatal "[18] mise en place CRLF impossible"
+if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_NEG"; then pass "[18-crlf] le retour s'applique : create_order stocké en CRLF a la même empreinte LF (neutre)"
+else fail "[18-crlf] le retour refuse un simple stockage CRLF : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+
+# ORDRE INVERSE, de bout en bout.
+rb_db
+[ "$(outcome_on "$DB_NEG" "$CS3_MARKER_SQL $CS3_STANDIN_SQL")" = "OK" ] || fatal "[18] mise en place du stand-in CSDJ-3 impossible."
+assert_eq "[18a] CSDJ-3 (stand-in) installé : create_order appelle le moteur et répond" "1" "$(sql_on "$DB_NEG" "$CS3_CALL_SQL")"
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rb4.cs3"
+if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_NEG"; then fail "[18b] SENS DIRECT : le retour v1.2 s'applique alors que CSDJ-3 est installé"
+else assert_has "[18b] SENS DIRECT : le retour v1.2 est REFUSÉ tant que CSDJ-3 est installé" "[CSDJ3_INSTALLED]" "$(cat "$OUT")"; fi
+assert_eq "[18c] et create_order RESTE opérationnel (aucune panne de commande)" "1" "$(sql_on "$DB_NEG" "$CS3_CALL_SQL")"
+assert_eq "[18d] et les fonctions du moteur sont toujours là" "true" "$(sql_on "$DB_NEG" "select (to_regprocedure('public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamptz)') is not null and to_regprocedure('public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamptz)') is not null)::text;")"
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rb4.cs3b"
+if cmp -s "$TMP_DIR/inv.rb4.cs3" "$TMP_DIR/inv.rb4.cs3b"; then pass "[18e] le refus ne change RIEN au schéma"; else fail "[18e] le refus a modifié le schéma"; fi
+# Retrait de CSDJ-3 (contrat §13.1 : supprime la table snapshot, restaure create_order épinglé, ne touche jamais au moteur).
+[ "$(outcome_on "$DB_NEG" "drop table public.order_fulfillment_schedule_snapshot;")" = "OK" ] || fatal "[18] retrait du marqueur CSDJ-3 impossible."
+psql -X -d "$DB_NEG" -v ON_ERROR_STOP=1 -q -f "$PROD_CO_FIXTURE" >/dev/null 2>"$ERR" || fatal "[18] restauration du create_order épinglé impossible"
+if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_NEG"; then pass "[18f] ORDRE INVERSE : CSDJ-3 retiré d'abord, le retour v1.2 s'applique"
+else fail "[18f] le retour v1.2 est refusé après retrait de CSDJ-3 : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rb4.final"
+if cmp -s "$TMP_DIR/inv.v1" "$TMP_DIR/inv.rb4.final"; then pass "[18g] et l'état final est IDENTIQUE à l'état PROD d'avant la v1.2 (create_order compris)"
+else fail "[18g] l'ordre inverse ne restaure pas l'état d'avant : $(diff "$TMP_DIR/inv.v1" "$TMP_DIR/inv.rb4.final" | head -4 | tr '\n' ' ')"; fi
+
+# ============================================================
+# [19] CONTRÔLES PAR MUTATION des nouvelles gardes : chaque garde,
+#      retirée, doit être VUE par le test qui la prétend couverte.
+#      « Détecté » = le refus NOMMÉ attendu (préfixe + fragment) a DISPARU
+#      (accepté, ou refusé pour une autre raison par une couche plus
+#      profonde). Un mutant qui produit encore le même refus prouve que
+#      le cas de test ne teste pas la garde qu'il prétend tester.
+# ============================================================
+log "=== [19] Mutation des gardes DEPLOY-01 / RB-02 ==="
+mut_fwd() { # $1 nom ; $2 mise en place ; $3 exécutant ; $4 préfixe attendu ; $5 fragment attendu ; puis paires pyedit
+  local name="$1" setup="$2" as="$3" pfx="$4" frag="$5"; shift 5
+  neg_db
+  [ "$(outcome_on "$DB_NEG" "$setup")" = "OK" ] || { fail "[19] mutant « $name » : mise en place impossible"; return; }
+  pyedit "$SUPABASE_DIR/$LOT_SQL" "$TMP_DIR/mutf.sql" "$@" || { fail "[19] mutant « $name » : motif introuvable (le contrôle ne contrôle rien)"; return; }
+  local rc=0
+  if [ -n "$as" ]; then psql -X -d "$DB_NEG" -v ON_ERROR_STOP=1 -c "set role $as" -f "$TMP_DIR/mutf.sql" >"$OUT" 2>&1 || rc=$?
+  else apply_path "$TMP_DIR/mutf.sql" "$DB_NEG" || rc=$?; fi
+  if [ "$rc" -ne 0 ] && grep -q "$pfx" "$OUT" && grep -qF -- "$frag" "$OUT"; then
+    fail "[19] mutant « $name » NON DÉTECTÉ : le même refus ($pfx / $frag) subsiste sans la garde"
+  else
+    pass "[19] mutant « $name » DÉTECTÉ : le refus ($pfx / $frag) disparaît quand la garde est retirée ($( [ "$rc" -eq 0 ] && echo 'accepté' || echo "refusé autrement : $(grep -m1 -o 'SCANYM_[A-Z_]*' "$OUT")" ))"
+  fi
+}
+mut_fwd "identité de l'exécutant retirée" "select 1;" "$NEG_SU" SCANYM_DEPLOY_IDENTITY "« postgres » exigé" \
+  "if current_user::text is distinct from 'postgres' then" "if false then"
+mut_fwd "épingles du PRÉ-VOL retirées" "$HAS_ROLE_BODY_SQL" "" SCANYM_SCHEMA_DRIFT "corps modifié" \
+  "v_drift := pg_temp.csdj12_pin_drift('pre');" "v_drift := null;"
+mut_fwd "épingles du POST-VOL retirées (aller qui dérive un prédécesseur)" "select 1;" "" SCANYM_POSTFLIGHT "has_role_in" \
+  "$PF_MARK" "alter function public.has_role_in(uuid,text[]) set search_path = public;
+$PF_MARK" \
+  "v_drift := pg_temp.csdj12_pin_drift('post');" "v_drift := null;"
+mut_fwd "contrôle de propriétaire des fonctions retiré" "alter function public.is_member_of(uuid) owner to $NEG_ROLE;" "" SCANYM_SCHEMA_DRIFT "propriétaire « $NEG_ROLE »" \
+  "if pg_catalog.pg_get_userbyid(p.proowner)::text <> 'postgres' then" "if false then"
+mut_fwd "contrôle de propriétaire des tables modifiées retiré (P-9)" "alter table public.restaurant_fulfillment_schedule_window owner to $NEG_ROLE;" "" SCANYM_SCHEMA_DRIFT "n'appartient pas à « postgres »" \
+  "to_regclass(v_item)) is distinct from 'postgres' then
+      raise exception 'SCANYM_SCHEMA_DRIFT: la table" "to_regclass(v_item)) is distinct from 'postgres' and false then
+      raise exception 'SCANYM_SCHEMA_DRIFT: la table"
+mut_fwd "comparaison de l'ACL retirée" "grant execute on function public.has_role_in(uuid,text[]) to authenticated with grant option;" "" SCANYM_SCHEMA_DRIFT "authenticated/postgres:EXECUTE*" \
+  "if v_acl <> r.acl then" "if false then"
+csdj1_identity_mutate "  grant authenticated to anon;" || fatal "[19] adhésion de rôle de test REFUSÉE ($CSDJ1_ID_LAST)"
+NEG_MEMBERSHIP=1
+mut_fwd "comparaison des privilèges EFFECTIFS retirée" "select 1;" "" SCANYM_SCHEMA_DRIFT "privilèges effectifs" \
+  "if v_eff <> r.eff then" "if false then"
+csdj1_identity_mutate "  revoke authenticated from anon;" >/dev/null || fatal "[19] retrait de l'adhésion de test REFUSÉ ($CSDJ1_ID_LAST) : état de rôles incertain."
+NEG_MEMBERSHIP=0
+
+mut_rb() { # $1 nom ; $2 mise en place ; $3 jeton attendu ; puis paires pyedit
+  local name="$1" setup="$2" tok="$3"; shift 3
+  rb_db
+  [ "$(outcome_on "$DB_NEG" "$setup")" = "OK" ] || { fail "[19] mutant « $name » : mise en place impossible"; return; }
+  pyedit "$SUPABASE_DIR/$LOT_ROLLBACK" "$TMP_DIR/mutr.sql" "$@" || { fail "[19] mutant « $name » : motif introuvable (le contrôle ne contrôle rien)"; return; }
+  local rc=0
+  apply_path "$TMP_DIR/mutr.sql" "$DB_NEG" || rc=$?
+  MUT_RB_AFTER=""
+  if [ "$rc" -ne 0 ] && grep -q "SCANYM_ROLLBACK_REFUSED" "$OUT" && grep -qF -- "[$tok]" "$OUT"; then
+    fail "[19] mutant « $name » NON DÉTECTÉ : le même refus [$tok] subsiste sans la garde"
+  else
+    pass "[19] mutant « $name » DÉTECTÉ : le refus [$tok] disparaît quand la garde est retirée ($( [ "$rc" -eq 0 ] && echo 'retour accepté' || echo "refusé autrement : $(grep -m1 -o '\[[A-Z0-9_]*\]' "$OUT")" ))"
+    [ "$rc" -eq 0 ] && MUT_RB_AFTER="$(outcome_on "$DB_NEG" "$CS3_CALL_SQL")"
+  fi
+}
+RB_G1="if pg_catalog.to_regclass('public.order_fulfillment_schedule_snapshot') is not null then"
+RB_G2="if v_md5 is distinct from 'c327445751333e7908d60e6d7f838eb5' then"
+RB_G3="if v_caller is not null then"
+mut_rb "garde R-1 (marqueur CSDJ-3) retirée" "$CS3_MARKER_SQL" CSDJ3_INSTALLED "$RB_G1" "if false then"
+mut_rb "garde R-2 (empreinte de create_order) retirée" "$CS3_STANDIN_SQL" CREATE_ORDER_FINGERPRINT "$RB_G2" "if false then"
+mut_rb "garde R-3 (appelant orphelin) retirée" "create function public.some_caller() returns void language plpgsql set search_path = '' as \$f\$ begin perform 1 from public.reserve_fulfillment_capacity(null,null,null,null,null); end \$f\$;" ENGINE_CALLER "$RB_G3" "if false then"
+mut_rb "R-1, R-2 et R-3 toutes retirées (équivalent du retour tel qu'AUDITÉ)" "$CS3_MARKER_SQL $CS3_STANDIN_SQL" CSDJ3_INSTALLED "$RB_G1" "if false then" "$RB_G2" "if false then" "$RB_G3" "if false then"
+assert_has "[19-outage] sans AUCUNE garde (retour tel qu'audité), la PANNE est réelle : create_order cesse de répondre (défaut CSDJ12-RB-02)" "does not exist" "$MUT_RB_AFTER"
+psql -X -q -d postgres -c "drop database if exists \"$DB_NEG\";" >/dev/null 2>&1
+
+# Rôles jetables : retirés par le point de passage gardé.
+csdj1_identity_mutate "
+  drop role if exists $NEG_ROLE;
+  drop role if exists $NEG_SU;
+  drop role if exists $NEG_PLAIN;
+" || fail "[17] retrait des rôles jetables REFUSÉ ($CSDJ1_ID_LAST)"
+NEG_ROLES_CREATED=0
+assert_eq "[17] aucun rôle jetable ne subsiste" "0" "$(probe "select count(*) from pg_roles where rolname in ('$NEG_ROLE','$NEG_SU','$NEG_PLAIN');")"
 
 log "=== BILAN : $PASS_COUNT preuve(s) produite(s), $FAIL_COUNT échec(s) ==="
 [ "$FAIL_COUNT" -eq 0 ] || exit 1

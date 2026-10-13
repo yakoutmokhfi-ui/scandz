@@ -36,17 +36,173 @@
 -- docs/scheduling/csdj-v1.2-interface-contract.md.
 --
 -- ATOMICITÉ : une seule transaction, pré-vol et post-vol dedans.
+--
+-- IDENTITÉ ET ÉTAT ATTENDUS (CSDJ12-DEPLOY-01, audit Cat Greco).
+-- Le pré-vol REFUSE, avant toute création d'objet, si :
+--   * l'exécutant (current_user) n'est pas « postgres » : les fonctions
+--     SECURITY DEFINER créées ici appartiendraient à un autre rôle ;
+--   * l'un des 10 prédécesseurs dont dépend ce fichier (résolveur CSDJ-1,
+--     lecture publique, mutation marchande CSDJ-1, deux horloges, deux
+--     catalogues de modes, trois helpers d'autorisation) diffère de l'état
+--     attendu : signature, surcharge unique, propriétaire, SECURITY
+--     DEFINER/INVOKER, volatilité, type de retour, empreinte du corps
+--     (md5 de prosrc, fins de ligne LF -- un stockage CRLF est neutre),
+--     proconfig COMPLET, ACL EXECUTE exacte (PUBLIC, bénéficiaire,
+--     DONNEUR, option de transmission) et privilèges EFFECTIFS de anon /
+--     authenticated / service_role (héritage de rôle compris) ;
+--   * un rôle applicatif ou le propriétaire des tables modifiées manque.
+-- Le post-vol REJOUE ces vérifications sur l'état FINAL (neuf prédécesseurs
+-- inchangés, ancien résolveur sous _v1, 14 fonctions créées) et vérifie le
+-- propriétaire des 5 tables créées. Une seule source d'état attendu : la
+-- fonction temporaire pg_temp.csdj12_pin_drift (§0.1), supprimée avant COMMIT.
+-- Les empreintes sont celles de la chaîne du DÉPÔT : à confirmer en lecture
+-- seule sur la production AVANT toute application (voir
+-- docs/scheduling/csdj-v1.2-deploy-rollback-order.md). Toute différence
+-- ARRÊTE l'aller : c'est voulu.
 -- ============================================================
 
 begin;
+
+-- ============================================================
+-- §0.0  IDENTITÉ DE L'EXÉCUTANT — FAIL-CLOSED (CSDJ12-DEPLOY-01)
+--
+-- Les fonctions et tables créées plus bas appartiennent à celui qui
+-- exécute ce fichier. Un autre rôle (même superutilisateur) produirait
+-- des fonctions SECURITY DEFINER aux droits de ce rôle : refus, avant
+-- toute création d'objet.
+-- ============================================================
+do $csdj12_identity$
+begin
+  if current_user::text is distinct from 'postgres' then
+    raise exception 'SCANYM_DEPLOY_IDENTITY: exécutant « % » (session « % »), « postgres » exigé -- CSDJ v1.2 annulé AVANT toute création d''objet.',
+      current_user, session_user
+      using errcode = '42501';
+  end if;
+end
+$csdj12_identity$;
+
+
+-- ------------------------------------------------------------
+-- §0.1  ÉTAT ATTENDU — UNE SEULE SOURCE pour le pré-vol ET le post-vol
+--
+-- Fonction TEMPORAIRE de la transaction (supprimée avant COMMIT, jamais
+-- visible d'un autre rôle ; appels toujours qualifiés pg_temp.). Elle
+-- porte la liste d'état attendu et rend le PREMIER écart, ou null.
+--   pre / post : la ligne est attendue AVANT / APRÈS l'aller.
+--   body_md5   : md5(prosrc), fins de ligne normalisées en LF (empreinte
+--                canonique du contrat §12.1) ; null = non épinglé.
+--   acl        : ACL EXECUTE canonique, « bénéficiaire/donneur:EXECUTE »
+--                suivi de « * » si option de transmission ; PUBLIC y est
+--                nommé ; tri en collation C.
+--   eff        : privilèges EFFECTIFS (héritage de rôle compris).
+--   cfg        : proconfig COMPLET.
+-- Les 9 premiers prédécesseurs sont attendus identiques avant ET après ;
+-- le résolveur d'origine disparaît (renommé _v1, MÊME objet, mêmes
+-- empreintes) ; les 14 dernières lignes sont créées par ce fichier.
+-- ------------------------------------------------------------
+create function pg_temp.csdj12_pin_drift(p_phase text)
+returns text
+language plpgsql
+set search_path = ''
+as $csdj12_pin_drift$
+declare
+  r     record;
+  p     pg_catalog.pg_proc%rowtype;
+  v_acl text;
+  v_eff text;
+  v_n   integer;
+begin
+  for r in
+    select * from (values
+      ('public.checkout_date_selection_modes()', true, true, false, 'i', 'a5b6c7aec22eec94d8bb631f0d5704a6', 'ca4565a3ffb3900a3c3b067ddd5dd6e4', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.checkout_slot_selection_modes()', true, true, false, 'i', 'a5b6c7aec22eec94d8bb631f0d5704a6', 'aaa030b1534604228b33316137b3aa1b', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.checkout_wall_time_instant(date,time without time zone,text)', true, true, false, 's', '78a4814f9534f1fcc5c04078c5611170', 'e7027cdb3d9335662639f12944bf2cd9', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.checkout_wall_time_status(date,time without time zone,text)', true, true, false, 's', '1cb251ec0d568de6a929b520c4aed8d1', '0573db4bd07175cfe64bf8b853cdd518', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.get_checkout_fulfillment_schedule(uuid,text,text,integer,numeric)', true, true, true, 's', '0abfaedfc70e960ccd5df080a960c3c5', '25531db35f35e705f2377fb1ac1bb014', 'anon/postgres:EXECUTE,authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=true,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.has_role_in(uuid,text[])', true, true, true, 's', '84e2c64f38f78ba3ea5c905ab5a2da27', 'a9ea76dd1c2408e2ad564e31c9b26a6b', 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.is_member_of(uuid)', true, true, true, 's', '84e2c64f38f78ba3ea5c905ab5a2da27', 'd7dd47ab77431fac5305206bf831f1cf', 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.is_scanym_operator()', true, true, true, 's', '84e2c64f38f78ba3ea5c905ab5a2da27', '84eaaadf0528c5ba96ac5ecf556651af', 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb)', true, true, true, 'v', 'cab8111fd0b710a336c898e539090e34', '7acf06d46ee72a85cbe79a6bff470782', 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)', true, false, true, 's', '344a3fee5fcbf2e6ee04872540f9a07b', '37491276589e0bc5c4dfe114177d2422', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.resolve_fulfillment_schedule_v1(uuid,text,uuid,timestamp with time zone)', false, true, true, 's', '344a3fee5fcbf2e6ee04872540f9a07b', '37491276589e0bc5c4dfe114177d2422', 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.checkout_schedule_day_offers_v12(public.restaurant_fulfillment_schedule,date,timestamp with time zone)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.checkout_unfulfillable_reasons_v12()', false, true, false, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.csdj12_availability_closed(public.restaurant_fulfillment_schedule,date)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.csdj12_preparation_open(public.restaurant_fulfillment_schedule,date)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.fulfillment_capacity_is_holding(text,text)', false, true, false, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.fulfillment_capacity_used(uuid,text,uuid,date,text)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.fulfillment_selection_reasons_v12()', false, true, false, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.get_merchant_fulfillment_schedules_v12(uuid)', false, true, true, null, null, null, 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb)', false, true, true, null, null, null, 'authenticated/postgres:EXECUTE,postgres/postgres:EXECUTE', 'anon=false,authenticated=true,service_role=false', 'search_path=""'),
+      ('public.release_fulfillment_capacity(uuid)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.resolve_fulfillment_schedule_v12(uuid,text,uuid,timestamp with time zone,boolean)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""'),
+      ('public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone)', false, true, true, null, null, null, 'postgres/postgres:EXECUTE', 'anon=false,authenticated=false,service_role=false', 'search_path=""')
+    ) as pin(sig, pre, post, secdef, vol, res_md5, body_md5, acl, eff, cfg)
+    where (p_phase = 'pre' and pre) or (p_phase = 'post' and post)
+    order by sig, pre
+  loop
+    select * into p from pg_catalog.pg_proc
+     where oid = pg_catalog.to_regprocedure(r.sig)::pg_catalog.oid;
+    if not found then
+      return r.sig || ' : absente';
+    end if;
+    select pg_catalog.count(*) into v_n from pg_catalog.pg_proc o
+     where o.pronamespace = p.pronamespace and o.proname = p.proname;
+    if v_n <> 1 then
+      return pg_catalog.format('%s : %s surcharge(s) du même nom, 1 attendue', r.sig, v_n);
+    end if;
+    if pg_catalog.pg_get_userbyid(p.proowner)::text <> 'postgres' then
+      return pg_catalog.format('%s : propriétaire « %s », « postgres » attendu', r.sig, pg_catalog.pg_get_userbyid(p.proowner));
+    end if;
+    if p.prosecdef is distinct from r.secdef then
+      return pg_catalog.format('%s : %s, %s attendu', r.sig,
+        case when p.prosecdef then 'SECURITY DEFINER' else 'SECURITY INVOKER' end,
+        case when r.secdef then 'SECURITY DEFINER' else 'SECURITY INVOKER' end);
+    end if;
+    if r.vol is not null and p.provolatile::pg_catalog.text is distinct from r.vol then
+      return pg_catalog.format('%s : volatilité « %s », « %s » attendue', r.sig, p.provolatile, r.vol);
+    end if;
+    if coalesce(pg_catalog.array_to_string(p.proconfig, ','), '<null-config>') <> r.cfg then
+      return pg_catalog.format('%s : proconfig « %s », « %s » attendu', r.sig,
+        coalesce(pg_catalog.array_to_string(p.proconfig, ','), '<null-config>'), r.cfg);
+    end if;
+    if r.res_md5 is not null and pg_catalog.md5(pg_catalog.pg_get_function_result(p.oid)) <> r.res_md5 then
+      return pg_catalog.format('%s : type de retour modifié (%s)', r.sig, pg_catalog.pg_get_function_result(p.oid));
+    end if;
+    if r.body_md5 is not null
+       and pg_catalog.md5(pg_catalog.replace(p.prosrc, pg_catalog.chr(13) || pg_catalog.chr(10), pg_catalog.chr(10))) <> r.body_md5 then
+      return pg_catalog.format('%s : corps modifié (md5 LF %s, %s attendu)', r.sig,
+        pg_catalog.md5(pg_catalog.replace(p.prosrc, pg_catalog.chr(13) || pg_catalog.chr(10), pg_catalog.chr(10))), r.body_md5);
+    end if;
+    select coalesce(pg_catalog.string_agg(x.e, ',' order by x.e collate "C"), '<null-acl>') into v_acl
+      from (select (case when a.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(a.grantee)::text end)
+                   || '/' || pg_catalog.pg_get_userbyid(a.grantor)::text || ':' || a.privilege_type
+                   || (case when a.is_grantable then '*' else '' end) as e
+              from pg_catalog.aclexplode(p.proacl) a) x;
+    if v_acl <> r.acl then
+      return pg_catalog.format('%s : ACL « %s », « %s » attendue', r.sig, v_acl, r.acl);
+    end if;
+    v_eff := 'anon=' || pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE')::text
+          || ',authenticated=' || pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
+          || ',service_role=' || pg_catalog.has_function_privilege('service_role', p.oid, 'EXECUTE')::text;
+    if v_eff <> r.eff then
+      return pg_catalog.format('%s : privilèges effectifs « %s », « %s » attendus', r.sig, v_eff, r.eff);
+    end if;
+  end loop;
+  return null;
+end
+$csdj12_pin_drift$;
 
 -- ============================================================
 -- §0  PRÉ-VOL ANTI-DÉRIVE — FAIL-CLOSED, DANS LA TRANSACTION
 -- ============================================================
 do $csdj12_preflight$
 declare
-  v_item text;
-  v_n    integer;
+  v_item  text;
+  v_n     integer;
+  v_drift text;
 begin
   -- P-1. Tables prérequises (CSDJ-1 + commandes).
   foreach v_item in array array[
@@ -158,6 +314,41 @@ begin
   if not exists (select 1 from pg_catalog.pg_timezone_names where name = 'Europe/Paris') then
     raise exception 'SCANYM_SCHEMA_DRIFT: la base de fuseaux IANA du serveur est inutilisable -- CSDJ v1.2 annulé.'
       using errcode = '58000';
+  end if;
+
+  -- P-8. Rôles applicatifs : sans eux les privilèges effectifs sont
+  --      indécidables (CSDJ12-DEPLOY-01).
+  foreach v_item in array array['anon','authenticated','service_role'] loop
+    if not exists (select 1 from pg_catalog.pg_roles where rolname = v_item) then
+      raise exception 'SCANYM_SCHEMA_DRIFT: rôle applicatif % absent -- CSDJ v1.2 annulé.', v_item
+        using errcode = '42704';
+    end if;
+  end loop;
+
+  -- P-9. Les tables que l'aller MODIFIE (ALTER TABLE, clés étrangères) ou
+  --      référence appartiennent à « postgres » (le seul exécutant admis).
+  foreach v_item in array array[
+    'public.restaurant_fulfillment_schedule',
+    'public.restaurant_fulfillment_schedule_window',
+    'public.restaurant_fulfillment_schedule_slot',
+    'public.restaurant_fulfillment_schedule_closure',
+    'public.orders'
+  ] loop
+    if (select pg_catalog.pg_get_userbyid(c.relowner)::text
+          from pg_catalog.pg_class c where c.oid = pg_catalog.to_regclass(v_item)) is distinct from 'postgres' then
+      raise exception 'SCANYM_SCHEMA_DRIFT: la table % n''appartient pas à « postgres » -- CSDJ v1.2 annulé.', v_item
+        using errcode = '55000';
+    end if;
+  end loop;
+
+  -- P-10. Identité EXACTE des 10 prédécesseurs (signature, surcharge
+  --       unique, propriétaire, SECURITY, volatilité, type de retour,
+  --       empreinte du corps, proconfig complet, ACL exacte -- PUBLIC,
+  --       donneur, option de transmission -- et privilèges effectifs).
+  v_drift := pg_temp.csdj12_pin_drift('pre');
+  if v_drift is not null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: prédécesseur dérivé -- % -- CSDJ v1.2 annulé AVANT toute création d''objet.', v_drift
+      using errcode = '55000';
   end if;
 end
 $csdj12_preflight$;
@@ -1494,8 +1685,8 @@ revoke all on function public.fulfillment_selection_reasons_v12() from public, a
 revoke all on function public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone) from public, anon, authenticated, service_role;
 revoke all on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone) from public, anon, authenticated, service_role;
 revoke all on function public.release_fulfillment_capacity(uuid) from public, anon, authenticated, service_role;
-revoke all on function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb) from public, anon;
-revoke all on function public.get_merchant_fulfillment_schedules_v12(uuid) from public, anon;
+revoke all on function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb) from public, anon, service_role;
+revoke all on function public.get_merchant_fulfillment_schedules_v12(uuid) from public, anon, service_role;
 grant execute on function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb) to authenticated;
 grant execute on function public.get_merchant_fulfillment_schedules_v12(uuid) to authenticated;
 
@@ -1513,8 +1704,9 @@ comment on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date
 -- ============================================================
 do $csdj12_postflight$
 declare
-  v_item text;
-  v_bad  text;
+  v_item  text;
+  v_bad   text;
+  v_drift text;
 begin
   -- Objets présents
   foreach v_item in array array[
@@ -1524,6 +1716,11 @@ begin
   ] loop
     if pg_catalog.to_regclass(v_item) is null then
       raise exception 'SCANYM_POSTFLIGHT: table % absente.', v_item;
+    end if;
+    -- CSDJ12-DEPLOY-01 : propriétaire attendu des tables créées.
+    if (select pg_catalog.pg_get_userbyid(c.relowner)::text
+          from pg_catalog.pg_class c where c.oid = pg_catalog.to_regclass(v_item)) is distinct from 'postgres' then
+      raise exception 'SCANYM_POSTFLIGHT: la table % n''appartient pas à « postgres ».', v_item;
     end if;
     if not (select c.relrowsecurity from pg_catalog.pg_class c where c.oid = pg_catalog.to_regclass(v_item)) then
       raise exception 'SCANYM_POSTFLIGHT: RLS non activée sur %.', v_item;
@@ -1600,7 +1797,19 @@ begin
   if exists (select 1 from public.public_holiday_calendar) then
     raise exception 'SCANYM_POSTFLIGHT: un calendrier férié a été créé par la migration.';
   end if;
+
+  -- CSDJ12-DEPLOY-01 : ÉTAT FINAL de chaque fonction -- les 9 prédécesseurs
+  -- inchangés, l'ancien résolveur sous _v1 (même objet, mêmes empreintes),
+  -- et les 14 fonctions créées : propriétaire, SECURITY, proconfig complet,
+  -- ACL exacte (PUBLIC, donneur, option de transmission), privilèges
+  -- effectifs de anon / authenticated / service_role.
+  v_drift := pg_temp.csdj12_pin_drift('post');
+  if v_drift is not null then
+    raise exception 'SCANYM_POSTFLIGHT: état final dérivé -- %', v_drift;
+  end if;
 end
 $csdj12_postflight$;
+
+drop function pg_temp.csdj12_pin_drift(text);
 
 commit;
