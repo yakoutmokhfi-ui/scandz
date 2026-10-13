@@ -54,6 +54,10 @@ export default function DashboardNav({
   // que les onglets ci-dessus -- exclu explicitement du repli
   // générique de l'onglet "Commandes" pour ne pas reproduire L1B-02.
   const onLegalCgv = pathname?.startsWith("/dashboard/legal-cgv");
+  // Onglet "Mise à disposition" (CSDJ-BO-1) : même patron que les
+  // onglets ci-dessus -- exclu explicitement du repli générique de
+  // l'onglet "Commandes" pour ne pas reproduire L1B-02.
+  const onAvailability = pathname?.startsWith("/dashboard/availability");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -85,8 +89,27 @@ export default function DashboardNav({
     router.replace("/dashboard/login");
   }
 
+  /**
+   * CSDJ-BO-1 (revue R2, point 6) -- COMPACTION MOBILE. Avec le 8e
+   * onglet, la barre passait à TROIS lignes sur un téléphone de
+   * 390 px. Correction : sous `sm`, chaque onglet occupe un quart de
+   * la largeur (quatre par ligne, donc deux lignes), avec un texte
+   * plus petit et des marges latérales réduites ; au-dessus de `sm`,
+   * les classes d'origine reprennent à l'identique (`sm:basis-auto
+   * sm:flex-none sm:px-4 sm:text-sm`), donc le bureau est inchangé.
+   *
+   * Le calcul `calc(25%-0.375rem)` retire la part de `gap-2` (0.5rem)
+   * consommée par les trois espaces d'une ligne de quatre.
+   *
+   * `min-h-11` (44 px) : la cible tactile reste conforme malgré la
+   * compaction -- c'est la hauteur, pas la largeur, qui porte
+   * l'accessibilité au pouce. Toujours AUCUN défilement horizontal,
+   * aucun overflow caché : tout reste dans le flux, atteignable au
+   * clavier comme au clic (même garantie que `flex-wrap` en
+   * PAY-P2B-B-03).
+   */
   const tab = (active: boolean) =>
-    "flex-1 rounded-xl px-4 py-2.5 text-center text-sm font-bold sm:flex-none " +
+    "flex min-h-11 flex-1 basis-[calc(25%-0.375rem)] items-center justify-center rounded-xl px-2 py-2.5 text-center text-xs font-bold sm:basis-auto sm:flex-none sm:px-4 sm:text-sm " +
     (active
       ? "bg-stone-900 text-white"
       : "border border-stone-300 bg-white text-stone-800");
@@ -164,19 +187,27 @@ export default function DashboardNav({
           <a
             href={href("/dashboard")}
             className={tab(
-              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv
+              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv && !onAvailability
             )}
           >
             {t("dsOrders")}
           </a>
           <a href={href("/dashboard/catalogue")} className={tab(!!onCatalogue)}>
-            {t("mcTitle")}
+            {/* CSDJ-BO-1 : libellé court sous `sm`, complet au-dessus. */}
+            <span className="sm:hidden">{t("mcTitleShort")}</span>
+            <span className="hidden sm:inline">{t("mcTitle")}</span>
           </a>
           <a href={href("/dashboard/settings")} className={tab(!!onSettings)}>
             {t("mcSettings")}
           </a>
           <a href={href("/dashboard/delivery-pricing")} className={tab(!!onDeliveryPricing)}>
-            {t("dsDeliveryPricing")}
+            <span className="sm:hidden">{t("dsDeliveryPricingShort")}</span>
+            <span className="hidden sm:inline">{t("dsDeliveryPricing")}</span>
+          </a>
+          {/* CSDJ-BO-1 : placé juste après « Tarifs de livraison », les deux règlent la mise à disposition. */}
+          <a href={href("/dashboard/availability")} className={tab(!!onAvailability)}>
+            <span className="sm:hidden">{t("dsAvailabilityShort")}</span>
+            <span className="hidden sm:inline">{t("dsAvailability")}</span>
           </a>
           <a href={href("/dashboard/payment")} className={tab(!!onPayment)}>
             {t("dsPayment")}
@@ -185,7 +216,8 @@ export default function DashboardNav({
             {t("dsLegalCgv")}
           </a>
           <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
-            {t("dsTranslations")}
+            <span className="sm:hidden">{t("dsTranslationsShort")}</span>
+            <span className="hidden sm:inline">{t("dsTranslations")}</span>
           </a>
         </nav>
       </div>
