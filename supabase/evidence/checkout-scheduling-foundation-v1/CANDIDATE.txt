@@ -1,0 +1,137 @@
+CHECKOUT SCHEDULING FOUNDATION v1.8 (CSDJ-1)
+HUITIÈME REMÉDIATION DE DURCISSEMENT — CANDIDAT
+======================================================================
+
+branche                     feature/checkout-scheduling-foundation-v1
+
+CANDIDAT (implémentation)   f369c4b53e35604c5df9c349413c16ec695c4e88
+arbre du candidat           c25ba7c8e7465c7690305666d758dc81c6caeee0
+base de développement       412dbb53c5f180983860852b79425209c04b9c42
+arbre de la base            b53db34c4897dff5dba150ba0bf9de1aff7ee873
+
+LIGNÉE — AUCUN CANDIDAT RÉÉCRIT
+-------------------------------
+  091c3f0  candidat initial     FAIL (6 blockers)
+  d94a110  première            FAIL (2 restants)
+  993cb7b  seconde             FAIL (2 blockers)
+  9c940e1  troisième           FAIL (2 défauts AUD-07)
+  610e356  quatrième           FAIL (socket CSV)
+  7420bec  cinquième           FAIL (2 blockers P2)
+  8dafd78  sixième             FAIL (détecteur P2)
+  de70c13  septième            FAIL (détecteur P2, E1/E2)
+  f369c4b  CE CANDIDAT         à auditer
+
+PAS DE RECOMPOSITION
+--------------------
+  origin/main courant = 2f45df7717b16b08075b51aabf9cec4afd4b2741
+  Ce candidat reste sur 412dbb5. Lignée IMMUABLE, comme ordonné.
+
+STRUCTURE DE LA BRANCHE
+-----------------------
+  HEAD      scellement du paquet de preuves — touche UNIQUEMENT
+            supabase/evidence/checkout-scheduling-foundation-v1/
+  HEAD~1    f369c4b = LE CANDIDAT : 4 fichiers, tous MODIFIÉS
+  HEAD~2    bf36705 = scellement de la septième remédiation
+  HEAD~3    de70c13 = septième remédiation
+  HEAD~18   412dbb5 = base de développement
+
+TROIS CONTRÔLES À LA PORTÉE DE L'AUDITEUR
+-----------------------------------------
+  1. manifest.candidate.sha == HEAD~1
+  2. git diff --name-only HEAD~1 HEAD  ne renvoie que des chemins sous
+     supabase/evidence/checkout-scheduling-foundation-v1/
+  3. sha256sum -c SHA256SUMS.txt
+
+LES 4 FICHIERS CHANGÉS DEPUIS de70c13
+-------------------------------------
+  M  supabase/tests/csdj1-raw-role-mutation-detector.awk
+         LE DÉTECTEUR, en SIX ÉTAPES. Il ne reconnaît plus une
+         orthographe : il CONSTRUIT la représentation que le serveur
+         verra -- continuations retirées jusque dans les guillemets
+         doubles, tout blanc SQL réduit à une espace, corps à dollars
+         conservés, littéral tenu pour des données sauf comme argument
+         d'EXECUTE -- et c'est elle qu'il interroge. Les corps de
+         documents en ligne sont analysés d'un seul bloc. Fermé par
+         défaut.
+  M  supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+         36 fixtures (D1-D7, R1-R5, C1-C5, E1-E10, F1-F6, P1-P3),
+         chacune validée par « bash -n » ; NOUVELLE section [J] :
+         contre-épreuve adversariale de 34 formes équivalentes + 12
+         non-mutations + X1/X2, chaque forme EXÉCUTÉE et son effet
+         OBSERVÉ ; verbes assemblés en DEUX variables jamais
+         adjacentes.
+  M  supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+         M10 (continuation entre guillemets non normalisée) et M11
+         (équivalence des blancs SQL retirée), chacune exigeant un
+         DOMMAGE RÉEL dans la même exécution. M9 conservée, attendu
+         mis à jour et EXPLIQUÉ. M1, M3-M8 inchangées.
+  M  tests/csdj1-sql-structural.test.ts
+         [AUD07-SQL-6] et [AUD07-SQL-8] réécrits pour juger les six
+         étapes ; [AUD07-SQL-9] AJOUTÉ : la contre-épreuve adversariale
+         et les deux réinjections sont STRUCTURELLEMENT exigées.
+
+INTACTS — ET SEULEMENT REJOUÉS EN RÉGRESSION
+--------------------------------------------
+  supabase/tests/csdj1-cluster-identity.sh   (parseur de sockets,
+                                              sentinelles, nonce,
+                                              marqueur, data_directory,
+                                              config_file, PGHOSTADDR)
+  supabase/tests/checkout-scheduling-foundation-v1-check.sh
+  tests/fixtures/build-checkout-scheduling-cases.py
+  tests/fixtures/checkout-scheduling-cases.json
+  tests/csdj1-oracle-independence.test.ts
+  tests/csdj1-scheduling-eligibility.test.ts
+  tests/csdj1-scheduling-model.test.ts
+  lib/scheduling/*  et  supabase/DRAFT-lot-checkout-scheduling-*.sql
+  `git diff de70c13 HEAD` sur ces chemins est VIDE.
+
+REJOUER LES PREUVES
+-------------------
+  npx tsc --noEmit
+  node --experimental-strip-types --import ./tests/register.mjs --test \
+    tests/csdj1-*.test.ts
+  python3 -I tests/fixtures/build-checkout-scheduling-cases.py   # doit
+                                 # reproduire la fixture À L'OCTET
+  sudo -u postgres env -i PATH=/usr/bin:/bin HOME=/tmp \
+    SCANYM_DISPOSABLE_CLUSTER=1 \
+    bash supabase/tests/checkout-scheduling-foundation-v1-check.sh
+  sudo -u postgres env -i PATH=/usr/bin:/bin HOME=/tmp \
+    SCANYM_DISPOSABLE_CLUSTER=1 \
+    bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+  bash supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+  awk -f supabase/tests/csdj1-raw-role-mutation-detector.awk \
+    supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+    supabase/tests/checkout-scheduling-foundation-v1-check.sh \
+    supabase/tests/csdj1-cluster-identity.sh
+  python3 -I supabase/evidence/checkout-scheduling-foundation-v1/\
+role-mutation-paths-inspector.py \
+    supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh \
+    supabase/tests/checkout-scheduling-foundation-v1-check.sh \
+    supabase/tests/csdj1-cluster-identity.sh
+
+Le harnais de rôles REFUSE de démarrer si une variable de routage libpq
+est présente dans l'environnement : « env -i » dans les commandes
+ci-dessus n'est pas une précaution de style, c'est la condition de
+démarrage.
+
+Le `npm run build` a besoin de NEXT_PUBLIC_SUPABASE_URL et de
+NEXT_PUBLIC_SUPABASE_ANON_KEY : « next build » collecte les données de
+page, et lib/supabase.ts échoue FERMÉ si elles manquent. Deux espaces
+réservés locaux suffisent (voir build-candidate.txt) ; aucune valeur
+réelle n'est employée ni journalisée.
+
+RÉSERVE D'INTÉGRATION — À NE PAS APPLIQUER MAINTENANT
+-----------------------------------------------------
+  Au moment de la recomposition, [OWNERSHIP-2] (« exactement 14 clés
+  MCC ») doit devenir un invariant de PROPRIÉTÉ : « CSDJ-1 n'ajoute ni
+  ne modifie aucune clé MCC ». THEME & CONTENT SETTINGS v1 (Debussy,
+  PR #134) a légitimement porté le catalogue à 17. Sur 412dbb5, où ce
+  candidat est construit, 14 est la valeur juste.
+
+PAS POUSSÉ
+----------
+  Le proxy git de la session refuse l'écriture sur yakoutmokhfi-ui/scandz
+  (403). Livraison par bundle vérifié.
+
+AUCUN MERGE. AUCUN DÉPLOIEMENT. AUCUN SQL APPLIQUÉ.
+AUCUNE MUTATION DE PRODUCTION. CSDJ-2 NON COMMENCÉ.

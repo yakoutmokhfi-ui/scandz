@@ -1,0 +1,2 @@
+[13:41:34] REFUS DE SÛRETÉ : SCANYM_DISPOSABLE_CLUSTER=1 est requis. Ce fichier crée des clusters et mute des rôles : il exige une déclaration EXPLICITE que la cible est jetable.
+[13:41:34] Aucune mutation n'a été tentée.

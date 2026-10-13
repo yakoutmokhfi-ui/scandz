@@ -1,0 +1,163 @@
+CSDJ-1 v1.8 — CONTRE-ÉPREUVE ADVERSARIALE, ET INSPECTION DES CHEMINS RÉELS
+==========================================================================
+
+CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01 (huitième passe)
+
+
+POURQUOI UNE CONTRE-ÉPREUVE, ET PAS SEULEMENT DES FIXTURES
+----------------------------------------------------------
+Sept tours de suite, un audit a trouvé une orthographe que le détecteur
+ne voyait pas. Montrer qu'il voit E1 et E2 ne prouve donc rien sur la
+huitième : ce qu'il faut montrer, c'est qu'on a CHERCHÉ À LE TROMPER, et
+que chaque verdict a été confronté non pas à une attente écrite par le
+développeur, mais à ce que PostgreSQL FAIT.
+
+C'est la section [J] du harnais d'isolation et de rôles. Elle est
+rejouable, et elle tourne à chaque exécution du harnais.
+
+
+LA MATRICE : SIX DIMENSIONS, TRENTE-QUATRE FORMES
+-------------------------------------------------
+  verbe        ALTER ROLE | CREATE ROLE
+  casse        minuscules | MAJUSCULES | Casse Mixte      (rotation)
+  séparateur   une espace | plusieurs espaces | tabulation |
+               saut de ligne | retour chariot + saut de ligne |
+               barre oblique inverse + saut de ligne
+  citation     guillemets doubles | apostrophes | CONCATÉNATION
+               (« "alt""er …" », que le shell recolle)
+  appel        q | qw                                      (alternance)
+  commentaire  un cas sur quatre est précédé d'un appel GARDÉ suivi
+               d'un commentaire contenant une apostrophe — la fuite
+               d'état du septième tour, rejouée dans chaque famille
+
+Le produit complet vaut 36 ; deux combinaisons sont exclues et traitées
+à part (voir X2) : apostrophes + barre oblique inverse n'est pas une
+continuation, PostgreSQL refuse l'instruction, ce n'est donc pas une
+forme équivalente. Reste 34 formes, toutes des mutations réelles.
+
+
+LES QUATRE FAITS ÉTABLIS POUR CHAQUE FORME
+------------------------------------------
+  1. « bash -n » l'accepte. Une forme que le shell refuserait ne
+     représenterait aucune réalité.
+
+  2. L'argument RÉELLEMENT transmis est relevé en faisant jouer à BASH
+     le rôle d'oracle : la forme est exécutée une seconde fois avec un
+     « q » factice qui n'imprime que son premier argument. Ce n'est pas
+     le détecteur qui dit ce que Bash transmet, c'est Bash.
+         q() { printf "%s" "$1"; }; qw() { printf "%s" "$1"; }; . "$1"
+
+  3. La forme est EXÉCUTÉE, pour de vrai, sur le cluster jetable du
+     harnais, et le changement d'état est OBSERVÉ :
+       — famille ALTER : le rôle sonde passe de NOBYPASSRLS à
+         BYPASSRLS (remis à zéro par le chemin GARDÉ avant chaque cas) ;
+       — famille CREATE : un rôle qui n'existait pas existe
+         (0 -> 1), puis est supprimé par le chemin GARDÉ.
+     C'est PostgreSQL, et non une expression régulière, qui dit que la
+     forme est bien un ALTER ROLE ou un CREATE ROLE.
+
+  4. Le détecteur rend NON-GARDEE.
+
+L'ORDRE DE 3 ET DE 4 EST DÉLIBÉRÉ. L'exécution est éprouvée AVANT le
+verdict, de sorte qu'un échec portant sur le verdict ÉTABLISSE que
+PostgreSQL, lui, a muté. C'est cette paire qui discrimine, et c'est
+elle que M10 et M11 exploitent :
+
+  « [J] cas « m6 » (dq/bsl/q) : le détecteur rend AUCUNE
+        alors que PostgreSQL a muté (NOBYPASSRLS -> BYPASSRLS) »
+
+Dans les fichiers engendrés, « q » ET « qw » visent le cluster JETABLE
+du harnais : la démonstration porte sur le verdict et sur l'acceptation
+par PostgreSQL, non sur la destination. Le témoin reste intact, comme
+[D] et [F] l'exigent.
+
+
+LE REVERS : DOUZE FORMES QUI CONTIENNENT LE VERBE SANS L'EXÉCUTER
+-----------------------------------------------------------------
+Un détecteur qui signale tout ne signale rien. Douze formes portent le
+verbe en clair et ne doivent produire AUCUN signalement :
+
+  n1   select 'ALTER ROLE foo';                        littéral
+  n2   select 1; -- ALTER ROLE foo                     commentaire SQL
+  n3   select 'CREATE ROLE foo';                       littéral
+  n4   select 'alter role foo';                        littéral, minusc.
+  n5   select /* alter role foo */ 1;                  commentaire bloc
+  n6   select 'ALTER ROLE' || 'x';                     concaténation SQL
+  n7   select 'alter <LF> role foo';                   littéral sur 2 lignes
+  n8   select 1; -- alter<TAB>role foo                 commentaire + tab
+  n9   select 'alter role foo' as x, 'create role bar' as y;
+  n10  select 1 where 'x' = 'ALTER ROLE';              comparaison
+  n11  select 'Alter Role'::text;                      transtypage
+  n12  select 'do not run: create role foo';           littéral
+
+Pour chacune, trois faits : bash l'accepte ; le PIÈGE EST PRÉSENT
+(le verbe figure bel et bien dans l'argument transmis — un contrôle de
+faux positif qui ne contient pas le piège ne contrôle rien) ; la forme
+est exécutée et le rôle sonde NE BOUGE PAS. Puis : verdict AUCUNE.
+
+
+X1 ET X2 — LES DEUX CAS QUE LE DÉTECTEUR ASSUME
+-----------------------------------------------
+X1  Une AFFECTATION portant le verbe :  ADV_NOTE="alter role foo;"
+    Le détecteur modélise la concaténation des citations du shell, donc
+    il VOIT le verbe ; il ne modélise pas l'expansion des paramètres,
+    donc il ne sait pas où ce texte sera exécuté. Verdict attendu et
+    obtenu : SANS-OUVREUR. Fermé, et non présumé inoffensif.
+    C'est aussi la raison pour laquelle les verbes des fixtures du
+    harnais sont désormais assemblés en DEUX variables jamais
+    adjacentes.
+
+X2  Entre APOSTROPHES, « \ » + saut de ligne :  q 'alter \ <LF> role …'
+    Bash les transmet tels quels ; PostgreSQL refuse l'instruction. Ce
+    n'est donc pas une mutation équivalente. Le détecteur ne signale
+    rien — et les DEUX moitiés du fait sont vérifiées : l'absence de
+    signalement est accompagnée de l'observation que le rôle sonde ne
+    bouge pas.
+
+
+RÉSULTAT (exécution complète du harnais, voir harness-role-restoration.txt)
+--------------------------------------------------------------------------
+  [J] 34 formes équivalentes engendrées : bash les accepte,
+      PostgreSQL les exécute, le détecteur les voit toutes
+  [J] 12 formes contenant le verbe SANS l'exécuter : aucune n'est
+      signalée, et le rôle sonde n'a pas bougé
+  [J] X1 — une affectation portant le verbe FERME (SANS-OUVREUR)
+  [J] X2 — « \ » + saut de ligne entre apostrophes : PostgreSQL
+      refuse, le rôle ne bouge pas, rien n'est signalé
+
+La matrice détaillée — cas, citation, séparateur, appel, verdict, et
+SQL RÉELLEMENT TRANSMIS — est recopiée dans la sortie du harnais (le
+répertoire temporaire disparaît au nettoyage) : voir
+detector-fixtures.txt et harness-role-restoration.txt.
+
+
+INSPECTION INDÉPENDANTE DES CHEMINS RÉELS
+-----------------------------------------
+Le mandat exige, en plus des fixtures, une inspection des VRAIS chemins
+de mutation : « ne vous fiez pas uniquement aux fixtures engendrées ».
+
+Elle a été faite par une SECONDE implémentation, écrite séparément, en
+python, et délibérément plus simple : elle ne normalise pas le SQL,
+n'accumule pas les corps de documents en ligne, ne cherche aucune
+équivalence de blancs. Elle fait une seule chose : pour chaque ligne
+physique, dire quelle COMMANDE la porte, en suivant les citations et
+les continuations du shell ; puis, pour chaque occurrence textuelle
+d'un verbe de mutation de rôle, lire le texte de cette commande.
+
+  source  role-mutation-paths-inspector.py   (outil de preuve, non un
+                                              composant des harnais)
+  sortie  role-mutation-paths-inspection.txt
+
+  42 occurrences du verbe de mutation
+   5 sont des COMMENTAIRES (aucun code)
+  37 sont portées par une commande GARDÉE
+   0 chemin BRUT, 0 INDÉTERMINÉ
+
+  => TOUS LES CHEMINS RÉELS DE MUTATION DE RÔLE SONT GARDÉS.
+
+Les deux implémentations concluent la même chose par deux méthodes
+différentes. Le détecteur awk rapporte 26 SIGNALEMENTS et l'inspecteur
+python 37 OCCURRENCES : ce n'est pas une divergence, c'est l'unité de
+compte — le détecteur classe des COMMANDES, et plusieurs commandes
+gardées portent plusieurs instructions de mutation (le bloc
+d'amorçage du harnais principal en porte six à lui seul).

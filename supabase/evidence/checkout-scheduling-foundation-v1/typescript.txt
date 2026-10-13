@@ -1,0 +1,3 @@
+npx tsc --noEmit
+0 diagnostic.
+RC=0

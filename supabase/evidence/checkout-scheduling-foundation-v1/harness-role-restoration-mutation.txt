@@ -1,0 +1,34 @@
+[12:20:55] cluster TÉMOIN créé par CE fichier (socket /tmp/tmp.xK9EKvEX7Q/sock, port 62827).
+[12:20:55] === [A] état initial des rôles : NOLOGIN + NOBYPASSRLS ===
+[12:20:55]   avant : anon=NOLOGIN+NOBYPASSRLS authenticated=NOLOGIN+NOBYPASSRLS service_role=NOLOGIN+NOBYPASSRLS 
+[12:21:16] PASS: [A] NOLOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:21:16] PASS: [A] NOLOGIN+NOBYPASSRLS — 'anon' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:21:16] PASS: [A] NOLOGIN+NOBYPASSRLS — 'authenticated' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:21:16] PASS: [A] NOLOGIN+NOBYPASSRLS — 'service_role' restauré EXACTEMENT (NOLOGIN+NOBYPASSRLS)
+[12:21:16] === [A] état initial des rôles : LOGIN + NOBYPASSRLS ===
+[12:21:17]   avant : anon=LOGIN+NOBYPASSRLS authenticated=LOGIN+NOBYPASSRLS service_role=LOGIN+NOBYPASSRLS 
+[12:21:38] PASS: [A] LOGIN+NOBYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:21:38] FAIL: [A] LOGIN+NOBYPASSRLS — 'anon' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:38] FAIL: [A] LOGIN+NOBYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:38] FAIL: [A] LOGIN+NOBYPASSRLS — 'service_role' corrompu : avant 'LOGIN+NOBYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:38] === [A] état initial des rôles : NOLOGIN + BYPASSRLS ===
+[12:21:38]   avant : anon=NOLOGIN+BYPASSRLS authenticated=NOLOGIN+BYPASSRLS service_role=NOLOGIN+BYPASSRLS 
+[12:21:58] PASS: [A] NOLOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:21:58] FAIL: [A] NOLOGIN+BYPASSRLS — 'anon' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:58] FAIL: [A] NOLOGIN+BYPASSRLS — 'authenticated' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:59] FAIL: [A] NOLOGIN+BYPASSRLS — 'service_role' corrompu : avant 'NOLOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:21:59] === [A] état initial des rôles : LOGIN + BYPASSRLS ===
+[12:21:59]   avant : anon=LOGIN+BYPASSRLS authenticated=LOGIN+BYPASSRLS service_role=LOGIN+BYPASSRLS 
+[12:22:20] PASS: [A] LOGIN+BYPASSRLS — le harnais principal s'exécute jusqu'au bout sur le cluster désigné
+[12:22:20] FAIL: [A] LOGIN+BYPASSRLS — 'anon' corrompu : avant 'LOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:22:20] FAIL: [A] LOGIN+BYPASSRLS — 'authenticated' corrompu : avant 'LOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:22:20] FAIL: [A] LOGIN+BYPASSRLS — 'service_role' corrompu : avant 'LOGIN+BYPASSRLS', après 'NOLOGIN+NOBYPASSRLS'
+[12:22:20] === [B] forme de l'instantané de rôle ===
+[12:22:20] FAIL: [B] l'instantané n'encode pas 1/0 — la comparaison du nettoyage redeviendrait fragile
+[12:22:20] FAIL: [B] l'instantané emploie encore ::text, dont la forme est 'true'/'false'
+[12:22:20] FAIL: [B] la restauration ne compare pas à 1 — l'écart entre capture et comparaison subsiste
+[12:22:20] FAIL: [B] le verrou de sûreté n'énumère pas les instantanés admissibles
+[12:22:20] === [C] un rôle absent avant doit être absent après ===
+[12:22:42] PASS: [C] le harnais principal s'exécute avec un rôle initialement absent
+[12:22:42] PASS: [C] 'service_role', absent avant, est bien absent après
+[12:22:42] === BILAN RESTAURATION DE RÔLES : 9 preuve(s), 13 échec(s) ===
