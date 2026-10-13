@@ -1,0 +1,1377 @@
+diff --git a/supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh b/supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+index 17850da..dee4d93 100755
+--- a/supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
++++ b/supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh
+@@ -3,7 +3,7 @@
+ # CONTRÔLES DE MUTATION — CSDJ1-AUD-06 / CSDJ1-AUD-07
+ #
+ # Un harnais vert ne prouve rien si le défaut qu'il est censé interdire
+-# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte HUIT
++# peut être réinjecté sans qu'il échoue. Ce fichier réinjecte DIX
+ # défauts, chacun dans une COPIE, et exige que les harnais les voient.
+ # (M2 est une démonstration directe, pas une mutation.)
+ #
+@@ -17,6 +17,11 @@
+ # M7  le parseur sensible aux guillemets remplacé par un découpage brut
+ # M8  la défense anti-collision des octets réservés retirée
+ # M9  la fuite d'état par les commentaires et les continuations
++# M10 la continuation ENTRE GUILLEMETS DOUBLES, non normalisée
++#     (défaut d'AUD-07, huitième passe : E1 redevient invisible)
++# M11 l'ÉQUIVALENCE DES BLANCS SQL retirée
++#     (défaut d'AUD-07, huitième passe : E2 et E8 redeviennent
++#      invisibles, pendant que PostgreSQL, lui, les exécute)
+ #
+ # Ce fichier est VERSIONNÉ pour que l'audit puisse rejouer les contrôles.
+ # Il crée ses copies mutées dans ce répertoire et les SUPPRIME en sortie
+@@ -340,31 +345,29 @@ fi
+ # C'est le défaut littéral du sixième re-audit. Le détecteur ne doit
+ # plus laisser une apostrophe de COMMENTAIRE ouvrir une citation, ni
+ # ignorer une continuation par barre oblique inverse. On lui retire
+-# les deux règles : la reproduction R1 doit alors être classée GARDÉE
+-# -- un mensonge sur une mutation qui, [I] le montre, s'exécute
+-# réellement.
++# les deux règles.
++#
++# CE QUE LA HUITIÈME REMÉDIATION A CHANGÉ ICI, ET POURQUOI L'ATTENDU
++# N'EST PLUS LE MÊME : au septième tour, la réinjection faisait classer
++# R1 « GARDÉE » -- un MENSONGE, l'état gardé de la commande précédente
++# survivant à une commande terminée. Le détecteur classe désormais
++# chaque commande sur SON texte verbatim, où l'appel brut « q ' » est
++# visible : l'héritage de garde a disparu PAR CONSTRUCTION, et ce
++# mensonge-là n'est plus produisible. La même réinjection produit donc
++# le défaut restant, qui est le pire des deux : le SILENCE. R3 -- un
++# commentaire portant un GUILLEMET -- redevient « AUCUNE », et [J]
++# montre, dans la même exécution, PostgreSQL exécuter la mutation.
+ # ────────────────────────────────────────────────────────────
+ say "--- M9 : fuite d'état par les commentaires et les continuations"
+ clean
+ cp "$MAIN_SRC" "$MUT_MAIN"
+ cp "$LIB_SRC" "$MUT_LIB"
+ MUT_DET="$TESTS_DIR/.mut-raw-role-detector.awk"
+-python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM9'
+-import sys
+-src, dst = sys.argv[1:3]
+-s = open(src, encoding='utf-8').read()
+-# 1) un « # » hors citation ne termine plus la ligne : son contenu
+-#    redevient du shell, et une apostrophe y ouvre une citation.
+-needle = 'if (c == "#" && (buf == "" || substr(buf, length(buf), 1) ~ /[ \\t\\n;&|(]/)) break'
+-assert needle in s, "ancre de commentaire introuvable"
+-s = s.replace(needle, 'if (0) break', 1)
+-# 2) la continuation par barre oblique inverse n est plus reconnue.
+-cont = '        if (i == n) { cont = 1; i++; continue }          # continuation'
+-assert cont in s, "ancre de continuation introuvable"
+-s = s.replace(cont, '        if (i == n) { i++; continue }', 1)
+-open(dst, 'w', encoding='utf-8').write(s)
+-PYM9
+-python3 -I - "$ROLE_SRC" "$MUT_ROLE" "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" <<'PYR9'
++
++# Le RECÂBLAGE du harnais de rôles vers le détecteur abîmé est le même
++# pour M9, M10 et M11 : il est écrit une fois.
++wire_role_to_mut_det() {
++  python3 -I - "$ROLE_SRC" "$MUT_ROLE" "$(basename "$MUT_MAIN")" "$(basename "$MUT_LIB")" <<'PYWIRE'
+ import sys
+ src, dst, main_name, lib_name = sys.argv[1:5]
+ s = open(src, encoding='utf-8').read()
+@@ -375,19 +378,121 @@ s = s.replace('IDENTITY_LIB="$SCRIPT_DIR/csdj1-cluster-identity.sh"',
+ s = s.replace('MUT_AWK="$SCRIPT_DIR/csdj1-raw-role-mutation-detector.awk"',
+               'MUT_AWK="$SCRIPT_DIR/.mut-raw-role-detector.awk"', 1)
+ open(dst, 'w', encoding='utf-8').write(s)
+-PYR9
+-chmod 755 "$MUT_ROLE" "$MUT_MAIN"
++PYWIRE
++  chmod 755 "$MUT_ROLE" "$MUT_MAIN"
++}
++
++python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM9'
++import sys
++src, dst = sys.argv[1:3]
++s = open(src, encoding='utf-8').read()
++# 1) un « # » hors citation ne termine plus la ligne : son contenu
++#    redevient du shell, et une apostrophe y ouvre une citation.
++needle = 'if (c == "#" && (cmdraw == "" || substr(cmdraw, length(cmdraw), 1) ~ /[ \\t\\n;&|(]/)) break'
++assert needle in s, "ancre de commentaire introuvable"
++s = s.replace(needle, 'if (0) break', 1)
++# 2) la continuation par barre oblique inverse, HORS citation, n est
++#    plus reconnue. C est la ligne qui porte le commentaire.
++lines = s.split('\n')
++idx = [k for k, l in enumerate(lines) if 'cont = 1' in l and '# continuation' in l]
++assert len(idx) == 1, "ancre de continuation hors citation introuvable"
++lines[idx[0]] = lines[idx[0]].replace('cont = 1; ', '')
++open(dst, 'w', encoding='utf-8').write('\n'.join(lines))
++PYM9
++wire_role_to_mut_det
+ M9_RC="$(run_mut_role /tmp/csdj1-mut-m9.log)"
+ if [ "$M9_RC" != "0" ] \
+-   && grep -q "fixture « r1 » : GARDEE au lieu de NON-GARDEE" /tmp/csdj1-mut-m9.log \
+-   && grep -q "R1 — la mutation brute est encore attribuée à l'appel gardé précédent" /tmp/csdj1-mut-m9.log; then
+-  ok "M9 — la fuite d'état est VUE : R1 redevient GARDÉE, alors que [I] prouve qu'elle mute (code $M9_RC)"
++   && grep -q "fixture « r3 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m9.log \
++   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m9.log; then
++  ok "M9 — la fuite d'état est VUE : R3 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code $M9_RC)"
+   grep -m4 'FAIL:' /tmp/csdj1-mut-m9.log | sed 's/^/       /' | tee -a "$OUT"
+   if grep -q "\\[I\\] NOCIF" /tmp/csdj1-mut-m9.log; then
+-    say "       (et dans la MÊME exécution, [I] montre la mutation réellement appliquée)"
++    say "       (et [I] montre, dans la même exécution, la mutation de la séquence de l'audit)"
++  fi
++  # L'héritage de garde, lui, a disparu par construction : R1 reste
++  # NON-GARDEE même avec les deux règles retirées. On le CONSTATE, pour
++  # que l'auditeur n'ait pas à le déduire.
++  if grep -q "fixture « r1 » : NON-GARDEE (attendu)" /tmp/csdj1-mut-m9.log; then
++    say "       (et R1 reste NON-GARDEE : l'héritage de garde n'est plus produisible)"
+   fi
+ else
+-  ko "M9 — la fuite d'état passe inaperçue (code $M9_RC) : R1 ne prouve rien"
++  ko "M9 — la fuite d'état passe inaperçue (code $M9_RC) : R3 ne prouve rien"
++fi
++rm -f "$MUT_DET"
++
++# ────────────────────────────────────────────────────────────
++# M10 — AUD-07 (huitième passe) : la continuation ENTRE GUILLEMETS
++#       DOUBLES, réinjectée telle qu'elle était avant.
++#
++# Avant cette remédiation, le détecteur gardait la barre oblique
++# inverse comme un caractère ordinaire : l'argument reconstitué
++# contenait « alter \ » puis un saut de ligne, et aucune normalisation
++# ne les rapprochait. Bash, lui, retire les deux et transmet
++# « alter role ». On remet cette lecture-là, et deux faits doivent
++# apparaître DANS LA MÊME EXÉCUTION : E1 n'est plus vue, et [J] montre
++# PostgreSQL muter réellement le rôle sonde.
++# ────────────────────────────────────────────────────────────
++say "--- M10 : la continuation entre guillemets doubles, non normalisée"
++clean
++cp "$MAIN_SRC" "$MUT_MAIN"
++cp "$LIB_SRC" "$MUT_LIB"
++python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM10'
++import sys
++src, dst = sys.argv[1:3]
++s = open(src, encoding='utf-8').read()
++lines = s.split('\n')
++# La ligne SANS le commentaire est celle de l etat « guillemet double ».
++idx = [k for k, l in enumerate(lines) if 'cont = 1' in l and '# continuation' not in l]
++assert len(idx) == 1, "ancre de continuation entre guillemets introuvable"
++indent = lines[idx[0]][:len(lines[idx[0]]) - len(lines[idx[0]].lstrip())]
++lines[idx[0]] = indent + 'if (i == n) { cmdraw = cmdraw "\\\\"; cmdexp = cmdexp "\\\\"; i++; continue }'
++open(dst, 'w', encoding='utf-8').write('\n'.join(lines))
++PYM10
++wire_role_to_mut_det
++M10_RC="$(run_mut_role /tmp/csdj1-mut-m10.log)"
++if [ "$M10_RC" != "0" ] \
++   && grep -q "fixture « e1 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m10.log \
++   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m10.log; then
++  ok "M10 — E1 redevient invisible, et [J] montre la mutation RÉELLEMENT appliquée (code $M10_RC)"
++  grep -m4 'FAIL:' /tmp/csdj1-mut-m10.log | sed 's/^/       /' | tee -a "$OUT"
++else
++  ko "M10 — la continuation non normalisée passe inaperçue (code $M10_RC) : E1 ne prouve rien"
++fi
++rm -f "$MUT_DET"
++
++# ────────────────────────────────────────────────────────────
++# M11 — AUD-07 (huitième passe) : l'ÉQUIVALENCE DES BLANCS SQL,
++#       réinjectée telle qu'elle était avant.
++#
++# PostgreSQL lit l'espace, la tabulation, le retour chariot et le saut
++# de ligne comme un seul et même blanc. On rend la normalisation
++# aveugle à tout ce qui n'est pas l'espace : E2 et E8 -- le verbe coupé
++# par un saut de ligne -- redeviennent invisibles, pendant que [J]
++# montre PostgreSQL les exécuter.
++# ────────────────────────────────────────────────────────────
++say "--- M11 : l'équivalence des blancs SQL, retirée"
++clean
++cp "$MAIN_SRC" "$MUT_MAIN"
++cp "$LIB_SRC" "$MUT_LIB"
++python3 -I - "$DET_SRC" "$MUT_DET" <<'PYM11'
++import sys
++src, dst = sys.argv[1:3]
++s = open(src, encoding='utf-8').read()
++needle = 'gsub(/[ \\t\\r\\n\\013\\f]+/, " ", out)'
++assert needle in s, "ancre de normalisation des blancs introuvable"
++s = s.replace(needle, 'gsub(/[ ]+/, " ", out)', 1)
++open(dst, 'w', encoding='utf-8').write(s)
++PYM11
++wire_role_to_mut_det
++M11_RC="$(run_mut_role /tmp/csdj1-mut-m11.log)"
++if [ "$M11_RC" != "0" ] \
++   && grep -q "fixture « e2 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m11.log \
++   && grep -q "fixture « e8 » : AUCUNE au lieu de NON-GARDEE" /tmp/csdj1-mut-m11.log \
++   && grep -q "alors que PostgreSQL a muté" /tmp/csdj1-mut-m11.log; then
++  ok "M11 — E2 et E8 redeviennent invisibles, et [J] montre la mutation RÉELLEMENT appliquée (code $M11_RC)"
++  grep -m4 'FAIL:' /tmp/csdj1-mut-m11.log | sed 's/^/       /' | tee -a "$OUT"
++else
++  ko "M11 — l'équivalence des blancs retirée passe inaperçue (code $M11_RC) : E2 et E8 ne prouvent rien"
+ fi
+ rm -f "$MUT_DET"
+ 
+diff --git a/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh b/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+index 0e1abac..5bd3f5f 100755
+--- a/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
++++ b/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+@@ -1323,11 +1323,27 @@ awk -f "$MUT_AWK" "$SELF" "$HARNESS" > "$MUT_REPORT"
+ # aussi. Une fixture ne doit pas devenir le défaut qu'elle éprouve.
+ DET_FIXT="$TMP_DIR/detector-fixtures"
+ mkdir -p "$DET_FIXT"
+-V_CREATE="crea""te role"
+-V_ALTER="alt""er role"
+-V_ALTER_MIXED="Alt""er Role"
++#
++# Les verbes sont assemblés EN DEUX TEMPS, et non « crea""te role » d'un
++# seul tenant : le détecteur de cette remédiation modélise la
++# CONCATÉNATION des citations du shell, donc « crea""te role » lui est
++# désormais un verbe adjacent -- et ce fichier serait son propre
++# signalement. Deux variables, jamais adjacentes, ne le sont pas.
++V_W_CREATE="crea""te"
++V_W_ALTER="alt""er"
++V_W_ALTER_MIXED="Alt""er"
++V_W_ALTER_UPPER="ALT""ER"
++V_W_ROLE="ro""le"
++V_W_ROLE_MIXED="Ro""le"
++V_W_ROLE_UPPER="RO""LE"
++V_CREATE="$V_W_CREATE $V_W_ROLE"
++V_ALTER="$V_W_ALTER $V_W_ROLE"
++V_ALTER_MIXED="$V_W_ALTER_MIXED $V_W_ROLE_MIXED"
++V_ALTER_UPPER="$V_W_ALTER_UPPER $V_W_ROLE_UPPER"
+ SQ="'"
+ DQ='"'
++TAB="$(printf '\t')"
++CR="$(printf '\r')"
+ 
+ # D1 .. D7 — acquis des tours précédents, rejoués en non-régression.
+ printf '#!/usr/bin/env bash\nq %s%s fixture bypassrls;%s\n' "$SQ" "$V_ALTER" "$SQ" > "$DET_FIXT/d1.sh"
+@@ -1385,6 +1401,86 @@ printf '#!/usr/bin/env bash\nq %sselect 1; drop table if exists x;%s\n' "$DQ" "$
+ { printf '#!/usr/bin/env bash\ncsdj1_identity_mutate \\\n'; printf '%s%s fixture bypassrls;%s\n' "$DQ" "$V_ALTER" "$DQ"; } > "$DET_FIXT/c4.sh"
+ { printf '#!/usr/bin/env bash\nq \\\n'; printf '%sselect 1;%s\n' "$SQ" "$SQ"; } > "$DET_FIXT/c5.sh"
+ 
++# ── E1 .. E10 — LA CLASSE visée par la huitième remédiation : les
++#    blancs et les continuations À L'INTÉRIEUR de l'argument SQL.
++#
++# Ce ne sont pas dix orthographes à rattraper une à une : ce sont dix
++# points d'une même équivalence. Bash retire « barre oblique inverse +
++# saut de ligne » jusque DANS les guillemets doubles ; PostgreSQL lit
++# l'espace, la tabulation, le retour chariot et le saut de ligne comme
++# un seul et même blanc. Le détecteur normalise les deux, puis juge.
++H='#!/usr/bin/env bash'
++# E1 — la reproduction du huitième audit : continuation entre guillemets.
++{ printf '%s\nq %s%s \\\n' "$H" "$DQ" "$V_W_ALTER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e1.sh"
++# E2 — la seconde reproduction : un simple saut de ligne.
++{ printf '%s\nq %s%s\n' "$H" "$DQ" "$V_W_ALTER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e2.sh"
++# E3 — tabulation pour séparateur.
++printf '%s\nq %s%s%s%s fixture bypassrls;%s\n' \
++  "$H" "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ" > "$DET_FIXT/e3.sh"
++# E4 — plusieurs espaces.
++printf '%s\nq %s%s    %s fixture bypassrls;%s\n' \
++  "$H" "$DQ" "$V_W_ALTER" "$V_W_ROLE" "$DQ" > "$DET_FIXT/e4.sh"
++# E5 — L'ÉQUIVALENT GARDÉ de E1 : même forme, appel gardé. Sans ce
++#      point, « tout classer NON-GARDEE » passerait pour une réussite.
++{ printf '%s\ncsdj1_identity_mutate %s%s \\\n' "$H" "$DQ" "$V_W_ALTER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e5.sh"
++# E6 — la même mécanique SANS mutation : rien à signaler.
++{ printf '%s\nq %sselect \\\n' "$H" "$DQ"; printf ' 1;%s\n' "$DQ"; } > "$DET_FIXT/e6.sh"
++# E7 — CREATE ROLE coupé par une continuation.
++{ printf '%s\nq %s%s \\\n' "$H" "$DQ" "$V_W_CREATE"
++  printf '%s fixture login;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/e7.sh"
++# E8 — CREATE ROLE coupé par un saut de ligne, puis tabulation.
++{ printf '%s\nqw %s%s\n' "$H" "$DQ" "$V_W_CREATE"
++  printf '%s%sfixture login;%s\n' "$V_W_ROLE" "$TAB" "$DQ"; } > "$DET_FIXT/e8.sh"
++# E9 — apostrophes, saut de ligne, MAJUSCULES.
++{ printf '%s\nq %s%s\n' "$H" "$SQ" "$V_W_ALTER_UPPER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE_UPPER" "$SQ"; } > "$DET_FIXT/e9.sh"
++# E10 — casse mixte, retour chariot PUIS saut de ligne.
++{ printf '%s\nqw %s%s%s\n' "$H" "$DQ" "$V_W_ALTER_MIXED" "$CR"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE_MIXED" "$DQ"; } > "$DET_FIXT/e10.sh"
++
++# ── F1 .. F6 — formes COMBINÉES : là où deux règles se rencontrent.
++# F1 — appel gardé, commentaire avec apostrophe, puis mutation brute
++#      coupée par une continuation entre guillemets.
++{ printf '%s\n' "$H"
++  printf 'csdj1_identity_mutate %sperform 1;%s # l%setat est reinitialise\n' "$DQ" "$DQ" "$SQ"
++  printf 'q %s%s \\\n' "$DQ" "$V_W_ALTER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f1.sh"
++# F2 — un COMMENTAIRE qui contient le verbe ne déclenche rien ; la
++#      mutation brute qui le suit, elle, est vue.
++{ printf '%s\n' "$H"
++  printf '# ce commentaire parle de %s et ne doit rien declencher\n' "$V_ALTER"
++  printf 'q %s%s%s%s fixture bypassrls;%s\n' "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f2.sh"
++# F3 — document en ligne : la mutation s'étend sur deux lignes du corps.
++#      Un corps analysé ligne à ligne la manquerait.
++{ printf '%s\n' "$H"
++  printf 'q %sEOSQL\n' '<<'
++  printf '  %s\n' "$V_W_ALTER"
++  printf '  %s fixture bypassrls;\n' "$V_W_ROLE"
++  printf 'EOSQL\n'; } > "$DET_FIXT/f3.sh"
++# F4 — appel GARDÉ dont l'argument court sur trois lignes.
++{ printf '%s\n' "$H"
++  printf 'csdj1_identity_mutate %s%s \\\n' "$DQ" "$V_W_ALTER"
++  printf '  %s \\\n' "$V_W_ROLE"
++  printf '  fixture bypassrls;%s\n' "$DQ"; } > "$DET_FIXT/f4.sh"
++# F5 — un « # » dans un littéral SQL reste du SQL, et la mutation qui
++#      le suit, coupée par un saut de ligne, est vue.
++{ printf '%s\nq %sselect %s#%s; %s\n' "$H" "$DQ" "$SQ" "$SQ" "$V_W_ALTER"
++  printf '%s fixture bypassrls;%s\n' "$V_W_ROLE" "$DQ"; } > "$DET_FIXT/f5.sh"
++# F6 — le verbe DANS un littéral de données n'est PAS exécutable.
++printf '%s\nq %sselect %s%s%s;%s\n' \
++  "$H" "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ" > "$DET_FIXT/f6.sh"
++
++# ── P1 .. P3 — contrôles de FAUX POSITIF exigés par le mandat.
++printf '%s\nq %sselect %s%s foo%s;%s\n' \
++  "$H" "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ" > "$DET_FIXT/p1.sh"
++printf '%s\nq %sselect 1; -- %s foo%s\n' \
++  "$H" "$DQ" "$V_ALTER_UPPER" "$DQ" > "$DET_FIXT/p2.sh"
++printf '%s\nq %sselect %s%s foo%s;%s\n' \
++  "$H" "$DQ" "$SQ" "$(printf '%s %s' "$V_W_CREATE" "$V_W_ROLE" | tr 'a-z' 'A-Z')" "$SQ" "$DQ" > "$DET_FIXT/p3.sh"
++
+ # Chaque fixture est d'abord vérifiée SYNTAXIQUEMENT par bash : une
+ # fixture que le shell lui-même n'accepterait pas ne prouverait rien sur
+ # la « réalité lexicale de Bash » que le mandat invoque.
+@@ -1420,6 +1516,25 @@ detector_fixture c2 NON-GARDEE
+ detector_fixture c3 NON-GARDEE
+ detector_fixture c4 GARDEE
+ detector_fixture c5 AUCUNE
++detector_fixture e1 NON-GARDEE
++detector_fixture e2 NON-GARDEE
++detector_fixture e3 NON-GARDEE
++detector_fixture e4 NON-GARDEE
++detector_fixture e5 GARDEE
++detector_fixture e6 AUCUNE
++detector_fixture e7 NON-GARDEE
++detector_fixture e8 NON-GARDEE
++detector_fixture e9 NON-GARDEE
++detector_fixture e10 NON-GARDEE
++detector_fixture f1 NON-GARDEE
++detector_fixture f2 NON-GARDEE
++detector_fixture f3 NON-GARDEE
++detector_fixture f4 GARDEE
++detector_fixture f5 NON-GARDEE
++detector_fixture f6 AUCUNE
++detector_fixture p1 AUCUNE
++detector_fixture p2 AUCUNE
++detector_fixture p3 AUCUNE
+ 
+ # R1 mérite un mot de plus : ce n'est pas seulement qu'elle est
+ # détectée, c'est qu'elle n'est plus ATTRIBUÉE à l'appel gardé qui la
+@@ -1605,6 +1720,285 @@ fi
+ csdj1_identity_mutate "  alter role $R1_PROBE nologin nobypassrls;" >/dev/null
+ csdj1_identity_mutate "  drop role if exists $R1_PROBE;" >/dev/null
+ 
++# ============================================================
++# [J] CONTRE-ÉPREUVE ADVERSARIALE DU DÉTECTEUR
++#     CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01 (huitième remédiation)
++#
++# Sept tours de suite, un audit a trouvé une orthographe que le
++# détecteur ne voyait pas. Montrer qu'il voit E1 et E2 ne vaut donc
++# rien : ce qu'il faut montrer, c'est qu'on a CHERCHÉ À LE TROMPER, et
++# comment.
++#
++# On engendre donc une MATRICE de formes sémantiquement équivalentes --
++# verbe, casse, séparateur, forme de citation, forme d'appel,
++# commentaire -- et, pour chacune, on établit quatre faits :
++#
++#   1. bash l'accepte            (« bash -n »)
++#   2. l'argument RÉELLEMENT transmis est relevé, en faisant jouer à
++#      bash lui-même le rôle d'oracle : la forme est exécutée avec un
++#      « q » factice qui n'imprime que son premier argument ;
++#   3. PostgreSQL l'exécute, et le rôle sonde CHANGE pour de vrai --
++#      c'est PostgreSQL, et non une expression régulière, qui dit que
++#      la forme est bien un CREATE ROLE ou un ALTER ROLE ;
++#   4. le détecteur la classe NON-GARDEE.
++#
++# Et symétriquement, des formes qui CONTIENNENT le verbe sans
++# l'exécuter : elles ne doivent produire aucun signalement.
++#
++# Dans les fichiers engendrés, « q » ET « qw » visent le cluster
++# JETABLE de ce fichier : la démonstration porte sur le verdict et sur
++# l'acceptation par PostgreSQL, non sur la destination -- le témoin,
++# lui, reste intact, comme [D] et [F] l'exigent.
++# ============================================================
++log "=== [J] contre-épreuve adversariale : a-t-on cherché à tromper le détecteur ? ==="
++ADV="$TMP_DIR/adversarial"
++mkdir -p "$ADV"
++ADV_PROBE="scanym_csdj1_adv_probe"
++ADV_LOG="$TMP_DIR/adversarial-cases.txt"
++: > "$ADV_LOG"
++csdj1_identity_use test || fatal "[J] contrat du cluster sous test indisponible."
++csdj1_identity_mutate "
++  if not exists (select 1 from pg_catalog.pg_roles where rolname='$ADV_PROBE') then
++    create role $ADV_PROBE nologin nobypassrls;
++  else
++    alter role $ADV_PROBE nologin nobypassrls;
++  end if;
++" || fatal "[J] impossible de poser le rôle sonde ($CSDJ1_ID_LAST)."
++
++adv_probe_state() {
++  q "select (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
++     from pg_catalog.pg_roles where rolname = '$ADV_PROBE';"
++}
++adv_role_exists() {
++  q "select count(*) from pg_catalog.pg_roles where rolname = '$1';"
++}
++# L'en-tête d'un fichier EXÉCUTABLE : les deux enveloppes brutes, avec
++# la destination ÉCRITE DEDANS. Une seule ligne par définition, pour la
++# même raison qu'en [I] : le détecteur d'isolation analyse CE
++# fichier-ci, pas celui qu'on engendre.
++adv_header() {
++  printf 'q() { env -i PATH=%s HOME=%s "%s" -X -A -q -t -v ON_ERROR_STOP=1 -h %s -p %s -U %s -d postgres -c "$1" </dev/null 2>&1; }\n' \
++    "$SAFE_PATH" "$SAFE_HOME" "$PSQL" "$SOCKET_DIR" "$PORT" "$OWNER"
++  printf 'qw() { q "$1"; }\n'
++  printf 'csdj1_identity_mutate() { :; }\n'
++}
++# L'ARGUMENT, dans la forme voulue. C'est ici, et nulle part ailleurs,
++# que vivent les équivalences : séparateur et forme de citation.
++#   $1 citation : dq | sq | cat     $2 séparateur : sp|spn|tab|lf|crlf|bsl
++#   $3 premier mot   $4 second mot   $5 fin de l'instruction
++adv_arg() {
++  local qk="$1" sk="$2" w1="$3" w2="$4" tail="$5" open body
++  case "$qk" in
++    dq)  open="$DQ"; body="$w1" ;;
++    sq)  open="$SQ"; body="$w1" ;;
++    cat) open="$DQ"; body="${w1:0:3}$DQ$DQ${w1:3}" ;;   # concaténation du shell
++  esac
++  case "$sk" in
++    sp)   printf '%s%s %s %s%s'       "$open" "$body" "$w2" "$tail" "$open" ;;
++    spn)  printf '%s%s    %s %s%s'    "$open" "$body" "$w2" "$tail" "$open" ;;
++    tab)  printf '%s%s%s%s %s%s'      "$open" "$body" "$TAB" "$w2" "$tail" "$open" ;;
++    lf)   printf '%s%s\n%s %s%s'      "$open" "$body" "$w2" "$tail" "$open" ;;
++    crlf) printf '%s%s%s\n%s %s%s'    "$open" "$body" "$CR" "$w2" "$tail" "$open" ;;
++    bsl)  printf '%s%s \\\n%s %s%s'   "$open" "$body" "$w2" "$tail" "$open" ;;
++  esac
++}
++# Un cas : on écrit l'APPEL une seule fois, et on le réemploie pour les
++# deux fichiers. Le fichier jugé par le détecteur et le fichier exécuté
++# portent ainsi, par construction, le même texte d'appel.
++adv_build() {
++  local id="$1" call="$2" prefix="$3" arg="$4"
++  { [ -n "$prefix" ] && printf '%s\n' "$prefix"
++    printf '%s %s\n' "$call" "$arg"; } > "$ADV/call-$id.txt"
++  { printf '#!/usr/bin/env bash\n'; cat "$ADV/call-$id.txt"; } > "$ADV/case-$id.sh"
++  { printf '#!/usr/bin/env bash\n'; adv_header; cat "$ADV/call-$id.txt"; } > "$ADV/exec-$id.sh"
++}
++adv_verdict() {
++  local out
++  out="$(awk -f "$MUT_AWK" "$ADV/case-$1.sh" | head -1 | cut -d"$TAB" -f1)"
++  [ -n "$out" ] || out="AUCUNE"
++  printf '%s' "$out"
++}
++# L'argument réellement transmis : c'est BASH qui le dit.
++adv_derive() {
++  bash --norc --noprofile -c \
++    'q() { printf "%s" "$1"; }; qw() { printf "%s" "$1"; }; csdj1_identity_mutate() { :; }; . "$1"' \
++    _ "$ADV/case-$1.sh" 2>/dev/null
++}
++
++ADV_SEPS="sp spn tab lf crlf bsl"
++ADV_QUOTES="dq sq cat"
++ADV_MUT_OK=0
++ADV_MUT_TOTAL=0
++ADV_CASES=0
++adv_case_n=0
++for adv_verb in alter create; do
++  for adv_q in $ADV_QUOTES; do
++    for adv_s in $ADV_SEPS; do
++      # Entre APOSTROPHES, « barre oblique inverse + saut de ligne »
++      # n'est PAS une continuation : bash les transmet tels quels et
++      # PostgreSQL refuse l'instruction. Ce n'est donc pas une mutation
++      # équivalente, et ce cas est traité à part (X2).
++      [ "$adv_q" = "sq" ] && [ "$adv_s" = "bsl" ] && continue
++      adv_case_n=$((adv_case_n + 1))
++      case $((adv_case_n % 3)) in
++        0) adv_w1="$V_W_ALTER";       adv_w2="$V_W_ROLE";       adv_c1="$V_W_CREATE" ;;
++        1) adv_w1="$V_W_ALTER_UPPER"; adv_w2="$V_W_ROLE_UPPER"; adv_c1="$(printf '%s' "$V_W_CREATE" | tr 'a-z' 'A-Z')" ;;
++        2) adv_w1="$V_W_ALTER_MIXED"; adv_w2="$V_W_ROLE_MIXED";  adv_c1="$(printf '%s' "$V_W_CREATE" | sed 's/^./\U&/')" ;;
++      esac
++      if [ $((adv_case_n % 2)) -eq 0 ]; then adv_call="q"; else adv_call="qw"; fi
++      # Un cas sur quatre est précédé d'un appel GARDÉ et d'un
++      # commentaire contenant une apostrophe : la fuite d'état du
++      # septième tour, rejouée dans chaque famille.
++      adv_prefix=""
++      if [ $((adv_case_n % 4)) -eq 0 ]; then
++        adv_prefix="$(printf 'csdj1_identity_mutate %sperform 1;%s # l%setat est pose' "$DQ" "$DQ" "$SQ")"
++      fi
++      if [ "$adv_verb" = "alter" ]; then
++        adv_id="m$adv_case_n"
++        adv_build "$adv_id" "$adv_call" "$adv_prefix" \
++          "$(adv_arg "$adv_q" "$adv_s" "$adv_w1" "$adv_w2" "$ADV_PROBE bypassrls;")"
++        adv_expect_role="$ADV_PROBE"
++        adv_mode="alter"
++      else
++        adv_id="c$adv_case_n"
++        adv_expect_role="scanym_csdj1_adv_$adv_case_n"
++        adv_build "$adv_id" "$adv_call" "$adv_prefix" \
++          "$(adv_arg "$adv_q" "$adv_s" "$adv_c1" "$adv_w2" "$adv_expect_role nologin nobypassrls;")"
++        adv_mode="create"
++      fi
++
++      ADV_MUT_TOTAL=$((ADV_MUT_TOTAL + 1))
++      adv_why=""
++      if ! bash -n "$ADV/case-$adv_id.sh" 2>/dev/null; then
++        adv_why="bash refuse la forme"
++      else
++        adv_sql="$(adv_derive "$adv_id")"
++        adv_verd="$(adv_verdict "$adv_id")"
++        if [ "$adv_mode" = "alter" ]; then
++          csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null \
++            || adv_why="remise à zéro du rôle sonde impossible"
++          adv_before="$(adv_probe_state)"
++          bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
++          adv_after="$(adv_probe_state)"
++          [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "NOBYPASSRLSBYPASSRLS" ] \
++            || adv_why="PostgreSQL ne l'a pas exécutée comme une mutation ($adv_before -> $adv_after)"
++        else
++          adv_before="$(adv_role_exists "$adv_expect_role")"
++          bash "$ADV/exec-$adv_id.sh" >/dev/null 2>&1
++          adv_after="$(adv_role_exists "$adv_expect_role")"
++          [ -n "$adv_why" ] || [ "$adv_before$adv_after" = "01" ] \
++            || adv_why="PostgreSQL n'a pas créé le rôle ($adv_before -> $adv_after)"
++          csdj1_identity_mutate "  drop role if exists $adv_expect_role;" >/dev/null
++        fi
++        # L'ORDRE compte : l'exécution est éprouvée AVANT le verdict.
++        # Un échec portant sur le verdict signifie donc que PostgreSQL,
++        # lui, a bien muté -- c'est la paire qui discrimine.
++        [ -n "$adv_why" ] || [ "$adv_verd" = "NON-GARDEE" ] \
++          || adv_why="le détecteur rend $adv_verd alors que PostgreSQL a muté ($adv_before -> $adv_after)"
++        printf '%-5s %-6s %-5s %-4s %-11s %s\n' \
++          "$adv_id" "$adv_q" "$adv_s" "$adv_call" "$adv_verd" "$(printf '%s' "$adv_sql" | tr '\r\n\t' '   ')" >> "$ADV_LOG"
++      fi
++      if [ -z "$adv_why" ]; then
++        ADV_MUT_OK=$((ADV_MUT_OK + 1))
++      else
++        fail "[J] cas « $adv_id » ($adv_q/$adv_s/$adv_call) : $adv_why"
++      fi
++    done
++  done
++done
++csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null
++
++if [ "$ADV_MUT_TOTAL" -ge 20 ] && [ "$ADV_MUT_OK" = "$ADV_MUT_TOTAL" ]; then
++  pass "[J] $ADV_MUT_TOTAL formes équivalentes engendrées : bash les accepte, PostgreSQL les exécute, le détecteur les voit toutes"
++else
++  fail "[J] $ADV_MUT_OK/$ADV_MUT_TOTAL formes seulement (il en faut au moins 20, toutes vues)"
++fi
++
++# ── Et le revers : des formes qui CONTIENNENT le verbe sans l'exécuter.
++#    Un détecteur qui signale tout ne signale rien.
++ADV_NEG_OK=0
++ADV_NEG_TOTAL=0
++adv_negative() {
++  local id="$1" arg="$2"
++  ADV_NEG_TOTAL=$((ADV_NEG_TOTAL + 1))
++  adv_build "n$id" "q" "" "$arg"
++  local verd sql before after why=""
++  if ! bash -n "$ADV/case-n$id.sh" 2>/dev/null; then
++    why="bash refuse la forme"
++  else
++    sql="$(adv_derive "n$id")"
++    verd="$(adv_verdict "n$id")"
++    # Le piège doit être PRÉSENT : une forme qui ne contient pas le
++    # verbe ne contrôlerait aucun faux positif.
++    printf '%s' "$sql" | tr -d ' \t\r\n' | tr 'A-Z' 'a-z' \
++      | grep -q "$(printf '%s%s' "$V_W_ALTER" "$V_W_ROLE")\|$(printf '%s%s' "$V_W_CREATE" "$V_W_ROLE")" \
++      || why="le piège est absent : cette forme ne contient pas le verbe"
++    before="$(adv_probe_state)"
++    bash "$ADV/exec-n$id.sh" >/dev/null 2>&1
++    after="$(adv_probe_state)"
++    [ -n "$why" ] || [ "$before" = "$after" ] || why="le rôle sonde a changé ($before -> $after)"
++    [ -n "$why" ] || [ "$verd" = "AUCUNE" ] || why="le détecteur rend $verd"
++    printf '%-5s %-6s %-5s %-4s %-11s %s\n' "n$id" "-" "-" "q" "$verd" \
++      "$(printf '%s' "$sql" | tr '\r\n\t' '   ')" >> "$ADV_LOG"
++  fi
++  if [ -z "$why" ]; then ADV_NEG_OK=$((ADV_NEG_OK + 1))
++  else fail "[J] non-mutation « n$id » : $why"; fi
++}
++adv_negative 1  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ")"
++adv_negative 2  "$(printf '%sselect 1; -- %s foo%s' "$DQ" "$V_ALTER_UPPER" "$DQ")"
++adv_negative 3  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$(printf '%s %s' "$V_W_CREATE" "$V_W_ROLE" | tr 'a-z' 'A-Z')" "$SQ" "$DQ")"
++adv_negative 4  "$(printf '%sselect %s%s foo%s;%s' "$DQ" "$SQ" "$V_ALTER" "$SQ" "$DQ")"
++adv_negative 5  "$(printf '%sselect /* %s foo */ 1;%s' "$DQ" "$V_ALTER" "$DQ")"
++adv_negative 6  "$(printf '%sselect %s%s%s || %sx%s;%s' "$DQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$SQ" "$SQ" "$DQ")"
++adv_negative 7  "$(printf '%sselect %s%s\n foo%s;%s' "$DQ" "$SQ" "$V_ALTER" "$SQ" "$DQ")"
++adv_negative 8  "$(printf '%sselect 1; -- %s%s%s foo%s' "$DQ" "$V_W_ALTER" "$TAB" "$V_W_ROLE" "$DQ")"
++adv_negative 9  "$(printf '%sselect %s%s foo%s as x, %s%s bar%s as y;%s' \
++                    "$DQ" "$SQ" "$V_ALTER" "$SQ" "$SQ" "$V_CREATE" "$SQ" "$DQ")"
++adv_negative 10 "$(printf '%sselect 1 where %sx%s = %s%s%s;%s' "$DQ" "$SQ" "$SQ" "$SQ" "$V_ALTER_UPPER" "$SQ" "$DQ")"
++adv_negative 11 "$(printf '%sselect %s%s%s::text;%s' "$DQ" "$SQ" "$V_ALTER_MIXED" "$SQ" "$DQ")"
++adv_negative 12 "$(printf '%sselect %sdo not run: %s foo%s;%s' "$DQ" "$SQ" "$V_CREATE" "$SQ" "$DQ")"
++
++if [ "$ADV_NEG_TOTAL" -ge 10 ] && [ "$ADV_NEG_OK" = "$ADV_NEG_TOTAL" ]; then
++  pass "[J] $ADV_NEG_TOTAL formes contenant le verbe SANS l'exécuter : aucune n'est signalée, et le rôle sonde n'a pas bougé"
++else
++  fail "[J] $ADV_NEG_OK/$ADV_NEG_TOTAL non-mutations seulement (il en faut au moins 10)"
++fi
++
++# ── X1, X2 — les deux cas que le détecteur assume : il FERME.
++# X1 : une AFFECTATION qui porte le verbe. Le détecteur modélise les
++#      citations du shell, donc il voit le verbe ; il ne modélise pas
++#      l'expansion des paramètres, donc il ne sait pas où ce texte sera
++#      exécuté. Il ferme : SANS-OUVREUR.
++adv_build "x1" "ADV_NOTE=" "" "$(printf '%s%s foo;%s' "$DQ" "$V_ALTER" "$DQ")"
++X1_V="$(adv_verdict x1)"
++if [ "$X1_V" = "SANS-OUVREUR" ]; then
++  pass "[J] X1 — une affectation portant le verbe FERME ($X1_V) : l'expansion n'est pas modélisée, donc rien n'est présumé"
++else
++  fail "[J] X1 — une affectation portant le verbe rend $X1_V au lieu de SANS-OUVREUR"
++fi
++# X2 : entre APOSTROPHES, « \ » suivi d'un saut de ligne n'est pas une
++#      continuation : PostgreSQL REFUSE l'instruction. Ce n'est donc pas
++#      une mutation, et le détecteur ne la signale pas -- les deux
++#      moitiés du fait sont vérifiées, pas seulement l'étiquette.
++adv_build "x2" "q" "" "$(adv_arg sq bsl "$V_W_ALTER" "$V_W_ROLE" "$ADV_PROBE bypassrls;")"
++X2_V="$(adv_verdict x2)"
++X2_BEFORE="$(adv_probe_state)"
++bash "$ADV/exec-x2.sh" >/dev/null 2>&1
++X2_AFTER="$(adv_probe_state)"
++if [ "$X2_BEFORE" = "$X2_AFTER" ] && [ "$X2_V" = "AUCUNE" ]; then
++  pass "[J] X2 — « \\ » + saut de ligne entre apostrophes : PostgreSQL refuse, le rôle ne bouge pas, rien n'est signalé"
++else
++  fail "[J] X2 — verdict $X2_V, rôle $X2_BEFORE -> $X2_AFTER : l'un des deux faits ne tient pas"
++fi
++
++csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobypassrls;" >/dev/null
++csdj1_identity_mutate "  drop role if exists $ADV_PROBE;" >/dev/null
++# La matrice est RECOPIÉE dans la sortie du harnais : le répertoire
++# temporaire disparaît au nettoyage, et le mandat demande que le
++# résumé des cas engendrés figure dans les preuves.
++log "--- [J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis"
++while IFS= read -r adv_line; do log "    $adv_line"; done < "$ADV_LOG"
++
+ log "=== BILAN ISOLATION ET RESTAURATION : $PASS preuve(s), $FAIL échec(s) ==="
+ [ "$FAIL" -eq 0 ] || exit 1
+ exit 0
+diff --git a/supabase/tests/csdj1-raw-role-mutation-detector.awk b/supabase/tests/csdj1-raw-role-mutation-detector.awk
+index 7ec93fd..4237608 100644
+--- a/supabase/tests/csdj1-raw-role-mutation-detector.awk
++++ b/supabase/tests/csdj1-raw-role-mutation-detector.awk
+@@ -3,80 +3,217 @@
+ # CSDJ1-AUD-07-RAW-ROLE-DETECTOR-01
+ #
+ # Il répond à une seule question, pour chaque commande shell d'un
+-# harnais CSDJ-1 : si cette commande mute un rôle PostgreSQL, le fait-
+-# elle à travers le prédicat d'identité, ou directement ?
++# harnais CSDJ-1 : si cette commande fait exécuter une mutation de rôle
++# PostgreSQL, passe-t-elle par le prédicat d'identité, ou directement ?
+ #
+-# POURQUOI UN LEXEUR, ET PLUS DES HEURISTIQUES DE LIGNE
+-# -----------------------------------------------------
+-# Les versions précédentes raisonnaient ligne par ligne, en comptant
+-# les guillemets pour devine* si un argument restait ouvert. Trois
+-# audits successifs ont trouvé trois façons de tromper ce comptage, et
+-# la dernière est la plus parlante :
++# POURQUOI SIX ÉTAPES, ET PLUS DE RUSTINES
++# ----------------------------------------
++# Quatre audits ont trouvé quatre façons de tromper un détecteur qui
++# raisonnait sur l'orthographe d'une ligne : la casse, la forme du
++# littéral, la fuite d'état entre commandes, l'apostrophe d'un
++# commentaire. La cinquième -- la continuation À L'INTÉRIEUR d'un
++# argument entre guillemets, et le retour à la ligne comme simple blanc
++# SQL -- montre que la liste des orthographes n'a pas de fin :
+ #
+-#   csdj1_identity_mutate "perform 1;" # l'initialisation est terminee
+-#   q \
+-#   'alter role fixture bypassrls;'
++#   q "alter \          q "alter
++#   role fixture ...;"  role fixture ...;"
+ #
+-# L'apostrophe du COMMENTAIRE était comptée comme un délimiteur. L'état
+-# « gardé » survivait donc à une commande pourtant terminée, la
+-# continuation par barre oblique inverse n'était pas reconnue, et la
+-# mutation BRUTE de la troisième ligne était déclarée GARDÉE. Elle
+-# s'exécutait pourtant, et changeait réellement le rôle.
++# Bash passe, dans les deux cas, du SQL que PostgreSQL lit comme
++# « ALTER ROLE ». Corriger ces deux formes-là ne ferait que déplacer la
++# frontière.
+ #
+-# On ne corrige donc plus le comptage : on le remplace. Ce fichier
+-# reconstitue les COMMANDES, en modélisant ce qu'il faut de la syntaxe
+-# du shell -- et rien de plus :
++# On ne compare donc plus des textes : on construit une REPRÉSENTATION
++# NORMALISÉE, et c'est elle qu'on interroge. Six étapes explicites :
+ #
+-#   - texte ordinaire ;
+-#   - texte entre apostrophes (aucune échappement à l'intérieur, c'est
+-#     la règle du shell) ;
+-#   - texte entre guillemets (où la barre oblique inverse échappe) ;
+-#   - commentaire : « # » en début de mot, HORS citation, jusqu'à la fin
+-#     de la ligne physique -- et il n'affecte AUCUN état ;
+-#   - continuation : barre oblique inverse en fin de ligne, hors
+-#     citation ;
+-#   - fin de commande : « ; », « & », « | », ou fin de ligne hors
+-#     citation et hors continuation ;
+-#   - document en ligne (heredoc) : son corps est du texte, pas du
+-#     shell, mais une mutation qu'il contient appartient à la commande
+-#     qui l'a ouvert.
++#   A. reconstitution LEXICALE d'une commande shell ;
++#   B. normalisation SÉMANTIQUE du shell -- continuations retirées (y
++#      compris entre guillemets), commentaires ignorés, guillemets
++#      consommés comme le shell les consomme ;
++#   C. le texte RÉELLEMENT transmis au client est ce qui sera analysé ;
++#   D. normalisation SQL -- commentaires retirés, littéraux de DONNÉES
++#      neutralisés, corps à dollars conservés, blancs réduits ;
++#   E. reconnaissance du mot-clé, insensible à la casse ;
++#   F. classement gardé / brut de la commande.
+ #
+-# Chaque commande est classée SEULE. Aucun état ne se propage d'une
+-# commande à la suivante : la classe entière de défauts « fuite d'état »
+-# disparaît par construction, et non par correctif.
++# Chaque étape est lisible seule, et chacune est éprouvée par les
++# fixtures du harnais -- D1-D7, R1-R5, C1-C5, E1-E10, F1-F6, P1-P3 --
++# puis par la contre-épreuve adversariale de la section [J], qui
++# engendre une matrice de formes équivalentes et confronte CHAQUE
++# verdict à ce que PostgreSQL exécute réellement.
+ #
+-# FERMÉ PAR DÉFAUT
+-# ----------------
+-# Une commande qui mute un rôle sans qu'on puisse désigner l'appel
+-# gardé qui la porte est rapportée SANS-OUVREUR, et le harnais la
+-# traite comme un échec. Mieux vaut un signalement de trop qu'une
+-# mutation brute déclarée gardée : c'est précisément ce mensonge qui a
+-# tenu AUD-07 ouvert trois tours de plus.
++# INVARIANT
++# ---------
++# Si Bash transmet du SQL que PostgreSQL lit comme CREATE ROLE ou
++# ALTER ROLE, le détecteur rend GARDEE ou NON-GARDEE -- jamais
++# « rien ». Une commande qu'il ne sait pas classer est rapportée
++# SANS-OUVREUR, et le harnais la traite comme un échec. Mieux vaut un
++# signalement de trop qu'une mutation brute déclarée gardée.
+ #
+-# Ce fichier vit SÉPARÉMENT des harnais qu'il analyse. Un détecteur
+-# logé dans le fichier qu'il scrute se dénonce lui-même, et l'on finit
++# LIMITES ASSUMÉES, ET DOCUMENTÉES
++# --------------------------------
++# 1. Un littéral SQL entre apostrophes est tenu pour des DONNÉES --
++#    sauf quand il est l'argument d'EXECUTE, seule forme par laquelle
++#    ces harnais font exécuter du SQL logé dans un littéral (relecture
++#    exhaustive : « execute 'create role … ' » et « execute 'alter role
++#    … ' », aucun « execute format(…) », aucune requête préparée). Un
++#    littéral exécuté autrement ne serait pas vu ; si l'une des deux
++#    implémentations devait en employer une, ce commentaire est
++#    l'endroit où il faudrait le dire.
++# 2. L'EXPANSION DES PARAMÈTRES n'est pas modélisée. Le détecteur sait
++#    lire « "crea""te role" » -- la concaténation du shell -- mais pas
++#    suivre un verbe rangé dans une variable jusqu'à son exécution.
++#    Une AFFECTATION portant le verbe est donc rapportée
++#    SANS-OUVREUR : fermé, et non présumé inoffensif. C'est le cas X1
++#    de la section [J], et la raison pour laquelle les verbes des
++#    fixtures sont assemblés en DEUX variables jamais adjacentes.
++# 3. Entre APOSTROPHES, « barre oblique inverse + saut de ligne » n'est
++#    pas une continuation : bash les transmet tels quels, PostgreSQL
++#    refuse l'instruction, et le détecteur ne signale rien. Les deux
++#    moitiés de ce fait sont vérifiées par le cas X2 -- l'absence de
++#    signalement y est accompagnée de la preuve que le rôle ne bouge
++#    pas.
++#
++# Ce fichier vit SÉPARÉMENT des harnais qu'il analyse : logé dans le
++# fichier qu'il scrute, un détecteur se dénonce lui-même, et l'on finit
+ # par lui ajouter des exceptions -- lesquelles sont autant de trous.
+ # ====================================================================
+ 
+-function classify(cmd,   low, kind) {
++# ── ÉTAPE D ── Normalisation SQL.
++#
++# Retire ce que PostgreSQL ne lit pas comme du code, conserve ce qu'il
++# exécute, et réduit tout blanc à une espace unique. Les blancs SQL sont
++# l'espace, la tabulation, le retour chariot et le saut de ligne : c'est
++# pourquoi « ALTER<LF>ROLE » est une mutation comme « ALTER ROLE ».
++function sql_normalize(s,   out, i, n, c, c2, lastword, curword, tag, j, k, keep, closing) {
++  out = ""
++  lastword = ""
++  curword = ""
++  n = length(s)
++  i = 1
++  while (i <= n) {
++    c = substr(s, i, 1)
++
++    # Commentaire de fin de ligne : « -- » jusqu'au saut de ligne.
++    if (c == "-" && substr(s, i + 1, 1) == "-") {
++      while (i <= n && substr(s, i, 1) != "\n") i++
++      out = out " "
++      if (curword != "") { lastword = curword; curword = "" }
++      continue
++    }
++
++    # Commentaire en bloc, imbricable comme chez PostgreSQL.
++    if (c == "/" && substr(s, i + 1, 1) == "*") {
++      k = 1
++      i += 2
++      while (i <= n && k > 0) {
++        if (substr(s, i, 2) == "/*") { k++; i += 2; continue }
++        if (substr(s, i, 2) == "*/") { k--; i += 2; continue }
++        i++
++      }
++      out = out " "
++      if (curword != "") { lastword = curword; curword = "" }
++      continue
++    }
++
++    # Corps à dollars : « $$ … $$ », « $tag$ … $tag$ ». C'est un
++    # littéral pour l'analyseur, mais le corps d'un DO est EXÉCUTÉ : on
++    # le CONSERVE. Le retirer masquerait une mutation réelle.
++    if (c == "$") {
++      j = i + 1
++      tag = ""
++      if (substr(s, j, 1) ~ /[A-Za-z_]/) {
++        while (j <= n && substr(s, j, 1) ~ /[A-Za-z0-9_]/) { tag = tag substr(s, j, 1); j++ }
++      }
++      if (substr(s, j, 1) == "$") {
++        closing = "$" tag "$"
++        j++
++        k = index(substr(s, j), closing)
++        if (k > 0) {
++          out = out " " substr(s, j, k - 1) " "
++          i = j + k - 1 + length(closing)
++          lastword = ""; curword = ""
++          continue
++        }
++      }
++      out = out c
++      i++
++      continue
++    }
++
++    # Littéral entre apostrophes. DONNÉES, sauf argument d'EXECUTE.
++    # « lastword » est le dernier MOT COMPLET : les blancs ne l'effacent
++    # pas, sans quoi « execute 'alter role …' » -- avec son espace --
++    # échapperait à la règle, et la seule forme par laquelle ces harnais
++    # font exécuter du SQL logé dans un littéral serait manquée.
++    if (c == "'") {
++      if (curword != "") { lastword = curword; curword = "" }
++      keep = (lastword == "execute")
++      i++
++      while (i <= n) {
++        c2 = substr(s, i, 1)
++        if (c2 == "'") {
++          if (substr(s, i + 1, 1) == "'") {       # apostrophe échappée
++            if (keep) out = out "'"
++            i += 2
++            continue
++          }
++          i++
++          break
++        }
++        if (keep) out = out c2
++        i++
++      }
++      out = out " "
++      lastword = ""; curword = ""
++      continue
++    }
++
++    if (c ~ /[A-Za-z0-9_]/) {
++      curword = curword tolower(c)
++      out = out c
++      i++
++      continue
++    }
++
++    if (curword != "") { lastword = curword; curword = "" }
++    out = out c
++    i++
++  }
++
++  # Blancs SQL réduits : espace, tabulation, retour chariot, saut de
++  # ligne -- et les suites de blancs valent une espace.
++  gsub(/[ \t\r\n\013\f]+/, " ", out)
++  return out
++}
++
++# ── ÉTAPE E ── Le mot-clé, insensible à la casse.
++function has_role_mutation(expanded,   norm) {
++  norm = tolower(sql_normalize(expanded))
++  return (norm ~ /(create|alter|drop) role/)
++}
++
++# ── ÉTAPE F ── Gardé ou brut. Le classement porte sur le TEXTE
++#    VERBATIM de la commande : c'est là que se lisent les appels.
++function classify(verbatim,   kind) {
+   kind = "none"
+-  if (cmd ~ /csdj1_identity_(mutate|install|uninstall)/ \
+-      || cmd ~ /RESTORE_SQL=/ || cmd ~ /PROBE_MUTATION=/) kind = "garde"
++  if (verbatim ~ /csdj1_identity_(mutate|install|uninstall)/ \
++      || verbatim ~ /RESTORE_SQL=/ || verbatim ~ /PROBE_MUTATION=/) kind = "garde"
+   # Un appel BRUT l'emporte sur un appel gardé présent dans la même
+-  # commande : en cas de doute, on choisit le classement défavorable.
+-  if (cmd ~ /(^|[^a-z_])(q|qw)[ \t]*["']/ \
+-      || cmd ~ /csdj1_runner_[a-z_]+[ \t]*["']/ \
+-      || cmd ~ /(psql|probe|sql_value|run_sql)[ \t]+(-|["']|\$)/) kind = "brut"
++  # commande : en cas de doute, le classement défavorable gagne.
++  # Les formes d'argument reconnues : apostrophe, guillemet,
++  # continuation, et document en ligne (« << DELIM »).
++  if (verbatim ~ /(^|[^a-z_])(q|qw)[ \t]*["'\\<]/ \
++      || verbatim ~ /csdj1_runner_[a-z_]+[ \t]*["'\\<]/ \
++      || verbatim ~ /(psql|probe|sql_value|run_sql)[ \t]+(-|["']|\$|<)/) kind = "brut"
+   return kind
+ }
+ 
+-function has_role_mutation(cmd) {
+-  # Insensible à la casse : « Alter Role » est une mutation comme une
+-  # autre, et c'est bien ainsi que PostgreSQL la lit.
+-  return (tolower(cmd) ~ /(create|alter|drop)[ \t]+role/)
+-}
+-
+ function report(kind, cmd, note) {
++  # UN signalement, UNE ligne : le harnais compte des lignes, et une
++  # commande reconstituée contient des sauts de ligne.
++  gsub(/[ \t\r\n]+/, " ", cmd)
++  sub(/^ /, "", cmd)
++  if (length(cmd) > 240) cmd = substr(cmd, 1, 237) "..."
+   if (kind == "brut")
+     printf "NON-GARDEE\t%s\t%s\t%s\n", FILENAME, cmd, note
+   else if (kind == "garde")
+@@ -86,46 +223,69 @@ function report(kind, cmd, note) {
+ }
+ 
+ function finish(   kind) {
+-  if (buf ~ /^[ \t\n]*$/) { buf = ""; return }
+-  kind = classify(buf)
++  if (cmdraw ~ /^[ \t\n]*$/) { cmdraw = ""; cmdexp = ""; return }
++  kind = classify(cmdraw)
+   lastkind = kind
+-  if (has_role_mutation(buf)) report(kind, buf, "commande complete")
+-  buf = ""
++  if (has_role_mutation(cmdexp)) report(kind, cmdraw, "commande complete")
++  cmdraw = ""
++  cmdexp = ""
+ }
+ 
+-BEGIN { q = ""; buf = ""; cont = 0; hd = ""; hdkind = ""; lastkind = "none" }
++BEGIN {
++  q = ""; cmdraw = ""; cmdexp = ""; cont = 0
++  hd = ""; hdkind = ""; hdbody = ""; hdlit = 0; lastkind = "none"
++}
+ 
+-# ── Corps d'un document en ligne : du TEXTE, pas du shell. Il ne touche
+-#    pas l'état de citation, mais une mutation qu'il contient appartient
+-#    bien à la commande qui l'a ouvert.
++# Corps d'un document en ligne : du TEXTE, pas du shell. Il ne touche
++# pas l'état de citation, mais une mutation qu'il contient appartient
++# bien à la commande qui l'a ouvert.
++#
++# Le corps est ACCUMULÉ puis analysé D'UN SEUL BLOC : du SQL logé dans un
++# document en ligne s'étend sur plusieurs lignes, et « alter » en fin de
++# ligne suivi de « role » en tête de la suivante est une mutation que
++# PostgreSQL exécute. Une analyse ligne à ligne la manquerait -- c'est
++# exactement la classe de défauts que cette remédiation ferme.
+ hd != "" {
+-  if ($0 ~ "^[ \t]*" hd "[ \t]*$") { hd = ""; hdkind = ""; next }
+-  if (has_role_mutation($0)) report(hdkind, $0, "corps de document en ligne")
++  if ($0 ~ "^[ \t]*" hd "[ \t]*$") {
++    # Délimiteur NON cité : Bash retire « barre oblique inverse + saut de
++    # ligne » dans le corps. Délimiteur cité : il n'y touche pas.
++    if (!hdlit) gsub(/\\\n/, "", hdbody)
++    if (has_role_mutation(hdbody))
++      report(hdkind, hdbody, "corps de document en ligne")
++    hd = ""; hdkind = ""; hdbody = ""; hdlit = 0
++    next
++  }
++  hdbody = hdbody $0 "\n"
+   next
+ }
+ 
++# ── ÉTAPES A, B et C ── Reconstitution lexicale, normalisation shell,
++#    et accumulation de DEUX textes : le verbatim (pour reconnaître les
++#    appels) et l'EXPANSÉ (ce que le client reçoit réellement).
+ {
+   line = $0
+   n = length(line)
+   i = 1
+   hdpending = ""
++  hdpendlit = 0
+ 
+   while (i <= n) {
+     c = substr(line, i, 1)
+ 
+     if (q == "") {
+       if (c == "\\") {
+-        if (i == n) { cont = 1; i++; continue }          # continuation
+-        buf = buf substr(line, i + 1, 1); i += 2; continue
++        if (i == n) { cont = 1; i++; continue }           # continuation
++        cmdraw = cmdraw substr(line, i, 2)
++        cmdexp = cmdexp substr(line, i + 1, 1)
++        i += 2
++        continue
+       }
+       # Commentaire : « # » en début de mot, hors citation. Le reste de
+       # la ligne physique est abandonné, et n'affecte RIEN.
+-      if (c == "#" && (buf == "" || substr(buf, length(buf), 1) ~ /[ \t\n;&|(]/)) break
+-      if (c == "'")  { q = "'";  buf = buf c; i++; continue }
+-      if (c == "\"") { q = "\""; buf = buf c; i++; continue }
++      if (c == "#" && (cmdraw == "" || substr(cmdraw, length(cmdraw), 1) ~ /[ \t\n;&|(]/)) break
++      if (c == "'")  { q = "'";  cmdraw = cmdraw c; i++; continue }
++      if (c == "\"") { q = "\""; cmdraw = cmdraw c; i++; continue }
+       if (c == ";" || c == "&" || c == "|") { finish(); i++; continue }
+-      # Ouverture d'un document en ligne : « << », « <<- », délimiteur
+-      # éventuellement cité.
+       if (c == "<" && substr(line, i, 2) == "<<") {
+         j = i + 2
+         if (substr(line, j, 1) == "-") j++
+@@ -133,40 +293,61 @@ hd != "" {
+         if (dq == "'" || dq == "\"") {
+           j++
+           hdpending = ""
++          hdpendlit = 1                 # délimiteur cité : aucune expansion
+           while (j <= n && substr(line, j, 1) != dq) { hdpending = hdpending substr(line, j, 1); j++ }
+           j++
+         } else {
+           hdpending = ""
++          hdpendlit = 0
+           while (j <= n && substr(line, j, 1) ~ /[A-Za-z0-9_]/) { hdpending = hdpending substr(line, j, 1); j++ }
+         }
++        # Le « << DELIM » reste dans le VERBATIM : c'est une forme
++        # d'argument, et l'étape F doit pouvoir y reconnaître l'appel.
++        cmdraw = cmdraw substr(line, i, j - i)
+         i = j
+         continue
+       }
+-      buf = buf c; i++; continue
++      cmdraw = cmdraw c; cmdexp = cmdexp c; i++; continue
+     }
+ 
+-    if (q == "'") {                                       # aucune échappement
+-      if (c == "'") q = ""
+-      buf = buf c; i++; continue
++    if (q == "'") {                                        # aucun échappement
++      if (c == "'") { q = ""; cmdraw = cmdraw c; i++; continue }
++      cmdraw = cmdraw c; cmdexp = cmdexp c; i++; continue
+     }
+ 
+-    # q == guillemet double : la barre oblique inverse y échappe.
+-    if (c == "\\" && i < n) { buf = buf substr(line, i, 2); i += 2; continue }
+-    if (c == "\"") { q = ""; buf = buf c; i++; continue }
+-    buf = buf c; i++; continue
++    # q == guillemet double.
++    if (c == "\\") {
++      # Barre oblique inverse en FIN DE LIGNE, entre guillemets : Bash
++      # retire la barre ET le saut de ligne. C'est la forme que l'audit
++      # a trouvée, et elle ne laisse aucune trace dans l'argument.
++      if (i == n) { cont = 1; i++; continue }
++      cmdraw = cmdraw substr(line, i, 2)
++      cmdexp = cmdexp substr(line, i + 1, 1)
++      i += 2
++      continue
++    }
++    if (c == "\"") { q = ""; cmdraw = cmdraw c; i++; continue }
++    cmdraw = cmdraw c; cmdexp = cmdexp c; i++; continue
+   }
+ 
+-  if (q != "") { buf = buf "\n"; next }                   # argument encore ouvert
+-  if (cont) { cont = 0; next }                            # continuation
++  # Une continuation ne laisse RIEN : ni saut de ligne, ni fin de
++  # commande. L'état de citation, lui, est conservé.
++  if (cont) { cont = 0; next }
++  # Un argument encore ouvert : le saut de ligne en fait partie, et
++  # PostgreSQL le lira comme un blanc.
++  if (q != "") { cmdraw = cmdraw "\n"; cmdexp = cmdexp "\n"; next }
+   finish()
+-  if (hdpending != "") { hd = hdpending; hdkind = lastkind }
++  if (hdpending != "") { hd = hdpending; hdkind = lastkind; hdbody = ""; hdlit = hdpendlit }
+ }
+ 
+-# Une commande laissée ouverte en fin de fichier ne peut pas être
+-# classée avec certitude : on la rapporte, défavorablement.
++# Une commande -- ou un corps de document en ligne -- laissé ouvert en
++# fin de fichier ne peut pas être classé avec certitude : on le
++# rapporte, défavorablement.
+ END {
+-  if (buf !~ /^[ \t\n]*$/) {
+-    if (has_role_mutation(buf))
+-      printf "SANS-OUVREUR\t%s\t%s\t%s\n", FILENAME, buf, "commande non terminee en fin de fichier"
++  if (cmdraw !~ /^[ \t\n]*$/) {
++    if (has_role_mutation(cmdexp))
++      printf "SANS-OUVREUR\t%s\t%s\t%s\n", FILENAME, cmdraw, "commande non terminee en fin de fichier"
+   }
++  if (hd != "" && has_role_mutation(hdbody))
++    printf "SANS-OUVREUR\t%s\t%s\t%s\n", FILENAME, hdbody, "document en ligne non termine en fin de fichier"
+ }
+diff --git a/tests/csdj1-sql-structural.test.ts b/tests/csdj1-sql-structural.test.ts
+index c09d8c2..ca88f26 100644
+--- a/tests/csdj1-sql-structural.test.ts
++++ b/tests/csdj1-sql-structural.test.ts
+@@ -1594,12 +1594,14 @@ test("[AUD07-SQL-6] une mutation brute tenant sur UNE ligne est classée par sa
+ 
+   // Le classement porte sur la commande reconstituée, pas sur la ligne.
+   assert.ok(
+-    det.includes('report(kind, buf, "commande complete")'),
++    det.includes('report(kind, cmdraw, "commande complete")'),
+     "le verdict doit porter sur la COMMANDE reconstituée"
+   );
+   assert.ok(
+-    det.includes("function finish(") && det.includes("buf = \"\""),
+-    "chaque commande doit être classée puis remise à zéro"
++    det.includes("function finish(") &&
++      det.includes('cmdraw = ""') &&
++      det.includes('cmdexp = ""'),
++    "chaque commande doit être classée puis remise à zéro, dans ses DEUX textes"
+   );
+   // Les formes d'une seule ligne, dans les deux littéraux.
+   assert.ok(
+@@ -1743,33 +1745,83 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+   );
+   const det = readFileSync(DET_PATH, "utf8");
+ 
+-  // Les cinq états du mandat sont modélisés.
++  // Les SIX ÉTAPES du mandat de la huitième remédiation existent, et
++  // chacune est une fonction qu'on peut éprouver seule.
++  for (const fn of [
++    "function sql_normalize(",
++    "function has_role_mutation(",
++    "function classify(",
++    "function finish(",
++  ]) {
++    assert.ok(det.includes(fn), `l'étape « ${fn} » doit être une fonction distincte`);
++  }
++  // Les cinq états du shell sont modélisés.
+   assert.ok(
+-    /if \(c == "#" && \(buf == "" \|\| substr\(buf, length\(buf\), 1\) ~/.test(det),
++    /if \(c == "#" && \(cmdraw == "" \|\| substr\(cmdraw, length\(cmdraw\), 1\) ~/.test(det),
+     "un « # » en début de mot, hors citation, doit terminer la ligne sans toucher l'état"
+   );
+   assert.ok(
+-    /if \(i == n\) \{ cont = 1;/.test(det),
+-    "une barre oblique inverse en fin de ligne doit être une continuation"
++    det.includes(`if (q == "'") {`) && det.includes("aucun échappement"),
++    "les apostrophes n'admettent aucun échappement : c'est la règle du shell"
+   );
+   assert.ok(
+-    det.includes(`if (q == "'") {`) && det.includes("aucune échappement"),
+-    "les apostrophes n'admettent aucun échappement : c'est la règle du shell"
++    det.includes('if (c == ";" || c == "&" || c == "|") { finish(); i++; continue }'),
++    "« ; », « & » et « | » hors citation terminent une commande"
+   );
++  // LA CORRECTION DE LA HUITIÈME PASSE, premier volet : la continuation
++  // est reconnue DANS LES DEUX ÉTATS -- hors citation ET entre
++  // guillemets doubles, où bash retire aussi « \ » + saut de ligne.
++  const contOccurrences = det.split("cont = 1").length - 1;
+   assert.ok(
+-    /if \(c == "\\\\" && i < n\) \{ buf = buf substr\(line, i, 2\)/.test(det),
+-    "entre guillemets, la barre oblique inverse échappe le caractère suivant"
++    contOccurrences === 2,
++    "la continuation doit être reconnue hors citation ET entre guillemets doubles"
+   );
++  // Et une continuation ne laisse RIEN, alors qu'un argument encore
++  // ouvert garde son saut de ligne : l'ordre de ces deux règles EST la
++  // correction.
+   assert.ok(
+-    det.includes('if (c == ";" || c == "&" || c == "|") { finish(); i++; continue }'),
+-    "« ; », « & » et « | » hors citation terminent une commande"
++    det.indexOf("if (cont) { cont = 0; next }") <
++      det.indexOf('if (q != "") { cmdraw = cmdraw "\\n"'),
++    "la continuation doit être traitée AVANT l'argument resté ouvert"
++  );
++  // Second volet : l'équivalence des blancs SQL. PostgreSQL lit
++  // l'espace, la tabulation, le retour chariot et le saut de ligne
++  // comme un seul et même blanc.
++  assert.ok(
++    det.includes('gsub(/[ \\t\\r\\n\\013\\f]+/, " ", out)'),
++    "tout blanc SQL doit être réduit à une espace unique"
++  );
++  // Les littéraux sont des DONNÉES -- sauf l'argument d'EXECUTE, seule
++  // forme par laquelle ces harnais exécutent du SQL logé dans un
++  // littéral. Et « lastword » est le dernier MOT COMPLET : un espace
++  // ne doit pas l'effacer, sans quoi « execute 'alter role …' »
++  // échapperait à la règle.
++  assert.ok(
++    det.includes('keep = (lastword == "execute")'),
++    "un littéral n'est conservé que s'il est l'argument d'EXECUTE"
++  );
++  assert.ok(
++    det.includes('if (curword != "") { lastword = curword; curword = "" }'),
++    "le dernier mot complet ne doit pas être effacé par un blanc"
++  );
++  // Un corps à dollars est EXÉCUTÉ : il est conservé.
++  assert.ok(
++    det.includes('closing = "$" tag "$"'),
++    "un corps à dollars doit être reconnu et CONSERVÉ : le corps d'un DO s'exécute"
+   );
+   // Les documents en ligne : leur corps est du texte, mais une mutation
+-  // qu'il contient appartient à la commande qui l'a ouvert.
++  // qu'il contient appartient à la commande qui l'a ouvert -- et il est
++  // analysé D'UN SEUL BLOC, car le SQL d'un corps s'étend sur
++  // plusieurs lignes.
+   assert.ok(
+     det.includes('substr(line, i, 2) == "<<"') && det.includes("hdkind"),
+     "un document en ligne doit être reconnu, et son corps attribué à la commande qui l'ouvre"
+   );
++  assert.ok(
++    det.includes('hdbody = hdbody $0 "\\n"') &&
++      det.includes("if (has_role_mutation(hdbody))"),
++    "le corps d'un document en ligne doit être analysé d'un seul bloc, et non ligne à ligne"
++  );
+   // Aucun état ne se propage d'une commande à l'autre.
+   assert.ok(
+     !/(^|[^a-z])pending\b/m.test(det),
+@@ -1780,11 +1832,11 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+     det.includes("SANS-OUVREUR") && det.includes("commande non terminee en fin de fichier"),
+     "une commande qu'on ne sait pas classer doit être rapportée défavorablement"
+   );
+-  // Casse insensible.
++  // Casse insensible, sur la REPRÉSENTATION NORMALISÉE.
+   assert.ok(
+-    det.includes("tolower(cmd)") &&
+-      /\(create\|alter\|drop\)\[ \\t\]\+role/.test(det),
+-    "le mot-clé doit être cherché sur le texte en minuscules"
++    det.includes("norm = tolower(sql_normalize(expanded))") &&
++      /\(create\|alter\|drop\) role/.test(det),
++    "le mot-clé doit être cherché sur la représentation normalisée, en minuscules"
+   );
+   // Un appel BRUT l'emporte sur un appel gardé dans la même commande.
+   assert.ok(
+@@ -1792,7 +1844,10 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+     "en cas de doute, le classement défavorable doit l'emporter"
+   );
+ 
+-  // Les dix-sept fixtures : D1-D7, R1-R5, C1-C5.
++  // Les trente-six fixtures : D1-D7, R1-R5, C1-C5, E1-E10, F1-F6,
++  // P1-P3. E5 et F4 sont les ÉQUIVALENTS GARDÉS de E1 et des formes
++  // multi-lignes : sans eux, « tout classer NON-GARDEE » passerait pour
++  // une réussite.
+   const rolePath =
+     "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
+   const role = readFileSync(rolePath, "utf8");
+@@ -1807,6 +1862,13 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+     ["r4", "NON-GARDEE"], ["r5", "NON-GARDEE"],
+     ["c1", "NON-GARDEE"], ["c2", "NON-GARDEE"], ["c3", "NON-GARDEE"],
+     ["c4", "GARDEE"], ["c5", "AUCUNE"],
++    ["e1", "NON-GARDEE"], ["e2", "NON-GARDEE"], ["e3", "NON-GARDEE"],
++    ["e4", "NON-GARDEE"], ["e5", "GARDEE"], ["e6", "AUCUNE"],
++    ["e7", "NON-GARDEE"], ["e8", "NON-GARDEE"], ["e9", "NON-GARDEE"],
++    ["e10", "NON-GARDEE"],
++    ["f1", "NON-GARDEE"], ["f2", "NON-GARDEE"], ["f3", "NON-GARDEE"],
++    ["f4", "GARDEE"], ["f5", "NON-GARDEE"], ["f6", "AUCUNE"],
++    ["p1", "AUCUNE"], ["p2", "AUCUNE"], ["p3", "AUCUNE"],
+   ];
+   for (const [fx, want] of EXPECTED) {
+     assert.ok(
+@@ -1830,10 +1892,133 @@ test("[AUD07-SQL-8] le détecteur reconstitue les COMMANDES du shell", () => {
+     role.includes("NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle"),
+     "le contrôle doit observer la mutation effective d'un rôle"
+   );
+-  // Les verbes des fixtures restent assemblés.
++  // Les verbes des fixtures restent assemblés -- et désormais EN DEUX
++  // TEMPS : le détecteur modélise la concaténation des citations du
++  // shell, donc « crea""te role » d'un seul tenant serait, à juste
++  // titre, son propre signalement.
++  assert.ok(
++    role.includes('V_W_ALTER="alt""er"') &&
++      role.includes('V_W_ROLE="ro""le"') &&
++      role.includes('V_ALTER="$V_W_ALTER $V_W_ROLE"'),
++    "les verbes doivent être assemblés en deux temps, jamais adjacents dans le texte du harnais"
++  );
++  assert.ok(
++    !/V_[A-Z_]*="(crea""te|alt""er|Alt""er|ALT""ER) role"/.test(role),
++    "aucune affectation ne doit reconstituer le verbe d'un seul tenant"
++  );
++});
++
++test("[AUD07-SQL-9] le détecteur a été ADVERSARIALEMENT éprouvé, et ses verdicts confrontés à PostgreSQL", () => {
++  // Sept tours de suite, un audit a trouvé une orthographe que le
++  // détecteur ne voyait pas. Montrer qu'il voit les deux dernières ne
++  // vaut donc rien : il faut montrer qu'on a cherché à le tromper, et
++  // confronter chaque verdict à ce que PostgreSQL fait RÉELLEMENT.
++  const rolePath =
++    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh";
++  const role = readFileSync(rolePath, "utf8");
++
++  assert.ok(
++    role.includes("[J] CONTRE-ÉPREUVE ADVERSARIALE DU DÉTECTEUR"),
++    "une contre-épreuve adversariale doit exister"
++  );
++  // La matrice couvre les dimensions du mandat.
++  assert.ok(
++    role.includes('ADV_SEPS="sp spn tab lf crlf bsl"'),
++    "les six séparateurs doivent être engendrés : espace, espaces, tabulation, saut de ligne, CRLF, continuation"
++  );
++  assert.ok(
++    role.includes('ADV_QUOTES="dq sq cat"'),
++    "les trois formes de citation doivent être engendrées, concaténation comprise"
++  );
++  assert.ok(
++    role.includes('for adv_verb in alter create'),
++    "les deux verbes doivent être engendrés"
++  );
++  assert.ok(
++    /adv_call="q"/.test(role) && /adv_call="qw"/.test(role),
++    "les deux formes d'appel doivent être engendrées"
++  );
++  // Les quatre faits établis pour chaque cas. Le troisième est le
++  // seul qui compte vraiment : c'est PostgreSQL, et non une expression
++  // régulière, qui dit qu'une forme est bien un CREATE/ALTER ROLE.
++  assert.ok(
++    role.includes('if ! bash -n "$ADV/case-$adv_id.sh"'),
++    "bash doit accepter chaque forme engendrée"
++  );
++  assert.ok(
++    role.includes("adv_derive()") && role.includes('q() { printf "%s" "$1"; }'),
++    "l'argument réellement transmis doit être relevé en faisant jouer à bash le rôle d'oracle"
++  );
++  assert.ok(
++    role.includes('[ "$adv_before$adv_after" = "NOBYPASSRLSBYPASSRLS" ]') &&
++      role.includes('[ "$adv_before$adv_after" = "01" ]'),
++    "chaque forme doit être exécutée, et le changement d'état OBSERVÉ"
++  );
++  assert.ok(
++    role.indexOf('adv_why="PostgreSQL ne l\'a pas exécutée comme une mutation') <
++      role.indexOf('adv_why="le détecteur rend $adv_verd alors que PostgreSQL a muté'),
++    "l'exécution doit être éprouvée AVANT le verdict, pour que la paire discrimine"
++  );
++  // Les seuils du mandat : au moins vingt mutations, au moins dix
++  // non-mutations.
++  assert.ok(
++    role.includes('[ "$ADV_MUT_TOTAL" -ge 20 ]'),
++    "au moins vingt formes équivalentes doivent être exigées"
++  );
++  assert.ok(
++    role.includes('[ "$ADV_NEG_TOTAL" -ge 10 ]'),
++    "au moins dix non-mutations doivent être exigées"
++  );
++  // Un contrôle de faux positif qui ne contient pas le piège ne
++  // contrôle rien.
++  assert.ok(
++    role.includes("le piège est absent : cette forme ne contient pas le verbe"),
++    "chaque non-mutation doit vérifier que le verbe y figure bel et bien"
++  );
++  // Les deux cas que le détecteur assume.
++  assert.ok(
++    role.includes("[J] X1 —") && role.includes("[J] X2 —"),
++    "les deux cas assumés -- affectation, et « \\ » entre apostrophes -- doivent être nommés"
++  );
++  // Et le résumé des cas engendrés figure dans les preuves.
++  assert.ok(
++    role.includes("[J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis"),
++    "le résumé des cas engendrés doit être recopié dans la sortie du harnais"
++  );
++
++  // Les deux réinjections de la huitième passe existent, et chacune
++  // doit montrer un DOMMAGE RÉEL, pas seulement une étiquette changée.
++  const MUT_PATH =
++    "supabase/tests/checkout-scheduling-foundation-v1-mutation-controls.sh";
++  const mut = readFileSync(MUT_PATH, "utf8");
++  assert.ok(
++    mut.includes("M10 : la continuation entre guillemets doubles, non normalisée"),
++    "M10 doit réinjecter la continuation non normalisée"
++  );
++  assert.ok(
++    mut.includes("M11 : l'équivalence des blancs SQL, retirée"),
++    "M11 doit réinjecter l'absence d'équivalence des blancs"
++  );
++  assert.ok(
++    mut.includes('grep -q "fixture « e1 » : AUCUNE au lieu de NON-GARDEE"'),
++    "M10 doit exiger que E1 redevienne invisible"
++  );
++  assert.ok(
++    mut.includes('grep -q "fixture « e2 » : AUCUNE au lieu de NON-GARDEE"') &&
++      mut.includes('grep -q "fixture « e8 » : AUCUNE au lieu de NON-GARDEE"'),
++    "M11 doit exiger que E2 et E8 redeviennent invisibles"
++  );
++  // M9, M10 et M11 exigent chacune la MÊME preuve : que PostgreSQL ait
++  // muté pour de vrai. Une étiquette changée ne suffit pas.
++  assert.ok(
++    (mut.match(/grep -q "alors que PostgreSQL a muté"/g) ?? []).length === 3,
++    "M9, M10 et M11 doivent chacune exiger la preuve que PostgreSQL a muté pour de vrai"
++  );
++  // Et M9 documente ce que la huitième remédiation a changé pour elle :
++  // l'héritage de garde n'est plus produisible, donc l'attendu a changé.
+   assert.ok(
+-    role.includes('V_CREATE="crea""te role"'),
+-    "les verbes des fixtures doivent être assemblés, non écrits en clair"
++    mut.includes("CE QUE LA HUITIÈME REMÉDIATION A CHANGÉ ICI, ET POURQUOI L'ATTENDU"),
++    "le changement d'attendu de M9 doit être expliqué, non subi"
+   );
+ });
+ 

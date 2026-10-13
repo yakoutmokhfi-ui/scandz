@@ -1,0 +1,70 @@
+CSDJ-1 v1.5 — SYNTAXE DE unix_socket_directories : FAITS MESURÉS
+================================================================
+
+CSDJ1-AUD-07-SOCKET-CSV-01
+
+Rien ici n'est supposé. Chaque ligne vient d'un serveur PostgreSQL
+démarré sur ce poste avec la configuration indiquée, puis interrogé par
+« show unix_socket_directories; ».
+
+configuration passée au serveur              ce que SHOW rend
+-------------------------------------------- ------------------------------------
+<r>/plain                                    <r>/plain
+<r>/plain,<r>/trail                          <r>/plain,<r>/trail
+"<r>/foo,bar",<r>/plain                      "<r>/foo,bar",<r>/plain
+"<r>/with space",<r>/plain                   "<r>/with space",<r>/plain
+"<r>/trail/",<r>/plain                       "<r>/trail/",<r>/plain
+<r>/plain , <r>/trail                        <r>/plain , <r>/trail
+"<r>/quo""te",<r>/plain                      "<r>/quo""te",<r>/plain
+<r>/plain,<r>/plain                          <r>/plain,<r>/plain
+"<r>/plain,<r>/trail        (citation non fermée)
+                                             LE SERVEUR REFUSE DE DÉMARRER :
+                                             « invalid list syntax in parameter
+                                               "unix_socket_directories" »
+
+CE QU'IL FAUT EN RETENIR
+------------------------
+1. SHOW CONSERVE les guillemets des entrées qui en ont besoin.
+2. Une virgule DANS une entrée citée est une donnée, pas un séparateur.
+3. Un guillemet DOUBLÉ («""») vaut un guillemet littéral, et SHOW le
+   ré-encode doublé. Le serveur a démarré sur une telle entrée, donc le
+   répertoire « quo"te » a bien été résolu.
+4. Les espaces autour des virgules sont CONSERVÉS par SHOW : il faut les
+   retirer côté parseur.
+5. Les espaces À L'INTÉRIEUR des guillemets font partie du nom : il ne
+   faut PAS les retirer.
+6. Les doublons sont conservés : sans effet sur un test d'appartenance.
+7. Une syntaxe MAL FORMÉE ne peut pas sortir de SHOW, puisque le serveur
+   refuse de démarrer. L'hypothèse est donc DOCUMENTÉE -- et la garde la
+   refuse quand même.
+
+LE DÉFAUT, REPRODUIT
+--------------------
+Liste réelle du banc d'essai :
+
+  "<r>/foo,bar",<r>/lab-a , <r>/lab-b,"<r>/lab d","<r>/tr,ail/"
+
+                                       découpage    parseur
+attendu                                brut         sensible aux guillemets
+-------------------------------------- ------------ ------------------------
+<r>/foo,bar     (entrée RÉELLE)        REFUSÉ       ACCEPTÉ
+<r>/foo         (fragment)             ACCEPTÉ      REFUSÉ
+bar             (fragment)             ACCEPTÉ      REFUSÉ
+<r>/lab-a       (entrée réelle)        accepté      ACCEPTÉ
+<r>/lab d       (entrée RÉELLE)        accepté      ACCEPTÉ
+<r>/tr,ail      (entrée RÉELLE)        REFUSÉ       ACCEPTÉ
+<r>/qu"ote      (entrée RÉELLE)        REFUSÉ       ACCEPTÉ
+
+Les deux colonnes divergent dans les DEUX sens. La première erreur est
+une fausse identité ; la seconde aurait rendu le harnais inutilisable
+sur un serveur réel à entrée citée.
+
+ENTRÉES ANALYSÉES PAR LE PARSEUR, SUR LA LISTE CI-DESSUS
+--------------------------------------------------------
+  [<r>/foo,bar]
+  [<r>/lab-a]
+  [<r>/lab-b]
+  [<r>/lab d]
+  [<r>/tr,ail]
+
+  (et, sur la liste de sonde contenant un guillemet doublé : [<r>/qu"ote])

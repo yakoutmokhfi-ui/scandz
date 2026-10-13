@@ -1,0 +1,48 @@
+== checkout-scheduling-foundation-v1-role-restoration-check.sh
+      387  (commande ouverte ligne   385)  GARDE                                          execute 'create role $1 $2 $3';
+      389  (commande ouverte ligne   385)  GARDE                                          execute 'alter role $1 $2 $3';
+      408  (commande ouverte ligne   406)  GARDE                                          execute 'create role $r LOGIN BYPASSRLS';
+      410  (commande ouverte ligne   406)  GARDE                                          execute 'alter role $r LOGIN BYPASSRLS';
+      522  (commande ouverte ligne   522)  GARDE                                          csdj1_identity_mutate "  drop role if exists service_role;" 
+      664  (commande ouverte ligne   664)  GARDE                                          PROBE_MUTATION="  alter role $PROBE_ROLE bypassrls;"
+      726  (commande ouverte ligne   724)  GARDE                                          create role scanym_csdj1_plain login nosuperuser;
+      765  (commande ouverte ligne   765)  GARDE                                          if csdj1_identity_mutate "  alter role $PROBE_ROLE bypassrls
+      774  (commande ouverte ligne   774)  GARDE                                          csdj1_identity_mutate "  drop role if exists $PROBE_ROLE;" >
+      775  (commande ouverte ligne   775)  GARDE                                          csdj1_identity_mutate "  drop role if exists scanym_csdj1_pl
+      806  (commande ouverte ligne   804)  GARDE                                          create role $LAB_PROBE nologin nobypassrls;
+      808  (commande ouverte ligne   804)  GARDE                                          alter role $LAB_PROBE nologin nobypassrls;
+      828  (commande ouverte ligne   828)  GARDE                                          if csdj1_identity_mutate "  alter role $LAB_PROBE bypassrls;
+      835  (commande ouverte ligne   835)  GARDE                                          csdj1_identity_mutate "  alter role $LAB_PROBE nobypassrls;"
+     1023  (commande ouverte ligne  1021)  GARDE                                          create role scanym_csdj1_sent_probe nologin nobypassrls;
+     1025  (commande ouverte ligne  1021)  GARDE                                          alter role scanym_csdj1_sent_probe nologin nobypassrls;
+     1071  (commande ouverte ligne  1071)  GARDE                                          if csdj1_identity_mutate "  alter role scanym_csdj1_sent_pro
+     1137  (commande ouverte ligne  1137)  GARDE                                          csdj1_identity_mutate "  drop role if exists $LAB_PROBE;" >/
+     1152  (commande ouverte ligne  1152)  COMMENTAIRE (aucun code)                       # Aucun ALTER ROLE, aucun CREATE : un seul SELECT de diagnos
+     1431  (commande ouverte ligne  1431)  COMMENTAIRE (aucun code)                       # E7 — CREATE ROLE coupé par une continuation.
+     1434  (commande ouverte ligne  1434)  COMMENTAIRE (aucun code)                       # E8 — CREATE ROLE coupé par un saut de ligne, puis tabulati
+     1671  (commande ouverte ligne  1669)  GARDE                                          create role $R1_PROBE nologin nobypassrls;
+     1673  (commande ouverte ligne  1669)  GARDE                                          alter role $R1_PROBE nologin nobypassrls;
+     1720  (commande ouverte ligne  1720)  GARDE                                          csdj1_identity_mutate "  alter role $R1_PROBE nologin nobypa
+     1721  (commande ouverte ligne  1721)  GARDE                                          csdj1_identity_mutate "  drop role if exists $R1_PROBE;" >/d
+     1742  (commande ouverte ligne  1742)  COMMENTAIRE (aucun code)                       #      la forme est bien un CREATE ROLE ou un ALTER ROLE ;
+     1762  (commande ouverte ligne  1760)  GARDE                                          create role $ADV_PROBE nologin nobypassrls;
+     1764  (commande ouverte ligne  1760)  GARDE                                          alter role $ADV_PROBE nologin nobypassrls;
+     1878  (commande ouverte ligne  1878)  GARDE                                          csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobyp
+     1891  (commande ouverte ligne  1891)  GARDE                                          csdj1_identity_mutate "  drop role if exists $adv_expect_rol
+     1909  (commande ouverte ligne  1909)  GARDE                                          csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobyp
+     1994  (commande ouverte ligne  1994)  GARDE                                          csdj1_identity_mutate "  alter role $ADV_PROBE nologin nobyp
+     1995  (commande ouverte ligne  1995)  GARDE                                          csdj1_identity_mutate "  drop role if exists $ADV_PROBE;" >/
+== checkout-scheduling-foundation-v1-check.sh
+      127  (commande ouverte ligne   127)  COMMENTAIRE (aucun code)                       # Rien de destructif (initdb, create/drop database, create/a
+      472  (commande ouverte ligne   471)  GARDE                                          drop role if exists $r;" ;;
+      482  (commande ouverte ligne   481)  GARDE                                          alter role $r $lk $bk;" ;;
+      698  (commande ouverte ligne   696)  GARDE                                          create role anon nologin;
+      701  (commande ouverte ligne   696)  GARDE                                          create role authenticated nologin;
+      704  (commande ouverte ligne   696)  GARDE                                          create role service_role nologin;
+      706  (commande ouverte ligne   696)  GARDE                                          alter role service_role bypassrls;
+      707  (commande ouverte ligne   696)  GARDE                                          alter role anon nobypassrls;
+      708  (commande ouverte ligne   696)  GARDE                                          alter role authenticated nobypassrls;
+== csdj1-cluster-identity.sh
+
+occurrences du verbe de mutation : 42
+chemins BRUTS ou INDETERMINES    : 0

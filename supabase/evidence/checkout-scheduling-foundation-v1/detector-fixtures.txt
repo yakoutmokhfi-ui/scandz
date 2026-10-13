@@ -1,0 +1,104 @@
+CSDJ-1 v1.8 — FIXTURES DU DÉTECTEUR, NOCIVITÉ, CONTRE-ÉPREUVE ADVERSARIALE
+=========================================================================
+
+Extrait du harnais d'isolation et de rôles, exécution complète :
+  sudo -u postgres env -i PATH=/usr/bin:/bin HOME=/tmp \
+    SCANYM_DISPOSABLE_CLUSTER=1 \
+    bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+  => 218 preuves / 0 échec
+
+[13:41:30] PASS: [E] fixture « d1 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d2 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d3 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d4 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d5 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d6 » : GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « d7 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « r1 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « r2 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « r3 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « r4 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « r5 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « c1 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « c2 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « c3 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « c4 » : GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « c5 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « e1 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e2 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e3 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e4 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e5 » : GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e6 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « e7 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e8 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e9 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « e10 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f1 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f2 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f3 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f4 » : GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f5 » : NON-GARDEE (attendu)
+[13:41:30] PASS: [E] fixture « f6 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « p1 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « p2 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] fixture « p3 » : AUCUNE (attendu)
+[13:41:30] PASS: [E] R1 — l'apostrophe d'un COMMENTAIRE ne fait plus survivre l'état gardé
+[13:41:30] PASS: [E] le détecteur de mutations de rôle examine bien les deux harnais (26 instructions)
+
+[13:41:30] === [I] la séquence de l'audit mute-t-elle réellement un rôle ? ===
+[13:41:30] PASS: [I] NOCIF : la séquence de l'audit a RÉELLEMENT muté le rôle (NOBYPASSRLS -> BYPASSRLS)
+[13:41:30] PASS: [I] et le détecteur la classe NON-GARDEE : le label correspond enfin au fait
+[13:41:30] === [J] contre-épreuve adversariale : a-t-on cherché à tromper le détecteur ? ===
+[13:41:33] PASS: [J] 34 formes équivalentes engendrées : bash les accepte, PostgreSQL les exécute, le détecteur les voit toutes
+[13:41:33] PASS: [J] 12 formes contenant le verbe SANS l'exécuter : aucune n'est signalée, et le rôle sonde n'a pas bougé
+[13:41:33] PASS: [J] X1 — une affectation portant le verbe FERME (SANS-OUVREUR) : l'expansion n'est pas modélisée, donc rien n'est présumé
+[13:41:33] PASS: [J] X2 — « \ » + saut de ligne entre apostrophes : PostgreSQL refuse, le rôle ne bouge pas, rien n'est signalé
+[13:41:33] --- [J] matrice adversariale : cas | citation | separateur | appel | verdict | SQL transmis
+[13:41:33]     m1    dq     sp    qw   NON-GARDEE  ALTER ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:33]     m2    dq     spn   q    NON-GARDEE  Alter    Role scanym_csdj1_adv_probe bypassrls;
+[13:41:33]     m3    dq     tab   qw   NON-GARDEE  alter role scanym_csdj1_adv_probe bypassrls;
+[13:41:33]     m4    dq     lf    q    NON-GARDEE  ALTER ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:33]     m5    dq     crlf  qw   NON-GARDEE  Alter  Role scanym_csdj1_adv_probe bypassrls;
+[13:41:33]     m6    dq     bsl   q    NON-GARDEE  alter role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m7    sq     sp    qw   NON-GARDEE  ALTER ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m8    sq     spn   q    NON-GARDEE  Alter    Role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m9    sq     tab   qw   NON-GARDEE  alter role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m10   sq     lf    q    NON-GARDEE  ALTER ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m11   sq     crlf  qw   NON-GARDEE  Alter  Role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m12   cat    sp    q    NON-GARDEE  alter role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m13   cat    spn   qw   NON-GARDEE  ALTER    ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m14   cat    tab   q    NON-GARDEE  Alter Role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m15   cat    lf    qw   NON-GARDEE  alter role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m16   cat    crlf  q    NON-GARDEE  ALTER  ROLE scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     m17   cat    bsl   qw   NON-GARDEE  Alter Role scanym_csdj1_adv_probe bypassrls;
+[13:41:34]     c18   dq     sp    q    NON-GARDEE  create role scanym_csdj1_adv_18 nologin nobypassrls;
+[13:41:34]     c19   dq     spn   qw   NON-GARDEE  CREATE    ROLE scanym_csdj1_adv_19 nologin nobypassrls;
+[13:41:34]     c20   dq     tab   q    NON-GARDEE  Create Role scanym_csdj1_adv_20 nologin nobypassrls;
+[13:41:34]     c21   dq     lf    qw   NON-GARDEE  create role scanym_csdj1_adv_21 nologin nobypassrls;
+[13:41:34]     c22   dq     crlf  q    NON-GARDEE  CREATE  ROLE scanym_csdj1_adv_22 nologin nobypassrls;
+[13:41:34]     c23   dq     bsl   qw   NON-GARDEE  Create Role scanym_csdj1_adv_23 nologin nobypassrls;
+[13:41:34]     c24   sq     sp    q    NON-GARDEE  create role scanym_csdj1_adv_24 nologin nobypassrls;
+[13:41:34]     c25   sq     spn   qw   NON-GARDEE  CREATE    ROLE scanym_csdj1_adv_25 nologin nobypassrls;
+[13:41:34]     c26   sq     tab   q    NON-GARDEE  Create Role scanym_csdj1_adv_26 nologin nobypassrls;
+[13:41:34]     c27   sq     lf    qw   NON-GARDEE  create role scanym_csdj1_adv_27 nologin nobypassrls;
+[13:41:34]     c28   sq     crlf  q    NON-GARDEE  CREATE  ROLE scanym_csdj1_adv_28 nologin nobypassrls;
+[13:41:34]     c29   cat    sp    qw   NON-GARDEE  Create Role scanym_csdj1_adv_29 nologin nobypassrls;
+[13:41:34]     c30   cat    spn   q    NON-GARDEE  create    role scanym_csdj1_adv_30 nologin nobypassrls;
+[13:41:34]     c31   cat    tab   qw   NON-GARDEE  CREATE ROLE scanym_csdj1_adv_31 nologin nobypassrls;
+[13:41:34]     c32   cat    lf    q    NON-GARDEE  Create Role scanym_csdj1_adv_32 nologin nobypassrls;
+[13:41:34]     c33   cat    crlf  qw   NON-GARDEE  create  role scanym_csdj1_adv_33 nologin nobypassrls;
+[13:41:34]     c34   cat    bsl   q    NON-GARDEE  CREATE ROLE scanym_csdj1_adv_34 nologin nobypassrls;
+[13:41:34]     n1    -      -     q    AUCUNE      select 'ALTER ROLE foo';
+[13:41:34]     n2    -      -     q    AUCUNE      select 1; -- ALTER ROLE foo
+[13:41:34]     n3    -      -     q    AUCUNE      select 'CREATE ROLE foo';
+[13:41:34]     n4    -      -     q    AUCUNE      select 'alter role foo';
+[13:41:34]     n5    -      -     q    AUCUNE      select /* alter role foo */ 1;
+[13:41:34]     n6    -      -     q    AUCUNE      select 'ALTER ROLE' || 'x';
+[13:41:34]     n7    -      -     q    AUCUNE      select 'alter role  foo';
+[13:41:34]     n8    -      -     q    AUCUNE      select 1; -- alter role foo
+[13:41:34]     n9    -      -     q    AUCUNE      select 'alter role foo' as x, 'create role bar' as y;
+[13:41:34]     n10   -      -     q    AUCUNE      select 1 where 'x' = 'ALTER ROLE';
+[13:41:34]     n11   -      -     q    AUCUNE      select 'Alter Role'::text;
+[13:41:34]     n12   -      -     q    AUCUNE      select 'do not run: create role foo';
+[13:41:34] === BILAN ISOLATION ET RESTAURATION : 218 preuve(s), 0 échec(s) ===

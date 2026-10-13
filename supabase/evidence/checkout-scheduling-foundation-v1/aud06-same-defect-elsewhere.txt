@@ -1,0 +1,9 @@
+RECHERCHE DU DÉFAUT CSDJ1-AUD-06 DANS LES HARNAIS EXISTANTS
+(capture en 'true'/'false' via ::text, comparaison à 't' au nettoyage)
+
+ATTEINT : supabase/tests/merchant-customer-communications-v1-check.sh
+    capture  340:  probe "select coalesce((select 'EXISTS|' || rolcanlogin::text || '|' || rolbypassrls::text
+    compare  376:            [ "$login" = "t" ] && lk="login" || lk="nologin"
+
+Non corrigé ici : hors périmètre de cette remédiation (le mandat
+interdit d'élargir la portée). Signalé pour planification.

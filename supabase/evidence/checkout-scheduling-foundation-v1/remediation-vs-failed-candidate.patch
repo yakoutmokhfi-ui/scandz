@@ -1,0 +1,4185 @@
+diff --git a/lib/scheduling/eligibility.ts b/lib/scheduling/eligibility.ts
+index 0b76368..d801807 100644
+--- a/lib/scheduling/eligibility.ts
++++ b/lib/scheduling/eligibility.ts
+@@ -159,30 +159,60 @@ function zoneOffsetMs(epochMs: number, tz: string): number {
+ }
+ 
+ /**
+- * Instant UTC correspondant à une heure murale locale dans `tz`.
++ * ══════════════════════════════════════════════════════════════════════
++ * CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 — POLITIQUE DE CHANGEMENT D'HEURE
++ *
++ * Deux heures murales locales ne désignent pas un instant unique :
++ *   - l'heure INEXISTANTE du saut de printemps (à Paris, le 29 mars 2026
++ *     entre 02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
++ *   - l'heure AMBIGUË du recul d'automne (le 25 octobre 2026 entre 02:00
++ *     et 03:00 : ces minutes ont eu lieu DEUX fois).
++ *
++ * La politique de la v1 est le REFUS FERMÉ des deux cas : une telle
++ * occurrence n'est PAS une offre, elle est écartée. Aucune normalisation
++ * silencieuse.
+  *
+- * Deux passes : on devine avec le décalage de l'instant approché, puis on
+- * corrige si le décalage réel à l'instant trouvé diffère -- c'est ce qui
+- * rend le résultat juste de part et d'autre d'un changement d'heure.
++ * Pourquoi. La normalisation de PostgreSQL est un comportement de
++ * MOTEUR, pas une décision commerciale : elle déplacerait l'heure
++ * inexistante après le saut et choisirait l'une des deux occurrences
++ * ambiguës, sans que ni le commerçant ni le client ne le sachent. Pour
++ * une heure ambiguë, la promesse « nous vous livrons à 02:30 » désigne
++ * alors deux instants distants d'une heure, et aucun des deux n'a été
++ * choisi par quiconque. Un refus est visible, corrigeable, et ne promet
++ * rien de faux.
+  *
+- * Heures murales PARTICULIÈRES, comportement documenté et assumé :
+- *   - heure INEXISTANTE (saut de printemps, 02:30 à Paris) : le résultat
+- *     tombe après le saut ;
+- *   - heure AMBIGUË (recul d'automne, 02:30 à Paris) : la PREMIÈRE
+- *     occurrence est retenue (heure d'été).
+- * PostgreSQL retient, lui, l'interprétation en heure NORMALE pour une
+- * heure ambiguë : les deux côtés diffèrent donc d'une heure dans cette
+- * seule heure de l'année. La fixture partagée n'emploie volontairement
+- * aucune heure murale située dans une heure de transition, et cette
+- * divergence est consignée comme observation non bloquante du lot.
++ * Portée. Le refus porte sur l'OCCURRENCE (une date précise), pas sur la
++ * configuration : une fenêtre 02:00–03:00 reste parfaitement valide les
++ * 364 autres jours de l'année, et c'est bien pourquoi le refus ne peut
++ * pas être prononcé à l'écriture.
++ * ══════════════════════════════════════════════════════════════════════
+  */
+-function zonedWallTimeToEpoch(
++export type WallTimeStatus = "ok" | "nonexistent" | "ambiguous";
++
++export interface WallTimeResolution {
++  readonly status: WallTimeStatus;
++  /** Instant UTC, ou `null` dès que le statut n'est pas `ok`. */
++  readonly epochMs: number | null;
++}
++
++/**
++ * Résout une heure murale locale, en CLASSANT le résultat.
++ *
++ * Deux passes pour l'instant candidat : on devine avec le décalage de
++ * l'instant approché, puis on corrige si le décalage réel diffère.
++ * Ensuite, deux contrôles :
++ *   - ALLER-RETOUR : si l'instant trouvé, relu dans le fuseau, ne rend
++ *     pas l'heure murale demandée, c'est que cette heure n'existe pas ;
++ *   - VOISINS : si l'instant trouvé ±1 h rend la MÊME heure murale,
++ *     c'est que cette heure a eu lieu deux fois.
++ */
++export function resolveWallTime(
+   year: number,
+   month: number,
+   day: number,
+   minutesOfDay: number,
+   tz: string
+-): number {
++): WallTimeResolution {
+   const naive = Date.UTC(
+     year,
+     month - 1,
+@@ -191,8 +221,23 @@ function zonedWallTimeToEpoch(
+     minutesOfDay % 60
+   );
+   const firstGuess = naive - zoneOffsetMs(naive, tz);
+-  const refined = naive - zoneOffsetMs(firstGuess, tz);
+-  return refined;
++  const epochMs = naive - zoneOffsetMs(firstGuess, tz);
++
++  const back = zonedDateParts(epochMs, tz);
++  const wantedDate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
++  if (back.date !== wantedDate || back.minutesOfDay !== minutesOfDay) {
++    return { status: "nonexistent", epochMs: null };
++  }
++
++  const HOUR = 3_600_000;
++  for (const neighbour of [epochMs - HOUR, epochMs + HOUR]) {
++    const alt = zonedDateParts(neighbour, tz);
++    if (alt.date === wantedDate && alt.minutesOfDay === minutesOfDay) {
++      return { status: "ambiguous", epochMs: null };
++    }
++  }
++
++  return { status: "ok", epochMs };
+ }
+ 
+ /** Date civile (`YYYY-MM-DD`) et minutes depuis minuit, dans `tz`. */
+@@ -243,14 +288,27 @@ function compareDates(a: string, b: string): number {
+   return a < b ? -1 : a > b ? 1 : 0;
+ }
+ 
+-function normalizeTime(value: string): string | null {
+-  const minutes = parseScheduleTime(value);
+-  if (minutes === null) return null;
++/** `HH:MM` depuis des minutes depuis minuit. Seule forme publique
++ *  (CSDJ-V1-MINUTE-PRECISION-01). */
++function formatMinutes(minutes: number): string {
+   const h = Math.floor(minutes / 60);
+   const m = minutes % 60;
+   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+ }
+ 
++/**
++ * Normalise une heure de configuration, ou `null` si elle n'est pas
++ * admissible -- secondes non nulles comprises
++ * (CSDJ-V1-MINUTE-PRECISION-01). Une heure refusée ici n'est jamais
++ * tronquée : l'offre correspondante est simplement écartée, et la base
++ * la refuse déjà à l'écriture.
++ */
++function normalizeTime(value: string): string | null {
++  const minutes = parseScheduleTime(value);
++  if (minutes === null) return null;
++  return formatMinutes(minutes);
++}
++
+ /**
+  * Calcule l'éligibilité. Fonction PURE : mêmes entrées, même sortie,
+  * aucune lecture d'horloge (`nowIso` est fourni), aucune entrée/sortie.
+@@ -371,27 +429,60 @@ export function resolveScheduleEligibility(
+   // `today` est la date civile du commerçant, pas celle du client.
+   const today = zonedDateParts(nowMs, cfg.timezone).date;
+ 
+-  // Délai de préparation : il repousse l'instant le plus tôt, donc
+-  // possiblement le JOUR le plus tôt.
+-  const earliestFromLead = zonedDateParts(
+-    nowMs + cfg.leadTimeMinutes * 60_000,
+-    cfg.timezone
+-  ).date;
+-  const earliestFromMinDays = addDays(today, cfg.minLeadDays);
+-  const startDate =
+-    compareDates(earliestFromLead, earliestFromMinDays) >= 0
+-      ? earliestFromLead
+-      : earliestFromMinDays;
+-
++  // `min_lead_days` est une contrainte de JOUR : la date demandée doit
++  // être au moins N jours après aujourd'hui. Elle borne donc l'intervalle
++  // examiné.
++  const startDate = addDays(today, cfg.minLeadDays);
+   const lastDate = addDays(today, cfg.bookingHorizonDays);
+ 
++  // ════════════════════════════════════════════════════════════════════
++  // CSDJ-V1-OFFER-START-INSTANT-01 — INSTANT MINIMAL DE RÉALISATION
++  //
++  // Le délai de préparation est une contrainte d'INSTANT, pas de jour.
++  // La version précédente ne l'appliquait qu'à la date de départ, ce qui
++  // laissait proposer un créneau 09:00–11:00 avec 120 minutes de délai
++  // alors qu'il était 15:00 : la date passait le filtre, l'offre non --
++  // et personne ne regardait l'offre (CSDJ1-AUD-01).
++  //
++  // Désormais CHAQUE offre est comparée, en INSTANT, à
++  //     minInstant = max( now + lead_time_minutes,
++  //                       début de (today + min_lead_days) dans le fuseau )
++  // et une offre dont le DÉBUT tombe avant est écartée. Règle unique
++  // pour les trois politiques d'horaire, choisie parce qu'elle est
++  // conservatrice : un créneau déjà commencé n'est pas honorable en
++  // entier, donc il n'est pas proposé. Aucun « créneau suivant » n'est
++  // inventé -- les offres sont filtrées, jamais fabriquées.
++  //
++  // Seule nuance, pour `time_within_window` : le client y choisit une
++  // HEURE dans la fenêtre, donc le début est AVANCÉ le long de la grille
++  // de granularité du commerçant jusqu'au premier point utilisable. Ce
++  // n'est pas une offre nouvelle, c'est la part encore utilisable d'une
++  // fenêtre existante ; si la grille sort de la fenêtre, la fenêtre
++  // disparaît.
++  // ════════════════════════════════════════════════════════════════════
++  const startDateParts = splitDate(startDate);
++  const startDateFloor = resolveWallTime(
++    startDateParts.y,
++    startDateParts.m,
++    startDateParts.d,
++    0,
++    cfg.timezone
++  );
++  const fromLead = nowMs + cfg.leadTimeMinutes * 60_000;
++  const minInstant =
++    startDateFloor.epochMs !== null && startDateFloor.epochMs > fromLead
++      ? startDateFloor.epochMs
++      : fromLead;
++
+   const cutoffMinutes =
+     cfg.cutoffTime === null || cfg.cutoffTime === undefined
+       ? null
+       : parseScheduleTime(cfg.cutoffTime);
+ 
++  const granularity = cfg.timeGranularityMinutes;
+   const eligible: ScheduleDateOffer[] = [];
+-  let sawClosureOnly = false;
++  let sawClosure = false;
++  let sawOpenDate = false;
+ 
+   for (
+     let date = startDate;
+@@ -405,7 +496,7 @@ export function resolveScheduleEligibility(
+     if (!offers || offers.length === 0) continue;
+ 
+     if (closed.has(date)) {
+-      sawClosureOnly = true;
++      sawClosure = true;
+       continue;
+     }
+ 
+@@ -414,20 +505,67 @@ export function resolveScheduleEligibility(
+     // commerçant. L'inégalité est STRICTE : à la seconde de l'heure
+     // limite, il est trop tard -- une limite qu'on peut atteindre pile
+     // n'est pas une limite.
++    //
++    // Si cette heure limite tombe elle-même sur une heure murale
++    // inexistante ou ambiguë, la date est écartée : on ne devine pas
++    // l'instant d'une limite (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).
+     if (cutoffMinutes !== null) {
+       const cutoffDate = addDays(date, -cfg.cutoffOffsetDays);
+-      const { y, m, d } = splitDate(cutoffDate);
+-      const cutoffEpoch = zonedWallTimeToEpoch(
+-        y,
+-        m,
+-        d,
+-        cutoffMinutes,
+-        cfg.timezone
+-      );
+-      if (nowMs >= cutoffEpoch) continue;
++      const c = splitDate(cutoffDate);
++      const cutoff = resolveWallTime(c.y, c.m, c.d, cutoffMinutes, cfg.timezone);
++      if (cutoff.epochMs === null) continue;
++      if (nowMs >= cutoff.epochMs) continue;
++    }
++
++    sawOpenDate = true;
++    const { y, m, d } = splitDate(date);
++    const usable: ScheduleOffer[] = [];
++
++    for (const offer of offers) {
++      const startMin = parseScheduleTime(offer.startsAt);
++      const endMin = parseScheduleTime(offer.endsAt);
++      if (startMin === null || endMin === null) continue;
++
++      if (cfg.slotSelectionMode === "time_within_window" && granularity) {
++        // Avancer le long de la grille du commerçant jusqu'au premier
++        // point utilisable. La grille est ancrée sur le DÉBUT configuré
++        // de la fenêtre, pour rester celle que le commerçant a décrite.
++        let chosen: { minute: number; epochMs: number } | null = null;
++        for (let t = startMin; t < endMin; t += granularity) {
++          const r = resolveWallTime(y, m, d, t, cfg.timezone);
++          // Heure murale inexistante ou ambiguë : ce point de grille
++          // n'est pas proposable, on passe au suivant.
++          if (r.epochMs === null) continue;
++          if (r.epochMs >= minInstant) {
++            chosen = { minute: t, epochMs: r.epochMs };
++            break;
++          }
++        }
++        if (chosen === null) continue;
++        usable.push({
++          slotKey: null,
++          startsAt: formatMinutes(chosen.minute),
++          endsAt: formatMinutes(endMin),
++        });
++        continue;
++      }
++
++      // `fixed_slots` et `none` : l'offre est atomique. Son DÉBUT décide.
++      const r = resolveWallTime(y, m, d, startMin, cfg.timezone);
++      if (r.epochMs === null) continue;
++      if (r.epochMs < minInstant) continue;
++      usable.push({
++        slotKey: offer.slotKey,
++        startsAt: formatMinutes(startMin),
++        endsAt: formatMinutes(endMin),
++      });
+     }
+ 
+-    eligible.push({ date, offers });
++    // Une date dont toutes les offres ont été écartées n'est PAS une date
++    // éligible : la proposer afficherait un jour sans aucune heure.
++    if (usable.length === 0) continue;
++
++    eligible.push({ date, offers: usable });
+     if (cfg.dateSelectionMode === "derived_earliest") break;
+   }
+ 
+@@ -435,12 +573,19 @@ export function resolveScheduleEligibility(
+     return {
+       ...base,
+       status: "unfulfillable",
+-      // Distinguer « tout est fermé » de « l'horizon est épuisé » :
+-      // le premier se corrige en retirant une fermeture, le second en
+-      // allongeant l'horizon ou en desserrant le délai. Confondre les
+-      // deux, c'est livrer au commerçant un refus qu'il ne sait pas
++      // Trois causes distinctes, trois corrections distinctes :
++      //   - tout est fermé            -> retirer une fermeture ;
++      //   - des dates sont ouvertes mais aucune offre ne tient encore
++      //     -> desserrer le délai, ou attendre demain ;
++      //   - la première date possible est au-delà de l'horizon
++      //     -> allonger l'horizon ou réduire le minimum de jours.
++      // Les confondre livrerait au commerçant un refus qu'il ne sait pas
+       // corriger.
+-      reason: sawClosureOnly ? "all_dates_closed" : "horizon_exhausted",
++      reason: sawOpenDate
++        ? "no_offer_in_horizon"
++        : sawClosure
++          ? "all_dates_closed"
++          : "horizon_exhausted",
+       firstEligibleDate: null,
+       dates: [],
+     };
+diff --git a/lib/scheduling/schedule-model.ts b/lib/scheduling/schedule-model.ts
+index 03a9c77..221de2c 100644
+--- a/lib/scheduling/schedule-model.ts
++++ b/lib/scheduling/schedule-model.ts
+@@ -131,13 +131,25 @@ export type CheckoutScheduleStatus =
+  *                              l'horizon est fermée exceptionnellement ;
+  *   - `horizon_exhausted`    : le délai, le minimum de jours ou l'heure
+  *                              limite repoussent la première date
+- *                              au-delà de l'horizon de réservation.
++ *                              au-delà de l'horizon de réservation ;
++ *   - `no_offer_in_horizon`   : des offres existent et des dates sont
++ *                              ouvertes, mais AUCUNE offre n'est encore
++ *                              réalisable -- toutes sont passées, ou
++ *                              tombent avant l'instant minimal de
++ *                              réalisation, ou leur heure murale locale
++ *                              n'existe pas / est ambiguë. Distinct de
++ *                              `horizon_exhausted`, qui dit que la
++ *                              première date POSSIBLE est au-delà de
++ *                              l'horizon : ici des dates sont dans
++ *                              l'horizon, ce sont les OFFRES qui ne
++ *                              tiennent pas.
+  */
+ export const CHECKOUT_UNFULFILLABLE_REASONS = [
+   "no_offer_configured",
+   "granularity_missing",
+   "all_dates_closed",
+   "horizon_exhausted",
++  "no_offer_in_horizon",
+ ] as const;
+ 
+ export type CheckoutUnfulfillableReason =
+@@ -157,7 +169,8 @@ export const SCHEDULE_CLOSURE_LABEL_MAX_LENGTH = 120;
+ export const SCHEDULE_LEAD_TIME_MINUTES_MAX = 100_000;
+ export const SCHEDULE_MIN_LEAD_DAYS_MAX = 365;
+ export const SCHEDULE_CUTOFF_OFFSET_DAYS_MAX = 30;
+-export const SCHEDULE_BOOKING_HORIZON_DAYS_MIN = 1;
++/** 0 = « aujourd'hui seulement ». */
++export const SCHEDULE_BOOKING_HORIZON_DAYS_MIN = 0;
+ export const SCHEDULE_BOOKING_HORIZON_DAYS_MAX = 365;
+ export const SCHEDULE_TIME_GRANULARITY_MINUTES_MIN = 5;
+ export const SCHEDULE_TIME_GRANULARITY_MINUTES_MAX = 240;
+@@ -255,27 +268,65 @@ export function isSchedulePolicyCoherent(
+   return dateMode === "customer_selectable" || slotMode === "none";
+ }
+ 
+-/** Minutes depuis minuit d'un `HH:MM` ou `HH:MM:SS`, sinon `null`. */
++/**
++ * ═══ CSDJ-V1-MINUTE-PRECISION-01 ═══
++ *
++ * CONTRAT DE PRÉCISION : toute heure de la configuration est à la
++ * MINUTE. Les secondes doivent valoir exactement `00`, et toute valeur
++ * sous-minute est REFUSÉE -- jamais tronquée.
++ *
++ * Pourquoi un refus et non une troncature : un créneau
++ * `09:00:01–09:00:59` tronqué devient `09:00–09:00`, soit un créneau de
++ * durée nulle, affiché comme disponible et impossible à honorer. Le
++ * défaut n'était pas la troncature elle-même mais son SILENCE : la
++ * configuration disait une chose, la projection publique une autre.
++ * Refuser à l'écriture est la seule correction qui ne laisse aucune
++ * représentation ambiguë circuler.
++ *
++ * Miroirs SQL : les CHECK `… = pg_catalog.date_trunc('minute', …)` sur
++ * chaque colonne `time` du lot, et la garde `CSDJ1_SUBMINUTE_TIME` de
++ * la RPC d'écriture.
++ *
++ * ═══ CSDJ-V1-NO-24H-01 ═══
++ *
++ * `24:00:00` est REFUSÉ, bien que PostgreSQL sache le stocker dans un
++ * `time`. Une fenêtre qui « finit à minuit » se déclare `23:59`, et une
++ * offre qui franchit minuit se déclare en deux lignes. Accepter 24:00
++ * obligerait chaque comparaison, chaque formatage et chaque calcul
++ * d'instant à connaître ce cas particulier -- et il suffit d'un endroit
++ * qui l'oublie pour produire une date décalée d'un jour.
++ */
++export const SCHEDULE_MAX_MINUTE_OF_DAY = 23 * 60 + 59;
++
++/**
++ * Minutes depuis minuit d'un `HH:MM` ou `HH:MM:SS` dont les SECONDES
++ * valent `00`, sinon `null`.
++ *
++ * psql rend un `time` en `HH:MM:SS` : la forme à six chiffres doit donc
++ * être lisible. Mais `09:00:30` n'est pas une heure valide de ce lot, et
++ * cette fonction le dit au lieu de l'arrondir.
++ */
+ export function parseScheduleTime(value: unknown): number | null {
+   if (typeof value !== "string") return null;
+-  const m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
++  const m = /^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/.exec(value);
+   if (!m) return null;
+   const h = Number(m[1]);
+   const min = Number(m[2]);
+   const sec = m[3] === undefined ? 0 : Number(m[3]);
+-  // 24:00:00 n'est PAS accepté : une fenêtre qui finit « à minuit » se
+-  // déclare 23:59, et une offre qui franchit minuit se déclare en deux
+-  // lignes. Accepter 24:00 obligerait chaque comparaison à connaître ce
+-  // cas particulier.
+-  if (h > 23 || min > 59 || sec > 59) return null;
+-  // Les SECONDES sont acceptées puis IGNORÉES : psql rend un `time` en
+-  // `HH:MM:SS`, il faut donc savoir le lire, mais tout ce lot raisonne
+-  // en minutes depuis minuit -- la granularité minimale configurable
+-  // est de 5 minutes. Tronquer ici est le seul endroit où cette
+-  // conversion a lieu.
++  const frac = m[4];
++  if (h > 23 || min > 59) return null;
++  // CSDJ-V1-MINUTE-PRECISION-01 : toute précision sous la minute est
++  // REFUSÉE, jamais tronquée.
++  if (sec !== 0) return null;
++  if (frac !== undefined && /[1-9]/.test(frac)) return null;
+   return h * 60 + min;
+ }
+ 
++/** La valeur est-elle une heure de configuration admissible ? */
++export function isScheduleTime(value: unknown): boolean {
++  return parseScheduleTime(value) !== null;
++}
++
+ /** `HH:MM` depuis des minutes depuis minuit. */
+ export function formatScheduleTime(minutes: number): string {
+   const h = Math.floor(minutes / 60);
+diff --git a/supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql b/supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
+index c33f2e2..ae87b63 100644
+--- a/supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
++++ b/supabase/DRAFT-lot-checkout-scheduling-foundation-v1-rollback.sql
+@@ -10,7 +10,8 @@
+ -- CE QUE CE RETOUR FAIT
+ --
+ --   1. supprime les quatre RPC et l'autorité d'éligibilité du lot ;
+---   2. supprime les quatre catalogues fermés du lot ;
++--   2. supprime les quatre catalogues fermés du lot et les deux
++--      fonctions de politique d'heure murale ;
+ --   3. supprime les quatre tables du lot, dans l'ordre inverse de
+ --      leurs dépendances -- les trois tables filles d'abord, la table
+ --      de planification ensuite.
+@@ -82,6 +83,8 @@ drop function if exists public.mutate_merchant_fulfillment_schedule(uuid,text,js
+ drop function if exists public.get_merchant_fulfillment_schedules(uuid);
+ drop function if exists public.get_checkout_fulfillment_schedule(uuid,text,text,integer,numeric);
+ drop function if exists public.resolve_fulfillment_schedule(uuid,text,uuid,timestamptz);
++drop function if exists public.checkout_wall_time_instant(date,time,text);
++drop function if exists public.checkout_wall_time_status(date,time,text);
+ 
+ -- ============================================================
+ -- §B  Tables — filles d'abord
+@@ -127,6 +130,8 @@ begin
+     'public.checkout_slot_selection_modes()',
+     'public.checkout_schedule_statuses()',
+     'public.checkout_unfulfillable_reasons()',
++    'public.checkout_wall_time_status(date,time without time zone,text)',
++    'public.checkout_wall_time_instant(date,time without time zone,text)',
+     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',
+     'public.get_checkout_fulfillment_schedule(uuid,text,text,integer,numeric)',
+     'public.get_merchant_fulfillment_schedules(uuid)',
+diff --git a/supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql b/supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
+index 5f30ed4..1e11551 100644
+--- a/supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
++++ b/supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql
+@@ -214,24 +214,59 @@ begin
+       using errcode = '42710';
+   end if;
+ 
+-  -- P-3bis. FORME de l'autorité de tarification. CSDJ-1 ne lit que les
+-  --      colonnes communes à toutes ses versions livrées
+-  --      (CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01) ; si l'une d'elles
+-  --      disparaissait, la lecture publique renverrait du vide au lieu
+-  --      d'échouer, et un défaut deviendrait indiscernable d'un refus
+-  --      légitime. On refuse donc d'appliquer le lot.
++  -- ════════════════════════════════════════════════════════════════
++  -- P-3bis. FORME EXACTE DE L'AUTORITÉ DE TARIFICATION
++  --         CSDJ-V1-RESOLVER-EXACT-SHAPE-01 — ferme CSDJ1-AUD-05
++  --
++  -- CSDJ-1 ne lit que les colonnes communes à toutes les versions
++  -- livrées du résolveur (CSDJ1-V1-RESOLVER-COMMON-COLUMNS-01). La
++  -- version précédente le vérifiait par SOUS-CHAÎNE sur le texte de la
++  -- signature, ce qui acceptait des SOSIES : une colonne renommée
++  -- `not_eligible` contient « eligible », une colonne `not_block`
++  -- contient « block ». Le lot s'appliquait alors, et échouait plus
++  -- tard en 42703 à la première lecture -- c'est-à-dire en production,
++  -- et non à l'application.
++  --
++  -- La vérification porte désormais sur le CATALOGUE : nom EXACT et
++  -- TYPE EXACT de chaque colonne de sortie, lus dans pg_proc. Aucune
++  -- heuristique textuelle.
++  -- ════════════════════════════════════════════════════════════════
+   foreach v_missing in array array[
+-    'eligible', 'block', 'fulfillment_rule_id', 'min_items', 'missing',
+-    'customer_text', 'pricing_mode', 'fixed_fee', 'free_threshold', 'delivery_fee'
++    'eligible=boolean', 'block=text', 'fulfillment_rule_id=uuid',
++    'min_items=integer', 'missing=integer', 'customer_text=text',
++    'pricing_mode=text', 'fixed_fee=numeric', 'free_threshold=numeric',
++    'delivery_fee=numeric'
+   ] loop
+-    if pg_catalog.pg_get_function_result(
+-         pg_catalog.to_regprocedure('public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)')
+-       ) not like '%' || v_missing || '%' then
+-      raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie plus la colonne % -- CSDJ-1 annulé.', v_missing
++    if not exists (
++      select 1
++      from pg_catalog.pg_proc p,
++      -- `unnest` à PLUSIEURS tableaux est une construction du parseur
++      -- (sucre pour ROWS FROM), pas une surcharge de pg_catalog : la
++      -- qualifier échoue. Même famille de leçon que coalesce, extract et
++      -- greatest. `pg_catalog` reste implicitement en tête du chemin de
++      -- recherche, la résolution n'est donc pas détournable.
++      unnest(p.proargnames, p.proargmodes, p.proallargtypes)
++             as a(argname, argmode, argtype)
++      where p.oid = pg_catalog.to_regprocedure(
++              'public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)')
++        and a.argmode = 't'
++        and a.argname = pg_catalog.split_part(v_missing, '=', 1)
++        and pg_catalog.format_type(a.argtype, null) = pg_catalog.split_part(v_missing, '=', 2)
++    ) then
++      raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie pas la colonne de sortie attendue « % » -- CSDJ-1 annulé AVANT toute création d''objet.', v_missing
+         using errcode = '42804';
+     end if;
+   end loop;
+ 
++  -- Et une seule surcharge : deux résolveurs de même nom rendraient le
++  -- contrôle ci-dessus ambigu, et l'appel du lot imprévisible.
++  if (select pg_catalog.count(*) from pg_catalog.pg_proc p
++      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
++      where n.nspname = 'public' and p.proname = 'resolve_delivery_fulfillment') <> 1 then
++    raise exception 'SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment possède plusieurs surcharges -- CSDJ-1 annulé.'
++      using errcode = '42725';
++  end if;
++
+   -- P-4. Le type `time` et l'arithmétique de fuseau sont employés pour
+   --      la PREMIÈRE fois de ce dépôt. On vérifie que le serveur porte
+   --      bien une base de fuseaux utilisable, sinon tout le calcul
+@@ -316,7 +351,8 @@ as $$
+     'no_offer_configured',
+     'granularity_missing',
+     'all_dates_closed',
+-    'horizon_exhausted'
++    'horizon_exhausted',
++    'no_offer_in_horizon'
+   ]::text[]
+ $$;
+ 
+@@ -325,6 +361,82 @@ comment on function public.checkout_unfulfillable_reasons() is
+ 
+ revoke all on function public.checkout_unfulfillable_reasons() from public, anon, authenticated, service_role;
+ 
++-- ------------------------------------------------------------
++-- §A.2  POLITIQUE D'HEURE MURALE — CSDJ-V1-WALL-TIME-FAIL-CLOSED-01
++--
++-- Ferme CSDJ1-AUD-02. Deux heures murales locales ne désignent pas un
++-- instant unique :
++--   - l'heure INEXISTANTE du saut de printemps (à Paris, le 29 mars 2026
++--     entre 02:00 et 03:00 : ces minutes n'ont jamais eu lieu) ;
++--   - l'heure AMBIGUË du recul d'automne (le 25 octobre 2026 entre 02:00
++--     et 03:00 : ces minutes ont eu lieu DEUX fois).
++--
++-- La politique de la v1 est le REFUS FERMÉ des deux cas. La
++-- normalisation de PostgreSQL est un comportement de MOTEUR, pas une
++-- décision commerciale : elle déplacerait l'heure inexistante après le
++-- saut et choisirait l'une des deux occurrences ambiguës sans que ni le
++-- commerçant ni le client ne le sachent. Pour une heure ambiguë, la
++-- promesse « nous vous livrons à 02:30 » désignerait deux instants
++-- distants d'une heure, et aucun des deux n'aurait été choisi par
++-- quiconque.
++--
++-- Le refus porte sur l'OCCURRENCE d'une date, pas sur la configuration :
++-- une fenêtre 02:00-03:00 reste valide les 364 autres jours de l'année,
++-- et c'est pourquoi ce refus ne peut pas être prononcé à l'écriture.
++-- ------------------------------------------------------------
++
++create function public.checkout_wall_time_status(
++  p_date date, p_time time, p_timezone text
++)
++returns text
++language sql
++stable
++set search_path = ''
++as $$
++  with naive as (select (p_date + p_time) as ts),
++  mapped as (select n.ts, (n.ts at time zone p_timezone) as inst from naive n)
++  select case
++    -- ALLER-RETOUR : si l'instant obtenu, relu dans le fuseau, ne rend
++    -- pas l'heure murale demandée, c'est que cette heure n'existe pas.
++    when ((m.inst at time zone p_timezone) is distinct from m.ts) then 'nonexistent'
++    -- VOISINS : si l'instant obtenu plus ou moins une heure rend la MÊME
++    -- heure murale, c'est que cette heure a eu lieu deux fois.
++    when (((m.inst - pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
++      or (((m.inst + pg_catalog.make_interval(hours => 1)) at time zone p_timezone) = m.ts)
++      then 'ambiguous'
++    else 'ok'
++  end
++  from mapped m
++$$;
++
++comment on function public.checkout_wall_time_status(date,time,text) is
++  'CHECKOUT SCHEDULING FOUNDATION v1 — CLASSE une heure murale locale : `ok`, `nonexistent` (trou du saut de printemps) ou `ambiguous` (heure vécue deux fois au recul d''automne). Miroir de resolveWallTime (lib/scheduling/eligibility.ts). Autorité de la politique CSDJ-V1-WALL-TIME-FAIL-CLOSED-01.';
++
++revoke all on function public.checkout_wall_time_status(date,time,text) from public, anon, authenticated, service_role;
++
++create function public.checkout_wall_time_instant(
++  p_date date, p_time time, p_timezone text
++)
++returns timestamptz
++language sql
++stable
++set search_path = ''
++as $$
++  -- NULL dès que l'heure murale n'est pas univoque : l'appelant écarte
++  -- alors l'offre. Un NULL n'est donc pas une absence de valeur, c'est
++  -- un REFUS -- et c'est pour cela qu'il n'y a pas de repli.
++  select case
++    when public.checkout_wall_time_status(p_date, p_time, p_timezone) = 'ok'
++      then ((p_date + p_time) at time zone p_timezone)
++    else null
++  end
++$$;
++
++comment on function public.checkout_wall_time_instant(date,time,text) is
++  'CHECKOUT SCHEDULING FOUNDATION v1 — instant UTC d''une heure murale locale, ou NULL si cette heure est inexistante ou ambiguë. Le NULL est un REFUS, jamais une absence de valeur : l''appelant écarte l''offre (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).';
++
++revoke all on function public.checkout_wall_time_instant(date,time,text) from public, anon, authenticated, service_role;
++
+ -- ============================================================
+ -- §B  MODÈLE DE PLANIFICATION
+ -- ============================================================
+@@ -340,7 +452,15 @@ create table public.restaurant_fulfillment_schedule (
+   -- supprime sa planification -- une planification orpheline
+   -- désignerait une zone qui n'existe plus.
+   fulfillment_rule_id      uuid
+-                           references public.restaurant_sale_mode_fulfillments(id) on delete cascade,
++                           references public.restaurant_sale_mode_fulfillments(id) on delete cascade
++                           -- Le zéro UUID est RÉSERVÉ comme sentinelle
++                           -- interne (voir `rule_key`) : aucune vraie
++                           -- règle ne peut porter cette valeur, sinon
++                           -- « portée de mode » et « portée de cette
++                           -- règle-là » deviendraient indiscernables.
++                           constraint rfs_rule_id_not_sentinel
++                           check (fulfillment_rule_id is distinct from
++                                  '00000000-0000-0000-0000-000000000000'::uuid),
+   -- Colonne générée : PostgreSQL ne sait pas mettre une expression dans
+   -- une clé primaire, et deux lignes NULL ne seraient pas en conflit --
+   -- il serait donc possible de créer deux planifications de mode pour
+@@ -375,12 +495,22 @@ create table public.restaurant_fulfillment_schedule (
+   min_lead_days            smallint not null default 0
+                            check (min_lead_days between 0 and 365),
+ 
+-  cutoff_time              time,
++  -- CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01 : toute heure de
++  -- configuration est à la MINUTE, et 24:00 est refusé.
++  cutoff_time              time
++                           constraint rfs_cutoff_minute_precision
++                           check (cutoff_time is null
++                                  or (cutoff_time = pg_catalog.date_trunc('minute', cutoff_time)
++                                      and cutoff_time < '24:00:00'::time)),
+   cutoff_offset_days       smallint not null default 1
+                            check (cutoff_offset_days between 0 and 30),
+ 
++  -- 0 est admissible et signifie « aujourd'hui seulement » : un
++  -- commerçant qui ne prend que des commandes du jour doit pouvoir le
++  -- dire, et c'est aussi la forme minimale dans laquelle se reproduit
++  -- CSDJ1-AUD-01.
+   booking_horizon_days     smallint not null default 14
+-                           check (booking_horizon_days between 1 and 365),
++                           check (booking_horizon_days between 0 and 365),
+ 
+   -- Versionne la MÉTHODE de calcul, pour la faire évoluer sans jamais
+   -- réécrire un instantané de commande déjà persisté (CSDJ-3).
+@@ -434,7 +564,16 @@ create table public.restaurant_fulfillment_schedule_window (
+     references public.restaurant_fulfillment_schedule (restaurant_id, mode_code, rule_key)
+     on delete cascade,
+ 
+-  constraint rfsw_interval_valid check (ends_at > starts_at)
++  constraint rfsw_interval_valid check (ends_at > starts_at),
++
++  -- CSDJ-V1-MINUTE-PRECISION-01 : secondes exactement 00, sinon la
++  -- projection publique en HH:MM dirait autre chose que la
++  -- configuration. CSDJ-V1-NO-24H-01 : 24:00 refusé.
++  constraint rfsw_minute_precision
++    check (starts_at = pg_catalog.date_trunc('minute', starts_at)
++           and ends_at = pg_catalog.date_trunc('minute', ends_at)
++           and starts_at < '24:00:00'::time
++           and ends_at < '24:00:00'::time)
+ );
+ 
+ comment on table public.restaurant_fulfillment_schedule_window is
+@@ -463,7 +602,17 @@ create table public.restaurant_fulfillment_schedule_slot (
+     references public.restaurant_fulfillment_schedule (restaurant_id, mode_code, rule_key)
+     on delete cascade,
+ 
+-  constraint rfss_interval_valid check (ends_at > starts_at)
++  constraint rfss_interval_valid check (ends_at > starts_at),
++
++  -- CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01. Un créneau
++  -- 09:00:01-09:00:59 publié en HH:MM deviendrait « 09:00-09:00 », une
++  -- offre de durée nulle affichée comme disponible : c'est le défaut
++  -- CSDJ1-AUD-04, et il se ferme ici, à la source.
++  constraint rfss_minute_precision
++    check (starts_at = pg_catalog.date_trunc('minute', starts_at)
++           and ends_at = pg_catalog.date_trunc('minute', ends_at)
++           and starts_at < '24:00:00'::time
++           and ends_at < '24:00:00'::time)
+ );
+ 
+ comment on table public.restaurant_fulfillment_schedule_slot is
+@@ -586,20 +735,28 @@ security definer
+ set search_path = ''
+ as $csdj1_resolve$
+ declare
+-  v_s           public.restaurant_fulfillment_schedule;
+-  v_rule_key    uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
+-  v_uses_slots  boolean;
+-  v_today       date;
+-  v_start       date;
+-  v_last        date;
+-  v_from_lead   date;
+-  v_d           date;
+-  v_dates       date[] := array[]::date[];
+-  v_offers      jsonb := '{}'::jsonb;
+-  v_day_offers  jsonb;
+-  v_saw_closure boolean := false;
+-  v_has_offer   boolean;
+-  v_cutoff_at   timestamptz;
++  v_s            public.restaurant_fulfillment_schedule;
++  v_rule_key     uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
++  v_uses_slots   boolean;
++  v_today        date;
++  v_start        date;
++  v_last         date;
++  v_d            date;
++  v_dates        date[] := array[]::date[];
++  v_offers       jsonb := '{}'::jsonb;
++  v_day          jsonb;
++  v_saw_closure  boolean := false;
++  v_saw_open     boolean := false;
++  v_has_offer    boolean;
++  v_cutoff_at    timestamptz;
++  v_min_instant  timestamptz;
++  v_floor        timestamptz;
++  v_off          record;
++  v_start_min    integer;
++  v_end_min      integer;
++  v_t            integer;
++  v_pick         integer;
++  v_inst         timestamptz;
+ begin
+   select * into v_s
+   from public.restaurant_fulfillment_schedule s
+@@ -607,7 +764,7 @@ begin
+     and s.mode_code = p_mode_code
+     and s.rule_key = v_rule_key;
+ 
+-  -- CSDJ-V1-SCHEDULE-ABSENT-01 — absence ET désactivation donnent le
++  -- CSDJ-V1-SCHEDULE-ABSENT-01 -- absence ET désactivation donnent le
+   -- MÊME état observable. Distinguer les deux laisserait une trace de
+   -- comportement après une désactivation.
+   if not found or v_s.enabled is not true then
+@@ -662,42 +819,54 @@ begin
+ 
+   -- Date civile du COMMERÇANT, jamais celle du client.
+   v_today := (p_now at time zone v_s.timezone)::date;
+-  v_from_lead := ((p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes))
+-                   at time zone v_s.timezone)::date;
+-  v_start := greatest(v_from_lead, v_today + v_s.min_lead_days);
+-  v_last := v_today + v_s.booking_horizon_days;
++  -- `min_lead_days` est une contrainte de JOUR : elle borne l'intervalle.
++  v_start := v_today + v_s.min_lead_days;
++  v_last  := v_today + v_s.booking_horizon_days;
++
++  -- ══════════════════════════════════════════════════════════════════
++  -- CSDJ-V1-OFFER-START-INSTANT-01 — INSTANT MINIMAL DE RÉALISATION
++  --
++  -- Ferme CSDJ1-AUD-01. Le délai de préparation est une contrainte
++  -- d'INSTANT, pas de jour. La version précédente ne l'appliquait qu'à
++  -- la date de départ, ce qui laissait proposer un créneau 09:00-11:00
++  -- avec 120 minutes de délai alors qu'il était 15:00 : la DATE passait
++  -- le filtre, et personne ne regardait l'OFFRE.
++  --
++  --   minInstant = max( now + lead_time_minutes,
++  --                     plancher de (today + min_lead_days) dans le fuseau )
++  --
++  -- Chaque offre est ensuite comparée à cet instant, et une offre dont
++  -- le DÉBUT tombe avant est écartée -- y compris un créneau déjà
++  -- commencé, qui n'est plus honorable en entier. Aucun « créneau
++  -- suivant » n'est inventé : les offres sont filtrées, jamais
++  -- fabriquées.
++  -- ══════════════════════════════════════════════════════════════════
++  v_floor := public.checkout_wall_time_instant(v_start, '00:00'::time, v_s.timezone);
++  v_min_instant := greatest(
++    p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes),
++    coalesce(v_floor, p_now + pg_catalog.make_interval(mins => v_s.lead_time_minutes)));
+ 
+   v_d := v_start;
+   while v_d <= v_last loop
+-    -- Offres du jour de semaine. `extract(dow)` : 0 = dimanche.
++    -- CSDJ-V1-DAY-WITHOUT-OFFER-01 : un jour sans offre est un jour
++    -- fermé. `date_part('dow')` vaut 0 le dimanche, comme le TypeScript.
+     if v_uses_slots then
+-      select pg_catalog.jsonb_agg(
+-               pg_catalog.jsonb_build_object(
+-                 'slot_key', x.slot_key,
+-                 'starts_at', pg_catalog.to_char(x.starts_at, 'HH24:MI'),
+-                 'ends_at', pg_catalog.to_char(x.ends_at, 'HH24:MI'))
+-               order by x.starts_at, x.slot_key)
+-        into v_day_offers
+-      from public.restaurant_fulfillment_schedule_slot x
+-      where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
+-        and x.rule_key = v_rule_key
+-        and x.weekday = pg_catalog.date_part('dow', v_d)::smallint;
++      select exists (
++        select 1 from public.restaurant_fulfillment_schedule_slot x
++        where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
++          and x.rule_key = v_rule_key
++          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
++      ) into v_has_offer;
+     else
+-      select pg_catalog.jsonb_agg(
+-               pg_catalog.jsonb_build_object(
+-                 'slot_key', null,
+-                 'starts_at', pg_catalog.to_char(x.starts_at, 'HH24:MI'),
+-                 'ends_at', pg_catalog.to_char(x.ends_at, 'HH24:MI'))
+-               order by x.starts_at)
+-        into v_day_offers
+-      from public.restaurant_fulfillment_schedule_window x
+-      where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
+-        and x.rule_key = v_rule_key
+-        and x.weekday = pg_catalog.date_part('dow', v_d)::smallint;
++      select exists (
++        select 1 from public.restaurant_fulfillment_schedule_window x
++        where x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
++          and x.rule_key = v_rule_key
++          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
++      ) into v_has_offer;
+     end if;
+ 
+-    -- CSDJ-V1-DAY-WITHOUT-OFFER-01 : jour sans offre = jour fermé.
+-    if v_day_offers is null then
++    if not v_has_offer then
+       v_d := v_d + 1;
+       continue;
+     end if;
+@@ -715,17 +884,96 @@ begin
+     -- Heure limite, dans le fuseau du commerçant. Inégalité STRICTE :
+     -- à la seconde de l'heure limite il est trop tard -- une limite
+     -- qu'on peut atteindre pile n'est pas une limite.
++    --
++    -- Si cette heure limite tombe elle-même sur une heure murale
++    -- inexistante ou ambiguë, la date est écartée : on ne devine pas
++    -- l'instant d'une limite (CSDJ-V1-WALL-TIME-FAIL-CLOSED-01).
+     if v_s.cutoff_time is not null then
+-      v_cutoff_at := ((v_d - v_s.cutoff_offset_days)::timestamp + v_s.cutoff_time)
+-                       at time zone v_s.timezone;
+-      if p_now >= v_cutoff_at then
++      v_cutoff_at := public.checkout_wall_time_instant(
++        v_d - v_s.cutoff_offset_days, v_s.cutoff_time, v_s.timezone);
++      if v_cutoff_at is null or p_now >= v_cutoff_at then
+         v_d := v_d + 1;
+         continue;
+       end if;
+     end if;
+ 
++    v_saw_open := true;
++    v_day := '[]'::jsonb;
++
++    for v_off in
++      select * from (
++        select x.slot_key, x.starts_at, x.ends_at
++        from public.restaurant_fulfillment_schedule_slot x
++        where v_uses_slots
++          and x.restaurant_id = p_restaurant_id and x.mode_code = p_mode_code
++          and x.rule_key = v_rule_key
++          and x.weekday = pg_catalog.date_part('dow', v_d)::smallint
++        union all
++        select null::text, w.starts_at, w.ends_at
++        from public.restaurant_fulfillment_schedule_window w
++        where not v_uses_slots
++          and w.restaurant_id = p_restaurant_id and w.mode_code = p_mode_code
++          and w.rule_key = v_rule_key
++          and w.weekday = pg_catalog.date_part('dow', v_d)::smallint
++      ) o
++      order by o.starts_at, coalesce(o.slot_key, '')
++    loop
++      -- Raisonnement en MINUTES depuis minuit, comme le TypeScript :
++      -- `time + interval` repasserait modulo 24 h et ferait boucler une
++      -- fenêtre tardive.
++      v_start_min := pg_catalog.date_part('hour', v_off.starts_at)::integer * 60
++                   + pg_catalog.date_part('minute', v_off.starts_at)::integer;
++      v_end_min   := pg_catalog.date_part('hour', v_off.ends_at)::integer * 60
++                   + pg_catalog.date_part('minute', v_off.ends_at)::integer;
++
++      if v_s.slot_selection_mode = 'time_within_window' then
++        -- Le client choisit une HEURE dans la fenêtre : le début est
++        -- AVANCÉ le long de la grille de granularité du commerçant
++        -- jusqu'au premier point utilisable. La grille reste ancrée sur
++        -- le début CONFIGURÉ, pour rester celle qu'il a décrite. Ce
++        -- n'est pas une offre nouvelle, c'est la part encore utilisable
++        -- d'une fenêtre existante.
++        v_pick := null;
++        v_t := v_start_min;
++        while v_t < v_end_min loop
++          v_inst := public.checkout_wall_time_instant(
++            v_d, pg_catalog.make_time(v_t / 60, v_t % 60, 0), v_s.timezone);
++          if v_inst is not null and v_inst >= v_min_instant then
++            v_pick := v_t;
++            exit;
++          end if;
++          v_t := v_t + v_s.time_granularity_minutes;
++        end loop;
++        if v_pick is null then
++          continue;
++        end if;
++        v_day := v_day || pg_catalog.jsonb_build_object(
++          'slot_key', null,
++          'starts_at', pg_catalog.to_char(pg_catalog.make_time(v_pick / 60, v_pick % 60, 0), 'HH24:MI'),
++          'ends_at', pg_catalog.to_char(v_off.ends_at, 'HH24:MI'));
++        continue;
++      end if;
++
++      -- `fixed_slots` et `none` : l'offre est atomique, son DÉBUT décide.
++      v_inst := public.checkout_wall_time_instant(v_d, v_off.starts_at, v_s.timezone);
++      if v_inst is null or v_inst < v_min_instant then
++        continue;
++      end if;
++      v_day := v_day || pg_catalog.jsonb_build_object(
++        'slot_key', v_off.slot_key,
++        'starts_at', pg_catalog.to_char(v_off.starts_at, 'HH24:MI'),
++        'ends_at', pg_catalog.to_char(v_off.ends_at, 'HH24:MI'));
++    end loop;
++
++    -- Une date dont TOUTES les offres ont été écartées n'est pas une
++    -- date éligible : la proposer afficherait un jour sans aucune heure.
++    if pg_catalog.jsonb_array_length(v_day) = 0 then
++      v_d := v_d + 1;
++      continue;
++    end if;
++
+     v_dates := v_dates || v_d;
+-    v_offers := v_offers || pg_catalog.jsonb_build_object(v_d::text, v_day_offers);
++    v_offers := v_offers || pg_catalog.jsonb_build_object(v_d::text, v_day);
+ 
+     if v_s.date_selection_mode = 'derived_earliest' then
+       exit;
+@@ -735,8 +983,18 @@ begin
+   end loop;
+ 
+   if pg_catalog.cardinality(v_dates) = 0 then
++    -- Trois causes distinctes, trois corrections distinctes :
++    --   - des dates étaient ouvertes mais aucune offre ne tenait encore
++    --     -> desserrer le délai, ou attendre ;
++    --   - tout est fermé -> retirer une fermeture ;
++    --   - la première date possible est au-delà de l'horizon
++    --     -> allonger l'horizon ou réduire le minimum de jours.
++    -- Les confondre livrerait au commerçant un refus qu'il ne sait pas
++    -- corriger.
+     return query select 'unfulfillable'::text,
+-                        case when v_saw_closure then 'all_dates_closed' else 'horizon_exhausted' end::text,
++                        case when v_saw_open then 'no_offer_in_horizon'
++                             when v_saw_closure then 'all_dates_closed'
++                             else 'horizon_exhausted' end::text,
+                         v_s.timezone, v_s.date_selection_mode, v_s.slot_selection_mode,
+                         case when v_s.slot_selection_mode = 'time_within_window'
+                              then v_s.time_granularity_minutes end,
+@@ -828,6 +1086,35 @@ begin
+       using errcode = '22023';
+   end if;
+ 
++  -- ══════════════════════════════════════════════════════════════════
++  -- CSDJ-V1-MODE-ENABLED-GATE-01 — ferme CSDJ1-AUD-03
++  --
++  -- Un mode de vente DÉSACTIVÉ pour cet établissement ne doit RIEN
++  -- projeter : ni fuseau, ni politique, ni fenêtre, ni créneau, ni
++  -- date. La version précédente ne vérifiait l'activation que pour la
++  -- livraison, et seulement indirectement, via l'autorité de
++  -- tarification : un retrait désactivé continuait donc de publier sa
++  -- planification.
++  --
++  -- La réponse est celle d'une ABSENCE, volontairement indiscernable de
++  -- « aucune planification » et de « planification désactivée » : si le
++  -- statut distinguait ces cas, la surface publique deviendrait un
++  -- moyen de sonder la configuration d'un commerçant.
++  -- ══════════════════════════════════════════════════════════════════
++  if not exists (
++    select 1 from public.restaurant_sale_modes m
++    where m.restaurant_id = p_restaurant_id
++      and m.mode_code = p_mode_code
++      and m.enabled = true
++  ) then
++    return query select v_is_delivery, null::boolean, null::text, null::numeric,
++                        null::integer, null::integer, null::text,
++                        null::text, null::numeric, null::numeric,
++                        'absent'::text, null::text, null::text, null::text, null::text,
++                        null::smallint, null::date, null::date[], null::jsonb;
++    return;
++  end if;
++
+   if v_is_delivery then
+     -- AUTORITÉ DE TARIFICATION EXISTANTE, appelée telle quelle.
+     select * into v_del
+@@ -1011,6 +1298,14 @@ begin
+   -- règle d'un autre tenant ne peut pas correspondre.
+   if p_payload ? 'fulfillmentRuleId' and p_payload->>'fulfillmentRuleId' is not null then
+     v_rule := (p_payload->>'fulfillmentRuleId')::uuid;
++    -- Le zéro UUID est la sentinelle interne de « portée de mode » : le
++    -- laisser désigner une vraie règle rendrait les deux portées
++    -- indiscernables. La contrainte de table le refuse aussi ; ici le
++    -- refus porte un nom.
++    if v_rule = '00000000-0000-0000-0000-000000000000'::uuid then
++      raise exception 'CSDJ1_RESERVED_RULE_ID: le zéro UUID est réservé comme sentinelle interne.'
++        using errcode = '22023';
++    end if;
+     if not exists (
+       select 1 from public.restaurant_sale_mode_fulfillments f
+       where f.id = v_rule and f.restaurant_id = p_restaurant_id and f.mode_code = v_mode
+@@ -1040,6 +1335,16 @@ begin
+        or v_slot_mode <> all(public.checkout_slot_selection_modes()) then
+       raise exception 'CSDJ1_INVALID_POLICY: politique hors catalogue.' using errcode = '22023';
+     end if;
++    -- CSDJ-V1-MINUTE-PRECISION-01 : une heure limite sous-minute est
++    -- REFUSÉE par un message qui la nomme, plutôt que par la contrainte
++    -- de table seule -- et jamais tronquée.
++    if nullif(p_payload->>'cutoffTime','') is not null then
++      if (p_payload->>'cutoffTime')::time
++           is distinct from pg_catalog.date_trunc('minute', (p_payload->>'cutoffTime')::time) then
++        raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
++          using errcode = '22023';
++      end if;
++    end if;
+ 
+     insert into public.restaurant_fulfillment_schedule as t (
+       restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled,
+@@ -1084,6 +1389,15 @@ begin
+     if pg_catalog.jsonb_typeof(p_payload->'windows') is distinct from 'array' then
+       raise exception 'CSDJ1_INVALID_PAYLOAD: `windows` doit être un tableau.' using errcode = '22023';
+     end if;
++    -- CSDJ-V1-MINUTE-PRECISION-01, nommé avant la contrainte de table.
++    if exists (
++      select 1 from pg_catalog.jsonb_array_elements(p_payload->'windows') e
++      where (e->>'startsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'startsAt')::time)
++         or (e->>'endsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'endsAt')::time)
++    ) then
++      raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
++        using errcode = '22023';
++    end if;
+     delete from public.restaurant_fulfillment_schedule_window w
+     where w.restaurant_id = p_restaurant_id and w.mode_code = v_mode and w.rule_key = v_rule_key;
+     insert into public.restaurant_fulfillment_schedule_window
+@@ -1120,6 +1434,14 @@ begin
+     if pg_catalog.jsonb_typeof(p_payload->'slots') is distinct from 'array' then
+       raise exception 'CSDJ1_INVALID_PAYLOAD: `slots` doit être un tableau.' using errcode = '22023';
+     end if;
++    if exists (
++      select 1 from pg_catalog.jsonb_array_elements(p_payload->'slots') e
++      where (e->>'startsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'startsAt')::time)
++         or (e->>'endsAt')::time is distinct from pg_catalog.date_trunc('minute', (e->>'endsAt')::time)
++    ) then
++      raise exception 'CSDJ1_SUBMINUTE_TIME: les heures de planification sont à la minute (secondes = 00).'
++        using errcode = '22023';
++    end if;
+     delete from public.restaurant_fulfillment_schedule_slot x
+     where x.restaurant_id = p_restaurant_id and x.mode_code = v_mode and x.rule_key = v_rule_key;
+     insert into public.restaurant_fulfillment_schedule_slot
+@@ -1224,6 +1546,8 @@ begin
+     'checkout_slot_selection_modes',
+     'checkout_schedule_statuses',
+     'checkout_unfulfillable_reasons',
++    'checkout_wall_time_status',
++    'checkout_wall_time_instant',
+     'resolve_fulfillment_schedule',
+     'get_checkout_fulfillment_schedule',
+     'get_merchant_fulfillment_schedules',
+@@ -1243,6 +1567,8 @@ begin
+     raise exception 'SCANYM_POSTCHECK: anon devrait pouvoir exécuter la lecture publique.';
+   end if;
+   foreach v_t in array array[
++    'public.checkout_wall_time_status(date,time without time zone,text)',
++    'public.checkout_wall_time_instant(date,time without time zone,text)',
+     'public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)',
+     'public.get_merchant_fulfillment_schedules(uuid)',
+     'public.mutate_merchant_fulfillment_schedule(uuid,text,jsonb)',
+@@ -1280,7 +1606,7 @@ begin
+   if pg_catalog.cardinality(public.checkout_date_selection_modes()) <> 3
+      or pg_catalog.cardinality(public.checkout_slot_selection_modes()) <> 3
+      or pg_catalog.cardinality(public.checkout_schedule_statuses()) <> 5
+-     or pg_catalog.cardinality(public.checkout_unfulfillable_reasons()) <> 4 then
++     or pg_catalog.cardinality(public.checkout_unfulfillable_reasons()) <> 5 then
+     raise exception 'SCANYM_POSTCHECK: cardinalité de catalogue inattendue.';
+   end if;
+   if not ('absent' = any(public.checkout_schedule_statuses()))
+@@ -1288,6 +1614,34 @@ begin
+     raise exception 'SCANYM_POSTCHECK: les statuts porteurs des invariants sont absents.';
+   end if;
+ 
++  -- Z.9bis LA POLITIQUE D'HEURE MURALE EST EFFECTIVE. On ne vérifie pas
++  --        que la fonction existe, mais qu'elle REFUSE : une heure du
++  --        trou de printemps et une heure ambiguë d'automne doivent
++  --        rendre NULL, et une heure ordinaire un instant.
++  if public.checkout_wall_time_instant('2026-03-29'::date, '02:30'::time, 'Europe/Paris') is not null then
++    raise exception 'SCANYM_POSTCHECK: une heure murale INEXISTANTE est acceptée -- CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 violé.';
++  end if;
++  if public.checkout_wall_time_instant('2026-10-25'::date, '02:30'::time, 'Europe/Paris') is not null then
++    raise exception 'SCANYM_POSTCHECK: une heure murale AMBIGUË est acceptée -- CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 violé.';
++  end if;
++  if public.checkout_wall_time_instant('2026-10-13'::date, '09:00'::time, 'Europe/Paris') is null then
++    raise exception 'SCANYM_POSTCHECK: une heure murale ORDINAIRE est refusée : la politique sur-refuse.';
++  end if;
++  if public.checkout_wall_time_status('2026-03-29'::date, '02:30'::time, 'Europe/Paris') <> 'nonexistent'
++     or public.checkout_wall_time_status('2026-10-25'::date, '02:30'::time, 'Europe/Paris') <> 'ambiguous' then
++    raise exception 'SCANYM_POSTCHECK: la CLASSIFICATION des heures murales est fausse.';
++  end if;
++
++  -- Z.9ter LA GARDE DE MODE DÉSACTIVÉ EST PRÉSENTE dans la lecture
++  --        publique. Le comportement est prouvé par le harnais ; ici on
++  --        constate que la garde n'a pas disparu du corps.
++  if (select pg_catalog.count(*) from pg_catalog.pg_proc p
++      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
++      where n.nspname = 'public' and p.proname = 'get_checkout_fulfillment_schedule'
++        and pg_catalog.pg_get_functiondef(p.oid) like '%restaurant_sale_modes%') <> 1 then
++    raise exception 'SCANYM_POSTCHECK: la lecture publique ne vérifie plus l''activation du mode de vente.';
++  end if;
++
+   -- Z.10 AUCUNE FONCTION PRÉEXISTANTE REDÉFINIE. `create_order` et
+   --      l'autorité de tarification doivent être exactement celles
+   --      d'avant : ce lot ne les touche pas.
+diff --git a/supabase/tests/checkout-scheduling-foundation-v1-check.sh b/supabase/tests/checkout-scheduling-foundation-v1-check.sh
+index 0f43be9..87e94ee 100755
+--- a/supabase/tests/checkout-scheduling-foundation-v1-check.sh
++++ b/supabase/tests/checkout-scheduling-foundation-v1-check.sh
+@@ -352,16 +352,34 @@ create_tracked_db() {
+   CREATED_DBS="$CREATED_DBS $name"
+ }
+ 
++# ════════════════════════════════════════════════════════════════════
++# CSDJ1-AUD-06 — NORMALISATION EXPLICITE DES BOOLÉENS
++#
++# `boolean::text` rend « true »/« false » en SQL, jamais « t »/« f » --
++# c'est « t » que donne l'affichage ALIGNÉ de psql, pas la conversion.
++# La version précédente capturait « true » puis comparait à « t » au
++# nettoyage : la comparaison échouait toujours, et un rôle préexistant
++# LOGIN+BYPASSRLS était restauré en NOLOGIN+NOBYPASSRLS. Sur un cluster
++# jetable créé par le harnais c'était invisible ; sur un cluster DÉSIGNÉ
++# par l'opérateur, c'était une mutation durable de ses rôles.
++#
++# L'instantané encode donc explicitement 1/0, et la restauration compare
++# à 1/0. Aucune représentation intermédiaire n'est devinée.
++# ════════════════════════════════════════════════════════════════════
+ role_state() {
+-  probe "select coalesce((select 'EXISTS|' || rolcanlogin::text || '|' || rolbypassrls::text
++  probe "select coalesce((select 'EXISTS|' || (case when rolcanlogin then '1' else '0' end)
++                                  || '|' || (case when rolbypassrls then '1' else '0' end)
+                           from pg_roles where rolname = '$1'), 'ABSENT');"
+ }
+ declare -A ROLE_SNAP=()
+ for r in $APP_ROLES; do
+   st="$(role_state "$r")"
+   case "$st" in
+-    ABSENT|EXISTS'|'*) ROLE_SNAP[$r]="$st" ;;
+-    *) fatal "état initial du rôle global '$r' illisible -- refus de muter un cluster non restaurable." ;;
++    ABSENT|'EXISTS|0|0'|'EXISTS|0|1'|'EXISTS|1|0'|'EXISTS|1|1') ROLE_SNAP[$r]="$st" ;;
++    # Un instantané d'une autre forme serait illisible au nettoyage : on
++    # refuse de muter un cluster qu'on ne saurait pas restaurer
++    # EXACTEMENT (CSDJ1-AUD-06).
++    *) fatal "état initial du rôle global '$r' illisible ('$st') -- refus de muter un cluster non restaurable." ;;
+   esac
+ done
+ ROLE_SNAPSHOT_TAKEN=1
+@@ -387,10 +405,13 @@ cleanup() {
+         case "${ROLE_SNAP[$r]}" in
+           ABSENT) psql -X -q -d postgres -c "drop role if exists $r;" </dev/null >/dev/null 2>&1 ;;
+           EXISTS*)
++            # CSDJ1-AUD-06 : l'instantané encode 1/0, la restauration
++            # compare à 1/0. Toute autre valeur serait un instantané
++            # illisible, et le verrou de sûreté a déjà refusé ce cas.
+             login="$(printf '%s' "${ROLE_SNAP[$r]}" | cut -d'|' -f2)"
+             bypass="$(printf '%s' "${ROLE_SNAP[$r]}" | cut -d'|' -f3)"
+-            [ "$login" = "t" ] && lk="login" || lk="nologin"
+-            [ "$bypass" = "t" ] && bk="bypassrls" || bk="nobypassrls"
++            [ "$login" = "1" ] && lk="login" || lk="nologin"
++            [ "$bypass" = "1" ] && bk="bypassrls" || bk="nobypassrls"
+             psql -X -q -d postgres -c "alter role $r $lk $bk;" </dev/null >/dev/null 2>&1 ;;
+         esac
+       done
+@@ -461,6 +482,20 @@ outcome_as() {
+   out="${out%%$'\n'*}"
+   printf '%s\n' "$out"
+ }
++# Résultat d'une instruction exécutée par la connexion PROPRIÉTAIRE,
++# sans endosser de rôle. `outcome_as` impose un `-c role=...` : l'appeler
++# avec un rôle vide ferait échouer psql À LA CONNEXION, et un refus
++# attendu passerait alors pour la bonne réponse donnée pour la MAUVAISE
++# raison. Ce helper existe pour que ce faux positif soit impossible.
++outcome_owner() {
++  local out rc
++  out="$(psql -X -A -q -t -v ON_ERROR_STOP=1 -d "$DB" -c "$1" 2>&1)"
++  rc=$?
++  if [ "$rc" -eq 0 ]; then printf 'OK\n'; return 0; fi
++  out="${out#*ERROR:  }"
++  out="${out%%$'\n'*}"
++  printf '%s\n' "$out"
++}
+ assert_eq() {
+   local desc="$1" expected="$2" actual="$3"
+   if [ "$expected" = "$actual" ]; then pass "$desc (=$actual)"
+@@ -721,7 +756,7 @@ assert_eq "[3n] catalogue des politiques d'horaire" "none|time_within_window|fix
+   "$(sql_value "select array_to_string(public.checkout_slot_selection_modes(), '|');")"
+ assert_eq "[3o] catalogue des statuts" "absent|blocked_upstream|informational_only|dates_available|unfulfillable" \
+   "$(sql_value "select array_to_string(public.checkout_schedule_statuses(), '|');")"
+-assert_eq "[3p] catalogue des motifs d'infaisabilité" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted" \
++assert_eq "[3p] catalogue des motifs d'infaisabilité" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted|no_offer_in_horizon" \
+   "$(sql_value "select array_to_string(public.checkout_unfulfillable_reasons(), '|');")"
+ 
+ # ============================================================
+@@ -785,6 +820,7 @@ FIXTURE_SQL="$TMP_DIR/fixture.sql"
+ FIXTURE_EXPECTED="$TMP_DIR/fixture.expected"
+ python3 - "$FIXTURE_JSON" "$FIXTURE_SQL" "$FIXTURE_EXPECTED" "$RID_A" "$NIL_RULE" <<'PYGEN' || fatal "génération des assertions de fixture impossible"
+ import json, sys
++from pathlib import Path
+ 
+ fixture_path, sql_path, expected_path, rid, nil_rule = sys.argv[1:6]
+ data = json.load(open(fixture_path, encoding="utf-8"))
+@@ -801,13 +837,41 @@ for c in data["cases"]:
+     cid = c["id"]
+     cfg = c["config"]
+     if c.get("sqlConstraintRefusal"):
+-        # État que les CONTRAINTES DE TABLE rendent impossible : on
+-        # prouve le REFUS d'insertion, pas un résultat de calcul.
+-        refusal_lines.append("|".join([
+-            cid, cfg["dateSelectionMode"], cfg["slotSelectionMode"],
+-            "null" if cfg.get("timeGranularityMinutes") is None
+-            else str(cfg["timeGranularityMinutes"]),
+-        ]))
++        # État que les CONTRAINTES DE TABLE rendent impossible. On prouve
++        # le REFUS d'insertion du JEU COMPLET -- la violation peut porter
++        # sur la ligne de planification, sur une FENÊTRE ou sur un
++        # CRÉNEAU, et n'en tester qu'une partie laisserait un faux
++        # positif.
++        block = [
++            "begin;",
++            f"delete from public.restaurant_fulfillment_schedule where restaurant_id = '{rid}';",
++            "insert into public.restaurant_fulfillment_schedule "
++            "(restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled, "
++            "date_selection_mode, slot_selection_mode, time_granularity_minutes, "
++            "lead_time_minutes, min_lead_days, cutoff_time, cutoff_offset_days, "
++            "booking_horizon_days) values ("
++            f"'{rid}', 'pickup', null, {q(cfg['timezone'])}, {str(cfg['enabled']).lower()}, "
++            f"{q(cfg['dateSelectionMode'])}, {q(cfg['slotSelectionMode'])}, "
++            f"{q(cfg['timeGranularityMinutes'])}, {cfg['leadTimeMinutes']}, "
++            f"{cfg['minLeadDays']}, {q(cfg['cutoffTime'])}, {cfg['cutoffOffsetDays']}, "
++            f"{cfg['bookingHorizonDays']});",
++        ]
++        for w in c["windows"]:
++            block.append(
++                "insert into public.restaurant_fulfillment_schedule_window "
++                "(restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ("
++                f"'{rid}', 'pickup', '{nil_rule}', {w['weekday']}, "
++                f"{q(w['startsAt'])}, {q(w['endsAt'])});")
++        for sl in c["slots"]:
++            block.append(
++                "insert into public.restaurant_fulfillment_schedule_slot "
++                "(restaurant_id, mode_code, rule_key, weekday, slot_key, starts_at, ends_at) values ("
++                f"'{rid}', 'pickup', '{nil_rule}', {sl['weekday']}, {q(sl['slotKey'])}, "
++                f"{q(sl['startsAt'])}, {q(sl['endsAt'])});")
++        block.append("rollback;")
++        (Path(sql_path).parent / f"refusal-{cid}.sql").write_text(
++            "\n".join(block) + "\n", encoding="utf-8")
++        refusal_lines.append(cid)
+         continue
+     sql_lines.append(f"-- {cid}")
+     sql_lines.append(
+@@ -912,11 +976,16 @@ fi
+ # que l'INSERTION est refusée. C'est une preuve plus forte qu'un calcul
+ # qui refuse -- l'état n'est pas mal calculé, il est inatteignable.
+ if [ -s "$FIXTURE_EXPECTED.refusals" ]; then
+-  while IFS='|' read -r cid dmode smode gran; do
++  while IFS= read -r cid; do
+     [ -n "$cid" ] || continue
+     sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+-    assert_eq "[6r] fixture « $cid » : la contrainte de table REFUSE cet état" "REFUSE" \
+-      "$(refused "$(outcome_as '' '' "insert into public.restaurant_fulfillment_schedule (restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled, date_selection_mode, slot_selection_mode, time_granularity_minutes) values ('$RID_A','pickup',null,'Europe/Paris',true,'$dmode','$smode',$gran);")")"
++    if apply_path "$TMP_DIR/refusal-$cid.sql" "$DB"; then
++      fail "[6r] fixture « $cid » : la contrainte de table a ACCEPTÉ un état censé être impossible"
++    else
++      pass "[6r] fixture « $cid » : la contrainte de table REFUSE cet état"
++    fi
++    assert_eq "[6r] fixture « $cid » : et rien ne subsiste de la tentative" "0" \
++      "$(sql_value "select count(*) from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';")"
+   done < "$FIXTURE_EXPECTED.refusals"
+ fi
+ sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
+@@ -1033,6 +1102,174 @@ assert_eq "[12j] clé de créneau MALFORMÉE => refusée par la contrainte" "REF
+ assert_eq "[12k] remplacer des fenêtres SANS planification => refusé" "REFUSE" \
+   "$(refused "$(outcome_as authenticated "$OWNER_B" "select public.mutate_merchant_fulfillment_schedule('$RID_B','replace_windows','{\"modeCode\":\"pickup\",\"windows\":[]}'::jsonb);")")"
+ 
++# ============================================================
++# [15] CSDJ1-AUD-03 — MODE DE VENTE DÉSACTIVÉ JAMAIS EXPOSÉ
++#      CSDJ-V1-MODE-ENABLED-GATE-01
++# ============================================================
++log "=== [15] Mode de vente désactivé : aucune projection ==="
++sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
++psql -X -d "$DB" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL || fatal "planification de retrait : $(tr '\n' ' ' < "$ERR")"
++insert into public.restaurant_fulfillment_schedule
++  (restaurant_id, mode_code, fulfillment_rule_id, timezone, enabled,
++   date_selection_mode, slot_selection_mode, cutoff_time, booking_horizon_days)
++values ('$RID_A','pickup',null,'Europe/Paris',true,'customer_selectable','none',null,14);
++insert into public.restaurant_fulfillment_schedule_window
++  (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at)
++select '$RID_A','pickup','$NIL_RULE', g, '00:01','23:59' from generate_series(0,6) g;
++SQL
++assert_eq "[15a] mode ACTIVÉ => la planification est projetée" "dates_available" \
++  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
++sql_value "update public.restaurant_sale_modes set enabled = false where restaurant_id='$RID_A' and mode_code='pickup';" >/dev/null
++assert_eq "[15b] mode DÉSACTIVÉ APRÈS configuration => 'absent'" "absent" \
++  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
++assert_eq "[15c] et AUCUNE fuite : ni fuseau, ni politique, ni granularité, ni date, ni offre" "||||||" \
++  "$(sql_value "select coalesce(schedule_timezone,'') || '|' || coalesce(date_selection_mode,'') || '|' || coalesce(slot_selection_mode,'') || '|' || coalesce(time_granularity_minutes::text,'') || '|' || coalesce(first_eligible_date::text,'') || '|' || coalesce(array_to_string(eligible_dates,','),'') || '|' || coalesce(offers::text,'') from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
++assert_eq "[15d] la réponse est INDISCERNABLE d'une planification absente" "same" \
++  "$(sql_value "select case when (select schedule_status || '|' || coalesce(schedule_timezone,'~') from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null)) = (select schedule_status || '|' || coalesce(schedule_timezone,'~') from public.get_checkout_fulfillment_schedule('$RID_B','pickup',null,1,null)) then 'same' else 'different' end;")"
++sql_value "update public.restaurant_sale_modes set enabled = true where restaurant_id='$RID_A' and mode_code='pickup';" >/dev/null
++assert_eq "[15e] réactivé, il projette de nouveau" "dates_available" \
++  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','pickup',null,1,null);")"
++# Mode d'un AUTRE tenant : la ligne de mode de A ne vaut pas pour B.
++sql_value "delete from public.restaurant_sale_modes where restaurant_id='$RID_B' and mode_code='pickup';" >/dev/null
++assert_eq "[15f] mode ABSENT chez l'autre tenant => 'absent', même si A l'a activé" "absent" \
++  "$(sql_value "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_B','pickup',null,1,null);")"
++assert_eq "[15g] mode hors catalogue => REFUS nommé, jamais une projection" "REFUSE" \
++  "$(refused "$(outcome_owner "select schedule_status from public.get_checkout_fulfillment_schedule('$RID_A','teleportation',null,1,null);")")"
++psql -X -d "$DB" -c "insert into public.restaurant_sale_modes (restaurant_id, mode_code, enabled, display_order) values ('$RID_B','pickup',true,1) on conflict do nothing;" >/dev/null 2>&1
++sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
++
++# ============================================================
++# [16] CSDJ1-AUD-04 — PRÉCISION À LA MINUTE
++#      CSDJ-V1-MINUTE-PRECISION-01 / CSDJ-V1-NO-24H-01
++# ============================================================
++log "=== [16] Précision horaire : la minute, et rien de plus fin ==="
++assert_eq "[16a] une heure limite à la minute est ACCEPTÉE" "OK" \
++  "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"cutoffTime\":\"16:00\"}'::jsonb);")"
++assert_eq "[16b] une heure limite SOUS-MINUTE est REFUSÉE, jamais tronquée" "REFUSE" \
++  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"cutoffTime\":\"16:00:30\"}'::jsonb);")")"
++assert_eq "[16c] une fenêtre sous-minute est REFUSÉE" "REFUSE" \
++  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','replace_windows','{\"modeCode\":\"pickup\",\"windows\":[{\"weekday\":2,\"startsAt\":\"09:00:01\",\"endsAt\":\"11:00:59\"}]}'::jsonb);")")"
++assert_eq "[16d] un créneau sous-minute est REFUSÉ" "REFUSE" \
++  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"pickup\",\"timezone\":\"Europe/Paris\",\"dateSelectionMode\":\"customer_selectable\",\"slotSelectionMode\":\"fixed_slots\"}'::jsonb), public.mutate_merchant_fulfillment_schedule('$RID_A','replace_slots','{\"modeCode\":\"pickup\",\"slots\":[{\"weekday\":2,\"slotKey\":\"a\",\"startsAt\":\"09:00:30\",\"endsAt\":\"11:00\"}]}'::jsonb);")")"
++assert_eq "[16e] la CONTRAINTE DE TABLE refuse aussi, sans passer par la RPC" "REFUSE" \
++  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',3,'09:00:01','11:00');")")"
++assert_eq "[16f] 24:00 est REFUSÉ explicitement (CSDJ-V1-NO-24H-01)" "REFUSE" \
++  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',4,'20:00','24:00');")")"
++assert_eq "[16g] 23:59 est la borne de fin de journée ACCEPTÉE" "OK" \
++  "$(outcome_owner "insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',5,'20:00','23:59');")"
++# Aller-retour de sérialisation : ce qui est stocké est ce qui est
++# publié, en HH:MM, sans perte.
++assert_eq "[16h] aller-retour de sérialisation sans perte" "20:00-23:59" \
++  "$(sql_value "select to_char(starts_at,'HH24:MI') || '-' || to_char(ends_at,'HH24:MI') from public.restaurant_fulfillment_schedule_window where restaurant_id='$RID_A' and weekday=5;")"
++assert_eq "[16i] aucune offre de durée NULLE ne peut exister après formatage" "0" \
++  "$(sql_value "select count(*) from public.restaurant_fulfillment_schedule_window where to_char(starts_at,'HH24:MI') = to_char(ends_at,'HH24:MI');")"
++sql_value "delete from public.restaurant_fulfillment_schedule where restaurant_id='$RID_A';" >/dev/null
++
++# ============================================================
++# [17] ZÉRO UUID RÉSERVÉ
++# ============================================================
++log "=== [17] Le zéro UUID est une sentinelle réservée ==="
++assert_eq "[17a] la RPC refuse une règle au zéro UUID, en la nommant" "REFUSE" \
++  "$(refused "$(outcome_as authenticated "$OWNER_A" "select public.mutate_merchant_fulfillment_schedule('$RID_A','save_schedule','{\"modeCode\":\"delivery\",\"timezone\":\"Europe/Paris\",\"fulfillmentRuleId\":\"$NIL_RULE\"}'::jsonb);")")"
++assert_eq "[17b] la CONTRAINTE DE TABLE la refuse aussi" "REFUSE" \
++  "$(refused "$(outcome_owner "insert into public.restaurant_fulfillment_schedule (restaurant_id, mode_code, fulfillment_rule_id, timezone) values ('$RID_A','delivery','$NIL_RULE','Europe/Paris');")")"
++
++# ============================================================
++# [18] CSDJ1-AUD-05 — ANTI-DÉRIVE EXACT, PROUVÉ PAR MUTATION
++#      CSDJ-V1-RESOLVER-EXACT-SHAPE-01
++#
++# Chaque mutation remplace l'autorité de tarification par un SOSIE dans
++# une base jetable propre, applique le lot, et exige :
++#   - que l'application ÉCHOUE,
++#   - avec SCANYM_SCHEMA_DRIFT,
++#   - et qu'AUCUN objet du lot n'ait été créé -- le refus doit tomber
++#     AVANT toute création, pas à la première lecture en production.
++# ============================================================
++log "=== [18] Anti-dérive exact : mutations du résolveur ==="
++RESOLVER_SIG="public.resolve_delivery_fulfillment(uuid,text,text,integer,numeric)"
++
++mutate_resolver_and_apply() {
++  local label="$1" returns="$2" db="scanym_csdj1_mut$3_$RUN_TAG"
++  create_tracked_db "$db" -T "$DB_BASE"
++  psql -X -q -d "$db" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL
++drop function $RESOLVER_SIG;
++create function public.resolve_delivery_fulfillment(
++  p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric default null
++) returns table ($returns)
++language plpgsql stable security definer set search_path = ''
++as \$f\$ begin return; end \$f\$;
++SQL
++  if [ $? -ne 0 ]; then
++    fail "[18] $label — sosie impossible à injecter : $(head -2 "$ERR" | tr '\n' ' ')"
++    return
++  fi
++  if apply_path "$SUPABASE_DIR/$LOT_SQL" "$db"; then
++    fail "[18] $label — le lot s'est appliqué sur une forme de résolveur INCOMPATIBLE"
++  else
++    if grep -q 'SCANYM_SCHEMA_DRIFT' "$OUT"; then
++      pass "[18] $label — refusé, et le refus nomme la dérive de schéma"
++    else
++      fail "[18] $label — refusé, mais pas pour la bonne raison : $(tail -3 "$OUT" | tr '\n' ' ')"
++    fi
++  fi
++  assert_eq "[18] $label — AUCUN objet du lot créé avant le refus" "0" \
++    "$(sql_on "$db" "select count(*) from pg_class where relnamespace='public'::regnamespace and relname like 'restaurant_fulfillment_schedule%';")"
++}
++
++# CONTRÔLE POSITIF — une forme CONFORME doit s'appliquer, sinon le garde
++# refuserait tout et ne prouverait rien.
++GOOD_RETURNS="eligible boolean, fulfillment_rule_id uuid, fulfillment_code text, provider text, matched_prefix text, zone_prefixes text[], is_fallback boolean, min_items integer, customer_text text, display_order integer, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, block text, missing integer"
++DB_POS="scanym_csdj1_mutpos_$RUN_TAG"
++create_tracked_db "$DB_POS" -T "$DB_BASE"
++psql -X -q -d "$DB_POS" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
++drop function $RESOLVER_SIG;
++create function public.resolve_delivery_fulfillment(
++  p_restaurant_id uuid, p_mode_code text, p_postal_code text, p_total_count integer, p_subtotal numeric default null
++) returns table ($GOOD_RETURNS)
++language plpgsql stable security definer set search_path = ''
++as \$f\$ begin return; end \$f\$;
++SQL
++if apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_POS"; then
++  pass "[18] CONTRÔLE POSITIF — une forme conforme s'applique (le garde ne refuse pas tout)"
++else
++  fail "[18] CONTRÔLE POSITIF — une forme conforme est refusée : $(tail -3 "$OUT" | tr '\n' ' ')"
++fi
++
++# Mutation 1 : colonne RENOMMÉE en SOSIE qui CONTIENT le nom attendu.
++#   C'est le défaut exact de l'audit : « not_eligible » contient
++#   « eligible », « not_block » contient « block ».
++mutate_resolver_and_apply "SOSIE par sous-chaîne (not_eligible / not_block)" \
++  "not_eligible boolean, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric, not_block text" "sub"
++# Mutation 2 : colonne simplement RENOMMÉE.
++mutate_resolver_and_apply "colonne RENOMMÉE (is_eligible)" \
++  "is_eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee numeric" "ren"
++# Mutation 3 : bon nom, MAUVAIS type.
++mutate_resolver_and_apply "MAUVAIS type (delivery_fee en text)" \
++  "eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, free_threshold numeric, delivery_fee text" "typ"
++# Mutation 4 : colonne ABSENTE.
++mutate_resolver_and_apply "colonne ABSENTE (free_threshold retirée)" \
++  "eligible boolean, block text, fulfillment_rule_id uuid, min_items integer, missing integer, customer_text text, pricing_mode text, fixed_fee numeric, delivery_fee numeric" "abs"
++# Mutation 5 : SURCHARGE supplémentaire -- le contrôle deviendrait
++#   ambigu, et l'appel du lot imprévisible.
++DB_DUP="scanym_csdj1_mutdup_$RUN_TAG"
++create_tracked_db "$DB_DUP" -T "$DB_BASE"
++psql -X -q -d "$DB_DUP" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
++create function public.resolve_delivery_fulfillment(p_restaurant_id uuid)
++returns table (eligible boolean)
++language plpgsql stable set search_path = ''
++as \$f\$ begin return; end \$f\$;
++SQL
++if apply_path "$SUPABASE_DIR/$LOT_SQL" "$DB_DUP"; then
++  fail "[18] SURCHARGE supplémentaire — le lot s'est appliqué malgré deux résolveurs"
++else
++  if grep -q 'SCANYM_SCHEMA_DRIFT' "$OUT"; then
++    pass "[18] SURCHARGE supplémentaire — refusée, et le refus nomme la dérive"
++  else
++    fail "[18] SURCHARGE supplémentaire — refusée pour une autre raison : $(tail -3 "$OUT" | tr '\n' ' ')"
++  fi
++fi
++DB="$DB_FWD"
++
+ # ============================================================
+ # [13][14] ROLLBACK
+ # ============================================================
+diff --git a/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh b/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+new file mode 100755
+index 0000000..ade4785
+--- /dev/null
++++ b/supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
+@@ -0,0 +1,206 @@
++#!/usr/bin/env bash
++# ============================================================
++# Scanym — CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)
++# Harnais de SÛRETÉ dédié : RESTAURATION EXACTE DES ATTRIBUTS DE RÔLE.
++#
++# Ferme CSDJ1-AUD-06.
++#
++# ------------------------------------------------------------------
++# LE DÉFAUT QUE CE FICHIER PROUVE FERMÉ
++#
++# `boolean::text` rend « true »/« false » en SQL ; « t »/« f » est la
++# forme de l'affichage ALIGNÉ de psql, pas celle de la conversion. Le
++# harnais principal capturait donc « true » et comparait à « t » : la
++# comparaison échouait TOUJOURS, et la branche de repli restaurait
++# NOLOGIN NOBYPASSRLS.
++#
++# Sur un cluster jetable que le harnais crée lui-même, c'était
++# invisible : le cluster entier disparaît juste après. Mais en mode
++# CLUSTER DÉSIGNÉ par l'opérateur (SCANYM_HARNESS_PGHOST), le nettoyage
++# restaure réellement les rôles du cluster de l'opérateur -- et il les
++# corrompait.
++#
++# ------------------------------------------------------------------
++# CE QUE CE HARNAIS PROUVE (exécuté, jamais inspecté)
++#
++# Pour les QUATRE combinaisons initiales de LOGIN × BYPASSRLS, sur les
++# trois rôles applicatifs, dans un cluster DÉSIGNÉ :
++#   - le harnais principal s'exécute jusqu'au bout ;
++#   - après son nettoyage, CHAQUE attribut de CHAQUE rôle est
++#     exactement celui d'avant l'exécution.
++# Plus deux contrôles de forme :
++#   - l'instantané est bien encodé en 1/0, et non en true/false ;
++#   - un instantané d'une autre forme fait REFUSER l'exécution, plutôt
++#     que de laisser muter un cluster non restaurable.
++#
++# CE QUE CE HARNAIS NE FAIT PAS : il ne touche aucun cluster qu'il n'a
++# pas créé lui-même, n'accepte aucune variable de connexion héritée, et
++# ne journalise aucune valeur de variable.
++#
++# Usage :  SCANYM_DISPOSABLE_CLUSTER=1 \
++#            bash supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh
++# ============================================================
++set -u
++
++SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++HARNESS="$SCRIPT_DIR/checkout-scheduling-foundation-v1-check.sh"
++[ -f "$HARNESS" ] || { echo "harnais principal introuvable" >&2; exit 1; }
++
++PASS=0
++FAIL=0
++log()  { printf '[%s] %s\n' "$(date -u '+%H:%M:%S')" "$*"; }
++pass() { PASS=$((PASS + 1)); log "PASS: $*"; }
++fail() { FAIL=$((FAIL + 1)); log "FAIL: $*"; }
++fatal() { log "FATAL: $*"; exit 1; }
++
++# Ce fichier démarre lui aussi un cluster jetable : il exige le même
++# consentement explicite que le harnais qu'il met à l'épreuve.
++if [ "${SCANYM_DISPOSABLE_CLUSTER:-}" != "1" ]; then
++  log "REFUS : SCANYM_DISPOSABLE_CLUSTER=1 requis (ce fichier démarre un cluster jetable)."
++  exit 2
++fi
++[ "$(id -u)" != "0" ] || fatal "initdb refuse de s'exécuter en root."
++
++TMP_DIR="$(mktemp -d)"
++PGDATA_DIR="$TMP_DIR/cluster"
++SOCKET_DIR="$TMP_DIR/sock"
++PORT=$(( 49152 + ($$ % 15000) ))
++CLUSTER_UP=0
++
++cleanup() {
++  local rc=$?
++  [ "$CLUSTER_UP" = "1" ] && "$PG_CTL" -D "$PGDATA_DIR" stop -m immediate >/dev/null 2>&1
++  rm -rf "$TMP_DIR"
++  exit "$rc"
++}
++trap cleanup EXIT
++
++INITDB=""
++for cand in initdb /usr/lib/postgresql/*/bin/initdb; do
++  if command -v "$cand" >/dev/null 2>&1; then INITDB="$cand"; break; fi
++done
++[ -n "$INITDB" ] || fatal "initdb introuvable."
++PG_CTL="$(dirname "$INITDB")/pg_ctl"
++[ -x "$PG_CTL" ] || PG_CTL="pg_ctl"
++
++mkdir -p "$SOCKET_DIR"
++"$INITDB" -D "$PGDATA_DIR" -A trust -E UTF8 --locale=C >"$TMP_DIR/initdb.log" 2>&1 \
++  || fatal "initdb a échoué : $(tail -3 "$TMP_DIR/initdb.log" | tr '\n' ' ')"
++"$PG_CTL" -D "$PGDATA_DIR" -l "$TMP_DIR/pg.log" \
++  -o "-p $PORT -k $SOCKET_DIR -c listen_addresses=''" start >/dev/null 2>&1 \
++  || fatal "démarrage impossible : $(tail -3 "$TMP_DIR/pg.log" 2>/dev/null | tr '\n' ' ')"
++CLUSTER_UP=1
++log "cluster TÉMOIN créé par CE fichier (socket $SOCKET_DIR, port $PORT)."
++
++q() { psql -X -A -q -t -h "$SOCKET_DIR" -p "$PORT" -d postgres -c "$1" </dev/null 2>/dev/null | tail -1 | tr -d ' '; }
++
++# État d'un rôle sous une forme COMPARABLE, indépendante de toute
++# convention d'affichage.
++role_attrs() {
++  q "select coalesce((select (case when rolcanlogin then 'LOGIN' else 'NOLOGIN' end)
++                           || '+' ||
++                             (case when rolbypassrls then 'BYPASSRLS' else 'NOBYPASSRLS' end)
++                      from pg_roles where rolname = '$1'), 'ABSENT');"
++}
++
++APP_ROLES="anon authenticated service_role"
++
++run_main_harness() {
++  # `env -i` : on part d'un environnement VIDE et on n'injecte QUE le
++  # consentement et la désignation du cluster. Aucune variable héritée
++  # ne peut donc influencer l'exécution.
++  env -i PATH="$PATH" HOME="${HOME:-/tmp}" \
++    SCANYM_DISPOSABLE_CLUSTER=1 \
++    SCANYM_HARNESS_PGHOST="$SOCKET_DIR" \
++    SCANYM_HARNESS_PGPORT="$PORT" \
++    bash "$HARNESS" >"$TMP_DIR/main.log" 2>&1
++  return $?
++}
++
++# ------------------------------------------------------------------
++# [A] Les QUATRE combinaisons initiales
++# ------------------------------------------------------------------
++for combo in "NOLOGIN NOBYPASSRLS" "LOGIN NOBYPASSRLS" "NOLOGIN BYPASSRLS" "LOGIN BYPASSRLS"; do
++  set -- $combo
++  LK="$1"; BK="$2"
++  log "=== [A] état initial des rôles : $LK + $BK ==="
++
++  for r in $APP_ROLES; do
++    q "do \$\$ begin
++         if not exists (select 1 from pg_roles where rolname='$r') then
++           execute 'create role $r $LK $BK';
++         else
++           execute 'alter role $r $LK $BK';
++         end if;
++       end \$\$;" >/dev/null
++  done
++
++  declare -A BEFORE=()
++  for r in $APP_ROLES; do BEFORE[$r]="$(role_attrs "$r")"; done
++  log "  avant : $(for r in $APP_ROLES; do printf '%s=%s ' "$r" "${BEFORE[$r]}"; done)"
++
++  if run_main_harness; then
++    pass "[A] $LK+$BK — le harnais principal s'exécute jusqu'au bout sur le cluster désigné"
++  else
++    fail "[A] $LK+$BK — le harnais principal a échoué : $(tail -3 "$TMP_DIR/main.log" | tr '\n' ' ')"
++  fi
++
++  for r in $APP_ROLES; do
++    after="$(role_attrs "$r")"
++    if [ "$after" = "${BEFORE[$r]}" ]; then
++      pass "[A] $LK+$BK — '$r' restauré EXACTEMENT ($after)"
++    else
++      fail "[A] $LK+$BK — '$r' corrompu : avant '${BEFORE[$r]}', après '$after'"
++    fi
++  done
++done
++
++# ------------------------------------------------------------------
++# [B] Forme de l'instantané : 1/0, jamais true/false ni t/f
++# ------------------------------------------------------------------
++log "=== [B] forme de l'instantané de rôle ==="
++SNAP_EXPR="$(grep -A3 '^role_state()' "$HARNESS" | tr -d '\n')"
++case "$SNAP_EXPR" in
++  *"then '1' else '0'"*) pass "[B] l'instantané encode explicitement 1/0" ;;
++  *) fail "[B] l'instantané n'encode pas 1/0 — la comparaison du nettoyage redeviendrait fragile" ;;
++esac
++case "$SNAP_EXPR" in
++  *"rolcanlogin::text"*) fail "[B] l'instantané emploie encore ::text, dont la forme est 'true'/'false'" ;;
++  *) pass "[B] l'instantané n'emploie plus ::text sur un booléen" ;;
++esac
++if grep -q '\[ "\$login" = "1" \]' "$HARNESS" && grep -q '\[ "\$bypass" = "1" \]' "$HARNESS"; then
++  pass "[B] la restauration compare bien à 1, et non à 't'"
++else
++  fail "[B] la restauration ne compare pas à 1 — l'écart entre capture et comparaison subsiste"
++fi
++if grep -q "'EXISTS|1|1'" "$HARNESS"; then
++  pass "[B] le verrou de sûreté n'accepte que les quatre instantanés bien formés"
++else
++  fail "[B] le verrou de sûreté n'énumère pas les instantanés admissibles"
++fi
++
++# ------------------------------------------------------------------
++# [C] Un rôle ABSENT avant l'exécution est RETIRÉ après
++# ------------------------------------------------------------------
++log "=== [C] un rôle absent avant doit être absent après ==="
++q "drop role if exists service_role;" >/dev/null
++BEFORE_ABSENT="$(role_attrs service_role)"
++if [ "$BEFORE_ABSENT" = "ABSENT" ]; then
++  if run_main_harness; then
++    pass "[C] le harnais principal s'exécute avec un rôle initialement absent"
++  else
++    fail "[C] le harnais principal a échoué : $(tail -3 "$TMP_DIR/main.log" | tr '\n' ' ')"
++  fi
++  after="$(role_attrs service_role)"
++  if [ "$after" = "ABSENT" ]; then
++    pass "[C] 'service_role', absent avant, est bien absent après"
++  else
++    fail "[C] 'service_role' subsiste après l'exécution ($after) — le cluster de l'opérateur a été muté"
++  fi
++else
++  fail "[C] impossible de préparer l'état « rôle absent »"
++fi
++
++log "=== BILAN RESTAURATION DE RÔLES : $PASS preuve(s), $FAIL échec(s) ==="
++[ "$FAIL" -eq 0 ] || exit 1
++exit 0
+diff --git a/tests/csdj1-scheduling-eligibility.test.ts b/tests/csdj1-scheduling-eligibility.test.ts
+index 4517fea..a5c3ce6 100644
+--- a/tests/csdj1-scheduling-eligibility.test.ts
++++ b/tests/csdj1-scheduling-eligibility.test.ts
+@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
+ import {
+   type ScheduleInput,
+   resolveScheduleEligibility,
++  resolveWallTime,
+ } from "../lib/scheduling/eligibility.ts";
+ 
+ /**
+@@ -283,49 +284,49 @@ test("[ELIG-8] cutoffTime null signifie AUCUNE limite, et non minuit", () => {
+     windows: PICKUP_WINDOWS,
+     slots: [],
+     closures: [],
+-    // Mardi 23:50 : avec une limite à minuit, mardi serait encore
+-    // ouvert ; sans limite du tout, il l'est aussi -- la distinction se
+-    // voit sur MERCREDI, qu'une limite à minuit la veille exclurait.
++    // Mardi 23:50. Une limite à minuit la veille exclurait MERCREDI ;
++    // sans limite du tout, mercredi reste ouvert -- c'est là que se voit
++    // la différence entre « aucune limite » et « limite à minuit ».
+     nowIso: "2026-10-13T23:50:00+02:00",
+   }).dates.map((d) => d.date);
+-  // Horizon de 7 jours depuis le 13 : la borne haute est le 20 inclus,
+-  // et seuls mardi (2) et mercredi (3) portent une fenêtre.
+-  assert.deepEqual(dates, ["2026-10-13", "2026-10-14", "2026-10-20"]);
++  // Horizon de 7 jours depuis le 13 : borne haute le 20 inclus, et seuls
++  // mardi (2) et mercredi (3) portent une fenêtre.
++  // Mardi 13 disparaît pour une autre raison, et c'est voulu : sa seule
++  // fenêtre commence à 11:00, donc AVANT l'instant courant
++  // (CSDJ-V1-OFFER-START-INSTANT-01). Une offre passée n'est pas une
++  // offre.
++  assert.deepEqual(dates, ["2026-10-14", "2026-10-20"]);
+ });
+ 
+ test("[ELIG-9] le fuseau vient de la CONFIGURATION, jamais de la machine", () => {
+-  // Deux portées, même instant, deux fuseaux : deux dates civiles
+-  // différentes. Si le calcul lisait le fuseau du processus, les deux
++  // Même instant, trois fuseaux : trois dates civiles différentes chez
++  // le commerçant. Si le calcul lisait le fuseau du processus, les trois
+   // résultats seraient identiques.
++  //
++  // `minLeadDays: 1` isole volontairement la propriété mesurée : la
++  // première date est alors « le lendemain du jour du COMMERÇANT », et
++  // le filtre d'instant ne peut pas s'en mêler, puisque le plancher de
++  // cette date est postérieur à l'instant courant.
+   const nowIso = "2026-10-13T23:30:00+00:00";
+-  const paris = resolveScheduleEligibility({
+-    config: { ...BASE_CONFIG, timezone: "Europe/Paris" },
+-    windows: PICKUP_WINDOWS,
+-    slots: [],
+-    closures: [],
+-    nowIso,
+-  });
+-  const auckland = resolveScheduleEligibility({
+-    config: { ...BASE_CONFIG, timezone: "Pacific/Auckland" },
+-    windows: PICKUP_WINDOWS,
+-    slots: [],
+-    closures: [],
+-    nowIso,
+-  });
+-  // À 23:30 UTC le 13, il est déjà le 14 à Paris (UTC+2) et le 14 à
+-  // Auckland (UTC+13) -- mais Auckland est plus loin dans la journée.
+-  assert.equal(paris.firstEligibleDate, "2026-10-14");
+-  assert.equal(auckland.firstEligibleDate, "2026-10-14");
+-  // La preuve que le fuseau est bien lu : un fuseau à l'ouest donne
+-  // encore le 13.
+-  const la = resolveScheduleEligibility({
+-    config: { ...BASE_CONFIG, timezone: "America/Los_Angeles" },
+-    windows: PICKUP_WINDOWS,
+-    slots: [],
+-    closures: [],
+-    nowIso,
+-  });
+-  assert.equal(la.firstEligibleDate, "2026-10-13");
++  const everyDay = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
++    weekday,
++    startsAt: "09:00",
++    endsAt: "18:00",
++  }));
++  const firstFor = (timezone: string) =>
++    resolveScheduleEligibility({
++      config: { ...BASE_CONFIG, timezone, minLeadDays: 1 },
++      windows: everyDay,
++      slots: [],
++      closures: [],
++      nowIso,
++    }).firstEligibleDate;
++
++  // À 23:30 UTC le 13 : il est déjà le 14 à Paris (UTC+2) et le 14 à
++  // midi passé à Auckland (UTC+13), mais encore le 13 à Los Angeles.
++  assert.equal(firstFor("Europe/Paris"), "2026-10-15");
++  assert.equal(firstFor("Pacific/Auckland"), "2026-10-15");
++  assert.equal(firstFor("America/Los_Angeles"), "2026-10-14");
+ });
+ 
+ test("[ELIG-10] la granularité n'est rendue que là où elle a un sens", () => {
+@@ -409,3 +410,274 @@ test("[ELIG-13] une fermeture ne décale pas l'horizon, elle retire un jour", ()
+     "exactement un jour en moins, et aucun jour gagné au-delà de l'horizon"
+   );
+ });
++
++// ====================================================================
++// CSDJ1-AUD-02 — classification des heures murales
++// ====================================================================
++
++test("[AUD02-1] une heure murale INEXISTANTE est classée comme telle", () => {
++  // Europe/Paris, 29 mars 2026 : 02:00 -> 03:00 n'a pas eu lieu.
++  for (const minutes of [2 * 60, 2 * 60 + 10, 2 * 60 + 30, 2 * 60 + 59]) {
++    const r = resolveWallTime(2026, 3, 29, minutes, "Europe/Paris");
++    assert.equal(r.status, "nonexistent", `02:${minutes - 120} devrait être inexistante`);
++    assert.equal(r.epochMs, null, "une heure inexistante ne rend AUCUN instant");
++  }
++  // Les bornes, elles, existent.
++  assert.equal(resolveWallTime(2026, 3, 29, 119, "Europe/Paris").status, "ok");
++  assert.equal(resolveWallTime(2026, 3, 29, 180, "Europe/Paris").status, "ok");
++});
++
++test("[AUD02-2] une heure murale AMBIGUË est classée comme telle", () => {
++  // Europe/Paris, 25 octobre 2026 : 02:00 -> 03:00 a eu lieu deux fois.
++  for (const minutes of [2 * 60, 2 * 60 + 30, 2 * 60 + 59]) {
++    const r = resolveWallTime(2026, 10, 25, minutes, "Europe/Paris");
++    assert.equal(r.status, "ambiguous");
++    assert.equal(r.epochMs, null, "une heure ambiguë ne rend AUCUN instant");
++  }
++  assert.equal(resolveWallTime(2026, 10, 25, 119, "Europe/Paris").status, "ok");
++  assert.equal(resolveWallTime(2026, 10, 25, 180, "Europe/Paris").status, "ok");
++});
++
++test("[AUD02-3] un fuseau sans transition n'a ni heure inexistante ni ambiguë", () => {
++  for (const tz of ["UTC", "Pacific/Kiritimati"]) {
++    for (const date of [
++      [2026, 3, 29],
++      [2026, 10, 25],
++    ] as const) {
++      for (const minutes of [0, 120, 150, 180, 1439]) {
++        assert.equal(
++          resolveWallTime(date[0], date[1], date[2], minutes, tz).status,
++          "ok",
++          `${tz} ${date.join("-")} ${minutes}`
++        );
++      }
++    }
++  }
++});
++
++test("[AUD02-4] un fuseau à décalage NÉGATIF suit la même politique", () => {
++  // America/Los_Angeles : saut le 8 mars 2026, recul le 1er novembre.
++  assert.equal(
++    resolveWallTime(2026, 3, 8, 150, "America/Los_Angeles").status,
++    "nonexistent"
++  );
++  assert.equal(
++    resolveWallTime(2026, 11, 1, 90, "America/Los_Angeles").status,
++    "ambiguous"
++  );
++  assert.equal(resolveWallTime(2026, 3, 8, 60, "America/Los_Angeles").status, "ok");
++});
++
++test("[AUD02-5] une offre dont l'heure murale est refusée n'est JAMAIS exposée", () => {
++  // La politique ne se contente pas de classer : elle ÉCARTE l'offre.
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "fixed_slots",
++      bookingHorizonDays: 2,
++      cutoffTime: null,
++    },
++    windows: [],
++    slots: [
++      { weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" },
++      { weekday: 0, slotKey: "safe", startsAt: "04:00", endsAt: "05:00" },
++    ],
++    closures: [],
++    nowIso: "2026-03-28T12:00:00+01:00",
++  });
++  assert.equal(got.status, "dates_available");
++  assert.deepEqual(
++    got.dates.map((d) => d.offers.map((o) => o.slotKey)),
++    [["safe"]],
++    "le créneau tombant dans le trou du changement d'heure doit avoir disparu"
++  );
++});
++
++test("[AUD02-6] si TOUTES les offres du jour tombent dans le trou, le jour disparaît", () => {
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "fixed_slots",
++      bookingHorizonDays: 1,
++      minLeadDays: 1,
++      cutoffTime: null,
++    },
++    windows: [],
++    slots: [{ weekday: 0, slotKey: "gap", startsAt: "02:10", endsAt: "02:50" }],
++    closures: [],
++    nowIso: "2026-03-28T12:00:00+01:00",
++  });
++  assert.equal(got.status, "unfulfillable");
++  assert.equal(got.reason, "no_offer_in_horizon");
++  assert.equal(got.firstEligibleDate, null);
++});
++
++// ====================================================================
++// CSDJ1-AUD-01 — l'instant minimal, et rien d'autre
++// ====================================================================
++
++test("[AUD01-1] le délai de préparation filtre les OFFRES, pas seulement les dates", () => {
++  // Reproduction littérale de l'audit : créneau 09:00-11:00, délai de
++  // 120 minutes, il est 15:00.
++  const base = {
++    ...BASE_CONFIG,
++    slotSelectionMode: "fixed_slots" as const,
++    leadTimeMinutes: 120,
++    bookingHorizonDays: 0,
++    cutoffTime: null,
++  };
++  const slots = [
++    { weekday: 2, slotKey: "0900-1100", startsAt: "09:00", endsAt: "11:00" },
++  ];
++  const got = resolveScheduleEligibility({
++    config: base,
++    windows: [],
++    slots,
++    closures: [],
++    nowIso: "2026-10-13T15:00:00+02:00",
++  });
++  assert.equal(got.status, "unfulfillable");
++  assert.equal(got.reason, "no_offer_in_horizon");
++  assert.equal(got.dates.length, 0);
++
++  // Et le matin, le même créneau est bien proposé : le filtre écarte
++  // l'offre passée, il ne supprime pas l'offre.
++  const earlier = resolveScheduleEligibility({
++    config: base,
++    windows: [],
++    slots,
++    closures: [],
++    nowIso: "2026-10-13T06:00:00+02:00",
++  });
++  assert.equal(earlier.status, "dates_available");
++  assert.deepEqual(earlier.dates[0]!.offers.map((o) => o.slotKey), ["0900-1100"]);
++});
++
++test("[AUD01-2] la comparaison d'instant est inclusive à la seconde", () => {
++  const cfg = {
++    ...BASE_CONFIG,
++    slotSelectionMode: "fixed_slots" as const,
++    bookingHorizonDays: 0,
++    cutoffTime: null,
++  };
++  const slots = [
++    { weekday: 2, slotKey: "1000", startsAt: "10:00", endsAt: "12:00" },
++  ];
++  const at = (nowIso: string) =>
++    resolveScheduleEligibility({
++      config: cfg,
++      windows: [],
++      slots,
++      closures: [],
++      nowIso,
++    }).status;
++  assert.equal(at("2026-10-13T09:59:59+02:00"), "dates_available");
++  assert.equal(at("2026-10-13T10:00:00+02:00"), "dates_available", "PILE = réalisable");
++  assert.equal(at("2026-10-13T10:00:01+02:00"), "unfulfillable");
++});
++
++test("[AUD01-3] une fenêtre est AVANCÉE sur la grille, jamais inventée", () => {
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "time_within_window",
++      timeGranularityMinutes: 15,
++      bookingHorizonDays: 0,
++      cutoffTime: null,
++    },
++    windows: [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }],
++    slots: [],
++    closures: [],
++    nowIso: "2026-10-13T12:07:00+02:00",
++  });
++  // Grille ancrée sur 11:00 : le premier point utilisable est 12:15,
++  // pas 12:07 -- la grille reste celle que le commerçant a décrite.
++  assert.deepEqual(got.dates[0]!.offers, [
++    { slotKey: null, startsAt: "12:15", endsAt: "14:00" },
++  ]);
++});
++
++test("[AUD01-4] une fenêtre dont la grille sort entièrement disparaît", () => {
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "time_within_window",
++      timeGranularityMinutes: 15,
++      bookingHorizonDays: 0,
++      cutoffTime: null,
++    },
++    windows: [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }],
++    slots: [],
++    closures: [],
++    nowIso: "2026-10-13T13:50:00+02:00",
++  });
++  // Le dernier point de grille strictement inférieur à 14:00 est 13:45,
++  // déjà passé : plus rien n'est utilisable.
++  assert.equal(got.status, "unfulfillable");
++  assert.equal(got.reason, "no_offer_in_horizon");
++});
++
++test("[AUD01-5] les trois motifs d'infaisabilité restent distincts", () => {
++  const windows = [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }];
++  const reason = (cfg: Partial<typeof BASE_CONFIG>, closures: string[] = []) =>
++    resolveScheduleEligibility({
++      config: { ...BASE_CONFIG, cutoffTime: null, ...cfg },
++      windows,
++      slots: [],
++      closures: closures.map((closedOn) => ({ closedOn })),
++      nowIso: "2026-10-13T20:00:00+02:00",
++    }).reason;
++
++  // Des dates ouvertes, mais plus aucune offre réalisable.
++  assert.equal(reason({ bookingHorizonDays: 0 }), "no_offer_in_horizon");
++  // Toutes les dates de l'horizon sont fermées.
++  assert.equal(reason({ bookingHorizonDays: 0 }, ["2026-10-13"]), "all_dates_closed");
++  // La première date POSSIBLE est au-delà de l'horizon.
++  assert.equal(reason({ minLeadDays: 30, bookingHorizonDays: 7 }), "horizon_exhausted");
++});
++
++// ====================================================================
++// CSDJ1-AUD-04 — précision à la minute
++// ====================================================================
++
++test("[AUD04-1] une offre sous-minute est ÉCARTÉE, jamais tronquée", () => {
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "fixed_slots",
++      bookingHorizonDays: 0,
++      cutoffTime: null,
++    },
++    windows: [],
++    slots: [
++      { weekday: 2, slotKey: "zero", startsAt: "09:00:01", endsAt: "09:00:59" },
++      { weekday: 2, slotKey: "franche", startsAt: "10:00", endsAt: "12:00" },
++    ],
++    closures: [],
++    nowIso: "2026-10-13T06:00:00+02:00",
++  });
++  // Tronquer aurait produit « 09:00-09:00 », une offre de durée nulle
++  // affichée comme disponible : exactement le défaut CSDJ1-AUD-04.
++  assert.deepEqual(got.dates[0]!.offers.map((o) => o.slotKey), ["franche"]);
++});
++
++test("[AUD04-2] toute heure publiée est en HH:MM, jamais en HH:MM:SS", () => {
++  const got = resolveScheduleEligibility({
++    config: {
++      ...BASE_CONFIG,
++      slotSelectionMode: "fixed_slots",
++      bookingHorizonDays: 1,
++      cutoffTime: null,
++    },
++    windows: [],
++    slots: [{ weekday: 2, slotKey: "a", startsAt: "09:00:00", endsAt: "11:00:00" }],
++    closures: [],
++    nowIso: "2026-10-13T06:00:00+02:00",
++  });
++  for (const d of got.dates) {
++    for (const o of d.offers) {
++      assert.match(o.startsAt, /^\d{2}:\d{2}$/);
++      assert.match(o.endsAt, /^\d{2}:\d{2}$/);
++    }
++  }
++});
+diff --git a/tests/csdj1-scheduling-model.test.ts b/tests/csdj1-scheduling-model.test.ts
+index 0d053ad..d73b9a7 100644
+--- a/tests/csdj1-scheduling-model.test.ts
++++ b/tests/csdj1-scheduling-model.test.ts
+@@ -14,6 +14,7 @@ import {
+   isCheckoutUnfulfillableReason,
+   isSchedulePolicyCoherent,
+   isScheduleSlotKey,
++  isScheduleTime,
+   isScheduleWeekday,
+   parseScheduleTime,
+ } from "../lib/scheduling/schedule-model.ts";
+@@ -47,7 +48,10 @@ test("[MODEL-1] les quatre catalogues sont fermés, ordonnés et sans doublon",
+   assert.deepEqual(CHECKOUT_DATE_SELECTION_MODES.length, 3);
+   assert.deepEqual(CHECKOUT_SLOT_SELECTION_MODES.length, 3);
+   assert.deepEqual(CHECKOUT_SCHEDULE_STATUSES.length, 5);
+-  assert.deepEqual(CHECKOUT_UNFULFILLABLE_REASONS.length, 4);
++  // Cinq depuis la remédiation : `no_offer_in_horizon` distingue
++  // « des dates ouvertes mais aucune offre réalisable » de
++  // « la première date possible est au-delà de l'horizon ».
++  assert.deepEqual(CHECKOUT_UNFULFILLABLE_REASONS.length, 5);
+ });
+ 
+ test("[MODEL-2] les statuts porteurs des deux invariants existent", () => {
+@@ -133,23 +137,43 @@ test("[MODEL-7] clé de créneau : forme étroite, pour n'avoir jamais à l'éch
+   assert.equal(isScheduleSlotKey("a".repeat(SCHEDULE_SLOT_KEY_MAX_LENGTH)), true);
+ });
+ 
+-test("[MODEL-8] lecture d'heure : HH:MM et HH:MM:SS, et rien d'autre", () => {
++test("[MODEL-8] lecture d'heure : la MINUTE, et rien de plus fin", () => {
++  // CSDJ-V1-MINUTE-PRECISION-01, ferme CSDJ1-AUD-04.
+   assert.equal(parseScheduleTime("00:00"), 0);
+   assert.equal(parseScheduleTime("16:00"), 960);
+   assert.equal(parseScheduleTime("19:30"), 1170);
+   assert.equal(parseScheduleTime("23:59"), 1439);
+-  // psql rend un `time` en HH:MM:SS : il faut savoir le lire.
++  // psql rend un `time` en HH:MM:SS : il faut savoir le lire, et des
++  // secondes NULLES sont admissibles.
+   assert.equal(parseScheduleTime("16:00:00"), 960);
+-  // Les secondes sont tronquées, pas arrondies.
+-  assert.equal(parseScheduleTime("16:00:59"), 960);
++  // Mais des secondes NON nulles sont REFUSÉES, jamais tronquées :
++  // tronquer 09:00:30-09:00:59 produirait une offre de durée nulle
++  // affichée comme disponible -- le défaut CSDJ1-AUD-04.
++  assert.equal(parseScheduleTime("16:00:30"), null);
++  assert.equal(parseScheduleTime("16:00:59"), null);
++  assert.equal(parseScheduleTime("16:00:01"), null);
++  // Une fraction de seconde non nulle est refusée aussi.
++  assert.equal(parseScheduleTime("16:00:00.500"), null);
++  assert.equal(parseScheduleTime("16:00:00.000"), 960);
+   // 24:00 est refusé : une fenêtre qui finit « à minuit » se déclare
+-  // 23:59, sinon chaque comparaison devrait connaître ce cas.
++  // 23:59, sinon chaque comparaison devrait connaître ce cas
++  // (CSDJ-V1-NO-24H-01).
+   assert.equal(parseScheduleTime("24:00"), null);
++  assert.equal(parseScheduleTime("24:00:00"), null);
+   for (const v of ["", "6:00", "16h00", "16:60", "25:00", "abcd", null, 960, {}]) {
+     assert.equal(parseScheduleTime(v), null, `${String(v)} ne doit pas passer`);
+   }
+ });
+ 
++test("[MODEL-10] isScheduleTime refuse exactement ce que parseScheduleTime refuse", () => {
++  for (const v of ["09:00", "09:00:00", "23:59"]) {
++    assert.equal(isScheduleTime(v), true, String(v));
++  }
++  for (const v of ["09:00:30", "24:00", "9:00", "", null]) {
++    assert.equal(isScheduleTime(v), false, String(v));
++  }
++});
++
+ test("[MODEL-9] écriture d'heure : aller-retour stable", () => {
+   for (const m of [0, 1, 659, 960, 1170, 1439]) {
+     assert.equal(parseScheduleTime(formatScheduleTime(m)), m);
+diff --git a/tests/csdj1-sql-structural.test.ts b/tests/csdj1-sql-structural.test.ts
+index e29c9f0..87314ca 100644
+--- a/tests/csdj1-sql-structural.test.ts
++++ b/tests/csdj1-sql-structural.test.ts
+@@ -1,6 +1,6 @@
+ import test from "node:test";
+ import assert from "node:assert/strict";
+-import { readFileSync, readdirSync, statSync } from "node:fs";
++import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+ import { join } from "node:path";
+ 
+ import {
+@@ -286,7 +286,7 @@ test("[NO-SECOND-ENGINE-2] seules les colonnes COMMUNES du résolveur sont lues"
+   // Et le pré-vol refuse si l'une des colonnes communes disparaissait.
+   assert.ok(
+     execSql.includes(
+-      "SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie plus la colonne"
++      "SCANYM_SCHEMA_DRIFT: resolve_delivery_fulfillment ne renvoie pas la colonne de sortie attendue"
+     ),
+     "le pré-vol doit refuser une forme de résolveur amputée"
+   );
+@@ -704,14 +704,37 @@ test("[NO-HARDCODE-2] aucun fuseau en dur dans la décision", () => {
+   // base de fuseaux du serveur fonctionne -- jamais comme fuseau de
+   // calcul. Un fuseau en dur condamnerait tous les commerçants d'un
+   // autre pays.
+-  // Deux emplois LÉGITIMES : la sonde du pré-vol qui vérifie que la base
+-  // de fuseaux du serveur fonctionne, et l'EXEMPLE du commentaire de
+-  // colonne. Ce qui compte est l'absence dans la fonction de CALCUL.
+-  const occurrences = [...execSql.matchAll(/Europe\/Paris/g)].length;
+-  assert.equal(occurrences, 2, "deux emplois attendus : la sonde du pré-vol et l'exemple documentaire");
++  // Les emplois LÉGITIMES sont des SONDES : le pré-vol vérifie que la
++  // base de fuseaux du serveur fonctionne, le post-vol que la politique
++  // d'heure murale refuse bien. Ce qui compte est l'absence de fuseau en
++  // dur dans les fonctions qui DÉCIDENT.
+   assert.ok(
+     execSql.includes("pg_catalog.pg_timezone_names where name = 'Europe/Paris'"),
+-    "le premier emploi doit être la sonde du pré-vol"
++    "le pré-vol doit sonder la base de fuseaux du serveur"
++  );
++  // Aucun fuseau LITTÉRAL ne doit servir de fuseau de calcul : un
++  // fuseau en dur condamnerait tout commerçant d'un autre pays. Les
++  // seuls emplois admis sont des SONDES de pré-vol et de post-vol, qui
++  // ne décident de rien.
++  for (const hardcoded of [
++    "at time zone 'Europe/Paris'",
++    "at time zone 'UTC'",
++    "'Europe/Paris', p_time",
++  ]) {
++    assert.ok(
++      !execSql.includes(hardcoded),
++      `aucun fuseau en dur ne doit servir de fuseau de calcul (« ${hardcoded} »)`
++    );
++  }
++  // Et les deux fonctions de décision lisent bien un fuseau PARAMÉTRÉ.
++  assert.ok(
++    sqlFunctionBlock("create function public.resolve_fulfillment_schedule(")
++      .includes("v_s.timezone"),
++    "le résolveur doit lire le fuseau de la portée"
++  );
++  assert.ok(
++    execSql.includes("at time zone p_timezone"),
++    "la politique d'heure murale doit lire le fuseau qu'on lui passe"
+   );
+   const resolveBlock = sqlFunctionBlock(
+     "create function public.resolve_fulfillment_schedule("
+@@ -801,3 +824,266 @@ test("[HARNESS-5] le harnais rejoue la FIXTURE PARTAGÉE, pas des cas réécrits
+     "le harnais doit lire la fixture partagée : c'est elle qui fait la preuve croisée"
+   );
+ });
++
++// ====================================================================
++// REMÉDIATION — les six blockers de l'audit indépendant
++// ====================================================================
++
++test("[AUD01-SQL] le résolveur compare des INSTANTS, pas seulement des dates", () => {
++  assert.ok(
++    sql.includes("CSDJ-V1-OFFER-START-INSTANT-01"),
++    "l'invariant doit être nommé dans le fichier, pas seulement dans un test"
++  );
++  const block = sqlFunctionBlock("create function public.resolve_fulfillment_schedule(");
++  assert.ok(
++    block.includes("v_min_instant"),
++    "un instant minimal de réalisation doit être calculé"
++  );
++  // Chaque offre est comparée à cet instant -- deux comparaisons, une
++  // par politique d'horaire.
++  assert.ok(
++    (block.match(/v_inst >= v_min_instant|v_inst < v_min_instant/g) ?? []).length >= 2,
++    "chaque offre doit être comparée à l'instant minimal"
++  );
++  // Et une date sans offre survivante est retirée.
++  assert.ok(
++    block.includes("pg_catalog.jsonb_array_length(v_day) = 0"),
++    "une date dont toutes les offres sont écartées doit être retirée"
++  );
++  assert.ok(
++    CHECKOUT_UNFULFILLABLE_REASONS.includes("no_offer_in_horizon"),
++    "le motif distinguant « des dates ouvertes mais aucune offre » doit exister"
++  );
++});
++
++test("[AUD02-SQL] la politique d'heure murale est une AUTORITÉ, pas un commentaire", () => {
++  assert.ok(execSql.includes("create function public.checkout_wall_time_status("));
++  assert.ok(execSql.includes("create function public.checkout_wall_time_instant("));
++  const status = sqlFunctionBlock("create function public.checkout_wall_time_status(");
++  assert.ok(status.includes("'nonexistent'"), "l'heure inexistante doit être nommée");
++  assert.ok(status.includes("'ambiguous'"), "l'heure ambiguë doit être nommée");
++  // Le résolveur ne doit JAMAIS convertir une heure murale autrement
++  // que par cette autorité : un `at time zone` direct rouvrirait la
++  // normalisation silencieuse que la politique ferme.
++  const resolver = sqlFunctionBlock("create function public.resolve_fulfillment_schedule(");
++  const directConversions = (
++    resolver.match(/\+ v_s\.cutoff_time\)\s*\n?\s*at time zone/g) ?? []
++  ).length;
++  assert.equal(
++    directConversions,
++    0,
++    "aucune conversion d'heure murale ne doit contourner checkout_wall_time_instant"
++  );
++  assert.ok(
++    resolver.includes("public.checkout_wall_time_instant("),
++    "le résolveur doit passer par l'autorité de politique"
++  );
++  // Et le post-vol le vérifie à l'exécution, pas seulement au texte.
++  assert.ok(
++    execSql.includes("une heure murale INEXISTANTE est acceptée"),
++    "le post-vol doit refuser une politique inopérante"
++  );
++  assert.ok(execSql.includes("une heure murale AMBIGUË est acceptée"));
++  assert.ok(
++    execSql.includes("la politique sur-refuse"),
++    "le post-vol doit aussi refuser une politique qui refuserait TOUT"
++  );
++  assert.ok(
++    sql.includes("CSDJ-V1-WALL-TIME-FAIL-CLOSED-01"),
++    "la politique doit être nommée dans le fichier"
++  );
++});
++
++test("[AUD03-SQL] la lecture publique vérifie l'activation du mode de vente", () => {
++  assert.ok(
++    sql.includes("CSDJ-V1-MODE-ENABLED-GATE-01"),
++    "la garde doit être nommée dans le fichier"
++  );
++  const block = sqlFunctionBlock(
++    "create function public.get_checkout_fulfillment_schedule("
++  );
++  assert.ok(
++    block.includes("public.restaurant_sale_modes m"),
++    "l'activation doit être lue sur la table des modes du commerçant"
++  );
++  assert.ok(
++    block.includes("and m.enabled = true"),
++    "seule l'activation STRICTE autorise la projection"
++  );
++  // La garde doit précéder tout calcul de planification : sinon elle
++  // n'empêcherait pas la fuite, elle l'accompagnerait.
++  const gate = block.indexOf("and m.enabled = true");
++  const firstResolve = block.indexOf("public.resolve_fulfillment_schedule(");
++  assert.ok(gate > 0 && firstResolve > gate, "la garde doit précéder la résolution");
++  assert.ok(
++    execSql.includes("la lecture publique ne vérifie plus l''activation du mode de vente"),
++    "le post-vol doit constater la présence de la garde"
++  );
++});
++
++test("[AUD04-SQL] la précision à la minute est contrainte sur CHAQUE colonne time", () => {
++  for (const [table, constraint] of [
++    ["restaurant_fulfillment_schedule", "rfs_cutoff_minute_precision"],
++    ["restaurant_fulfillment_schedule_window", "rfsw_minute_precision"],
++    ["restaurant_fulfillment_schedule_slot", "rfss_minute_precision"],
++  ] as const) {
++    const start = execSql.indexOf(`create table public.${table} (`);
++    const body = execSql.slice(start, execSql.indexOf("\n);", start));
++    assert.ok(body.includes(constraint), `${table} doit porter ${constraint}`);
++    assert.ok(
++      body.includes("pg_catalog.date_trunc('minute'"),
++      `${table} doit exiger des secondes nulles`
++    );
++    assert.ok(
++      body.includes("'24:00:00'::time"),
++      `${table} doit refuser 24:00 explicitement (CSDJ-V1-NO-24H-01)`
++    );
++  }
++  // Et la RPC d'écriture refuse AVANT la contrainte, avec un nom.
++  assert.ok(execSql.includes("CSDJ1_SUBMINUTE_TIME"));
++  // Le TypeScript dit la même chose : refus, pas troncature.
++  assert.ok(
++    modelSrc.includes("CSDJ-V1-MINUTE-PRECISION-01"),
++    "l'invariant doit être nommé dans le modèle TypeScript"
++  );
++  assert.ok(
++    modelSrc.includes("if (sec !== 0) return null;"),
++    "parseScheduleTime doit REFUSER des secondes non nulles, jamais les tronquer"
++  );
++});
++
++test("[AUD05-SQL] l'anti-dérive lit le CATALOGUE, jamais une sous-chaîne", () => {
++  assert.ok(
++    sql.includes("CSDJ-V1-RESOLVER-EXACT-SHAPE-01"),
++    "la stratégie doit être nommée dans le fichier"
++  );
++  // Nom ET type, lus dans pg_proc.
++  assert.ok(execSql.includes("unnest(p.proargnames, p.proargmodes, p.proallargtypes)"));
++  assert.ok(execSql.includes("a.argmode = 't'"), "seules les colonnes de SORTIE comptent");
++  assert.ok(
++    execSql.includes("pg_catalog.format_type(a.argtype, null) = pg_catalog.split_part("),
++    "le TYPE doit être comparé, pas seulement le nom"
++  );
++  // L'ancienne heuristique textuelle ne doit plus exister.
++  assert.ok(
++    !execSql.includes("pg_get_function_result(\n         pg_catalog.to_regprocedure('public.resolve_delivery_fulfillment"),
++    "aucune vérification par sous-chaîne de la signature du résolveur"
++  );
++  const preflight = execSql.slice(
++    execSql.indexOf("$csdj1_preflight$"),
++    execSql.indexOf("§A  CATALOGUES FERMÉS")
++  );
++  assert.ok(
++    preflight.includes("resolve_delivery_fulfillment"),
++    "le contrôle doit être dans le PRÉ-vol : le refus doit tomber avant toute création"
++  );
++  assert.ok(
++    preflight.includes("plusieurs surcharges"),
++    "deux résolveurs de même nom rendraient le contrôle ambigu"
++  );
++});
++
++test("[AUD06-SQL] le harnais normalise les booléens et restaure exactement", () => {
++  assert.ok(
++    execHarness.includes("then '1' else '0' end"),
++    "l'instantané de rôle doit encoder explicitement 1/0"
++  );
++  assert.ok(
++    !execHarness.includes("rolcanlogin::text"),
++    "`boolean::text` rend « true », jamais « t » : la capture ne doit plus l'employer"
++  );
++  assert.ok(
++    execHarness.includes('[ "$login" = "1" ]') &&
++      execHarness.includes('[ "$bypass" = "1" ]'),
++    "la restauration doit comparer à la MÊME forme que la capture"
++  );
++  assert.ok(
++    execHarness.includes("'EXISTS|1|1'"),
++    "le verrou de sûreté doit énumérer les instantanés admissibles"
++  );
++  // Et un harnais dédié prouve la restauration des quatre combinaisons.
++  assert.ok(
++    existsSync(
++      "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh"
++    ),
++    "le harnais de restauration de rôles doit exister"
++  );
++  const roleHarness = readFileSync(
++    "supabase/tests/checkout-scheduling-foundation-v1-role-restoration-check.sh",
++    "utf8"
++  );
++  for (const combo of [
++    "NOLOGIN NOBYPASSRLS",
++    "LOGIN NOBYPASSRLS",
++    "NOLOGIN BYPASSRLS",
++    "LOGIN BYPASSRLS",
++  ]) {
++    assert.ok(roleHarness.includes(combo), `la combinaison ${combo} doit être couverte`);
++  }
++  assert.ok(
++    roleHarness.includes("SCANYM_HARNESS_PGHOST"),
++    "la preuve doit porter sur le mode CLUSTER DÉSIGNÉ : c'est le seul où la restauration a des conséquences durables"
++  );
++});
++
++test("[SENTINEL-1] le zéro UUID est réservé des deux côtés", () => {
++  const start = execSql.indexOf("create table public.restaurant_fulfillment_schedule (");
++  const body = execSql.slice(start, execSql.indexOf("\n);", start));
++  assert.ok(body.includes("rfs_rule_id_not_sentinel"));
++  assert.ok(
++    body.includes("is distinct from\n                                  '00000000-0000-0000-0000-000000000000'::uuid") ||
++      body.replace(/\s+/g, " ").includes(
++        "check (fulfillment_rule_id is distinct from '00000000-0000-0000-0000-000000000000'::uuid)"
++      ),
++    "aucune vraie règle ne doit pouvoir porter la sentinelle"
++  );
++  assert.ok(execSql.includes("CSDJ1_RESERVED_RULE_ID"), "la RPC doit refuser par un nom");
++});
++
++test("[FIXTURE-SOURCE-1] le générateur de la fixture est VERSIONNÉ et traçable", () => {
++  // L'audit a eu raison : une preuve « indépendante » dont la source
++  // n'est pas livrable n'est pas vérifiable.
++  const generator = "tests/fixtures/build-checkout-scheduling-cases.py";
++  assert.ok(existsSync(generator), "la troisième implémentation doit être au dépôt");
++  const fixture = JSON.parse(
++    readFileSync("tests/fixtures/checkout-scheduling-cases.json", "utf8")
++  ) as {
++    generator?: string;
++    generatorCommand?: string;
++    generatorRuntime?: { python?: string; tzdataVersion?: string };
++  };
++  assert.equal(fixture.generator, generator);
++  assert.ok(fixture.generatorCommand?.includes(generator));
++  assert.ok(fixture.generatorRuntime?.python, "la version de Python doit être consignée");
++  assert.ok(
++    fixture.generatorRuntime?.tzdataVersion,
++    "la version de la base de fuseaux doit être consignée"
++  );
++  // Et le générateur ne doit RIEN emprunter aux implémentations qu'il
++  // juge, sinon il n'en serait pas indépendant.
++  // Ce qui compte est qu'il ne LISE aucune des deux implémentations
++  // qu'il juge : son en-tête les NOMME, précisément pour expliquer son
++  // rôle, et le lui interdire serait confondre documentation et code.
++  const executablePy = readFileSync(generator, "utf8")
++    .split("\n")
++    .filter((line) => !/^\s*#/.test(line))
++    .join("\n");
++  for (const borrowed of ["subprocess", "psycopg", "importlib", "requests"]) {
++    assert.ok(
++      !executablePy.includes(borrowed),
++      `le générateur ne doit rien exécuter d'extérieur (« ${borrowed} »)`
++    );
++  }
++  // Et il ne LIT aucun fichier d'implémentation : ni TypeScript, ni SQL.
++  assert.ok(
++    !/(open|read_text|readlines|load)\s*\([^)]*\.(ts|sql)\b/.test(executablePy),
++    "le générateur ne doit lire aucune des deux implémentations qu'il juge"
++  );
++  // Ses seules lectures sont la sonde de version de fuseaux ; sa seule
++  // écriture est la fixture.
++  assert.ok(
++    executablePy.includes("zoneinfo"),
++    "le générateur doit tirer ses fuseaux de la bibliothèque standard"
++  );
++
++});
+diff --git a/tests/fixtures/build-checkout-scheduling-cases.py b/tests/fixtures/build-checkout-scheduling-cases.py
+new file mode 100644
+index 0000000..67e6450
+--- /dev/null
++++ b/tests/fixtures/build-checkout-scheduling-cases.py
+@@ -0,0 +1,613 @@
++#!/usr/bin/env python3
++"""Génère tests/fixtures/checkout-scheduling-cases.json.
++
++CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1) — TROISIÈME IMPLÉMENTATION.
++
++Pourquoi ce fichier existe, et pourquoi il est VERSIONNÉ AU DÉPÔT
++================================================================
++La fixture partagée est rejouée par deux implémentations livrées :
++`lib/scheduling/eligibility.ts` et `public.resolve_fulfillment_schedule`.
++Si les ATTENDUS de cette fixture venaient de l'une des deux, cette
++implémentation serait juge de sa propre sortie, et la « preuve croisée »
++ne prouverait que leur accord mutuel.
++
++Les attendus viennent donc d'ici : une troisième implémentation, écrite
++dans un autre langage, qui lit la base de fuseaux du système par
++`zoneinfo` et ne partage aucune ligne de code avec les deux autres.
++
++L'audit indépendant a eu raison de refuser cette affirmation tant que
++cette source n'était pas livrable et son exécution pas traçable. Elle
++est désormais au dépôt, et le paquet de preuves porte la commande, le
++journal d'exécution, la version de Python et celle de la base de
++fuseaux. Qui veut vérifier relance :
++
++    python3 -I tests/fixtures/build-checkout-scheduling-cases.py
++
++et compare le fichier produit à celui du commit -- il doit être
++identique à l'octet.
++
++Ce fichier ne part PAS avec l'application : il n'est importé par aucun
++module, et seul `tests/csdj1-sql-structural.test.ts` vérifie sa présence.
++
++Politiques implémentées, identiques aux deux autres côtés
++========================================================
++CSDJ-V1-OFFER-START-INSTANT-01   chaque offre est comparée en INSTANT à
++                                 l'instant minimal de réalisation
++CSDJ-V1-WALL-TIME-FAIL-CLOSED-01 heure murale inexistante ou ambiguë :
++                                 l'occurrence est écartée
++CSDJ-V1-MINUTE-PRECISION-01      les secondes doivent valoir 00, sinon
++                                 l'heure n'est pas admissible
++"""
++import datetime as dt
++import json
++import platform
++import re
++import sys
++import zoneinfo
++from pathlib import Path
++
++NIL = None
++HOUR = dt.timedelta(hours=1)
++
++
++def dow(d: dt.date) -> int:
++    """0 = dimanche, comme extract(dow) et Date#getUTCDay."""
++    return (d.weekday() + 1) % 7
++
++
++def parse_time(s):
++    """Minutes depuis minuit, ou None si l'heure n'est pas admissible.
++
++    CSDJ-V1-MINUTE-PRECISION-01 : les secondes doivent valoir 00.
++    """
++    if s is None or not isinstance(s, str):
++        return None
++    m = re.fullmatch(r"(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?", s)
++    if not m:
++        return None
++    h, mi = int(m.group(1)), int(m.group(2))
++    sec = int(m.group(3)) if m.group(3) else 0
++    frac = m.group(4)
++    if h > 23 or mi > 59 or sec != 0:
++        return None
++    if frac and any(c != "0" for c in frac):
++        return None
++    return h * 60 + mi
++
++
++def fmt(minutes: int) -> str:
++    return f"{minutes // 60:02d}:{minutes % 60:02d}"
++
++
++def resolve_wall(d: dt.date, minutes: int, tz: str):
++    """('ok'|'nonexistent'|'ambiguous', instant ou None).
++
++    `fold` de la bibliothèque standard donne les deux occurrences d'une
++    heure ambiguë ; un aller-retour détecte une heure inexistante.
++    """
++    z = zoneinfo.ZoneInfo(tz)
++    naive = dt.datetime(d.year, d.month, d.day, minutes // 60, minutes % 60)
++    a = naive.replace(tzinfo=z, fold=0)
++    b = naive.replace(tzinfo=z, fold=1)
++    # Heure AMBIGUË : les deux « plis » désignent deux instants réels
++    # distincts portant la même heure murale.
++    if a.utcoffset() != b.utcoffset():
++        if a.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) == naive and \
++           b.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) == naive:
++            return "ambiguous", None
++        # Les deux plis diffèrent mais l'heure murale ne se relit pas :
++        # c'est le trou du saut de printemps.
++        return "nonexistent", None
++    # Heure INEXISTANTE : l'aller-retour ne rend pas l'heure demandée.
++    if a.astimezone(dt.timezone.utc).astimezone(z).replace(tzinfo=None) != naive:
++        return "nonexistent", None
++    return "ok", a
++
++
++def resolve(case):
++    cfg = case["config"]
++    if cfg is None or cfg.get("enabled") is not True:
++        return {"status": "absent", "reason": NIL, "firstEligibleDate": NIL, "dates": []}
++
++    date_mode = cfg["dateSelectionMode"]
++    slot_mode = cfg["slotSelectionMode"]
++    if not (date_mode == "customer_selectable" or slot_mode == "none"):
++        return {"status": "unfulfillable", "reason": "no_offer_configured",
++                "firstEligibleDate": NIL, "dates": []}
++
++    if date_mode == "informational_only":
++        return {"status": "informational_only", "reason": NIL,
++                "firstEligibleDate": NIL, "dates": []}
++
++    granularity = cfg.get("timeGranularityMinutes")
++    if slot_mode == "time_within_window" and granularity is None:
++        return {"status": "unfulfillable", "reason": "granularity_missing",
++                "firstEligibleDate": NIL, "dates": []}
++
++    uses_slots = slot_mode == "fixed_slots"
++    offers = {}
++    if uses_slots:
++        for s in case["slots"]:
++            if parse_time(s["startsAt"]) is None or parse_time(s["endsAt"]) is None:
++                continue
++            offers.setdefault(s["weekday"], []).append(
++                {"slotKey": s["slotKey"], "startsAt": s["startsAt"], "endsAt": s["endsAt"]})
++    else:
++        for w in case["windows"]:
++            if parse_time(w["startsAt"]) is None or parse_time(w["endsAt"]) is None:
++                continue
++            offers.setdefault(w["weekday"], []).append(
++                {"slotKey": NIL, "startsAt": w["startsAt"], "endsAt": w["endsAt"]})
++    for lst in offers.values():
++        lst.sort(key=lambda o: (o["startsAt"], o["slotKey"] or ""))
++
++    # Une offre dont l'heure n'est pas admissible n'existe pas : si plus
++    # aucune ne reste, c'est bien « aucune offre configurée ».
++    if not offers:
++        return {"status": "unfulfillable", "reason": "no_offer_configured",
++                "firstEligibleDate": NIL, "dates": []}
++
++    tz = cfg["timezone"]
++    z = zoneinfo.ZoneInfo(tz)
++    now = dt.datetime.fromisoformat(case["nowIso"])
++    today = now.astimezone(z).date()
++    start = today + dt.timedelta(days=cfg["minLeadDays"])
++    last = today + dt.timedelta(days=cfg["bookingHorizonDays"])
++
++    # CSDJ-V1-OFFER-START-INSTANT-01
++    floor_status, floor_instant = resolve_wall(start, 0, tz)
++    from_lead = now + dt.timedelta(minutes=cfg["leadTimeMinutes"])
++    min_instant = from_lead
++    if floor_instant is not None and floor_instant > from_lead:
++        min_instant = floor_instant
++
++    cutoff_min = parse_time(cfg.get("cutoffTime"))
++    closed = {c["closedOn"] for c in case["closures"]}
++
++    eligible = []
++    saw_closure = False
++    saw_open_date = False
++    d = start
++    while d <= last:
++        day_offers = offers.get(dow(d))
++        if not day_offers:
++            d += dt.timedelta(days=1)
++            continue
++        if d.isoformat() in closed:
++            saw_closure = True
++            d += dt.timedelta(days=1)
++            continue
++        if cutoff_min is not None:
++            cd = d - dt.timedelta(days=cfg["cutoffOffsetDays"])
++            status, instant = resolve_wall(cd, cutoff_min, tz)
++            if instant is None or now >= instant:
++                d += dt.timedelta(days=1)
++                continue
++        saw_open_date = True
++
++        usable = []
++        for o in day_offers:
++            smin, emin = parse_time(o["startsAt"]), parse_time(o["endsAt"])
++            if slot_mode == "time_within_window":
++                chosen = None
++                t = smin
++                while t < emin:
++                    status, instant = resolve_wall(d, t, tz)
++                    if instant is not None and instant >= min_instant:
++                        chosen = t
++                        break
++                    t += granularity
++                if chosen is None:
++                    continue
++                usable.append({"slotKey": NIL, "startsAt": fmt(chosen), "endsAt": fmt(emin)})
++                continue
++            status, instant = resolve_wall(d, smin, tz)
++            if instant is None or instant < min_instant:
++                continue
++            usable.append({"slotKey": o["slotKey"], "startsAt": fmt(smin), "endsAt": fmt(emin)})
++
++        if not usable:
++            d += dt.timedelta(days=1)
++            continue
++
++        eligible.append({"date": d.isoformat(), "offers": usable})
++        if date_mode == "derived_earliest":
++            break
++        d += dt.timedelta(days=1)
++
++    if not eligible:
++        reason = ("no_offer_in_horizon" if saw_open_date
++                  else "all_dates_closed" if saw_closure
++                  else "horizon_exhausted")
++        return {"status": "unfulfillable", "reason": reason,
++                "firstEligibleDate": NIL, "dates": []}
++    return {"status": "dates_available", "reason": NIL,
++            "firstEligibleDate": eligible[0]["date"], "dates": eligible}
++
++
++def violates_table_constraint(case):
++    """L'état est-il INTERDIT par les contraintes de la table ?
++
++    Ces cas existent pour prouver que le CALCUL refuse quand même, mais
++    ils ne peuvent pas être INSÉRÉS côté SQL -- et c'est la preuve la
++    plus forte : la base rend l'état impossible. Le harnais assertera
++    donc le REFUS d'insertion au lieu de comparer un résultat.
++    """
++    cfg = case["config"]
++    if cfg is None:
++        return False
++    coherent = (cfg["dateSelectionMode"] == "customer_selectable"
++                or cfg["slotSelectionMode"] == "none")
++    granularity_ok = (cfg["slotSelectionMode"] != "time_within_window"
++                      or cfg.get("timeGranularityMinutes") is not None)
++    times_ok = all(
++        parse_time(v) is not None
++        for rows, keys in ((case["windows"], ("startsAt", "endsAt")),
++                           (case["slots"], ("startsAt", "endsAt")))
++        for row in rows for v in (row[k] for k in keys)
++    )
++    if cfg.get("cutoffTime") is not None and parse_time(cfg["cutoffTime"]) is None:
++        times_ok = False
++    return not (coherent and granularity_ok and times_ok)
++
++
++# ── Jeux d'offres réutilisés ────────────────────────────────────────────
++PICKUP_WINDOWS = (
++    [{"weekday": d, "startsAt": "11:00", "endsAt": "14:00"} for d in (2, 3, 4, 5)]
++    + [{"weekday": d, "startsAt": "16:00", "endsAt": "20:00"} for d in (2, 3, 4, 5)]
++    + [{"weekday": 6, "startsAt": "11:00", "endsAt": "19:30"}]
++)
++
++LOCAL_SLOTS = [
++    {"weekday": d, "slotKey": k, "startsAt": s, "endsAt": e}
++    for d in (2, 3, 4, 5, 6)
++    for k, s, e in (("11-14", "11:00", "14:00"),
++                    ("14-17", "14:00", "17:00"),
++                    ("17-20", "17:00", "20:00"))
++]
++
++# Trois créneaux encadrant une transition d'heure, posés le DIMANCHE
++# (weekday 0) : c'est le jour où les deux bascules européennes et
++# américaines ont lieu.
++DST_SLOTS = [
++    {"weekday": 0, "slotKey": "t0159", "startsAt": "01:59", "endsAt": "02:00"},
++    {"weekday": 0, "slotKey": "t0210", "startsAt": "02:10", "endsAt": "02:50"},
++    {"weekday": 0, "slotKey": "t0330", "startsAt": "03:30", "endsAt": "04:30"},
++]
++
++
++def pickup_cfg(**over):
++    cfg = {
++        "timezone": "Europe/Paris", "enabled": True,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "time_within_window",
++        "timeGranularityMinutes": 15,
++        "leadTimeMinutes": 0, "minLeadDays": 0,
++        "cutoffTime": "16:00", "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 14,
++    }
++    cfg.update(over)
++    return cfg
++
++
++def local_cfg(**over):
++    cfg = {
++        "timezone": "Europe/Paris", "enabled": True,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": None,
++        "leadTimeMinutes": 0, "minLeadDays": 1,
++        "cutoffTime": "16:00", "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 10,
++    }
++    cfg.update(over)
++    return cfg
++
++
++def slot_cfg(**over):
++    """Créneaux nommés, sans heure limite : isole le filtre d'INSTANT."""
++    cfg = {
++        "timezone": "Europe/Paris", "enabled": True,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": None,
++        "leadTimeMinutes": 0, "minLeadDays": 0,
++        "cutoffTime": None, "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 3,
++    }
++    cfg.update(over)
++    return cfg
++
++
++CASES = []
++
++
++def case(cid, note, config, nowIso, windows=(), slots=(), closures=()):
++    CASES.append({
++        "id": cid, "note": note, "config": config, "nowIso": nowIso,
++        "windows": list(windows), "slots": list(slots),
++        "closures": [{"closedOn": c} for c in closures],
++    })
++
++
++# ── A. Absence et désactivation : CSDJ-V1-SCHEDULE-ABSENT-01 ───────────
++case("absent-no-row",
++     "Aucune planification configurée : le parcours reste celui d'avant le lot.",
++     None, "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++case("absent-disabled",
++     "Planification complète mais enabled=false : MÊME état observable qu'une absence.",
++     pickup_cfg(enabled=False), "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++
++# ── B. Retrait §D : date + heure dans une fenêtre ──────────────────────
++case("pickup-first-eligible-before-cutoff",
++     "Mardi 09:00. L'heure limite de mercredi (mardi 16:00) n'est pas passée : la "
++     "première date éligible est mercredi, pas aujourd'hui -- l'heure limite "
++     "d'aujourd'hui était hier 16:00.",
++     pickup_cfg(), "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++case("pickup-cutoff-boundary-one-second-before",
++     "Mardi 15:59:59 : mercredi est encore éligible.",
++     pickup_cfg(), "2026-10-13T15:59:59+02:00", PICKUP_WINDOWS)
++case("pickup-cutoff-boundary-exact",
++     "Mardi 16:00:00 PILE : trop tard pour mercredi. Une limite qu'on peut "
++     "atteindre pile n'est pas une limite.",
++     pickup_cfg(), "2026-10-13T16:00:00+02:00", PICKUP_WINDOWS)
++case("pickup-weekly-closed-days",
++     "Vendredi 09:00 : samedi éligible, dimanche et lundi SANS fenêtre donc "
++     "absents de la liste, reprise mardi.",
++     pickup_cfg(bookingHorizonDays=7), "2026-10-16T09:00:00+02:00", PICKUP_WINDOWS)
++case("pickup-exceptional-closure",
++     "Mercredi fermé exceptionnellement : la première date devient jeudi.",
++     pickup_cfg(), "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS,
++     closures=["2026-10-14"])
++case("pickup-lead-time-pushes-day",
++     "Délai de préparation de 2880 minutes (48 h) : la première date est "
++     "repoussée de deux jours, par le DÉLAI et non par l'heure limite.",
++     pickup_cfg(leadTimeMinutes=2880, cutoffTime=None),
++     "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++case("pickup-window-clipped-by-lead-time",
++     "Mardi 12:30 sans heure limite : la fenêtre 11:00-14:00 du jour est "
++     "AVANCÉE au premier point de grille utilisable (12:30), la fenêtre "
++     "16:00-20:00 reste entière, et les jours suivants sont intacts. La part "
++     "passée d'une fenêtre n'est pas proposée, et aucun créneau n'est inventé.",
++     pickup_cfg(cutoffTime=None, bookingHorizonDays=2),
++     "2026-10-13T12:30:00+02:00", PICKUP_WINDOWS)
++
++# ── C. Livraison locale §E : créneaux fixes de 3 h, pas de jour même ───
++case("local-fixed-slots-no-same-day",
++     "Mardi 09:00, minLeadDays=1 : pas de livraison le jour même, et l'heure "
++     "limite de la veille écarte aussi mercredi.",
++     local_cfg(), "2026-10-13T09:00:00+02:00", slots=LOCAL_SLOTS)
++case("local-fixed-slots-after-cutoff",
++     "Mardi 16:30, après l'heure limite : mercredi tombe, jeudi devient la "
++     "première date.",
++     local_cfg(), "2026-10-13T16:30:00+02:00", slots=LOCAL_SLOTS)
++
++# ── D. CSDJ1-AUD-01 — filtrage par INSTANT ────────────────────────────
++# CSDJ-V1-OFFER-START-INSTANT-01. Reproduction exacte de l'audit, puis
++# les bornes à la seconde.
++case("aud01-reproduction-past-slot-with-lead-time",
++     "REPRODUCTION DE L'AUDIT : créneau 09:00-11:00, délai 120 minutes, il est "
++     "15:00. Le créneau ne doit PAS être proposé. La version précédente le "
++     "proposait, parce qu'elle ne comparait que des DATES.",
++     slot_cfg(leadTimeMinutes=120, bookingHorizonDays=0),
++     "2026-10-13T15:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "0900-1100", "startsAt": "09:00", "endsAt": "11:00"}])
++case("aud01-slot-entirely-past",
++     "Créneau entièrement passé, sans aucun délai : écarté.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T15:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "0900-1100", "startsAt": "09:00", "endsAt": "11:00"}])
++case("aud01-slot-started-not-ended",
++     "Créneau COMMENCÉ mais pas fini (14:00-16:00, il est 15:00) : écarté. Un "
++     "créneau déjà entamé n'est pas honorable en entier ; le proposer serait "
++     "promettre ce qu'on ne peut plus tenir.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T15:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "1400-1600", "startsAt": "14:00", "endsAt": "16:00"}])
++case("aud01-slot-starts-one-second-before-threshold",
++     "Le créneau commence UNE SECONDE avant le seuil : écarté.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T10:00:01+02:00",
++     slots=[{"weekday": 2, "slotKey": "1000-1200", "startsAt": "10:00", "endsAt": "12:00"}])
++case("aud01-slot-starts-exactly-at-threshold",
++     "Le créneau commence EXACTEMENT au seuil : conservé. La comparaison est "
++     "inclusive -- un créneau qui commence à l'instant minimal est réalisable.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T10:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "1000-1200", "startsAt": "10:00", "endsAt": "12:00"}])
++case("aud01-slot-starts-after-threshold",
++     "Le seuil est une seconde avant le début du créneau : conservé.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T09:59:59+02:00",
++     slots=[{"weekday": 2, "slotKey": "1000-1200", "startsAt": "10:00", "endsAt": "12:00"}])
++case("aud01-all-offers-removed-unfulfillable",
++     "Toutes les offres du seul jour ouvert sont passées : statut "
++     "`unfulfillable` avec le motif `no_offer_in_horizon` -- des dates étaient "
++     "ouvertes, ce sont les OFFRES qui ne tenaient plus. Jamais une date de "
++     "repli.",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T21:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "0900-1100", "startsAt": "09:00", "endsAt": "11:00"},
++            {"weekday": 2, "slotKey": "1400-1600", "startsAt": "14:00", "endsAt": "16:00"}])
++case("aud01-future-day-remains-valid",
++     "Les offres d'aujourd'hui sont passées, mais le jour suivant reste "
++     "entièrement valide : le filtre d'instant retire des offres, il ne ferme "
++     "pas l'horizon.",
++     slot_cfg(bookingHorizonDays=1), "2026-10-13T21:00:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "0900-1100", "startsAt": "09:00", "endsAt": "11:00"},
++            {"weekday": 3, "slotKey": "0900-1100", "startsAt": "09:00", "endsAt": "11:00"}])
++
++# ── E. CSDJ1-AUD-02 — politique de changement d'heure ─────────────────
++# CSDJ-V1-WALL-TIME-FAIL-CLOSED-01. Les créneaux encadrent la bascule :
++# 01:59 existe, 02:10 non (printemps) ou deux fois (automne), 03:30
++# existe.
++case("aud02-paris-spring-forward-nonexistent-rejected",
++     "Europe/Paris, dimanche 29 mars 2026 : 02:00-03:00 n'existe pas. Le "
++     "créneau 01:59 est conservé, 02:10-02:50 est REJETÉ, 03:30 est conservé. "
++     "La normalisation de PostgreSQL n'est pas une politique commerciale.",
++     slot_cfg(bookingHorizonDays=2), "2026-03-28T12:00:00+01:00", slots=DST_SLOTS)
++case("aud02-paris-autumn-fallback-ambiguous-rejected",
++     "Europe/Paris, dimanche 25 octobre 2026 : 02:00-03:00 a lieu DEUX fois. "
++     "Le créneau 02:10 est REJETÉ -- promettre 02:10 désignerait deux instants "
++     "distants d'une heure, et personne n'aurait choisi lequel.",
++     slot_cfg(bookingHorizonDays=2), "2026-10-24T12:00:00+02:00", slots=DST_SLOTS)
++case("aud02-utc-no-transition",
++     "UTC n'a aucune transition : les trois créneaux sont conservés.",
++     slot_cfg(timezone="UTC", bookingHorizonDays=2),
++     "2026-03-28T12:00:00+00:00", slots=DST_SLOTS)
++case("aud02-utc-plus-14-no-transition",
++     "Pacific/Kiritimati (UTC+14) n'a aucune transition : les trois créneaux "
++     "sont conservés, et la date civile est celle du commerçant.",
++     slot_cfg(timezone="Pacific/Kiritimati", bookingHorizonDays=2),
++     "2026-03-28T00:00:00+00:00", slots=DST_SLOTS)
++case("aud02-negative-offset-spring-forward",
++     "America/Los_Angeles (décalage négatif), dimanche 8 mars 2026 : même "
++     "politique, même rejet de l'heure inexistante.",
++     slot_cfg(timezone="America/Los_Angeles", bookingHorizonDays=2),
++     "2026-03-07T12:00:00-08:00", slots=DST_SLOTS)
++case("aud02-negative-offset-autumn-fallback",
++     "America/Los_Angeles, dimanche 1er novembre 2026 : heure ambiguë rejetée.",
++     slot_cfg(timezone="America/Los_Angeles", bookingHorizonDays=2),
++     "2026-10-31T12:00:00-07:00", slots=DST_SLOTS)
++
++# ── F. Transporteur §F : informatif, ou date dérivée ───────────────────
++case("carrier-informational-only",
++     "Politique purement informative : AUCUNE date n'est montrée ni dérivée. "
++     "C'est le transporteur qui ne sait pas s'engager -- et ne rien inventer "
++     "est ici le comportement correct.",
++     pickup_cfg(dateSelectionMode="informational_only",
++                slotSelectionMode="none", timeGranularityMinutes=None),
++     "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++case("carrier-derived-earliest",
++     "Date dérivée : le serveur en rend UNE seule, la première réellement "
++     "éligible, et le client ne choisit pas.",
++     pickup_cfg(dateSelectionMode="derived_earliest", slotSelectionMode="none",
++                timeGranularityMinutes=None, minLeadDays=2),
++     "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++
++# ── G. Configuré mais infaisable : CSDJ-V1-UNFULFILLABLE-EXPLICIT-01 ───
++case("unfulfillable-no-offer",
++     "Activée, politique exigeant une date, AUCUNE fenêtre : échec explicite, "
++     "jamais une date inventée.",
++     pickup_cfg(), "2026-10-13T09:00:00+02:00", windows=[])
++case("unfulfillable-all-closed",
++     "Des fenêtres existent, mais chaque date de l'horizon est fermée : le "
++     "motif dit « tout est fermé », qui se corrige en retirant une fermeture.",
++     pickup_cfg(bookingHorizonDays=3), "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS,
++     closures=["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"])
++case("unfulfillable-horizon-exhausted",
++     "Minimum de 30 jours pour un horizon de 14 : le motif dit « horizon "
++     "épuisé », qui se corrige en allongeant l'horizon.",
++     pickup_cfg(minLeadDays=30, bookingHorizonDays=14),
++     "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++
++# ── H. Fuseaux ────────────────────────────────────────────────────────
++case("tz-autumn-dst-boundary",
++     "Samedi 2026-10-24 15:00, la veille du recul d'heure à Paris : l'heure "
++     "limite du 26 est le 25 à 16:00, c'est-à-dire APRÈS la bascule, donc en "
++     "UTC+1. Prouve que la bascule ne décale pas d'un jour.",
++     pickup_cfg(bookingHorizonDays=5), "2026-10-24T15:00:00+02:00", PICKUP_WINDOWS)
++case("tz-spring-dst-boundary",
++     "Samedi 2026-03-28 15:00, la veille du saut de printemps.",
++     pickup_cfg(bookingHorizonDays=5), "2026-03-28T15:00:00+01:00", PICKUP_WINDOWS)
++case("tz-far-east-of-utc",
++     "Pacific/Kiritimati (UTC+14) : à 12:00 UTC le 13, le commerçant est DÉJÀ "
++     "au 14. La date civile lue est celle du COMMERÇANT, jamais celle d'UTC "
++     "ni celle du client.",
++     pickup_cfg(timezone="Pacific/Kiritimati", cutoffTime=None,
++                bookingHorizonDays=4),
++     "2026-10-13T12:00:00+00:00", PICKUP_WINDOWS)
++case("tz-west-of-utc",
++     "America/Los_Angeles : à 02:00 UTC le 14, le commerçant est ENCORE au 13.",
++     pickup_cfg(timezone="America/Los_Angeles", cutoffTime=None,
++                bookingHorizonDays=4),
++     "2026-10-14T02:00:00+00:00", PICKUP_WINDOWS)
++
++# ── I. États que les CONTRAINTES DE TABLE rendent impossibles ─────────
++case("unfulfillable-granularity-missing",
++     "`time_within_window` sans granularité : refus plutôt que choisir une "
++     "grille à la place du commerçant. La contrainte de table l'interdit déjà ; "
++     "ce cas prouve que le calcul refuse quand même.",
++     pickup_cfg(timeGranularityMinutes=None),
++     "2026-10-13T09:00:00+02:00", PICKUP_WINDOWS)
++case("aud04-subminute-offer-not-admissible",
++     "Créneau 09:00:30-11:00:30 : précision sous la minute. Le calcul écarte "
++     "l'offre au lieu de la tronquer -- la tronquer produirait 09:00-11:00, "
++     "soit une offre que la configuration ne décrit pas. La contrainte de table "
++     "l'interdit aussi (CSDJ-V1-MINUTE-PRECISION-01).",
++     slot_cfg(bookingHorizonDays=0), "2026-10-13T00:30:00+02:00",
++     slots=[{"weekday": 2, "slotKey": "0900-1100", "startsAt": "09:00:30",
++             "endsAt": "11:00:30"}])
++
++for c in CASES:
++    c["expected"] = resolve(c)
++    c["sqlConstraintRefusal"] = violates_table_constraint(c)
++
++TZ_VERSION = "inconnue"
++for probe in ("/usr/share/zoneinfo/tzdata.zi", "/usr/share/zoneinfo/+VERSION"):
++    try:
++        first = Path(probe).read_text(encoding="utf-8").splitlines()[0].strip()
++        TZ_VERSION = first.replace("# version ", "")
++        break
++    except OSError:
++        continue
++
++out = {
++    "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
++    "generator": "tests/fixtures/build-checkout-scheduling-cases.py",
++    "generatorCommand": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
++    "generatorRuntime": {
++        "python": platform.python_version(),
++        "implementation": platform.python_implementation(),
++        "tzdataVersion": TZ_VERSION,
++        "tzpath": list(zoneinfo.TZPATH),
++    },
++    "contract": (
++        "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations livrées : "
++        "lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) "
++        "et public.resolve_fulfillment_schedule (supabase/tests/"
++        "checkout-scheduling-foundation-v1-check.sh). Les attendus ont été "
++        "produits par une TROISIÈME implémentation, versionnée au dépôt sous "
++        "tests/fixtures/build-checkout-scheduling-cases.py, afin qu'aucune des "
++        "deux implémentations livrées ne soit juge de sa propre sortie. "
++        "Relancer le générateur doit reproduire ce fichier à l'octet."
++    ),
++    "weekdayConvention": "0 = dimanche, 6 = samedi (extract(dow) et Date#getUTCDay)",
++    "policies": {
++        "CSDJ-V1-OFFER-START-INSTANT-01": (
++            "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, "
++            "début de (today + min_lead_days) dans le fuseau). Une offre dont le "
++            "DÉBUT tombe avant est écartée, y compris un créneau déjà commencé. "
++            "Pour time_within_window, le début est avancé le long de la grille de "
++            "granularité jusqu'au premier point utilisable ; si la grille sort de "
++            "la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée."
++        ),
++        "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01": (
++            "Une heure murale locale INEXISTANTE (saut de printemps) ou AMBIGUË "
++            "(recul d'automne) ne désigne pas un instant unique : l'occurrence est "
++            "ÉCARTÉE, jamais normalisée en silence. Le refus porte sur "
++            "l'occurrence d'une date, pas sur la configuration : la même fenêtre "
++            "reste valide les 364 autres jours."
++        ),
++        "CSDJ-V1-MINUTE-PRECISION-01": (
++            "Toute heure de configuration est à la minute, secondes exactement 00. "
++            "Une valeur sous-minute est REFUSÉE, jamais tronquée : tronquer "
++            "09:00:30-09:00:59 produirait une offre de durée nulle affichée comme "
++            "disponible."
++        ),
++    },
++    "sqlConstraintRefusalNote": (
++        "Un cas marqué `sqlConstraintRefusal` décrit un état que les CONTRAINTES "
++        "DE TABLE rendent impossible. Le TypeScript le joue quand même, pour "
++        "prouver que le calcul refuse au lieu de deviner ; le harnais SQL, lui, "
++        "prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque "
++        "l'état n'est pas seulement mal calculé, il est inatteignable."
++    ),
++    "cases": CASES,
++}
++
++path = Path(__file__).resolve().parent / "checkout-scheduling-cases.json"
++path.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
++print(f"python {platform.python_version()} / tzdata {TZ_VERSION}")
++print(f"{len(CASES)} cas écrits dans {path}")
++refused = [c["id"] for c in CASES if c["sqlConstraintRefusal"]]
++print(f"dont {len(refused)} refusés par contrainte de table : {', '.join(refused)}")
++for c in CASES:
++    e = c["expected"]
++    print(f"  {c['id']:48s} {e['status']:19s} {e['reason'] or '-':20s} "
++          f"first={e['firstEligibleDate'] or '-':11s} n={len(e['dates'])}")
++sys.exit(0)
+diff --git a/tests/fixtures/checkout-scheduling-cases.json b/tests/fixtures/checkout-scheduling-cases.json
+index f9ab800..5b999ee 100644
+--- a/tests/fixtures/checkout-scheduling-cases.json
++++ b/tests/fixtures/checkout-scheduling-cases.json
+@@ -1,9 +1,26 @@
+ {
+   "lot": "CHECKOUT SCHEDULING FOUNDATION v1 (CSDJ-1)",
+-  "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation indépendante, en Python avec zoneinfo, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Même cas, même résultat des trois côtés -- c'est le mécanisme déjà employé par fixtures/delivery-pricing-cases.json.",
++  "generator": "tests/fixtures/build-checkout-scheduling-cases.py",
++  "generatorCommand": "python3 -I tests/fixtures/build-checkout-scheduling-cases.py",
++  "generatorRuntime": {
++    "python": "3.13.16",
++    "implementation": "CPython",
++    "tzdataVersion": "2026c",
++    "tzpath": [
++      "/usr/share/zoneinfo",
++      "/usr/lib/zoneinfo",
++      "/usr/share/lib/zoneinfo",
++      "/etc/zoneinfo"
++    ]
++  },
++  "contract": "FIXTURE PARTAGÉE. Chaque cas est joué par DEUX implémentations livrées : lib/scheduling/eligibility.ts (tests/csdj1-scheduling-eligibility.test.ts) et public.resolve_fulfillment_schedule (supabase/tests/checkout-scheduling-foundation-v1-check.sh). Les attendus ont été produits par une TROISIÈME implémentation, versionnée au dépôt sous tests/fixtures/build-checkout-scheduling-cases.py, afin qu'aucune des deux implémentations livrées ne soit juge de sa propre sortie. Relancer le générateur doit reproduire ce fichier à l'octet.",
+   "weekdayConvention": "0 = dimanche, 6 = samedi (extract(dow) et Date#getUTCDay)",
++  "policies": {
++    "CSDJ-V1-OFFER-START-INSTANT-01": "Chaque offre est comparée en INSTANT à max(now + lead_time_minutes, début de (today + min_lead_days) dans le fuseau). Une offre dont le DÉBUT tombe avant est écartée, y compris un créneau déjà commencé. Pour time_within_window, le début est avancé le long de la grille de granularité jusqu'au premier point utilisable ; si la grille sort de la fenêtre, la fenêtre disparaît. Aucune offre n'est fabriquée.",
++    "CSDJ-V1-WALL-TIME-FAIL-CLOSED-01": "Une heure murale locale INEXISTANTE (saut de printemps) ou AMBIGUË (recul d'automne) ne désigne pas un instant unique : l'occurrence est ÉCARTÉE, jamais normalisée en silence. Le refus porte sur l'occurrence d'une date, pas sur la configuration : la même fenêtre reste valide les 364 autres jours.",
++    "CSDJ-V1-MINUTE-PRECISION-01": "Toute heure de configuration est à la minute, secondes exactement 00. Une valeur sous-minute est REFUSÉE, jamais tronquée : tronquer 09:00:30-09:00:59 produirait une offre de durée nulle affichée comme disponible."
++  },
+   "sqlConstraintRefusalNote": "Un cas marqué `sqlConstraintRefusal` décrit un état que les CONTRAINTES DE TABLE rendent impossible. Le TypeScript le joue quand même, pour prouver que le calcul refuse au lieu de deviner ; le harnais SQL, lui, prouve que l'INSERTION est refusée -- preuve plus forte encore, puisque l'état n'est pas seulement mal calculé, il est inatteignable.",
+-  "dstNote": "Aucun cas n'emploie une heure murale située DANS une heure de transition (02:00-03:00 à Paris) : une telle heure est inexistante ou ambiguë, et PostgreSQL et JavaScript la résolvent différemment. Cette divergence est consignée comme observation non bloquante du lot.",
+   "cases": [
+     {
+       "id": "absent-no-row",
+@@ -1313,6 +1330,125 @@
+       },
+       "sqlConstraintRefusal": false
+     },
++    {
++      "id": "pickup-window-clipped-by-lead-time",
++      "note": "Mardi 12:30 sans heure limite : la fenêtre 11:00-14:00 du jour est AVANCÉE au premier point de grille utilisable (12:30), la fenêtre 16:00-20:00 reste entière, et les jours suivants sont intacts. La part passée d'une fenêtre n'est pas proposée, et aucun créneau n'est inventé.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "time_within_window",
++        "timeGranularityMinutes": 15,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-10-13T12:30:00+02:00",
++      "windows": [
++        {
++          "weekday": 2,
++          "startsAt": "11:00",
++          "endsAt": "14:00"
++        },
++        {
++          "weekday": 3,
++          "startsAt": "11:00",
++          "endsAt": "14:00"
++        },
++        {
++          "weekday": 4,
++          "startsAt": "11:00",
++          "endsAt": "14:00"
++        },
++        {
++          "weekday": 5,
++          "startsAt": "11:00",
++          "endsAt": "14:00"
++        },
++        {
++          "weekday": 2,
++          "startsAt": "16:00",
++          "endsAt": "20:00"
++        },
++        {
++          "weekday": 3,
++          "startsAt": "16:00",
++          "endsAt": "20:00"
++        },
++        {
++          "weekday": 4,
++          "startsAt": "16:00",
++          "endsAt": "20:00"
++        },
++        {
++          "weekday": 5,
++          "startsAt": "16:00",
++          "endsAt": "20:00"
++        },
++        {
++          "weekday": 6,
++          "startsAt": "11:00",
++          "endsAt": "19:30"
++        }
++      ],
++      "slots": [],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-10-13",
++        "dates": [
++          {
++            "date": "2026-10-13",
++            "offers": [
++              {
++                "slotKey": null,
++                "startsAt": "12:30",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": null,
++                "startsAt": "16:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-14",
++            "offers": [
++              {
++                "slotKey": null,
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": null,
++                "startsAt": "16:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-15",
++            "offers": [
++              {
++                "slotKey": null,
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": null,
++                "startsAt": "16:00",
++                "endsAt": "20:00"
++              }
++            ]
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
+     {
+       "id": "local-fixed-slots-no-same-day",
+       "note": "Mardi 09:00, minLeadDays=1 : pas de livraison le jour même, et l'heure limite de la veille écarte aussi mercredi.",
+@@ -1736,114 +1872,813 @@
+                 "endsAt": "14:00"
+               },
+               {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-17",
++            "offers": [
++              {
++                "slotKey": "11-14",
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-20",
++            "offers": [
++              {
++                "slotKey": "11-14",
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-21",
++            "offers": [
++              {
++                "slotKey": "11-14",
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-22",
++            "offers": [
++              {
++                "slotKey": "11-14",
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          },
++          {
++            "date": "2026-10-23",
++            "offers": [
++              {
++                "slotKey": "11-14",
++                "startsAt": "11:00",
++                "endsAt": "14:00"
++              },
++              {
++                "slotKey": "14-17",
++                "startsAt": "14:00",
++                "endsAt": "17:00"
++              },
++              {
++                "slotKey": "17-20",
++                "startsAt": "17:00",
++                "endsAt": "20:00"
++              }
++            ]
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-reproduction-past-slot-with-lead-time",
++      "note": "REPRODUCTION DE L'AUDIT : créneau 09:00-11:00, délai 120 minutes, il est 15:00. Le créneau ne doit PAS être proposé. La version précédente le proposait, parce qu'elle ne comparait que des DATES.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 120,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T15:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00",
++          "endsAt": "11:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_in_horizon",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-slot-entirely-past",
++      "note": "Créneau entièrement passé, sans aucun délai : écarté.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T15:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00",
++          "endsAt": "11:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_in_horizon",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-slot-started-not-ended",
++      "note": "Créneau COMMENCÉ mais pas fini (14:00-16:00, il est 15:00) : écarté. Un créneau déjà entamé n'est pas honorable en entier ; le proposer serait promettre ce qu'on ne peut plus tenir.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T15:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "1400-1600",
++          "startsAt": "14:00",
++          "endsAt": "16:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_in_horizon",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-slot-starts-one-second-before-threshold",
++      "note": "Le créneau commence UNE SECONDE avant le seuil : écarté.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T10:00:01+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "1000-1200",
++          "startsAt": "10:00",
++          "endsAt": "12:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_in_horizon",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-slot-starts-exactly-at-threshold",
++      "note": "Le créneau commence EXACTEMENT au seuil : conservé. La comparaison est inclusive -- un créneau qui commence à l'instant minimal est réalisable.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T10:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "1000-1200",
++          "startsAt": "10:00",
++          "endsAt": "12:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-10-13",
++        "dates": [
++          {
++            "date": "2026-10-13",
++            "offers": [
++              {
++                "slotKey": "1000-1200",
++                "startsAt": "10:00",
++                "endsAt": "12:00"
++              }
++            ]
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-slot-starts-after-threshold",
++      "note": "Le seuil est une seconde avant le début du créneau : conservé.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T09:59:59+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "1000-1200",
++          "startsAt": "10:00",
++          "endsAt": "12:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-10-13",
++        "dates": [
++          {
++            "date": "2026-10-13",
++            "offers": [
++              {
++                "slotKey": "1000-1200",
++                "startsAt": "10:00",
++                "endsAt": "12:00"
++              }
++            ]
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-all-offers-removed-unfulfillable",
++      "note": "Toutes les offres du seul jour ouvert sont passées : statut `unfulfillable` avec le motif `no_offer_in_horizon` -- des dates étaient ouvertes, ce sont les OFFRES qui ne tenaient plus. Jamais une date de repli.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T21:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00",
++          "endsAt": "11:00"
++        },
++        {
++          "weekday": 2,
++          "slotKey": "1400-1600",
++          "startsAt": "14:00",
++          "endsAt": "16:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_in_horizon",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud01-future-day-remains-valid",
++      "note": "Les offres d'aujourd'hui sont passées, mais le jour suivant reste entièrement valide : le filtre d'instant retire des offres, il ne ferme pas l'horizon.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 1
++      },
++      "nowIso": "2026-10-13T21:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00",
++          "endsAt": "11:00"
++        },
++        {
++          "weekday": 3,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00",
++          "endsAt": "11:00"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-10-14",
++        "dates": [
++          {
++            "date": "2026-10-14",
++            "offers": [
++              {
++                "slotKey": "0900-1100",
++                "startsAt": "09:00",
++                "endsAt": "11:00"
++              }
++            ]
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-paris-spring-forward-nonexistent-rejected",
++      "note": "Europe/Paris, dimanche 29 mars 2026 : 02:00-03:00 n'existe pas. Le créneau 01:59 est conservé, 02:10-02:50 est REJETÉ, 03:30 est conservé. La normalisation de PostgreSQL n'est pas une politique commerciale.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-03-28T12:00:00+01:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-03-29",
++        "dates": [
++          {
++            "date": "2026-03-29",
++            "offers": [
++              {
++                "slotKey": "t0159",
++                "startsAt": "01:59",
++                "endsAt": "02:00"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+-          },
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-paris-autumn-fallback-ambiguous-rejected",
++      "note": "Europe/Paris, dimanche 25 octobre 2026 : 02:00-03:00 a lieu DEUX fois. Le créneau 02:10 est REJETÉ -- promettre 02:10 désignerait deux instants distants d'une heure, et personne n'aurait choisi lequel.",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-10-24T12:00:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-10-25",
++        "dates": [
+           {
+-            "date": "2026-10-17",
++            "date": "2026-10-25",
+             "offers": [
+               {
+-                "slotKey": "11-14",
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
+-              },
+-              {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "t0159",
++                "startsAt": "01:59",
++                "endsAt": "02:00"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+-          },
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-utc-no-transition",
++      "note": "UTC n'a aucune transition : les trois créneaux sont conservés.",
++      "config": {
++        "timezone": "UTC",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-03-28T12:00:00+00:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-03-29",
++        "dates": [
+           {
+-            "date": "2026-10-20",
++            "date": "2026-03-29",
+             "offers": [
+               {
+-                "slotKey": "11-14",
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
++                "slotKey": "t0159",
++                "startsAt": "01:59",
++                "endsAt": "02:00"
+               },
+               {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "t0210",
++                "startsAt": "02:10",
++                "endsAt": "02:50"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+-          },
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-utc-plus-14-no-transition",
++      "note": "Pacific/Kiritimati (UTC+14) n'a aucune transition : les trois créneaux sont conservés, et la date civile est celle du commerçant.",
++      "config": {
++        "timezone": "Pacific/Kiritimati",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-03-28T00:00:00+00:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-03-29",
++        "dates": [
+           {
+-            "date": "2026-10-21",
++            "date": "2026-03-29",
+             "offers": [
+               {
+-                "slotKey": "11-14",
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
++                "slotKey": "t0159",
++                "startsAt": "01:59",
++                "endsAt": "02:00"
+               },
+               {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "t0210",
++                "startsAt": "02:10",
++                "endsAt": "02:50"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+-          },
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-negative-offset-spring-forward",
++      "note": "America/Los_Angeles (décalage négatif), dimanche 8 mars 2026 : même politique, même rejet de l'heure inexistante.",
++      "config": {
++        "timezone": "America/Los_Angeles",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-03-07T12:00:00-08:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-03-08",
++        "dates": [
+           {
+-            "date": "2026-10-22",
++            "date": "2026-03-08",
+             "offers": [
+               {
+-                "slotKey": "11-14",
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
+-              },
+-              {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "t0159",
++                "startsAt": "01:59",
++                "endsAt": "02:00"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+-          },
++          }
++        ]
++      },
++      "sqlConstraintRefusal": false
++    },
++    {
++      "id": "aud02-negative-offset-autumn-fallback",
++      "note": "America/Los_Angeles, dimanche 1er novembre 2026 : heure ambiguë rejetée.",
++      "config": {
++        "timezone": "America/Los_Angeles",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 2
++      },
++      "nowIso": "2026-10-31T12:00:00-07:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 0,
++          "slotKey": "t0159",
++          "startsAt": "01:59",
++          "endsAt": "02:00"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0210",
++          "startsAt": "02:10",
++          "endsAt": "02:50"
++        },
++        {
++          "weekday": 0,
++          "slotKey": "t0330",
++          "startsAt": "03:30",
++          "endsAt": "04:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "dates_available",
++        "reason": null,
++        "firstEligibleDate": "2026-11-01",
++        "dates": [
+           {
+-            "date": "2026-10-23",
++            "date": "2026-11-01",
+             "offers": [
+               {
+-                "slotKey": "11-14",
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
+-              },
+-              {
+-                "slotKey": "14-17",
+-                "startsAt": "14:00",
+-                "endsAt": "17:00"
++                "slotKey": "t0210",
++                "startsAt": "02:10",
++                "endsAt": "02:50"
+               },
+               {
+-                "slotKey": "17-20",
+-                "startsAt": "17:00",
+-                "endsAt": "20:00"
++                "slotKey": "t0330",
++                "startsAt": "03:30",
++                "endsAt": "04:30"
+               }
+             ]
+           }
+@@ -2641,12 +3476,7 @@
+             "offers": [
+               {
+                 "slotKey": null,
+-                "startsAt": "11:00",
+-                "endsAt": "14:00"
+-              },
+-              {
+-                "slotKey": null,
+-                "startsAt": "16:00",
++                "startsAt": "19:00",
+                 "endsAt": "20:00"
+               }
+             ]
+@@ -2782,6 +3612,40 @@
+         "dates": []
+       },
+       "sqlConstraintRefusal": true
++    },
++    {
++      "id": "aud04-subminute-offer-not-admissible",
++      "note": "Créneau 09:00:30-11:00:30 : précision sous la minute. Le calcul écarte l'offre au lieu de la tronquer -- la tronquer produirait 09:00-11:00, soit une offre que la configuration ne décrit pas. La contrainte de table l'interdit aussi (CSDJ-V1-MINUTE-PRECISION-01).",
++      "config": {
++        "timezone": "Europe/Paris",
++        "enabled": true,
++        "dateSelectionMode": "customer_selectable",
++        "slotSelectionMode": "fixed_slots",
++        "timeGranularityMinutes": null,
++        "leadTimeMinutes": 0,
++        "minLeadDays": 0,
++        "cutoffTime": null,
++        "cutoffOffsetDays": 1,
++        "bookingHorizonDays": 0
++      },
++      "nowIso": "2026-10-13T00:30:00+02:00",
++      "windows": [],
++      "slots": [
++        {
++          "weekday": 2,
++          "slotKey": "0900-1100",
++          "startsAt": "09:00:30",
++          "endsAt": "11:00:30"
++        }
++      ],
++      "closures": [],
++      "expected": {
++        "status": "unfulfillable",
++        "reason": "no_offer_configured",
++        "firstEligibleDate": null,
++        "dates": []
++      },
++      "sqlConstraintRefusal": true
+     }
+   ]
+ }
