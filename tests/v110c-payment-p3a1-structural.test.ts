@@ -165,6 +165,10 @@ const MONETICO_ALLOWED_SERVER_IMPORTERS = new Set([
   "app/api/payments/monetico/callback/route.ts",
   "app/api/internal/payments/monetico/recover/route.ts",
   "app/checkout/return/shared.ts",
+  // MONETICO PAYMENT SIMULATOR v1 (non-production facility, gated) --
+  // thin HTTP adapters importing ONLY lib/server/payment-simulator-runtime.
+  "app/api/internal/payments/monetico/simulator/page/route.ts",
+  "app/api/internal/payments/monetico/simulator/decide/route.ts",
 ]);
 // CORRECTIF (Catimini CGV-V11-STRUCTURAL-INVENTORY-01, MEDIUM,
 // mécanique, Claude Debussy, SELLER LEGAL PROFILE + CGV ENGINE v1.2 --
@@ -507,6 +511,8 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
     "app/api/dashboard/legal-cgv/activate/route.ts",
     "app/api/dashboard/legal-cgv/publish/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
+    "app/api/internal/payments/monetico/simulator/decide/route.ts",
+    "app/api/internal/payments/monetico/simulator/page/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",
     "app/api/internal/stuart/webhook/route.ts",
