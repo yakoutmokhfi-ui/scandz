@@ -54,27 +54,22 @@ import {
   resolveWallTime,
 } from "@/lib/scheduling/eligibility";
 
-/**
- * Catalogue FERMÉ des motifs v1.2 : les cinq motifs CSDJ-1, DANS LE MÊME
- * ORDRE, puis les quatre nouveaux. Miroir caractère par caractère de
- * `public.checkout_unfulfillable_reasons_v12()`.
- */
-export const CHECKOUT_UNFULFILLABLE_REASONS_V12 = [
-  ...CHECKOUT_UNFULFILLABLE_REASONS,
-  "preparation_calendar_missing",
-  "no_preparation_day_in_horizon",
-  "cutoff_unresolvable",
-  "capacity_exhausted",
-] as const;
+import {
+  CHECKOUT_UNFULFILLABLE_REASONS_V12,
+  FULFILLMENT_SELECTION_REASONS_V12,
+  type CheckoutUnfulfillableReasonV12,
+  type FulfillmentSelectionReasonV12,
+  type HolidayPolicy,
+} from "@/lib/scheduling/schedule-model-v12";
 
-export type CheckoutUnfulfillableReasonV12 =
-  | CheckoutUnfulfillableReason
-  | "preparation_calendar_missing"
-  | "no_preparation_day_in_horizon"
-  | "cutoff_unresolvable"
-  | "capacity_exhausted";
-
-export type HolidayPolicy = "open" | "closed";
+// Ré-exportés pour les appelants historiques ; la SOURCE est le modèle.
+export {
+  CHECKOUT_UNFULFILLABLE_REASONS_V12,
+  FULFILLMENT_SELECTION_REASONS_V12,
+  type CheckoutUnfulfillableReasonV12,
+  type FulfillmentSelectionReasonV12,
+  type HolidayPolicy,
+};
 
 export interface ScheduleConfigV12 {
   readonly timezone: string;

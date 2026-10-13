@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { CHECKOUT_UNFULFILLABLE_REASONS_V12 } from "../lib/scheduling/eligibility-v12.ts";
+import {
+  CHECKOUT_UNFULFILLABLE_REASONS_V12,
+  FULFILLMENT_SELECTION_REASONS_V12,
+} from "../lib/scheduling/schedule-model-v12.ts";
 
 /**
  * Scanym — CSDJ v1.2 — garde STRUCTURELLE.
@@ -58,11 +61,30 @@ test("[V12-MIRROR-1] checkout_unfulfillable_reasons_v12() ≡ CHECKOUT_UNFULFILL
   assert.deepEqual(sqlReasons, [...CHECKOUT_UNFULFILLABLE_REASONS_V12]);
 });
 
+test("[V12-MIRROR-2] fulfillment_selection_reasons_v12() ≡ FULFILLMENT_SELECTION_REASONS_V12 (ordre compris)", () => {
+  const m = /function public\.fulfillment_selection_reasons_v12\(\)[\s\S]*?array\[([\s\S]*?)\]/.exec(code);
+  assert.ok(m, "fonction catalogue introuvable");
+  const sqlReasons = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+  assert.deepEqual(sqlReasons, [...FULFILLMENT_SELECTION_REASONS_V12]);
+});
+
+test("[V12-MIRROR-3] tout motif émis par validate_fulfillment_selection est dans le catalogue fermé", () => {
+  const body = functionBodies(code).get("validate_fulfillment_selection");
+  assert.ok(body);
+  const emitted = new Set([...body.matchAll(/v_reason := '([a-z_]+)'/g)].map((x) => x[1]));
+  assert.ok(emitted.size >= 7, [...emitted].join(","));
+  for (const r of emitted) {
+    assert.ok((FULFILLMENT_SELECTION_REASONS_V12 as readonly string[]).includes(r), `motif hors catalogue : ${r}`);
+  }
+  // …et réciproquement : aucun motif du catalogue n'est mort.
+  for (const r of FULFILLMENT_SELECTION_REASONS_V12) assert.ok(emitted.has(r), `motif jamais émis : ${r}`);
+});
+
 // -------------------------------------------------------------- SECURITY
 const bodies = functionBodies(code);
 
-test("[V12-SEC-1] le lot définit exactement douze fonctions, toutes avec search_path = ''", () => {
-  assert.equal(bodies.size, 12, [...bodies.keys()].join(", "));
+test("[V12-SEC-1] le lot définit exactement quatorze fonctions, toutes avec search_path = ''", () => {
+  assert.equal(bodies.size, 14, [...bodies.keys()].join(", "));
   for (const [name, body] of bodies) {
     assert.match(body, /set search_path\s*=\s*''/, `${name} : search_path non fixé`);
   }
@@ -94,6 +116,10 @@ test("[V12-SEC-5] les primitives de capacité ne sont exécutables par AUCUN rô
   assert.doesNotMatch(
     code,
     /grant\s+execute\s+on\s+function\s+public\.fulfillment_capacity_used/i
+  );
+  assert.doesNotMatch(
+    code,
+    /grant\s+execute\s+on\s+function\s+public\.validate_fulfillment_selection/i
   );
 });
 
@@ -142,7 +168,7 @@ test("[V12-CAP-2] la réservation refuse tout niveau d'isolation autre que READ 
 });
 
 test("[V12-CAP-3] la capacité est « une commande = une unité » : aucune lecture de quantité", () => {
-  for (const name of ["reserve_fulfillment_capacity", "fulfillment_capacity_used", "fulfillment_capacity_is_holding"]) {
+  for (const name of ["reserve_fulfillment_capacity", "validate_fulfillment_selection", "fulfillment_capacity_used", "fulfillment_capacity_is_holding"]) {
     const body = bodies.get(name);
     assert.ok(body, name);
     assert.doesNotMatch(body, /order_items|\bquantity\b|\bqty\b/i, `${name} lit une quantité`);
@@ -298,4 +324,36 @@ test("[V12-HARNESS-6] les mutants de contrôle existent", () => {
 test("[V12-HARNESS-7] aucun fichier intermédiaire de construction n'est versionné", () => {
   const stray = readdirSync("supabase/tests").filter((f) => /^\.v12-/.test(f));
   assert.deepEqual(stray, []);
+});
+
+// ------------------------------------------------- UNE SEULE AUTORITÉ
+test("[V12-AUTH-1] reserve_fulfillment_capacity REJOUE validate_fulfillment_selection (pas de second algorithme)", () => {
+  const body = functionBodies(code).get("reserve_fulfillment_capacity");
+  assert.ok(body);
+  assert.match(body, /public\.validate_fulfillment_selection\(/);
+  // reserve ne lit PAS le résolveur ni le décompte lui-même
+  assert.doesNotMatch(body, /resolve_fulfillment_schedule/);
+  assert.doesNotMatch(body, /fulfillment_capacity_used/);
+});
+
+test("[V12-AUTH-2] validate est STABLE, ne modifie rien", () => {
+  const body = functionBodies(code).get("validate_fulfillment_selection");
+  assert.ok(body);
+  assert.match(body.slice(0, 1200), /\bstable\b/);
+  assert.doesNotMatch(body, /\b(insert\s+into|update\s+public|delete\s+from)\b/i);
+  assert.doesNotMatch(body, /pg_advisory/);
+});
+
+test("[V12-AUTH-3] un seul verrou et un seul décompte pour tout le lot", () => {
+  const locks = [...code.matchAll(/pg_advisory_xact_lock\(/g)].length;
+  assert.equal(locks, 2, "verrous : bucket (reserve) + tenant (écriture marchande)");
+  const counters = [...code.matchAll(/create function public\.([a-z_]*capacity_used[a-z_]*)/g)].map((m) => m[1]);
+  assert.deepEqual(counters, ["fulfillment_capacity_used"]);
+});
+
+test("[V12-MODEL-1] le modèle v1.2 est des constantes PURES (importable par un client) et n'importe aucun résolveur", () => {
+  const model = readFileSync("lib/scheduling/schedule-model-v12.ts", "utf8");
+  const imports = [...model.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(imports, ["@/lib/scheduling/schedule-model"]);
+  assert.doesNotMatch(model, /\bfunction\b|=>/);
 });

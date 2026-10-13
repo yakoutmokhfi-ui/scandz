@@ -828,7 +828,7 @@ mk_orders() {
 # $1 base $2 commande $3 restaurant $4 date $5 créneau ('-' = aucun)  -> "résultat|motif" ou SQL_ERROR
 rsv() {
   local slot="null"; [ "$5" != "-" ] && slot="'$5'"
-  sql_on "$1" "select result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$2','$3','pickup',null,'$4',$slot,'$CAP_NOW'::timestamptz);"
+  sql_on "$1" "select result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$2','$3','pickup',null,'$4',$slot,null,'$CAP_NOW'::timestamptz);"
 }
 used_in() { # $1 base $2 restaurant $3 date $4 créneau ('' = date entière)
   sql_on "$1" "select public.fulfillment_capacity_used('$2','pickup','$NIL_RULE','$3','$4');"
@@ -883,7 +883,7 @@ SQL
 begin;
 select pg_advisory_lock_shared($key);
 select pg_advisory_unlock_shared($key);
-select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$o','$r','pickup',null,'$d',$slot,'$CAP_NOW'::timestamptz);
+select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$o','$r','pickup',null,'$d',$slot,null,'$CAP_NOW'::timestamptz);
 select pg_sleep($hold);
 $final;
 SQL
@@ -1006,7 +1006,7 @@ diff "$TMP_DIR/inv.v1" "$TMP_DIR/inv.fwd" > "$TMP_DIR/inv.diff"
 REMOVED_N="$(grep -c '^< ' "$TMP_DIR/inv.diff" || true)"
 assert_eq "[15a] exactement UNE ligne d'inventaire disparaît (le corps du résolveur, remplacé par le répartiteur)" "1" "$REMOVED_N"
 assert_has "[15b] et c'est bien resolve_fulfillment_schedule" "< F|resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone)|" "$(grep '^< ' "$TMP_DIR/inv.diff")"
-assert_eq "[15c] 13 lignes de fonction apparaissent (12 nouvelles + le répartiteur)" "13" "$(grep -c '^> F|' "$TMP_DIR/inv.diff" || true)"
+assert_eq "[15c] 15 lignes de fonction apparaissent (14 nouvelles + le répartiteur)" "15" "$(grep -c '^> F|' "$TMP_DIR/inv.diff" || true)"
 assert_eq "[15d] exactement 5 colonnes apparaissent sur la planification" "5" \
   "$(grep -c '^> C|restaurant_fulfillment_schedule|' "$TMP_DIR/inv.diff" || true)"
 assert_eq "[15e] aucune colonne n'apparaît sur une autre table préexistante" "0" \
@@ -1051,16 +1051,16 @@ assert_eq "[3e] les tables NAISSENT VIDES (aucun jour férié, aucune juridictio
   "$(sql_value "select (select count(*) from public.public_holiday_calendar)+(select count(*) from public.public_holiday_calendar_day)+(select count(*) from public.restaurant_fulfillment_prep_day)+(select count(*) from public.restaurant_fulfillment_prep_closure)+(select count(*) from public.order_fulfillment_capacity_reservation)+(select count(*) from public.restaurant_fulfillment_schedule);")"
 assert_eq "[3f] AUCUNE planification n'est activée par la migration" "0" \
   "$(sql_value "select count(*) from public.restaurant_fulfillment_schedule where schedule_method_version <> 'v1' or capacity_enabled or holiday_calendar_id is not null;")"
-assert_eq "[3g] les 12 fonctions NOUVELLES fixent search_path = ''" "12" \
-  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in ('checkout_unfulfillable_reasons_v12','fulfillment_capacity_is_holding','fulfillment_capacity_used','csdj12_preparation_open','csdj12_availability_closed','checkout_schedule_day_offers_v12','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule_v1','reserve_fulfillment_capacity','release_fulfillment_capacity','mutate_merchant_fulfillment_schedule_v12','get_merchant_fulfillment_schedules_v12') and array_to_string(proconfig,',') like '%search_path=%';")"
+assert_eq "[3g] les 14 fonctions NOUVELLES fixent search_path = ''" "14" \
+  "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in ('checkout_unfulfillable_reasons_v12','fulfillment_capacity_is_holding','fulfillment_capacity_used','csdj12_preparation_open','csdj12_availability_closed','checkout_schedule_day_offers_v12','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule_v1','reserve_fulfillment_capacity','release_fulfillment_capacity','validate_fulfillment_selection','fulfillment_selection_reasons_v12','mutate_merchant_fulfillment_schedule_v12','get_merchant_fulfillment_schedules_v12') and array_to_string(proconfig,',') like '%search_path=%';")"
 assert_eq "[3h] le répartiteur fixe aussi search_path = ''" "1" \
   "$(sql_value "select count(*) from pg_proc where pronamespace='public'::regnamespace and proname='resolve_fulfillment_schedule' and array_to_string(proconfig,',') like '%search_path=%';")"
 assert_eq "[3i] l'ensemble des fonctions exécutables par anon est IDENTIQUE à celui d'avant" "$V1_ANON_FUNCS" \
   "$(sql_value "select string_agg(p.oid::regprocedure::text, ',' order by p.oid::regprocedure::text) from pg_proc p where p.pronamespace='public'::regnamespace and has_function_privilege('anon', p.oid, 'EXECUTE');")"
 assert_eq "[3j] seules les 2 RPC marchandes v1.2 sont exécutables par authenticated parmi les objets nouveaux" "2" \
-  "$(sql_value "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('checkout_unfulfillable_reasons_v12','fulfillment_capacity_is_holding','fulfillment_capacity_used','csdj12_preparation_open','csdj12_availability_closed','checkout_schedule_day_offers_v12','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule_v1','resolve_fulfillment_schedule','reserve_fulfillment_capacity','release_fulfillment_capacity','mutate_merchant_fulfillment_schedule_v12','get_merchant_fulfillment_schedules_v12') and has_function_privilege('authenticated', p.oid, 'EXECUTE');")"
+  "$(sql_value "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('checkout_unfulfillable_reasons_v12','fulfillment_capacity_is_holding','fulfillment_capacity_used','csdj12_preparation_open','csdj12_availability_closed','checkout_schedule_day_offers_v12','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule_v1','resolve_fulfillment_schedule','reserve_fulfillment_capacity','release_fulfillment_capacity','validate_fulfillment_selection','fulfillment_selection_reasons_v12','mutate_merchant_fulfillment_schedule_v12','get_merchant_fulfillment_schedules_v12') and has_function_privilege('authenticated', p.oid, 'EXECUTE');")"
 assert_eq "[3k] service_role n'exécute AUCUNE fonction de capacité (create_order, SECURITY DEFINER, sera l'appelant)" "0" \
-  "$(sql_value "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('reserve_fulfillment_capacity','release_fulfillment_capacity','fulfillment_capacity_used','fulfillment_capacity_is_holding','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule') and has_function_privilege('service_role', p.oid, 'EXECUTE');")"
+  "$(sql_value "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('reserve_fulfillment_capacity','release_fulfillment_capacity','validate_fulfillment_selection','fulfillment_selection_reasons_v12','fulfillment_capacity_used','fulfillment_capacity_is_holding','resolve_fulfillment_schedule_v12','resolve_fulfillment_schedule') and has_function_privilege('service_role', p.oid, 'EXECUTE');")"
 assert_eq "[3l] catalogue de motifs v1.2 = les 5 motifs CSDJ-1 puis les 4 nouveaux" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted|no_offer_in_horizon|preparation_calendar_missing|no_preparation_day_in_horizon|cutoff_unresolvable|capacity_exhausted" \
   "$(sql_value "select array_to_string(public.checkout_unfulfillable_reasons_v12(), '|');")"
 assert_eq "[3m] le catalogue CSDJ-1 des motifs n'a pas bougé" "no_offer_configured|granularity_missing|all_dates_closed|horizon_exhausted|no_offer_in_horizon" \
@@ -1268,11 +1268,11 @@ cap_reset "$DB_FWD" "$RID_A" 2 none
 O5="$(mk_orders "$DB_FWD" "$RID_A" 1 | head -1)"
 assert_eq "[8m] date non offerte (avant la cible J+1) : date_not_offered" "unavailable|date_not_offered" "$(rsv "$DB_FWD" "$O5" "$RID_A" "2026-10-13" -)"
 assert_eq "[8n] date au-delà de l'horizon : date_not_offered" "unavailable|date_not_offered" "$(rsv "$DB_FWD" "$O5" "$RID_A" "2027-06-01" -)"
-assert_eq "[8o] créneau fourni alors que la planification n'en a pas : slot_not_offered" "unavailable|slot_not_offered" "$(rsv "$DB_FWD" "$O5" "$RID_A" "$CAP_DATE" s1)"
+assert_eq "[8o] créneau fourni alors que la planification n'en a pas : selection_not_expected" "unavailable|selection_not_expected" "$(rsv "$DB_FWD" "$O5" "$RID_A" "$CAP_DATE" s1)"
 assert_eq "[8p] rien n'a été réservé par ces refus" "0" "$(reservations_in "$DB_FWD" "$RID_A")"
 cap_reset "$DB_FWD" "$RID_A" 1 fixed_slots
 read -r P1 P2 P3 < <(mk_orders "$DB_FWD" "$RID_A" 3 | tr '\n' ' ')
-assert_eq "[8q] créneaux fixes : créneau manquant refusé" "unavailable|slot_not_offered" "$(rsv "$DB_FWD" "$P1" "$RID_A" "$CAP_DATE" -)"
+assert_eq "[8q] créneaux fixes : créneau manquant refusé" "unavailable|selection_required" "$(rsv "$DB_FWD" "$P1" "$RID_A" "$CAP_DATE" -)"
 assert_eq "[8r] créneau inconnu refusé" "unavailable|slot_not_offered" "$(rsv "$DB_FWD" "$P1" "$RID_A" "$CAP_DATE" s9)"
 assert_eq "[8s] créneau s1 réservé" "reserved|-" "$(rsv "$DB_FWD" "$P1" "$RID_A" "$CAP_DATE" s1)"
 assert_eq "[8t] s1 est plein pour la commande suivante" "unavailable|capacity_full" "$(rsv "$DB_FWD" "$P2" "$RID_A" "$CAP_DATE" s1)"
@@ -1361,6 +1361,146 @@ assert_eq "[8b-r] la REPRISE du paiement de M1 ne peut pas reprendre sa place : 
 assert_eq "[8b-s] le créneau n'est jamais surréservé : 1 unité tenue pour une capacité de 1" "1" "$(used_in "$DB_FWD" "$RID_A" "$CAP_DATE" '')"
 
 # ============================================================
+# [8c] VALIDATION SERVEUR DE LA SÉLECTION (décision CTO : TOUJOURS,
+#      capacité activée ou non). Réponses dérivées À LA MAIN.
+#
+# Horloge injectée : mardi 2026-10-13 09:00 (Paris), Europe/Paris.
+# Planification de test : J+1, limite 10:00, préparation 7j/7, fenêtre
+# 11:00-14:00 tous les jours, horizon 14 jours.
+#   09:00 < 10:00  -> origine = aujourd'hui (13) ; cible = mercredi 14.
+#   Donc : première date éligible = 2026-10-14 ; le 13 n'est PAS offert.
+# ============================================================
+log "=== [8c] Validation serveur de la sélection ==="
+sel_reset() { # $1 base $2 restaurant $3 date_mode $4 slots $5 granularité|null $6 capacité|off $7 méthode
+  local db="$1" rid="$2" dsm="$3" slots="$4" gran="$5" cap="$6" meth="$7" en="true" capv="$6" cut="null"
+  [ "$cap" = "off" ] && { en="false"; capv="null"; }
+  [ "$meth" = "v1.2" ] && cut="'10:00'"
+  psql -X -d "$db" -v ON_ERROR_STOP=1 >/dev/null 2>"$ERR" <<SQL || fatal "sel_reset($db,$rid,$dsm,$slots,$gran,$cap,$meth) : $(tr '\n' ' ' < "$ERR")"
+delete from public.order_fulfillment_capacity_reservation where restaurant_id = '$rid';
+delete from public.orders where restaurant_id = '$rid';
+delete from public.restaurant_fulfillment_schedule where restaurant_id = '$rid';
+insert into public.restaurant_fulfillment_schedule
+  (restaurant_id, mode_code, timezone, enabled, date_selection_mode, slot_selection_mode, time_granularity_minutes,
+   min_lead_days, cutoff_time, cutoff_offset_days, booking_horizon_days, schedule_method_version,
+   capacity_enabled, capacity_max_orders)
+values ('$rid','pickup','Europe/Paris',true,'$dsm','$slots',$gran,1,$cut,0,14,'$meth',$en,$capv);
+insert into public.restaurant_fulfillment_prep_day
+  select '$rid','pickup','$NIL_RULE', g from generate_series(0,6) g where '$meth' = 'v1.2';
+insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at)
+  select '$rid','pickup','$NIL_RULE', g, '11:00','14:00' from generate_series(0,6) g where '$slots' <> 'fixed_slots';
+insert into public.restaurant_fulfillment_schedule_slot (restaurant_id, mode_code, rule_key, weekday, slot_key, starts_at, ends_at)
+  select '$rid','pickup','$NIL_RULE', g, k, s::time, e::time
+  from generate_series(0,6) g, (values ('s1','11:00','12:30'),('s2','12:30','14:00')) v(k,s,e)
+  where '$slots' = 'fixed_slots';
+SQL
+}
+# $1 base $2 restaurant $3 mode $4 date|null $5 créneau|null $6 heure|null
+#  -> résultat|motif|date|créneau|heure|fenêtre-début|fenêtre-fin|capacité
+val() {
+  local d="null" s="null" t="null"
+  [ "$4" != "null" ] && d="'$4'"; [ "$5" != "null" ] && s="'$5'"; [ "$6" != "null" ] && t="'$6'"
+  sql_on "$1" "select concat_ws('|', result, coalesce(reason,'-'), coalesce(selection_date::text,'-'), coalesce(selection_slot_key,'-'), coalesce(selection_time,'-'), coalesce(window_starts_at,'-'), coalesce(window_ends_at,'-'), capacity_applies::text) from public.validate_fulfillment_selection('$2','$3',null,$d,$s,$t,'$CAP_NOW'::timestamptz);"
+}
+V_BEFORE_RES="$(reservations_in "$DB_FWD" "$RID_A")"
+
+# ---- A. date seule, capacité DÉSACTIVÉE, méthode v1.2 -----------------
+sel_reset "$DB_FWD" "$RID_A" customer_selectable none null off v1.2
+assert_eq "[8c-a1] date offerte : valid, sélection retenue, capacité non applicable" "valid|-|2026-10-14|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-a2] AUJOURD'HUI n'est pas offert (J+1) : date_not_offered, même sans capacité" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-13 null null)"
+assert_eq "[8c-a3] une date passée est refusée" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-01 null null)"
+assert_eq "[8c-a4] au-delà de l'horizon (14 j) : refusée" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-12-31 null null)"
+assert_eq "[8c-a5] date absente alors qu'une date est exigée : selection_required" "unavailable|selection_required|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup null null null)"
+assert_eq "[8c-a6] créneau fourni alors qu'il n'y a pas de créneaux : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 null)"
+assert_eq "[8c-a7] heure fournie alors que la politique est « date seule » : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 12:00)"
+assert_eq "[8c-a8] créneau mal formé : selection_invalid (jamais interprété)" "unavailable|selection_invalid|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 'BAD_SLOT!' null)"
+assert_eq "[8c-a9] heure mal formée : selection_invalid" "unavailable|selection_invalid|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 25:99)"
+assert_eq "[8c-a10] mode SANS planification, aucune sélection : not_required" "not_required|-|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" delivery null null null)"
+assert_eq "[8c-a11] mode sans planification MAIS date fournie : selection_not_expected (refus, pas d'oubli silencieux)" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" delivery 2026-10-14 null null)"
+assert_eq "[8c-a12] autre établissement, mode sans planification : not_required" "not_required|-|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_B" delivery null null null)"
+assert_has "[8c-a13] zéro UUID comme règle : erreur d'usage" "CSDJ12_RESERVED_RULE_ID" "$(sql_on "$DB_FWD" "select * from public.validate_fulfillment_selection('$RID_A','pickup','$NIL_RULE','2026-10-14');")"
+assert_has "[8c-a14] établissement nul : erreur d'usage" "CSDJ12_INVALID_ARGUMENTS" "$(sql_on "$DB_FWD" "select * from public.validate_fulfillment_selection(null,'pickup',null,'2026-10-14');")"
+sql_on "$DB_FWD" "update public.restaurant_fulfillment_schedule set enabled=false where restaurant_id='$RID_A';" >/dev/null
+assert_eq "[8c-a15] planification DÉSACTIVÉE, aucune sélection : not_required" "not_required|-|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup null null null)"
+assert_eq "[8c-a16] planification désactivée MAIS date fournie : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+sel_reset "$DB_FWD" "$RID_A" customer_selectable none null off v1.2
+sql_on "$DB_FWD" "delete from public.restaurant_fulfillment_schedule_window where restaurant_id='$RID_A';" >/dev/null
+assert_eq "[8c-a17] aucune offre configurée : schedule_not_fulfillable" "unavailable|schedule_not_fulfillable|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+
+# ---- B. informational_only : rien à sélectionner ----------------------
+sel_reset "$DB_FWD" "$RID_A" informational_only none null off v1.2
+assert_eq "[8c-b1] date informative seulement, aucune sélection : not_required" "not_required|-|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup null null null)"
+assert_eq "[8c-b2] date informative MAIS date fournie : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+
+# ---- C. créneaux nommés, capacité 1 ------------------------------------
+sel_reset "$DB_FWD" "$RID_A" customer_selectable fixed_slots null 1 v1.2
+assert_eq "[8c-c1] créneau offert : valid, créneau et fenêtre rendus, capacité applicable" "valid|-|2026-10-14|s1|-|11:00|12:30|true" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 null)"
+assert_eq "[8c-c2] second créneau" "valid|-|2026-10-14|s2|-|12:30|14:00|true" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s2 null)"
+assert_eq "[8c-c3] créneau manquant : selection_required" "unavailable|selection_required|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-c4] créneau inconnu : slot_not_offered" "unavailable|slot_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s9 null)"
+assert_eq "[8c-c5] heure fournie avec créneaux nommés : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 11:00)"
+assert_eq "[8c-c6] L'INSTANT de début du créneau est calculé par le serveur (11:00 Paris = 09:00 UTC)" "2026-10-14T09:00:00Z" \
+  "$(sql_on "$DB_FWD" "select to_char(instant_starts_at at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from public.validate_fulfillment_selection('$RID_A','pickup',null,'2026-10-14','s1',null,'$CAP_NOW'::timestamptz);")"
+SEL_O="$(mk_orders "$DB_FWD" "$RID_A" 1 | head -1)"
+assert_eq "[8c-c7] la dernière place du créneau s1 est prise (réservation réelle)" "reserved|-" "$(rsv "$DB_FWD" "$SEL_O" "$RID_A" 2026-10-14 s1)"
+assert_eq "[8c-c8] la validation voit alors s1 PLEIN : capacity_full" "unavailable|capacity_full|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 null)"
+assert_eq "[8c-c9] et s2 reste valide (seau indépendant)" "valid|-|2026-10-14|s2|-|12:30|14:00|true" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s2 null)"
+assert_eq "[8c-c10] la validation est LECTURE SEULE : une seule réservation existe" "1" "$(reservations_in "$DB_FWD" "$RID_A")"
+SEL_O2="$(mk_orders "$DB_FWD" "$RID_A" 1 | head -1)"
+assert_eq "[8c-c11] reserve REJOUE la validation : créneau plein refusé avec le même motif" "unavailable|capacity_full" "$(rsv "$DB_FWD" "$SEL_O2" "$RID_A" 2026-10-14 s1)"
+assert_eq "[8c-c12] reserve : heure fournie avec créneaux nommés refusée par la même règle" "unavailable|selection_not_expected" \
+  "$(sql_on "$DB_FWD" "select result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$SEL_O2','$RID_A','pickup',null,'2026-10-14','s2','12:00','$CAP_NOW'::timestamptz);")"
+
+# ---- D. heure libre dans une fenêtre (grille de 30 min), capacité off ---
+sel_reset "$DB_FWD" "$RID_A" customer_selectable time_within_window 30 off v1.2
+assert_eq "[8c-d1] heure sur la grille : valid, heure et fenêtre rendues" "valid|-|2026-10-14|-|12:30|11:00|14:00|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 12:30)"
+assert_eq "[8c-d2] premier point de grille" "valid|-|2026-10-14|-|11:00|11:00|14:00|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 11:00)"
+assert_eq "[8c-d3] dernier point de grille (13:30)" "valid|-|2026-10-14|-|13:30|11:00|14:00|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 13:30)"
+assert_eq "[8c-d4] heure HORS grille (12:15) : time_not_offered" "unavailable|time_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 12:15)"
+assert_eq "[8c-d5] la fin de fenêtre est EXCLUE (14:00) : time_not_offered" "unavailable|time_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 14:00)"
+assert_eq "[8c-d6] avant la fenêtre (10:30) : time_not_offered" "unavailable|time_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null 10:30)"
+assert_eq "[8c-d7] heure manquante : selection_required" "unavailable|selection_required|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-d8] créneau nommé fourni en mode heure libre : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 12:00)"
+assert_eq "[8c-d9] l'INSTANT choisi (12:30 Paris = 10:30 UTC) est calculé par le serveur" "2026-10-14T10:30:00Z" \
+  "$(sql_on "$DB_FWD" "select to_char(instant_starts_at at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from public.validate_fulfillment_selection('$RID_A','pickup',null,'2026-10-14',null,'12:30','$CAP_NOW'::timestamptz);")"
+assert_eq "[8c-d10] autre date offerte (le 15) : même grille" "valid|-|2026-10-15|-|12:00|11:00|14:00|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-15 null 12:00)"
+
+# ---- E. derived_earliest : le serveur choisit, le client rappelle -------
+sel_reset "$DB_FWD" "$RID_A" derived_earliest none null off v1.2
+assert_eq "[8c-e1] la date DÉRIVÉE (première éligible) rappelée par le client : valid" "valid|-|2026-10-14|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-e2] une date plus tardive mais éligible est une date FORGÉE : date_not_offered" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-15 null null)"
+assert_eq "[8c-e3] une date très tardive : date_not_offered" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-20 null null)"
+assert_eq "[8c-e4] pas de date rappelée : selection_required (le client doit confirmer ce qu'il a vu)" "unavailable|selection_required|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup null null null)"
+assert_eq "[8c-e5] créneau fourni avec derived_earliest : selection_not_expected" "unavailable|selection_not_expected|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 s1 null)"
+assert_eq "[8c-e6] la veille de la première date éligible (le 13, hors offre) : date_not_offered" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-13 null null)"
+# derived_earliest + capacité 1 : la date dérivée AVANCE quand la première est pleine
+sel_reset "$DB_FWD" "$RID_A" derived_earliest none null 1 v1.2
+assert_eq "[8c-e7] capacité 1, rien de pris : le 14 est valide" "valid|-|2026-10-14|-|-|-|-|true" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-e8] et le 15 est forgé (le 14 a encore de la place)" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-15 null null)"
+SEL_O3="$(mk_orders "$DB_FWD" "$RID_A" 1 | head -1)"
+assert_eq "[8c-e9] le 14 est pris (réservation réelle)" "reserved|-" "$(rsv "$DB_FWD" "$SEL_O3" "$RID_A" 2026-10-14 -)"
+assert_eq "[8c-e10] le client qui rappelle le 14 (périmé) : capacity_full" "unavailable|capacity_full|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-e11] la date dérivée est maintenant le 15 : valide" "valid|-|2026-10-15|-|-|-|-|true" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-15 null null)"
+assert_eq "[8c-e12] et le 16 est forgé (le 15 a encore de la place)" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-16 null null)"
+SEL_O4="$(mk_orders "$DB_FWD" "$RID_A" 1 | head -1)"
+assert_eq "[8c-e13] reserve applique la MÊME règle : une date forgée (le 16) est refusée" "unavailable|date_not_offered" "$(rsv "$DB_FWD" "$SEL_O4" "$RID_A" 2026-10-16 -)"
+assert_eq "[8c-e14] et la date dérivée (le 15) est réservée" "reserved|-" "$(rsv "$DB_FWD" "$SEL_O4" "$RID_A" 2026-10-15 -)"
+
+# ---- F. méthode v1 (CSDJ-1) : validée aussi, jamais de capacité ---------
+sel_reset "$DB_FWD" "$RID_A" customer_selectable none null off v1
+assert_eq "[8c-f1] planification v1 : une date offerte est valide, SANS capacité" "valid|-|2026-10-14|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-14 null null)"
+assert_eq "[8c-f2] planification v1 : aujourd'hui n'est pas offert (J+1)" "unavailable|date_not_offered|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup 2026-10-13 null null)"
+assert_eq "[8c-f3] planification v1 : date absente refusée" "unavailable|selection_required|-|-|-|-|-|false" "$(val "$DB_FWD" "$RID_A" pickup null null null)"
+
+# ---- G. lecture seule, volatilité, ACL ----------------------------------
+assert_eq "[8c-g1] validate_fulfillment_selection est STABLE (lecture seule)" "s" "$(sql_value "select provolatile from pg_proc where proname='validate_fulfillment_selection' and pronamespace='public'::regnamespace;")"
+assert_eq "[8c-g2] aucune réservation n'a été créée par les validations seules (hors réservations explicites ci-dessus)" "0" "$(sql_value "select count(*) from public.order_fulfillment_capacity_reservation where order_id not in ('$SEL_O','$SEL_O3','$SEL_O4');")"
+assert_has "[8c-g3] authenticated n'exécute PAS la validation" "permission denied" "$(outcome_as authenticated "$OWNER_A" "select * from public.validate_fulfillment_selection('$RID_A','pickup',null,'2026-10-14');")"
+assert_has "[8c-g4] service_role non plus" "permission denied" "$(outcome_as service_role '' "select * from public.validate_fulfillment_selection('$RID_A','pickup',null,'2026-10-14');")"
+assert_has "[8c-g5] anon non plus" "permission denied" "$(outcome_as anon '' "select * from public.validate_fulfillment_selection('$RID_A','pickup',null,'2026-10-14');")"
+assert_eq "[8c-g6] catalogue des motifs de sélection (ordre fermé)" "schedule_not_fulfillable|selection_required|selection_not_expected|selection_invalid|date_not_offered|slot_not_offered|time_not_offered|capacity_full" "$(sql_value "select array_to_string(public.fulfillment_selection_reasons_v12(), '|');")"
+cap_reset "$DB_FWD" "$RID_A" 2 none
+
+# ============================================================
 # [9] CONCURRENCE RÉELLE — plusieurs sessions PostgreSQL
 # ============================================================
 log "=== [9] Concurrence : sessions réelles, barrière de départ ==="
@@ -1407,7 +1547,7 @@ probe_hold() {
   local aout="$TMP_DIR/probeA.$RANDOM" bout="$TMP_DIR/probeB.$RANDOM"; : > "$aout"; : > "$bout"
   ( psql -X -A -q -t -d "$db" >"$aout" 2>&1 <<SQL
 begin;
-select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$ao','$ar','pickup',null,'$ad',$aslot,'$CAP_NOW'::timestamptz);
+select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$ao','$ar','pickup',null,'$ad',$aslot,null,'$CAP_NOW'::timestamptz);
 select pg_sleep(4);
 $final;
 SQL
@@ -1416,7 +1556,7 @@ SQL
     i=$((i+1)); [ $i -gt 200 ] && fatal "la session A n'a jamais atteint son point d'attente."; sleep 0.02
   done
   ( psql -X -A -q -t -d "$db" >"$bout" 2>&1 <<SQL
-select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$bo','$br','pickup',null,'$bd',$bslot,'$CAP_NOW'::timestamptz);
+select 'R|' || result || '|' || coalesce(reason,'-') from public.reserve_fulfillment_capacity('$bo','$br','pickup',null,'$bd',$bslot,null,'$CAP_NOW'::timestamptz);
 SQL
   ) & bpid=$!
   PROBE_BLOCKED=0; i=0
@@ -1494,8 +1634,22 @@ det_tenant() {
   has "$r" "CSDJ12_FOREIGN_ORDER" && [ "$(reservations_in "$db" "$RID_A")" = "0" ]
 }
 
+det_select() { # la validation serveur refuse date forgée, heure hors grille, sélection inattendue
+  local db="$1" a b c d
+  sel_reset "$db" "$RID_A" derived_earliest none null off v1.2
+  a="$(val "$db" "$RID_A" pickup 2026-10-15 null null)"
+  sel_reset "$db" "$RID_A" customer_selectable time_within_window 30 off v1.2
+  b="$(val "$db" "$RID_A" pickup 2026-10-14 null 12:15)"
+  sel_reset "$db" "$RID_A" customer_selectable none null off v1.2
+  c="$(val "$db" "$RID_A" pickup 2026-10-14 s1 null)"
+  d="$(val "$db" "$RID_A" pickup 2026-10-14 null null)"
+  CONC_LAST="forgée=$a / hors-grille=$b / inattendue=$c / valide=$d"
+  [ "$a" = "unavailable|date_not_offered|-|-|-|-|-|false" ] && [ "$b" = "unavailable|time_not_offered|-|-|-|-|-|false" ] \
+    && [ "$c" = "unavailable|selection_not_expected|-|-|-|-|-|false" ] && [ "$d" = "valid|-|2026-10-14|-|-|-|-|false" ]
+}
+
 det_ctl_fail=0
-for det in det_fixture det_seq det_tenant det_conc det_block; do
+for det in det_fixture det_seq det_tenant det_select det_conc det_block; do
   if "$det" "$DB_FWD"; then pass "[16-ctl] détecteur $det : la migration RÉELLE est déclarée saine"
   else fail "[16-ctl] détecteur $det : la migration RÉELLE est déclarée défaillante ($CONC_LAST)"; det_ctl_fail=1; fi
 done
@@ -1509,7 +1663,11 @@ import re, sys
 s = open(sys.argv[1], encoding="utf-8").read()
 M = {
   "no-lock": (r"perform pg_catalog\.pg_advisory_xact_lock\(pg_catalog\.hashtextextended\(\n\s+p_restaurant_id::text.*?1204\)\);", "null;"),
-  "capacity-gt": (r"if v_used >= v_s\.capacity_max_orders then", "if v_used > v_s.capacity_max_orders then"),
+  "capacity-gt": (r"(coalesce\(v_out_slot, ''\)\)\n\s+)>= v_s\.capacity_max_orders then", r"\1> v_s.capacity_max_orders then"),
+  "derived-check-off": (r"if v_s\.date_selection_mode = 'derived_earliest' then\n\s+if v_slot", "if false then\n      if v_slot"),
+  "time-grid-off": (r"% v_r\.time_granularity_minutes = 0", "% v_r.time_granularity_minutes >= 0"),
+  "unexpected-ignored": (r"-- `none` : la date seule est sélectionnée\.\n\s+if v_slot is not null or p_selected_time is not null then", "-- none\n      if false then"),
+  "reserve-skips-validate": (r"if v_v\.result is distinct from 'valid' then", "if false then"),
   "holding-always": (r"select p_status is distinct from 'rejected'\n\s+and p_status is distinct from 'cancelled';", "select true;"),
   "cutoff-gt": (r"v_cut_reached := \(p_now >= v_cut_at\);", "v_cut_reached := (p_now > v_cut_at);"),
   "dispatch-v1": (r"if v_method = 'v1\.2' then", "if false then"),
@@ -1534,6 +1692,10 @@ PYMUT
 }
 mutant no-lock             det_conc det_block
 mutant capacity-gt         det_seq
+mutant derived-check-off   det_select
+mutant time-grid-off       det_select
+mutant unexpected-ignored  det_select
+mutant reserve-skips-validate det_seq
 mutant holding-always      det_seq
 mutant cutoff-gt           det_fixture
 mutant dispatch-v1         det_fixture

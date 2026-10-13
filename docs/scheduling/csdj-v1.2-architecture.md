@@ -48,7 +48,7 @@ Per schedule scope (restaurant, mode, rule): `capacity_enabled` and `capacity_ma
 
 * **One order = one unit**, whatever the product quantities (the capacity functions never read order items).
 * **Client never sees counts.** The public response only *filters*: a full date or slot disappears; if everything is full the status is `unfulfillable / capacity_exhausted`. Reservation table is not readable by any client role.
-* **Server re-validates and reserves atomically.** `reserve_fulfillment_capacity` takes a transaction-scoped advisory lock on the bucket (seed 1204, distinct from the tenant scheduling-edit seed 1104), re-runs the resolver in internal mode, counts holding orders and inserts the reservation row. It requires `READ COMMITTED` and refuses other isolation levels, because the lock relies on a fresh snapshot after acquisition.
+* **Server validates, then reserves atomically.** `validate_fulfillment_selection` (read-only) is the single authority on whether a (date, slot, time) selection is valid now — for every enabled schedule, capacity on or off, including `derived_earliest` (the server's date wins; a later date is accepted only if all earlier eligible dates are full). `reserve_fulfillment_capacity` takes a transaction-scoped advisory lock on the bucket (seed 1204, distinct from the tenant scheduling-edit seed 1104), **replays the same validation under the lock**, then inserts the reservation row. It requires `READ COMMITTED` and refuses other isolation levels. Contract: [`csdj-v1.2-interface-contract.md`](./csdj-v1.2-interface-contract.md).
 * **Concurrency.** Real multi-session proof (separate `psql` sessions, barrier-synchronised, `pg_stat_activity` showing the blocked waiters): with capacity N and M > N simultaneous final attempts, exactly N are `reserved`, the rest `capacity_full`; a rolled-back reserver releases its place; buckets and tenants are independent.
 * **Release.** The count is *derived* by joining reservations to orders (`fulfillment_capacity_used`); an order whose status is `rejected` or `cancelled` no longer holds a place. `release_fulfillment_capacity(order_id)` deletes the reservation explicitly.
 * **Payments — see §6.** Payment status is deliberately ignored by the holding rule.
@@ -69,7 +69,9 @@ The mandate requires explicit, merchant-configurable holiday handling **without 
 3. *Merchant overrides.* Merchant closures always apply on top of the calendar; a merchant who *is* open on a listed holiday sets the policy to `open`.
 4. *Staleness.* A calendar covering only some years will simply list no holidays beyond them; we recommend an operator alert when the latest loaded year is less than 12 months ahead (not implemented).
 
-## 6. Pending / failed payments and capacity — proposal (no timeout invented)
+## 6. Pending / failed payments and capacity — CTO decision: option A provisionally (no timeout invented)
+
+**CTO decision (contract convergence):** keep the reservation after `payment_status = failed/cancelled` while `orders.status ∉ {rejected, cancelled}`; do not wire `release_fulfillment_capacity`; expiry of abandoned payments is a separate release decision. The options below remain the record of what that later decision chooses between.
 
 Finding: `initiate_payment_attempt` allows a retry after a failed/cancelled attempt by setting `payment_status` back to `pending`. If a failed or cancelled payment *released* the place, a later retry could re-activate an order whose place has meanwhile been sold: **overbooking**. Therefore v1.2 uses a conservative rule:
 
@@ -113,5 +115,5 @@ The primitives (`release_fulfillment_capacity`, derived holding count) support A
 4. **v1 `save_schedule` on a v1.2 row** with default cutoff offset fails by check constraint (`rfs_v12_no_cutoff_offset`): fail-closed, but the CSDJ-1 merchant UI would show an error on such rows. Merchant UI for v1.2 is out of scope.
 5. **PROD cannot be verified from this environment**; the migration was proven on a disposable PG16 whose predecessor chain mirrors the repository, not on the hosted database. A pre-application PROD inventory check is required before any application.
 6. **Lock ordering.** Reservation takes the bucket lock after the order insert; the tenant edit lock (1104) is separate. No code path takes both; Debussy must not add one that takes them in the opposite order.
-7. **Date validation outside capacity.** `reserve_fulfillment_capacity` revalidates the chosen date only when capacity is enabled; for other schedules the server-side check of the chosen date belongs to the checkout integration (Debussy) — open question in the interface contract.
+7. **Date validation outside capacity — RESOLVED (contract v2).** `validate_fulfillment_selection` validates date, slot and time for every enabled schedule (v1 and v1.2), capacity on or off; `create_order` must always call it (interface contract §3 T2).
 8. **Holding count vs. status vocabulary.** The holding rule treats any order status other than `rejected` / `cancelled` as holding. A new terminal status added later must be added to `fulfillment_capacity_is_holding` (single point of change).

@@ -80,7 +80,9 @@ alter function public.resolve_fulfillment_schedule_v1(uuid,text,uuid,timestamp w
 drop function public.get_merchant_fulfillment_schedules_v12(uuid);
 drop function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb);
 drop function public.release_fulfillment_capacity(uuid);
-drop function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,timestamp with time zone);
+drop function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone);
+drop function public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone);
+drop function public.fulfillment_selection_reasons_v12();
 drop function public.resolve_fulfillment_schedule_v12(uuid,text,uuid,timestamp with time zone,boolean);
 drop function public.checkout_schedule_day_offers_v12(public.restaurant_fulfillment_schedule,date,timestamp with time zone);
 drop function public.csdj12_availability_closed(public.restaurant_fulfillment_schedule,date);

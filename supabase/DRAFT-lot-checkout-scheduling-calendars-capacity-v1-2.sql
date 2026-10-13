@@ -134,7 +134,8 @@ begin
      or pg_catalog.to_regclass('public.public_holiday_calendar_day') is not null
      or pg_catalog.to_regclass('public.order_fulfillment_capacity_reservation') is not null
      or pg_catalog.to_regprocedure('public.resolve_fulfillment_schedule_v1(uuid,text,uuid,timestamp with time zone)') is not null
-     or pg_catalog.to_regprocedure('public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,timestamp with time zone)') is not null
+     or pg_catalog.to_regprocedure('public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone)') is not null
+     or pg_catalog.to_regprocedure('public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone)') is not null
      or exists (select 1 from pg_catalog.pg_attribute a
                 where a.attrelid = 'public.restaurant_fulfillment_schedule'::regclass
                   and a.attname in ('holiday_calendar_id','preparation_on_holidays',
@@ -863,8 +864,248 @@ end
 $csdj12_dispatch$;
 
 -- ============================================================
--- §F  RÉSERVATION DE CAPACITÉ — SEULE AUTORITÉ TRANSACTIONNELLE
+-- §F  VALIDATION DE SÉLECTION ET RÉSERVATION DE CAPACITÉ
 --
+-- DEUX portes, UNE seule autorité de décision.
+--
+--   validate_fulfillment_selection  LECTURE SEULE. Dit si (date, créneau,
+--     heure) est une sélection valide MAINTENANT, capacité comprise
+--     (décompte consultatif, sans verrou). À appeler par create_order,
+--     TOUJOURS, que la capacité soit activée ou non : c'est elle qui
+--     refuse une date forgée, périmée ou hors offre (décision CTO).
+--   reserve_fulfillment_capacity    Prend le verrou de seau, REJOUE la
+--     même validation sous verrou, puis consomme UNE unité. Une seule
+--     implémentation de la règle : reserve appelle validate.
+--
+-- Aucun deuxième algorithme de comptage, aucun deuxième verrou : le
+-- décompte est fulfillment_capacity_used, le verrou est celui de reserve.
+-- ============================================================
+create function public.fulfillment_selection_reasons_v12()
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $$
+  select array[
+    'schedule_not_fulfillable',
+    'selection_required',
+    'selection_not_expected',
+    'selection_invalid',
+    'date_not_offered',
+    'slot_not_offered',
+    'time_not_offered',
+    'capacity_full'
+  ]::text[]
+$$;
+
+-- Rend UNE ligne :
+--   result            'not_required' | 'valid' | 'unavailable'
+--   reason            null sauf 'unavailable' (catalogue ci-dessus)
+--   selection_*       la sélection RETENUE par le serveur (à figer dans
+--                     le snapshot de commande) ; null si non applicable
+--   window_*, instant_starts_at
+--                     l'offre retenue (créneau nommé, ou fenêtre de
+--                     l'heure choisie) ; null en mode « date seule »
+--   capacity_applies  vrai si reserve_fulfillment_capacity consommera
+--                     une unité pour cette sélection
+--
+-- 'not_required' : aucune planification activée pour la portée, ou
+-- date informative seulement ; AUCUNE sélection ne doit alors être
+-- fournie (sinon 'unavailable'/'selection_not_expected').
+create function public.validate_fulfillment_selection(
+  p_restaurant_id       uuid,
+  p_mode_code           text,
+  p_fulfillment_rule_id uuid,
+  p_fulfillment_date    date default null,
+  p_slot_key            text default null,
+  p_selected_time       text default null,
+  p_now                 timestamptz default pg_catalog.now()
+)
+returns table (
+  result              text,
+  reason              text,
+  selection_date      date,
+  selection_slot_key  text,
+  selection_time      text,
+  window_starts_at    text,
+  window_ends_at      text,
+  instant_starts_at   timestamptz,
+  schedule_timezone   text,
+  date_selection_mode text,
+  slot_selection_mode text,
+  capacity_applies    boolean
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $csdj12_validate$
+declare
+  v_s        public.restaurant_fulfillment_schedule;
+  v_rule_key uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
+  v_slot     text := nullif(p_slot_key, '');
+  v_time     time;
+  v_r        record;
+  v_day      jsonb;
+  v_o        jsonb;
+  v_cap      boolean := false;
+  v_e        date;
+  v_result   text;
+  v_reason   text;
+  v_out_slot text;
+  v_out_time text;
+  v_ws       text;
+  v_we       text;
+  v_inst     timestamptz;
+begin
+  if p_restaurant_id is null or p_mode_code is null then
+    raise exception 'CSDJ12_INVALID_ARGUMENTS: établissement et mode requis.' using errcode = '22023';
+  end if;
+  if v_rule_key = '00000000-0000-0000-0000-000000000000'::uuid and p_fulfillment_rule_id is not null then
+    raise exception 'CSDJ12_RESERVED_RULE_ID: le zéro UUID est une sentinelle interne.' using errcode = '22023';
+  end if;
+
+  <<chk>>
+  loop
+    select * into v_s
+    from public.restaurant_fulfillment_schedule s
+    where s.restaurant_id = p_restaurant_id and s.mode_code = p_mode_code and s.rule_key = v_rule_key;
+
+    -- Rien à sélectionner : planification absente, désactivée, ou date
+    -- purement informative. Une sélection fournie est un défaut du
+    -- client (ou une forgerie) : refus, jamais d'oubli silencieux.
+    if not found or v_s.enabled is not true or v_s.date_selection_mode = 'informational_only' then
+      if p_fulfillment_date is null and v_slot is null and p_selected_time is null then
+        v_result := 'not_required';
+      else
+        v_result := 'unavailable'; v_reason := 'selection_not_expected';
+      end if;
+      exit chk;
+    end if;
+
+    -- Formes : un texte mal formé n'est jamais interprété.
+    if v_slot is not null and (pg_catalog.length(v_slot) > 40 or v_slot !~ '^[a-z0-9_-]+$') then
+      v_result := 'unavailable'; v_reason := 'selection_invalid'; exit chk;
+    end if;
+    if p_selected_time is not null and p_selected_time !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then
+      v_result := 'unavailable'; v_reason := 'selection_invalid'; exit chk;
+    end if;
+
+    v_cap := (v_s.schedule_method_version = 'v1.2' and v_s.capacity_enabled is true);
+
+    -- UNE source d'offres : le résolveur de la méthode de la planification.
+    if v_s.schedule_method_version = 'v1.2' then
+      select * into v_r from public.resolve_fulfillment_schedule_v12(
+        p_restaurant_id, p_mode_code, p_fulfillment_rule_id, p_now, false);
+    else
+      select * into v_r from public.resolve_fulfillment_schedule_v1(
+        p_restaurant_id, p_mode_code, p_fulfillment_rule_id, p_now);
+    end if;
+    if v_r.status is distinct from 'dates_available' then
+      v_result := 'unavailable'; v_reason := 'schedule_not_fulfillable'; exit chk;
+    end if;
+
+    if p_fulfillment_date is null then
+      v_result := 'unavailable'; v_reason := 'selection_required'; exit chk;
+    end if;
+    v_day := v_r.offers -> p_fulfillment_date::text;
+    if v_day is null then
+      v_result := 'unavailable'; v_reason := 'date_not_offered'; exit chk;
+    end if;
+
+    -- derived_earliest : la date est CHOISIE PAR LE SERVEUR. Le client ne
+    -- fait que la rappeler (ce qu'il a affiché) ; toute autre date est
+    -- refusée. Une date plus tardive n'est valide que si toutes les dates
+    -- éligibles antérieures sont pleines (capacité activée) -- jamais
+    -- sinon. (rfs_policy_coherent interdit derived_earliest avec créneaux
+    -- ou heure : le décompte est donc toujours au niveau de la date.)
+    if v_s.date_selection_mode = 'derived_earliest' then
+      if v_slot is not null or p_selected_time is not null then
+        v_result := 'unavailable'; v_reason := 'selection_not_expected'; exit chk;
+      end if;
+      for v_e in select e::date from pg_catalog.unnest(v_r.eligible_dates) e
+                 where e < p_fulfillment_date order by e loop
+        if not v_cap
+           or public.fulfillment_capacity_used(p_restaurant_id, p_mode_code, v_rule_key, v_e, '')
+              < v_s.capacity_max_orders then
+          v_result := 'unavailable'; v_reason := 'date_not_offered'; exit chk;
+        end if;
+      end loop;
+    end if;
+
+    if v_s.slot_selection_mode = 'fixed_slots' then
+      if p_selected_time is not null then
+        v_result := 'unavailable'; v_reason := 'selection_not_expected'; exit chk;
+      end if;
+      if v_slot is null then
+        v_result := 'unavailable'; v_reason := 'selection_required'; exit chk;
+      end if;
+      select e into v_o from pg_catalog.jsonb_array_elements(v_day) e
+      where e->>'slot_key' = v_slot limit 1;
+      if v_o is null then
+        v_result := 'unavailable'; v_reason := 'slot_not_offered'; exit chk;
+      end if;
+      v_out_slot := v_slot;
+      v_ws := v_o->>'starts_at'; v_we := v_o->>'ends_at';
+      v_inst := public.checkout_wall_time_instant(p_fulfillment_date, v_ws::time, v_s.timezone);
+
+    elsif v_s.slot_selection_mode = 'time_within_window' then
+      if v_slot is not null then
+        v_result := 'unavailable'; v_reason := 'selection_not_expected'; exit chk;
+      end if;
+      if p_selected_time is null then
+        v_result := 'unavailable'; v_reason := 'selection_required'; exit chk;
+      end if;
+      v_time := p_selected_time::time;
+      -- L'heure doit tomber DANS une fenêtre offerte et SUR la grille :
+      -- le début exposé est un point de grille (le premier réalisable),
+      -- la grille est donc celle de ce début, par pas de granularité.
+      select e into v_o from pg_catalog.jsonb_array_elements(v_day) e
+      where (e->>'starts_at')::time <= v_time
+        and v_time < (e->>'ends_at')::time
+        and (extract(epoch from (v_time - (e->>'starts_at')::time))::integer / 60)
+            % v_r.time_granularity_minutes = 0
+      limit 1;
+      v_inst := case when v_o is null then null
+                else public.checkout_wall_time_instant(p_fulfillment_date, v_time, v_s.timezone) end;
+      if v_o is null or v_inst is null then
+        v_result := 'unavailable'; v_reason := 'time_not_offered'; exit chk;
+      end if;
+      v_out_time := p_selected_time;
+      v_ws := v_o->>'starts_at'; v_we := v_o->>'ends_at';
+
+    else
+      -- `none` : la date seule est sélectionnée.
+      if v_slot is not null or p_selected_time is not null then
+        v_result := 'unavailable'; v_reason := 'selection_not_expected'; exit chk;
+      end if;
+    end if;
+
+    -- Capacité : décompte consultatif ICI ; l'autorité sous verrou est
+    -- reserve_fulfillment_capacity, qui rejoue cette fonction.
+    if v_cap
+       and public.fulfillment_capacity_used(
+             p_restaurant_id, p_mode_code, v_rule_key, p_fulfillment_date, coalesce(v_out_slot, ''))
+           >= v_s.capacity_max_orders then
+      v_result := 'unavailable'; v_reason := 'capacity_full'; exit chk;
+    end if;
+
+    v_result := 'valid';
+    exit chk;
+  end loop;
+
+  if v_result = 'valid' then
+    return query select v_result, null::text, p_fulfillment_date, v_out_slot, v_out_time,
+                        v_ws, v_we, v_inst, v_s.timezone, v_s.date_selection_mode,
+                        v_s.slot_selection_mode, v_cap;
+  else
+    return query select v_result, v_reason, null::date, null::text, null::text,
+                        null::text, null::text, null::timestamptz, null::text, null::text,
+                        null::text, false;
+  end if;
+end
+$csdj12_validate$;
+
 -- À appeler DANS la transaction de create_order, APRÈS l'insertion de la
 -- commande (la ligne de réservation référence la commande). Une unité
 -- par commande. Verrou consultatif par seau (restaurant, mode, règle,
@@ -873,22 +1114,23 @@ $csdj12_dispatch$;
 --
 -- Rend (result, reason) :
 --   ('not_required', null)     planification absente/désactivée/v1, ou
---                              capacité désactivée : rien n'est réservé ;
+--                              capacité désactivée : rien n'est réservé
+--                              (la VALIDATION reste due, via
+--                              validate_fulfillment_selection) ;
 --   ('reserved', null)         une unité consommée ;
---   ('unavailable', <motif>)   schedule_not_fulfillable | date_not_offered
---                              | slot_not_offered | capacity_full.
+--   ('unavailable', <motif>)   catalogue fulfillment_selection_reasons_v12().
 -- Lève une exception (donc annule create_order) sur erreur d'usage :
 -- commande inconnue/étrangère/inactive, double réservation, isolation
 -- autre que READ COMMITTED.
--- ============================================================
 create function public.reserve_fulfillment_capacity(
-  p_order_id uuid,
-  p_restaurant_id uuid,
-  p_mode_code text,
+  p_order_id            uuid,
+  p_restaurant_id       uuid,
+  p_mode_code           text,
   p_fulfillment_rule_id uuid,
-  p_fulfillment_date date,
-  p_slot_key text default null,
-  p_now timestamptz default pg_catalog.now()
+  p_fulfillment_date    date,
+  p_slot_key            text default null,
+  p_selected_time       text default null,
+  p_now                 timestamptz default pg_catalog.now()
 )
 returns table (result text, reason text)
 language plpgsql
@@ -901,10 +1143,7 @@ declare
   v_s        public.restaurant_fulfillment_schedule;
   v_rule_key uuid := coalesce(p_fulfillment_rule_id, '00000000-0000-0000-0000-000000000000'::uuid);
   v_slot     text := coalesce(p_slot_key, '');
-  v_r        record;
-  v_day      jsonb;
-  v_used     integer;
-  v_e        date;
+  v_v        record;
 begin
   if pg_catalog.current_setting('transaction_isolation') <> 'read committed' then
     raise exception 'CSDJ12_ISOLATION_REQUIRED: la réservation exige READ COMMITTED (le verrou de seau repose sur un instantané frais).'
@@ -952,56 +1191,22 @@ begin
     p_restaurant_id::text || '|' || p_mode_code || '|' || v_rule_key::text || '|'
       || p_fulfillment_date::text || '|' || v_slot, 1204));
 
-  -- Revalidation côté serveur, SANS le filtre de capacité (le décompte
-  -- autoritaire est refait ci-dessous, sous verrou).
-  select * into v_r
-  from public.resolve_fulfillment_schedule_v12(
-         p_restaurant_id, p_mode_code, p_fulfillment_rule_id, p_now, false);
-  if v_r.status is distinct from 'dates_available' then
-    return query select 'unavailable'::text, 'schedule_not_fulfillable'::text;
+  -- Revalidation SOUS verrou, par la MÊME fonction que celle de
+  -- create_order : un seul algorithme de décision et de décompte.
+  select * into v_v
+  from public.validate_fulfillment_selection(
+         p_restaurant_id, p_mode_code, p_fulfillment_rule_id,
+         p_fulfillment_date, p_slot_key, p_selected_time, p_now);
+  if v_v.result is distinct from 'valid' then
+    return query select 'unavailable'::text,
+                        coalesce(v_v.reason, 'schedule_not_fulfillable'::text);
     return;
-  end if;
-  v_day := v_r.offers -> p_fulfillment_date::text;
-  if v_day is null then
-    return query select 'unavailable'::text, 'date_not_offered'::text;
-    return;
-  end if;
-  if v_s.slot_selection_mode = 'fixed_slots' then
-    if v_slot = '' or not exists (
-         select 1 from pg_catalog.jsonb_array_elements(v_day) e where e->>'slot_key' = v_slot) then
-      return query select 'unavailable'::text, 'slot_not_offered'::text;
-      return;
-    end if;
-  elsif v_slot <> '' then
-    return query select 'unavailable'::text, 'slot_not_offered'::text;
-    return;
-  end if;
-
-  v_used := public.fulfillment_capacity_used(p_restaurant_id, p_mode_code, v_rule_key, p_fulfillment_date, v_slot);
-  if v_used >= v_s.capacity_max_orders then
-    return query select 'unavailable'::text, 'capacity_full'::text;
-    return;
-  end if;
-
-  -- derived_earliest : la date est choisie PAR LE SERVEUR (la première
-  -- qui a encore de la place). Une date plus tardive n'est valide que si
-  -- toutes les dates éligibles antérieures sont pleines ; sinon le client
-  -- tient une date que le serveur ne lui aurait pas donnée. (La
-  -- contrainte rfs_policy_coherent de CSDJ-1 interdit derived_earliest
-  -- avec des créneaux : le compte est donc toujours au niveau de la date.)
-  if v_s.date_selection_mode = 'derived_earliest' then
-    for v_e in select e::date from unnest(v_r.eligible_dates) e where e < p_fulfillment_date order by e loop
-      if public.fulfillment_capacity_used(
-           p_restaurant_id, p_mode_code, v_rule_key, v_e, '') < v_s.capacity_max_orders then
-        return query select 'unavailable'::text, 'date_not_offered'::text;
-        return;
-      end if;
-    end loop;
   end if;
 
   insert into public.order_fulfillment_capacity_reservation
     (order_id, restaurant_id, mode_code, rule_key, fulfillment_date, slot_key)
-  values (p_order_id, p_restaurant_id, p_mode_code, v_rule_key, p_fulfillment_date, v_slot);
+  values (p_order_id, p_restaurant_id, p_mode_code, v_rule_key, p_fulfillment_date,
+          coalesce(v_v.selection_slot_key, ''));
 
   return query select 'reserved'::text, null::text;
 end
@@ -1285,7 +1490,9 @@ revoke all on function public.csdj12_availability_closed(public.restaurant_fulfi
 revoke all on function public.checkout_schedule_day_offers_v12(public.restaurant_fulfillment_schedule,date,timestamp with time zone) from public, anon, authenticated, service_role;
 revoke all on function public.resolve_fulfillment_schedule_v12(uuid,text,uuid,timestamp with time zone,boolean) from public, anon, authenticated, service_role;
 revoke all on function public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone) from public, anon, authenticated, service_role;
-revoke all on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,timestamp with time zone) from public, anon, authenticated, service_role;
+revoke all on function public.fulfillment_selection_reasons_v12() from public, anon, authenticated, service_role;
+revoke all on function public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone) from public, anon, authenticated, service_role;
+revoke all on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone) from public, anon, authenticated, service_role;
 revoke all on function public.release_fulfillment_capacity(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.mutate_merchant_fulfillment_schedule_v12(uuid,text,jsonb) from public, anon;
 revoke all on function public.get_merchant_fulfillment_schedules_v12(uuid) from public, anon;
@@ -1294,7 +1501,11 @@ grant execute on function public.get_merchant_fulfillment_schedules_v12(uuid) to
 
 comment on function public.resolve_fulfillment_schedule(uuid,text,uuid,timestamp with time zone) is
   'CSDJ v1.2 — RÉPARTITEUR. Méthode v1.2 -> resolve_fulfillment_schedule_v12 ; sinon -> resolve_fulfillment_schedule_v1 (ancien corps CSDJ-1, inchangé). Mêmes colonnes de sortie : le contrat de get_checkout_fulfillment_schedule est préservé.';
-comment on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,timestamp with time zone) is
+comment on function public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone) is
+  'CSDJ v1.2 — VALIDATION serveur de la sélection (date, créneau, heure), LECTURE SEULE, capacité comprise (décompte consultatif). À appeler par create_order TOUJOURS, capacité activée ou non. derived_earliest : la date est celle du serveur, le client ne fait que la rappeler. Aucun accès applicatif.';
+comment on function public.fulfillment_selection_reasons_v12() is
+  'CSDJ v1.2 — catalogue FERMÉ des motifs de validate_fulfillment_selection / reserve_fulfillment_capacity. Miroir de FULFILLMENT_SELECTION_REASONS_V12. Aucun accès applicatif.';
+comment on function public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone) is
   'CSDJ v1.2 — SEULE autorité transactionnelle de réservation de capacité. Une commande = une unité. À appeler dans la transaction de create_order après l''insertion de la commande. Verrou consultatif par seau, revalidation serveur, aucun compte exposé.';
 
 -- ============================================================
@@ -1343,7 +1554,8 @@ begin
                         'fulfillment_capacity_used','csdj12_preparation_open','csdj12_availability_closed',
                         'checkout_schedule_day_offers_v12','resolve_fulfillment_schedule_v12',
                         'resolve_fulfillment_schedule','resolve_fulfillment_schedule_v1',
-                        'reserve_fulfillment_capacity','release_fulfillment_capacity')
+                        'reserve_fulfillment_capacity','release_fulfillment_capacity',
+                        'validate_fulfillment_selection','fulfillment_selection_reasons_v12')
       and (p.proacl is null
            or exists (select 1 from pg_catalog.aclexplode(p.proacl) a where a.grantee = 0)
            or pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE')
