@@ -2,14 +2,31 @@
 
 | | |
 |---|---|
-| Version | **3.0 — reconciled** (supersedes Boulez v2 `csdj-v1.2-interface-contract.md` @ PR #146 `0a14b21` **and** Debussy `CSDJ-V12-CSDJ3-FINAL-CONTRACT.md`) |
-| Status | **PROPOSED FOR SIGNATURE.** Debussy: accepted (§15). Boulez: **countersignature pending** — this text amends his v2 at six numbered points (§2). Dirac: closes decision F (§12). |
+| Version | **3.1 — remediation of 3.0** (same canonical document; supersedes Boulez v2 `csdj-v1.2-interface-contract.md` @ PR #146 `0a14b21`, Debussy `CSDJ-V12-CSDJ3-FINAL-CONTRACT.md` **and v3.0** `4641e68a003ced6b37877e3494e99820cb43eafa`). Documentation-only: no engine, SQL, notification or runtime change. |
+| Status | **PROPOSED FOR SIGNATURE (v3.1).** Boulez's review of v3.0 raised two blocking objections and one notification correction, all accepted by the CTO and resolved here (§0b). Debussy: acceptance of the **published** v3.1 blob pending (§15.2). Boulez: countersignature of that same blob pending. Decision F: closed by the CTO (§12). |
 | Baseline | `main` = `03441a5ef1d371e90e3bfe3438e1a29e211d0537` (CSDJ-1 v1.10, PR #145) |
-| Engine | PR #146, head `0a14b21b7de15c93bef60a592b642be533893b8c` (Boulez) |
-| Integration | Debussy: contract `3b19ea6` · CSDJ-2 `86f6d69` · CSDJ-3 `5e6c3bf` |
-| Mode | development only. No merge, no PROD SQL, `NEXT_PUBLIC_CHECKOUT_SCHEDULE_ENABLED` stays OFF, no merchant schedule activated. **CSDJ-3 SQL is not started and may begin only once §15 is complete.** |
+| Engine | PR #146 (Boulez). Engine SQL = `0a14b21b7de15c93bef60a592b642be533893b8c`, unchanged up to the PR head `8446d59d25e4711f6a117360f9cd4b20577e28f8` (the commits after `0a14b21` touch only documentation and `supabase/tests/prod-predecessor-compare.py`) |
+| Integration | Debussy: contract `3b19ea6` · CSDJ-2 `86f6d69` · CSDJ-3 `5e6c3bf` (none modified by v3.1) |
+| Mode | development only. No merge, no PROD SQL, `NEXT_PUBLIC_CHECKOUT_SCHEDULE_ENABLED` stays OFF, no merchant schedule activated. **CSDJ-3 SQL is not started and may begin only once §15 is complete (both signatures on the same published blob).** |
 
 **Reading rule.** *Established* = read in the SQL/TS or executed on a disposable PG16 cluster. *To prove* = a requirement the CSDJ-3 DRAFT SQL and its multi-session tests must demonstrate; nothing marked so is claimed as already true.
+
+---
+
+## 0b. v3.0 → v3.1 — objections resolved
+
+| Ref | Origin | Objection / correction | Resolution in v3.1 |
+|---|---|---|---|
+| **O-1** (blocking) | Boulez, accepted by CTO | T-CC-2 required that *different buckets of the same tenant never block each other* **through `create_order`**. That cannot hold: `create_order` updates `restaurant_configs.next_order_number` (a per-tenant row lock held to end of transaction) before the schedule block, so two `create_order` calls of one tenant serialise there whatever their buckets. | §6 rule 3 and rule 2 restated; §13.2 T-CC-2 replaced by **T-CC-2a/b/c/d**: different tenants share no counter lock; same tenant through `create_order` serialises on the existing counter lock (**expected, not a defect**); bucket-level independence is tested on the **direct primitives**; order-number generation stays untouched. All other concurrency and rollback requirements preserved (T-RB-2 gets a reachable test design, §13.2). |
+| **O-2** (blocking) | Boulez, accepted by CTO | The time format of `starts_at`/`ends_at` was not specified, and T-ID-5 did not exercise the real CSDJ-2 payload builder. | §5.1 / §5.3 / §5.4: `starts_at` and `ends_at` are **local merchant wall-clock strings in strict `HH:MM`**, never ISO timestamps, with exact normalisation and a per-scope echo-comparison table. Confirmed against the CSDJ-2 builder (§16). T-ID-5 now executes the actual builder pipeline; no second eligibility algorithm. |
+| **O-3** (correction) | Boulez / CTO, verified on Supabase PROD by the CTO | v3.0 said notifications are enqueued by a *deferred COMMIT trigger* that "sees" snapshot keys. PROD has `orders_record_order_received_intent_trg` (enabled, BEFORE INSERT on `public.orders`, `tg_orders_record_order_received_intent()`). | §6 intro, §9.4 rewritten with the real intent-based architecture, separating **verified on PROD** / **read in the repository** / **still to demonstrate**. T-RB-1, T-RB-6, T-NT-1 reworded; T-NT-2 added. No notification SQL or runtime is touched in this lot. |
+| M-1 | Boulez | §4 grant scope inaccurate (`create_order` *is* granted to `anon`/`authenticated`). | §4 intro rewritten per function family. |
+| M-2 | Boulez | §5.4 echo comparisons not stated per scope. | §5.4 table. |
+| M-3 | Boulez | §15.2(c) `CSDJ12_ALREADY_RESERVED` unqualified. | §15.2(c) restated with the engine's actual check order. |
+| M-4 | CTO | Changing the capacity holding predicate must force a version bump. | §8.3 and §15.2(d). |
+| M-5 | CTO | Verification ownership and pending evidence unclear. | New §16. |
+
+Unchanged by v3.1: the six decisions, §1–§3, §7, §10–§12 (except the status wording of decision F), the snapshot table (§9.1–§9.3), the placement of the block (§6 anchor), the reason → code table.
 
 ---
 
@@ -22,7 +39,7 @@
 | C | Reuse `reserve_fulfillment_capacity` incl. `p_selected_time`; replay validation under the bucket lock; no duplicate table/lock/counter/holding predicate | Called **only** when validation returned `capacity_applies = true`, with the values *retained by the server*. | 6, 8 |
 | D | Snapshot populated from server-validated results; client date/time not authoritative | Snapshot columns come only from the validate row; the client's echoed times are *compared*, never stored. | 9 |
 | E | One exact ordering in `create_order`; preserve pricing, order snapshots, notifications, return type, ACL; prove complete rollback | §6 (single contiguous block, single md5-pinned anchor); rollback tests T-RB-1…T-RB-6 (§13). | 6, 13 |
-| F | Real PROD predecessor; compare like with like | **Resolved for `create_order` and `update_order_status`** (§12): PROD = repository head; the only difference is CRLF line endings in `update_order_status`. Remaining PROD read requested of Dirac. | 12 |
+| F | Real PROD predecessor; compare like with like | **Closed by the CTO.** `create_order` and `update_order_status` (§12): PROD = repository head; the only difference is CRLF line endings in `update_order_status`. The remaining read-only PROD checks (§12.4, §9.4) are evidence items, listed in §16. | 12 |
 
 The eight earlier CTO decisions (single authority, one order = one unit, payments hold the place, always-validate, v1.2 catalogue, `derived_earliest`, single transaction, compatibility) remain in force and are applied in §5–§12.
 
@@ -80,7 +97,11 @@ Debussy code never counts orders, never writes the reservation table, never take
 
 ## 4. Exact signatures
 
-None of §4.2–§4.4 is granted to `anon`, `authenticated` or `service_role`; they are called from `SECURITY DEFINER` functions of the migration owner (`create_order` is one).
+**Grant scope, per family** (so that nothing here is read as a blanket statement):
+* §4.1 public read: `EXECUTE` to `anon`, `authenticated` (CSDJ-1).
+* §4.2 `create_order`: `EXECUTE` to `postgres`, `anon`, `authenticated` — **this is the customer-facing entry point and its ACL is unchanged by this lot**.
+* §4.3 engine functions (dispatcher, `validate_fulfillment_selection`, `reserve_fulfillment_capacity`, `release_fulfillment_capacity`, `fulfillment_capacity_used`, `fulfillment_capacity_is_holding`, both reason catalogues): `EXECUTE` is **revoked from `public`, `anon`, `authenticated` and `service_role`** by the v1.2 migration (`revoke all on function … from public, anon, authenticated, service_role`); they are reached only from `SECURITY DEFINER` code owned by the migration owner, `create_order` being the one that matters here. The v1.2 merchant functions (`mutate_merchant_fulfillment_schedule_v12`, `get_merchant_fulfillment_schedules_v12`, granted to `authenticated`) and the v1.2 tables are outside this contract.
+* New in CSDJ-3: the snapshot table's posture is §9.2.
 
 ### 4.1 Public read (CSDJ-1, unchanged)
 ```
@@ -151,6 +172,10 @@ When validation returns anything but `valid`, **all columns after `reason` are N
 
 Absent key or JSON `null` ⇒ nothing sent. Never emitted in `table` mode by the client.
 
+**Time format (normative).** `starts_at` and `ends_at` are **local merchant wall-clock times** — the time of day in the schedule's own timezone (`schedule_timezone`) — written as a **strict `HH:MM`** string: two digits, a colon, two digits, `00`–`23` / `00`–`59` (`^([01][0-9]|2[0-3]):[0-5][0-9]$`). They are **not ISO-8601 timestamps**: no date part, no seconds, no `T`, no `Z`, no UTC offset. `date` is the separate civil date (`YYYY-MM-DD`). The same convention is used by the server on output (`to_char(…,'HH24:MI')` for offers, `window_starts_at`, `window_ends_at`, `selection_time`), so every comparison in §5.4 is between two strings of the same form. The instant (`instant_starts_at`, a `timestamptz`) is computed by the engine only and never travels from the browser.
+
+*Established (§16):* the CSDJ-2 payload builder (`buildCreateOrderPayload` → `toScheduleOrderPayload`, with `formatHm` zero-padding) emits exactly this form for every offer of the shared fixture.
+
 ### 5.2 Structure check (CSDJ-3 — the only validation it performs itself)
 `schedule` must be an object with only the keys `date`, `slot_key`, `starts_at`, `ends_at`; `date` a strict `YYYY-MM-DD` calendar date (never a timestamp); the other three a non-empty string or null. Anything else ⇒ `SCANYM_SCHEDULE_MALFORMED`. The **shape** of a slot key and of a time is *not* judged here — the engine owns it (`selection_invalid`).
 
@@ -159,13 +184,23 @@ Absent key or JSON `null` ⇒ nothing sent. Never emitted in `table` mode by the
 |---|---|
 | `date` | `p_fulfillment_date` |
 | `slot_key` | `p_slot_key` (verbatim) |
-| `starts_at` | `p_selected_time` **only if `slot_key` is null**; with a `slot_key` it is an echo and is not forwarded |
+| `starts_at` | `p_selected_time` **only if `slot_key` is null**, **verbatim** (no trim, no parsing, no reformatting); the engine accepts it only if it matches the strict `HH:MM` pattern above (`selection_invalid` otherwise). With a `slot_key` it is an echo and is not forwarded |
 | `ends_at` | never forwarded (echo) |
+
+CSDJ-3 performs **no** time parsing, padding, trimming, rounding or timezone conversion: a value is forwarded as received or compared as received.
 
 With nothing sent, `validate_fulfillment_selection` is still called with three NULLs (always-validate).
 
 ### 5.4 Echo equality (not an eligibility decision)
-After a `valid` answer, the client's `starts_at`/`ends_at`, when present, must equal what the server retained (`window_starts_at`/`window_ends_at`, or `selection_time` for window scopes). A mismatch means the customer saw something other than what the server will book: refused (`SLOT_INVALID` for a slot or date-only scope, `TIME_INVALID` for a window scope), never corrected. Omitting the echo is allowed. Nothing the client sent is ever stored.
+After a `valid` answer, an echoed value, when present, must be **exactly equal (string equality on `HH:MM`)** to what the server retained. A mismatch means the customer saw something other than what the server will book: refused, never corrected. Omitting an echo is allowed. Nothing the client sent is ever stored. Comparisons by scope (the scope is read from the **validate row**, not from the client):
+
+| Scope (validate row) | `starts_at` | `ends_at` | Mismatch ⇒ |
+|---|---|---|---|
+| `fixed_slots` (`selection_slot_key` not null) | compared with `window_starts_at` (not forwarded) | compared with `window_ends_at` | `SCANYM_SCHEDULE_SLOT_INVALID` |
+| `time_within_window` (`selection_slot_key` null, `selection_time` not null) | **not an echo**: it *is* the chosen time, forwarded as `p_selected_time` and judged by the engine (`selection_invalid` / `time_not_offered`); no further comparison | compared with `window_ends_at` | `SCANYM_SCHEDULE_TIME_INVALID` |
+| date only: `none` or `derived_earliest` (slot and time both null) | must be absent | must be absent | `SCANYM_SCHEDULE_SLOT_INVALID` |
+
+Consequences, all exact-string: `14:00:00`, `14:0`, ` 14:00`, `2026-10-14T14:00:00Z` are never equal to `14:00`. In a window scope an ISO or seconds-bearing `starts_at` is rejected by the engine's pattern; an ISO or seconds-bearing `ends_at` is rejected by the echo (`TIME_INVALID`); in a slot scope the same values are rejected by the echo (`SLOT_INVALID`). In date-only scopes a non-null `starts_at` is forwarded as a time and refused by the engine first (no time is expected there); the date-only echo branch is therefore reached in practice by a non-null `ends_at` (*inferred from the code path; to be exercised by the CSDJ-3 TS/SQL tests, not claimed as executed*).
 
 Reference model and tests: `lib/checkout-schedule/order-selection.ts`, `tests/csdj3-order-selection.test.ts` (CSDJ-3 `5e6c3bf`).
 
@@ -173,7 +208,7 @@ Reference model and tests: `lib/checkout-schedule/order-selection.ts`, `tests/cs
 
 ## 6. Validation flow and transaction ordering in `create_order`
 
-Everything runs in `create_order`'s own transaction. Any `RAISE EXCEPTION` below aborts it: order row, order-number increment, items, delivery snapshot, reservation row and schedule snapshot disappear together; the deferred "order received" notification trigger (which fires at COMMIT) never runs.
+Everything runs in `create_order`'s own transaction. Any `RAISE EXCEPTION` below aborts it: order row, order-number increment, items, delivery snapshot, reservation row and schedule snapshot disappear together. The notification intent also disappears with the order row: it is a column of that row (`orders.order_received_notification_intent_at`) stamped by the BEFORE INSERT trigger `orders_record_order_received_intent_trg` (§9.4). **No notification outbox row is created inside this transaction**; outbox rows are created later, in independent transactions, by the existing recovery path (§9.4). The block below neither reads nor writes any notification object.
 
 | Step | Action | Owner |
 |---|---|---|
@@ -189,8 +224,12 @@ Everything runs in `create_order`'s own transaction. Any `RAISE EXCEPTION` below
 
 **Rules.**
 1. **One clock.** `p_now` is omitted in both calls; both use the transaction timestamp, so T2 and T4 evaluate the same instant. The snapshot's `resolved_at` uses that same timestamp.
-2. **T2 is advisory for capacity; T4 is authoritative.** A concurrent order can take the last place between them. `reserve_fulfillment_capacity` takes the bucket lock (seed 1204) and **replays `validate_fulfillment_selection`** under it, then inserts. Two `capacity_full` outcomes are normal (stale display at T2, lost race at T4).
-3. **Locks.** The only lock this contract introduces into `create_order` is the bucket lock inside `reserve`. The existing row lock on `restaurant_configs` (order-number counter) precedes it for every session, so the lock order is the same for all `create_order` calls. The tenant schedule-edit lock (seed 1104) is never taken. *To prove:* T-CC-3.
+2. **T2 is advisory for capacity; T4 is authoritative.** A writer that does not hold the tenant counter lock (a direct caller of `reserve_fulfillment_capacity`, or any future path) can take the last place between T2 and T4. `reserve_fulfillment_capacity` takes the bucket lock (seed 1204) and **replays `validate_fulfillment_selection`** under it, then inserts. Two `capacity_full` outcomes are normal: stale display or earlier commit seen at T2 (T3), and lost race at T4. *Note (inferred from reading, to prove with T-CC-2b / T-RB-2):* between two `create_order` calls of the same tenant the counter lock (rule 3) already serialises whole calls, so the second call's T2 runs after the first call's commit and sees its reservation; a T4 loss through `create_order` alone is then not expected, which is why T4 stays a defence in depth and is exercised in T-RB-2 with a direct-primitive holder.
+3. **Locks and concurrency scope.** The only lock this contract introduces into `create_order` is the bucket lock inside `reserve`. The existing row lock on `restaurant_configs` (the order-number counter, updated by the **existing, untouched** order-number generation) is taken earlier, is held to the end of the transaction, and precedes the bucket lock for every `create_order` session, so the lock order is the same for all calls (no deadlock). Consequences, stated as requirements and not as properties to be wished away:
+   * **Different tenants**: no shared counter lock, no shared bucket lock; their `create_order` calls do not wait for each other.
+   * **Same tenant, through `create_order`**: calls **serialise on the existing `restaurant_configs` counter lock, whatever their dates, slots, modes or buckets. This is expected and is not a defect of this lot**; this lot neither adds nor removes it, and the order-number generation is not modified.
+   * **Bucket-level independence** (different bucket ⇒ no wait) is a property of the **direct reservation primitives** only, and is tested there (T-CC-2c).
+   The tenant schedule-edit lock (seed 1104) is never taken. *To prove:* T-CC-2a…d, T-CC-3.
 4. **Isolation.** `READ COMMITTED` must hold; `create_order` must not set another level (`reserve` raises `25000` otherwise). *To prove:* T-ISO-1.
 5. **No schedule at all** (`not_required` with nothing sent): the block performs one read-only call and writes nothing; results, rows and notifications are identical to today's. *To prove:* T-ID-1.
 
@@ -211,7 +250,7 @@ Summary of Boulez's §4 for reference — the function is normative.
 
 1. **One order = one unit**, whatever the product count. Neither `validate`, `reserve` nor the count reads `order_items`; the call carries no quantity. *Proven (TS):* `CSDJ3-R5`.
 2. **Bucket** = restaurant × mode × rule × date × slot. `fixed_slots` ⇒ the slot; `none` and `time_within_window` ⇒ the date (`slot_key ''`); the time of day is never a capacity dimension. In the validate row `selection_slot_key` is NULL for date-level buckets; the engine stores `''`.
-3. **Holding rule** (the only one): `status ∉ {rejected, cancelled}`; `payment_status` is ignored (matrix below).
+3. **Holding rule** (the only one): `status ∉ {rejected, cancelled}`; `payment_status` is ignored (matrix below). `fulfillment_capacity_is_holding(status, payment_status)` is the single place that encodes it. **Any change to this predicate — including the day abandoned-payment expiry (BP-1) is decided — changes what the matrix below, T-CC-1, T-CC-4 and the count mean: it requires a version bump of this contract (and of the engine) with written notice to the other owner before it is merged.** It must not be changed by a CSDJ-3 migration, by `update_order_status` or by a payment function.
 4. **Release.** Derived, not written: the count drops when `update_order_status` moves an order to `rejected`/`cancelled`. `release_fulfillment_capacity` exists but is **not wired**. Expiry of abandoned payments is a separate release decision (§14, BP-1); the "release on failed payment" policy of the earlier Debussy memo is withdrawn.
 5. **Concurrency.** Two sessions on the last place serialise on the bucket lock; the second recomputes after the first commits and gets `capacity_full`.
 6. **Capacity off / no capacity**: `capacity_applies = false` ⇒ `reserve` is not called; validation still ran.
@@ -256,8 +295,34 @@ RLS enabled; `SELECT` for `authenticated` restricted to members of the order's r
 ### 9.3 Absence and the dropped "informational" row
 No row ⇒ no schedule applied to the order (absent, disabled, `informational_only`, or older than this lot; never back-filled). Consequence of CTO D: a merchant-information-only scope no longer leaves a snapshot row; the information text the customer saw for delivery remains in the B1 delivery snapshot (`customer_text`). If the product owner wants an "informational" trace later, it needs an additive engine output (e.g. scope facts on `not_required`) — a Boulez version bump, not a CSDJ-3 workaround.
 
-### 9.4 Notifications
-`notificationPayloadKeys` (additive keys, empty for orders without a date) are derived from the snapshot: `schedule_kind`, `scheduled_date`, `schedule_timezone`, `scheduled_starts_at` (= `selected_time` ?? `window_starts_at`), `scheduled_ends_at` (= `window_ends_at`). Written before COMMIT so the deferred notification trigger sees them. *To prove:* T-NT-1.
+### 9.4 Notifications — the real architecture and what remains to demonstrate
+**What this lot does with notifications: nothing.** No notification SQL, trigger, function, table or runtime code is created or modified; the CSDJ-3 block (§6) neither reads nor writes a notification object. v3.0's statement that a *deferred COMMIT trigger* enqueues the notification and "sees" snapshot keys written before COMMIT was **incorrect and is withdrawn**.
+
+**Verified on Supabase PROD (by the CTO):** trigger `orders_record_order_received_intent_trg` is **enabled**, `BEFORE INSERT` on `public.orders`, calling `tg_orders_record_order_received_intent()`.
+
+**Read in the repository (`supabase/migration-20260919000000-order-success-boundary-v1.sql`, `DRAFT-lot-n1a-customer-email-notification-foundation-v1.sql`); not independently verified on PROD by Debussy:**
+* `tg_orders_record_order_received_intent()` stamps `orders.order_received_notification_intent_at` with `transaction_timestamp()` on the new row. It is a durable *intent*, part of the order row, so it commits or rolls back with the order.
+* The earlier deferred constraint trigger `orders_enqueue_order_received_trg` is **dropped** by that migration; nothing fires at COMMIT.
+* Outbox rows are created **after commit, in independent transactions**, by the service-role function `recover_missing_order_received_notifications(restaurant, batch)` → `create_order_received_notification`; `count_missing_order_received_notifications` reports the backlog. The outbox is unique on `(restaurant_id, order_id, notification_type)`.
+* The outbox `payload_snapshot` keys are `order_number, total, currency, service_mode, public_token, created_at`. **It carries no schedule key.**
+
+**Consequences for this contract.**
+1. In-transaction notification state = the intent stamp on the order row. A rolled-back `create_order` leaves no order, hence no intent, and no outbox row can ever be created for it.
+2. The schedule is **not** added to the notification payload by this lot. `notificationPayloadKeys` in `lib/checkout-schedule/order-snapshot.ts` remains a **reference model for a later, separate notification lot** (additive keys derived from the snapshot: `schedule_kind`, `scheduled_date`, `schedule_timezone`, `scheduled_starts_at`, `scheduled_ends_at`); nothing in SQL or runtime consumes it here. A later worker can read the schedule from the snapshot table by `order_id`.
+3. The notification objects (intent column, trigger, recovery functions, outbox) must be byte-identical before and after CSDJ-3 (T-NT-1).
+
+**Still to demonstrate (nothing below is claimed as true):**
+* *Post-commit processing:* which scheduler or worker invokes `recover_missing_order_received_notifications` in production is **not established by the repository** (no invoker found; the comment in `lib/server/notifications/notification-outbox-service.ts` saying the helper is called inside `create_order` is stale). It must be shown, on a disposable cluster with the real chain, that after a committed scheduled order the existing recovery path creates exactly one outbox row with the existing payload keys, and that a rolled-back order yields none (T-NT-2).
+* *PROD:* absence of the dropped deferred trigger, presence of the recovery functions and the outbox unique index, and the invoker (read-only checks, §16).
+
+Read-only PROD query requested (existence only):
+```sql
+select t.tgname, t.tgenabled, t.tgdeferrable, pg_get_triggerdef(t.oid) as def
+from pg_trigger t
+where t.tgrelid = 'public.orders'::regclass and not t.tgisinternal
+  and t.tgname in ('orders_record_order_received_intent_trg','orders_enqueue_order_received_trg');
+-- expected: exactly one row, orders_record_order_received_intent_trg, tgenabled = 'O', BEFORE INSERT
+```
 
 ---
 
@@ -347,23 +412,27 @@ Also to confirm on PROD (existence only, read-only): the B1 table `order_deliver
 ### 13.2 Test requirements for the CSDJ-3 DRAFT (real PostgreSQL, separate sessions, `pg_stat_activity`-verified barriers; the lot is not complete without them)
 | ID | Proof |
 |---|---|
-| T-RB-1 | `unavailable` at T3 (each of the 8 reasons reachable) ⇒ **no** `orders` row, **no** order-number increment, no `order_items`, no delivery snapshot, no reservation, no schedule snapshot, no notification queued |
-| T-RB-2 | `capacity_full` at T4 (lost race) ⇒ the same complete rollback, including the row of the order that reached `reserve` |
+| T-RB-1 | `unavailable` at T3 (each of the 8 reasons reachable) ⇒ **no** `orders` row (hence no `order_received_notification_intent_at`), **no** order-number increment, no `order_items`, no delivery snapshot, no reservation, no schedule snapshot, **no notification outbox row** — also after the existing recovery function has been run (§9.4) |
+| T-RB-2 | `capacity_full` at T4 (lost race) ⇒ the same complete rollback, including the row of the order that reached `reserve`. Reachable design (the counter lock makes a same-tenant `create_order` ∥ `create_order` loss unreachable, §6 rule 2): session A calls the **direct** primitive `reserve_fulfillment_capacity` for another order on the last place and keeps its transaction open (holds the bucket lock); session B runs `create_order` — T2 sees `valid`, T4 waits on the bucket lock; A commits; B's replay answers `capacity_full` ⇒ complete rollback. Barrier verified in `pg_stat_activity` / `pg_locks` |
 | T-RB-3 | echo mismatch ⇒ complete rollback |
 | T-RB-4 | structure error ⇒ complete rollback |
 | T-RB-5 | forced failure *after* T4 (e.g. snapshot insert violation injected in the test) ⇒ reservation row also gone |
-| T-RB-6 | atomic success: order + items + reservation + snapshot + queued notification all present, none partial |
+| T-RB-6 | atomic success: order (carrying its `order_received_notification_intent_at` stamp) + items + reservation + schedule snapshot all present, none partial; **no outbox row is required to exist at commit**; if the existing recovery path is run in the test, exactly one outbox row appears (T-NT-2) |
 | T-CC-1 | N concurrent `create_order` calls on the last place ⇒ exactly one succeeds, N−1 get `SLOT_FULL`, reservations = capacity |
-| T-CC-2 | different buckets / dates / slots / tenants do not wait for each other |
-| T-CC-3 | mixed concurrent `create_order` over several buckets ⇒ no deadlock (lock order §6 rule 3) |
+| T-CC-2a | **Different tenants**: two sessions run `create_order` for tenants A and B; session 1 is paused after its counter update, session 2 completes without waiting (no shared counter lock, no shared bucket lock) |
+| T-CC-2b | **Same tenant through `create_order`**: the second session **waits** on the existing `restaurant_configs` counter lock (shown in `pg_locks`/`pg_stat_activity`: waiting on a tuple/transaction lock of that row, **not** on an advisory lock) until the first commits or rolls back — *expected behaviour, asserted, not a failure*; both orders succeed with consecutive numbers (or one `SLOT_FULL` on the last place), and a rolled-back first call leaves no gap |
+| T-CC-2c | **Direct reservation primitives**: `reserve_fulfillment_capacity` called from separate sessions for *different* buckets (other date / slot / mode / rule) does not wait; for the *same* bucket the second call waits on the advisory lock (seed 1204) |
+| T-CC-2d | **Order-number generation untouched**: the counter update and number assignment code of `create_order` are byte-identical outside the inserted block (T-B15-1); behaviour (consecutive numbers, no gap after rollback) equal to the pre-lot behaviour |
+| T-CC-3 | mixed concurrent `create_order` over several buckets and tenants, plus concurrent direct-primitive callers ⇒ no deadlock (lock order §6 rule 3) |
 | T-CC-4 | `create_order` ∥ `update_order_status(cancelled)` on the same bucket ⇒ consistent count, no overbooking |
 | T-ISO-1 | `create_order` under a non-`READ COMMITTED` level fails with `25000` and leaves nothing behind |
 | T-ID-1 | no schedule configured, nothing sent ⇒ rows, result and notification payload identical to the pre-lot behaviour |
 | T-ID-2 | capacity off ⇒ validation still enforced (forged/stale date refused), `reserve` not called |
 | T-ID-3 | `derived_earliest`: missing echo ⇒ `REQUIRED`; forged/stale ⇒ `DATE_NOT_ELIGIBLE`; later date accepted only if all earlier eligible dates are full; stored date is the engine's |
 | T-ID-4 | `time_within_window`: stored `selected_time`/`slot_key NULL`, reservation bucket `''` |
-| T-ID-5 | each of the 59 cases of Boulez's shared fixture (`tests/fixtures/checkout-scheduling-v12-cases.json`): every offered (date, slot/time) is accepted by `create_order`; an unlisted one is refused |
-| T-NT-1 | notification payload carries the additive schedule keys; identical to before otherwise |
+| T-ID-5 | **Executes the actual CSDJ-2 payload builder, not a hand-built object.** For every executable case of Boulez's shared fixture (`tests/fixtures/checkout-scheduling-v12-cases.json`: 59 cases, of which `v12-granularity-missing` is refused by a SQL constraint and cannot exist as a schedule row — it is covered by a constraint-refusal assertion — leaving 58): the schedule state is created in the disposable database; the read model is produced by the real pipeline `resolveScheduleEligibilityV12` → `parseCheckoutScheduleRow` → `resolveSelectable` → `buildCreateOrderPayload` → `p_customer.schedule` (generator `tests/zz-tid5-vectors.mjs.ts`, §16); for **each offered (date, slot/time) vector** the produced JSON is sent unmodified through `create_order` and must be accepted (`valid`, snapshot = validate row, wire `starts_at`/`ends_at` matching §5.1 `HH:MM`); each deliberately unlisted vector (date, slot, time off-grid, outside window, ISO or seconds-bearing times, echo mismatch) must be refused with the code of §10. Cases with no offer ⇒ any selection refused. **No second eligibility algorithm**: the expected acceptance/refusal comes from the fixture's `expected` and from the engine, never from SQL or TS written for the test |
+| T-NT-1 | **Notification objects unchanged**: fingerprints (md5 of `prosrc`/definition, ACL, enabled state) of `tg_orders_record_order_received_intent`, `orders_record_order_received_intent_trg`, `recover_missing_order_received_notifications`, `create_order_received_notification`, `count_missing_order_received_notifications` and the outbox constraints/indexes are identical before and after the CSDJ-3 migration; the order row's intent stamp is set by the trigger exactly as before (including for a scheduled order); the outbox `payload_snapshot` key set is unchanged (no schedule key added in this lot) |
+| T-NT-2 | **Post-commit processing demonstrated, not assumed**: with the existing recovery function run by the test, a committed scheduled order yields exactly one outbox row (unique on restaurant/order/type) with the existing payload keys; a rolled-back order (T-RB-1…5) yields none; the invoker of that function in production is documented separately (§16, pending) |
 | T-ACL-1 | arity, parameter names, result columns, owner, `SECURITY DEFINER`, `search_path`, ACL of `create_order`; `update_order_status` and `initiate_payment_attempt` fingerprints and ACL unchanged before/after; snapshot table has no write grant for any application role |
 | T-B15-1 | B1/B5 preserved: removing the inserted block restores the pre-patch `create_order` byte for byte; the B1/B5 snapshot rows and delivery fee are unchanged for delivery orders |
 | T-HASH-1 | preflight refuses a wrong predecessor (altered body, CRLF-neutrality respected) |
@@ -379,7 +448,7 @@ TS-side (already in CSDJ-3 `5e6c3bf`): structure parsing, normalisation, 8-reaso
 |---|---|---|---|
 | BP-1 | Expiry/release of abandoned payments (a `pending` order holds its place indefinitely) | CTO (decision) / payment-engine owner | open |
 | BP-2 | PROD read of §12.4 and confirmation of installed CSDJ-1 / B1 / B5 objects | Dirac | open |
-| BP-3 | Boulez countersignature of A1–A6 (§15) | Boulez | open |
+| BP-3 | Boulez countersignature of the published v3.1 blob (A1–A6, §0b, §15) | Boulez | open |
 | BP-4 | CSDJ-3 DRAFT SQL + rollback + preflight (§13.1) | Debussy | **blocked on §15** |
 | BP-5 | Multi-session PG test suite of §13.2 through the real `create_order` | Debussy | **blocked on BP-4** |
 | BP-6 | `READ COMMITTED` on every call path (PostgREST default; no pool override) | Dirac / Boulez | open |
@@ -388,7 +457,8 @@ TS-side (already in CSDJ-3 `5e6c3bf`): structure parsing, normalisation, 8-reaso
 | BP-9 | Holiday dataset, jurisdictions and its owner (engine ready, tables empty) | product | open |
 | BP-10 | No merchant UI for v1.2 schedules/capacity; no schedule activated | product | open |
 | BP-11 | Independent security review of the `SECURITY DEFINER` block | reviewer | open |
-| BP-12 | `NEXT_PUBLIC_CHECKOUT_SCHEDULE_ENABLED` stays OFF until BP-1…BP-6 are closed and CSDJ-3 is applied on the target database | CTO | OFF |
+| BP-12 | `NEXT_PUBLIC_CHECKOUT_SCHEDULE_ENABLED` stays OFF until BP-1…BP-6 and BP-13 are closed and CSDJ-3 is applied on the target database | CTO | OFF |
+| BP-13 | Demonstrate post-commit notification processing for scheduled orders (§9.4, T-NT-2) and identify the production invoker of `recover_missing_order_received_notifications`; read-only PROD checks of §9.4 | Debussy (test) / Dirac (PROD read) | open |
 
 ---
 
@@ -399,27 +469,51 @@ TS-side (already in CSDJ-3 `5e6c3bf`): structure parsing, normalisation, 8-reaso
 |---|---|---|
 | Debussy | CSDJ-2: no change needed — wire format kept; 9-reason catalogue, translations, conformance (`86f6d69`); refetch on every schedule error already present | **done**, 337 csdj tests + `tsc` 0 on a scratch merge with PR #146 `0a14b21` |
 | Debussy | CSDJ-3 TS: eligibility oracle removed; structure + normalisation + single reason table + echo equality; reservation request/mapping per §6; snapshot from the validate row (`5e6c3bf`) | **done**, 309 csdj tests, 0 skipped, `tsc` 0 on the same scratch merge |
-| Debussy | Contract file for PR #146 (this document) | **done** |
-| Boulez | Documentation amendments A1–A6 (no engine change) | **pending** |
+| Debussy | Contract file for PR #146: v3.0 published (`4641e68a…`); **v3.1 prepared** (this document), publication pending | **done** (v3.0) / **pending publication** (v3.1) |
+| Boulez | Countersignature of the published v3.1 blob (A1–A6 and the three v3.0 objections now resolved) — no engine change | **pending** |
 | Boulez | Harness chain through B5 (BP-7) | **pending** |
-| Dirac | PROD read §12.4 | **pending** |
+| Dirac | PROD reads §12.4 and §9.4 (read-only) | **pending** |
 | Debussy | CSDJ-3 DRAFT SQL, rollback, preflight, multi-session PG tests | **not started — waits for §15.2** |
 
 ### 15.1b Evidence behind the statuses above
-* Boulez's PG harness replayed here at PR #146 head `0a14b21`: **344 proofs, 0 failures** (exit 0).
+* Boulez's PG harness replayed here at engine head `0a14b21`: **344 proofs, 0 failures** (exit 0). (Engine SQL is unchanged in PR head `8446d59`; the harness was not re-run for v3.1, which changes documentation only.)
 * Real-chain fingerprints (§12.2) regenerated against `0a14b21`: identical to the earlier run for `create_order` (`c3274457…`).
 * Scratch merge of CSDJ-2 `86f6d69` + `0a14b21`: 337 csdj tests pass, 0 skipped; `tsc` 0. Scratch merge of CSDJ-3 `5e6c3bf` + `0a14b21`: 309 csdj tests pass, **0 skipped** (the engine-conformance tests are live); `tsc` 0.
 * Full suite on frozen trees, compared **by failure identity** with `main` (15 pre-existing failures): CSDJ-2 `86f6d69` = same 15; CSDJ-3 `5e6c3bf` = same 15 plus `gap-01 withdrawal-requests backoffice … (sent)`, a known intermittent test (it failed 1 run in 6 when re-run alone on this tree, which does not touch it, and 1 run in 4 on `main` earlier) — no regression attributed to this lot.
 
 ### 15.2 Acceptance — nothing is presumed
-**Debussy (integration owner) — ACCEPTED.** I accept this contract as the single interface contract and will write the CSDJ-3 SQL only in conformity with §4–§13. I will not reopen CIO business decisions, will treat any divergence between the TS reference and the SQL as a defect, and will not merge, apply PROD SQL or enable the checkout flag.
+**Sequence (v3.1).** (1) The exact v3.1 file is published to PR #146. (2) Its Git blob SHA is read back from the PR head. (3) Boulez reviews that blob and countersigns it. (4) Debussy confirms acceptance of the **same published blob**. (5) The result is reported to the CTO. CSDJ-3 DRAFT SQL and disposable-PostgreSQL integration tests may begin only after (3) and (4). A comment naming any other blob (including v3.0 `4641e68a…`) is not an acceptance of v3.1.
+
+**Debussy (integration owner) — acceptance of the published blob PENDING step (4).** On acceptance I will post on PR #146 exactly: `CONTRACT ACCEPTED csdj-v1.2-interface-contract.md v3.1 blob <git blob SHA of this file at PR head>`. By it I accept this contract as the single interface contract and will write the CSDJ-3 SQL only in conformity with §4–§13. I will not reopen CIO business decisions, will treat any divergence between the TS reference and the SQL as a defect, and will not merge, apply PROD SQL or enable the checkout flag.
 
 **Boulez (engine owner) — PENDING.** To accept, post on PR #146 exactly:
 ```
-CONTRACT ACCEPTED csdj-v1.2-interface-contract.md v3.0 blob <git blob SHA of this file at PR head>
+CONTRACT ACCEPTED csdj-v1.2-interface-contract.md v3.1 blob <git blob SHA of this file at PR head>
 ```
-and list, if any, numbered objections against A1–A6 (§2), the placement of the block (§6), the snapshot (§9) or the error table (§10). Until that comment exists this is Debussy's position, not an agreement. Boulez is also asked to confirm that: (a) the validate row's columns are exactly those of §4.3; (b) `time_within_window` buckets at date level; (c) `reserve` raises `CSDJ12_ALREADY_RESERVED` rather than returning a reason for a second call on one order; (d) a new reason or signature change implies a version bump with notice.
+and list, if any, numbered objections against A1–A6 (§2), §0b, the placement of the block (§6), the concurrency statements (§6 rule 3), the time format (§5), the notification statement (§9.4), the snapshot (§9) or the error table (§10). Until that comment exists this is Debussy's position, not an agreement. Boulez is also asked to confirm that: (a) the validate row's columns are exactly those of §4.3; (b) `time_within_window` buckets at date level; (c) `reserve` raises `CSDJ12_ALREADY_RESERVED` (SQLSTATE `23505`) for a second call on one order **only when** the earlier checks pass and the scope is reservable — its check order is: isolation (`25000`) → arguments (`22023`) → order lookup / tenant (`42501`) / holding (`55000`) → schedule lookup → **`not_required` early return** (no schedule row, disabled, non-`v1.2`, or capacity off — this is returned on every call, a second one included, with no duplicate check) → duplicate (`23505`) → bucket lock → validation replay → insert. CSDJ-3 calls `reserve` at most once per order and only when `capacity_applies`, so the duplicate path is unreachable from `create_order`; if it ever occurs it is a defect and propagates unchanged (§10); (d) a new reason, a signature change **or any change to `fulfillment_capacity_is_holding`** implies a version bump with notice (§8.3).
 
-**Dirac (CTO delegate) — decision F.** Run §12.4 on PROD (read-only) and report the rows; the contract is final for fingerprints when they match the expected values.
+**Dirac (CTO delegate) — decision F (closed).** Run the read-only PROD queries of §12.4 and §9.4 and report the rows; they are evidence items (§16), not a precondition of the signatures above.
 
-When both signatures and the PROD read are in, CSDJ-3 SQL may begin. STOP conditions remain: no merge, no PROD SQL, no checkout activation.
+When both signatures on the same published blob are in, CSDJ-3 DRAFT SQL may begin. STOP conditions remain: no merge, no PROD SQL, no deployment, no checkout-flag activation, no merchant schedule activation.
+
+---
+
+## 16. Verification ownership and pending evidence
+
+Words used: **Tested** = executed here (unit/pipeline run or disposable PostgreSQL), result recorded. **Read** = established by reading source, not executed. **Inferred** = a consequence of read facts, not executed. **Pending** = nothing claimed.
+
+| Item | Status | Owner | Evidence / what is needed |
+|---|---|---|---|
+| Wire time format is strict `HH:MM` for every offer | **Tested** (Debussy) | Debussy | Real CSDJ-2 pipeline run on the 58 executable fixture cases: 46 yield offers, **734 vectors** (369 `none`, 86 `fixed_slots`, 279 `time_within_window`); each asserted: keys exactly `date, ends_at, slot_key, starts_at`, `starts_at`/`ends_at` match the strict regex, per-scope normalisation of §5.3. Generator `tests/zz-tid5-vectors.mjs.ts`, output `tid5-vectors.json` (delivery kit). Not executed against PostgreSQL yet — that is T-ID-5 |
+| Echo comparisons per scope; ISO / seconds-bearing values refused | **Tested** (TS reference model) | Debussy | `tests/zz-iso-check.ts` (all assertions pass): ISO echo in slot scope ⇒ `SLOT_INVALID`; ISO or `HH:MM:SS` `ends_at` in window scope ⇒ `TIME_INVALID`; ISO `starts_at` in window scope forwarded as the time (engine pattern rejects it). The engine's rejection itself is **Read** (pattern at `validate_fulfillment_selection`), executed by Boulez's harness for its own inputs |
+| Engine's strict `HH:MM` pattern on `p_selected_time` (hours 00–23, minutes 00–59); offers emitted as `HH24:MI` | **Read** | Boulez | Confirmation requested (§15.2) |
+| Same-tenant `create_order` serialises on the counter lock; bucket lock follows it | **Read** + **Inferred** | Debussy (design) / Boulez (engine) | To be **tested** by T-CC-2a…d, T-RB-2 on a disposable cluster with the real `create_order` — not claimed as proven |
+| Notification: BEFORE INSERT intent trigger on PROD | **Verified on PROD** | CTO | Reported by the CTO; Debussy has not queried PROD |
+| Notification: dropped deferred trigger, stamping function, recovery functions, outbox payload keys | **Read** (repository SQL) | Debussy | PROD confirmation by the §9.4 query: **pending** (Dirac) |
+| Notification: post-commit processing and its production invoker | **Pending** | Debussy (T-NT-2) / Dirac | Not found in the repository; stale comment noted in §9.4 |
+| PROD predecessor hashes of `create_order` / `update_order_status`; attributes and ACL | PROD hashes reported by the CTO; attributes/ACL **pending** | Dirac | §12.4 query |
+| Full multi-session PostgreSQL suite of §13.2 | **Pending** | Debussy | Starts only after §15.2 |
+| Engine harness (344 proofs) | **Tested** at `0a14b21` | Boulez / replayed by Debussy | §15.1b |
+| Boulez-side confirmations (a)–(d) | **Pending** | Boulez | §15.2 |
+
+Nothing in this table is a PROD change. No SQL was written, applied or modified for v3.1.
