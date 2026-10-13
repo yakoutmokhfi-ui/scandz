@@ -150,6 +150,10 @@ export default function AvailabilityPage() {
   const [previewItems, setPreviewItems] = useState("1");
   const [previewSubtotal, setPreviewSubtotal] = useState("");
   const [preview, setPreview] = useState<CheckoutFulfillmentPreview | null>(null);
+  // AUD-01 : portée à laquelle l'aperçu actuellement en état appartient
+  // RÉELLEMENT. Posé UNIQUEMENT au moment exact où le résultat est
+  // commité, jamais de façon optimiste.
+  const [previewScopeKey, setPreviewScopeKey] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -184,7 +188,9 @@ export default function AvailabilityPage() {
     setPageError(null);
     setLoadedRestaurantId(null);
     setPreview(null);
+    setPreviewScopeKey(null);
     setPreviewError(null);
+    setPreviewLoading(false);
     setDataLoading(true);
 
     getRestaurantSettings(id)
@@ -231,7 +237,9 @@ export default function AvailabilityPage() {
     setLoadedRestaurantId(null);
     setSelectedScopeKey(null);
     setPreview(null);
+    setPreviewScopeKey(null);
     setPreviewError(null);
+    setPreviewLoading(false);
     setDataLoading(true);
     setRestaurantId(id);
   }, []);
@@ -311,12 +319,54 @@ export default function AvailabilityPage() {
   const method = scheduleMethodOf(selectedV12);
   const blockers = publishBlockersOf(selected, selectedV12);
 
+  /**
+   * AUD-01 (audit Cat Greco) — UN APERÇU N'APPARTIENT PAS SEULEMENT À
+   * UN ÉTABLISSEMENT, IL APPARTIENT À UNE PORTÉE.
+   *
+   * La garde locataire (`requestSeqRef`) ne bougeait pas quand le
+   * commerçant changeait de PORTÉE à l'intérieur du MÊME
+   * établissement : un aperçu demandé pour « Retrait sur place »
+   * pouvait donc s'afficher sous « Livraison — Paris », avec les dates
+   * de l'autre portée. Trois protections, et les trois sont
+   * nécessaires -- même structure que la garde de contexte déjà
+   * auditée :
+   *
+   *   1. RÉINITIALISATION SYNCHRONE : changer de portée vide l'aperçu
+   *      dans le MÊME gestionnaire d'événement que le changement
+   *      (`selectScope`), donc il ne peut exister aucun rendu où la
+   *      portée a changé mais où l'aperçu de l'ancienne est encore
+   *      visible.
+   *   2. GARDE ANTI-RÉPONSE-TARDIVE : chaque demande retient la
+   *      génération d'aperçu ET la portée visée ; une réponse qui
+   *      revient après un changement est ABANDONNÉE, sans aucun
+   *      `setState`.
+   *   3. GARDE DE RENDU PAR PROVENANCE : l'aperçu n'est rendu que si
+   *      `previewScopeKey === selectedScopeKey`. C'est l'invariant qui
+   *      fait foi, y compris si une protection de timing était
+   *      contournée.
+   */
+  const previewSeqRef = useRef(0);
+
+  const selectScope = useCallback((key: string) => {
+    previewSeqRef.current += 1;
+    setPreview(null);
+    setPreviewScopeKey(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+    setSelectedScopeKey(key);
+  }, []);
+
   const runPreview = useCallback(async () => {
-    if (!selected || !restaurantId) return;
+    if (!selected || !restaurantId || !selectedScopeKey) return;
     const seq = requestSeqRef.current;
+    const previewSeq = ++previewSeqRef.current;
+    const scopeAtRequest = selectedScopeKey;
+    const isCurrent = () =>
+      seq === requestSeqRef.current && previewSeq === previewSeqRef.current;
     setPreviewLoading(true);
     setPreviewError(null);
     setPreview(null);
+    setPreviewScopeKey(null);
     try {
       const items = Number.parseInt(previewItems, 10);
       const subtotalRaw = previewSubtotal.trim();
@@ -327,15 +377,31 @@ export default function AvailabilityPage() {
         totalCount: Number.isFinite(items) && items > 0 ? items : 0,
         subtotal: subtotalRaw === "" ? null : Number(subtotalRaw),
       });
-      if (seq !== requestSeqRef.current) return;
+      if (!isCurrent()) return;
+      // Commit ATOMIQUE : le résultat et la portée dont il provient
+      // sont posés dans le même passage synchrone, jamais l'un sans
+      // l'autre.
       setPreview(result);
+      setPreviewScopeKey(scopeAtRequest);
     } catch {
-      if (seq !== requestSeqRef.current) return;
+      if (!isCurrent()) return;
       setPreviewError(translate(uiLangRef.current, "avPreviewFailed"));
+      setPreviewScopeKey(scopeAtRequest);
     } finally {
-      if (seq === requestSeqRef.current) setPreviewLoading(false);
+      if (isCurrent()) setPreviewLoading(false);
     }
-  }, [restaurantId, selected, previewItems, previewPostalCode, previewSubtotal]);
+  }, [
+    restaurantId,
+    selected,
+    selectedScopeKey,
+    previewItems,
+    previewPostalCode,
+    previewSubtotal,
+  ]);
+
+  /** AUD-01 — provenance : l'aperçu n'est affichable que s'il provient
+   *  de la portée actuellement sélectionnée. */
+  const previewInScope = previewScopeKey !== null && previewScopeKey === selectedScopeKey;
 
   if (loading) {
     return <main className="p-6 text-sm text-stone-500">{t("mcLoading")}</main>;
@@ -406,8 +472,26 @@ export default function AvailabilityPage() {
             {t("avV12NotDeployed")}
           </p>
         )}
+        {/* AUD-04 (audit Cat Greco) — L'ÉTAT « REFUSÉ » NE DOIT PAS ÊTRE
+            MUET. La lecture v1.2 rend trois statuts d'échec ; seuls deux
+            étaient affichés, et un refus de rôle laissait donc la section
+            v1.2 silencieusement vide, sans que le commerçant sache
+            pourquoi. Le message est traduit, NON TECHNIQUE, et ne révèle
+            rien : ni code serveur, ni nom de fonction, ni identifiant
+            d'établissement. Le comportement d'autorisation lui-même est
+            inchangé -- c'est le serveur qui refuse, et la page ne tente
+            aucun contournement. */}
+        {v12.status === "forbidden" && (
+          <p
+            role="status"
+            data-v12-status="forbidden"
+            className="mt-3 rounded-xl bg-stone-100 p-3 text-sm text-stone-700"
+          >
+            {t("avV12Forbidden")}
+          </p>
+        )}
         {v12.status === "error" && (
-          <p className="mt-3 rounded-xl bg-stone-100 p-3 text-sm text-stone-700">
+          <p data-v12-status="error" className="mt-3 rounded-xl bg-stone-100 p-3 text-sm text-stone-700">
             {t("avV12ReadFailed")}
           </p>
         )}
@@ -451,7 +535,7 @@ export default function AvailabilityPage() {
                 <select
                   id="av-scope-select"
                   value={selectedScopeKey ?? ""}
-                  onChange={(e) => setSelectedScopeKey(e.target.value)}
+                  onChange={(e) => selectScope(e.target.value)}
                   className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm"
                 >
                   {schedules.map((s) => {
@@ -520,7 +604,7 @@ export default function AvailabilityPage() {
                         <td className="px-4 py-3 text-right">
                           <button
                             type="button"
-                            onClick={() => setSelectedScopeKey(key)}
+                            onClick={() => selectScope(key)}
                             aria-pressed={isSelected}
                             className="min-h-11 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-stone-800"
                           >
@@ -1031,23 +1115,51 @@ export default function AvailabilityPage() {
                         {t("avHolidayTitle")}
                       </h4>
                       <div className="mt-2 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-                        <label
-                          className="mb-1.5 block text-xs font-bold text-blue-900"
-                          htmlFor="av-holiday-calendar"
-                        >
+                        {/* AUD-02 (audit Cat Greco) — NE JAMAIS AFFIRMER
+                            « Aucun calendrier » QUAND LE SERVEUR EN REND UN.
+                            L'ancienne version rendait un sélecteur figé sur
+                            « Aucun calendrier », donc FAUX dès qu'une portée
+                            portait un calendrier férié rattaché.
+
+                            Ce que le serveur donne est l'IDENTITÉ du
+                            calendrier, et rien de plus : la lecture v1.2 rend
+                            `holiday_calendar_id`, et AUCUNE lecture de
+                            catalogue n'est accordée à cette page. La page
+                            affiche donc l'identité telle quelle, en disant
+                            explicitement que le libellé n'est pas consultable
+                            d'ici -- elle n'invente ni catalogue, ni nom, ni
+                            possibilité d'édition. */}
+                        <p className="mb-1.5 text-xs font-bold text-blue-900">
                           {t("avHolidayCalendarLabel")}
-                        </label>
-                        <select
-                          id="av-holiday-calendar"
-                          value=""
-                          disabled
-                          className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="">{t("avHolidayNoCalendar")}</option>
-                        </select>
-                        <p className="mt-2 text-xs leading-relaxed text-blue-900">
-                          {t("avHolidayEmptyNote")}
                         </p>
+                        {selectedV12?.holidayCalendarId ? (
+                          <>
+                            <p
+                              data-holiday-calendar="attached"
+                              className="rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-blue-900"
+                            >
+                              {t("avHolidayCalendarAttached")}
+                            </p>
+                            <p className="mt-1.5 break-all font-mono text-xs text-blue-900">
+                              {selectedV12.holidayCalendarId}
+                            </p>
+                            <p className="mt-2 text-xs leading-relaxed text-blue-900">
+                              {t("avHolidayCatalogueUnavailable")}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p
+                              data-holiday-calendar="none"
+                              className="rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-blue-900"
+                            >
+                              {t("avHolidayNoCalendar")}
+                            </p>
+                            <p className="mt-2 text-xs leading-relaxed text-blue-900">
+                              {t("avHolidayEmptyNote")}
+                            </p>
+                          </>
+                        )}
 
                         <fieldset
                           disabled
@@ -1264,7 +1376,7 @@ export default function AvailabilityPage() {
                     {previewLoading && (
                       <p className="mt-3 text-sm text-stone-500">{t("avPreviewLoading")}</p>
                     )}
-                    {!previewLoading && previewError && (
+                    {!previewLoading && previewError && previewInScope && (
                       <p
                         role="alert"
                         className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
@@ -1273,7 +1385,7 @@ export default function AvailabilityPage() {
                       </p>
                     )}
 
-                    {!previewLoading && !previewError && preview && (
+                    {!previewLoading && !previewError && preview && previewInScope && (
                       <div
                         data-preview-status={preview.scheduleStatus}
                         className="mt-3 rounded-2xl border border-stone-300 p-4"

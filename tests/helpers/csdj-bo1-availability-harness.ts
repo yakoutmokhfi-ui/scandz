@@ -69,6 +69,17 @@ export async function getMerchantFulfillmentSchedules() {
 export async function getMerchantFulfillmentSchedulesV12() { return (globalThis).__v12; }
 export async function getCheckoutFulfillmentSchedulePreview(args) {
   (globalThis).__previewArgs = args;
+  ((globalThis).__previewCalls ??= []).push(args);
+  const byMode = (globalThis).__previewByMode;
+  if (byMode && byMode[args.modeCode]) {
+    const entry = byMode[args.modeCode];
+    if (entry.defer) {
+      return new Promise((resolve) => {
+        (globalThis).__previewPending.push(() => resolve(entry.result));
+      });
+    }
+    return entry.result;
+  }
   return (globalThis).__previewResult;
 }
 `;
@@ -143,6 +154,17 @@ export const SCHEDULE_FIXED_SLOTS = {
   closures: [{ closedOn: "2026-12-25", label: "Noël" }],
 };
 
+/** Seconde portée (livraison, heure libre) : nécessaire pour tester un
+ *  changement de PORTÉE à l'intérieur du même établissement. */
+export const SCHEDULE_FREE_TIME = {
+  ...SCHEDULE_FIXED_SLOTS,
+  modeCode: "delivery",
+  slotSelectionMode: "time_within_window",
+  timeGranularityMinutes: 30,
+  slots: [],
+  windows: [{ weekday: 2, startsAt: "11:00", endsAt: "14:00" }],
+};
+
 export const V12_AVAILABLE = {
   status: "available",
   rows: [
@@ -168,6 +190,8 @@ export function mount(options: {
   v12?: unknown;
   schedulesThrow?: string | null;
   previewResult?: unknown;
+  /** AUD-01 : aperçu scripté par mode de vente, éventuellement différé. */
+  previewByMode?: Record<string, { result: unknown; defer?: boolean }>;
 } = {}) {
   (globalThis as any).__mappings = [
     {
@@ -181,6 +205,9 @@ export function mount(options: {
   (globalThis as any).__v12 = options.v12 ?? { status: "absent" };
   (globalThis as any).__schedulesThrow = options.schedulesThrow ?? null;
   (globalThis as any).__previewResult = options.previewResult ?? null;
+  (globalThis as any).__previewByMode = options.previewByMode ?? null;
+  (globalThis as any).__previewPending = [] as Array<() => void>;
+  (globalThis as any).__previewCalls = [] as Array<{ modeCode: string }>;
 
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
