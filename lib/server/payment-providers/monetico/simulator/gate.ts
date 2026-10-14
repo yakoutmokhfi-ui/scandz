@@ -7,7 +7,7 @@ import {
   type SimulatorRoutingVerdict,
   type TrustedAuthority,
 } from "@/lib/server/payment-providers/monetico/simulator/policy";
-import { getSimulatorAuthority, type SimulatorAuthority } from "@/lib/server/payment-providers/monetico/simulator/authority";
+import { getSimulatorAuthority, type SimulatorAuthority } from "@/lib/server/payment-simulator-authority-service";
 
 /**
  * MONETICO PAYMENT SIMULATOR v1.2 — GATE RESOLVER (the only I/O of the

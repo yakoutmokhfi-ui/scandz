@@ -4,9 +4,12 @@ import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
 import { PaymentServerRpcError, PaymentServerUnavailableError } from "@/lib/server/payment-errors";
 
 /**
- * MONETICO PAYMENT SIMULATOR v1.2 — TEST-PROJECT AUTHORITY CLIENT
+ * MONETICO PAYMENT SIMULATOR v1.2 — TEST-PROJECT AUTHORITY SERVICE
  * (MSIM-SEC-01, MSIM-AUTH-03).
  *
+ * Lives in the GENERIC `lib/server/payment-*` layer, like
+ * payment-service.ts: the provider adapter folder never touches the
+ * service-role client directly (structural rule v111h, mandate §27).
  * Thin, typed wrappers over the three RPCs created by
  * `supabase/DRAFT-lot-monetico-simulator-test-authority-v1.sql` on the
  * DEDICATED TEST PROJECT ONLY. They use the SAME service-role client as

@@ -4,7 +4,7 @@ import {
   issueSimulatorDecisionToken,
   consumeSimulatorDecisionToken,
   type ConsumeSimulatorDecisionTokenResult,
-} from "@/lib/server/payment-providers/monetico/simulator/authority";
+} from "@/lib/server/payment-simulator-authority-service";
 
 /**
  * MONETICO PAYMENT SIMULATOR v1.2 — SERVER-AUTHORITATIVE SINGLE-USE

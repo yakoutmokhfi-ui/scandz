@@ -8,7 +8,7 @@ import { parseMoneticoCredential } from "@/lib/server/payment-providers/monetico
 import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-origin";
 import { isSimulatorRoutingActive, isTpeAllowed } from "@/lib/server/payment-providers/monetico/simulator/policy";
 import { resolveSimulatorGate } from "@/lib/server/payment-providers/monetico/simulator/gate";
-import type { SimulatorAuthority } from "@/lib/server/payment-providers/monetico/simulator/authority";
+import type { SimulatorAuthority } from "@/lib/server/payment-simulator-authority-service";
 import { verifySimulatorOperatorSecret } from "@/lib/server/payment-providers/monetico/simulator/auth";
 import {
   verifyInboundMerchantForm,
