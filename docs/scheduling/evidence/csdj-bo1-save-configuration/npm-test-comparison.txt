@@ -1,0 +1,4 @@
+Comparaison npm test : main 323911e = 15 échecs ; candidat = 16 échecs.
+Écart : '[C] FOCUS CLAVIER ...' (tests/catalogue-product-reorder-v1.dom.test.ts) — instable sous charge
+(les deux npm test + le banc tournaient en parallèle) ; relancé seul sur le candidat : 3 x 37/37 verts.
+Aucun échec ne touche un fichier du lot.
