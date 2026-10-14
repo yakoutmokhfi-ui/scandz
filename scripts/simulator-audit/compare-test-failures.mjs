@@ -50,7 +50,7 @@ function parseTap(out) {
       }
       // Identity = relative test FILE (machine path and line numbers stripped --
       // a line shifts whenever the file is edited, the test is the same) + name.
-      const rel = location ? location.replace(/^.*?[\\/](tests[\\/])/, "$1").replace(/\\/g, "/").replace(/:\d+:\d+$/, "") : "?";
+      const rel = location ? location.replace(/^.*?[\\/](tests[\\/])/, "$1").replace(/\\/g, "/").replace(/:\d+(:\d+)?$/, "") : "?";
       failures.push({ id: `${rel} :: ${m[1]}`, name: m[1], location: rel });
     }
     const t = /^# (tests|pass|fail) (\d+)/.exec(lines[i]);
