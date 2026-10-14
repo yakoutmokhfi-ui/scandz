@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 
 const envHelper = await import("./helpers/monetico-simulator-env.ts");
 envHelper.installOpenGateEnvGlobally();
-const { OPERATOR_SECRET: SECRET, CRON_SECRET, SYNTHETIC_TPES, REAL_LOOKING_TPE_B, withEnv } = envHelper;
+const { OPERATOR_SECRET: SECRET, CRON_SECRET, SYNTHETIC_TPES, REAL_LOOKING_TPE_B, withEnv, AUTHORITY_ROW } = envHelper;
 
 const { NextRequest } = await import("next/server");
 const { getServiceRoleSupabaseClient } = await import("../lib/server/supabase-admin.ts");
@@ -51,11 +51,10 @@ type Db = InstanceType<typeof InMemoryPaymentDb>;
 function seed(t: { mock: { method: Function } }): Db {
   const db = new InMemoryPaymentDb();
   db.install(t, client);
+  db.installAuthority(AUTHORITY_ROW);
   db.addMerchant({ id: "resto-A", mode: "test", isEnabled: true, configurationStatus: "verified", credential: CRED_A });
-  db.addMerchant({ id: "resto-B", mode: "live", isEnabled: true, configurationStatus: "verified", credential: CRED_B });
   db.addMerchant({ id: "resto-C", mode: "test", isEnabled: true, configurationStatus: "verified", credential: CRED_C });
   db.addOrder({ id: "order-A1", restaurantId: "resto-A", publicToken: "tok-A1", paymentStatus: "failed", total: "25.00", currency: "EUR" });
-  db.addOrder({ id: "order-B1", restaurantId: "resto-B", publicToken: "tok-B1", paymentStatus: "failed", total: "40.00", currency: "EUR" });
   db.addOrder({ id: "order-C1", restaurantId: "resto-C", publicToken: "tok-C1", paymentStatus: "failed", total: "25.00", currency: "EUR" });
   // Delivery order of merchant A (MSIM-SIDE-04).
   db.addOrder({ id: "order-A-delivery", restaurantId: "resto-A", publicToken: "tok-AD", paymentStatus: "failed", total: "30.00", currency: "EUR", serviceMode: "delivery" });
@@ -90,7 +89,7 @@ async function hostedPage(fields: Record<string, string>) {
   });
   const res = await pagePOST(req);
   const html = await res.text();
-  const binding = /name="binding" value="([A-Za-z0-9_-]+\.[0-9a-f]{64})"/.exec(html)?.[1] ?? null;
+  const binding = /name="binding" value="([0-9a-f]{32})"/.exec(html)?.[1] ?? null;
   return { status: res.status, html, binding };
 }
 
@@ -298,8 +297,10 @@ test("E2E provider_timeout_retry: two simulated timeouts then delivery -> attemp
 // Isolation and forgery resistance
 // --------------------------------------------------------------------
 
-test("ISOLATION: a LIVE merchant's form is refused by the simulator page (404, gate closed by mode) -- and its checkout never pointed there", async (t) => {
+test("ISOLATION: a LIVE merchant in the database REVOKES the whole authority (v1.2) -- its form is refused by the simulator page (404) and its checkout never pointed there", async (t) => {
   const db = seed(t);
+  db.addMerchant({ id: "resto-B", mode: "live", isEnabled: true, configurationStatus: "verified", credential: CRED_B });
+  db.addOrder({ id: "order-B1", restaurantId: "resto-B", publicToken: "tok-B1", paymentStatus: "failed", total: "40.00", currency: "EUR" });
   const ready = await checkout("order-B1", "tok-B1");
   assert.notEqual(ready.submissionUrl, "https://checkout.example.test/api/internal/payments/monetico/simulator/page");
   const page = await hostedPage(ready.fields as unknown as Record<string, string>);
@@ -307,7 +308,7 @@ test("ISOLATION: a LIVE merchant's form is refused by the simulator page (404, g
   assert.equal(db.calls.filter((c) => c.name === "get_payment_provider_credential" && c.args.p_restaurant_id === "resto-B").length, 1, "credential read happens ONLY through the checkout runtime, never by the simulator for a live merchant");
   // and an operator decision on a live reference is refused too
   const decision = await handleSimulatorDecision({ body: { scenario: "paid", operatorSecret: SECRET, reference: ready.fields.reference, url_retour_ok: ready.fields.url_retour_ok, url_retour_err: ready.fields.url_retour_err, binding: "0".repeat(64) }, fetchImpl: inProcessFetch() });
-  assert.deepEqual(decision, { kind: "invalid", reason: "token_malformed" }, "token check precedes any merchant lookup");
+  assert.equal(decision.kind, "gate_closed", "a live merchant present => authority revoked for the whole database");
 });
 
 test("ISOLATION: a notification for merchant A's reference signed with merchant C's key is rejected by the real callback (cdr=1, nothing recorded)", async (t) => {
@@ -366,6 +367,8 @@ test("SIDE EFFECTS: a simulated paid run triggers no network call other than the
     "get_payment_provider_credential", "get_order_billing_context", "get_order_service_mode", "initiate_payment_attempt",
     "get_payment_transaction_correlation", "record_payment_provider_event", "claim_payment_provider_event_by_id",
     "update_payment_provider_event_processing_status", "confirm_payment_attempt",
+    // v1.2 simulator authority RPCs (test project only):
+    "get_simulator_authority", "issue_simulator_decision_token", "consume_simulator_decision_token",
     // Stuart post-payment hook (D1 v1.1): its FIRST step is a read-only
     // eligibility RPC; for a pickup order it stops there (observed and
     // pinned below). Transport is structurally non-live (post-payment-hook-wiring.ts).
@@ -405,7 +408,7 @@ async function externalNetworkGuard<T>(fn: () => Promise<T>): Promise<{ result: 
   }
 }
 
-test("SIDE-04 delivery order: simulated paid -> payment applied; Stuart hook allocates ONLY a synthetic job row in the isolated test DB, transport is non-live (zero external HTTP), row ends send_ambiguous, no created_confirmed, no scheduling RPC", async (t) => {
+test("SIDE-04 delivery order (v1.2): simulated paid -> payment applied; the Stuart allocation RPC is REVOKED on the test project (§4) -> ZERO delivery job rows, zero external HTTP, no scheduling RPC, production pipeline unchanged", async (t) => {
   const db = seed(t);
   const { result: r, externalCalls } = await externalNetworkGuard(async () => {
     const ready = await checkout("order-A-delivery", "tok-AD");
@@ -416,14 +419,11 @@ test("SIDE-04 delivery order: simulated paid -> payment applied; Stuart hook all
     return { ready };
   });
   assert.deepEqual(externalCalls, [], "no external HTTP call of any kind (Stuart, email, WhatsApp, bank)");
-  assert.equal(db.orders.get("order-A-delivery")!.paymentStatus, "paid");
-  const jobs = [...db.stuartJobs.values()];
-  assert.equal(jobs.length, 1, "exactly one synthetic allocation row");
-  assert.equal(jobs[0].sendState, "send_ambiguous", "non-live transport => ambiguous, never confirmed");
-  assert.equal(jobs[0].stuartJobId, null, "no Stuart job id ever obtained");
-  assert.equal(jobs[0].environment, "sandbox");
+  assert.equal(db.orders.get("order-A-delivery")!.paymentStatus, "paid", "payment itself is applied (pipeline unchanged)");
+  assert.equal(db.stuartJobs.size, 0, "NO delivery job row: allocation is revoked on the simulator test project");
   const stuartCalls = db.calls.filter((c) => c.name.includes("stuart")).map((c) => c.name);
-  assert.deepEqual(stuartCalls, ["get_stuart_delivery_eligibility", "allocate_stuart_delivery_job", "mark_stuart_delivery_job_send_started", "mark_stuart_delivery_job_ambiguous"]);
+  assert.deepEqual(stuartCalls, ["get_stuart_delivery_eligibility", "allocate_stuart_delivery_job"], "the (unchanged) hook tries to allocate and is refused by the database (42501), error absorbed best-effort");
+  assert.equal(db.eventsFor(r.ready.fields.reference)[0].processingStatus, "applied", "inbox finalized applied despite the refused allocation");
   assert.ok(!db.calls.some((c) => /schedul|csdj|slot/i.test(c.name)), "no scheduling-engine RPC reached");
   assert.ok(!db.calls.some((c) => c.name === "confirm_stuart_delivery_job_created"));
   void r;
@@ -460,7 +460,7 @@ test("AUTH-03 replay: the SAME decision POST replayed -> token_already_used, no 
   // Separate layer: a fresh token on a now-TERMINAL attempt is also refused.
   const page2 = await hostedPage(ready.fields as unknown as Record<string, string>);
   assert.equal(page2.status, 400);
-  assert.ok(page2.html.includes("attempt_not_pending"));
+  assert.ok(page2.html.includes("attempt_not_pending"), page2.html);
   // And callback idempotency itself is untouched: replaying the raw signed
   // notification at the callback route is deduplicated by fingerprint.
   const forgedReplay = buildSimulatedCallback({ step: { codeRetour: "payetest" }, reference: ready.fields.reference, tpe: CRED_A.tpe, amount: "25.00", currency: "EUR", credential: CRED_A, now: new Date(Date.UTC(2026, 9, 13, 10, 0, 0)) });

@@ -2,7 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import {
   handleSimulatorHostedPage,
-  evaluateSimulatorEnvironment,
+  resolveSimulatorGate,
   verifySimulatorOperatorBearer,
   listSimulatorScenarios,
   renderSimulatorRejectionPage,
@@ -40,7 +40,7 @@ async function parseForm(request: NextRequest): Promise<Record<string, string> |
 }
 
 export async function GET(request: NextRequest) {
-  if (!evaluateSimulatorEnvironment().active) return NOT_FOUND();
+  if (!(await resolveSimulatorGate()).verdict.active) return NOT_FOUND();
   if (!verifySimulatorOperatorBearer(request.headers.get("authorization"))) {
     return NextResponse.json({ outcome: "unauthorized" }, { status: 401 });
   }
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!evaluateSimulatorEnvironment().active) return NOT_FOUND();
+  if (!(await resolveSimulatorGate()).verdict.active) return NOT_FOUND();
   const raw = await parseForm(request);
   if (raw === null) return new NextResponse(renderSimulatorRejectionPage("malformed"), { status: 400, headers: { "content-type": "text/html; charset=utf-8" } });
 

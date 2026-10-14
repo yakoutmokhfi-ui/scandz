@@ -20,7 +20,7 @@ export {
   type DecisionInput,
 } from "@/lib/server/payment-providers/monetico/simulator/runtime";
 
-export { evaluateSimulatorEnvironment } from "@/lib/server/payment-providers/monetico/simulator/policy";
+export { resolveSimulatorGate } from "@/lib/server/payment-providers/monetico/simulator/gate";
 export { listScenarios as listSimulatorScenarios } from "@/lib/server/payment-providers/monetico/simulator/scenarios";
 export { renderRejectionPage as renderSimulatorRejectionPage } from "@/lib/server/payment-providers/monetico/simulator/page";
 

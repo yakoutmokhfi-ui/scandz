@@ -25,25 +25,28 @@ import "server-only";
  *      repository's other activation gates).
  *   3. OPERATOR SECRET configured (`PAYMENT_MONETICO_SIMULATOR_SECRET`,
  *      >= 32 chars) -- scenario decisions must be authenticable.
- *   4. TENANT BOUNDARY (MSIM-SEC-01): the service-role client in use MUST
- *      point at the AUTHORIZED, DEDICATED TEST project:
- *        - `PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF` names the
- *          authorized test project (required);
- *        - the project ref derived from `NEXT_PUBLIC_SUPABASE_URL`
- *          (`https://<ref>.supabase.co`) MUST equal it;
- *        - the `ref` claim inside the service-role JWT
- *          (`SUPABASE_SERVICE_ROLE_KEY`, payload fields `ref`, `role`)
- *          MUST equal it and `role` MUST be "service_role" -- so the key
- *          actually in use is the TEST project's key, never a production
- *          key pointed at a test URL or vice versa;
- *        - if `SCANYM_PRODUCTION_SUPABASE_PROJECT_REF` is set, the
- *          authorized ref MUST differ from it (explicit production deny).
- *      There is NO fallback: the simulator never builds its own client,
- *      never reads another key, and refuses when any element is absent.
- *   5. SYNTHETIC CREDENTIALS ONLY (MSIM-SEC-01): per-merchant, the
- *      credential's TPE MUST be listed in
- *      `PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES` (comma-separated, 7
- *      alphanumerics each). A real merchant TPE is never served.
+ *   4. TENANT BOUNDARY (MSIM-SEC-01, v1.2 -- "a different project ref is
+ *      not proof of non-production unless the trusted authority is
+ *      protected from the same configuration errors"): the authority is
+ *      NO LONGER an environment variable. It is `get_simulator_authority()`,
+ *      a SQL function that exists ONLY on the dedicated test project
+ *      (DRAFT-lot-monetico-simulator-test-authority-v1.sql) and that
+ *      refuses to answer as soon as a `live` merchant exists in that
+ *      database. The gate then requires, against the DB-returned
+ *      `project_ref`:
+ *        - the ref derived from `NEXT_PUBLIC_SUPABASE_URL` to equal it;
+ *        - the `ref` claim of `SUPABASE_SERVICE_ROLE_KEY` to equal it and
+ *          its `role` to be "service_role".
+ *      Mutually consistent environment variables pointing at PRODUCTION
+ *      cannot open the gate: production has no authority function. The
+ *      env-level `PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF` /
+ *      `PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES` of v1.1 are REMOVED
+ *      (they were the defeatable part). `SCANYM_PRODUCTION_SUPABASE_PROJECT_REF`
+ *      remains an OPTIONAL additional deny (defense in depth).
+ *      Fail-closed: authority unreadable (absent function, transport
+ *      error, live merchant present, malformed row) => closed.
+ *   5. SYNTHETIC CREDENTIALS ONLY (MSIM-SEC-01): per merchant, the
+ *      credential's TPE MUST be in the DB authority's `allowed_tpes`.
  *   6. NO LIVE FULFILLMENT (MSIM-SIDE-04): `STUART_LIVE_ACTIVATION_ENABLED`
  *      MUST NOT be "true" in the same environment -- simulated payments
  *      can never coexist with a live delivery activation.
@@ -58,9 +61,7 @@ import "server-only";
 export const SIMULATOR_ENABLED_ENV = "PAYMENT_MONETICO_SIMULATOR_ENABLED";
 export const SIMULATOR_SECRET_ENV = "PAYMENT_MONETICO_SIMULATOR_SECRET";
 export const SIMULATOR_ALLOWED_ENVIRONMENTS_ENV = "PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS";
-export const SIMULATOR_PROJECT_REF_ENV = "PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF";
 export const PRODUCTION_PROJECT_REF_ENV = "SCANYM_PRODUCTION_SUPABASE_PROJECT_REF";
-export const SIMULATOR_ALLOWED_TPES_ENV = "PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES";
 export const STUART_LIVE_ACTIVATION_ENV = "STUART_LIVE_ACTIVATION_ENABLED";
 export const SIMULATOR_SECRET_MIN_LENGTH = 32;
 
@@ -76,13 +77,13 @@ export type SimulatorGateReason =
   | "environment_not_allowlisted"
   | "allowlist_missing_or_invalid"
   | "secret_missing_or_too_short"
-  | "test_project_ref_missing"
+  | "authority_unavailable"
+  | "authority_project_ref_invalid"
   | "test_project_ref_equals_production"
   | "supabase_url_project_mismatch"
   | "service_role_key_project_mismatch"
   | "service_role_key_role_mismatch"
   | "service_role_key_unreadable"
-  | "allowed_tpes_missing_or_invalid"
   | "stuart_live_activation_enabled"
   | "merchant_mode_not_test"
   | "merchant_tpe_not_allowlisted";
@@ -149,11 +150,18 @@ export function evaluateDeploymentEnvironment(env: SimulatorEnvSource): Simulato
   return { active: true };
 }
 
-/** Condition 4 -- MSIM-SEC-01 tenant boundary. */
-export function evaluateTenantBoundary(env: SimulatorEnvSource): SimulatorEnvironmentVerdict {
-  const authorized = env[SIMULATOR_PROJECT_REF_ENV];
+/** DB-returned authority (see authority.ts); `null` = unreadable. */
+export interface TrustedAuthority {
+  projectRef: string;
+  allowedTpes: string[];
+}
+
+/** Condition 4 -- MSIM-SEC-01 tenant boundary, anchored on the DB authority. */
+export function evaluateTenantBoundary(env: SimulatorEnvSource, authority: TrustedAuthority | null): SimulatorEnvironmentVerdict {
+  if (authority === null) return { active: false, reason: "authority_unavailable" };
+  const authorized = authority.projectRef;
   if (typeof authorized !== "string" || !PROJECT_REF_PATTERN.test(authorized)) {
-    return { active: false, reason: "test_project_ref_missing" };
+    return { active: false, reason: "authority_project_ref_invalid" };
   }
   const production = env[PRODUCTION_PROJECT_REF_ENV];
   if (typeof production === "string" && production.trim().length > 0 && production.trim() === authorized) {
@@ -168,7 +176,12 @@ export function evaluateTenantBoundary(env: SimulatorEnvSource): SimulatorEnviro
   return { active: true };
 }
 
-export function evaluateSimulatorEnvironment(env: SimulatorEnvSource = process.env): SimulatorEnvironmentVerdict {
+/**
+ * ENVIRONMENT-ONLY conditions (1, 2, 3, 6) -- PURE, no I/O. Used as the
+ * cheap first stage: when it is closed, the DB authority is never even
+ * queried (no RPC while closed, asserted by tests).
+ */
+export function evaluateSimulatorEnvironmentPreconditions(env: SimulatorEnvSource = process.env): SimulatorEnvironmentVerdict {
   if (env[SIMULATOR_ENABLED_ENV] !== "true") return { active: false, reason: "not_enabled" };
   const deployment = evaluateDeploymentEnvironment(env);
   if (!deployment.active) return deployment;
@@ -176,19 +189,29 @@ export function evaluateSimulatorEnvironment(env: SimulatorEnvSource = process.e
   if (typeof secret !== "string" || secret.length < SIMULATOR_SECRET_MIN_LENGTH) {
     return { active: false, reason: "secret_missing_or_too_short" };
   }
-  const tenant = evaluateTenantBoundary(env);
-  if (!tenant.active) return tenant;
-  if (!parseList(env[SIMULATOR_ALLOWED_TPES_ENV], TPE_PATTERN)) {
-    return { active: false, reason: "allowed_tpes_missing_or_invalid" };
-  }
   if (env[STUART_LIVE_ACTIVATION_ENV] === "true") return { active: false, reason: "stuart_live_activation_enabled" };
   return { active: true };
 }
 
-/** Condition 5 -- synthetic credential allowlist, per merchant. */
-export function isTpeAllowed(tpe: unknown, env: SimulatorEnvSource = process.env): boolean {
-  const list = parseList(env[SIMULATOR_ALLOWED_TPES_ENV], TPE_PATTERN);
-  return !!list && typeof tpe === "string" && list.includes(tpe);
+/**
+ * FULL environment verdict: preconditions + DB-anchored tenant boundary.
+ * `authority` is the result of `getSimulatorAuthority()` (null when it
+ * threw). PURE given its inputs.
+ */
+export function evaluateSimulatorEnvironment(env: SimulatorEnvSource, authority: TrustedAuthority | null): SimulatorEnvironmentVerdict {
+  const pre = evaluateSimulatorEnvironmentPreconditions(env);
+  if (!pre.active) return pre;
+  const tenant = evaluateTenantBoundary(env, authority);
+  if (!tenant.active) return tenant;
+  if (authority!.allowedTpes.length === 0 || authority!.allowedTpes.some((t) => !TPE_PATTERN.test(t))) {
+    return { active: false, reason: "authority_project_ref_invalid" };
+  }
+  return { active: true };
+}
+
+/** Condition 5 -- synthetic credential allowlist from the DB authority, per merchant. */
+export function isTpeAllowed(tpe: unknown, authority: TrustedAuthority | null): boolean {
+  return !!authority && typeof tpe === "string" && TPE_PATTERN.test(tpe) && authority.allowedTpes.includes(tpe);
 }
 
 export type SimulatorRoutingVerdict = SimulatorEnvironmentVerdict;
@@ -197,10 +220,10 @@ export type SimulatorRoutingVerdict = SimulatorEnvironmentVerdict;
  * Per-merchant decision used by the checkout runtime (endpoint
  * substitution) and by the simulator routes. `mode` is the PERSISTED
  * merchant mode (P3-B4) -- anything but the exact string "test" closes
- * the gate.
+ * the gate. PURE given its inputs.
  */
-export function isSimulatorRoutingActive(mode: unknown, env: SimulatorEnvSource = process.env): SimulatorRoutingVerdict {
-  const environment = evaluateSimulatorEnvironment(env);
+export function isSimulatorRoutingActive(mode: unknown, env: SimulatorEnvSource, authority: TrustedAuthority | null): SimulatorRoutingVerdict {
+  const environment = evaluateSimulatorEnvironment(env, authority);
   if (!environment.active) return environment;
   if (mode !== "test") return { active: false, reason: "merchant_mode_not_test" };
   return { active: true };

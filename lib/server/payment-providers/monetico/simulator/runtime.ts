@@ -6,11 +6,9 @@ import {
 } from "@/lib/server/payment-service";
 import { parseMoneticoCredential } from "@/lib/server/payment-providers/monetico/credentials";
 import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-origin";
-import {
-  evaluateSimulatorEnvironment,
-  isSimulatorRoutingActive,
-  isTpeAllowed,
-} from "@/lib/server/payment-providers/monetico/simulator/policy";
+import { isSimulatorRoutingActive, isTpeAllowed } from "@/lib/server/payment-providers/monetico/simulator/policy";
+import { resolveSimulatorGate } from "@/lib/server/payment-providers/monetico/simulator/gate";
+import type { SimulatorAuthority } from "@/lib/server/payment-providers/monetico/simulator/authority";
 import { verifySimulatorOperatorSecret } from "@/lib/server/payment-providers/monetico/simulator/auth";
 import {
   verifyInboundMerchantForm,
@@ -101,7 +99,8 @@ interface ResolvedMerchantContext {
 type ResolveFailure = { kind: "gate_closed"; reason: string } | { kind: "rejected"; reason: string };
 
 async function resolveMerchantContext(
-  reference: string
+  reference: string,
+  authority: SimulatorAuthority
 ): Promise<{ ok: true; context: ResolvedMerchantContext } | { ok: false; failure: ResolveFailure }> {
   let correlation: Awaited<ReturnType<typeof getPaymentTransactionCorrelation>>;
   try {
@@ -122,7 +121,7 @@ async function resolveMerchantContext(
   } catch {
     return { ok: false, failure: { kind: "rejected", reason: "merchant_environment_unavailable" } };
   }
-  const routing = isSimulatorRoutingActive(environment.mode);
+  const routing = isSimulatorRoutingActive(environment.mode, process.env, { projectRef: authority.projectRef, allowedTpes: authority.allowedTpes });
   if (!routing.active) {
     return { ok: false, failure: { kind: "gate_closed", reason: routing.reason } };
   }
@@ -144,7 +143,7 @@ async function resolveMerchantContext(
   // allowlisted for the simulator. A real merchant's TPE is refused here
   // even though it was readable (the read happens through the SAME Vault
   // RPC as production; nothing about it is simulated).
-  if (!isTpeAllowed(credential.tpe)) {
+  if (!isTpeAllowed(credential.tpe, { projectRef: authority.projectRef, allowedTpes: authority.allowedTpes })) {
     return { ok: false, failure: { kind: "gate_closed", reason: "merchant_tpe_not_allowlisted" } };
   }
 
@@ -169,15 +168,15 @@ function amountsMatch(a: string, b: string): boolean {
 }
 
 export async function handleSimulatorHostedPage(raw: Record<string, unknown>): Promise<HostedPageResult> {
-  const gate = evaluateSimulatorEnvironment();
-  if (!gate.active) return { kind: "gate_closed", reason: gate.reason };
+  const gate = await resolveSimulatorGate();
+  if (!gate.verdict.active || !gate.authority) return { kind: "gate_closed", reason: gate.verdict.active ? "authority_unavailable" : gate.verdict.reason };
 
   const reference = raw["reference"];
   if (typeof reference !== "string" || reference.length === 0) {
     return { kind: "rejected", reason: "malformed" };
   }
 
-  const resolved = await resolveMerchantContext(reference);
+  const resolved = await resolveMerchantContext(reference, gate.authority);
   if (!resolved.ok) return resolved.failure;
   const { context } = resolved;
 
@@ -212,12 +211,22 @@ export async function handleSimulatorHostedPage(raw: Record<string, unknown>): P
     return { kind: "rejected", reason: "attempt_not_pending" };
   }
 
-  const binding = issueDecisionToken({
-    reference: verified.reference,
-    transactionId: context.transactionId,
-    urlRetourOk: verified.urlRetourOk,
-    urlRetourErr: verified.urlRetourErr,
-  });
+  // v1.2: the token row is written by the TEST database from the attempt
+  // itself (binding = merchant/order/transaction/reference/URLs).
+  let binding: string;
+  try {
+    const issued = await issueDecisionToken({
+      providerReference: verified.reference,
+      urlRetourOk: verified.urlRetourOk,
+      urlRetourErr: verified.urlRetourErr,
+    });
+    if (issued.transactionId !== context.transactionId) {
+      return { kind: "rejected", reason: "attempt_not_pending" };
+    }
+    binding = issued.token;
+  } catch {
+    return { kind: "rejected", reason: "token_issue_failed" };
+  }
 
   const html = renderHostedPage({
     verified,
@@ -239,8 +248,8 @@ export interface DecisionInput {
 }
 
 export async function handleSimulatorDecision(input: DecisionInput): Promise<DecisionResult> {
-  const gate = evaluateSimulatorEnvironment();
-  if (!gate.active) return { kind: "gate_closed", reason: gate.reason };
+  const gate = await resolveSimulatorGate();
+  if (!gate.verdict.active || !gate.authority) return { kind: "gate_closed", reason: gate.verdict.active ? "authority_unavailable" : gate.verdict.reason };
 
   const provided = typeof input.body["operatorSecret"] === "string" ? input.body["operatorSecret"] : input.bearer;
   if (!verifySimulatorOperatorSecret(provided)) return { kind: "unauthorized" };
@@ -254,10 +263,12 @@ export async function handleSimulatorDecision(input: DecisionInput): Promise<Dec
   if (typeof reference !== "string" || typeof urlRetourOk !== "string" || typeof urlRetourErr !== "string") {
     return { kind: "invalid", reason: "malformed" };
   }
-  const consumed = consumeDecisionToken({
+  // v1.2 (MSIM-AUTH-03): ATOMIC, server-authoritative consumption in the
+  // test database -- a replay from any instance, or after a restart, is
+  // refused here, BEFORE any notification is built.
+  const consumed = await consumeDecisionToken({
     token: input.body["binding"],
     expected: { reference, urlRetourOk, urlRetourErr },
-    now: input.now,
   });
   if (!consumed.ok) {
     return { kind: "invalid", reason: consumed.reason };
@@ -273,7 +284,7 @@ export async function handleSimulatorDecision(input: DecisionInput): Promise<Dec
     return { kind: "invalid", reason: "return_url_foreign_origin" };
   }
 
-  const resolved = await resolveMerchantContext(reference);
+  const resolved = await resolveMerchantContext(reference, gate.authority);
   if (!resolved.ok) {
     return resolved.failure.kind === "gate_closed"
       ? resolved.failure
@@ -285,7 +296,7 @@ export async function handleSimulatorDecision(input: DecisionInput): Promise<Dec
   // must still be pending -- a decision replayed after the attempt
   // reached a terminal state (or re-targeted to a later attempt of the
   // same order) is refused before any notification is built.
-  if (context.transactionId !== consumed.payload.transactionId) {
+  if (context.transactionId !== consumed.transactionId || context.restaurantId !== consumed.restaurantId || context.orderId !== consumed.orderId) {
     return { kind: "invalid", reason: "token_binding_mismatch" };
   }
   if (context.attemptStatus !== "pending") {

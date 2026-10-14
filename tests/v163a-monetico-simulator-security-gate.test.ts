@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 
 const envHelper = await import("./helpers/monetico-simulator-env.ts");
 envHelper.installOpenGateEnvGlobally();
-const { openGateEnv, withEnv, OPERATOR_SECRET, TEST_PROJECT_REF, OTHER_PROJECT_REF, syntheticServiceRoleJwt, SYNTHETIC_TPES, REAL_LOOKING_TPE_B } = envHelper;
+const { openGateEnv, withEnv, OPERATOR_SECRET, TEST_PROJECT_REF, OTHER_PROJECT_REF, syntheticServiceRoleJwt, SYNTHETIC_TPES, REAL_LOOKING_TPE_B, AUTHORITY_ROW } = envHelper;
 
 const policy = await import("../lib/server/payment-providers/monetico/simulator/policy.ts");
 const auth = await import("../lib/server/payment-providers/monetico/simulator/auth.ts");
@@ -29,19 +29,38 @@ const { InMemoryPaymentDb } = await import("./helpers/monetico-simulator-db.ts")
 
 const OPEN = openGateEnv();
 const SECRET = OPERATOR_SECRET;
+/** The DB authority as the gate sees it (pure policy inputs). */
+const AUTH = { projectRef: AUTHORITY_ROW.projectRef, allowedTpes: AUTHORITY_ROW.allowedTpes };
+const routing = (mode: unknown, env: Record<string, string | undefined>, authority: typeof AUTH | null = AUTH) => policy.isSimulatorRoutingActive(mode, env, authority);
+/** A model with the authority INSTALLED (= dedicated test project). */
+function testProjectDb(t: { mock: { method: Function } }) {
+  const db = new InMemoryPaymentDb();
+  db.install(t, client);
+  db.installAuthority(AUTHORITY_ROW);
+  return db;
+}
 const SIM_PAGE_URL = "https://checkout.example.test/api/internal/payments/monetico/simulator/page";
 
 // --------------------------------------------------------------------
 // 1. Activation policy -- every condition alone closes the gate
 // --------------------------------------------------------------------
 
-test("GATE v1.1: fully configured synthetic environment + merchant mode test -> active", () => {
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", OPEN), { active: true });
+test("GATE v1.2: synthetic environment + DB authority + merchant mode test -> active", () => {
+  assert.deepEqual(routing("test", OPEN), { active: true });
+});
+
+test("GATE v1.2 cond.4 (MSIM-SEC-01): WITHOUT the DB authority the gate is closed whatever the environment says -- mutually consistent variables cannot open it", () => {
+  assert.deepEqual(routing("test", OPEN, null), { active: false, reason: "authority_unavailable" });
+  // The v1.1 counterexample: every variable consistently points at ONE project (production). Still closed: no authority.
+  const consistentProd = { ...OPEN, NEXT_PUBLIC_SUPABASE_URL: `https://${OTHER_PROJECT_REF}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF), SCANYM_PRODUCTION_SUPABASE_PROJECT_REF: undefined };
+  assert.deepEqual(routing("test", consistentProd, null), { active: false, reason: "authority_unavailable" });
+  // Even an authority row whose ref matches those variables is refused when the declared production ref equals it.
+  assert.deepEqual(routing("test", { ...consistentProd, SCANYM_PRODUCTION_SUPABASE_PROJECT_REF: OTHER_PROJECT_REF }, { projectRef: OTHER_PROJECT_REF, allowedTpes: ["1234567"] }), { active: false, reason: "test_project_ref_equals_production" });
 });
 
 test("GATE cond.1 enablement: anything but the exact string \"true\" closes the gate", () => {
   for (const bad of [undefined, "", "false", "TRUE", "1", "yes", " true"]) {
-    assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ENABLED: bad }), { active: false, reason: "not_enabled" }, JSON.stringify(bad));
+    assert.deepEqual(routing("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ENABLED: bad }), { active: false, reason: "not_enabled" }, JSON.stringify(bad));
   }
 });
 
@@ -64,46 +83,45 @@ test("GATE cond.2 deployment allowlist (MSIM-ENV-02): missing platform metadata,
 });
 
 test("GATE cond.3 operator secret: missing or shorter than 32 chars closes the gate", () => {
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_SECRET: undefined }), { active: false, reason: "secret_missing_or_too_short" });
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_SECRET: "short" }), { active: false, reason: "secret_missing_or_too_short" });
+  assert.deepEqual(routing("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_SECRET: undefined }), { active: false, reason: "secret_missing_or_too_short" });
+  assert.deepEqual(routing("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_SECRET: "short" }), { active: false, reason: "secret_missing_or_too_short" });
 });
 
-test("GATE cond.4 tenant boundary (MSIM-SEC-01): authorized ref, URL ref and service-role JWT ref must all agree; production ref denied; no fallback", () => {
-  const t = (env: Record<string, string | undefined>) => policy.evaluateTenantBoundary({ ...OPEN, ...env });
+test("GATE cond.4 tenant boundary (MSIM-SEC-01): the client in use must match the DB authority's project (URL ref AND service-role JWT ref/role); production ref denied; no fallback", () => {
+  const t = (env: Record<string, string | undefined>, authority: typeof AUTH | null = AUTH) => policy.evaluateTenantBoundary({ ...OPEN, ...env }, authority);
   assert.deepEqual(t({}), { active: true });
-  assert.deepEqual(t({ PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF: undefined }), { active: false, reason: "test_project_ref_missing" });
-  assert.deepEqual(t({ PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF: "Bad-Ref" }), { active: false, reason: "test_project_ref_missing" });
-  // Authorized ref accidentally equal to the declared production ref.
-  assert.deepEqual(t({ PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF: OTHER_PROJECT_REF, NEXT_PUBLIC_SUPABASE_URL: `https://${OTHER_PROJECT_REF}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF) }), { active: false, reason: "test_project_ref_equals_production" });
-  // Client URL points at another (production) project.
+  assert.deepEqual(t({}, null), { active: false, reason: "authority_unavailable" });
+  assert.deepEqual(t({}, { projectRef: "Bad-Ref", allowedTpes: ["1234567"] }), { active: false, reason: "authority_project_ref_invalid" });
+  assert.deepEqual(t({ SCANYM_PRODUCTION_SUPABASE_PROJECT_REF: TEST_PROJECT_REF }), { active: false, reason: "test_project_ref_equals_production" });
+  // Client URL points at another project than the one that answered -- impossible in practice (the authority came from that client), kept as defense in depth.
   assert.deepEqual(t({ NEXT_PUBLIC_SUPABASE_URL: `https://${OTHER_PROJECT_REF}.supabase.co` }), { active: false, reason: "supabase_url_project_mismatch" });
   assert.deepEqual(t({ NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co" }), { active: false, reason: "supabase_url_project_mismatch" });
   assert.deepEqual(t({ NEXT_PUBLIC_SUPABASE_URL: `http://${TEST_PROJECT_REF}.supabase.co` }), { active: false, reason: "supabase_url_project_mismatch" });
   assert.deepEqual(t({ NEXT_PUBLIC_SUPABASE_URL: `https://${TEST_PROJECT_REF}.supabase.co.evil.example` }), { active: false, reason: "supabase_url_project_mismatch" });
   assert.deepEqual(t({ NEXT_PUBLIC_SUPABASE_URL: undefined }), { active: false, reason: "supabase_url_project_mismatch" });
-  // Service-role key belongs to another project (production key + test URL).
   assert.deepEqual(t({ SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF) }), { active: false, reason: "service_role_key_project_mismatch" });
   assert.deepEqual(t({ SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(TEST_PROJECT_REF, "anon") }), { active: false, reason: "service_role_key_role_mismatch" });
   assert.deepEqual(t({ SUPABASE_SERVICE_ROLE_KEY: "not-a-jwt" }), { active: false, reason: "service_role_key_unreadable" });
   assert.deepEqual(t({ SUPABASE_SERVICE_ROLE_KEY: undefined }), { active: false, reason: "service_role_key_unreadable" });
 });
 
-test("GATE cond.5 synthetic credentials (MSIM-SEC-01): TPE allowlist required and enforced per merchant", () => {
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES: undefined }), { active: false, reason: "allowed_tpes_missing_or_invalid" });
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES: "123" }), { active: false, reason: "allowed_tpes_missing_or_invalid" });
-  assert.equal(policy.isTpeAllowed(SYNTHETIC_TPES.A, OPEN), true);
-  assert.equal(policy.isTpeAllowed(REAL_LOOKING_TPE_B, OPEN), false);
-  assert.equal(policy.isTpeAllowed(undefined, OPEN), false);
+test("GATE cond.5 synthetic credentials (MSIM-SEC-01): TPE allowlist comes from the DB authority and is enforced per merchant; malformed authority lists close the gate", () => {
+  assert.equal(policy.isTpeAllowed(SYNTHETIC_TPES.A, AUTH), true);
+  assert.equal(policy.isTpeAllowed(REAL_LOOKING_TPE_B, AUTH), false);
+  assert.equal(policy.isTpeAllowed(SYNTHETIC_TPES.A, null), false);
+  assert.equal(policy.isTpeAllowed(undefined, AUTH), false);
+  assert.deepEqual(routing("test", OPEN, { projectRef: TEST_PROJECT_REF, allowedTpes: [] }), { active: false, reason: "authority_project_ref_invalid" });
+  assert.deepEqual(routing("test", OPEN, { projectRef: TEST_PROJECT_REF, allowedTpes: ["123"] }), { active: false, reason: "authority_project_ref_invalid" });
 });
 
 test("GATE cond.6 no live fulfillment (MSIM-SIDE-04): STUART_LIVE_ACTIVATION_ENABLED=true closes the gate", () => {
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, STUART_LIVE_ACTIVATION_ENABLED: "true" }), { active: false, reason: "stuart_live_activation_enabled" });
-  assert.deepEqual(policy.isSimulatorRoutingActive("test", { ...OPEN, STUART_LIVE_ACTIVATION_ENABLED: undefined }), { active: true });
+  assert.deepEqual(routing("test", { ...OPEN, STUART_LIVE_ACTIVATION_ENABLED: "true" }), { active: false, reason: "stuart_live_activation_enabled" });
+  assert.deepEqual(routing("test", { ...OPEN, STUART_LIVE_ACTIVATION_ENABLED: undefined }), { active: true });
 });
 
 test("GATE cond.7 merchant mode: anything but \"test\" closes the gate", () => {
   for (const mode of ["live", "LIVE", "Test", "", undefined, null, 1, "sandbox"]) {
-    assert.deepEqual(policy.isSimulatorRoutingActive(mode, OPEN), { active: false, reason: "merchant_mode_not_test" }, String(mode));
+    assert.deepEqual(routing(mode, OPEN), { active: false, reason: "merchant_mode_not_test" }, String(mode));
   }
 });
 
@@ -124,34 +142,35 @@ test("AUTH: operator secret -- constant-time exact match; short/missing configur
   assert.equal(auth.extractBearer(`Basic abc`), null);
 });
 
-test("TOKEN (MSIM-AUTH-03): single-use -- second consumption of the same token is refused; bound to reference/URLs/transaction; expires; tamper-evident", () => {
-  const env = { PAYMENT_MONETICO_SIMULATOR_SECRET: SECRET };
-  const registry = session.createDecisionTokenRegistry();
-  const now = new Date(Date.UTC(2026, 9, 13, 10, 0, 0));
-  const b = { reference: "abc123def456", transactionId: "txn-1", urlRetourOk: "https://checkout.example.test/checkout/return/ok?x=1", urlRetourErr: "https://checkout.example.test/checkout/return/err?x=1" };
-  const expected = { reference: b.reference, urlRetourOk: b.urlRetourOk, urlRetourErr: b.urlRetourErr };
-  const token = session.issueDecisionToken({ ...b, now, env });
-  const first = session.consumeDecisionToken({ token, expected, now, env, registry });
+test("TOKEN (MSIM-AUTH-03, DB-authoritative): opaque nonce; issue requires a pending attempt; consume is single-use, bound and expiring -- state lives in the database, not in the process", async (t) => {
+  const db = testProjectDb(t);
+  db.addMerchant({ id: "resto-A", mode: "test", isEnabled: true, configurationStatus: "verified", credential: { tpe: SYNTHETIC_TPES.A, societe: "s", securityKey: "0123456789abcdef0123456789abcdef01234567" } });
+  db.addOrder({ id: "order-A", restaurantId: "resto-A", publicToken: "tok-A", paymentStatus: "failed", total: "25.00", currency: "EUR" });
+  const ready = await initiateCheckout({ orderId: "order-A", publicToken: "tok-A" });
+  assert.equal(ready.outcome, "ready");
+  if (ready.outcome !== "ready") return;
+  const expected = { reference: ready.fields.reference, urlRetourOk: ready.fields.url_retour_ok!, urlRetourErr: ready.fields.url_retour_err! };
+  const issued = await session.issueDecisionToken({ providerReference: expected.reference, urlRetourOk: expected.urlRetourOk, urlRetourErr: expected.urlRetourErr });
+  assert.match(issued.token, /^[0-9a-f]{32}$/);
+  assert.equal(db.decisionTokens.get(issued.token)!.transactionId, issued.transactionId);
+  const first = await session.consumeDecisionToken({ token: issued.token, expected });
   assert.equal(first.ok, true);
-  if (first.ok) assert.equal(first.payload.transactionId, "txn-1");
-  assert.deepEqual(session.consumeDecisionToken({ token, expected, now, env, registry }), { ok: false, reason: "token_already_used" });
-  // Fresh token, other bindings
-  const t2 = session.issueDecisionToken({ ...b, now, env });
-  assert.deepEqual(session.consumeDecisionToken({ token: t2, expected: { ...expected, reference: "abc123def457" }, now, env, registry }), { ok: false, reason: "token_binding_mismatch" });
-  assert.deepEqual(session.consumeDecisionToken({ token: t2, expected: { ...expected, urlRetourOk: "https://evil.example/ok" }, now, env, registry }), { ok: false, reason: "token_binding_mismatch" });
-  assert.deepEqual(session.consumeDecisionToken({ token: t2, expected, now: new Date(now.getTime() + (session.DECISION_TOKEN_TTL_SECONDS + 1) * 1000), env, registry }), { ok: false, reason: "token_expired" });
-  assert.deepEqual(session.consumeDecisionToken({ token: t2, expected, now, env: { PAYMENT_MONETICO_SIMULATOR_SECRET: SECRET + "2" }, registry }), { ok: false, reason: "token_signature_invalid" });
-  const [payload, sig] = t2.split(".");
-  assert.deepEqual(session.consumeDecisionToken({ token: `${payload}.${sig.replace(/^./, (c) => (c === "0" ? "1" : "0"))}`, expected, now, env, registry }), { ok: false, reason: "token_signature_invalid" });
-  // Payload tampering (transactionId swap) invalidates the signature.
-  const tampered = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload, "base64url").toString("utf8")), transactionId: "txn-2" }), "utf8").toString("base64url");
-  assert.deepEqual(session.consumeDecisionToken({ token: `${tampered}.${sig}`, expected, now, env, registry }), { ok: false, reason: "token_signature_invalid" });
-  for (const bad of [undefined, "", "a.b", "x".repeat(64), 42]) {
-    assert.equal(session.consumeDecisionToken({ token: bad, expected, now, env, registry }).ok, false, String(bad));
+  assert.deepEqual(await session.consumeDecisionToken({ token: issued.token, expected }), { ok: false, reason: "token_already_used" });
+  const t2 = await session.issueDecisionToken({ providerReference: expected.reference, urlRetourOk: expected.urlRetourOk, urlRetourErr: expected.urlRetourErr });
+  assert.deepEqual(await session.consumeDecisionToken({ token: t2.token, expected: { ...expected, urlRetourOk: "https://evil.example/ok" } }), { ok: false, reason: "token_binding_mismatch" });
+  assert.deepEqual(await session.consumeDecisionToken({ token: t2.token, expected: { ...expected, reference: "000000000000" } }), { ok: false, reason: "token_binding_mismatch" });
+  db.nowMs += (session.DECISION_TOKEN_TTL_SECONDS + 1) * 1000;
+  assert.deepEqual(await session.consumeDecisionToken({ token: t2.token, expected }), { ok: false, reason: "token_expired" });
+  assert.deepEqual(await session.consumeDecisionToken({ token: "f".repeat(32), expected }), { ok: false, reason: "token_unknown" });
+  for (const bad of [undefined, "", "a.b", "x".repeat(32), 42]) {
+    assert.deepEqual(await session.consumeDecisionToken({ token: bad, expected }), { ok: false, reason: "token_malformed" }, String(bad));
   }
-  // The untouched valid t2 is still consumable exactly once.
-  assert.equal(session.consumeDecisionToken({ token: t2, expected, now, env, registry }).ok, true);
-  assert.deepEqual(session.consumeDecisionToken({ token: t2, expected, now, env, registry }), { ok: false, reason: "token_already_used" });
+  // Attempt no longer pending -> issuance refused by the database.
+  db.txnByReference("monetico", expected.reference)!.status = "paid";
+  await assert.rejects(session.issueDecisionToken({ providerReference: expected.reference, urlRetourOk: expected.urlRetourOk, urlRetourErr: expected.urlRetourErr }));
+  // Production project (no authority): every token RPC fails -> consume reports service unavailable, issue throws.
+  db.authority = null;
+  assert.deepEqual(await session.consumeDecisionToken({ token: t2.token, expected }), { ok: false, reason: "token_service_unavailable" });
   assert.equal(session.isSameCanonicalOrigin("https://checkout.example.test.evil.example/ok", "https://checkout.example.test"), false);
 });
 
@@ -164,8 +183,7 @@ function formRequest(path: string, fields: Record<string, string>, headers: Reco
 }
 
 test("ROUTES: production deployment -> both simulator routes answer 404 with empty body, no RPC call", async (t) => {
-  const db = new InMemoryPaymentDb();
-  db.install(t, client);
+  const db = testProjectDb(t);
   await withEnv({ VERCEL_ENV: "production" }, async () => {
     const page = await pagePOST(formRequest("/api/internal/payments/monetico/simulator/page", { reference: "abc" }));
     assert.equal(page.status, 404);
@@ -176,36 +194,47 @@ test("ROUTES: production deployment -> both simulator routes answer 404 with emp
   assert.deepEqual(db.calls, []);
 });
 
-test("ROUTES: gate closed by tenant boundary (client pointed at another project) -> 404, no RPC", async (t) => {
+test("ROUTES: PRODUCTION PROJECT (no authority function) with every environment variable set consistently -> both routes 404; the ONLY RPC ever issued is the failed authority read", async (t) => {
   const db = new InMemoryPaymentDb();
-  db.install(t, client);
-  await withEnv({ NEXT_PUBLIC_SUPABASE_URL: `https://${OTHER_PROJECT_REF}.supabase.co` }, async () => {
+  db.install(t, client); // authority NOT installed = production
+  assert.equal((await pagePOST(formRequest("/api/internal/payments/monetico/simulator/page", { reference: "abc" }))).status, 404);
+  assert.equal((await decidePOST(formRequest("/api/internal/payments/monetico/simulator/decide", { scenario: "paid", operatorSecret: SECRET }))).status, 404);
+  assert.deepEqual([...new Set(db.calls.map((c) => c.name))], ["get_simulator_authority"]);
+});
+
+test("ROUTES: test project whose database holds a LIVE merchant -> authority revoked -> 404", async (t) => {
+  const db = testProjectDb(t);
+  db.addMerchant({ id: "resto-L", mode: "live", isEnabled: true, configurationStatus: "verified", credential: { tpe: "1111111", societe: "s", securityKey: "0".repeat(40) } });
+  assert.equal((await pagePOST(formRequest("/api/internal/payments/monetico/simulator/page", { reference: "abc" }))).status, 404);
+});
+
+test("ROUTES: gate closed by environment preconditions -> 404 and NO RPC at all (authority never queried)", async (t) => {
+  const db = testProjectDb(t);
+  await withEnv({ VERCEL_ENV: undefined }, async () => {
     assert.equal((await pagePOST(formRequest("/api/internal/payments/monetico/simulator/page", { reference: "abc" }))).status, 404);
-    assert.equal((await decidePOST(formRequest("/api/internal/payments/monetico/simulator/decide", { scenario: "paid", operatorSecret: SECRET }))).status, 404);
   });
   assert.deepEqual(db.calls, []);
 });
 
-test("ROUTES: decision without/with wrong operator secret -> 401 before any RPC; secret in query string ignored", async (t) => {
-  const db = new InMemoryPaymentDb();
-  db.install(t, client);
+test("ROUTES: decision without/with wrong operator secret -> 401; secret in query string ignored; no RPC beyond the authority read", async (t) => {
+  const db = testProjectDb(t);
   assert.equal((await decidePOST(formRequest("/api/internal/payments/monetico/simulator/decide", { scenario: "paid", reference: "abc" }))).status, 401);
   assert.equal((await decidePOST(formRequest("/api/internal/payments/monetico/simulator/decide", { scenario: "paid", reference: "abc", operatorSecret: "nope" }))).status, 401);
   const inQuery = await decidePOST(new NextRequest(`https://checkout.example.test/api/internal/payments/monetico/simulator/decide?operatorSecret=${encodeURIComponent(SECRET)}&scenario=paid`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ reference: "abc" }).toString() }));
   assert.equal(inQuery.status, 401);
-  assert.deepEqual(db.calls, []);
+  assert.deepEqual([...new Set(db.calls.map((c) => c.name))], ["get_simulator_authority"]);
 });
 
 test("ROUTES: authenticated decision with scenario ONLY in the query string -> 400 unknown_scenario", async (t) => {
-  const db = new InMemoryPaymentDb();
-  db.install(t, client);
+  const db = testProjectDb(t);
   const res = await decidePOST(new NextRequest("https://checkout.example.test/api/internal/payments/monetico/simulator/decide?scenario=paid", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", authorization: `Bearer ${SECRET}` }, body: new URLSearchParams({ reference: "abc" }).toString() }));
   assert.equal(res.status, 400);
   assert.deepEqual(await res.json(), { outcome: "invalid_request", reason: "unknown_scenario" });
-  assert.deepEqual(db.calls, []);
+  assert.deepEqual([...new Set(db.calls.map((c) => c.name))], ["get_simulator_authority"]);
 });
 
-test("ROUTES: catalog GET requires Bearer operator secret and lists exactly the catalog ids", async () => {
+test("ROUTES: catalog GET requires Bearer operator secret and lists exactly the catalog ids", async (t) => {
+  testProjectDb(t);
   assert.equal((await pageGET(new NextRequest(SIM_PAGE_URL))).status, 401);
   const okRes = await pageGET(new NextRequest(SIM_PAGE_URL, { headers: { authorization: `Bearer ${SECRET}` } }));
   assert.equal(okRes.status, 200);
@@ -218,6 +247,7 @@ test("ROUTES: catalog GET requires Bearer operator secret and lists exactly the 
 // --------------------------------------------------------------------
 
 function seedMerchantAndOrder(db: InstanceType<typeof InMemoryPaymentDb>, mode: "test" | "live") {
+  if (mode === "test") db.installAuthority(AUTHORITY_ROW);
   db.addMerchant({ id: "resto-A", mode, isEnabled: true, configurationStatus: "verified", credential: { tpe: SYNTHETIC_TPES.A, societe: "societeA", securityKey: "0123456789abcdef0123456789abcdef01234567" } });
   // `failed` = previous refused attempt; a retry is a legitimate fresh
   // initiation TODAY. The `not_required` guard is NOT bypassed.
@@ -246,11 +276,22 @@ test("RUNTIME: merchant mode LIVE -> REAL live Monetico URL, simulator never inv
   if (result.outcome === "ready") assert.equal(result.submissionUrl, MONETICO_LIVE_PAYMENT_SUBMISSION_URL);
 });
 
+test("RUNTIME: PRODUCTION PROJECT (no authority) with consistent variables -> REAL test Monetico URL; attempt still created normally", async (t) => {
+  const db = new InMemoryPaymentDb();
+  db.install(t, client);
+  db.addMerchant({ id: "resto-A", mode: "test", isEnabled: true, configurationStatus: "verified", credential: { tpe: SYNTHETIC_TPES.A, societe: "societeA", securityKey: "0123456789abcdef0123456789abcdef01234567" } });
+  db.addOrder({ id: "order-A", restaurantId: "resto-A", publicToken: "tok-A", paymentStatus: "failed", total: "25.00", currency: "EUR" });
+  const result = await initiateCheckout({ orderId: "order-A", publicToken: "tok-A" });
+  assert.equal(result.outcome, "ready");
+  if (result.outcome === "ready") assert.equal(result.submissionUrl, MONETICO_TEST_PAYMENT_SUBMISSION_URL);
+});
+
 for (const [label, override] of [
   ["production deployment", { VERCEL_ENV: "production" }],
   ["platform metadata missing", { VERCEL_ENV: undefined }],
   ["client pointed at another Supabase project", { NEXT_PUBLIC_SUPABASE_URL: `https://${OTHER_PROJECT_REF}.supabase.co` }],
   ["service-role key of another project", { SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF) }],
+  ["declared production ref equals the authority's ref", { SCANYM_PRODUCTION_SUPABASE_PROJECT_REF: TEST_PROJECT_REF }],
   ["Stuart live activation enabled", { STUART_LIVE_ACTIVATION_ENABLED: "true" }],
   ["simulator disabled (default)", { PAYMENT_MONETICO_SIMULATOR_ENABLED: undefined, PAYMENT_MONETICO_SIMULATOR_SECRET: undefined }],
 ] as const) {

@@ -84,7 +84,34 @@ const ok = (row: unknown): RpcResult => ({ data: [row], error: null });
 const empty = (): RpcResult => ({ data: [], error: null });
 const reject = (code: string, message: string): RpcResult => ({ data: null, error: { code, message } });
 
+export interface SimulatorAuthorityRow {
+  projectRef: string;
+  authoritySecret: string;
+  allowedTpes: string[];
+}
+
+export interface DecisionTokenRow {
+  nonce: string;
+  restaurantId: string;
+  orderId: string;
+  transactionId: string;
+  providerReference: string;
+  urlRetourOk: string;
+  urlRetourErr: string;
+  expiresAtMs: number;
+  consumedAtMs: number | null;
+}
+
 export class InMemoryPaymentDb {
+  /**
+   * v1.2 (MSIM-SEC-01): models whether DRAFT-lot-monetico-simulator-test-
+   * authority-v1.sql was applied to THIS database. `null` = the
+   * PRODUCTION project (functions absent -> every authority RPC fails
+   * with 42883). When present, Stuart allocation RPCs are REVOKED (§4)
+   * and answer 42501, exactly as on the real test project.
+   */
+  authority: SimulatorAuthorityRow | null = null;
+  decisionTokens = new Map<string, DecisionTokenRow>();
   merchants = new Map<string, Merchant>();
   orders = new Map<string, OrderRow>();
   transactions = new Map<string, TransactionRow>();
@@ -126,8 +153,43 @@ export class InMemoryPaymentDb {
     });
   }
 
+  installAuthority(row: SimulatorAuthorityRow) {
+    this.authority = row;
+  }
+
+  private hasLiveMerchant(): boolean {
+    return [...this.merchants.values()].some((m) => m.mode === "live");
+  }
+
   handle(name: string, a: Record<string, unknown>): RpcResult {
     switch (name) {
+      case "get_simulator_authority": {
+        if (!this.authority) return reject("42883", "function public.get_simulator_authority() does not exist");
+        if (this.hasLiveMerchant()) return reject("42501", "marchand(s) LIVE présent(s) -- autorité révoquée");
+        return ok({ project_ref: this.authority.projectRef, authority_secret: this.authority.authoritySecret, allowed_tpes: this.authority.allowedTpes });
+      }
+      case "issue_simulator_decision_token": {
+        if (!this.authority) return reject("42883", "function does not exist");
+        const nonce = String(a.p_nonce);
+        if (!/^[0-9a-f]{32}$/.test(nonce)) return reject("22023", "nonce invalide");
+        const t = this.txnByReference(String(a.p_provider_code), String(a.p_provider_reference));
+        if (!t) return reject("P0002", "tentative introuvable");
+        if (t.status !== "pending") return reject("42501", "tentative non pending");
+        const ttl = Math.min(Math.max(Number(a.p_ttl_seconds ?? 600), 30), 900);
+        if (this.decisionTokens.has(nonce)) return reject("23505", "duplicate nonce");
+        this.decisionTokens.set(nonce, { nonce, restaurantId: t.restaurantId, orderId: t.orderId, transactionId: t.id, providerReference: t.providerReference, urlRetourOk: String(a.p_url_retour_ok), urlRetourErr: String(a.p_url_retour_err), expiresAtMs: this.nowMs + ttl * 1000, consumedAtMs: null });
+        return ok({ nonce, transaction_id: t.id, order_id: t.orderId, restaurant_id: t.restaurantId, expires_at: new Date(this.nowMs + ttl * 1000).toISOString() });
+      }
+      case "consume_simulator_decision_token": {
+        if (!this.authority) return reject("42883", "function does not exist");
+        const row = this.decisionTokens.get(String(a.p_nonce));
+        if (!row) return reject("P0002", "jeton inconnu");
+        if (row.consumedAtMs !== null) return reject("42501", "jeton déjà consommé");
+        if (row.expiresAtMs <= this.nowMs) return reject("22023", "jeton expiré");
+        if (row.providerReference !== a.p_provider_reference || row.urlRetourOk !== a.p_url_retour_ok || row.urlRetourErr !== a.p_url_retour_err) return reject("23514", "liaison divergente");
+        row.consumedAtMs = this.nowMs;
+        return ok({ nonce: row.nonce, transaction_id: row.transactionId, order_id: row.orderId, restaurant_id: row.restaurantId });
+      }
       case "get_order_payment_context": {
         const o = this.orders.get(String(a.p_order_id));
         if (!o || o.publicToken !== a.p_public_token) return empty();
@@ -337,6 +399,7 @@ export class InMemoryPaymentDb {
         return ok({ eligible: true, reason_code: "ELIGIBLE", merchant_environment: "sandbox" });
       }
       case "allocate_stuart_delivery_job": {
+        if (this.authority) return reject("42501", "permission denied for function allocate_stuart_delivery_job (revoked on the simulator test project, §4)");
         for (const j of this.stuartJobs.values()) {
           if (j.orderId === a.p_order_id) {
             return ok({ id: j.id, client_reference: j.clientReference, is_new_allocation: false, send_state: j.sendState, stuart_job_id: j.stuartJobId, collision: false });
@@ -351,6 +414,7 @@ export class InMemoryPaymentDb {
       case "mark_stuart_delivery_job_ambiguous":
       case "mark_stuart_delivery_job_terminal_failure":
       case "confirm_stuart_delivery_job_created": {
+        if (this.authority) return reject("42501", "permission denied (revoked on the simulator test project, §4)");
         const j = this.stuartJobs.get(String(a.p_id));
         if (!j) return reject("P0002", "job introuvable");
         j.sendState =

@@ -23,18 +23,24 @@ export const SYNTHETIC_TPES = { A: "1234567", C: "7654321" } as const;
 /** B is a "real" merchant TPE deliberately NOT allowlisted. */
 export const REAL_LOOKING_TPE_B = "2345678";
 
-/** Environment that opens every gate condition (v1.1). */
+/** v1.2: the DB authority row the test project returns (installed on the in-memory model). */
+export const AUTHORITY_ROW = {
+  projectRef: TEST_PROJECT_REF,
+  authoritySecret: "v165-authority-secret-synthetic-DO-NOT-USE-".padEnd(64, "0"),
+  allowedTpes: [SYNTHETIC_TPES.A, SYNTHETIC_TPES.C] as string[],
+};
+
+/** Environment that satisfies every ENV-level gate condition (v1.2). The
+ *  tenant boundary itself now comes from the DB authority, not from here. */
 export function openGateEnv(): Record<string, string> {
   return {
     PAYMENT_MONETICO_SIMULATOR_ENABLED: "true",
     PAYMENT_MONETICO_SIMULATOR_SECRET: OPERATOR_SECRET,
     PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS: "preview,development",
     VERCEL_ENV: "preview",
-    PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF: TEST_PROJECT_REF,
     SCANYM_PRODUCTION_SUPABASE_PROJECT_REF: OTHER_PROJECT_REF,
     NEXT_PUBLIC_SUPABASE_URL: TEST_SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(TEST_PROJECT_REF),
-    PAYMENT_MONETICO_SIMULATOR_ALLOWED_TPES: `${SYNTHETIC_TPES.A},${SYNTHETIC_TPES.C}`,
     STUART_LIVE_ACTIVATION_ENABLED: "false",
     PAYMENT_CHECKOUT_RUNTIME_ENABLED: "true",
     SCANYM_PUBLIC_ORIGIN: "https://checkout.example.test",

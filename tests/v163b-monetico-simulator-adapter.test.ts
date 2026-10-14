@@ -250,11 +250,11 @@ test("STRUCTURAL: the simulator contains NO provider hostname and never imports 
   }
 });
 
-test("STRUCTURAL: the checkout runtime's ONLY new dependency is simulator/policy.ts and the substitution is guarded by isSimulatorRoutingActive", () => {
+test("STRUCTURAL: the checkout runtime's ONLY new dependencies are simulator/policy.ts (URL builder) and simulator/gate.ts (DB-anchored verdict), and the substitution is guarded by resolveSimulatorRouting", () => {
   const runtime = readFileSync(join(process.cwd(), "lib/server/payment-checkout-runtime.ts"), "utf8");
   const simImports = runtime.match(/from "@\/lib\/server\/payment-providers\/monetico\/simulator\/[^"]+"/g) ?? [];
-  assert.deepEqual(simImports, ['from "@/lib/server/payment-providers/monetico/simulator/policy"']);
-  assert.match(runtime, /if \(isSimulatorRoutingActive\(environment\.mode\)\.active\) \{\s*submissionUrl = buildSimulatorSubmissionUrl\(origin\);\s*\}/);
+  assert.deepEqual(simImports, ['from "@/lib/server/payment-providers/monetico/simulator/policy"', 'from "@/lib/server/payment-providers/monetico/simulator/gate"']);
+  assert.match(runtime, /if \(\(await resolveSimulatorRouting\(environment\.mode\)\)\.verdict\.active\) \{\s*submissionUrl = buildSimulatorSubmissionUrl\(origin\);\s*\}/);
   assert.equal((runtime.match(/buildSimulatorSubmissionUrl\(/g) ?? []).length, 1);
 });
 
@@ -263,8 +263,13 @@ test("STRUCTURAL: no new runtime dependency added to package.json by the simulat
   assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["@supabase/supabase-js", "fflate", "next", "react", "react-dom", "saxes", "server-only"]);
 });
 
-test("STRUCTURAL: no existing payment SQL function is modified and no SQL file is added by this lot", () => {
+test("STRUCTURAL (v1.2): exactly the TEST-PROJECT authority lot + its rollback are added under supabase/; no existing payment SQL function is redefined by it", () => {
   const sqlDir = join(process.cwd(), "supabase");
-  const names = readdirSync(sqlDir).filter((n) => n.endsWith(".sql"));
-  assert.ok(!names.some((n) => /simulator/i.test(n)));
+  const names = readdirSync(sqlDir).filter((n) => /simulator/i.test(n)).sort();
+  assert.deepEqual(names, ["DRAFT-lot-monetico-simulator-test-authority-v1-rollback.sql", "DRAFT-lot-monetico-simulator-test-authority-v1.sql"]);
+  const draft = readFileSync(join(sqlDir, names[1]), "utf8");
+  const created = [...draft.matchAll(/create (?:or replace )?function public\.([a-z_]+)\(/g)].map((m) => m[1]).sort();
+  assert.deepEqual(created, ["consume_simulator_decision_token", "get_simulator_authority", "issue_simulator_decision_token"]);
+  assert.ok(!/alter table public\.(orders|payment_transactions|payment_provider_configs|payment_provider_events)/.test(draft), "no payment table altered");
+  assert.ok(/mode = 'live'/.test(draft), "production exclusion anchored in data (live merchant check)");
 });

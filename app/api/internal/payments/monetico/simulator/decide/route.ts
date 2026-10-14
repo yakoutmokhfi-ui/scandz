@@ -2,7 +2,7 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import {
   handleSimulatorDecision,
-  evaluateSimulatorEnvironment,
+  resolveSimulatorGate,
   extractSimulatorBearer,
 } from "@/lib/server/payment-simulator-runtime";
 
@@ -40,7 +40,7 @@ async function parseBody(request: NextRequest): Promise<Record<string, unknown> 
 }
 
 export async function POST(request: NextRequest) {
-  if (!evaluateSimulatorEnvironment().active) return new NextResponse(null, { status: 404 });
+  if (!(await resolveSimulatorGate()).verdict.active) return new NextResponse(null, { status: 404 });
   const body = await parseBody(request);
   if (body === null) return NextResponse.json({ outcome: "invalid_request" }, { status: 400 });
 

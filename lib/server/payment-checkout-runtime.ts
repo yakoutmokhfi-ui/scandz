@@ -27,10 +27,8 @@ import {
   mapToMoneticoShipping,
 } from "@/lib/server/payment-providers/monetico/billing-mapping";
 import { MoneticoProtocolError } from "@/lib/server/payment-providers/monetico/errors";
-import {
-  isSimulatorRoutingActive,
-  buildSimulatorSubmissionUrl,
-} from "@/lib/server/payment-providers/monetico/simulator/policy";
+import { buildSimulatorSubmissionUrl } from "@/lib/server/payment-providers/monetico/simulator/policy";
+import { resolveSimulatorRouting } from "@/lib/server/payment-providers/monetico/simulator/gate";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — CHECKOUT INITIATION
@@ -426,7 +424,11 @@ export async function initiateCheckout(
   // retour -- le simulateur ne remplace que la partie EXTERNE.
   // Fermé -> `submissionUrl` reste l'URL Monetico réelle résolue en §8.
   // ------------------------------------------------------------
-  if (isSimulatorRoutingActive(environment.mode).active) {
+  // v1.2 : la décision est ancrée sur l'AUTORITÉ EN BASE du projet de
+  // test (`get_simulator_authority()`, absente en production) -- jamais
+  // sur des variables d'environnement seules. Aucun RPC n'est émis tant
+  // que les préconditions d'environnement pures ne sont pas réunies.
+  if ((await resolveSimulatorRouting(environment.mode)).verdict.active) {
     submissionUrl = buildSimulatorSubmissionUrl(origin);
   }
 

@@ -16,7 +16,8 @@ import assert from "node:assert/strict";
 
 const envHelper = await import("./helpers/monetico-simulator-env.ts");
 envHelper.installOpenGateEnvGlobally();
-const { openGateEnv, withEnv, OPERATOR_SECRET: SECRET, OTHER_PROJECT_REF, syntheticServiceRoleJwt, SYNTHETIC_TPES } = envHelper;
+const { openGateEnv, withEnv, OPERATOR_SECRET: SECRET, OTHER_PROJECT_REF, syntheticServiceRoleJwt, SYNTHETIC_TPES, AUTHORITY_ROW } = envHelper;
+const AUTH = { projectRef: AUTHORITY_ROW.projectRef, allowedTpes: AUTHORITY_ROW.allowedTpes };
 
 const policy = await import("../lib/server/payment-providers/monetico/simulator/policy.ts");
 const { NextRequest } = await import("next/server");
@@ -34,6 +35,7 @@ const CRED_A = { tpe: SYNTHETIC_TPES.A, societe: "societeA", securityKey: "01234
 function seed(t: { mock: { method: Function } }) {
   const db = new InMemoryPaymentDb();
   db.install(t, client);
+  db.installAuthority(AUTHORITY_ROW);
   db.addMerchant({ id: "resto-A", mode: "test", isEnabled: true, configurationStatus: "verified", credential: CRED_A });
   db.addOrder({ id: "order-A1", restaurantId: "resto-A", publicToken: "tok-A1", paymentStatus: "failed", total: "25.00", currency: "EUR" });
   db.addOrder({ id: "order-A-delivery", restaurantId: "resto-A", publicToken: "tok-AD", paymentStatus: "failed", total: "30.00", currency: "EUR", serviceMode: "delivery" });
@@ -83,12 +85,12 @@ test("MSIM-SEC-01 (a): simulator enabled on a preview deployment whose service-r
     SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF),
     // No PAYMENT_MONETICO_SIMULATOR_SUPABASE_PROJECT_REF: nothing authorizes this project.
   };
-  const verdict = policy.isSimulatorRoutingActive("test", productionClient);
-  assert.equal(verdict.active, false, "v1 opened the gate for ANY Supabase project; v1.1 requires an authorized, verified test project");
+  const verdict = policy.isSimulatorRoutingActive("test", productionClient, null);
+  assert.equal(verdict.active, false, "v1 opened the gate for ANY Supabase project; v1.1+ requires a trusted test-project authority");
 });
 
 test("MSIM-SEC-01 (b): a production service-role key pointed at the authorized test URL -> gate MUST be closed (key/project identity mismatch)", () => {
-  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF) });
+  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, SUPABASE_SERVICE_ROLE_KEY: syntheticServiceRoleJwt(OTHER_PROJECT_REF) }, AUTH);
   assert.equal(verdict.active, false);
 });
 
@@ -103,19 +105,19 @@ test("MSIM-SEC-01 (c): a test-mode merchant with a REAL (non-synthetic) TPE must
 // ------------------------------------------------------------------ ENV-02
 
 test("MSIM-ENV-02 (a): platform metadata missing (VERCEL_ENV unset) with NODE_ENV=test -> gate MUST be closed", () => {
-  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: undefined, NODE_ENV: "test" });
+  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: undefined, NODE_ENV: "test" }, AUTH);
   assert.equal(verdict.active, false, "v1 fell back to NODE_ENV when platform metadata was missing");
 });
 
 test("MSIM-ENV-02 (b): no explicit environment allowlist configured -> gate MUST be closed even on a preview deployment", () => {
-  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS: undefined });
+  const verdict = policy.isSimulatorRoutingActive("test", { ...OPEN, PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS: undefined }, AUTH);
   assert.equal(verdict.active, false, "v1 had an implicit allowlist; v1.1 requires an explicit one");
 });
 
 test("MSIM-ENV-02 (c): unknown environment and production -> closed (negative tests)", () => {
-  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "staging" }).active, false);
-  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "production" }).active, false);
-  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "production", PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS: "production" }).active, false);
+  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "staging" }, AUTH).active, false);
+  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "production" }, AUTH).active, false);
+  assert.equal(policy.isSimulatorRoutingActive("test", { ...OPEN, VERCEL_ENV: "production", PAYMENT_MONETICO_SIMULATOR_ALLOWED_ENVIRONMENTS: "production" }, AUTH).active, false);
 });
 
 // ------------------------------------------------------------------ AUTH-03
