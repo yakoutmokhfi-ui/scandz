@@ -269,20 +269,18 @@ test("[V12-RB-4] toutes les gardes précèdent la PREMIÈRE modification du sch�
   assert.ok(rbCode.indexOf("SCANYM_ROLLBACK_NOT_APPLICABLE") < rbCode.indexOf("[CSDJ3_INSTALLED]"));
 });
 
-test("[V12-RB-5] la garde d'appelant orphelin exclut TOUTES les fonctions du moteur (aucun faux positif sur l'état nominal)", () => {
-  const m = /p\.proname not in \(([\s\S]*?)\)\s*and p\.prosrc/.exec(rbCode);
-  assert.ok(m, "liste d'exclusion introuvable");
-  const excluded = new Set([...m[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]));
-  for (const n of createdFunctionNames(code)) assert.ok(excluded.has(n), `fonction du moteur non exclue : ${n}`);
-  // …et surveille l'ensemble des objets du moteur (sauf le répartiteur, restauré par le retour)
-  const scan = /p\.prosrc ~\* '\(([^']*)\)'/.exec(rbCode);
-  assert.ok(scan);
-  const watched = new Set(scan[1].split("|"));
+test("[V12-RB-5] la garde d'appelant orphelin exclut le moteur PAR OID EXACT (aucune exemption par nom) et surveille tout le moteur", () => {
+  assert.doesNotMatch(rbCode, /proname not in/, "l'exemption par nom a été remplacée par une exclusion par OID (remédiation RB02-CALLER-01)");
+  assert.match(rbCode, /r\.oid <> all \(v_eng\)/);
+  const names = /v_names constant text\[\] := array\[([\s\S]*?)\];/.exec(rbCode);
+  assert.ok(names, "liste des noms surveillés introuvable");
+  const watched = new Set([...names[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]));
   for (const n of createdFunctionNames(code)) {
     if (n === "resolve_fulfillment_schedule") continue;
     assert.ok(watched.has(n), `appel de ${n} non surveillé`);
   }
   assert.ok(watched.has("order_fulfillment_capacity_reservation"));
+  assert.ok(watched.has("resolve_fulfillment_schedule_v1"), "le résolveur renommé disparaît au retour");
   assert.ok(!watched.has("resolve_fulfillment_schedule"), "le répartiteur est restauré : ne pas le surveiller");
 });
 

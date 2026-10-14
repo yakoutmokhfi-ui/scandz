@@ -52,6 +52,15 @@
 #        de schéma, empreinte de create_order, appelant orphelin) ; ordre
 #        inverse du déploiement démontré de bout en bout
 #   [19] contrôles par mutation de chacune de ces gardes (retirée => vue)
+#   [20] CSDJ12-RB02-RACE-02 : le retour et l'installation de CSDJ-3 (stand-in
+#        qui suit le protocole d'interface) s'excluent MUTUELLEMENT -- deux
+#        sessions PostgreSQL réelles, entrelacements forcés et observés dans
+#        pg_locks (CSDJ-3 gagne / le retour gagne / annulation / interruption),
+#        état final jugé ; REPEATABLE READ refusé
+#   [21] CSDJ12-RB02-CALLER-01 : consommateurs hors schéma public, dépendances
+#        enregistrées, pg_cron, exclusion du moteur par OID ; SQL dynamique :
+#        limite DÉMONTRÉE, jeton de revue lié à l'état relu
+#   [22] contrôles par mutation de chacune de ces gardes, verrou compris
 #
 # CE QU'IL NE FAIT PAS : aucun appel réseau, aucune base hébergée,
 # aucune donnée réelle, aucun jour férié réel, aucune écriture hors des
@@ -522,6 +531,22 @@ trap cleanup EXIT
 DB=""
 apply_file() { psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/$1" >/dev/null 2>"$ERR"; }
 apply_path() { psql -X -d "$2" -v ON_ERROR_STOP=1 -f "$1" >"$OUT" 2>&1; }
+# RETOUR v1.2 -- le jeton de revue (CSDJ12-RB02-CALLER-01) est lu en MODE REVUE
+# (aucune modification : le mode revue se termine toujours par une erreur
+# nommée) puis présenté à l'application. Un retour qui ne connaît pas le mode
+# revue (candidat antérieur) est appliqué tel quel : le mode revue ne doit
+# JAMAIS être lancé contre lui (il s'appliquerait pour de bon).
+RB_PGOPTIONS=""
+review_token() { # $1 base ; $2 fichier ; imprime le jeton ou rien
+  grep -q 'REVIEW_ONLY' "$2" || return 0
+  PGOPTIONS="$RB_PGOPTIONS" psql -X -d "$1" -v ON_ERROR_STOP=1 -c "set scanym.csdj12_rollback_mode = 'review'" -f "$2" 2>&1 \
+    | grep -o 'jeton = [0-9a-f]\{32\}' | awk '{print $3}' | tail -1
+}
+rb_apply() { # $1 base ; $2 fichier (défaut : le vrai retour) ; $3 jeton explicite (défaut : relu en mode revue)
+  local db="$1" file="${2:-$SUPABASE_DIR/$LOT_ROLLBACK}" tok="${3-__auto__}"
+  [ "$tok" = "__auto__" ] && tok="$(review_token "$db" "$file")"
+  PGOPTIONS="$RB_PGOPTIONS" psql -X -d "$db" -v ON_ERROR_STOP=1 -c "set scanym.csdj12_rollback_review_token = '${tok}'" -f "$file" >"$OUT" 2>&1
+}
 
 # UNE REQUÊTE DE PREUVE QUI ÉCHOUE NE DOIT JAMAIS RESSEMBLER À UN
 # ENSEMBLE VIDE : « vide » est une valeur ATTENDUE par plusieurs
@@ -1790,7 +1815,7 @@ rb_refuses "une réservation de capacité" \
 sql_on "$DB_RB" "$V1_ROW; insert into public.restaurant_fulfillment_schedule_window (restaurant_id, mode_code, rule_key, weekday, starts_at, ends_at) values ('$RID_A','pickup','$NIL_RULE',2,'11:00','14:00'); insert into public.restaurant_fulfillment_schedule_closure (restaurant_id, mode_code, rule_key, closed_on) values ('$RID_A','pickup','$NIL_RULE','2026-12-25');" >/dev/null
 V1DATA_SQL="select md5(coalesce((select string_agg(concat_ws('|',restaurant_id,mode_code,rule_key,timezone,enabled,date_selection_mode,slot_selection_mode,lead_time_minutes,min_lead_days,cutoff_time,cutoff_offset_days,booking_horizon_days,schedule_method_version), ';' order by restaurant_id, mode_code, rule_key) from public.restaurant_fulfillment_schedule),'') || (select coalesce(string_agg(concat_ws('|',weekday,starts_at,ends_at), ';' order by weekday, starts_at), '') from public.restaurant_fulfillment_schedule_window) || (select coalesce(string_agg(closed_on::text, ';' order by closed_on), '') from public.restaurant_fulfillment_schedule_closure));"
 V1DATA_BEFORE="$(sql_on "$DB_RB" "$V1DATA_SQL")"
-if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_RB"; then pass "[13] le retour s'applique (aucune donnée v1.2)"
+if rb_apply "$DB_RB"; then pass "[13] le retour s'applique (aucune donnée v1.2)"
 else fail "[13] le retour ÉCHOUE : $(tail -5 "$OUT" | tr '\n' ' ')"; fi
 assert_eq "[13a] la configuration v1 (planification, fenêtres, fermetures) traverse le retour INTACTE" "$V1DATA_BEFORE" "$(sql_on "$DB_RB" "$V1DATA_SQL")"
 sql_on "$DB_RB" "delete from public.restaurant_fulfillment_schedule;" >/dev/null
@@ -2002,7 +2027,7 @@ rb_refused "appelant orphelin du moteur (cite la TABLE de réservation)" "create
 # Témoin POSITIF : create_order stocké en CRLF (comme PROD pour update_order_status) = même empreinte LF.
 rb_db
 [ "$(outcome_on "$DB_NEG" "do \$o\$ declare v_def text; v_src text; begin select pg_get_functiondef(p.oid), p.prosrc into v_def, v_src from pg_proc p where p.oid='public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)'::regprocedure; set check_function_bodies = off; execute replace(v_def, v_src, replace(v_src, E'\\n', E'\\r\\n')); end \$o\$;")" = "OK" ] || fatal "[18] mise en place CRLF impossible"
-if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_NEG"; then pass "[18-crlf] le retour s'applique : create_order stocké en CRLF a la même empreinte LF (neutre)"
+if rb_apply "$DB_NEG"; then pass "[18-crlf] le retour s'applique : create_order stocké en CRLF a la même empreinte LF (neutre)"
 else fail "[18-crlf] le retour refuse un simple stockage CRLF : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
 
 # ORDRE INVERSE, de bout en bout.
@@ -2019,7 +2044,7 @@ if cmp -s "$TMP_DIR/inv.rb4.cs3" "$TMP_DIR/inv.rb4.cs3b"; then pass "[18e] le re
 # Retrait de CSDJ-3 (contrat §13.1 : supprime la table snapshot, restaure create_order épinglé, ne touche jamais au moteur).
 [ "$(outcome_on "$DB_NEG" "drop table public.order_fulfillment_schedule_snapshot;")" = "OK" ] || fatal "[18] retrait du marqueur CSDJ-3 impossible."
 psql -X -d "$DB_NEG" -v ON_ERROR_STOP=1 -q -f "$PROD_CO_FIXTURE" >/dev/null 2>"$ERR" || fatal "[18] restauration du create_order épinglé impossible"
-if apply_path "$SUPABASE_DIR/$LOT_ROLLBACK" "$DB_NEG"; then pass "[18f] ORDRE INVERSE : CSDJ-3 retiré d'abord, le retour v1.2 s'applique"
+if rb_apply "$DB_NEG"; then pass "[18f] ORDRE INVERSE : CSDJ-3 retiré d'abord, le retour v1.2 s'applique"
 else fail "[18f] le retour v1.2 est refusé après retrait de CSDJ-3 : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
 inventory "$DB_NEG" | sort > "$TMP_DIR/inv.rb4.final"
 if cmp -s "$TMP_DIR/inv.v1" "$TMP_DIR/inv.rb4.final"; then pass "[18g] et l'état final est IDENTIQUE à l'état PROD d'avant la v1.2 (create_order compris)"
@@ -2077,7 +2102,7 @@ mut_rb() { # $1 nom ; $2 mise en place ; $3 jeton attendu ; puis paires pyedit
   [ "$(outcome_on "$DB_NEG" "$setup")" = "OK" ] || { fail "[19] mutant « $name » : mise en place impossible"; return; }
   pyedit "$SUPABASE_DIR/$LOT_ROLLBACK" "$TMP_DIR/mutr.sql" "$@" || { fail "[19] mutant « $name » : motif introuvable (le contrôle ne contrôle rien)"; return; }
   local rc=0
-  apply_path "$TMP_DIR/mutr.sql" "$DB_NEG" || rc=$?
+  rb_apply "$DB_NEG" "$TMP_DIR/mutr.sql" || rc=$?
   MUT_RB_AFTER=""
   if [ "$rc" -ne 0 ] && grep -q "SCANYM_ROLLBACK_REFUSED" "$OUT" && grep -qF -- "[$tok]" "$OUT"; then
     fail "[19] mutant « $name » NON DÉTECTÉ : le même refus [$tok] subsiste sans la garde"
@@ -2088,13 +2113,338 @@ mut_rb() { # $1 nom ; $2 mise en place ; $3 jeton attendu ; puis paires pyedit
 }
 RB_G1="if pg_catalog.to_regclass('public.order_fulfillment_schedule_snapshot') is not null then"
 RB_G2="if v_md5 is distinct from 'c327445751333e7908d60e6d7f838eb5' then"
-RB_G3="if v_caller is not null then"
+RB_G3="if v_hit is not null then"
 mut_rb "garde R-1 (marqueur CSDJ-3) retirée" "$CS3_MARKER_SQL" CSDJ3_INSTALLED "$RB_G1" "if false then"
 mut_rb "garde R-2 (empreinte de create_order) retirée" "$CS3_STANDIN_SQL" CREATE_ORDER_FINGERPRINT "$RB_G2" "if false then"
 mut_rb "garde R-3 (appelant orphelin) retirée" "create function public.some_caller() returns void language plpgsql set search_path = '' as \$f\$ begin perform 1 from public.reserve_fulfillment_capacity(null,null,null,null,null); end \$f\$;" ENGINE_CALLER "$RB_G3" "if false then"
 mut_rb "R-1, R-2 et R-3 toutes retirées (équivalent du retour tel qu'AUDITÉ)" "$CS3_MARKER_SQL $CS3_STANDIN_SQL" CSDJ3_INSTALLED "$RB_G1" "if false then" "$RB_G2" "if false then" "$RB_G3" "if false then"
 assert_has "[19-outage] sans AUCUNE garde (retour tel qu'audité), la PANNE est réelle : create_order cesse de répondre (défaut CSDJ12-RB-02)" "does not exist" "$MUT_RB_AFTER"
 psql -X -q -d postgres -c "drop database if exists \"$DB_NEG\";" >/dev/null 2>&1
+
+# ============================================================
+# [20] CSDJ12-RB02-RACE-02 -- EXCLUSION MUTUELLE entre l'installation de
+#      CSDJ-3 et le retour v1.2 : DEUX VRAIES SESSIONS PostgreSQL.
+#
+# Le DRAFT CSDJ-3 de Debussy (candidat 34cad9e) n'est pas accessible : le
+# stand-in suit le PROTOCOLE d'interface écrit dans la doc de déploiement
+#   1. verrou consultatif transactionnel 'scanym.csdj3.order-persistence.v1'
+#      (hashtextextended(..., 0)) en PREMIER ;
+#   2. prérequis (fonctions du moteur) relus APRÈS le verrou, refus sinon ;
+#   3. installation (table marqueur + create_order qui appelle le moteur).
+# Il n'est PAS le patch de Debussy ; ce que l'on prouve est le comportement de
+# CE retour face à un installateur qui respecte ce protocole.
+#
+# Les entrelacements sont FORCÉS (pas de sommeil chronométré) :
+#   - « barrière » = verrou consultatif de session tenu par le harnais ; une
+#     session qui l'atteint ATTEND (observé dans pg_locks), le harnais la
+#     libère en terminant le détenteur (pg_terminate_backend) ;
+#   - « retour retenu » = verrou de table (ACCESS SHARE) tenu par le harnais
+#     sur restaurant_fulfillment_prep_day : le retour, ayant PASSÉ tout son
+#     pré-vol, attend au DROP TABLE de cette table, verrou CSDJ-3 en main.
+# Tout est observé dans pg_locks / pg_stat_activity, puis l'état FINAL est
+# jugé : « cassé » = un create_order qui appelle le moteur (ou le marqueur
+# CSDJ-3) alors que le moteur n'existe plus.
+# ============================================================
+log "=== [20] RB02-RACE-02 : installation CSDJ-3 / retour v1.2, deux sessions réelles ==="
+CS3_KEY_SQL="pg_catalog.hashtextextended('scanym.csdj3.order-persistence.v1', 0)"
+GATE_KEY_SQL="pg_catalog.hashtextextended('scanym.test.gate', 0)"
+CS3_ENGINE_VAL="to_regprocedure('public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone)')"
+BROKEN_SQL="select ((coalesce((select p.prosrc ~ 'validate_fulfillment_selection' from pg_proc p where p.oid = to_regprocedure('public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)')), false) or to_regclass('public.order_fulfillment_schedule_snapshot') is not null) and $CS3_ENGINE_VAL is null)::text;"
+ENGINE_PRESENT_SQL="select ($CS3_ENGINE_VAL is not null)::text;"
+MARKER_PRESENT_SQL="select (to_regclass('public.order_fulfillment_schedule_snapshot') is not null)::text;"
+CO_MD5_SQL="select md5(replace(prosrc, chr(13)||chr(10), chr(10))) from pg_proc where oid = to_regprocedure('public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)');"
+
+cs3_script() { # $1 position de la barrière (none|p1|p2) ; $2 fin (commit|rollback) ; écrit $TMP_DIR/cs3_install.sql
+  local gate="select pg_catalog.pg_advisory_lock($GATE_KEY_SQL); select pg_catalog.pg_advisory_unlock($GATE_KEY_SQL);" g1="" g2=""
+  [ "$1" = "p1" ] && g1="$gate"; [ "$1" = "p2" ] && g2="$gate"
+  cat > "$TMP_DIR/cs3_install.sql" <<CS3INST
+begin;
+select pg_catalog.pg_advisory_xact_lock($CS3_KEY_SQL);
+do \$cs3p\$ begin
+  if to_regprocedure('public.validate_fulfillment_selection(uuid,text,uuid,date,text,text,timestamp with time zone)') is null
+     or to_regprocedure('public.reserve_fulfillment_capacity(uuid,uuid,text,uuid,date,text,text,timestamp with time zone)') is null then
+    raise exception 'SCANYM_CSDJ3_PREREQ: moteur CSDJ v1.2 absent -- installation de CSDJ-3 refusée';
+  end if;
+end \$cs3p\$;
+$g1
+$CS3_MARKER_SQL
+$CS3_STANDIN_SQL
+$g2
+$2;
+CS3INST
+}
+BG_PID=""
+bg_psql() { # $1 application_name ; $2 base ; $3 sortie ; puis arguments psql ; lance en arrière-plan, pid dans BG_PID
+  local app="$1" db="$2" out="$3"; shift 3
+  : > "$out"
+  ( PGAPPNAME="$app" PGOPTIONS="$RB_PGOPTIONS" psql -X -d "$db" -v ON_ERROR_STOP=1 "$@" >"$out" 2>&1; echo "rc=$?" >> "$out" ) &
+  BG_PID=$!
+}
+wait_cond() { # $1 base ; $2 requête (compte) ; $3 attendu ; $4 essais (50 ms) ; 0 si atteint
+  local i=0
+  while [ "$(sql_on "$1" "$2")" != "$3" ]; do i=$((i+1)); [ $i -gt "${4:-200}" ] && return 1; sleep 0.05; done
+  return 0
+}
+adv_wait_q() { # $1 application ; $2 clé SQL : verrou consultatif NON accordé attendu par cette session
+  echo "select count(*) from pg_locks l join pg_stat_activity a on a.pid = l.pid where l.locktype='advisory' and not l.granted and a.application_name='$1' and l.classid = (((($2) >> 32) & 4294967295)::bigint)::oid and l.objid = ((($2) & 4294967295)::bigint)::oid;"
+}
+adv_held_q() { # idem, verrou ACCORDÉ
+  echo "select count(*) from pg_locks l join pg_stat_activity a on a.pid = l.pid where l.locktype='advisory' and l.granted and a.application_name='$1' and l.classid = (((($2) >> 32) & 4294967295)::bigint)::oid and l.objid = ((($2) & 4294967295)::bigint)::oid;"
+}
+terminate_app() { # $1 base ; $2 application
+  sql_on "$1" "select count(*) from (select pg_terminate_backend(pid) from pg_stat_activity where application_name='$2' and pid <> pg_backend_pid()) t;" >/dev/null
+}
+start_gate() { # $1 base : tient la barrière
+  bg_psql csdj12_gate "$1" "$TMP_DIR/gate.out" -c "select pg_catalog.pg_advisory_lock($GATE_KEY_SQL); select pg_catalog.pg_sleep(900);"
+  GATE_PID=$BG_PID
+  wait_cond "$1" "$(adv_held_q csdj12_gate "$GATE_KEY_SQL")" 1 200 || fatal "[20] la barrière n'a jamais été tenue."
+}
+open_gate() { terminate_app "$1" csdj12_gate; wait "$GATE_PID" 2>/dev/null; }
+start_rb_hold() { # $1 base : verrou de table tenu, le retour ATTENDRA au DROP TABLE de prep_day
+  bg_psql csdj12_hold "$1" "$TMP_DIR/hold.out" -c "begin; lock table public.restaurant_fulfillment_prep_day in access share mode; select pg_catalog.pg_sleep(900);"
+  HOLD_PID=$BG_PID
+  wait_cond "$1" "select count(*) from pg_locks l join pg_stat_activity a on a.pid=l.pid where a.application_name='csdj12_hold' and l.locktype='relation' and l.granted and l.relation='public.restaurant_fulfillment_prep_day'::regclass;" 1 200 || fatal "[20] le verrou de table de retenue n'a jamais été tenu."
+}
+release_rb_hold() { terminate_app "$1" csdj12_hold; wait "$HOLD_PID" 2>/dev/null; }
+start_rb() { # $1 base ; $2 fichier ; $3 jeton ; lance le retour en tâche de fond (application csdj12_rb)
+  bg_psql csdj12_rb "$1" "$TMP_DIR/rb.out" -c "set scanym.csdj12_rollback_review_token = '$3'" -f "$2"
+  RB_PID=$BG_PID
+}
+start_cs3() { # $1 base
+  bg_psql csdj12_cs3 "$1" "$TMP_DIR/cs3.out" -f "$TMP_DIR/cs3_install.sql"
+  CS3_PID=$BG_PID
+}
+rc_of() { grep -o 'rc=[0-9]*' "$1" | tail -1 | cut -d= -f2; }
+race_final() { # $1 base : état final, une ligne : cassé|moteur|marqueur|md5 de create_order
+  printf '%s|%s|%s|%s' "$(sql_on "$1" "$BROKEN_SQL")" "$(sql_on "$1" "$ENGINE_PRESENT_SQL")" "$(sql_on "$1" "$MARKER_PRESENT_SQL")" "$(sql_on "$1" "$CO_MD5_SQL")"
+}
+RACE_TOKEN=""
+race_setup() { # base fraîche = état PROD + v1.2 ; jeton de revue lu AVANT toute concurrence
+  rb_db
+  RACE_TOKEN="$(review_token "$DB_NEG" "$RACE_RB_FILE")"
+}
+RACE_RB_FILE="$SUPABASE_DIR/$LOT_ROLLBACK"
+NEW_RB=0; grep -q 'REVIEW_ONLY' "$RACE_RB_FILE" && NEW_RB=1
+
+# S1/S2 : CSDJ-3 GAGNE le verrou ; il est retenu à la barrière $1 (p1 = prérequis relus, rien installé ;
+#         p2 = installé, pas encore validé) ; le retour est lancé PENDANT ce temps.
+race_cs3_first() { # $1 étiquette ; $2 barrière (p1|p2) ; $3 fin de CSDJ-3 (commit|rollback) ; $4 fichier de retour ; résultat dans R_*
+  local label="$1" pos="$2" fin="$3" file="${4:-$RACE_RB_FILE}" i=0
+  RACE_RB_FILE="$file"; race_setup
+  cs3_script "$pos" "$fin"
+  start_gate "$DB_NEG"
+  start_cs3 "$DB_NEG"
+  wait_cond "$DB_NEG" "$(adv_wait_q csdj12_cs3 "$GATE_KEY_SQL")" 1 200 || fatal "[20] « $label » : CSDJ-3 n'a jamais atteint sa barrière."
+  assert_eq "[20] « $label » : CSDJ-3 TIENT le verrou partagé pendant qu'il est retenu" "1" "$(sql_on "$DB_NEG" "$(adv_held_q csdj12_cs3 "$CS3_KEY_SQL")")"
+  start_rb "$DB_NEG" "$file" "$RACE_TOKEN"
+  R_BLOCKED=0; i=0
+  while [ $i -lt 100 ]; do
+    if [ "$(sql_on "$DB_NEG" "$(adv_wait_q csdj12_rb "$CS3_KEY_SQL")")" = "1" ]; then R_BLOCKED=1; break; fi
+    kill -0 "$RB_PID" 2>/dev/null || break
+    i=$((i+1)); sleep 0.05
+  done
+  R_RB_DONE_EARLY=0; kill -0 "$RB_PID" 2>/dev/null || R_RB_DONE_EARLY=1
+  open_gate "$DB_NEG"
+  wait "$CS3_PID" 2>/dev/null; wait "$RB_PID" 2>/dev/null
+  R_CS3_RC="$(rc_of "$TMP_DIR/cs3.out")"; R_RB_RC="$(rc_of "$TMP_DIR/rb.out")"; R_FINAL="$(race_final "$DB_NEG")"
+}
+# S3 : le RETOUR gagne ; il a passé son pré-vol, tient le verrou, attend au DROP TABLE (retenue) ;
+#      l'installation de CSDJ-3 est lancée PENDANT ce temps.
+race_rb_first() { # $1 étiquette ; $2 fichier de retour ; $3 fin : release|kill-rb
+  local label="$1" file="${2:-$RACE_RB_FILE}" how="${3:-release}" i=0
+  RACE_RB_FILE="$file"; race_setup
+  cs3_script none commit
+  start_rb_hold "$DB_NEG"
+  start_rb "$DB_NEG" "$file" "$RACE_TOKEN"
+  wait_cond "$DB_NEG" "select count(*) from pg_stat_activity where application_name='csdj12_rb' and wait_event_type='Lock' and wait_event='relation';" 1 200 || fatal "[20] « $label » : le retour n'a jamais atteint sa retenue."
+  R_RB_HOLDS_LOCK="$(sql_on "$DB_NEG" "$(adv_held_q csdj12_rb "$CS3_KEY_SQL")")"
+  start_cs3 "$DB_NEG"
+  R_BLOCKED=0; i=0
+  while [ $i -lt 100 ]; do
+    if [ "$(sql_on "$DB_NEG" "$(adv_wait_q csdj12_cs3 "$CS3_KEY_SQL")")" = "1" ]; then R_BLOCKED=1; break; fi
+    kill -0 "$CS3_PID" 2>/dev/null || break
+    i=$((i+1)); sleep 0.05
+  done
+  R_CS3_DONE_EARLY=0; kill -0 "$CS3_PID" 2>/dev/null || R_CS3_DONE_EARLY=1
+  if [ "$how" = "kill-rb" ]; then terminate_app "$DB_NEG" csdj12_rb; fi
+  release_rb_hold "$DB_NEG"
+  wait "$RB_PID" 2>/dev/null; wait "$CS3_PID" 2>/dev/null
+  R_CS3_RC="$(rc_of "$TMP_DIR/cs3.out")"; R_RB_RC="$(rc_of "$TMP_DIR/rb.out")"; R_FINAL="$(race_final "$DB_NEG")"
+}
+
+# -- S1 : CSDJ-3 gagne, retenu APRÈS installation, AVANT validation (l'état validé du retour est « sans marqueur »).
+race_cs3_first "CSDJ-3 gagne (installé, non validé)" p2 commit
+if [ "$R_BLOCKED" = 1 ] && [ "$R_RB_DONE_EARLY" = 0 ]; then pass "[20a] CSDJ-3 gagne : le retour ATTEND le verrou partagé (pg_locks : advisory non accordé), il ne s'exécute pas pendant l'installation"
+else fail "[20a] le retour N'A PAS attendu l'installation de CSDJ-3 (bloqué=$R_BLOCKED terminé_tôt=$R_RB_DONE_EARLY)"; fi
+if [ "$R_CS3_RC" = "0" ] && [ "$R_RB_RC" != "0" ] && grep -q 'CSDJ3_INSTALLED' "$TMP_DIR/rb.out"; then pass "[20b] puis le retour REFUSE nommément [CSDJ3_INSTALLED] ; CSDJ-3 est validé (rc=0)"
+else fail "[20b] issue inattendue : cs3 rc=$R_CS3_RC retour rc=$R_RB_RC : $(grep -m1 -o 'SCANYM_[A-Z_0-9]*.\{0,80\}' "$TMP_DIR/rb.out")"; fi
+assert_eq "[20c] état final : cassé=false moteur=true marqueur=true (CSDJ-3 installé ET moteur intact)" "false|true|true" "$(echo "$R_FINAL" | cut -d'|' -f1-3)"
+assert_eq "[20d] create_order (CSDJ-3) répond, le moteur est appelé" "1" "$(sql_on "$DB_NEG" "$CS3_CALL_SQL")"
+
+# -- S2 : CSDJ-3 gagne, retenu APRÈS relecture de ses prérequis, AVANT toute installation.
+race_cs3_first "CSDJ-3 gagne (prérequis relus, rien installé)" p1 commit
+if [ "$R_BLOCKED" = 1 ] && [ "$R_CS3_RC" = "0" ] && [ "$R_RB_RC" != "0" ] && grep -q 'CSDJ3_INSTALLED' "$TMP_DIR/rb.out" && [ "$(echo "$R_FINAL" | cut -d'|' -f1-3)" = "false|true|true" ]; then
+  pass "[20e] CSDJ-3 retenu avant d'installer : le retour attend, relit l'état APRÈS le verrou, voit le marqueur et refuse ; état final sain"
+else fail "[20e] bloqué=$R_BLOCKED cs3=$R_CS3_RC retour=$R_RB_RC final=$R_FINAL"; fi
+
+# -- S3 : le retour gagne ; CSDJ-3 est lancé alors que le retour est à mi-parcours (pré-vol passé, rien de validé).
+race_rb_first "le retour gagne (pré-vol passé, retenu avant la validation)" "" release
+if [ "$R_RB_HOLDS_LOCK" = "1" ] && [ "$R_BLOCKED" = 1 ] && [ "$R_CS3_DONE_EARLY" = 0 ]; then pass "[20f] le retour gagne : il TIENT le verrou partagé et CSDJ-3 ATTEND (pg_locks : advisory non accordé)"
+else fail "[20f] retour_tient_verrou=$R_RB_HOLDS_LOCK cs3_bloquée=$R_BLOCKED cs3_terminée_tôt=$R_CS3_DONE_EARLY"; fi
+if [ "$R_RB_RC" = "0" ] && [ "$R_CS3_RC" != "0" ] && grep -q 'SCANYM_CSDJ3_PREREQ' "$TMP_DIR/cs3.out"; then pass "[20g] puis le retour est validé (rc=0) et CSDJ-3 REFUSE : ses prérequis (le moteur) ont disparu"
+else fail "[20g] issue inattendue : retour rc=$R_RB_RC cs3 rc=$R_CS3_RC : $(grep -m1 -o 'SCANYM_[A-Z_0-9]*.\{0,80\}' "$TMP_DIR/cs3.out")"; fi
+assert_eq "[20h] état final : cassé=false moteur=false marqueur=false, create_order = prédécesseur pré-CSDJ-3 épinglé" "false|false|false|$PINNED_CO_MD5" "$R_FINAL"
+
+# -- S4 : CSDJ-3 gagne le verrou puis ANNULE : le retour qui attendait doit s'exécuter sur l'état relu.
+race_cs3_first "CSDJ-3 annulé pendant que le retour attend" p2 rollback
+if [ "$R_BLOCKED" = 1 ] && [ "$R_RB_RC" = "0" ] && [ "$R_FINAL" = "false|false|false|$PINNED_CO_MD5" ]; then
+  pass "[20i] CSDJ-3 annulé (rollback) : le retour qui attendait prend le verrou, relit l'état validé (sans marqueur) et s'applique ; aucun état cassé"
+else fail "[20i] bloqué=$R_BLOCKED retour rc=$R_RB_RC final=$R_FINAL"; fi
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.race4"
+if cmp -s "$TMP_DIR/inv.v1" "$TMP_DIR/inv.race4"; then pass "[20j] et l'inventaire final est IDENTIQUE à l'état PROD d'avant la v1.2"
+else fail "[20j] l'état final diffère de l'état PROD d'avant la v1.2"; fi
+
+# -- S5 : le retour est TUÉ (crash / Ctrl-C) pendant que CSDJ-3 attend : le verrou se libère, CSDJ-3 installe.
+race_rb_first "le retour est interrompu pendant que CSDJ-3 attend" "" kill-rb
+if [ "$R_BLOCKED" = 1 ] && [ "$R_RB_RC" != "0" ] && [ "$R_CS3_RC" = "0" ] && [ "$(echo "$R_FINAL" | cut -d'|' -f1-3)" = "false|true|true" ]; then
+  pass "[20k] retour interrompu : le verrou transactionnel se libère, CSDJ-3 (qui attendait) s'installe sur un moteur INTACT ; aucun verrou orphelin, aucun état cassé"
+else fail "[20k] bloqué=$R_BLOCKED retour rc=$R_RB_RC cs3 rc=$R_CS3_RC final=$R_FINAL"; fi
+assert_eq "[20l] et create_order (CSDJ-3) répond" "1" "$(sql_on "$DB_NEG" "$CS3_CALL_SQL")"
+assert_eq "[20m] aucun verrou consultatif résiduel après la fin des deux sessions" "0" "$(sql_on "$DB_NEG" "select count(*) from pg_locks where locktype='advisory' and database=(select oid from pg_database where datname=current_database());")"
+
+# -- Isolation : sous REPEATABLE READ l'instantané précède l'attente du verrou -> refus nommé, rien de modifié.
+RB_PGOPTIONS="-c default_transaction_isolation=repeatable\\ read"
+rb_db
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.iso.before"
+if rb_apply "$DB_NEG" "" ""; then fail "[20n] le retour s'applique sous REPEATABLE READ"
+elif grep -q '\[ISOLATION\]' "$OUT"; then pass "[20n] sous REPEATABLE READ le retour REFUSE nommément [ISOLATION] (les contrôles liraient un instantané antérieur à l'attente du verrou)"
+else fail "[20n] refus pour la mauvaise raison : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+inventory "$DB_NEG" | sort > "$TMP_DIR/inv.iso.after"
+cmp -s "$TMP_DIR/inv.iso.before" "$TMP_DIR/inv.iso.after" && pass "[20o] et le refus ne change RIEN au schéma" || fail "[20o] le refus [ISOLATION] a modifié le schéma"
+RB_PGOPTIONS=""
+
+# ============================================================
+# [21] CSDJ12-RB02-CALLER-01 -- consommateurs HORS du schéma public,
+#      métadonnées de dépendance, pg_cron, exclusion exacte du moteur, SQL
+#      dynamique (limite DÉMONTRÉE, non masquée).
+# ============================================================
+log "=== [21] RB02-CALLER-01 : consommateurs externes, dépendances, pg_cron, SQL dynamique ==="
+ENG_CALL="perform public.reserve_fulfillment_capacity(null,null,null,null,null,null,null,null);"
+rb_refused "enveloppe plpgsql dans un schéma EXTERNE (app.w -> reserve_fulfillment_capacity)" "create schema app; create function app.w() returns void language plpgsql as \$f\$ begin $ENG_CALL end \$f\$;" ENGINE_CALLER
+rb_refused "enveloppe SQL (langage sql) dans un schéma externe -> validate_fulfillment_selection" "create schema app; create function app.s() returns void language sql as \$f\$ select * from public.validate_fulfillment_selection(null,null,null,null,null,null,null) \$f\$;" ENGINE_CALLER
+rb_refused "fonction de déclencheur d'un schéma externe -> release_fulfillment_capacity" "create schema app; create table app.t(a int); create function app.trg() returns trigger language plpgsql as \$f\$ begin perform public.release_fulfillment_capacity(null); return new; end \$f\$; create trigger t_trg before insert on app.t for each row execute function app.trg();" ENGINE_CALLER
+rb_refused "routine externe qui LIT une colonne v1.2 (capacity_max_orders)" "create schema app; create function app.c() returns bigint language plpgsql as \$f\$ begin return (select count(capacity_max_orders) from public.restaurant_fulfillment_schedule); end \$f\$;" ENGINE_CALLER
+rb_refused "routine externe qui lit une TABLE v1.2 (public_holiday_calendar)" "create schema app; create function app.h() returns bigint language plpgsql as \$f\$ begin return (select count(*) from public.public_holiday_calendar); end \$f\$;" ENGINE_CALLER
+rb_refused "mention en COMMENTAIRE seulement : refus CONSERVATEUR documenté (fail-closed)" "create schema app; create function app.k() returns void language plpgsql as \$f\$ begin -- appelle jadis validate_fulfillment_selection
+  null; end \$f\$;" ENGINE_CALLER
+rb_refused "résolveur renommé resolve_fulfillment_schedule_v1 cité (disparaît au renommage)" "create function public.zz_v1_caller() returns void language plpgsql as \$f\$ begin perform 1 from public.resolve_fulfillment_schedule_v1(null,null,null,null); end \$f\$;" ENGINE_CALLER
+rb_refused "SURCHARGE de même NOM qu'une fonction du moteur, citant le moteur (l'exclusion se fait par OID, pas par nom)" "create function public.csdj12_preparation_open(x integer) returns void language plpgsql as \$f\$ begin perform public.validate_fulfillment_selection(null,null,null,null,null,null,null); end \$f\$;" ENGINE_CALLER
+rb_refused "vue externe sur la table de réservation (dépendance enregistrée)" "create schema app; create view app.v as select * from public.order_fulfillment_capacity_reservation;" ENGINE_DEPENDENT
+rb_refused "vue externe lisant une colonne v1.2 de la planification" "create schema app; create view app.v as select restaurant_id, capacity_max_orders from public.restaurant_fulfillment_schedule;" ENGINE_DEPENDENT
+rb_refused "clé étrangère externe vers public_holiday_calendar" "create schema app; create table app.t(c uuid references public.public_holiday_calendar(id));" ENGINE_DEPENDENT
+rb_refused "politique RLS externe appelant une fonction du moteur" "create schema app; create table app.p(a int); alter table app.p enable row level security; create policy x on app.p using (public.fulfillment_capacity_is_holding('a','b'));" ENGINE_DEPENDENT
+rb_refused "valeur par défaut d'une colonne externe appelant le moteur" "create schema app; create table app.d(a text default public.fulfillment_capacity_is_holding('a','b')::text);" ENGINE_DEPENDENT
+rb_refused "fonction SQL « BEGIN ATOMIC » externe (dépendance enregistrée, corps non textuel)" "create schema app; create function app.a() returns text language sql begin atomic select public.fulfillment_capacity_is_holding('a','b')::text; end;" ENGINE_DEPENDENT
+rb_refused "tâche pg_cron (cron.job) citant le moteur" "create schema cron; create table cron.job(jobid int primary key, command text); insert into cron.job values (1, 'select public.release_fulfillment_capacity(null)');" CRON_JOB
+rb_refused "surface du moteur incomplète (fonction du moteur supprimée à la main)" "drop function public.csdj12_availability_closed(public.restaurant_fulfillment_schedule,date);" ENGINE_SURFACE
+
+# Témoin POSITIF : un schéma externe SANS lien avec le moteur ne bloque pas (aucun faux positif) ; jeton relu puis présenté.
+rb_db
+[ "$(outcome_on "$DB_NEG" "create schema app; create table app.t(a int primary key, o uuid references public.orders(id)); create view app.v as select id from public.orders; create function app.ok() returns int language plpgsql as \$f\$ begin return 1; end \$f\$; create function app.fmt() returns text language plpgsql as \$f\$ begin return format('%s', 1); end \$f\$; create schema cron; create table cron.job(jobid int primary key, command text); insert into cron.job values (1, 'select 1');")" = "OK" ] || fatal "[21] mise en place du témoin positif impossible."
+if rb_apply "$DB_NEG"; then pass "[21a] témoin positif : schéma externe SANS lien avec le moteur (vue, clé étrangère, routine, tâche pg_cron sans lien) -> le retour s'applique (aucun faux positif)"
+else fail "[21a] faux positif : $(grep -m1 ERROR "$OUT" | cut -c1-240)"; fi
+assert_eq "[21b] et les objets externes sans lien sont INTACTS" "1" "$(sql_on "$DB_NEG" "select app.ok();")"
+
+# SQL DYNAMIQUE : le texte NE PEUT PAS prouver l'absence. La limite est DÉMONTRÉE ; la parade est le jeton.
+SNEAKY_SQL="create schema app; create function app.sneaky() returns void language plpgsql as \$f\$ begin execute 'select public.' || 'reserve_' || 'fulfillment_capacity(null,null,null,null,null,null,null,null)'; end \$f\$;"
+rb_db
+[ "$(outcome_on "$DB_NEG" "$SNEAKY_SQL")" = "OK" ] || fatal "[21] mise en place du SQL dynamique impossible."
+if [ "$NEW_RB" = 1 ]; then
+  if rb_apply "$DB_NEG" "" ""; then fail "[21c] sans jeton, le retour s'applique malgré un consommateur dynamique"
+  elif grep -q '\[REVIEW_TOKEN\]' "$OUT" && ! grep -qE '\[ENGINE_CALLER\]|\[ENGINE_DEPENDENT\]' "$OUT"; then
+    pass "[21c] LIMITE DÉMONTRÉE : le consommateur dynamique (nom recomposé à l'exécution) n'est vu NI par l'inspection du texte NI par pg_depend ; seul le jeton de revue le retient ([REVIEW_TOKEN])"
+  else fail "[21c] refus inattendu : $(grep -m1 ERROR "$OUT" | cut -c1-240)"; fi
+  REVIEW_OUT="$(PGOPTIONS="" psql -X -d "$DB_NEG" -v ON_ERROR_STOP=1 -c "set scanym.csdj12_rollback_mode = 'review'" -f "$SUPABASE_DIR/$LOT_ROLLBACK" 2>&1 || true)"
+  assert_has "[21d] le mode revue ÉNUMÈRE la routine non démontrable (app.sneaky())" "app.sneaky()" "$REVIEW_OUT"
+  assert_has "[21e] le mode revue se termine par SCANYM_ROLLBACK_REVIEW_ONLY et ne modifie rien" "SCANYM_ROLLBACK_REVIEW_ONLY" "$REVIEW_OUT"
+  assert_eq "[21f] (aucune modification : la table de réservation existe toujours)" "true" "$(sql_on "$DB_NEG" "select (to_regclass('public.order_fulfillment_capacity_reservation') is not null)::text;")"
+  TOK_OLD="$(review_token "$DB_NEG" "$SUPABASE_DIR/$LOT_ROLLBACK")"
+  [ "$(outcome_on "$DB_NEG" "create or replace function app.sneaky() returns void language plpgsql as \$f\$ begin execute 'select public.' || 'release_' || 'fulfillment_capacity(null)'; end \$f\$;")" = "OK" ] || fatal "[21] modification de app.sneaky impossible"
+  if rb_apply "$DB_NEG" "" "$TOK_OLD"; then fail "[21g] un jeton PÉRIMÉ (routine dynamique modifiée après la revue) est accepté"
+  elif grep -q '\[REVIEW_TOKEN\]' "$OUT"; then pass "[21g] jeton PÉRIMÉ : la routine dynamique a changé après la revue -> le retour REFUSE [REVIEW_TOKEN]"
+  else fail "[21g] mauvaise raison : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+  [ "$(outcome_on "$DB_NEG" "create function app.sneaky2() returns void language plpgsql as \$f\$ begin execute 'select 1'; end \$f\$;")" = "OK" ] || fatal "[21] ajout de app.sneaky2 impossible"
+  TOK_NEW="$(review_token "$DB_NEG" "$SUPABASE_DIR/$LOT_ROLLBACK")"
+  [ "$TOK_NEW" != "$TOK_OLD" ] && pass "[21h] ajouter une routine dynamique CHANGE le jeton (le jeton lie l'ensemble énuméré)" || fail "[21h] le jeton n'a pas changé"
+  rb_apply "$DB_NEG" "" "$TOK_NEW" && pass "[21i] avec le jeton relu sur l'état exact, le retour s'applique (ENGAGEMENT de l'opérateur, pas une preuve)" || fail "[21i] jeton valide refusé : $(grep -m1 ERROR "$OUT" | cut -c1-200)"
+  assert_has "[21j] LIMITE RÉSIDUELLE DÉMONTRÉE : le consommateur dynamique, une fois le retour appliqué, ÉCHOUE à l'exécution (le retour ne peut pas l'en empêcher sans engagement de l'opérateur)" "does not exist" "$(outcome_on "$DB_NEG" "select app.sneaky();")"
+  # Le jeton lie aussi les commandes pg_cron.
+  rb_db
+  [ "$(outcome_on "$DB_NEG" "create schema cron; create table cron.job(jobid int primary key, command text); insert into cron.job values (1, 'select 1');")" = "OK" ] || fatal "[21] mise en place pg_cron impossible"
+  TOK_CRON="$(review_token "$DB_NEG" "$SUPABASE_DIR/$LOT_ROLLBACK")"
+  sql_on "$DB_NEG" "update cron.job set command = 'select 2' where jobid = 1;" >/dev/null
+  if rb_apply "$DB_NEG" "" "$TOK_CRON"; then fail "[21k] jeton périmé accepté après modification d'une commande pg_cron"
+  elif grep -q '\[REVIEW_TOKEN\]' "$OUT"; then pass "[21k] une commande pg_cron modifiée après la revue invalide le jeton"
+  else fail "[21k] mauvaise raison : $(grep -m1 ERROR "$OUT" | cut -c1-200)"; fi
+fi
+
+# ============================================================
+# [22] CONTRÔLES PAR MUTATION des gardes de RACE-02 / CALLER-01.
+# ============================================================
+log "=== [22] Mutation des gardes RACE-02 / CALLER-01 ==="
+if [ "$NEW_RB" = 1 ]; then
+  mut_rb "exclusion du moteur par NOM au lieu de l'OID" "create function public.csdj12_preparation_open(x integer) returns void language plpgsql as \$f\$ begin perform public.validate_fulfillment_selection(null,null,null,null,null,null,null); end \$f\$;" ENGINE_CALLER \
+    "where r.oid <> all (v_eng) and r.prosrc ~* v_re" "where r.prosrc ~* v_re and pg_catalog.split_part(r.sig, '(', 1) <> all (select pg_catalog.split_part(q, '(', 1) from pg_catalog.unnest(v_eng_sigs) as q)"
+  mut_rb "inspection limitée au schéma public" "create schema app; create function app.w() returns void language plpgsql as \$f\$ begin $ENG_CALL end \$f\$;" ENGINE_CALLER \
+    "where n.nspname not in ('pg_catalog', 'information_schema', 'pg_toast')" "where n.nspname = 'public'"
+  mut_rb "contrôle des dépendances enregistrées (pg_depend) retiré" "create schema app; create view app.v as select * from public.order_fulfillment_capacity_reservation;" ENGINE_DEPENDENT \
+    "if v_dep is not null then" "if false then"
+  mut_rb "contrôle pg_cron retiré" "create schema cron; create table cron.job(jobid int primary key, command text); insert into cron.job values (1, 'select public.release_fulfillment_capacity(null)');" CRON_JOB \
+    "if v_cron is not null then" "if false then"
+  mut_rb "resolve_fulfillment_schedule_v1 retiré des noms surveillés" "create function public.zz_v1_caller() returns void language plpgsql as \$f\$ begin perform 1 from public.resolve_fulfillment_schedule_v1(null,null,null,null); end \$f\$;" ENGINE_CALLER \
+    "'resolve_fulfillment_schedule_v1',
+    'order_fulfillment_capacity_reservation'," "'resolve_fulfillment_schedule_v12',
+    'order_fulfillment_capacity_reservation',"
+  mut_rb "colonnes v1.2 retirées des noms surveillés" "create schema app; create function app.c() returns bigint language plpgsql as \$f\$ begin return (select count(capacity_max_orders) from public.restaurant_fulfillment_schedule); end \$f\$;" ENGINE_CALLER \
+    "'public_holiday_calendar_day','public_holiday_calendar',
+    'capacity_max_orders','capacity_enabled','availability_on_holidays','preparation_on_holidays','holiday_calendar_id'];" "'public_holiday_calendar_day','public_holiday_calendar'];"
+  mut_rb "contrôle de la surface du moteur retiré" "drop function public.csdj12_availability_closed(public.restaurant_fulfillment_schedule,date);" ENGINE_SURFACE \
+    "if v_miss is not null then" "if false then"
+  mut_rb "garde du jeton de revue retirée (SQL dynamique non relu)" "$SNEAKY_SQL" REVIEW_TOKEN \
+    "if v_given is distinct from v_token then" "if false then"
+  # Isolation : le mutant est jugé sous REPEATABLE READ.
+  RB_PGOPTIONS="-c default_transaction_isolation=repeatable\\ read"
+  mut_rb "garde d'isolation retirée" "select 1;" ISOLATION \
+    "if pg_catalog.current_setting('transaction_isolation') is distinct from 'read committed' then" "if false then"
+  RB_PGOPTIONS=""
+
+  # Mutant du VERROU : retirer l'unique instruction de verrou. L'effet doit être OBSERVABLE par la course elle-même.
+  pyedit "$SUPABASE_DIR/$LOT_ROLLBACK" "$TMP_DIR/mut_nolock.sql" \
+    "select pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('scanym.csdj3.order-persistence.v1', 0));" "select 1;" \
+    || fail "[22] mutant « verrou retiré » : motif introuvable (le contrôle ne contrôle rien)"
+  race_cs3_first "MUTANT sans verrou, CSDJ-3 retenu" p2 commit "$TMP_DIR/mut_nolock.sql"
+  if [ "$R_BLOCKED" = 0 ] && [ "$(echo "$R_FINAL" | cut -d'|' -f1)" = "true" ]; then
+    pass "[22a] mutant « verrou partagé retiré » DÉTECTÉ par la course elle-même : le retour n'attend plus et l'entrelacement VALIDE un create_order cassé (état final observé cassé|moteur|marqueur|md5 = $R_FINAL)"
+  elif [ "$R_BLOCKED" = 0 ]; then
+    pass "[22a] mutant « verrou partagé retiré » DÉTECTÉ : le retour n'attend plus (bloqué=0) -- état final $R_FINAL"
+  else fail "[22a] mutant « verrou retiré » NON DÉTECTÉ : le retour attend encore (bloqué=$R_BLOCKED)"; fi
+  race_rb_first "MUTANT sans verrou, retour retenu" "$TMP_DIR/mut_nolock.sql" release
+  if [ "$R_BLOCKED" = 0 ] && [ "$(echo "$R_FINAL" | cut -d'|' -f1)" = "true" ]; then
+    pass "[22b] mutant « verrou retiré » DÉTECTÉ dans l'autre sens : CSDJ-3 n'attend plus, s'installe sur un moteur qui va disparaître, et le retour valide ENSUITE (état final observé cassé|moteur|marqueur|md5 = $R_FINAL)"
+  else fail "[22b] mutant sans verrou : bloqué=$R_BLOCKED final=$R_FINAL"; fi
+  # Mutant du MAUVAIS verrou : clé différente de celle de CSDJ-3.
+  pyedit "$SUPABASE_DIR/$LOT_ROLLBACK" "$TMP_DIR/mut_badkey.sql" \
+    "hashtextextended('scanym.csdj3.order-persistence.v1', 0));
+" "hashtextextended('scanym.csdj3.order-persistence.v2', 0));
+" || fail "[22] mutant « autre clé de verrou » : motif introuvable"
+  race_cs3_first "MUTANT clé de verrou différente" p2 commit "$TMP_DIR/mut_badkey.sql"
+  if [ "$R_BLOCKED" = 0 ]; then pass "[22c] mutant « clé de verrou différente de celle de CSDJ-3 » DÉTECTÉ : aucune exclusion mutuelle (le retour n'attend pas) -- la clé exacte est donc CONTRAINTE par le test"
+  else fail "[22c] mutant à clé différente NON DÉTECTÉ"; fi
+else
+  log "[22] retour sans mode revue (candidat antérieur) : mutations des nouvelles gardes sans objet."
+fi
+psql -X -q -d postgres -c "drop database if exists \"$DB_NEG\";" >/dev/null 2>&1
+
 
 # Rôles jetables : retirés par le point de passage gardé.
 csdj1_identity_mutate "

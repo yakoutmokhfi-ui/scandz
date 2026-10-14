@@ -1,0 +1,59 @@
+{
+  "$comment": "Inventaire EXPLICITE des consommateurs du moteur CSDJ v1.2 (CSDJ12-RB02-CALLER-01). Il ne PROUVE PAS l'absence d'autres consommateurs : il qualifie ceux que l'on connaît et est recoupé par tests/csdj12-rollback-race-callers.test.ts avec le dépôt (appels .rpc / .from vers un objet du moteur). Tout nouveau consommateur doit être ajouté ICI, dans le même changement.",
+  "version": 1,
+  "engine": {
+    "functions": [
+      "validate_fulfillment_selection",
+      "reserve_fulfillment_capacity",
+      "release_fulfillment_capacity",
+      "fulfillment_capacity_used",
+      "fulfillment_capacity_is_holding",
+      "fulfillment_selection_reasons_v12",
+      "resolve_fulfillment_schedule_v12",
+      "checkout_unfulfillable_reasons_v12",
+      "checkout_schedule_day_offers_v12",
+      "csdj12_preparation_open",
+      "csdj12_availability_closed",
+      "mutate_merchant_fulfillment_schedule_v12",
+      "get_merchant_fulfillment_schedules_v12",
+      "resolve_fulfillment_schedule_v1"
+    ],
+    "tables": [
+      "order_fulfillment_capacity_reservation",
+      "restaurant_fulfillment_prep_closure",
+      "restaurant_fulfillment_prep_day",
+      "public_holiday_calendar_day",
+      "public_holiday_calendar"
+    ],
+    "columns_of_restaurant_fulfillment_schedule": [
+      "capacity_max_orders",
+      "capacity_enabled",
+      "availability_on_holidays",
+      "preparation_on_holidays",
+      "holiday_calendar_id"
+    ]
+  },
+  "database_consumers": [
+    {
+      "id": "csdj3-create_order",
+      "routine": "public.create_order(text,text,jsonb,integer,jsonb,text,text,boolean)",
+      "owner": "CSDJ-3 (Debussy)",
+      "state": "NOT YET DEPLOYED (candidat 34cad9e non accessible depuis cet environnement)",
+      "uses": ["validate_fulfillment_selection", "reserve_fulfillment_capacity"],
+      "rollback_guards": ["CSDJ3_INSTALLED", "CREATE_ORDER_FINGERPRINT"],
+      "removal": "rollback CSDJ-3 d'abord (contrat v3.1 §13.1), puis le retour v1.2"
+    }
+  ],
+  "repository_consumers": [],
+  "repository_scan": {
+    "directories": ["app", "components", "lib", "scripts"],
+    "note": "À ce jour AUCUN appel .rpc(<fonction du moteur>) ni .from(<table du moteur>) dans le code applicatif. lib/scheduling/*-v12.ts reproduit des constantes (modèle pur), sans appel de base."
+  },
+  "unprovable_consumer_classes": [
+    "SQL dynamique (execute / format / noms recomposés)",
+    "routines dans un langage autre que SQL / plpgsql",
+    "commandes pg_cron",
+    "clients externes (PostgREST, fonctions edge, webhooks de base de données, autres bases)"
+  ],
+  "unprovable_policy": "énumérées par le mode revue du retour, liées au jeton de revue ; l'opérateur s'engage sur l'état relu (docs/scheduling/csdj-v1.2-deploy-rollback-order.md)"
+}
