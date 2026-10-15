@@ -62,8 +62,8 @@ export const SLOT_MODE_FIXED_SLOTS = CHECKOUT_SLOT_SELECTION_MODES[2];
  * référencé.
  */
 export const CSDJ_BO1_WRITE_CONTRACT = {
-  available: false,
-  reason: "CSDJ_BO1_WRITE_CONTRACT_PENDING",
+  available: true,
+  reason: "CSDJ_BO1_WRITE_CONTRACT_READY",
   /** Contrat demandé, pour que l'interface puisse le nommer. */
   requestedContract: "save_fulfillment_configuration",
 } as const;
