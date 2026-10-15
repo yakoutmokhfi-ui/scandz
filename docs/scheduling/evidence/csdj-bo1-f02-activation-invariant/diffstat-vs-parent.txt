@@ -1,0 +1,6 @@
+ .../csdj-bo1-f02-activation-invariant.md           |  227 +++
+ ...dj-bo1-f02-activation-invariant-v1-rollback.sql |  207 +++
+ ...FT-lot-csdj-bo1-f02-activation-invariant-v1.sql |  536 ++++++
+ .../csdj-bo1-f02-activation-invariant-check.sh     | 1897 ++++++++++++++++++++
+ ...j-bo1-f02-activation-invariant-contract.test.ts |   69 +
+ 5 files changed, 2936 insertions(+)
