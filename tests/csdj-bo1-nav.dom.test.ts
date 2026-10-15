@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
+import { settle } from "./helpers/dom-settle.ts";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
@@ -123,9 +124,9 @@ function render(pathname: string) {
   return { container, root };
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 20));
-}
+/** Attente de QUIESCENCE, pas de durée (remédiation F-03) : voir
+ *  tests/helpers/dom-settle.ts. `ms` est accepté et ignoré. */
+const flush = settle;
 
 function tabs(container: Element): HTMLAnchorElement[] {
   return Array.from(container.querySelectorAll("nav a")) as HTMLAnchorElement[];

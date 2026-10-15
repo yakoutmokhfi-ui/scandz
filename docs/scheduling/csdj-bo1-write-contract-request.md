@@ -279,9 +279,117 @@ tests correspondants sont déjà nommés dans ce lot (voir
 
 Tant que ces points ne sont pas tenus, l'état du lot est inchangé :
 `CSDJ_BO1_WRITE_CONTRACT.available === false`
-(`lib/availability-editor.ts`), **aucun site d'appel d'écriture
-n'existe** dans le code — pas seulement des contrôles grisés — et la
-page reste pleinement utilisable en lecture, aperçu serveur compris.
+(`lib/availability-editor.ts`), et la page reste pleinement utilisable,
+aperçu serveur compris.
+
+## 4 bis. Mise à jour — issue #149 : l'appelant est prêt, et testé
+
+*Ajouté après la phase de lecture seule. Ce qui a changé côté
+CSDJ-BO-1, et ce qui n'a pas changé côté serveur.*
+
+L'issue #149 demande un éditeur « entièrement fonctionnel », et dans la
+même phrase interdit de « simplement basculer le flag avant qu'une RPC
+transactionnelle Boulez existe et que les tests soient passés ». Les
+deux sont tenus de la seule façon cohérente :
+
+- l'éditeur est **complet** : chaque réglage de la configuration est
+  modifiable, l'activation est un réglage du brouillon, la validation
+  locale reproduit refus par refus ce que la RPC devra refuser, et
+  l'enregistrement est écrit **en entier** — un seul appel,
+  `saveFulfillmentConfiguration` (`lib/services/availability.ts`), un
+  seul site d'appel, vérifié par
+  `tests/csdj-bo1-availability-contract.test.ts` ;
+- le drapeau reste **faux**. Le service refuse donc avant tout réseau
+  (`AvailabilityWriteUnavailableError`), et les contrôles d'écriture et
+  d'activation restent inactifs avec leur raison écrite à côté. Rien
+  n'est à décider côté interface le jour de la livraison : une seule
+  constante change.
+
+**Pour Boulez — implémentation de référence exécutable.** Le
+comportement attendu de `save_fulfillment_configuration` n'est pas
+seulement décrit en §2 : il est **implémenté et exécuté** dans
+`tests/helpers/fake-fulfillment-write-backend.ts`, un backend en
+mémoire multi-locataire qui refuse exactement ce que la RPC devra
+refuser, et qui ne remplace l'état du locataire qu'en un seul passage
+final — un refus ne laisse rien. Ce fichier est le moyen le plus court
+de vérifier qu'une implémentation SQL et cet appelant s'accordent :
+
+- la charge acceptée, champ pour champ : voir `save()` ;
+- le catalogue des refus, par nom :
+  `CSDJ1_FORBIDDEN`, `CSDJ1_UNKNOWN_MODE`, `CSDJ1_FOREIGN_RULE`,
+  `CSDJ1_RESERVED_RULE_ID`, `CSDJ1_INVALID_TIMEZONE`,
+  `CSDJBO1_METHOD_MISMATCH`, `CSDJBO1_INCOMPLETE_CONFIGURATION`,
+  `CSDJBO1_STALE_CONFIGURATION`, plus les refus `CSDJ12_*` de la PR #146
+  pour les sections v1.2 ;
+- la fixture du mandat (« Au Lait Cru », retrait mardi–samedi, 11–14 et
+  16–20, heure limite 16 h la veille, créneau seulement) :
+  `auLaitCruPickupFixture()` ;
+- les scénarios de l'issue, joués sur l'écran réel avec ce backend :
+  `tests/csdj-bo1-editor-save.dom.test.ts` (ajout d'une option et d'une
+  règle, 16 h → nouvel horaire, fermeture, sauvegarde refusée,
+  concurrence, isolation locataire, rôles).
+
+Une seule chose est **supposée** par ces tests, et elle est nommée dans
+leur en-tête : que le contrat soit livré. Rien d'autre n'est simulé.
+
+## 4 ter. Remédiation contractuelle R1 — lecture autoritaire et deux jetons
+
+*Ajouté après le retour du CTO sur le contrat Boulez
+(`csdj-bo1-save-fulfillment-configuration-contract.md`, PR #151). Là où
+§2 et §4 bis divergent de cette section, **cette section prévaut**.*
+
+- **Lecture autoritaire.** `get_fulfillment_configuration(p_restaurant_id,
+  p_mode_code, p_fulfillment_rule_id)` rend un objet JSON ou `null`
+  (portée sans configuration : réponse légitime). Elle porte la
+  configuration complète, `updatedAt` (UTC, **microseconde**) et
+  `revision` (32 hexadécimaux). Les deux sont conservés **en chaînes,
+  telles que reçues** — jamais de `Date`, qui tronquerait à la
+  milliseconde. Les lectures de listes (L1, L2) servent aux listes et à
+  l'aperçu ; elles ne remplacent pas cette lecture.
+- **Écriture.** `save_fulfillment_configuration(p_restaurant_id,
+  p_payload)` reçoit `modeCode, fulfillmentRuleId, method, enabled,
+  expectedUpdatedAt, expectedRevision, policy, windows, slots, closures`,
+  plus `preparation, holidays, capacity` **uniquement** en `v1.2`. Les
+  trois listes sont toujours explicites, même vides. `v1` interdit les
+  trois sections et exige `policy.cutoffOffsetDays` entre 0 et 30 ;
+  `v1.2` les exige et n'accepte `cutoffOffsetDays` qu'absent ou nul.
+  Bornes : 100 fenêtres, 200 créneaux, 731 fermetures.
+- **Après succès**, la configuration locale et les deux jetons sont
+  remplacés par la réponse du serveur.
+- **Refus** (code = préfixe avant le premier « : », jamais le texte SQL) :
+  `CSDJBO1_STALE_CONFIGURATION` → relecture de la version serveur, rejeu
+  manuel, aucun enregistrement automatique ; `CSDJBO1_INCOMPLETE_CONFIGURATION`
+  → manques nommés et **proposition** d'enregistrer en brouillon, après
+  confirmation ; `CSDJBO1_METHOD_MISMATCH` ; `SCANYM_CSDJBO1_POSTCHECK` →
+  message générique, aucun détail. Même en brouillon, une capacité sans
+  maximum valide, une capacité sans date ou une grille horaire incohérente
+  restent refusées.
+- **Inchangé.** `CSDJ_BO1_WRITE_CONTRACT.available` reste `false` : aucune
+  écriture n'atteint Supabase avant audit, installation et autorisation.
+  Les anciens mutateurs ne sont appelés nulle part.
+
+**Remédiation F-01 (audit Cat Greco, #150) — le snapshot est indivisible.**
+`{ configuration, updatedAt, revision }` est UNE version du serveur, lue
+en UN appel `get_fulfillment_configuration`. Le brouillon, sa référence
+et les deux jetons sont tous construits à partir de cette seule réponse
+(`draftFromAuthoritativeSnapshot`) ; les lectures de listes ne fournissent
+jamais le contenu d'un brouillon enregistrable. Un brouillon construit
+sur une lecture A mais signé des jetons d'une version B passerait le
+contrôle de concurrence et écraserait B sans bruit : ce montage est
+désormais impossible. Si la lecture autoritaire est muette ou rend `null`
+pour une portée affichée, le brouillon reste visible et modifiable
+localement, **sans jeton**, et l'enregistrement reste fermé. Sur
+`CSDJBO1_STALE_CONFIGURATION`, le brouillon local et la version serveur
+sont gardés **séparément** ; les divergences sont listées champ par
+champ (« modifié par vous / sur le serveur / des deux côtés ») ; aucun
+jeton neuf n'est attaché à l'ancien brouillon ; l'enregistrement est
+suspendu jusqu'à un choix explicite — reprendre la version du serveur, ou
+appliquer ses propres modifications sur elle (rebase confirmé, qui
+n'enregistre rien lui-même).
+
+Divergences connues avec §2 : `expectedUpdatedAt` n'est plus le seul
+jeton (voir `expectedRevision`), et son exemple à la milliseconde plus
+haut est remplacé par la précision microseconde.
 
 ## 5. Ce que CSDJ-BO-1 ne demande PAS
 

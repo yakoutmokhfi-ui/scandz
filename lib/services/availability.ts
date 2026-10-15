@@ -11,9 +11,9 @@ import type {
 } from "@/lib/dashboard-types";
 
 /**
- * SCANYM — CSDJ-BO-1 — MISE À DISPOSITION — SERVICE DE LECTURE SEULE.
+ * SCANYM — CSDJ-BO-1 — MISE À DISPOSITION — SERVICE.
  *
- * CE MODULE N'ÉCRIT RIEN, ET C'EST UNE EXIGENCE, PAS UN OUBLI
+ * TROIS LECTURES, ET UNE SEULE ÉCRITURE — ENCORE INDISPONIBLE
  * ---------------------------------------------------------------
  * Le CTO a refusé la séquence « suspendre → écrire → réactiver » comme
  * garantie d'enregistrement : enregistrer une portée complète
@@ -23,16 +23,29 @@ import type {
  * configuration ENTIÈRE est demandé à Boulez (voir
  * docs/scheduling/csdj-bo1-write-contract-request.md).
  *
- * Tant que ce contrat n'est pas approuvé ET disponible, ce module
- * n'expose AUCUNE fonction d'écriture et le code ne contient AUCUN
- * site d'appel vers une mutation de planification. Ce n'est pas une
- * désactivation d'interface — c'est l'absence du chemin lui-même :
- * aucune configuration incomplète ne peut être produite, et aucun
- * contournement du parcours de commande n'est possible, puisque rien
- * ne peut être activé d'ici.
+ * Ce module expose donc UNE SEULE écriture,
+ * `saveFulfillmentConfiguration`, qui appelle UNE SEULE RPC :
+ * `save_fulfillment_configuration`. « Sauvegarde atomique via
+ * save_fulfillment_configuration seulement, no multi-RPC save »
+ * (issue #149). Les six actions existantes
+ * (`mutate_merchant_fulfillment_schedule`, et sa variante v1.2) ne
+ * sont appelées NULLE PART : la séquence multi-RPC est refusée comme
+ * garantie d'enregistrement, et elle n'est pas réintroduite en
+ * cachette.
  *
- * Un test structurel (tests/csdj-bo1-availability-contract.test.ts)
- * échoue si une écriture réapparaît dans ce module ou dans la page.
+ * Cette écriture est VERROUILLÉE par
+ * `CSDJ_BO1_WRITE_CONTRACT.available`, qui vaut `false` tant que la
+ * RPC de Boulez n'existe pas et que ses tests ne sont pas passés
+ * (issue #149 : « Ne jamais simplement basculer le flag avant qu'une
+ * RPC transactionnelle Boulez existe et que les tests soient
+ * passés »). Tant que le drapeau est faux, la fonction REFUSE
+ * localement, sans réseau : aucune configuration incomplète ne peut
+ * être produite, et aucun contournement du parcours de commande n'est
+ * possible, puisque rien ne peut être activé d'ici.
+ *
+ * Des tests structurels (tests/csdj-bo1-availability-contract.test.ts)
+ * échouent si une deuxième écriture, ou l'une des six actions,
+ * réapparaît dans ce module ou dans la page.
  *
  * TROIS LECTURES, TROIS STATUTS DE LIVRAISON DISTINCTS
  * ---------------------------------------------------
@@ -66,7 +79,8 @@ import type {
  * Raison du refus : voir l'en-tête. Contrat demandé : voir
  * docs/scheduling/csdj-bo1-write-contract-request.md.
  */
-export { CSDJ_BO1_WRITE_CONTRACT } from "@/lib/availability-editor";
+import { CSDJ_BO1_WRITE_CONTRACT } from "@/lib/availability-editor";
+export { CSDJ_BO1_WRITE_CONTRACT };
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -138,6 +152,7 @@ export async function getMerchantFulfillmentSchedules(
     windows: unknown;
     slots: unknown;
     closures: unknown;
+    updated_at?: string | null;
   }>).map((row) => ({
     modeCode: row.mode_code,
     fulfillmentRuleId: row.fulfillment_rule_id ?? null,
@@ -157,6 +172,8 @@ export async function getMerchantFulfillmentSchedules(
     windows: mapWindows(row.windows),
     slots: mapSlots(row.slots),
     closures: mapClosures(row.closures),
+    // Absent de la lecture appliquée : voir MerchantFulfillmentSchedule.
+    updatedAt: row.updated_at ?? null,
   }));
 }
 
@@ -303,4 +320,197 @@ export async function getCheckoutFulfillmentSchedulePreview(params: {
     eligibleDates: Array.isArray(row?.eligible_dates) ? row!.eligible_dates! : [],
     offers: row?.offers ?? null,
   };
+}
+
+// ====================================================================
+// LECTURE AUTORITAIRE DE LA CONFIGURATION — remédiation R1, §2
+//
+// `get_fulfillment_configuration(p_restaurant_id, p_mode_code,
+// p_fulfillment_rule_id)` rend la configuration d'UNE portée, ou `null`
+// si elle n'existe pas encore, avec les DEUX jetons de concurrence.
+//
+// Pourquoi une lecture de plus, alors que les listes sont déjà lues :
+// les lectures de listes servent l'affichage et l'aperçu, et elles ne
+// portent pas d'empreinte de contenu. La concurrence, elle, exige les
+// deux jetons de CETTE lecture — c'est elle qui fait autorité pour
+// décider si une écriture est à jour. Les deux lectures coexistent
+// donc, avec des rôles qui ne se recouvrent pas (contrat : « les
+// lectures existantes peuvent rester pour les listes et aperçus, mais
+// ne remplacent pas cette lecture autoritaire »).
+// ====================================================================
+
+/**
+ * Les deux jetons, tels que le serveur les a rendus. Des CHAÎNES, et
+ * elles le restent : `updatedAt` porte une précision à la microseconde
+ * que `Date` tronquerait à la milliseconde, ce qui ferait refuser chaque
+ * écriture pour un conflit inexistant.
+ */
+export interface FulfillmentConfigurationTokens {
+  readonly updatedAt: string;
+  readonly revision: string;
+}
+
+export interface FulfillmentConfigurationRead {
+  readonly tokens: FulfillmentConfigurationTokens;
+  /**
+   * La configuration rendue par le serveur, NON réinterprétée ici. La
+   * page affiche les listes projetées par les lectures publiées ; cet
+   * objet est conservé tel quel pour que le contrat puisse évoluer sans
+   * qu'un second mapping divergent soit écrit dans ce lot.
+   */
+  readonly configuration: Record<string, unknown>;
+}
+
+/**
+ * Levée quand la réponse serveur n'a pas la forme du contrat — jetons
+ * absents, empreinte mal formée, ou horodatage rendu autrement qu'en
+ * chaîne. Le message porte un code, jamais un détail serveur : l'appelant
+ * le traduit en phrase générique.
+ *
+ * Elle est volontairement bruyante plutôt que tolérante : une
+ * configuration lue sans jeton valide ne protège plus contre l'écrasement
+ * concurrent, et continuer silencieusement serait pire que s'arrêter.
+ */
+export class FulfillmentConfigurationShapeError extends Error {
+  constructor(detail: string) {
+    super(`CSDJBO1_UNEXPECTED_CONFIGURATION_SHAPE: ${detail}`);
+    this.name = "FulfillmentConfigurationShapeError";
+  }
+}
+
+const REVISION_SHAPE = /^[0-9a-f]{32}$/;
+
+/**
+ * Extrait les deux jetons SANS les transformer. Un `updatedAt` qui
+ * n'arriverait pas en chaîne (un `Date` fabriqué par un pilote, par
+ * exemple) est REFUSÉ au lieu d'être converti : la conversion est
+ * précisément ce que le contrat interdit.
+ */
+function readTokens(source: Record<string, unknown>): FulfillmentConfigurationTokens {
+  const updatedAt = source.updatedAt;
+  const revision = source.revision;
+  if (typeof updatedAt !== "string" || updatedAt.trim() === "") {
+    throw new FulfillmentConfigurationShapeError("updatedAt absent ou non textuel");
+  }
+  if (typeof revision !== "string" || !REVISION_SHAPE.test(revision)) {
+    throw new FulfillmentConfigurationShapeError("revision absente ou mal formée");
+  }
+  // Rendus VERBATIM : aucune normalisation, aucun reparse.
+  return { updatedAt, revision };
+}
+
+export async function getFulfillmentConfiguration(
+  restaurantId: string,
+  modeCode: string,
+  fulfillmentRuleId: string | null
+): Promise<FulfillmentConfigurationRead | null> {
+  const { data, error } = await supabase.rpc("get_fulfillment_configuration", {
+    p_restaurant_id: restaurantId,
+    p_mode_code: modeCode,
+    p_fulfillment_rule_id: fulfillmentRuleId,
+  });
+  if (error) throw new Error(error.message);
+  // `null` est une réponse LÉGITIME : la portée n'a pas encore de
+  // configuration. Ce n'est jamais une erreur, et jamais une
+  // configuration vide inventée ici.
+  if (data === null || data === undefined) return null;
+  if (typeof data !== "object" || Array.isArray(data)) {
+    throw new FulfillmentConfigurationShapeError("objet JSON attendu");
+  }
+  const configuration = data as Record<string, unknown>;
+  return { tokens: readTokens(configuration), configuration };
+}
+
+/**
+ * Erreur locale, levée SANS réseau quand l'écriture est demandée alors
+ * que le contrat n'est pas disponible. Elle existe pour que le refus
+ * soit un fait observable et testable, pas un commentaire.
+ */
+export class AvailabilityWriteUnavailableError extends Error {
+  readonly reason: string;
+  constructor() {
+    super("CSDJ_BO1_WRITE_CONTRACT_PENDING");
+    this.name = "AvailabilityWriteUnavailableError";
+    this.reason = CSDJ_BO1_WRITE_CONTRACT.reason;
+  }
+}
+
+/**
+ * L'UNIQUE écriture : toute la configuration d'une portée, en un appel,
+ * dans une seule transaction côté serveur.
+ *
+ * Rend la configuration RELUE par le serveur dans la même transaction
+ * (contrat §2.1-5), pour que l'interface n'ait pas besoin d'une seconde
+ * lecture qui pourrait déjà être périmée. Les refus traversent tels
+ * quels : c'est `saveErrorKey` (lib/availability-payload.ts) qui les
+ * traduit en phrase sûre, et la page n'affiche jamais un message brut.
+ *
+ * Verrou : si `CSDJ_BO1_WRITE_CONTRACT.available` est faux, la fonction
+ * lève AvailabilityWriteUnavailableError AVANT tout appel réseau. Le
+ * jour où la RPC de Boulez est déployée et ses tests passés, basculer ce
+ * seul drapeau suffit — aucun autre code ne change.
+ */
+export async function saveFulfillmentConfiguration(
+  restaurantId: string,
+  payload: Record<string, unknown>
+): Promise<{
+  schedules: MerchantFulfillmentSchedule[];
+  v12: MerchantFulfillmentV12Read;
+  /** Les DEUX jetons de la version qui vient d'être écrite. */
+  tokens: FulfillmentConfigurationTokens;
+  /** Le snapshot entier (configuration + jetons) de cette même version. */
+  authoritative: FulfillmentConfigurationRead;
+}> {
+  if (!CSDJ_BO1_WRITE_CONTRACT.available) {
+    throw new AvailabilityWriteUnavailableError();
+  }
+  const { data, error } = await supabase.rpc("save_fulfillment_configuration", {
+    p_restaurant_id: restaurantId,
+    p_payload: payload,
+  });
+  if (error) throw new Error(error.message);
+  // La réponse porte la configuration écrite ET ses deux nouveaux
+  // jetons : ce sont EUX qui remplacent les jetons locaux (contrat §3,
+  // « remplacer la configuration locale et les deux jetons par la
+  // réponse serveur »). Sans cela, la sauvegarde suivante renverrait les
+  // jetons périmés de la version précédente et serait refusée pour un
+  // conflit que le commerçant a lui-même créé.
+  // ═══ SNAPSHOT AUTORITAIRE INDIVISIBLE ═══ (remédiation F-01)
+  // La réponse du serveur est UN snapshot { configuration, jetons }. Si
+  // elle a la forme d'une configuration complète, c'est elle -- et elle
+  // seule -- qui devient le brouillon, la référence et les jetons. Sinon
+  // on relit l'autorité en UN appel et on prend sa réponse entière :
+  // jamais les jetons d'une réponse et la configuration d'une autre.
+  const authoritative: FulfillmentConfigurationRead =
+    data !== null &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    typeof (data as Record<string, unknown>).policy === "object" &&
+    (data as Record<string, unknown>).policy !== null
+      ? {
+          tokens: readTokens(data as Record<string, unknown>),
+          configuration: data as Record<string, unknown>,
+        }
+      : await (async () => {
+          const reread = await getFulfillmentConfiguration(
+            restaurantId,
+            String(payload.modeCode ?? ""),
+            (payload.fulfillmentRuleId ?? null) as string | null
+          );
+          if (reread === null) {
+            throw new FulfillmentConfigurationShapeError(
+              "écriture acceptée mais configuration introuvable à la relecture"
+            );
+          }
+          return reread;
+        })();
+  const tokens = authoritative.tokens;
+  // Les listes affichées sont relues par les lectures PUBLIÉES plutôt
+  // que reprojetées depuis la réponse : il n'existe ainsi qu'une seule
+  // façon de projeter ces colonnes dans tout le lot.
+  const [schedules, v12] = await Promise.all([
+    getMerchantFulfillmentSchedules(restaurantId),
+    getMerchantFulfillmentSchedulesV12(restaurantId),
+  ]);
+  return { schedules, v12, tokens, authoritative };
 }

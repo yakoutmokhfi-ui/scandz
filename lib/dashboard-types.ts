@@ -443,6 +443,20 @@ export interface MerchantFulfillmentSchedule {
   windows: MerchantFulfillmentWindow[];
   slots: MerchantFulfillmentSlot[];
   closures: MerchantFulfillmentClosure[];
+  /**
+   * CSDJ-BO-1 (issue #149) — horodatage de la version lue, renvoyé tel
+   * quel à l'écriture pour que le serveur REFUSE une édition
+   * concurrente au lieu de l'écraser.
+   *
+   * OPTIONNEL à dessein : la lecture marchande APPLIQUÉE ne rend pas
+   * encore cette colonne (15 colonnes, sans `updated_at`). C'est la
+   * seule modification demandée à une lecture existante dans
+   * docs/scheduling/csdj-bo1-write-contract-request.md §2.3. Tant
+   * qu'elle n'est pas livrée, la valeur est absente et l'écriture part
+   * sans garde de concurrence -- ce qui n'a aucune conséquence
+   * aujourd'hui, puisque l'écriture elle-même est verrouillée.
+   */
+  updatedAt?: string | null;
 }
 
 /**
