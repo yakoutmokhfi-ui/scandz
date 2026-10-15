@@ -1,0 +1,591 @@
+[09:28:11] [sûreté] cluster jetable CRÉÉ par ce harnais (données /tmp/tmp.BJP1LIav59/cluster, socket /tmp/tmp.BJP1LIav59/sock, port 49787).
+[09:28:11] [sûreté] cible validée : serveur=unix-socket base=postgres utilisateur=postgres superuser=on propre_cluster=1
+[09:28:11] [sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « scanym_csdjbo1_identity_32635_20261015092811 » (nonce propre à cette exécution).
+[09:28:11] verrou de sûreté franchi : cluster créé par le harnais, bases nommées pour cette exécution uniquement.
+[09:28:11] moteur v1.2 : fee1e398001dc05319f9e21501b99681da372e02 (audited-remediation-10668d1), fixture create_order PROD 414392b556abbdb78192d4797c835f5273753e82
+[09:28:11] === [0] Construction du schéma PRÉDÉCESSEUR (scanym_csdjbo1_base_32635_20261015092811) ===
+[09:28:13] chaîne prédécesseur appliquée (schema .. CUSTOMER CONTACT LIVE TRACKING v1).
+[09:28:13] create_order aligné sur le prédécesseur PRODUCTION (md5 LF c327445751333e7908d60e6d7f838eb5).
+[09:28:13] fixtures posées (2 commerçants, 2 règles de livraison, AUCUNE planification).
+[09:28:13] === [0b] État prédécesseur : CSDJ-1 v1.10 (scanym_csdjbo1_v1_32635_20261015092811) ===
+[09:28:13] === [1a] État hébergé : + CSDJ v1.2 (scanym_csdjbo1_pre_32635_20261015092811) ===
+[09:28:14] PASS: [1a] le moteur CSDJ v1.2 (audited-remediation-10668d1) s'applique sur CSDJ-1 : l'état de départ de ce lot est celui de l'hébergé
+[09:28:14] données historiques posées par les mutateurs existants (2 portées, 2 établissements) ; inventaire de référence : 1028 lignes.
+[09:28:14] === [1] Application de ce lot (scanym_csdjbo1_new_32635_20261015092811) ===
+[09:28:14] PASS: [1] le lot s'applique sur l'état hébergé (CSDJ-1 + v1.2 + données existantes)
+[09:28:14] === [2] Migration : pré-vol, atomicité, post-vol ===
+[09:28:14] PASS: [2] sans CSDJ-1 : refus nommé « CSDJ-1 n'est pas appliqué »
+[09:28:14] PASS: [2] sans CSDJ-1 : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:15] PASS: [2] sans CSDJ v1.2 : refus nommé « CSDJ v1.2 n'est pas appliquée »
+[09:28:15] PASS: [2] sans CSDJ v1.2 : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:15] PASS: [2] double application : refus nommé « ce fichier n'est pas ré-exécutable »
+[09:28:15] PASS: [2] double application : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=3)
+[09:28:15] PASS: [2] contrainte rfs_policy_coherent absente : refus nommé « contrainte rfs_policy_coherent absente »
+[09:28:15] PASS: [2] contrainte rfs_policy_coherent absente : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:15] PASS: [2] dépendance d'autorisation absente : refus nommé « dépendance d'autorisation ou de catalogue est absente »
+[09:28:15] PASS: [2] dépendance d'autorisation absente : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:16] PASS: [2] exécutant ≠ propriétaire de l'autorité d'écriture : refus nommé « différent du propriétaire »
+[09:28:16] PASS: [2] exécutant ≠ propriétaire de l'autorité d'écriture : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:16] PASS: [2] instruction en échec juste avant le COMMIT : refus nommé « ERROR »
+[09:28:16] PASS: [2] instruction en échec juste avant le COMMIT : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:16] PASS: [2] après l'échec en fin de fichier, l'inventaire est IDENTIQUE à l'état hébergé (rien ne subsiste, aucune surface touchée)
+[09:28:16] PASS: [2] post-vol : droit EXECUTE accordé à anon : refus nommé « bénéficiaires »
+[09:28:16] PASS: [2] post-vol : droit EXECUTE accordé à anon : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:17] PASS: [2] post-vol en échec : rien ne subsiste
+[09:28:17] PASS: [2] post-vol : une fonction EXISTANTE redéfinie : refus nommé « une fonction EXISTANTE a changé »
+[09:28:17] PASS: [2] post-vol : une fonction EXISTANTE redéfinie : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:17] PASS: [2] post-vol : une ligne de configuration insérée : refus nommé « AUCUNE ligne de configuration »
+[09:28:17] PASS: [2] post-vol : une ligne de configuration insérée : nombre de fonctions du lot APRÈS le refus (aucune création partielle) (=0)
+[09:28:17] === [3] Périmètre exact des changements ===
+[09:28:17] PASS: [3] lignes ajoutées à l'inventaire (3 fonctions) (=3)
+[09:28:17] PASS: [3] lignes retirées ou modifiées dans l'inventaire (aucune) (=0)
+[09:28:17] PASS: [3] toutes les lignes ajoutées sont des fonctions du lot (=3)
+[09:28:17] PASS: [3] colonnes, contraintes, politiques, déclencheurs, droits de table : INCHANGÉS (=0)
+[09:28:17] PASS: [3] create_order inchangé (corps md5) (=c327445751333e7908d60e6d7f838eb5)
+[09:28:17] PASS: [3] validate_fulfillment_selection : corps, ACL, propriétaire et SECURITY INCHANGÉS (=86da2b52b153b0fcbb2e665cb7b4e90b)
+[09:28:17] PASS: [3] reserve_fulfillment_capacity : corps, ACL, propriétaire et SECURITY INCHANGÉS (=10e84d60c8f109352714707c955f6d83)
+[09:28:17] PASS: [3] release_fulfillment_capacity : corps, ACL, propriétaire et SECURITY INCHANGÉS (=ecff781e00855103851486c20d4389db)
+[09:28:17] PASS: [3] resolve_fulfillment_schedule : corps, ACL, propriétaire et SECURITY INCHANGÉS (=edf7508335d847e48df9e29c58110a3e)
+[09:28:17] PASS: [3] resolve_fulfillment_schedule_v12 : corps, ACL, propriétaire et SECURITY INCHANGÉS (=997fad42112894289c953c33ebd88f1d)
+[09:28:17] PASS: [3] mutate_merchant_fulfillment_schedule : corps, ACL, propriétaire et SECURITY INCHANGÉS (=f9a1b4e6ccd987b83fba3ceab2c42ef3)
+[09:28:17] PASS: [3] mutate_merchant_fulfillment_schedule_v12 : corps, ACL, propriétaire et SECURITY INCHANGÉS (=b32d02cf747b9ce68aff9197f1b6f8c3)
+[09:28:17] PASS: [3] get_merchant_fulfillment_schedules : corps, ACL, propriétaire et SECURITY INCHANGÉS (=0d9dff1dabc839d6803a37eb38022510)
+[09:28:17] PASS: [3] get_merchant_fulfillment_schedules_v12 : corps, ACL, propriétaire et SECURITY INCHANGÉS (=83fc1474af2de1724e08926f991bdf36)
+[09:28:18] PASS: [3] get_checkout_fulfillment_schedule : corps, ACL, propriétaire et SECURITY INCHANGÉS (=7a112cb771c7aa0d53580a7a600421b2)
+[09:28:18] PASS: [3] update_order_status : corps, ACL, propriétaire et SECURITY INCHANGÉS (=29be1827ea330a5958a0e06ff3b8bdc5)
+[09:28:18] PASS: [3] données historiques de l'établissement A : INCHANGÉES (empreinte) (=54cc1516215175736bc9d142a207bf0d)
+[09:28:18] PASS: [3] données historiques de l'établissement B : INCHANGÉES (empreinte) (=232d24d3aff26438f8c8b8b325e735fc)
+[09:28:18] === [4] Posture de sécurité ===
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : SECURITY DEFINER (=true)
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : search_path vide (proconfig exact) (=true)
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : propriétaire = celui de l'autorité d'écriture existante (=postgres)
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : anon ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : service_role ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.save_fulfillment_configuration(uuid,jsonb) : PUBLIC n'a aucun droit (aclexplode) (=0)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : SECURITY DEFINER (=true)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : search_path vide (proconfig exact) (=true)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : propriétaire = celui de l'autorité d'écriture existante (=postgres)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : anon ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : service_role ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.get_fulfillment_configuration(uuid,text,uuid) : PUBLIC n'a aucun droit (aclexplode) (=0)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : SECURITY DEFINER (=true)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : search_path vide (proconfig exact) (=true)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : propriétaire = celui de l'autorité d'écriture existante (=postgres)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : anon ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : service_role ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] public.csdjbo1_persisted_configuration(uuid,text,uuid) : PUBLIC n'a aucun droit (aclexplode) (=0)
+[09:28:18] PASS: [4] save : authenticated PEUT l'exécuter (=true)
+[09:28:18] PASS: [4] get : authenticated PEUT l'exécuter (=true)
+[09:28:18] PASS: [4] constructeur interne : authenticated ne peut PAS l'exécuter (=false)
+[09:28:18] PASS: [4] save : VOLATILE, rend jsonb (=v|jsonb)
+[09:28:18] PASS: [4] une seule surcharge de chaque fonction (=1|1|1)
+[09:28:18] PASS: [4] le corps de save ne contient ni EXECUTE dynamique ni SQL construit (=0)
+[09:28:18] PASS: [4] le corps de save prend le verrou de tenant (graine 1104) (=1)
+[09:28:18] PASS: [4] aucune table n'a reçu de droit d'écriture (INSERT/UPDATE/DELETE/TRUNCATE) pour un rôle applicatif (=0)
+[09:28:18] === [5] Autorisation ===
+[09:28:18] PASS: [5] staff (membre) : écriture REFUSÉE CSDJ1_FORBIDDEN
+[09:28:18] PASS: [5] opérateur Scanym (non membre) : écriture REFUSÉE (aucune dérogation opérateur)
+[09:28:18] PASS: [5] inconnu : écriture REFUSÉE
+[09:28:18] PASS: [5] propriétaire d'un AUTRE établissement : écriture REFUSÉE (tenant croisé)
+[09:28:18] PASS: [5] sans session (auth.uid() nul) : écriture REFUSÉE CSDJ1_AUTH_REQUIRED
+[09:28:18] PASS: [5] rôle anon : EXECUTE refusé (permission denied)
+[09:28:18] PASS: [5] rôle anon avec le jeton d'un propriétaire : EXECUTE refusé
+[09:28:18] PASS: [5] rôle service_role : EXECUTE refusé (authenticated UNIQUEMENT)
+[09:28:18] PASS: [5] établissement inexistant : même refus FORBIDDEN (aucune fuite d'existence)
+[09:28:18] PASS: [5] aucun de ces refus n'a écrit quoi que ce soit chez A (empreinte = données historiques) (=54cc1516215175736bc9d142a207bf0d)
+[09:28:18] PASS: [5] ... ni chez B (=232d24d3aff26438f8c8b8b325e735fc)
+[09:28:18] PASS: [5] propriétaire de l'établissement : écriture ACCEPTÉE
+[09:28:18] PASS: [5] responsable (manager) : écriture ACCEPTÉE
+[09:28:18] PASS: [5] staff (membre) : LECTURE autorisée
+[09:28:18] PASS: [5] opérateur Scanym : LECTURE autorisée (comme les lectures existantes)
+[09:28:18] PASS: [5] inconnu : lecture REFUSÉE
+[09:28:18] PASS: [5] propriétaire d'un autre établissement : lecture REFUSÉE (tenant croisé)
+[09:28:18] PASS: [5] sans session : lecture REFUSÉE
+[09:28:19] PASS: [5] anon : lecture REFUSÉE (permission denied)
+[09:28:19] PASS: [5] lecture : mode hors catalogue REFUSÉ
+[09:28:19] PASS: [5] lecture : règle de livraison d'un AUTRE établissement REFUSÉE
+[09:28:19] PASS: [5] lecture : zéro UUID refusé (sentinelle)
+[09:28:19] PASS: [5] lecture d'une portée sans configuration : NULL (=NULL)
+[09:28:19] === [6] Chemins nominaux ===
+[09:28:19] PASS: [6.1] l'exemple ALC (retrait, 2 créneaux, mardi–samedi, 16 h la veille) est enregistré
+[09:28:19] PASS: [6.1] méthode v1.2 (=v1.2)
+[09:28:19] PASS: [6.1] activée (=true)
+[09:28:19] PASS: [6.1] heure limite 16:00 (=16:00)
+[09:28:19] PASS: [6.1] 10 créneaux (5 jours × 2) (=10)
+[09:28:19] PASS: [6.1] aucune fenêtre (=0)
+[09:28:19] PASS: [6.1] jours de préparation lundi–vendredi (=[1, 2, 3, 4, 5])
+[09:28:19] PASS: [6.1] lignes écrites : 0 fenêtre, 10 créneaux, 0 fermeture, 5 jours de préparation, 0 fermeture de préparation (=0|10|0|5|0)
+[09:28:19] PASS: [6.1] jeton updatedAt au format µs UTC (=1)
+[09:28:19] PASS: [6.1] révision = 32 caractères hexadécimaux (=1)
+[09:28:19] PASS: [6.1] l'établissement B n'a pas bougé d'un octet (=232d24d3aff26438f8c8b8b325e735fc)
+[09:28:19] PASS: [6.1] aucune clé de compte de capacité, de places restantes ou de réservations dans la réponse (=)
+[09:28:19] PASS: [6.1] ni secret, ni SQLSTATE, ni identifiant sensible : seules les clés du contrat sont rendues (=capacity,closures,enabled,fulfillmentRuleId,holidays,method,modeCode,policy,preparation,revision,slots,updatedAt,windows)
+[09:28:19] PASS: [6.2] get_fulfillment_configuration rend EXACTEMENT la réponse de l'écriture (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "88047620972bcfdfbb60e9f372879626", "updatedAt": "2026-10-15T09:28:19.131508Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:28:19] PASS: [6.3] resauvegarde avec les deux jetons : acceptée
+[09:28:19] PASS: [6.3] même contenu => même révision (=88047620972bcfdfbb60e9f372879626)
+[09:28:19] PASS: [6.3] le jeton updatedAt a strictement avancé (=1)
+[09:28:19] PASS: [6.4] double soumission avec l'ancien jeton → CSDJBO1_STALE_CONFIGURATION
+[09:28:19] PASS: [6.4] motif nommé
+[09:28:19] PASS: [6.4] aucune écriture (=f695295d3facaa30665de1ec17ce50a2)
+[09:28:19] PASS: [6.4] SQLSTATE 23505 (409 côté REST) (=23505)
+[09:28:19] PASS: [6.5] lundi 15:59 (13:59Z) → premier retrait possible : mardi 2026-10-20 (=2026-10-20/dates_available)
+[09:28:19] PASS: [6.5] lundi 16:00 (14:00Z) → mercredi 2026-10-21 (l'heure limite est atteinte) (=2026-10-21/dates_available)
+[09:28:19] PASS: [6.5] lundi 16:01 → mercredi 2026-10-21 (=2026-10-21/dates_available)
+[09:28:19] PASS: [6.5] samedi matin → mardi (dimanche et lundi fermés) (=2026-10-20/dates_available)
+[09:28:19] PASS: [6.5] jours proposés : mardi à samedi, jamais dimanche ni lundi (=2,3,4,5,6)
+[09:28:19] PASS: [6.5] deux créneaux par jour (midi 11–14, soir 16–20) (=2)
+[09:28:19] PASS: [6.5] validate_fulfillment_selection (CSDJ-3, inchangée) accepte mardi/soir écrit par la nouvelle RPC
+[09:28:19] PASS: [6.5] ... et refuse un dimanche (=1)
+[09:28:20] PASS: [6.6] livraison v1 (fenêtres, décalage d'heure limite, 2 fermetures) enregistrée sur la règle de A
+[09:28:20] PASS: [6.6] portée = règle de l'établissement (=0378e9c2-8192-483d-abcf-85d6259a2ea5)
+[09:28:20] PASS: [6.6] 10 fenêtres (lundi–vendredi × 2) (=10)
+[09:28:20] PASS: [6.6] 2 fermetures, la seconde sans libellé (=2|null)
+[09:28:20] PASS: [6.6] décalage d'heure limite 1 jour (propre à la v1) (=1)
+[09:28:20] PASS: [6.6] méthode v1 : aucune section v1.2 rendue (=0)
+[09:28:20] PASS: [6.6] la configuration du retrait n'a PAS bougé (portées indépendantes) (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "88047620972bcfdfbb60e9f372879626", "updatedAt": "2026-10-15T09:28:19.355110Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:28:20] PASS: [6.6] lecture de la portée livraison = réponse d'écriture (={"slots": [], "method": "v1", "policy": {"timezone": "Europe/Paris", "cutoffTime": "12:00", "minLeadDays": 0, "leadTimeMinutes": 120, "cutoffOffsetDays": 1, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "none", "bookingHorizonDays": 10, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "12:00", "weekday": 1, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 1, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 2, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 2, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 3, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 3, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 4, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 4, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 5, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 5, "startsAt": "14:00", "displayOrder": 1}], "closures": [{"label": "Noël", "closedOn": "2026-12-25"}, {"label": null, "closedOn": "2027-01-01"}], "modeCode": "delivery", "revision": "94f9ad8196cbf9edc434007aa1f09d6c", "updatedAt": "2026-10-15T09:28:20.047562Z", "fulfillmentRuleId": "0378e9c2-8192-483d-abcf-85d6259a2ea5"})
+[09:28:20] PASS: [6.6] la portée livraison sans règle n'existe pas (=NULL)
+[09:28:20] PASS: [6.7] la règle manuelle A2 reçoit SA configuration
+[09:28:20] PASS: [6.7] la règle manuelle A3 reçoit SA configuration (brouillon)
+[09:28:20] PASS: [6.7] chaque règle garde son heure limite : A1 12:00 / A2 09:30 / A3 11:15 (=12:00/09:30/11:15)
+[09:28:20] PASS: [6.7] A1 active, A2 active, A3 en brouillon : états indépendants (=true/true/false)
+[09:28:20] PASS: [6.7] le retrait est toujours inchangé (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "88047620972bcfdfbb60e9f372879626", "updatedAt": "2026-10-15T09:28:19.355110Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:28:20] PASS: [6.7] aucune ligne de planification n'a été créée ailleurs que chez A (B : données historiques seules) (=232d24d3aff26438f8c8b8b325e735fc)
+[09:28:20] PASS: [6.7] les règles ALC ne deviennent PAS des défauts globaux : B n'a toujours que sa portée historique (=1)
+[09:28:20] PASS: [6.7] ... et B n'a ni préparation, ni créneau ALC (=0|0)
+[09:28:20] PASS: [6.7] le propriétaire de B ne peut pas viser la règle de A → CSDJ1_FOREIGN_RULE
+[09:28:20] PASS: [6.7] le propriétaire de A ne peut pas viser la règle de B → CSDJ1_FOREIGN_RULE
+[09:28:20] PASS: [6.7] une règle de livraison ne peut pas servir une portée « retrait » → CSDJ1_FOREIGN_RULE
+[09:28:20] PASS: [6.8] un BROUILLON incomplet (aucun créneau, aucune préparation) est enregistré tel quel
+[09:28:20] PASS: [6.8] le brouillon est persisté inactif (=false)
+[09:28:20] PASS: [6.8] activer l'incomplet est refusé AVANT écriture → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:20] PASS: [6.8] bloqueurs nommés
+[09:28:20] PASS: [6.8] le brouillon est intact (rien n'a bougé) (={"slots": [], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": null, "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": false, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "06e331e936fe37e65ed59cfae10aea9a", "updatedAt": "2026-10-15T09:28:20.836287Z", "preparation": {"closures": [], "weekdays": []}, "fulfillmentRuleId": null})
+[09:28:21] PASS: [6.8] la configuration complétée s'active en UNE écriture
+[09:28:21] PASS: [6.8] activée (=true)
+[09:28:21] PASS: [6.8] la désactivation (retour en brouillon) conserve toute la configuration
+[09:28:21] PASS: [6.8] ... créneaux et préparation conservés (=0|10|0|5|0)
+[09:28:21] PASS: [6.9] bascule v1.2 → v1 acceptée
+[09:28:21] PASS: [6.9] la préparation, les créneaux ALC sont REMPLACÉS : 10 fenêtres, 0 créneau, 2 fermetures, 0 préparation (=10|0|2|0|0)
+[09:28:21] PASS: [6.9] colonnes v1.2 remises à leur valeur neutre (=|open|open|false|)
+[09:28:21] PASS: [6.9] bascule v1 → v1.2 acceptée
+[09:28:21] PASS: [6.9] retour à l'exemple ALC, sans résidu de fenêtres ni de fermetures v1 (=0|10|0|5|0)
+[09:28:21] PASS: [6.10] fériés + fermetures + préparation + capacité enregistrés en UNE écriture
+[09:28:21] PASS: [6.10] calendrier, politiques fériées et capacité relus (=6b5772ea-8bdc-4a46-95dc-e9baa1dc262e/closed/closed/true/12)
+[09:28:21] PASS: [6.10] fermetures de disponibilité et de préparation écrites (=0|10|1|5|1)
+[09:28:21] PASS: [6.10] la capacité relue est la LIMITE configurée, aucun compteur (=0)
+[09:28:21] PASS: [6.10] reserve_fulfillment_capacity réserve sur une configuration écrite par la RPC
+[09:28:21] PASS: [6.10] ... et ne contient pas la clé « used » (=0)
+[09:28:21] === [7] Validation ===
+[09:28:21] PASS: [7] clé inconnue en tête de charge → CSDJ1_INVALID_PAYLOAD
+[09:28:21] PASS: [7] faute de frappe « enabeld » → CSDJ1_INVALID_PAYLOAD
+[09:28:21] PASS: [7] policy absente → CSDJ1_INVALID_PAYLOAD
+[09:28:21] PASS: [7] policy en tableau → CSDJ1_INVALID_PAYLOAD
+[09:28:21] PASS: [7] clé inconnue dans policy → CSDJ1_INVALID_PAYLOAD
+[09:28:21] PASS: [7] windows absent (pas de delta implicite) → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] windows en objet → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] slots à null → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] closures en chaîne → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] enabled en chaîne → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] enabled absent → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] mode absent → CSDJ1_UNKNOWN_MODE
+[09:28:22] PASS: [7] mode hors catalogue → CSDJ1_UNKNOWN_MODE
+[09:28:22] PASS: [7] mode numérique → CSDJ1_UNKNOWN_MODE
+[09:28:22] PASS: [7] règle non UUID → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] règle numérique → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] règle = zéro UUID (sentinelle réservée) → CSDJ1_RESERVED_RULE_ID
+[09:28:22] PASS: [7] règle d'un autre établissement → CSDJ1_FOREIGN_RULE
+[09:28:22] PASS: [7] règle inexistante → CSDJ1_FOREIGN_RULE
+[09:28:22] PASS: [7] méthode absente → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] méthode inconnue « v2 » → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] méthode numérique → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] v1 portant « preparation » → CSDJBO1_METHOD_MISMATCH
+[09:28:22] PASS: [7] v1 portant « preparation » : détail
+[09:28:22] PASS: [7] v1 portant « holidays » → CSDJBO1_METHOD_MISMATCH
+[09:28:22] PASS: [7] v1 portant « capacity » → CSDJBO1_METHOD_MISMATCH
+[09:28:22] PASS: [7] v1 sans décalage d'heure limite → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] v1 décalage 31 → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] v1 décalage -1 → CSDJ1_INVALID_PAYLOAD
+[09:28:22] PASS: [7] v1 décalage en chaîne → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] v1.2 avec décalage 1 → CSDJBO1_METHOD_MISMATCH
+[09:28:23] PASS: [7] v1.2 avec décalage 1 : détail
+[09:28:23] PASS: [7] v1.2 avec décalage « 0 » en chaîne → CSDJBO1_METHOD_MISMATCH
+[09:28:23] PASS: [7] v1.2 sans « preparation » → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] v1.2 sans « holidays » → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] v1.2 sans « capacity » → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] v1.2 « preparation » en tableau → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.timezone absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.dateSelectionMode absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.slotSelectionMode absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.timeGranularityMinutes absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.leadTimeMinutes absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.minLeadDays absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.cutoffTime absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] policy.bookingHorizonDays absent (aucun défaut côté serveur) → CSDJ1_INVALID_PAYLOAD
+[09:28:23] PASS: [7] fuseau inconnu → CSDJ1_INVALID_TIMEZONE
+[09:28:23] PASS: [7] fuseau numérique → CSDJ1_INVALID_TIMEZONE
+[09:28:23] PASS: [7] fuseau null → CSDJ1_INVALID_TIMEZONE
+[09:28:23] PASS: [7] mode de date hors catalogue → CSDJ1_INVALID_POLICY
+[09:28:23] PASS: [7] mode de créneau hors catalogue → CSDJ1_INVALID_POLICY
+[09:28:23] PASS: [7] mode de date numérique → CSDJ1_INVALID_POLICY
+[09:28:23] PASS: [7] date informative + créneaux fixes (incohérent) → CSDJ1_INVALID_POLICY
+[09:28:23] PASS: [7] date dérivée + créneaux fixes (incohérent) → CSDJ1_INVALID_POLICY
+[09:28:24] PASS: [7] leadTimeMinutes = -1 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] leadTimeMinutes = 1.5 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] leadTimeMinutes = "5" → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] leadTimeMinutes = null → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] leadTimeMinutes = 100001 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] minLeadDays = -1 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] minLeadDays = 366 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] minLeadDays = 2.5 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] minLeadDays = "x" → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] bookingHorizonDays = -3 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] bookingHorizonDays = 366 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] bookingHorizonDays = "x" → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] bookingHorizonDays = null → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] timeGranularityMinutes = 4 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] timeGranularityMinutes = 241 → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] timeGranularityMinutes = "x" → CSDJ1_INVALID_PAYLOAD
+[09:28:24] PASS: [7] timeGranularityMinutes = 7.5 → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] timeGranularityMinutes = -5 → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = "25:00" → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = "24:00" → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = "16h" → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = 16 → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = true → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = "16:60" → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime = "" → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] cutoffTime avec secondes → CSDJ1_SUBMINUTE_TIME
+[09:28:25] PASS: [7] heure libre sans pas de grille (brouillon) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:25] PASS: [7] heure libre sans pas de grille (brouillon) : détail
+[09:28:25] PASS: [7] heure libre sans pas de grille (activation) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:25] PASS: [7] heure libre sans pas de grille (activation) : détail
+[09:28:25] PASS: [7] fenêtre : jour 7 → CSDJ12_INVALID_WEEKDAY
+[09:28:25] PASS: [7] fenêtre : jour en chaîne → CSDJ12_INVALID_WEEKDAY
+[09:28:25] PASS: [7] fenêtre : jour absent → CSDJ12_INVALID_WEEKDAY
+[09:28:25] PASS: [7] fenêtre : heure illisible → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] fenêtre : fin avant début → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] fenêtre : durée nulle → CSDJ1_INVALID_PAYLOAD
+[09:28:25] PASS: [7] fenêtre : secondes → CSDJ1_SUBMINUTE_TIME
+[09:28:25] PASS: [7] fenêtre : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fenêtre : displayOrder négatif → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fenêtre : displayOrder 10000 → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fenêtre : élément non objet → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fenêtres : superposition simple → CSDJ1_WINDOW_OVERLAP
+[09:28:26] PASS: [7] fenêtres : fenêtre englobante suivie de deux fenêtres ([9-20],[10-11],[12-13]) → CSDJ1_WINDOW_OVERLAP
+[09:28:26] PASS: [7] fenêtres : identiques → CSDJ1_WINDOW_OVERLAP
+[09:28:26] PASS: [7] 101 fenêtres → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : jour -1 → CSDJ12_INVALID_WEEKDAY
+[09:28:26] PASS: [7] créneau : clé en majuscules et espace → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : clé vide → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : clé de 41 caractères → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : fin avant début → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : secondes → CSDJ1_SUBMINUTE_TIME
+[09:28:26] PASS: [7] créneau : doublon (jour, clé) → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] créneau : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] 201 créneaux → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fermeture : date en double → CSDJ1_INVALID_PAYLOAD
+[09:28:26] PASS: [7] fermeture : 30 février → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] fermeture : date mal formée → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] fermeture : libellé de 121 caractères → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] fermeture : libellé numérique → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] fermeture : élément non objet → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] fermeture : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] 732 fermetures → CSDJ12_TOO_MANY_CLOSURES
+[09:28:27] PASS: [7] préparation : jour 7 → CSDJ12_INVALID_WEEKDAY
+[09:28:27] PASS: [7] préparation : jour en chaîne → CSDJ12_INVALID_WEEKDAY
+[09:28:27] PASS: [7] préparation : 8 jours → CSDJ12_INVALID_WEEKDAY
+[09:28:27] PASS: [7] préparation : jours non tableau → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] préparation : fermeture en double → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] préparation : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:27] PASS: [7] préparation : 732 fermetures → CSDJ12_TOO_MANY_CLOSURES
+[09:28:27] PASS: [7] fériés : calendrier inconnu → CSDJ12_UNKNOWN_CALENDAR
+[09:28:27] PASS: [7] fériés : calendrier non UUID → CSDJ12_UNKNOWN_CALENDAR
+[09:28:27] PASS: [7] fériés : « closed » sans calendrier (préparation) → CSDJ12_HOLIDAY_POLICY_NEEDS_CALENDAR
+[09:28:28] PASS: [7] fériés : « closed » sans calendrier (disponibilité) → CSDJ12_HOLIDAY_POLICY_NEEDS_CALENDAR
+[09:28:28] PASS: [7] fériés : politique hors catalogue → CSDJ12_INVALID_HOLIDAY_POLICY
+[09:28:28] PASS: [7] fériés : politique numérique → CSDJ12_INVALID_HOLIDAY_POLICY
+[09:28:28] PASS: [7] fériés : clé absente → CSDJ1_INVALID_PAYLOAD
+[09:28:28] PASS: [7] fériés : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:28] PASS: [7] capacité : activée sans maximum (brouillon) → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : maximum 0 (brouillon) → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : maximum 0 (désactivée) → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : maximum 1 000 001 → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : maximum en chaîne → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : maximum décimal → CSDJ12_INVALID_CAPACITY
+[09:28:28] PASS: [7] capacité : enabled en chaîne → CSDJ1_INVALID_PAYLOAD
+[09:28:28] PASS: [7] capacité : maxOrders absent → CSDJ1_INVALID_PAYLOAD
+[09:28:28] PASS: [7] capacité : clé inconnue → CSDJ1_INVALID_PAYLOAD
+[09:28:28] PASS: [7] capacité sur date informative (brouillon) → CSDJ12_CAPACITY_NEEDS_DATE
+[09:28:28] PASS: [7] capacité sur date informative (activation) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:28] PASS: [7] capacité sur date informative (activation) : détail
+[09:28:28] PASS: [7] expectedUpdatedAt numérique → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] expectedUpdatedAt « hier » → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] expectedUpdatedAt sans « Z » → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] expectedUpdatedAt impossible → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] expectedRevision illisible → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] expectedRevision numérique → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge non objet [] → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge non objet "x" → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge non objet 5 → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge non objet null → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge non objet true → CSDJ1_INVALID_PAYLOAD
+[09:28:29] PASS: [7] charge SQL NULL → refus nommé (=CSDJ1_INVALID_PAYLOAD)
+[09:28:29] PASS: [7] établissement NULL → CSDJ1_FORBIDDEN (=CSDJ1_FORBIDDEN)
+[09:28:29] PASS: [7] SQLSTATE : validation 22023 / complétude 23514 (=22023/23514)
+[09:28:29] PASS: [7] après toute la matrice de refus, l'état de A est celui de départ (aucune écriture partielle) (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:28:29] PASS: [7] ... et B est inchangé (=232d24d3aff26438f8c8b8b325e735fc)
+[09:28:29] PASS: [7+] fenêtres au contact (fin = début) : accepté
+[09:28:29] PASS: [7+] même plage sur deux jours différents : accepté
+[09:28:29] PASS: [7+] v1.2 avec décalage explicite 0 : accepté
+[09:28:29] PASS: [7+] heure limite null : accepté
+[09:28:29] PASS: [7+] heure limite 00:00 et 23:59 : accepté
+[09:28:29] PASS: [7+] préparation avec doublons de jours (dédoublonnés) : accepté
+[09:28:29] PASS: [7+] date informative sans offre (aucun créneau requis) : accepté
+[09:28:30] PASS: [7+] date dérivée avec fenêtres : accepté
+[09:28:30] PASS: [7+] heure libre avec pas de 15 minutes et une fenêtre : accepté
+[09:28:30] PASS: [7+] dimanche (jour 0) et samedi (jour 6) : accepté
+[09:28:30] PASS: [7+] libellé de fermeture de 120 caractères : accepté
+[09:28:30] PASS: [7+] 731 fermetures : accepté
+[09:28:30] PASS: [7+] 100 fenêtres (borne haute) : accepté
+[09:28:30] PASS: [7+] 200 créneaux (borne haute) : accepté
+[09:28:30] PASS: [7+] libellé accentué et apostrophes littérales : accepté
+[09:28:30] PASS: [7+] libellé qui ressemble à du SQL (stocké littéralement) : accepté
+[09:28:30] PASS: [7+] la table des commandes existe toujours (aucune injection) (=1)
+[09:28:30] === [7b] Un refus de validation ne touche pas une configuration existante ===
+[09:28:30] PASS: [7b] slots invalides (portée existante, jetons valides) → CSDJ1_INVALID_PAYLOAD
+[09:28:30] PASS: [7b] slots invalides : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] fuseau inconnu (portée existante, jetons valides) → CSDJ1_INVALID_TIMEZONE
+[09:28:31] PASS: [7b] fuseau inconnu : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] fériés inconnus (portée existante, jetons valides) → CSDJ12_UNKNOWN_CALENDAR
+[09:28:31] PASS: [7b] fériés inconnus : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] capacité incohérente (portée existante, jetons valides) → CSDJ12_INVALID_CAPACITY
+[09:28:31] PASS: [7b] capacité incohérente : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] méthode incohérente (portée existante, jetons valides) → CSDJBO1_METHOD_MISMATCH
+[09:28:31] PASS: [7b] méthode incohérente : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] activation incomplète (portée existante, jetons valides) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:31] PASS: [7b] activation incomplète : AUCUNE ligne n'a changé (=052395a8cbe6045722f0350140fd9393)
+[09:28:31] PASS: [7b] la configuration relue est exactement celle d'avant (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "88047620972bcfdfbb60e9f372879626", "updatedAt": "2026-10-15T09:28:30.773029Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:28:31] === [7c] Fuzz déterministe : seuls des refus nommés sont permis ===
+[09:28:37] {"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null}
+NOTICE:  FUZZ iterations=700 accepted=43 named_refusals=657 RAW_ERRORS=0 sample=-
+[09:28:37] PASS: [7c] fuzz v1.2 (700 charges mutées) : 0 erreur brute (=0)
+[09:28:37] PASS: [7c] fuzz v1.2 : le fuzz a réellement produit des refus nommés ET des acceptations (=1)
+[09:28:46] {"slots": [], "method": "v1", "policy": {"timezone": "Europe/Paris", "cutoffTime": "12:00", "minLeadDays": 0, "leadTimeMinutes": 120, "cutoffOffsetDays": 1, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "none", "bookingHorizonDays": 10, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "12:00", "weekday": 1, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 1, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 2, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 2, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 3, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 3, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 4, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 4, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 5, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 5, "startsAt": "14:00", "displayOrder": 1}], "closures": [{"label": "Noël", "closedOn": "2026-12-25"}, {"label": null, "closedOn": "2027-01-01"}], "modeCode": "pickup", "fulfillmentRuleId": null}
+NOTICE:  FUZZ iterations=700 accepted=26 named_refusals=674 RAW_ERRORS=0 sample=-
+[09:28:46] PASS: [7c] fuzz v1 (700 charges mutées) : 0 erreur brute (=0)
+[09:28:50] {"slots": [], "method": "v1", "policy": {"timezone": "Europe/Paris", "cutoffTime": "12:00", "minLeadDays": 0, "leadTimeMinutes": 120, "cutoffOffsetDays": 1, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "none", "bookingHorizonDays": 10, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "12:00", "weekday": 1, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 1, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 2, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 2, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 3, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 3, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 4, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 4, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 5, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 5, "startsAt": "14:00", "displayOrder": 1}], "closures": [{"label": "Noël", "closedOn": "2026-12-25"}, {"label": null, "closedOn": "2027-01-01"}], "modeCode": "delivery", "fulfillmentRuleId": "0378e9c2-8192-483d-abcf-85d6259a2ea5"}
+NOTICE:  FUZZ iterations=400 accepted=21 named_refusals=379 RAW_ERRORS=0 sample=-
+[09:28:50] PASS: [7c] fuzz livraison sur règle (400 charges mutées) : 0 erreur brute (=0)
+[09:28:50] PASS: [7c] après le fuzz : aucune écriture (chaque itération annulée) (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:28:50] === [8] Complétude avant activation ===
+[09:28:50] PASS: [8] créneaux fixes sans créneau → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] créneaux fixes sans créneau : bloqueurs
+[09:28:50] PASS: [8] créneaux fixes avec fenêtres mais sans créneau (les fenêtres ne comptent pas) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] créneaux fixes avec fenêtres mais sans créneau (les fenêtres ne comptent pas) : bloqueurs
+[09:28:50] PASS: [8] sans créneau fixe : fenêtres vides (les créneaux ne comptent pas) → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] sans créneau fixe : fenêtres vides (les créneaux ne comptent pas) : bloqueurs
+[09:28:50] PASS: [8] date dérivée sans fenêtre → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] date dérivée sans fenêtre : bloqueurs
+[09:28:50] PASS: [8] v1.2 sans jour de préparation → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] v1.2 sans jour de préparation : bloqueurs
+[09:28:50] PASS: [8] v1 sans fenêtre → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] v1 sans fenêtre : bloqueurs
+[09:28:50] PASS: [8] capacité activée sans maximum → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] capacité activée sans maximum : bloqueurs
+[09:28:50] PASS: [8] offre + préparation + capacité manquantes : ordre du contrat → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:50] PASS: [8] offre + préparation + capacité manquantes : ordre du contrat : bloqueurs
+[09:28:51] PASS: [8] heure libre sans pas ET sans fenêtre : ordre du contrat → CSDJBO1_INCOMPLETE_CONFIGURATION
+[09:28:51] PASS: [8] heure libre sans pas ET sans fenêtre : ordre du contrat : bloqueurs
+[09:28:51] PASS: [8] aucune de ces tentatives n'a écrit (portée toujours absente) (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:28:51] PASS: [8] SQLSTATE d'une configuration incomplète : 23514 (=23514)
+[09:28:51] PASS: [8] l'activation n'est jamais implicite : « enabled » obligatoire → CSDJ1_INVALID_PAYLOAD
+[09:28:51] PASS: [8] les bloqueurs de publishBlockersOf (éditeur) = ceux de la RPC (=capacity_incomplete,capacity_needs_date,granularity_missing,offer_missing,preparation_missing,)
+[09:28:51] === [9] Remplacement intégral ===
+[09:28:51] PASS: [9] remplacement par une charge réduite accepté
+[09:28:51] PASS: [9] il ne reste QUE le créneau envoyé (pas de fusion avec les 10 précédents) (=1)
+[09:28:51] PASS: [9] il ne reste QUE le jour de préparation envoyé (=[5])
+[09:28:51] PASS: [9] les fermetures, le calendrier et la capacité absents de la charge réduite sont RETIRÉS (jamais conservés en silence) (=0|1|0|1|0)
+[09:28:51] PASS: [9] capacité remise telle qu'envoyée (désactivée, sans maximum) (=false/null)
+[09:28:51] PASS: [9] calendrier férié retiré (=null)
+[09:28:51] PASS: [9] l'écriture est exactement ce qui a été envoyé (aller-retour sans perte) (={"slots": [{"endsAt": "12:00", "slotKey": "matin", "weekday": 6, "startsAt": "09:00", "displayOrder": 0}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "preparation": {"closures": [], "weekdays": [5]}, "fulfillmentRuleId": null})
+[09:28:51] PASS: [9] les listes vides explicites vident la portée
+[09:28:51] PASS: [9] plus aucune ligne enfant (=0|0|0|0|0)
+[09:28:51] PASS: [9] ... mais la portée (brouillon) existe toujours (=1)
+[09:28:51] === [10] Anti-concurrence ===
+[09:28:51] PASS: [10.1] création sur une portée existante, sans jeton → CSDJBO1_STALE_CONFIGURATION
+[09:28:51] PASS: [10.1] motif nommé
+[09:28:51] PASS: [10.1] jetons explicitement null = pas de jeton → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.2] jeton fourni pour une portée qui n'existe pas → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.2] motif nommé
+[09:28:52] PASS: [10.3] jeton ancien → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.3] jeton du futur → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.3] jeton décalé d'UNE microseconde (comparaison exacte) → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.3] bon jeton updatedAt mais mauvaise révision → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.3] motif nommé
+[09:28:52] PASS: [10.3] ces refus n'ont rien écrit (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "88047620972bcfdfbb60e9f372879626", "updatedAt": "2026-10-15T09:28:51.880636Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:28:52] PASS: [10.4] le mutateur historique n'a PAS fait bouger updatedAt (limite connue) (=2026-10-15T09:28:51.880636Z)
+[09:28:52] PASS: [10.4] ... mais la révision de contenu A BOUGÉ (=1)
+[09:28:52] PASS: [10.4] avec l'ANCIENNE révision : refus (la modification historique n'est pas écrasée en silence) → CSDJBO1_STALE_CONFIGURATION
+[09:28:52] PASS: [10.4] motif nommé
+[09:28:52] PASS: [10.4] RÉSIDU DOCUMENTÉ : sans expectedRevision, seul updatedAt est comparé (l'écriture passe) — l'interface DOIT envoyer expectedRevision
+[09:28:52] --- [10.5] deux sessions réelles, même établissement ---
+[09:28:52] PASS: [10.5] la session 1 TIENT le verrou de tenant (graine 1104)
+[09:28:52] PASS: [10.5] la session 2 ATTEND le même verrou (sérialisation prouvée dans pg_locks)
+[09:28:55] PASS: [10.5] session 1 : écriture acceptée
+[09:28:55] PASS: [10.5] session 2 (même jeton, arrivée seconde) → CSDJBO1_STALE_CONFIGURATION
+[09:28:55] PASS: [10.5] motif nommé
+[09:28:55] PASS: [10.5] l'état final est EXACTEMENT celui de la session 1 (pas de mélange) (=10:05)
+[09:28:55] PASS: [10.5] plus aucun verrou après la fin des deux sessions
+[09:28:55] --- [10.6] établissements différents : pas d'attente ---
+[09:28:56] PASS: [10.6] l'écriture de B aboutit PENDANT que A tient son verrou
+[09:28:56] PASS: [10.6] ... sans attendre A (moins de 2 s) (=1)
+[09:28:56] PASS: [10.6] ... et la session A est toujours ouverte pendant ce temps (=1|0)
+[09:28:58] --- [10.7] verrou partagé avec les mutateurs historiques ---
+[09:28:59] PASS: [10.7] la NOUVELLE RPC attend le mutateur historique (même clé de verrou)
+[09:29:01] PASS: [10.7] après le mutateur historique, la RPC voit la modification et refuse l'ancienne révision → CSDJBO1_STALE_CONFIGURATION
+[09:29:02] PASS: [10.7] le mutateur historique ATTEND la nouvelle RPC (réciproque)
+[09:29:05] --- [10.8] double soumission simultanée (×5) ---
+[09:29:07] PASS: [10.8] sur 5 doubles soumissions : exactement 5 acceptées et 5 refusées STALE, jamais une erreur brute (=5/5/0)
+[09:29:07] --- [10.9] création concurrente d'une même portée (×3) ---
+[09:29:08] PASS: [10.9] tour 1 : une seule portée créée (=1)
+[09:29:08] PASS: [10.9] tour 2 : une seule portée créée (=1)
+[09:29:09] PASS: [10.9] tour 3 : une seule portée créée (=1)
+[09:29:09] PASS: [10.9] sur 3 courses de création : 3 gagnantes, 3 STALE, aucune erreur brute (=3/3/0)
+[09:29:09] --- [10.10] deux éditeurs alternés ---
+[09:29:09] PASS: [10.10] le premier éditeur réussit
+[09:29:09] PASS: [10.10] le second, resté sur l'ancien jeton, est refusé → CSDJBO1_STALE_CONFIGURATION
+[09:29:10] PASS: [10.10] après relecture (nouveau jeton), le second éditeur réussit
+[09:29:10] PASS: [10.10] état final = la dernière écriture (aucun mélange) (=12:35)
+[09:29:10] === [11] Atomicité ===
+[09:29:10] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_schedule : l'erreur REMONTE (jamais avalée)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:10] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_schedule_window : l'erreur REMONTE (jamais avalée)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_window : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_window : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:10] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_schedule_slot : l'erreur REMONTE (jamais avalée)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_slot : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_slot : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:10] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_schedule_closure : l'erreur REMONTE (jamais avalée)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_closure : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_schedule_closure : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:10] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_prep_day : l'erreur REMONTE (jamais avalée)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_prep_day : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:10] PASS: [11] panne sur restaurant_fulfillment_prep_day : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:11] PASS: [11] panne injectée à l'écriture de restaurant_fulfillment_prep_closure : l'erreur REMONTE (jamais avalée)
+[09:29:11] PASS: [11] panne sur restaurant_fulfillment_prep_closure : AUCUNE des 6 tables n'a changé (retour arrière complet) (=1470fa1bd6f3cba049bbeb47941add48)
+[09:29:11] PASS: [11] panne sur restaurant_fulfillment_prep_closure : la configuration relue est exactement l'ancienne (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "09:00", "weekday": 1, "startsAt": "08:00", "displayOrder": 0}], "capacity": {"enabled": false, "maxOrders": null}, "closures": [{"label": "Pont", "closedOn": "2026-11-02"}], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "126264c29c8cf6bb95c5ea65fa8541fe", "updatedAt": "2026-10-15T09:29:10.273858Z", "preparation": {"closures": [{"label": null, "closedOn": "2026-12-24"}], "weekdays": [1, 2, 3]}, "fulfillmentRuleId": null})
+[09:29:11] PASS: [11] ... et B n'a pas bougé (=232d24d3aff26438f8c8b8b325e735fc)
+[09:29:11] PASS: [11] contrôle : SANS panne, la même charge réussit (les échecs ci-dessus venaient bien de la panne)
+[09:29:11] PASS: [11] contrôle : l'écriture a bien changé l'état (=1)
+[09:29:11] PASS: [11b] transaction englobante ANNULÉE après l'appel : rien ne subsiste (=72c7d07e406de3d71ce7139ac5b7d28b)
+[09:29:11] PASS: [11b] ... et la même transaction VALIDÉE persiste (=1)
+[09:29:11] PASS: [11b] la session a TOUT écrit mais n'a pas validé : le verrou est tenu (=1|0)
+[09:29:11] PASS: [11b] le verrou est libéré à la mort du processus
+[09:29:11] PASS: [11b] processus TUÉ en pleine transaction : aucune écriture partielle ne subsiste (=08567f2ba6cd0bfa31add484a789af1e)
+[09:29:12] PASS: [11c] lock_timeout : expiration propre (aucun état intermédiaire)
+[09:29:14] PASS: [11c] rien n'a changé (=08567f2ba6cd0bfa31add484a789af1e)
+[09:29:14] PASS: [11d] sous « repeatable read » l'écriture est refusée → CSDJ12_ISOLATION_REQUIRED
+[09:29:14] PASS: [11d] sous « serializable » l'écriture est refusée → CSDJ12_ISOLATION_REQUIRED
+[09:29:14] PASS: [11d] ... sans rien écrire (=08567f2ba6cd0bfa31add484a789af1e)
+[09:29:14] === [11e] Cohérence des lecteurs pendant des écritures alternées ===
+[09:29:16] PASS: [11e] CONTRÔLE du détecteur : des appels historiques séparés laissent voir au moins un état mélangé (=1)
+[09:29:24] PASS: [11e] 60 écritures alternées de la nouvelle RPC acceptées (=60)
+[09:29:24] PASS: [11e] lecteur concurrent : AUCUN état mélangé sur toute la durée (=0)
+[09:29:24] PASS: [11e] le lecteur a bien observé des états (≥ 100 lectures cohérentes) (=1)
+[09:29:24] === [12] Aucun contournement ===
+[09:29:25] PASS: [12.1] aucun DML direct (anon, authenticated propriétaire, service_role) sur les six tables : 16 instructions × 3 rôles tous REFUSÉS (=)
+[09:29:25] PASS: [12.2] anon n'appelle PAS le constructeur interne (=REFUSE)
+[09:29:25] PASS: [12.2] authenticated n'appelle PAS le constructeur interne (=REFUSE)
+[09:29:25] PASS: [12.2] service_role n'appelle PAS le constructeur interne (=REFUSE)
+[09:29:25] PASS: [12.2] la lecture ne s'ouvre pas à anon non plus (=REFUSE)
+[09:29:25] PASS: [12.3] search_path piégé : un inconnu reste REFUSÉ (has_role_in n'est pas détourné) → CSDJ1_FORBIDDEN
+[09:29:25] PASS: [12.3] search_path piégé : la validation de forme n'est pas détournée → CSDJ1_INVALID_PAYLOAD
+[09:29:25] PASS: [12.3] search_path piégé : la lecture reste refusée à un inconnu
+[09:29:25] PASS: [12.4] modeCode hostile « pickup'; drop table public.ord » → CSDJ1_UNKNOWN_MODE
+[09:29:25] PASS: [12.4] modeCode hostile « pickup" or 1=1 » → CSDJ1_UNKNOWN_MODE
+[09:29:25] PASS: [12.4] modeCode hostile « pickup\\u0027 » → CSDJ1_UNKNOWN_MODE
+[09:29:25] PASS: [12.4] fulfillmentRuleId hostile → CSDJ1_INVALID_PAYLOAD
+[09:29:25] PASS: [12.4] la table des commandes existe toujours (=1)
+[09:29:25] PASS: [12.5] 1 200 fenêtres : refus nommé → CSDJ1_INVALID_PAYLOAD
+[09:29:25] PASS: [12.5] ... en moins de 3 s (la borne est contrôlée avant tout traitement coûteux) (=1)
+[09:29:25] PASS: [12.6] RÉSIDU CONNU, NON FERMÉ ICI (décision CTO, voir le contrat §Limites) : le mutateur historique active encore une portée sans créneau (0 erreur) (=0)
+[09:29:25] PASS: [12.6] ... et la configuration ainsi activée est relue comme incomplète : enabled=true, 0 créneau, 0 jour de préparation (=true/0/0)
+[09:29:25] PASS: [12.6] la nouvelle RPC répare la configuration incomplète laissée par le chemin historique
+[09:29:25] === [13] Isolation entre commerçants ===
+[09:29:25] PASS: [13] B réécrit sa configuration
+[09:29:25] PASS: [13] l'écriture de B ne change AUCUNE ligne de A (=ce040a7ce415584122dc590302a83713)
+[09:29:25] PASS: [13] A réécrit sa configuration
+[09:29:25] PASS: [13] ... et l'écriture de A ne change AUCUNE ligne de B (seule sa propre écriture précédente compte) (=517a4954eb7f5ea777ab0eaba9c16dd8)
+[09:29:25] PASS: [13] B est exactement ce que B a écrit en dernier (={"slots": [], "method": "v1", "policy": {"timezone": "Europe/Paris", "cutoffTime": "13:30", "minLeadDays": 0, "leadTimeMinutes": 120, "cutoffOffsetDays": 1, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "none", "bookingHorizonDays": 10, "timeGranularityMinutes": null}, "enabled": true, "windows": [{"endsAt": "12:00", "weekday": 1, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 1, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 2, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 2, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 3, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 3, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 4, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 4, "startsAt": "14:00", "displayOrder": 1}, {"endsAt": "12:00", "weekday": 5, "startsAt": "09:00", "displayOrder": 0}, {"endsAt": "18:00", "weekday": 5, "startsAt": "14:00", "displayOrder": 1}], "closures": [{"label": "Noël", "closedOn": "2026-12-25"}, {"label": null, "closedOn": "2027-01-01"}], "modeCode": "pickup", "revision": "58aa991c0a7a5b57c0e6554e5e4b121c", "updatedAt": "2026-10-15T09:29:25.823551Z", "fulfillmentRuleId": null})
+[09:29:25] PASS: [13] A est exactement ce que A a écrit en dernier (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "13:35", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "revision": "cfee58981767754a2ce8bd11bde6a33d", "updatedAt": "2026-10-15T09:29:25.912564Z", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:29:26] PASS: [13] chacun a SA méthode et SON heure limite (mêmes mode et clé de portée, établissements différents) (=v1.2/13:35|v1/13:30)
+[09:29:26] PASS: [13] B ne lit pas A
+[09:29:26] PASS: [13] A ne lit pas B
+[09:29:26] PASS: [13] le jeton de A ne s'applique pas à la portée de B → CSDJBO1_STALE_CONFIGURATION
+[09:29:26] PASS: [13] les lignes enfants sont toujours rattachées au bon établissement (aucune ligne orpheline ou croisée) (=0)
+[09:29:26] === [14] Non-régression jumelle (avec / sans le lot) ===
+[09:29:27] PASS: [14] séquence jumelle : mêmes sorties, octet pour octet (mutateurs historiques, lectures publiques, résolveur, validation, réservation, état final) (=42356dd81432b5b6544b9e0d3502c10f)
+[09:29:27] PASS: [14] la séquence est substantielle (≥ 30 lignes, avec succès ET refus) (=1)
+[09:29:27] PASS: [14] la réservation de capacité joue son rôle des deux côtés (C1 réservée, C2 refusée) (=1/1)
+[09:29:27] === [15] Mutations ===
+[09:29:30] PASS: [15] CONTRÔLE : le lot non modifié passe toutes les sondes de la batterie (=)
+[09:29:33] PASS: [15] mutant « complétude retirée » DÉTECTÉ par la sonde « incomplete » (sondes en échec : incomplete overlap)
+[09:29:37] PASS: [15] mutant « comparaison d'updatedAt retirée » DÉTECTÉ par la sonde « stale » (sondes en échec : stale)
+[09:29:40] PASS: [15] mutant « comparaison de révision retirée » DÉTECTÉ par la sonde « rev » (sondes en échec : rev)
+[09:29:43] PASS: [15] mutant « jeton exigé retiré (création sur l'existant) » DÉTECTÉ par la sonde « required » (sondes en échec : required)
+[09:29:47] PASS: [15] mutant « portée disparue non détectée » DÉTECTÉ par la sonde « scopemissing » (sondes en échec : scopemissing)
+[09:29:50] PASS: [15] mutant « rôle élargi aux membres (staff) » DÉTECTÉ par la sonde « staff » (sondes en échec : staff)
+[09:29:53] PASS: [15] mutant « dérogation opérateur à l'écriture » DÉTECTÉ par la sonde « operator » (sondes en échec : operator)
+[09:29:57] PASS: [15] mutant « tout le monde est autorisé » DÉTECTÉ par la sonde « staff operator stranger » (sondes en échec : staff operator stranger)
+[09:30:00] PASS: [15] mutant « session exigée retirée » DÉTECTÉ par la sonde « noauth » (sondes en échec : noauth)
+[09:30:03] PASS: [15] mutant « READ COMMITTED non exigé » DÉTECTÉ par la sonde « isolation » (sondes en échec : isolation)
+[09:30:07] PASS: [15] mutant « verrou de tenant retiré » DÉTECTÉ par la sonde « lock » (sondes en échec : lock)
+[09:30:11] PASS: [15] mutant « verrou de tenant : autre graine » DÉTECTÉ par la sonde « lock » (sondes en échec : lock)
+[09:30:15] PASS: [15] mutant « clés inconnues tolérées » DÉTECTÉ par la sonde « strict » (sondes en échec : strict overlap)
+[09:30:19] PASS: [15] mutant « créneaux fusionnés au lieu d'être remplacés » DÉTECTÉ par la sonde « replace » (sondes en échec : stale replace atomic lock)
+[09:30:22] PASS: [15] mutant « sections d'une autre méthode tolérées » DÉTECTÉ par la sonde « mismatch » (sondes en échec : mismatch overlap)
+[09:30:25] PASS: [15] mutant « contrôle de chevauchement retiré » DÉTECTÉ par la sonde « overlap » (sondes en échec : overlap)
+[09:30:29] PASS: [15] mutant « règle d'un autre établissement acceptée » DÉTECTÉ par la sonde « foreign » (sondes en échec : foreign)
+[09:30:32] PASS: [15] mutant « lecture ouverte à tous » DÉTECTÉ par la sonde « getauth » (sondes en échec : getauth)
+[09:30:35] PASS: [15] mutant « compte de capacité divulgué » DÉTECTÉ par la sonde « leak » (sondes en échec : leak)
+[09:30:39] PASS: [15] mutant « erreur d'écriture des fermetures avalée » DÉTECTÉ par la sonde « atomic » (sondes en échec : atomic)
+[09:30:39] PASS: [15] mutant « droit EXECUTE accordé à anon » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:39] PASS: [15] mutant « droit EXECUTE accordé à service_role » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:40] PASS: [15] mutant « constructeur interne ouvert à authenticated » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:40] PASS: [15] mutant « search_path de l'écriture non vide » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:40] PASS: [15] mutant « écriture sans SECURITY DEFINER » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:41] PASS: [15] mutant « une fonction existante est redéfinie » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:41] PASS: [15] mutant « le lot insère une ligne de configuration » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:30:41] === [16] Retour arrière ===
+[09:30:41] PASS: [16] état d'avant le lot : retour REFUSÉ ([NOT_APPLICABLE])
+[09:30:42] PASS: [16] une routine appelle la RPC : retour REFUSÉ ([CALLER])
+[09:30:42] PASS: [16] une fonction SQL dépend de la lecture (dépendance enregistrée) : retour REFUSÉ ([DEPENDENT])
+[09:30:42] PASS: [16] les refus n'ont rien supprimé (3 fonctions présentes) (=3)
+[09:30:42] PASS: [16] ... ni touché aux données (=9ae4b6089ba38c3344f109c488b3e6e4|b5f567dd9fe1fa5776cbbd7e42ba4a78)
+[09:30:42] PASS: [16] le retour arrière s'applique (3 fonctions supprimées)
+[09:30:42] PASS: [16] plus aucune fonction du lot (=0)
+[09:30:42] PASS: [16] les données de A sont intactes (empreinte) (=9ae4b6089ba38c3344f109c488b3e6e4)
+[09:30:42] PASS: [16] les données de B sont intactes (empreinte) (=b5f567dd9fe1fa5776cbbd7e42ba4a78)
+[09:30:42] PASS: [16] l'inventaire (fonctions, colonnes, contraintes, politiques, déclencheurs, droits) est IDENTIQUE à l'état d'avant le lot
+[09:30:42] PASS: [16] la configuration écrite par la RPC reste LISIBLE par les lectures historiques après le retour (=true)
+[09:30:42] PASS: [16] ... et MODIFIABLE par les mutateurs historiques (0 erreur) (=0)
+[09:30:42] PASS: [16] retour rejoué : retour REFUSÉ ([NOT_APPLICABLE])
+[09:30:42] PASS: [16] le lot se RÉ-APPLIQUE après un retour (aller-retour-aller)
+[09:30:42] PASS: [16] après ré-application, l'inventaire est IDENTIQUE à celui du lot appliqué
+[09:30:42] PASS: [16] la lecture par la RPC rend toujours la configuration d'A (modification historique incluse) (=1)
+[09:30:42] PASS: [16] état partiel (une des trois fonctions manque) : retour REFUSÉ ([NOT_APPLICABLE])
+[09:30:42] PASS: [16] ... et les deux autres fonctions n'ont pas été supprimées (=2)
+[09:30:42] === [17] Documentation ===
+[09:30:42] PASS: [17] l'exemple du contrat (retrait, 2 créneaux, mardi–samedi, 16 h la veille) est ACCEPTÉ tel quel
+[09:30:42] PASS: [17] l'exemple relu = l'exemple envoyé (mêmes 10 créneaux, mêmes jours de préparation, même heure limite) (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:30:42] PASS: [17] l'exemple du contrat = la charge ALC du harnais (une seule définition) (={"slots": [{"endsAt": "14:00", "slotKey": "midi", "weekday": 2, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 2, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 3, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 3, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 4, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 4, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 5, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 5, "startsAt": "16:00", "displayOrder": 1}, {"endsAt": "14:00", "slotKey": "midi", "weekday": 6, "startsAt": "11:00", "displayOrder": 0}, {"endsAt": "20:00", "slotKey": "soir", "weekday": 6, "startsAt": "16:00", "displayOrder": 1}], "method": "v1.2", "policy": {"timezone": "Europe/Paris", "cutoffTime": "16:00", "minLeadDays": 1, "leadTimeMinutes": 0, "cutoffOffsetDays": 0, "dateSelectionMode": "customer_selectable", "slotSelectionMode": "fixed_slots", "bookingHorizonDays": 14, "timeGranularityMinutes": null}, "enabled": true, "windows": [], "capacity": {"enabled": false, "maxOrders": null}, "closures": [], "holidays": {"calendarId": null, "preparationOnHolidays": "open", "availabilityOnHolidays": "open"}, "modeCode": "pickup", "preparation": {"closures": [], "weekdays": [1, 2, 3, 4, 5]}, "fulfillmentRuleId": null})
+[09:30:42] PASS: [17] exemple : lundi 15:59 → mardi ; lundi 16:00 → mercredi (annoncé dans le contrat) (=2026-10-20/dates_available|2026-10-21/dates_available)
+[09:30:42] PASS: [17] exemple : aucun autre établissement ne reçoit l'exemple (B inchangé, A seul) (=1)
+[09:30:42] PASS: [17] clés de l'exemple = clés du contrat (charge) (=capacity,closures,enabled,fulfillmentRuleId,holidays,method,modeCode,policy,preparation,slots,windows)
+[09:30:42] PASS: [17] chaque code cité dans le contrat existe dans le SQL (rien n'est promis sans être levé) (=)
+[09:30:42] PASS: [17] chaque refus levé par le SQL est documenté dans le contrat (=)
+[09:30:42] PASS: [17] le contrat dit que CSDJ_BO1_WRITE_CONTRACT.available reste false (=1)
+[09:30:43] === BILAN : 545 preuve(s) produite(s), 0 échec(s) ===
+rc=0

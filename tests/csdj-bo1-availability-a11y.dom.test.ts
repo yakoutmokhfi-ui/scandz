@@ -213,10 +213,30 @@ test("[BO1-A11Y-9] un groupe désactivé est annoncé comme tel, et porte une l�
   const fieldsets = Array.from(container.querySelectorAll("fieldset")) as HTMLFieldSetElement[];
   assert.ok(fieldsets.length >= 2, "les réglages v1.2 sont regroupés dans des fieldsets");
   for (const fs of fieldsets) {
-    assert.equal(fs.disabled, true, "aucun groupe de réglages v1.2 ne doit être actionnable");
     const legend = fs.querySelector("legend");
-    assert.ok(legend && (legend.textContent ?? "").trim().length > 2, "chaque groupe doit porter une légende");
+    assert.ok(
+      legend && (legend.textContent ?? "").trim().length > 2,
+      "chaque groupe doit porter une légende"
+    );
   }
+
+  // Mis à jour par l'issue #149 : l'ÉDITION est désormais réelle, donc
+  // les groupes de réglages ne sont plus désactivés en bloc. Ce qui
+  // reste verrouillé, et ce qui est vérifié ici, c'est
+  // l'ENREGISTREMENT -- la seule chose qui touche un client.
+  const save = container.querySelector("[data-write-disabled-reason]") as HTMLButtonElement;
+  assert.equal(save.disabled, true, "l'enregistrement reste verrouillé");
+  assert.equal(save.getAttribute("data-write-disabled-reason"), "write-contract");
+
+  // En revanche, un groupe qui ne s'applique PAS à la méthode de la
+  // portée doit rester désactivé : proposer un réglage que le serveur
+  // n'a pas de table pour recevoir serait mentir. Ici la portée est en
+  // méthode v1.2, donc ses groupes sont actionnables ; la vérification
+  // du cas v1 est faite dans la suite DOM.
+  assert.equal(
+    container.querySelector("[data-schedule-method]")!.getAttribute("data-schedule-method"),
+    "v1.2"
+  );
 
   cleanup();
 });

@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
+import { settle } from "./dom-settle.ts";
 
 /**
  * CSDJ-BO-1 — amorçage partagé des suites DOM de l'onglet
@@ -67,6 +68,34 @@ export async function getMerchantFulfillmentSchedules() {
   return (globalThis).__schedules;
 }
 export async function getMerchantFulfillmentSchedulesV12() { return (globalThis).__v12; }
+// Lecture AUTORITAIRE (remédiation R1) : ces suites n'éprouvent pas la
+// concurrence, donc le double rend __configuration -- null par
+// défaut, ce qui est une réponse LÉGITIME du contrat (« portée sans
+// configuration ») et laisse les jetons à null. (Aucun accent grave
+// ici : ce texte vit DANS un gabarit littéral.)
+export async function getFulfillmentConfiguration(id, modeCode, ruleId) {
+  ((globalThis).__configurationReads ??= []).push({ id, modeCode, ruleId });
+  const plan = (globalThis).__configuration;
+  if (typeof plan === "function") return plan(id, modeCode, ruleId);
+  return plan ?? null;
+}
+export class FulfillmentConfigurationShapeError extends Error {}
+export class AvailabilityWriteUnavailableError extends Error {
+  constructor() {
+    super("CSDJ_BO1_WRITE_CONTRACT_PENDING");
+    this.name = "AvailabilityWriteUnavailableError";
+    this.reason = "CSDJ_BO1_WRITE_CONTRACT_PENDING";
+  }
+}
+export async function saveFulfillmentConfiguration(id, payload) {
+  ((globalThis).__saveCalls ??= []).push({ id, payload });
+  const handler = (globalThis).__saveHandler;
+  // Sans gestionnaire injecté, le double se comporte comme le service
+  // réel aujourd'hui : il REFUSE, parce que le contrat d'écriture n'est
+  // pas disponible.
+  if (!handler) throw new AvailabilityWriteUnavailableError();
+  return handler(id, payload);
+}
 export async function getCheckoutFulfillmentSchedulePreview(args) {
   (globalThis).__previewArgs = args;
   ((globalThis).__previewCalls ??= []).push(args);
@@ -192,6 +221,10 @@ export function mount(options: {
   previewResult?: unknown;
   /** AUD-01 : aperçu scripté par mode de vente, éventuellement différé. */
   previewByMode?: Record<string, { result: unknown; defer?: boolean }>;
+  /** e2e simulé : backend transactionnel injecté (issue #149). */
+  saveHandler?:
+    | ((id: string, payload: Record<string, unknown>) => unknown | Promise<unknown>)
+    | null;
 } = {}) {
   (globalThis as any).__mappings = [
     {
@@ -207,6 +240,8 @@ export function mount(options: {
   (globalThis as any).__previewResult = options.previewResult ?? null;
   (globalThis as any).__previewByMode = options.previewByMode ?? null;
   (globalThis as any).__previewPending = [] as Array<() => void>;
+  (globalThis as any).__saveCalls = [] as Array<{ id: string; payload: unknown }>;
+  (globalThis as any).__saveHandler = options.saveHandler ?? null;
   (globalThis as any).__previewCalls = [] as Array<{ modeCode: string }>;
 
   const container = window.document.createElement("div");
@@ -223,9 +258,12 @@ export function mount(options: {
   };
 }
 
-export function flush(ms = 90): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+/**
+ * Attente de QUIESCENCE, pas de durée (remédiation F-03) : voir
+ * tests/helpers/dom-settle.ts. `ms` est accepté pour compatibilité et
+ * ignoré.
+ */
+export const flush = settle;
 
 export async function teardown() {
   await new Promise((r) => setTimeout(r, 50));

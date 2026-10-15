@@ -1,0 +1,6 @@
+parent (PR #151)        : de4600567bcd2be3e3faf7f3bfd44ee7e69a5e2c  tree 91109281ee4784ff800b95d84958c0f344b9a648
+base de PR #151 (main)  : 323911edcc3b0fbc25230f1262ea1fbfd5524b1d
+enfant F-02 (lot testé) : a39151d2e208833dab5aa42a936cb01b5a751a00  tree 5e4ffa60c4f72616c4601d219f8e109f2c426e03
+Les journaux ci-joints ont été produits à partir de l'arbre de l'enfant (git archive a39151d2e208833dab5aa42a936cb01b5a751a00), grappe PostgreSQL 16 jetable.
+Pins v1.2 : audité fee1e398001dc05319f9e21501b99681da372e02 ; PR #146 a2d17eae9f05aa09c3bf49f9bc07b4ddaee9d01 ; fixture create_order 414392b556abbdb78192d4797c835f5273753e82.
+Ce commit de preuves (enfant+1) n'ajoute QUE ce dossier : l'arbre testé est celui de a39151d2e208833dab5aa42a936cb01b5a751a00.

@@ -87,7 +87,52 @@ test("[SW-04] le dictionnaire néerlandais est PARTIEL, et le repli par clé res
   // Le mandat demande le néerlandais pour CE libellé. Traduire le reste
   // de l'interface est un autre travail : toute autre clé doit donc
   // rendre exactement ce qu'elle rendait avant ce lot.
-  assert.deepEqual(Object.keys(DICTS.nl), ["deliveryConditionsTitle"]);
+  //
+  // ÉLARGISSEMENT DOCUMENTÉ (CSDJ-BO-1, issue #149) : ce test affirmait
+  // `deepEqual(Object.keys(DICTS.nl), ["deliveryConditionsTitle"])`, une
+  // liste littérale d'UNE clé. Le mandat CSDJ-BO-1 exige explicitement un
+  // « affichage accessible, mobile, FR/EN/AR/NL » pour l'écran « Mise à
+  // disposition » : les clés de CET écran sont donc traduites en
+  // néerlandais, et la liste littérale ne pouvait plus les décrire.
+  //
+  // L'INVARIANT RÉEL de ce test est conservé, et même rendu plus
+  // difficile à contourner : au lieu d'une liste figée, le périmètre
+  // autorisé est MESURÉ sur les sources (les clés réellement lues par
+  // l'écran et par sa navigation). Une traduction néerlandaise générale
+  // de l'interface, glissée sans mandat, échoue donc toujours ici — et
+  // elle échoue aussi si l'écran CSDJ-BO-1 cesse de lire une clé dont la
+  // traduction néerlandaise resterait derrière elle.
+  // Les quatre sources de l'écran : la page, la navigation qui l'encadre,
+  // et les deux modules où l'écran DÉRIVE ses clés d'un code serveur
+  // (statut, motif, jour de la semaine, refus d'enregistrement, réglage à
+  // corriger) au lieu de les écrire en littéral dans le JSX.
+  const screenSources = [
+    read("app", "dashboard", "availability", "page.tsx"),
+    read("components", "dashboard", "DashboardNav.tsx"),
+    read("lib", "availability-editor.ts"),
+    read("lib", "availability-payload.ts"),
+  ].join("\n");
+  // Les clés sont lues sous deux formes dans ces sources -- `t("clé")` et
+  // `translate(lang, "clé")` -- donc le relevé retient tout littéral de
+  // chaîne de ces fichiers qui est RÉELLEMENT une clé du dictionnaire
+  // français, plutôt qu'une seule forme d'appel qui en manquerait.
+  const screenKeys = new Set(
+    [...screenSources.matchAll(/"([A-Za-z0-9_]+)"/g)]
+      .map((m) => m[1])
+      .filter((key) => Object.prototype.hasOwnProperty.call(DICTS.fr, key))
+  );
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(DICTS.nl, "deliveryConditionsTitle"),
+    "le libellé de CE micro-lot reste traduit en néerlandais"
+  );
+  const outOfScope = Object.keys(DICTS.nl).filter(
+    (key) => key !== "deliveryConditionsTitle" && !screenKeys.has(key)
+  );
+  assert.deepEqual(
+    outOfScope,
+    [],
+    "aucune clé néerlandaise hors des deux mandats : ni traduction générale de l'interface, ni résidu d'une clé que l'écran ne lit plus"
+  );
   for (const key of ["close", "deliveryResultEligible", "deliveryPostcodeResultTitle"]) {
     assert.equal(
       translate("nl", key),

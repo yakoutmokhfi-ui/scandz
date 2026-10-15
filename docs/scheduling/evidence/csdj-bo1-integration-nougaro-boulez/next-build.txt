@@ -1,0 +1,64 @@
+   ▲ Next.js 15.5.21
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 34.2s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/34) ...
+   Generating static pages (8/34) 
+   Generating static pages (16/34) 
+   Generating static pages (25/34) 
+ ✓ Generating static pages (34/34)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                  Size  First Load JS
+┌ ○ /                                                       177 B         102 kB
+├ ○ /_not-found                                             994 B         103 kB
+├ ○ /admin/establishments                                 3.03 kB         171 kB
+├ ○ /admin/establishments/catalogue-reset                 7.55 kB         171 kB
+├ ○ /admin/establishments/cockpit                          2.3 kB         179 kB
+├ ○ /admin/establishments/new                             7.01 kB         179 kB
+├ ƒ /api/admin/gap-01-ack-health-check                      177 B         102 kB
+├ ƒ /api/checkout/invoice-request                           177 B         102 kB
+├ ƒ /api/checkout/withdrawal-eligibility                    177 B         102 kB
+├ ƒ /api/dashboard/catalogue/product-photo                  177 B         102 kB
+├ ƒ /api/dashboard/catalogue/product-photo/retry-cleanup    177 B         102 kB
+├ ƒ /api/dashboard/legal-cgv/activate                       177 B         102 kB
+├ ƒ /api/dashboard/legal-cgv/publish                        177 B         102 kB
+├ ƒ /api/internal/payments/monetico/recover                 177 B         102 kB
+├ ƒ /api/internal/stuart/sandbox-readiness                  177 B         102 kB
+├ ƒ /api/internal/stuart/sandbox-trigger                    177 B         102 kB
+├ ƒ /api/internal/stuart/webhook                            177 B         102 kB
+├ ƒ /api/payments/monetico/callback                         177 B         102 kB
+├ ƒ /api/payments/monetico/checkout                         177 B         102 kB
+├ ƒ /api/track/exchange                                     177 B         102 kB
+├ ƒ /checkout/return/err                                    168 B         106 kB
+├ ƒ /checkout/return/ok                                     168 B         106 kB
+├ ○ /dashboard                                            9.46 kB         261 kB
+├ ○ /dashboard/availability                               18.1 kB         267 kB
+├ ○ /dashboard/catalogue                                  16.5 kB         281 kB
+├ ○ /dashboard/catalogue-import                           12.1 kB         195 kB
+├ ○ /dashboard/delivery-pricing                           7.74 kB         256 kB
+├ ○ /dashboard/forgot-password                            1.41 kB         242 kB
+├ ○ /dashboard/legal-cgv                                  24.5 kB         279 kB
+├ ○ /dashboard/login                                      1.56 kB         242 kB
+├ ○ /dashboard/payment                                    3.39 kB         252 kB
+├ ○ /dashboard/reset-password                             1.92 kB         242 kB
+├ ○ /dashboard/settings                                   12.8 kB         266 kB
+├ ○ /dashboard/translations                               10.4 kB         274 kB
+├ ○ /dashboard/withdrawal-requests                        3.39 kB         252 kB
+├ ƒ /legal/[slug]                                           177 B         102 kB
+├ ƒ /r/[slug]                                             33.9 kB         281 kB
+├ ƒ /track/[orderId]                                       3.8 kB         186 kB
+└ ƒ /track/[orderId]/withdrawal                             177 B         102 kB
++ First Load JS shared by all                              102 kB
+  ├ chunks/2601-a00cb2cfc4ab4ed7.js                         46 kB
+  ├ chunks/7b863faf-77bc0f3a76e00130.js                   54.2 kB
+  └ other shared chunks (total)                           1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+rc=0

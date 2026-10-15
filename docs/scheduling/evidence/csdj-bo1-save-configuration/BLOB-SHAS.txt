@@ -1,0 +1,5 @@
+b829da43901e66ca26ea3722865ce88890c00cea  supabase/DRAFT-lot-csdj-bo1-save-fulfillment-configuration-v1.sql
+603e3c2b175840733f769ab1c4461ff94c130a36  supabase/DRAFT-lot-csdj-bo1-save-fulfillment-configuration-v1-rollback.sql
+496614113005aaeaf24a21bff6f40f68285e0365  supabase/tests/csdj-bo1-save-configuration-check.sh
+726ba9e8149e205f0bd352b041d650d856f744f4  docs/scheduling/csdj-bo1-save-fulfillment-configuration-contract.md
+f905d350527c87f1fd3d73de6b8f68f9d1c1024a  tests/csdj-bo1-save-configuration-contract.test.ts

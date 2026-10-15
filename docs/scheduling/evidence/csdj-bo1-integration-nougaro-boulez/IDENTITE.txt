@@ -1,0 +1,9 @@
+main (base de #153)                 : 323911edcc3b0fbc25230f1262ea1fbfd5524b1d
+backend #151                        : de4600567bcd2be3e3faf7f3bfd44ee7e69a5e2c
+backend #152 (head de départ)       : 6e35e8f1684dafe37c8d54077bc65c6e02cf9b81  tree bc7b38412f333e0885f4f77d7a2d5fcdf4a8f556
+frontend Nougaro                    : 10739eb62e4183c255d6032b2d970ca8f57601fa  tree 313053dae9d97ea413d43a63c57deb5ab8e262b7
+  parent (R1)                       : e419f468127c79eceaafcc90e576501b105c9bd4
+commit d'intégration A (delta exact): 6c88edf4918bdb7376aa6e8e44bf6c3095d8f322  tree 289bc49fc576b6aa9026b4d44fa6aac72a86e80f
+commit d'intégration B (colle+test) : e3f40996394f6d83da8b5b73884bedfafe5d7085  tree 9a8408a296dcc1d8a1495be723220728d06b0d0c   <- ARBRE TESTÉ
+Les journaux ont été produits à partir de 'git archive e3f40996394f6d83da8b5b73884bedfafe5d7085' ; le commit de preuves qui suit n'ajoute QUE ce dossier.
+Pins v1.2 : audité fee1e398001dc05319f9e21501b99681da372e02 ; PR #146 a2d17eae9f05aa09c3bf49f9bc07b4ddaee9d01 ; fixture create_order 414392b556abbdb78192d4797c835f5273753e82.

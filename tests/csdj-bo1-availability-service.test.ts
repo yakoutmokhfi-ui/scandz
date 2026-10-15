@@ -401,6 +401,108 @@ test("[BO1-SVC-10] un motif d'infaisabilité traverse tel quel : la page ne doit
   assert.equal(preview.unfulfillableReason, "preparation_calendar_missing");
 });
 
+// --------------------------------------------------------------------
+// REMÉDIATION R1 — lecture AUTORITAIRE d'une portée (contrat §2)
+// --------------------------------------------------------------------
+
+test("[BO1-SVC-12] la lecture autoritaire envoie les trois paramètres du contrat et rend les deux jetons TELS QUE REÇUS", async () => {
+  const updatedAt = "2026-10-14T08:30:00.123456Z";
+  const revision = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+  script({
+    get_fulfillment_configuration: {
+      data: { updatedAt, revision, modeCode: "pickup", fulfillmentRuleId: null, enabled: true },
+      error: null,
+    },
+  });
+
+  const read = await service.getFulfillmentConfiguration("r-1", "pickup", null);
+
+  assert.deepEqual(calls(), [
+    {
+      fn: "get_fulfillment_configuration",
+      params: { p_restaurant_id: "r-1", p_mode_code: "pickup", p_fulfillment_rule_id: null },
+    },
+  ]);
+  // Chaîne identique octet pour octet : six chiffres de fraction, le
+  // « Z » final, aucune reconstruction par `Date`.
+  assert.strictEqual(read.tokens.updatedAt, updatedAt);
+  assert.strictEqual(read.tokens.revision, revision);
+  assert.equal(typeof read.tokens.updatedAt, "string");
+  assert.equal(read.configuration.modeCode, "pickup");
+});
+
+test("[BO1-SVC-13] une portée sans configuration rend null — jamais une erreur, jamais une configuration inventée", async () => {
+  script({ get_fulfillment_configuration: { data: null, error: null } });
+  const read = await service.getFulfillmentConfiguration(
+    "r-1",
+    "delivery",
+    "22222222-2222-2222-2222-222222222222"
+  );
+  assert.equal(read, null);
+  assert.deepEqual(calls()[0].params, {
+    p_restaurant_id: "r-1",
+    p_mode_code: "delivery",
+    p_fulfillment_rule_id: "22222222-2222-2222-2222-222222222222",
+  });
+});
+
+test("[BO1-SVC-14] une réponse malformée est refusée par son nom, au lieu d'être devinée", async () => {
+  const good = { updatedAt: "2026-10-14T08:30:00.123456Z", revision: "a1b2c3d4e5f60718293a4b5c6d7e8f90" };
+  const bad: Array<[string, unknown]> = [
+    ["tableau", [good]],
+    ["chaîne", "oops"],
+    ["updatedAt absent", { revision: good.revision }],
+    ["updatedAt non chaîne", { ...good, updatedAt: 1760430600123 }],
+    ["revision absente", { updatedAt: good.updatedAt }],
+    ["revision trop courte", { ...good, revision: "abc123" }],
+    ["revision hors hexadécimal", { ...good, revision: "z".repeat(32) }],
+    ["revision en majuscules", { ...good, revision: good.revision.toUpperCase() }],
+  ];
+  for (const [label, data] of bad) {
+    script({ get_fulfillment_configuration: { data, error: null } });
+    await assert.rejects(
+      () => service.getFulfillmentConfiguration("r-1", "pickup", null),
+      (error: unknown) => {
+        assert.ok(error instanceof service.FulfillmentConfigurationShapeError, label);
+        assert.match((error as Error).message, /^CSDJBO1_UNEXPECTED_CONFIGURATION_SHAPE/, label);
+        return true;
+      },
+      label
+    );
+  }
+});
+
+test("[BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que la page le traduise", async () => {
+  script({
+    get_fulfillment_configuration: {
+      data: null,
+      error: { message: "CSDJ1_FORBIDDEN: rôle owner ou manager requis" },
+    },
+  });
+  await assert.rejects(
+    () => service.getFulfillmentConfiguration("r-1", "pickup", null),
+    /CSDJ1_FORBIDDEN/
+  );
+});
+
+test("[BO1-SVC-16] drapeau d'écriture à false : l'écriture est refusée SANS AUCUN appel réseau", async () => {
+  script({});
+  await assert.rejects(
+    () =>
+      service.saveFulfillmentConfiguration("r-1", {
+        modeCode: "pickup",
+        fulfillmentRuleId: null,
+        method: "v1",
+        enabled: false,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof service.AvailabilityWriteUnavailableError);
+      return true;
+    }
+  );
+  assert.deepEqual(calls(), [], "ni écriture, ni lecture : le refus précède le réseau");
+});
+
 test("[BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture", () => {
   // Garde de synthèse : même si un futur appel d'écriture passait les
   // tests structurels, il apparaîtrait ici.

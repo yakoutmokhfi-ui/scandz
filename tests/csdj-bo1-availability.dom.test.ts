@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
+import { settle } from "./helpers/dom-settle.ts";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
@@ -82,6 +83,34 @@ export async function getMerchantFulfillmentSchedules(id) {
 export async function getMerchantFulfillmentSchedulesV12(id) {
   const plan = (globalThis).__plan[id];
   return plan && plan.v12 ? plan.v12 : { status: "absent" };
+}
+// Lecture AUTORITAIRE (remédiation R1) : ces suites n'éprouvent pas la
+// concurrence, donc le double rend __configuration -- null par
+// défaut, ce qui est une réponse LÉGITIME du contrat (« portée sans
+// configuration ») et laisse les jetons à null. (Aucun accent grave
+// ici : ce texte vit DANS un gabarit littéral.)
+export async function getFulfillmentConfiguration(id, modeCode, ruleId) {
+  ((globalThis).__configurationReads ??= []).push({ id, modeCode, ruleId });
+  const plan = (globalThis).__configuration;
+  if (typeof plan === "function") return plan(id, modeCode, ruleId);
+  return plan ?? null;
+}
+export class FulfillmentConfigurationShapeError extends Error {}
+export class AvailabilityWriteUnavailableError extends Error {
+  constructor() {
+    super("CSDJ_BO1_WRITE_CONTRACT_PENDING");
+    this.name = "AvailabilityWriteUnavailableError";
+    this.reason = "CSDJ_BO1_WRITE_CONTRACT_PENDING";
+  }
+}
+export async function saveFulfillmentConfiguration(id, payload) {
+  ((globalThis).__saveCalls ??= []).push({ id, payload });
+  const handler = (globalThis).__saveHandler;
+  // Sans gestionnaire injecté, le double se comporte comme le service
+  // réel aujourd'hui : il REFUSE, parce que le contrat d'écriture n'est
+  // pas disponible.
+  if (!handler) throw new AvailabilityWriteUnavailableError();
+  return handler(id, payload);
 }
 export async function getCheckoutFulfillmentSchedulePreview(args) {
   (globalThis).__previewArgs = args;
@@ -213,9 +242,9 @@ function setup(options: {
   return { container, root };
 }
 
-function flush(ms = 90): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+/** Attente de QUIESCENCE, pas de durée (remédiation F-03) : voir
+ *  tests/helpers/dom-settle.ts. `ms` est accepté et ignoré. */
+const flush = settle;
 
 function text(container: Element): string {
   return container.textContent ?? "";
@@ -364,14 +393,23 @@ test("[BO1-DOM-6] CSDJ v1.2 présent : méthode v1.2, décalage d'heure limite r
   assert.equal(bucket!.getAttribute("data-capacity-bucket"), "named_slot");
   const max = container.querySelector("#av-capacity-max") as HTMLInputElement;
   assert.equal(max.value, "12");
-  assert.equal(max.disabled, true, "la capacité est en lecture : son champ reste désactivé");
+  // Mis à jour par l'issue #149 : la capacité est ÉDITABLE (brouillon
+  // local) en méthode v1.2 pour un rôle d'écriture ; ce qui reste
+  // verrouillé est l'ENREGISTREMENT. Les deux sont vérifiés ensemble,
+  // parce que c'est leur combinaison qui est la propriété voulue :
+  // « on peut tout régler, on ne peut rien publier ».
+  assert.equal(max.disabled, false, "la capacité est éditable en méthode v1.2");
+  const save = container.querySelector("[data-write-disabled-reason]") as HTMLButtonElement;
+  assert.equal(save.disabled, true, "mais l'enregistrement reste verrouillé");
+  assert.equal(save.getAttribute("data-write-disabled-reason"), "write-contract");
+  // Depuis l'issue #149, les fermetures sont des CHAMPS : leur contenu
+  // vit dans `value`, pas dans le texte du document.
+  const prepLabels = (
+    Array.from(container.querySelectorAll('input[type="text"]')) as HTMLInputElement[]
+  ).map((input) => input.value);
   assert.ok(
-    (max.closest("fieldset") as HTMLFieldSetElement | null)?.disabled,
-    "le groupe entier est désactivé, pas seulement le champ"
-  );
-  assert.ok(
-    text(container).includes("Entretien four"),
-    "les fermetures d'atelier lues doivent être affichées"
+    prepLabels.includes("Entretien four"),
+    `les fermetures d'atelier lues doivent être affichées (vues : ${prepLabels.join(" | ")})`
   );
   // Le remplissage est inaffichable par construction (le service
   // n'appelle que trois lectures, voir [BO1-NOWRITE-4]) ; ce qui est

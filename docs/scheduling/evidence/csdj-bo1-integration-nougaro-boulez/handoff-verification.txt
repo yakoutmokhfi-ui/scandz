@@ -1,0 +1,39 @@
+# Vérification du paquet scanym_release_handoff_2.zip — 2026-10-15T09:25:03Z
+## zip externe
+e1e0e431e197566c3e645196f4a9021762b0006c31bf3acca1134d144d493908  /root/.claude/uploads/2499d641-6765-5ef0-9d27-bf4f052dd788/9ed655cb-scanym_release_handoff_2.zip
+nougaro-package.zip: OK
+publish_nougaro.sh: OK
+## nougaro-package.zip (sha256.txt)
+csdj-bo1-f01-f03.bundle: OK
+csdj-bo1-cumulative-from-main.patch: OK
+csdj-bo1-f01-f03-commit.patch: OK
+csdj-bo1-f01-f03-delta-from-R1.patch: OK
+RAPPORT-REMEDIATION-F01-F03.md: OK
+delta-stat.txt: OK
+files-modified.txt: OK
+evidence/F01-tests-against-R1-code.tap: OK
+evidence/R1-candidate-concurrency10-run1.tap: OK
+evidence/R1-candidate-concurrency10-run2.tap: OK
+evidence/csdj-concurrency10-run1.tap: OK
+evidence/csdj-concurrency10-run2.tap: OK
+evidence/csdj-concurrency10-run3.tap: OK
+evidence/csdj-concurrency10-run4.tap: OK
+evidence/csdj-concurrency10-run5.tap: OK
+evidence/csdj-sequential.tap: OK
+evidence/next-build.txt: OK
+evidence/npm-test-failures-by-identity.txt: OK
+evidence/npm-test-full.tap: OK
+evidence/summary-f01-before.txt: OK
+evidence/summary-f03-before.txt: OK
+evidence/summary-f03-fixed.txt: OK
+evidence/tsc.txt: OK
+## bundle
+03441a5ef1d371e90e3bfe3438e1a29e211d0537 refs/remotes/origin/main
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+notice: HEAD points to an unborn branch (master)
+commit  10739eb62e4183c255d6032b2d970ca8f57601fa
+tree    313053dae9d97ea413d43a63c57deb5ab8e262b7
+parent  e419f468127c79eceaafcc90e576501b105c9bd4
+parent-tree b5e987f0d0e88822a1512b0433a437ae3a52be8d
+bundle-origin/main 03441a5ef1d371e90e3bfe3438e1a29e211d0537

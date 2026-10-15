@@ -43,11 +43,15 @@ import { DICTS } from "../lib/i18n.ts";
 // Ce fichier tient trois promesses faites au CTO, et il échoue si
 // l'une d'elles est rompue par une modification future :
 //
-//  1. AUCUNE ÉCRITURE. La page et son service ne contiennent aucun
-//     site d'appel de mutation de planification -- pas « des boutons
-//     grisés », l'absence du chemin lui-même. C'est ce qui rend une
-//     configuration incomplète et un contournement du parcours de
-//     commande impossibles depuis cette page.
+//  1. UNE SEULE ÉCRITURE, TRANSACTIONNELLE, ET VERROUILLÉE. Le lot
+//     contient exactement un site d'appel d'écriture --
+//     `save_fulfillment_configuration`, la configuration ENTIÈRE en un
+//     appel -- jamais une séquence de mutations, et ce chemin refuse
+//     sans réseau tant que `CSDJ_BO1_WRITE_CONTRACT.available` est
+//     faux. C'est ce qui rend une configuration incomplète et un
+//     contournement du parcours de commande impossibles depuis cette
+//     page. (Mandat d'origine : aucune écriture du tout ; élargi par
+//     l'issue #149, voir la note devant [BO1-NOWRITE-2].)
 //  2. AUCUNE AUTORITÉ CLIENTE. Aucune éligibilité n'est calculée côté
 //     client (CSDJ-V1-REFERENCE-NOT-AUTHORITY-01).
 //  3. AUCUNE PROMESSE NON TENUE. Les helpers purs disent exactement ce
@@ -82,7 +86,28 @@ test("[BO1-NOWRITE-1] la page n'appelle jamais Supabase directement : tout passe
   );
 });
 
-test("[BO1-NOWRITE-2] aucun site d'appel d'écriture de planification n'existe dans le lot", () => {
+// --------------------------------------------------------------------
+// MANDAT SUCCÉDÉ, DOCUMENTÉ ICI MÊME (issue #149).
+//
+// Les trois tests qui suivent affirmaient « AUCUNE écriture, nulle
+// part » : c'était exact pour la phase précédente, où la page n'avait
+// littéralement aucun chemin d'écriture. L'issue #149 demande l'inverse
+// et le demande explicitement -- « sauvegarde atomique via
+// `save_fulfillment_configuration` SEULEMENT, no multi-RPC save » --
+// tout en INTERDISANT de basculer le drapeau avant la RPC de Boulez.
+//
+// La promesse faite au CTO ne disparaît donc pas, elle se déplace, et
+// elle devient plus précise : ce qui est interdit n'est plus « écrire »
+// mais « écrire par autre chose qu'UN SEUL appel transactionnel », et
+// « écrire alors que le contrat n'est pas livré ». C'est ce que les
+// trois tests vérifient maintenant, dans l'ordre : l'unique RPC
+// d'écriture, l'unique export d'écriture, et l'inventaire exact des RPC
+// appelées. Le verrou lui-même (aucun réseau tant que
+// `available` est faux) est tenu par [BO1-NOWRITE-5] ici et par
+// [BO1-ED-1]/[BO1-ED-2] dans tests/csdj-bo1-editor-payload.test.ts.
+// --------------------------------------------------------------------
+
+test("[BO1-NOWRITE-2] aucune SÉQUENCE d'écriture n'existe : une seule RPC transactionnelle, et rien d'autre", () => {
   for (const [label, src] of [
     ["page", pageSrc],
     ["service", serviceSrc],
@@ -93,20 +118,27 @@ test("[BO1-NOWRITE-2] aucun site d'appel d'écriture de planification n'existe d
     // les fonctions refusées.
     assert.ok(
       !/rpc\(\s*["'`]mutate_merchant_fulfillment_schedule/.test(src),
-      `${label} : aucun appel rpc("mutate_merchant_fulfillment_schedule…") n'est permis dans ce lot`
-    );
-    assert.ok(
-      !/rpc\(\s*["'`]save_fulfillment_configuration/.test(src),
-      `${label} : le contrat d'écriture demandé n'est pas encore approuvé, il ne doit pas être appelé`
+      `${label} : la séquence « suspendre → écrire → réactiver » refusée par le CTO ne doit exister nulle part`
     );
     assert.ok(
       !/rpc\(\s*["'`]reserve_fulfillment_capacity/.test(src),
       `${label} : la réservation de capacité est l'affaire du parcours de commande, jamais du back-office`
     );
   }
+  // La page n'écrit toujours PAS elle-même : elle appelle le service.
+  assert.ok(
+    !/rpc\(\s*["'`]save_fulfillment_configuration/.test(pageSrc),
+    "la page ne doit pas appeler la RPC d'écriture directement"
+  );
+  // Et le service ne l'appelle qu'UNE fois, en un seul endroit.
+  assert.equal(
+    [...serviceSrc.matchAll(/rpc\(\s*["'`]save_fulfillment_configuration/g)].length,
+    1,
+    "un seul site d'appel d'écriture dans tout le lot : c'est ce qui rend l'atomicité vérifiable"
+  );
 });
 
-test("[BO1-NOWRITE-3] le service n'exporte que des lectures", async () => {
+test("[BO1-NOWRITE-3] le service n'exporte QU'UNE écriture, et c'est le contrat transactionnel demandé", async () => {
   const mod = await import("../lib/services/availability.ts");
   const exported = Object.keys(mod).sort();
   const writeLike = exported.filter((name) =>
@@ -114,15 +146,20 @@ test("[BO1-NOWRITE-3] le service n'exporte que des lectures", async () => {
   );
   assert.deepEqual(
     writeLike,
-    [],
-    `aucun export d'écriture n'est permis ; trouvés : ${writeLike.join(", ")}`
+    ["saveFulfillmentConfiguration"],
+    `une seule écriture est permise, et c'est la charge entière ; trouvés : ${writeLike.join(", ")}`
   );
   for (const name of ["getMerchantFulfillmentSchedules", "getMerchantFulfillmentSchedulesV12", "getCheckoutFulfillmentSchedulePreview"]) {
     assert.ok(exported.includes(name), `la lecture ${name} doit être exportée`);
   }
 });
 
-test("[BO1-NOWRITE-4] le service enveloppe EXACTEMENT les trois lectures attendues, et aucune autre", () => {
+test("[BO1-NOWRITE-4] le service enveloppe EXACTEMENT quatre lectures et une écriture, et aucune autre RPC", () => {
+  // REMÉDIATION R1 : `get_fulfillment_configuration` rejoint l'inventaire
+  // (contrat Boulez §2, lecture AUTORITAIRE porteuse des deux jetons de
+  // concurrence). L'invariant de ce test ne change pas de nature -- la
+  // liste reste EXHAUSTIVE et close -- et la part qui compte le plus est
+  // désormais affirmée séparément : il n'existe qu'UNE écriture.
   const calls = [...serviceSrc.matchAll(/supabase\.rpc\(\s*["'`]([a-z0-9_]+)["'`]/g)].map(
     (m) => m[1]
   );
@@ -130,10 +167,17 @@ test("[BO1-NOWRITE-4] le service enveloppe EXACTEMENT les trois lectures attendu
     calls.sort(),
     [
       "get_checkout_fulfillment_schedule",
+      "get_fulfillment_configuration",
       "get_merchant_fulfillment_schedules",
       "get_merchant_fulfillment_schedules_v12",
+      "save_fulfillment_configuration",
     ],
     "la liste des RPC appelées par le service doit être exactement celle de la matrice de dépendances"
+  );
+  assert.deepEqual(
+    calls.filter((name) => !name.startsWith("get_")),
+    ["save_fulfillment_configuration"],
+    "une seule RPC qui n'est pas une lecture"
   );
 });
 

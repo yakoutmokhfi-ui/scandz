@@ -1,0 +1,272 @@
+[09:25:15] [sûreté] cluster jetable CRÉÉ par ce harnais (données /tmp/tmp.xyq5pOn0Hg/cluster, socket /tmp/tmp.xyq5pOn0Hg/sock, port 51162).
+[09:25:15] [sûreté] cible validée : serveur=unix-socket base=postgres utilisateur=postgres superuser=on propre_cluster=1
+[09:25:15] [sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « scanym_csdjbo1_identity_18010_20261015092515 » (nonce propre à cette exécution).
+[09:25:15] verrou de sûreté franchi : cluster créé par le harnais, bases nommées pour cette exécution uniquement.
+[09:25:15] moteur v1.2 : fee1e398001dc05319f9e21501b99681da372e02 (audited-remediation-10668d1), fixture create_order PROD 414392b556abbdb78192d4797c835f5273753e82
+[09:25:15] === [0] Construction du schéma PRÉDÉCESSEUR (scanym_csdjbo1_base_18010_20261015092515) ===
+[09:25:17] chaîne prédécesseur appliquée (schema .. CUSTOMER CONTACT LIVE TRACKING v1).
+[09:25:17] create_order aligné sur le prédécesseur PRODUCTION (md5 LF c327445751333e7908d60e6d7f838eb5).
+[09:25:17] fixtures posées (2 commerçants, 2 règles de livraison, AUCUNE planification).
+[09:25:17] === [0b] État prédécesseur : CSDJ-1 v1.10 (scanym_csdjbo1_v1_18010_20261015092515) ===
+[09:25:17] === [1a] État hébergé : + CSDJ v1.2 (scanym_csdjbo1_pre_18010_20261015092515) ===
+[09:25:18] PASS: [1a] le moteur CSDJ v1.2 (audited-remediation-10668d1) s'applique sur CSDJ-1 : l'état de départ de ce lot est celui de l'hébergé
+[09:25:18] données historiques posées par les mutateurs existants (2 portées, 2 établissements) ; inventaire de référence : 1028 lignes.
+[09:25:18] === [1] Application de ce lot (scanym_csdjbo1_new_18010_20261015092515) ===
+[09:25:18] PASS: [1] le lot s'applique sur l'état hébergé (CSDJ-1 + v1.2 + données existantes)
+[09:25:18] === [F1] Application de l'invariant F-02 (scanym_csdjbo1_f02_18010_20261015092515) ===
+[09:25:19] PASS: [F1] l'état de départ est celui des données historiques (A) (=779abc6ca4b24d539b89b9a18c09304b)
+[09:25:19] PASS: [F1] l'état de départ est celui des données historiques (B) (=290ca80d794db88bbcf99e66e0b345d6)
+[09:25:19] PASS: [F1] le lot F-02 s'applique sur l'état hébergé + BO1 (données historiques présentes)
+[09:25:19] PASS: [F1] le post-vol annonce zéro portée active incomplète
+[09:25:19] PASS: [F1] les données historiques n'ont pas bougé d'un octet (A) (=779abc6ca4b24d539b89b9a18c09304b)
+[09:25:19] PASS: [F1] ... ni (B) (=290ca80d794db88bbcf99e66e0b345d6)
+[09:25:19] PASS: [F1] l'inventaire (fonctions, colonnes, contraintes, politiques, déclencheurs, droits) ne change que par AJOUT de 10 lignes (=10|10|0)
+[09:25:19] PASS: [F1] deux fonctions et quatre déclencheurs du lot, rien d'autre (=2|4)
+[09:25:19] PASS: [F1] fonctions SECURITY DEFINER, search_path vide, volatilité attendue (=true|{"search_path=\"\""}|v;true|{"search_path=\"\""}|s)
+[09:25:19] PASS: [F1] déclencheurs : contrainte, différés, par ligne, actifs (origine), bonne fonction (=4)
+[09:25:19] PASS: [F1] événements : schedule = INSERT+UPDATE ; window/slot/prep_day = UPDATE+DELETE (=restaurant_fulfillment_prep_day:24;restaurant_fulfillment_schedule:20;restaurant_fulfillment_schedule_slot:24;restaurant_fulfillment_schedule_window:24)
+[09:25:19] PASS: [F1] ACL : aucun rôle applicatif ne peut exécuter les fonctions du lot (=false|false|false|false|false|false)
+[09:25:19] PASS: [F1] authenticated n'appelle pas la définition de « complète » (permission refusée)
+[09:25:19] PASS: [F1] authenticated n'appelle pas la fonction de contrôle (permission refusée)
+[09:25:19] PASS: [F1] une écriture historique sur une portée complète passe toujours (=OK)
+[09:25:19] droits EXECUTE de public.mutate_merchant_fulfillment_schedule : anon=false,authenticated=true,service_role=false
+[09:25:19] PASS: [F1] public.mutate_merchant_fulfillment_schedule : EXECUTE inchangé (authenticated oui, anon non) -- l'invariant ne révoque rien, la voie de suppression est préservée
+[09:25:19] droits EXECUTE de public.mutate_merchant_fulfillment_schedule_v12 : anon=false,authenticated=true,service_role=false
+[09:25:19] PASS: [F1] public.mutate_merchant_fulfillment_schedule_v12 : EXECUTE inchangé (authenticated oui, anon non) -- l'invariant ne révoque rien, la voie de suppression est préservée
+[09:25:19] === [F2] Rejeu du contournement F-02 : sans le lot (ROUGE) puis avec le lot (VERT) ===
+[09:25:19] PASS: [F2.1] ROUGE (sans le lot) : owner → mutate_..._v12 → enabled:true, fixed_slots, sans créneau ni préparation : AUCUNE erreur (=OK)
+[09:25:19] PASS: [F2.1] ROUGE : la portée est ACTIVE avec 0 fenêtre, 0 créneau, 0 jour de préparation (=true|0|0|0)
+[09:25:19] PASS: [F2.1] ROUGE : même chose pour un MANAGER (=OK)
+[09:25:19] PASS: [F2.1] ROUGE : même chose par le mutateur v1 (fixed_slots, aucun créneau) (=OK)
+[09:25:19] PASS: [F2.2] VERT (owner, v1.2) : le contournement est refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:19] PASS: [F2.2] (owner, v1.2) refus ATOMIQUE : aucune ligne écrite (=absent|0|0|0)
+[09:25:19] PASS: [F2.2] (owner, v1.2) ... l'état de l'établissement est inchangé (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:25:19] PASS: [F2.3] VERT (owner, v1) : le contournement par le mutateur v1 est refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:19] PASS: [F2.3] (owner, v1) refus ATOMIQUE (=absent|0|0|0)
+[09:25:19] PASS: [F2.2] VERT (manager, v1.2) : le contournement est refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:19] PASS: [F2.2] (manager, v1.2) refus ATOMIQUE : aucune ligne écrite (=absent|0|0|0)
+[09:25:19] PASS: [F2.2] (manager, v1.2) ... l'état de l'établissement est inchangé (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:25:19] PASS: [F2.3] VERT (manager, v1) : le contournement par le mutateur v1 est refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:19] PASS: [F2.3] (manager, v1) refus ATOMIQUE (=absent|0|0|0)
+[09:25:19] PASS: [F2.4] SQLSTATE du refus : 23514 (check_violation), identique à la RPC (=23514)
+[09:25:20] PASS: [F2.4] le DETAIL nomme la source du refus (invariant)
+[09:25:20] PASS: [F2.5] message sans fuite : ni compte, ni identifiant de tenant, ni nom de table (=0)
+[09:25:20] PASS: [F2.6] brouillon (enabled:false) sans rien : accepté (=OK)
+[09:25:20] PASS: [F2.6] ... la portée existe, désactivée (=false|0|0|0)
+[09:25:20] PASS: [F2.6] ... l'activer sans rien est refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:20] PASS: [F2.6] ... et le brouillon reste exactement comme il était (=false|0|0|0)
+[09:25:20] === [F3] Matrice des mutateurs historiques sous l'invariant ===
+[09:25:20] PASS: [F3.1] 1/4 brouillon (=OK)
+[09:25:20] PASS: [F3.1] 2/4 créneaux (=OK)
+[09:25:20] PASS: [F3.1] 3/4 jours de préparation (=OK)
+[09:25:20] PASS: [F3.1] 4/4 activation d'une portée COMPLÈTE : acceptée (=OK)
+[09:25:20] PASS: [F3.1] la portée est active et complète (=true|0|2|2)
+[09:25:20] PASS: [F3.2] vider les créneaux d'une portée active (fixed_slots) → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:20] PASS: [F3.2] vider les créneaux d'une portée active (fixed_slots) : état strictement inchangé (=10d2b2befb5d91144233dfa04d58d75e)
+[09:25:20] PASS: [F3.2] vider les jours de préparation d'une portée active (v1.2) → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=preparation_missing]
+[09:25:20] PASS: [F3.2] vider les jours de préparation d'une portée active (v1.2) : état strictement inchangé (=10d2b2befb5d91144233dfa04d58d75e)
+[09:25:20] PASS: [F3.2] passer en politique « sans créneau » sans fenêtre, restant active → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:20] PASS: [F3.2] passer en politique « sans créneau » sans fenêtre, restant active : état strictement inchangé (=10d2b2befb5d91144233dfa04d58d75e)
+[09:25:20] PASS: [F3.2] aucun de ces refus n'a rien changé à la portée (=10d2b2befb5d91144233dfa04d58d75e)
+[09:25:20] PASS: [F3.2] « heure libre » sans pas de grille : la contrainte de table historique refuse (rfs_granularity_required)
+[09:25:20] PASS: [F3.2] ... et la portée n'a pas bougé (=10d2b2befb5d91144233dfa04d58d75e)
+[09:25:20] PASS: [F3.3] vider les fenêtres d'une portée en créneaux nommés (fenêtres ignorées) : permis (=OK)
+[09:25:20] PASS: [F3.3] remplacer les fermetures : permis (=OK)
+[09:25:20] PASS: [F3.3] remplacer les fermetures de préparation : permis (=OK)
+[09:25:20] PASS: [F3.3] REMPLACER (non vider) les jours de préparation d'une portée active : permis (=OK)
+[09:25:20] PASS: [F3.3] REMPLACER (non vider) les créneaux d'une portée active : permis (=OK)
+[09:25:20] PASS: [F3.3] la portée est toujours active et complète (=true|0|1|1)
+[09:25:20] PASS: [F3.4] désactiver (enabled:false) : permis (=OK)
+[09:25:20] PASS: [F3.4] vider les créneaux d'un BROUILLON : permis (=OK)
+[09:25:20] PASS: [F3.4] vider la préparation d'un BROUILLON : permis (=OK)
+[09:25:20] PASS: [F3.4] le brouillon est vide (=false|0|0|0)
+[09:25:21] PASS: [F3.4] ré-activer ce brouillon vide : refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:21] PASS: [F3.4] ... il reste un brouillon vide (=false|0|0|0)
+[09:25:21] PASS: [F3.5] portée active reconstruite (=OK|OK|OK|true|0|2|2)
+[09:25:21] PASS: [F3.5] delete_schedule sur une portée ACTIVE : permis (=OK)
+[09:25:21] PASS: [F3.5] ... la portée et ses enfants ont disparu (cascade) (=absent|0|0|0)
+[09:25:21] PASS: [F3.5] supprimer ce qui n'existe pas : idempotent, comportement historique inchangé (OK) (=OK)
+[09:25:21] PASS: [F3.6] v1 : activer en fenêtres sans aucune fenêtre : refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:21] PASS: [F3.6] v1 : brouillon (=OK)
+[09:25:21] PASS: [F3.6] v1 : une fenêtre (=OK)
+[09:25:21] PASS: [F3.6] v1 : activation avec fenêtre (aucune préparation exigée en v1) : permis (=OK)
+[09:25:21] PASS: [F3.6] v1 : active, une fenêtre (=true|1|0|0)
+[09:25:21] PASS: [F3.6] v1 : vider les fenêtres d'une portée active → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:21] PASS: [F3.6] v1 : vider les fenêtres d'une portée active : état strictement inchangé (=e30a66f410e6966f6a3ba6d6e5ac450f)
+[09:25:21] PASS: [F3.6] v1 : suppression (=OK)
+[09:25:21] PASS: [F3.7] staff : refus historique CSDJ12_FORBIDDEN
+[09:25:21] PASS: [F3.7] étranger : refus historique CSDJ12_FORBIDDEN
+[09:25:21] PASS: [F3.7] owner d'un AUTRE tenant : refus historique CSDJ12_FORBIDDEN
+[09:25:21] PASS: [F3.7] sans session : refus historique CSDJ12_AUTH_REQUIRED
+[09:25:21] PASS: [F3.7] aucun de ces refus n'a écrit (=absent|0|0|0)
+[09:25:21] === [F4] Invariant au point d'autorité commun (écritures directes, transactions) ===
+[09:25:21] PASS: [F4.1] SQL direct (propriétaire) : portée active + créneau + préparation dans UNE transaction, ordre libre : accepté (contrôle différé, état FINAL) (=OK)
+[09:25:21] PASS: [F4.1] ... posée (=true|0|1|1)
+[09:25:21] PASS: [F4.2] enfants avant le parent : refusés par la clé étrangère historique (ordre parent d'abord)
+[09:25:21] PASS: [F4.3] SQL direct : portée active SANS rien : refusée → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:21] PASS: [F4.3] ... transaction entière annulée (=absent|0|0|0)
+[09:25:21] PASS: [F4.4] SQL direct : créneau mais pas de préparation (v1.2) : refusée → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=preparation_missing]
+[09:25:21] PASS: [F4.4] SQL direct : préparation mais pas de créneau : refusée → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:21] PASS: [F4.4] ... rien d'écrit (=absent|0|0|0)
+[09:25:21] PASS: [F4.5] SQL direct en AUTOCOMMIT (une instruction) : refusée aussi → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:21] PASS: [F4.6] SET CONSTRAINTS ALL IMMEDIATE : contrôle plus tôt, même refus → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:21] PASS: [F4.6] SET CONSTRAINTS ALL DEFERRED : toujours évalué AVANT le COMMIT → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:21] PASS: [F4.7] points de sauvegarde : l'état final décide (=OK)
+[09:25:21] PASS: [F4.8] portée active de départ (=true|0|1|1)
+[09:25:21] PASS: [F4.8] supprimer le dernier créneau d'une portée active : refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:21] PASS: [F4.8] supprimer le dernier jour de préparation d'une portée active : refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=preparation_missing]
+[09:25:21] PASS: [F4.9] supprimer ET remplacer dans la même transaction : accepté (=OK)
+[09:25:21] PASS: [F4.9] déplacer le créneau d'un jour à l'autre (reste une offre) : accepté (=OK)
+[09:25:21] PASS: [F4.10] désactiver ET vider dans la même transaction : accepté (=OK)
+[09:25:21] PASS: [F4.10] ... brouillon vidé (=false|0|0|1)
+[09:25:21] PASS: [F4.10] ré-activer : refusé tant que l'offre manque → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:21] PASS: [F4.10] ré-activer en rétablissant l'offre dans la même transaction : accepté (=OK)
+[09:25:21] PASS: [F4.11] seconde portée (brouillon) créée pour le déplacement (=OK)
+[09:25:22] PASS: [F4.11] déplacer le créneau vers une AUTRE portée vide la portée active d'origine : refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing]
+[09:25:22] PASS: [F4.11] ... rien n'a bougé (=true|0|1|1)
+[09:25:22] PASS: [F4.12] supprimer une portée active (cascade sur ses enfants) : accepté (=OK)
+[09:25:22] PASS: [F4.12] ... disparue (=absent|0|0|0)
+[09:25:22] PASS: [F4.13] authenticated : écriture DIRECTE dans la table refusée (aucun droit de table)
+[09:25:22] PASS: [F4.13] authenticated : session_replication_role = replica (désactive les déclencheurs) refusé
+[09:25:22] PASS: [F4.13] authenticated : DISABLE TRIGGER refusé
+[09:25:22] PASS: [F4.13] authenticated : DROP TRIGGER refusé
+[09:25:22] PASS: [F4.13] authenticated : TRUNCATE refusé (seule limite connue de l'invariant, fermée aux rôles applicatifs)
+[09:25:22] PASS: [F4.13] authenticated : remplacer la fonction de contrôle refusé
+[09:25:22] PASS: [F4.13] anon : écriture DIRECTE dans la table refusée (aucun droit de table)
+[09:25:22] PASS: [F4.13] anon : session_replication_role = replica (désactive les déclencheurs) refusé
+[09:25:22] PASS: [F4.13] anon : DISABLE TRIGGER refusé
+[09:25:22] PASS: [F4.13] anon : DROP TRIGGER refusé
+[09:25:22] PASS: [F4.13] anon : TRUNCATE refusé (seule limite connue de l'invariant, fermée aux rôles applicatifs)
+[09:25:22] PASS: [F4.13] anon : remplacer la fonction de contrôle refusé
+[09:25:22] PASS: [F4.13] service_role : écriture DIRECTE dans la table refusée (aucun droit de table)
+[09:25:22] PASS: [F4.13] service_role : session_replication_role = replica (désactive les déclencheurs) refusé
+[09:25:22] PASS: [F4.13] service_role : DISABLE TRIGGER refusé
+[09:25:22] PASS: [F4.13] service_role : DROP TRIGGER refusé
+[09:25:22] PASS: [F4.13] service_role : TRUNCATE refusé (seule limite connue de l'invariant, fermée aux rôles applicatifs)
+[09:25:22] PASS: [F4.13] service_role : remplacer la fonction de contrôle refusé
+[09:25:22] PASS: [F4.14] les 4 déclencheurs sont intacts après les tentatives de désactivation (=4)
+[09:25:22] === [F5] Différentiel RPC / invariant sur la grille des configurations ===
+[09:25:30] grille : 576 configurations — acceptées 58, incomplètes 142, rejetées par validation 160, hors méthode 216
+[09:25:30] PASS: [F5.1] la grille n'est pas triviale (≥ 40 acceptées, ≥ 60 incomplètes : 58 / 142)
+[09:25:30] PASS: [F5.2] la RPC rend le MÊME verdict sur la grille avec et sans l'invariant (576 configurations)
+[09:25:30] PASS: [F5.3] DIFFÉRENTIEL : sur les 164 configurations jugées par la RPC, l'invariant rend le même verdict ET les mêmes bloqueurs
+[09:25:30] PASS: [F5.4] aucune configuration acceptée par la RPC n'est refusée par l'invariant (=0)
+[09:25:30] PASS: [F5.4] aucune configuration INCOMPLÈTE pour la RPC n'est acceptée par l'invariant (=0)
+[09:25:30] PASS: [F5.5] ROUGE : sans l'invariant, l'écriture directe n'oppose aucun refus d'incomplétude (=0)
+[09:25:30] PASS: [F5.5] VERT : avec l'invariant, elle en oppose autant que la RPC (hors bloqueurs portés d'abord par les CHECK de table) (=106)
+[09:25:30] PASS: [F5.6] tout ce que les contraintes de TABLE rejettent en écriture directe est aussi rejeté par la RPC (qui écrit les mêmes tables) (=0)
+[09:25:30] PASS: [F5.8a] la grille contient 36 configurations dont un bloqueur est déjà porté par un CHECK de table (granularité, capacité)
+[09:25:30] PASS: [F5.8] granularité / capacité incomplètes : l'écriture directe est REFUSÉE par les CHECK de table (jamais acceptée), avec et sans l'invariant (=00)
+[09:25:30] PASS: [F5.7] la base n'a pas été modifiée par le différentiel (transactions annulées) (=absent|0|0|0)
+[09:25:30] === [F6] Concurrence réelle ===
+[09:25:30] PASS: [F6.1] départ : active, 2 créneaux, 1 jour de préparation (=true|0|2|1)
+[09:25:32] PASS: [F6.1] l'écrivain rapide (le jour 3) est accepté : il reste, à ses yeux, un créneau (=OK)
+[09:25:32] PASS: [F6.1] l'écrivain LENT (le jour 2) est refusé au COMMIT, sur l'état validé des autres
+[09:25:32] PASS: [F6.1] la portée reste active ET complète : un seul créneau a disparu, pas les deux (=true|0|1|1)
+[09:25:32] PASS: [F6.2] le mutateur historique tient le verrou de tenant (graine 1104)
+[09:25:32] PASS: [F6.2] l'écrivain direct ATTEND le verrou de tenant au moment du contrôle (1 accordé, 1 en attente)
+[09:25:34] PASS: [F6.2] les deux transactions ont abouti, dans l'ordre (mutateur puis écrivain direct) (=|)
+[09:25:34] PASS: [F6.2] état final : un créneau en moins, toujours complète (=true|0|1|2)
+[09:25:34] PASS: [F6.3] départ : active, 1 créneau (=true|0|1|1)
+[09:25:34] PASS: [F6.3] vider les créneaux (simultané) : refusé
+[09:25:34] PASS: [F6.3] vider la préparation (simultané) : refusé
+[09:25:34] PASS: [F6.3] la portée active est intacte (=true|0|1|1)
+[09:25:34] PASS: [F6.4] cinq soumissions simultanées du contournement : cinq refus nommés (=5)
+[09:25:34] PASS: [F6.4] ... aucune écriture (=59fb38dbd2e7c8461be5422a4e12cacb)
+[09:25:35] PASS: [F6.4] ... aucun verrou ne reste (=0|0)
+[09:25:36] PASS: [F6.5] aucune session n'est restée suspendue
+[09:25:36] PASS: [F6.5] issue : les deux ont abouti
+[09:25:36] PASS: [F6.5] la portée active reste complète (au moins un créneau et un jour de préparation) (=1)
+[09:25:36] PASS: [F6.5] aucun verrou ne reste (=0|0)
+[09:25:36] === [F7] Non-régression jumelée (sans / avec l'invariant) ===
+[09:25:38] PASS: [F7.1] 27 relevés identiques (flux historique complet, RPC BO1, lectures, résolveur, refus d'autorisation) avec et sans l'invariant
+[09:25:38] PASS: [F7.2] L1 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] L2 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] L3 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] L4 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] L5 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] L6 : accepté sous l'invariant (=OK)
+[09:25:38] PASS: [F7.2] S1 : la RPC BO1 enregistre l'exemple ALC sous l'invariant
+[09:25:38] PASS: [F7.3] moteur v1.2 / CSDJ-1 / create_order : corps INCHANGÉ (empreinte create_order de l'état hébergé) (=c327445751333e7908d60e6d7f838eb5)
+[09:25:38] PASS: [F7.4] résolveur ALC sous l'invariant : lundi 15:59 Paris -> mardi 2026-10-20, 16:01 Paris -> mercredi 2026-10-21 (2026-10-20/dates_available|2026-10-21/dates_available)
+[09:25:38] === [F8] Pré-vol, données historiques, retour arrière ===
+[09:25:38] PASS: [F8.1] ré-application sur une base qui a déjà le lot : refusée
+[09:25:38] PASS: [F8.1] ... avec le motif nommé
+[09:25:38] PASS: [F8.1] ... et sans rien modifier (2 fonctions, 4 déclencheurs) (=2|4)
+[09:25:38] PASS: [F8.2] sans CSDJ-1 : refusé (pré-vol)
+[09:25:38] PASS: [F8.2] CSDJ-1 sans v1.2 : refusé (le lot ne réapplique pas la v1.2)
+[09:25:38] PASS: [F8.2] ... aucune fonction créée (=0|0)
+[09:25:38] PASS: [F8.3] exécutant ≠ propriétaire de mutate_merchant_fulfillment_schedule : refusé
+[09:25:38] PASS: [F8.3] ... rien créé (=0|0)
+[09:25:39] PASS: [F8.4] un déclencheur du lot préexiste : refusé
+[09:25:39] PASS: [F8.5] (avant lot) le contournement a créé une portée active vide (=OK|true|0|0|0)
+[09:25:39] PASS: [F8.5] le lot s'applique malgré tout (mode par défaut) (=APPLIED)
+[09:25:39] PASS: [F8.5] ... et SIGNALE la portée incomplète (WARNING avec son compte)
+[09:25:39] PASS: [F8.5] ... en la désignant (établissement/mode/clé)
+[09:25:39] PASS: [F8.5] ... sans la corriger : ses données n'ont pas bougé (=33a36b5745956ac78e0b9e57e41b7397)
+[09:25:39] PASS: [F8.5] ... ni celles des autres établissements (=290ca80d794db88bbcf99e66e0b345d6)
+[09:25:39] PASS: [F8.5] elle reste active et vide jusqu'à sa prochaine écriture (=true|0|0|0)
+[09:25:39] PASS: [F8.5] la TOUCHER (même écriture) exige désormais qu'elle soit complète ou désactivée → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:39] PASS: [F8.5] une écriture qui ne touche pas l'offre (fermetures) reste permise (=OK)
+[09:25:39] PASS: [F8.5] la désactiver est permis (=OK)
+[09:25:39] PASS: [F8.5] la compléter puis l'activer est permis (=OK|OK|OK)
+[09:25:39] PASS: [F8.6] f02_require_clean = on avec une portée incomplète : refusé [DIRTY]
+[09:25:39] PASS: [F8.6] ... rien créé (=0|0)
+[09:25:39] PASS: [F8.6] f02_require_clean = on sur une base propre : appliqué (=APPLIED)
+[09:25:39] PASS: [F8.7] le lot F-02 s'applique sur CSDJ-1 + v1.2 SANS le lot BO1 (=APPLIED)
+[09:25:40] PASS: [F8.7] ... et ferme le contournement sans la nouvelle RPC → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:40] PASS: [F8.7] aucune fonction du lot BO1 n'a été créée (=0)
+[09:25:40] PASS: [F8.8] retour arrière d'un lot non appliqué : refusé [NOT_APPLICABLE]
+[09:25:40] PASS: [F8.8] état PARTIEL (un déclencheur manque) : refusé [NOT_APPLICABLE]
+[09:25:40] PASS: [F8.8] ... rien supprimé (=2|3)
+[09:25:40] PASS: [F8.8] une routine cite une fonction du lot : refusé [CALLER]
+[09:25:40] PASS: [F8.8] une fonction SQL dépend (dépendance enregistrée) : refusé [DEPENDENT]
+[09:25:40] PASS: [F8.8] ... rien supprimé (2 fonctions, 4 déclencheurs) (=2|4)
+[09:25:40] PASS: [F8.9] le retour arrière s'applique (=APPLIED)
+[09:25:40] PASS: [F8.9] plus aucune fonction ni aucun déclencheur du lot (=0|0)
+[09:25:40] PASS: [F8.9] les données sont intactes (A) (=61bc7ce01ce2bc044c05e73632c34bc9)
+[09:25:40] PASS: [F8.9] ... (B) (=290ca80d794db88bbcf99e66e0b345d6)
+[09:25:40] PASS: [F8.9] l'inventaire (fonctions, colonnes, contraintes, politiques, déclencheurs, droits) est IDENTIQUE à l'état d'avant le lot
+[09:25:40] PASS: [F8.9] après le retour, F-02 est de nouveau OUVERT (c'est l'effet documenté du retour) (=OK)
+[09:25:40] PASS: [F8.10] réapplication après retour arrière : possible (=APPLIED)
+[09:25:41] PASS: [F8.10] ... et le contournement est de nouveau refusé → CSDJBO1_INCOMPLETE_CONFIGURATION [blockers=offer_missing,preparation_missing]
+[09:25:41] PASS: [F8.11] le retour arrière de BO1 s'applique avec F-02 présent (=APPLIED)
+[09:25:41] PASS: [F8.11] ... BO1 retiré, F-02 intact (=0|2|4)
+[09:25:41] PASS: [F8.11] puis le retour arrière de F-02 s'applique (=APPLIED)
+[09:25:41] === [F9] Mutations de l'invariant ===
+[09:25:45] PASS: [F9] CONTRÔLE : le lot non modifié passe toutes les sondes de la batterie (=)
+[09:25:49] PASS: [F9] mutant « offre : contrôle des créneaux retiré » DÉTECTÉ par la sonde « bypass emptyslots » (sondes en échec : bypass bypass_v1 emptyslots keep rowmove skew)
+[09:25:53] PASS: [F9] mutant « offre : contrôle des fenêtres retiré » DÉTECTÉ par la sonde « nowindow emptywin » (sondes en échec : nowindow emptywin)
+[09:25:58] PASS: [F9] mutant « préparation : contrôle retiré » DÉTECTÉ par la sonde « bypass emptyprep » (sondes en échec : bypass emptyprep keep)
+[09:25:58] PASS: [F9] mutant « préparation exigée aussi en v1 (sur-blocage) » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:02] PASS: [F9] mutant « politique informative non exemptée (sur-blocage) » DÉTECTÉ par la sonde « informational » (sondes en échec : informational)
+[09:26:06] PASS: [F9] mutant « brouillons contrôlés comme des portées actives (sur-blocage) » DÉTECTÉ par la sonde « draft » (sondes en échec : draft legit emptyslots emptyprep keep disable legit_v1 emptywin rowmove)
+[09:26:12] PASS: [F9] mutant « retrait d'une ligne enfant non contrôlé (DELETE/UPDATE : ancienne portée) » DÉTECTÉ par la sonde « emptyslots emptyprep emptywin » (sondes en échec : emptyslots emptyprep keep emptywin rowmove skew lockwait)
+[09:26:16] PASS: [F9] mutant « changement de portée d'un enfant : ancienne portée non contrôlée » DÉTECTÉ par la sonde « rowmove » (sondes en échec : rowmove)
+[09:26:22] PASS: [F9] mutant « verrou de tenant retiré » DÉTECTÉ par la sonde « lockwait » (sondes en échec : lockwait)
+[09:26:27] PASS: [F9] mutant « verrou de tenant : autre graine » DÉTECTÉ par la sonde « lockwait » (sondes en échec : lockwait)
+[09:26:31] PASS: [F9] mutant « SQLSTATE du refus changé » DÉTECTÉ par la sonde « sqlstate » (sondes en échec : sqlstate)
+[09:26:31] PASS: [F9] mutant « déclencheur sur la planification retiré » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « déclencheur sur les fenêtres retiré » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « déclencheur sur les créneaux retiré » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « déclencheur sur les jours de préparation retiré » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « déclencheurs différés remplacés par des déclencheurs immédiats (post-vol laissé en l'état) » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « fonction de contrôle sans SECURITY DEFINER » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « droits d'exécution du contrôle laissés ouverts » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:32] PASS: [F9] mutant « le lot écrit une donnée » DÉTECTÉ : le lot muté est REFUSÉ à l'application (post-vol)
+[09:26:39] PASS: [F9] mutant « déclencheurs IMMÉDIATS, post-vol assoupli » DÉTECTÉ par les sondes « deferred skew » (sondes en échec : deferred rowmove skew lockwait)
+[09:26:39] === [F10] Document F-02 ===
+[09:26:39] PASS: [F10] le document de remédiation existe
+[09:26:39] PASS: [F10] le document mentionne « F-02 »
+[09:26:39] PASS: [F10] le document mentionne « csdjbo1_f02_activation_invariant »
+[09:26:39] PASS: [F10] le document mentionne « CSDJBO1_INCOMPLETE_CONFIGURATION »
+[09:26:39] PASS: [F10] le document mentionne « delete_schedule »
+[09:26:39] PASS: [F10] le document mentionne « TRUNCATE »
+[09:26:39] PASS: [F10] le document mentionne « f02_require_clean »
+[09:26:39] PASS: [F10] le document mentionne « CSDJ_BO1_WRITE_CONTRACT.available »
+[09:26:39] PASS: [F10] le document mentionne « Retour arrière »
+[09:26:39] PASS: [F10] le document mentionne « Limites »
+[09:26:39] PASS: [F10] le lot ne crée ni ne remplace que ses 2 fonctions et ses 4 déclencheurs (=6)
+[09:26:39] PASS: [F10] le lot ne contient aucun ALTER, DROP, DELETE, TRUNCATE, GRANT (=0)
+[09:26:39] === BILAN : 244 preuve(s) produite(s), 0 échec(s) ===
+rc=0
