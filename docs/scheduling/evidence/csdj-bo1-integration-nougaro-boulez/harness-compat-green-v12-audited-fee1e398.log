@@ -1,0 +1,76 @@
+[09:24:56] [sûreté] cluster jetable CRÉÉ par ce harnais (données /tmp/tmp.GwMugoA9nl/cluster, socket /tmp/tmp.GwMugoA9nl/sock, port 65045).
+[09:24:56] [sûreté] cible validée : serveur=unix-socket base=postgres utilisateur=postgres superuser=on propre_cluster=1
+[09:24:56] [sûreté] identité complète établie : data_directory, config_file, socket, port, utilisateur, superutilisateur et marqueur « scanym_csdjbo1_identity_15893_20261015092456 » (nonce propre à cette exécution).
+[09:24:56] verrou de sûreté franchi : cluster créé par le harnais, bases nommées pour cette exécution uniquement.
+[09:24:56] moteur v1.2 : fee1e398001dc05319f9e21501b99681da372e02 (audited-remediation-10668d1), fixture create_order PROD 414392b556abbdb78192d4797c835f5273753e82
+[09:24:56] === [0] Construction du schéma PRÉDÉCESSEUR (scanym_csdjbo1_base_15893_20261015092456) ===
+[09:24:58] chaîne prédécesseur appliquée (schema .. CUSTOMER CONTACT LIVE TRACKING v1).
+[09:24:58] create_order aligné sur le prédécesseur PRODUCTION (md5 LF c327445751333e7908d60e6d7f838eb5).
+[09:24:58] fixtures posées (2 commerçants, 2 règles de livraison, AUCUNE planification).
+[09:24:58] === [0b] État prédécesseur : CSDJ-1 v1.10 (scanym_csdjbo1_v1_15893_20261015092456) ===
+[09:24:58] === [1a] État hébergé : + CSDJ v1.2 (scanym_csdjbo1_pre_15893_20261015092456) ===
+[09:24:58] PASS: [1a] le moteur CSDJ v1.2 (audited-remediation-10668d1) s'applique sur CSDJ-1 : l'état de départ de ce lot est celui de l'hébergé
+[09:24:59] données historiques posées par les mutateurs existants (2 portées, 2 établissements) ; inventaire de référence : 1028 lignes.
+[09:24:59] === [1] Application de ce lot (scanym_csdjbo1_new_15893_20261015092456) ===
+[09:24:59] PASS: [1] le lot s'applique sur l'état hébergé (CSDJ-1 + v1.2 + données existantes)
+[09:24:59] === [F1] Application de l'invariant F-02 (scanym_csdjbo1_f02_15893_20261015092456) ===
+[09:24:59] PASS: [F1] l'état de départ est celui des données historiques (A) (=c4c3963ffbe940f3718c2bef526beabd)
+[09:24:59] PASS: [F1] l'état de départ est celui des données historiques (B) (=6de52e117efec9e6f877f9cb964501af)
+[09:24:59] PASS: [F1] le lot F-02 s'applique sur l'état hébergé + BO1 (données historiques présentes)
+[09:24:59] PASS: [F1] le post-vol annonce zéro portée active incomplète
+[09:24:59] PASS: [F1] les données historiques n'ont pas bougé d'un octet (A) (=c4c3963ffbe940f3718c2bef526beabd)
+[09:24:59] PASS: [F1] ... ni (B) (=6de52e117efec9e6f877f9cb964501af)
+[09:24:59] PASS: [F1] l'inventaire (fonctions, colonnes, contraintes, politiques, déclencheurs, droits) ne change que par AJOUT de 10 lignes (=10|10|0)
+[09:24:59] PASS: [F1] deux fonctions et quatre déclencheurs du lot, rien d'autre (=2|4)
+[09:24:59] PASS: [F1] fonctions SECURITY DEFINER, search_path vide, volatilité attendue (=true|{"search_path=\"\""}|v;true|{"search_path=\"\""}|s)
+[09:24:59] PASS: [F1] déclencheurs : contrainte, différés, par ligne, actifs (origine), bonne fonction (=4)
+[09:24:59] PASS: [F1] événements : schedule = INSERT+UPDATE ; window/slot/prep_day = UPDATE+DELETE (=restaurant_fulfillment_prep_day:24;restaurant_fulfillment_schedule:20;restaurant_fulfillment_schedule_slot:24;restaurant_fulfillment_schedule_window:24)
+[09:24:59] PASS: [F1] ACL : aucun rôle applicatif ne peut exécuter les fonctions du lot (=false|false|false|false|false|false)
+[09:24:59] PASS: [F1] authenticated n'appelle pas la définition de « complète » (permission refusée)
+[09:24:59] PASS: [F1] authenticated n'appelle pas la fonction de contrôle (permission refusée)
+[09:24:59] PASS: [F1] une écriture historique sur une portée complète passe toujours (=OK)
+[09:24:59] droits EXECUTE de public.mutate_merchant_fulfillment_schedule : anon=false,authenticated=true,service_role=false
+[09:24:59] PASS: [F1] public.mutate_merchant_fulfillment_schedule : EXECUTE inchangé (authenticated oui, anon non) -- l'invariant ne révoque rien, la voie de suppression est préservée
+[09:24:59] droits EXECUTE de public.mutate_merchant_fulfillment_schedule_v12 : anon=false,authenticated=true,service_role=false
+[09:24:59] PASS: [F1] public.mutate_merchant_fulfillment_schedule_v12 : EXECUTE inchangé (authenticated oui, anon non) -- l'invariant ne révoque rien, la voie de suppression est préservée
+[09:24:59] === [I] Intégration : code de l'éditeur contre les RPC réelles (scanym_csdjbo1_f02_15893_20261015092456) ===
+[09:25:03] PASS: [I] I1 enregistrement initial (charge Boulez) accepté
+[09:25:03] PASS: [I] I1 la charge reconstruite par l'éditeur ≡ la charge envoyée (hors jetons)
+[09:25:03] PASS: [I] I1 les jetons du brouillon sont ceux du serveur, verbatim
+[09:25:03] PASS: [I] I1 displayOrder de l'éditeur : 0..n-1, accepté par le serveur
+[09:25:03] PASS: [I] I1 updatedAt à la microseconde, tel que rendu
+[09:25:03] PASS: [I] I1 la lecture autoritaire rend le même snapshot que l'écriture
+[09:25:03] PASS: [I] I2 la validation locale accepte le brouillon modifié
+[09:25:03] PASS: [I] I2 la RPC accepte la charge de l'éditeur
+[09:25:03] PASS: [I] I2 nouveaux jetons différents des précédents
+[09:25:03] PASS: [I] I2 la réponse porte la modification
+[09:25:03] PASS: [I] I2 brouillon repris depuis la réponse = non modifié (pas de fausse alerte)
+[09:25:03] PASS: [I] I3 STALE : la RPC refuse la charge aux jetons périmés
+[09:25:03] PASS: [I] I3 le préfixe du message est le code métier lu par l'éditeur
+[09:25:03] PASS: [I] I3 la clé i18n est celle du conflit (pas le repli générique)
+[09:25:03] PASS: [I] I3 la version du tiers est intacte après le refus
+[09:25:03] PASS: [I] I4 divergences nommées (moi : horizon ; tiers : heure limite)
+[09:25:03] PASS: [I] I4 le brouillon rebasé (jetons du serveur) est accepté
+[09:25:03] PASS: [I] I4 les deux modifications survivent (horizon 21 ET heure limite du tiers)
+[09:25:03] PASS: [I] I5 l'éditeur bloque localement (offre + préparation)
+[09:25:03] PASS: [I] I5 le serveur refuse la même configuration
+[09:25:03] PASS: [I] I5 code lu par l'éditeur
+[09:25:03] PASS: [I] I5 clé i18n 'incomplet'
+[09:25:03] PASS: [I] I5 brouillon désactivé : l'éditeur n'ajoute que « préparation » (plus strict que le serveur, jamais plus permissif)
+[09:25:03] PASS: [I] I5 repli « enregistrer en brouillon » accepté par le serveur (désactivé, incomplet)
+[09:25:03] PASS: [I] I6 v1 : charge Boulez acceptée
+[09:25:03] PASS: [I] I6 v1 : charge de l'éditeur ≡ charge d'origine (hors jetons)
+[09:25:03] PASS: [I] I6 v1 : pas de section v1.2 envoyée
+[09:25:03] PASS: [I] I6 METHOD_MISMATCH : refus serveur
+[09:25:03] PASS: [I] I6 METHOD_MISMATCH : code lu par l'éditeur
+[09:25:03] PASS: [I] I6 METHOD_MISMATCH : clé i18n
+[09:25:03] PASS: [I] I7 règle de livraison : charge Boulez acceptée
+[09:25:03] PASS: [I] I7 la règle est portée par le brouillon
+[09:25:03] PASS: [I] I7 charge de l'éditeur ≡ charge d'origine (hors jetons)
+[09:25:03] PASS: [I] I7 un autre propriétaire ne peut pas écrire dans cet établissement
+[09:25:03] PASS: [I] I7 refus d'autorisation lu par l'éditeur
+[09:25:03] PASS: [I] I8 point de départ (brouillon complet)
+[09:25:03] PASS: [I] I8 grille de 64 configurations : l'éditeur bloque exactement ce que le serveur refuse
+[09:25:03] grille éditeur/serveur : 64 configurations, 0 divergence(s)
+[09:25:03] === BILAN : 56 preuve(s) produite(s), 0 échec(s) ===
+rc=0

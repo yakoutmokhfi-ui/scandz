@@ -1,0 +1,26 @@
+ app/dashboard/availability/page.tsx                | 1443 +++++++++++++++++--
+ docs/scheduling/csdj-bo1-api-dependency-matrix.md  |    3 +-
+ .../csdj-bo1-integration-nougaro-boulez.md         |  126 ++
+ docs/scheduling/csdj-bo1-write-contract-request.md |  114 +-
+ lib/availability-payload.ts                        | 1104 ++++++++++++++
+ lib/dashboard-types.ts                             |   14 +
+ lib/i18n.ts                                        |  609 +++++++-
+ lib/services/availability.ts                       |  234 ++-
+ .../tests/csdj-bo1-integration-compat-check.sh     | 1128 +++++++++++++++
+ .../tests/csdj-bo1-integration-compat-driver.ts    |  313 ++++
+ tests/csdj-bo1-availability-a11y.dom.test.ts       |   24 +-
+ tests/csdj-bo1-availability-contract.test.ts       |   74 +-
+ tests/csdj-bo1-availability-service.test.ts        |  102 ++
+ tests/csdj-bo1-availability.dom.test.ts            |   58 +-
+ tests/csdj-bo1-editor-payload.test.ts              |  614 ++++++++
+ tests/csdj-bo1-editor-save.dom.test.ts             | 1517 ++++++++++++++++++++
+ tests/csdj-bo1-f01-snapshot.test.ts                |  282 ++++
+ tests/csdj-bo1-nav.dom.test.ts                     |    7 +-
+ tests/csdj-bo1-r1-contract.test.ts                 |  513 +++++++
+ tests/csdj-bo1-save-configuration-contract.test.ts |   17 +-
+ tests/csdj-bo1-service-save.test.ts                |  173 +++
+ tests/helpers/csdj-bo1-availability-harness.ts     |   44 +-
+ tests/helpers/dom-settle.ts                        |  124 ++
+ tests/helpers/fake-fulfillment-write-backend.ts    |  589 ++++++++
+ ...rder-help-wording-customer-text-1000-v1.test.ts |   47 +-
+ 25 files changed, 9084 insertions(+), 189 deletions(-)

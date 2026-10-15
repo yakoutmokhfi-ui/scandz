@@ -1,0 +1,62 @@
+# Blobs frontend : intégration (commit B) vs Nougaro 10739eb6 — chemins du delta b5487e47..10739eb6 et de tout l'arbre frontend vs main 03441a5e
+73d8ada925fa36baf55b3a97c086f94519d315e7  app/dashboard/availability/page.tsx
+8caa7d245654918f8b75d71cfc7eb0900d21d16d  components/dashboard/DashboardNav.tsx
+ed52e54da3600e9ada30defa0cf8456a8c3abf0d  docs/scheduling/csdj-bo1-api-dependency-matrix.md
+d161bd0a87e9283c015f91c3d6b2d518a5b91023  docs/scheduling/csdj-bo1-write-contract-request.md
+a40aa8f6ed2a2d87f74a8d658fa1f80b515870fd  lib/availability-editor.ts
+6313b60eeec6204fef1847f12d55d48473957136  lib/availability-payload.ts
+7cc437915c5ba3571064af6390b83eda868e7931  lib/dashboard-types.ts
+0b3148bc681e72724966c73f2983bd3683e9cfb7  lib/i18n.ts
+d9908ae58ed4f67e7351ff34e6313c1b630bc2c2  lib/services/availability.ts
+bac58d11fd14134405e964ca73c2d21fe628c0da  tests/csdj-bo1-audit-remediation.dom.test.ts
+afb069b718216681e0e72d217472c6836351768d  tests/csdj-bo1-availability-a11y.dom.test.ts
+14b1461782d68440736b613c905895c5af7b5a75  tests/csdj-bo1-availability-contract.test.ts
+bd989e0e560caa7afeb5f0ef65077a7e6d69677d  tests/csdj-bo1-availability-mobile.dom.test.ts
+e3e691e7ed9020e3a81d0373eeec28691d6a809c  tests/csdj-bo1-availability-service.test.ts
+99a6180d67322fdf5643842d050197d7bdf63937  tests/csdj-bo1-availability.dom.test.ts
+0b9ce738980506a4eaf53ba64742a9c81ed49445  tests/csdj-bo1-editor-payload.test.ts
+4fdc97ff55cf1432d3b1d613d41418635fa1ed10  tests/csdj-bo1-editor-save.dom.test.ts
+b8fdd12409cfc64dcea62bb25c2291da1df49e7b  tests/csdj-bo1-f01-snapshot.test.ts
+5ddd75c9bb34d7f9e0ef7a099e8dcf99440693c9  tests/csdj-bo1-nav.dom.test.ts
+8db17e23642cc7ba934f33f705b65476c8ff1b5a  tests/csdj-bo1-r1-contract.test.ts
+da79d284037d73b74f61d3a3357de6d039e99b0b  tests/csdj-bo1-service-save.test.ts
+c7919a6d2f09e74b502f3ba8e3aaa9c798ed4e3b  tests/dashboard-restaurant-context-hardening-v1.dom.test.ts
+3be334aecd61b76715a1c6b5e3cc06ee8569d831  tests/helpers/csdj-bo1-availability-harness.ts
+441cf9b84887c37e95831459dedabd33150ca4b1  tests/helpers/dom-settle.ts
+cf41db691c7cfda4ef76de4bec77f4b49560a774  tests/helpers/fake-fulfillment-write-backend.ts
+5bb69baba758bbc547f38424b9a2b26f04ba2ef5  tests/ob1-non-modification-proof.test.ts
+f9e3a54faa7632dade4588c8fe009dfb7bbc17f7  tests/storefront-order-help-wording-customer-text-1000-v1.test.ts
+bf8ecd8f2a5fa70f79d8e3f404f314469707d14b  tests/v109c-dashboard-payment.dom.test.ts
+chemins divergents: 0
+
+# Blobs backend Boulez : intégration vs #152 (6e35e8f) — chemins de #151/#152 vs main
+50b38261e1c15ea3e14325b50f9b172d97ae839c  docs/scheduling/csdj-bo1-f02-activation-invariant.md
+726ba9e8149e205f0bd352b041d650d856f744f4  docs/scheduling/csdj-bo1-save-fulfillment-configuration-contract.md
+99134395973aa760f459f25343eb258b45b224b0  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/BLOB-SHAS.txt
+c4eb9c8fb14ab174b8e90929469468548368ba4b  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/IDENTITE.txt
+6bf2d1e20125e1d4569182e2c362665a937a202e  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/SHA256SUMS
+0b2aa1d46b28ccfd272143a3ff67aaee4123fd09  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/diffstat-vs-parent.txt
+68f563e21211ca7df29196efce35639176510681  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/exact-diff-vs-parent-de46005.patch
+12941d7ce169898fd6d4ad5846ad57bee45b9c57  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/harness-bo1-unchanged-regression-v12-audited-fee1e398.log
+b17122fccc41da6526444e0b80247da895e82964  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/harness-bo1-unchanged-regression-v12-pr146-a2d17eae.log
+af5f3e6066128cb5b1ad102693f8a4722d20933c  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/harness-f02-green-v12-audited-fee1e398.log
+541a0e34fa6af6eae98ef16fdf78590698e7eb82  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/harness-f02-green-v12-pr146-a2d17eae.log
+2dd9566db47be583539dbd7f103b81c6d0baa7f0  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/harness-f02-run1-RED-initial-expectation-errors.log
+de3fa1d5cfc325d2fe2c9ea3fab9acc5edf0df62  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/npm-test-failures-baseline-15.txt
+de3fa1d5cfc325d2fe2c9ea3fab9acc5edf0df62  docs/scheduling/evidence/csdj-bo1-f02-activation-invariant/npm-test-failures-f02-child.txt
+baa8bb516967088b8f31f357d817c988989c7eaf  docs/scheduling/evidence/csdj-bo1-save-configuration/BLOB-SHAS.txt
+0130b4a72d3aa904b3349f6675d4b7d4ffc42614  docs/scheduling/evidence/csdj-bo1-save-configuration/SHA256SUMS
+273fe3ad1485f49ba7c82edd705f98b904227201  docs/scheduling/evidence/csdj-bo1-save-configuration/harness-green-v12-audited-fee1e398.log
+8051331a89c96fbdabe1f12e08f422a3d47bf620  docs/scheduling/evidence/csdj-bo1-save-configuration/harness-green-v12-pr146-a2d17eae.log
+c79262ed42524162dc95de2411cf41665a7b2233  docs/scheduling/evidence/csdj-bo1-save-configuration/npm-test-comparison.txt
+15ba2a861e11c20c4f8fc1c384b6c2321b83467d  docs/scheduling/evidence/csdj-bo1-save-configuration/npm-test-failures-candidate.txt
+286bdd616acf0ad93843a8bacd83c50bb9aea33f  docs/scheduling/evidence/csdj-bo1-save-configuration/npm-test-failures-main-323911e.txt
+043d42c64d020bc1d5a2f1384ef143ec211cf94d  supabase/DRAFT-lot-csdj-bo1-f02-activation-invariant-v1-rollback.sql
+c0a91510548ce4d4a7db28bcbb91b24e1a899143  supabase/DRAFT-lot-csdj-bo1-f02-activation-invariant-v1.sql
+603e3c2b175840733f769ab1c4461ff94c130a36  supabase/DRAFT-lot-csdj-bo1-save-fulfillment-configuration-v1-rollback.sql
+b829da43901e66ca26ea3722865ce88890c00cea  supabase/DRAFT-lot-csdj-bo1-save-fulfillment-configuration-v1.sql
+751f666d8fd867f54eeec89e6f7e54db9cb9a383  supabase/tests/csdj-bo1-f02-activation-invariant-check.sh
+496614113005aaeaf24a21bff6f40f68285e0365  supabase/tests/csdj-bo1-save-configuration-check.sh
+0ba84d70202a4519def80c78a7023d18ea5eb7b2  tests/csdj-bo1-f02-activation-invariant-contract.test.ts
+MODIFIÉ tests/csdj-bo1-save-configuration-contract.test.ts  intégration=8a188b3129902c576bd65fe1580cfd8461dc9d62 #152=f905d350527c87f1fd3d73de6b8f68f9d1c1024a
+chemins backend modifiés: 1 (attendu 1 : le test [BO1-RPC-2], voir la note d'intégration §4)
