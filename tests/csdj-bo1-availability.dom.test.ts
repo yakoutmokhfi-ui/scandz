@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
 import { settle } from "./helpers/dom-settle.ts";
+import { CSDJ_BO1_WRITE_CONTRACT } from "../lib/availability-editor.ts";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
@@ -252,7 +253,7 @@ function text(container: Element): string {
 
 // --------------------------------------------------------------------
 
-test("[BO1-DOM-1] propriétaire : la page s'affiche, mais l'enregistrement et l'activation sont INACTIFS et disent pourquoi", async () => {
+test("[BO1-DOM-1] propriétaire, contrat disponible : AUCUNE bannière « contrat non approuvé », et l'enregistrement dit la vraie raison (version du serveur non lue)", async () => {
   const { container, root } = setup({ role: "owner" });
   await flush();
 
@@ -261,32 +262,44 @@ test("[BO1-DOM-1] propriétaire : la page s'affiche, mais l'enregistrement et l'
     "la page doit être montée"
   );
 
-  // L'état du contrat d'écriture est annoncé, et il est nommé dans le
-  // DOM pour qu'aucun test ne dépende d'une traduction.
-  const banner = container.querySelector('[data-write-contract]');
-  assert.ok(banner, "l'état du contrat d'écriture doit être rendu");
-  assert.equal(banner!.getAttribute("data-write-contract"), "CSDJ_BO1_WRITE_CONTRACT_PENDING");
-  assert.equal(banner!.getAttribute("role"), "status");
+  // Issue #156, constat 1 : le drapeau réel est `true`, donc la bannière
+  // « contrat d'écriture non approuvé » ne doit JAMAIS être rendue. Elle
+  // restait affichée sans condition, y compris une fois le lot installé.
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
+  assert.equal(
+    container.querySelector("[data-write-contract]"),
+    null,
+    "aucune bannière de contrat quand le contrat est disponible"
+  );
+  assert.ok(
+    !text(container).includes("contrat d'écriture n'est pas encore approuvé"),
+    "aucune phrase périmée sur le contrat d'écriture"
+  );
 
+  // Ici le double ne sert pas la lecture autoritaire : la page le DIT
+  // (elle ne signe jamais une version qu'elle n'a pas lue).
   const save = container.querySelector("[data-write-disabled-reason]") as HTMLButtonElement;
   assert.ok(save, "la barre d'enregistrement doit exister");
-  assert.equal(save.getAttribute("data-write-disabled-reason"), "write-contract");
+  assert.equal(save.getAttribute("data-write-disabled-reason"), "authority");
   assert.equal(save.disabled, true, "le bouton d'enregistrement doit être désactivé");
   assert.equal(save.getAttribute("aria-disabled"), "true");
-  assert.ok(
-    !save.getAttribute("onclick"),
-    "le bouton ne doit porter aucun gestionnaire : il n'existe aucun chemin d'écriture"
+  assert.ok(container.querySelector('[data-unverified="true"]'), "la lecture manquante est annoncée en tête");
+  assert.equal(
+    container.querySelector("[data-editor-status]")?.getAttribute("data-editor-status"),
+    "unverified"
   );
 
   const activate = container.querySelector("#av-activate") as HTMLInputElement;
   assert.ok(activate, "l'interrupteur d'activation doit être rendu");
-  assert.equal(activate.disabled, true, "l'activation doit être désactivée");
   const describedBy = activate.getAttribute("aria-describedby");
-  assert.ok(describedBy, "l'interrupteur doit renvoyer à sa raison");
-  const reason = container.querySelector(`#${describedBy}`);
-  assert.ok(reason && (reason.textContent ?? "").length > 20, "la raison doit être une phrase");
-
-  // Un propriétaire a le rôle : sa raison est le CONTRAT, pas le rôle.
+  assert.ok(describedBy, "l'interrupteur doit renvoyer à une description");
+  const help = container.querySelector(`#${describedBy}`);
+  assert.ok(help && (help.textContent ?? "").length > 20, "la description doit être une phrase");
+  assert.ok(
+    !text(container).includes("Inactif : l'enregistrement attend le contrat"),
+    "aucune raison « inactif » à côté d'un contrôle qui ne l'est pas pour cette raison"
+  );
+  // Un propriétaire a le rôle : aucun message de rôle.
   assert.ok(
     !text(container).includes("seuls les rôles propriétaire et responsable peuvent modifier"),
     "un propriétaire ne doit pas lire un message de rôle"
@@ -364,11 +377,19 @@ test("[BO1-DOM-5] CSDJ v1.2 absent du serveur : annoncé non actif, jamais prés
   const method = container.querySelector("[data-schedule-method]");
   assert.equal(method!.getAttribute("data-schedule-method"), "v1");
   assert.ok(container.querySelector("#av-cutoff-offset"), "le décalage existe en méthode v1");
-  // Les jours de préparation sont montrés vides, et dits vides.
+  // Issue #156, constat 4 : en v1 le calendrier de préparation n'existe
+  // pas. La page ne demande donc AUCUN jour de préparation, n'affiche
+  // pas « Aucun jour de préparation enregistré » comme un manque, et
+  // dit une seule fois que ces options relèvent de la méthode v1.2.
   assert.ok(
-    text(container).includes("Aucun jour de préparation enregistré"),
-    "un calendrier de préparation vide doit être nommé, pas laissé deviner"
+    !text(container).includes("Aucun jour de préparation enregistré"),
+    "un champ indisponible ne doit pas être présenté comme un oubli"
   );
+  assert.equal(container.querySelector("[data-prep-weekday]"), null, "aucun jour de préparation en v1");
+  assert.equal(container.querySelector("[data-add-row='prep-closure']"), null, "aucune fermeture d'atelier en v1");
+  assert.equal(container.querySelector("[data-holiday-calendar]"), null, "aucun calendrier férié en v1");
+  assert.equal(container.querySelector("#av-capacity-max"), null, "aucune capacité en v1");
+  assert.ok(container.querySelector('[data-v12-only="true"]'), "la raison est écrite une fois");
 
   root.unmount();
   container.remove();
@@ -400,8 +421,8 @@ test("[BO1-DOM-6] CSDJ v1.2 présent : méthode v1.2, décalage d'heure limite r
   // « on peut tout régler, on ne peut rien publier ».
   assert.equal(max.disabled, false, "la capacité est éditable en méthode v1.2");
   const save = container.querySelector("[data-write-disabled-reason]") as HTMLButtonElement;
-  assert.equal(save.disabled, true, "mais l'enregistrement reste verrouillé");
-  assert.equal(save.getAttribute("data-write-disabled-reason"), "write-contract");
+  assert.equal(save.disabled, true, "mais l'enregistrement reste fermé (rien n'est modifié, version du serveur non lue)");
+  assert.equal(save.getAttribute("data-write-disabled-reason"), "authority");
   // Depuis l'issue #149, les fermetures sont des CHAMPS : leur contenu
   // vit dans `value`, pas dans le texte du document.
   const prepLabels = (
