@@ -56,7 +56,22 @@ test("[BO1-RPC-2] aucun code applicatif n'appelle la RPC (pas de SQL navigateur,
     }
   };
   for (const d of ["app", "components", "lib"]) walk(d);
-  assert.deepEqual(hits, []);
+  // INTÉGRATION (#153) : l'éditeur Nougaro appelle désormais la RPC, mais par UN SEUL point d'entrée -- le service
+  // lib/services/availability.ts -- et JAMAIS depuis une page ou un composant. L'invariant d'origine (pas d'appel
+  // câblé hors du verrou) est conservé par [BO1-RPC-2b] : l'écriture reste derrière CSDJ_BO1_WRITE_CONTRACT.available.
+  assert.deepEqual(hits, ["lib/services/availability.ts"]);
+});
+
+test("[BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available (false)", () => {
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
+  const svc = read("lib/services/availability.ts");
+  const code = svc.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
+  const calls = [...code.matchAll(/\.rpc\(\s*["'`]save_fulfillment_configuration/g)];
+  assert.equal(calls.length, 1, "exactement un appel d'écriture");
+  const guard = code.indexOf("if (!CSDJ_BO1_WRITE_CONTRACT.available)");
+  assert.ok(guard >= 0, "le verrou available est vérifié");
+  assert.ok(guard < calls[0].index!, "le verrou précède l'appel d'écriture");
+  assert.doesNotMatch(code, /\.rpc\(\s*["'`]mutate_merchant_fulfillment_schedule/);
 });
 
 test("[BO1-RPC-3] SECURITY DEFINER, search_path vide, sur les trois fonctions", () => {
