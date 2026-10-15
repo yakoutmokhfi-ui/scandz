@@ -24,8 +24,8 @@ const CODE = strip(SQL);
 const RB = strip(read("supabase/DRAFT-lot-csdj-bo1-f02-activation-invariant-v1-rollback.sql"));
 const DOC = read("docs/scheduling/csdj-bo1-f02-activation-invariant.md");
 
-test("[F02-1] le contrat d'écriture reste FERMÉ côté page pour ce lot", () => {
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
+test("[F02-1] le contrat d'écriture est OUVERT côté page depuis #154 (le lot F-02 est installé)", () => {
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
 });
 
 test("[F02-2] le lot ne crée que ses 2 fonctions et ses 4 déclencheurs de contrainte différés", () => {

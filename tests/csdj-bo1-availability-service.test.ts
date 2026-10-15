@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -485,22 +485,15 @@ test("[BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que
   );
 });
 
-test("[BO1-SVC-16] drapeau d'écriture à false : l'écriture est refusée SANS AUCUN appel réseau", async () => {
-  script({});
-  await assert.rejects(
-    () =>
-      service.saveFulfillmentConfiguration("r-1", {
-        modeCode: "pickup",
-        fulfillmentRuleId: null,
-        method: "v1",
-        enabled: false,
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof service.AvailabilityWriteUnavailableError);
-      return true;
-    }
-  );
-  assert.deepEqual(calls(), [], "ni écriture, ni lecture : le refus précède le réseau");
+test("[BO1-SVC-16] le verrou d'écriture du service précède l'appel réseau (le drapeau est vrai depuis #154)", () => {
+  // Le drapeau réel vaut `true` depuis #154 : l'ancien test, qui jouait un
+  // refus local, ne peut plus s'exécuter sans écrire. L'invariant qui
+  // compte -- le verrou est LU avant tout appel -- est vérifié sur la
+  // source, comme dans [BO1-RPC-2b].
+  const src = readFileSync(path.join(process.cwd(), "lib", "services", "availability.ts"), "utf8");
+  const guard = src.indexOf("if (!CSDJ_BO1_WRITE_CONTRACT.available)");
+  const call = src.search(/\.rpc\(\s*["'`]save_fulfillment_configuration/);
+  assert.ok(guard >= 0 && call > guard);
 });
 
 test("[BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture", () => {
