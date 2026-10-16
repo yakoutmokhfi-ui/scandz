@@ -1,0 +1,27 @@
+1-3. technical details never appear: zones, postcodes, base fee, mode, threshold, min items, discount, provider, code, order
+Scénario 16 — Delivery pricing : un opérateur consultant un établissement hors adhésion ne voit JAMAIS de bouton d'édition actif (canEdit reste role-based-only, aucun bypass SQL n'existe encore)
+[BL-1] sans configuration, le rendu est IDENTIQUE à celui de main (empreinte 412dbb5)
+[BO1-A11Y-9] un groupe désactivé est annoncé comme tel, et porte une légende
+[BO1-DOM-1] propriétaire : la page s'affiche, mais l'enregistrement et l'activation sont INACTIFS et disent pourquoi
+[BO1-DOM-6] CSDJ v1.2 présent : méthode v1.2, décalage d'heure limite retiré, capacité par créneau nommé
+[BO1-ED-1] le contrat d'écriture est toujours déclaré indisponible, et le service refuse SANS réseau
+[BO1-NOWRITE-5] le contrat d'écriture est déclaré indisponible, et la page le relaie
+[BO1-PURE-7] les contrôles d'écriture sont inactifs, et la RAISON est distinguée
+[BO1-RPC-1] les contrats d'écriture restent FERMÉS côté page tant que l'audit et le GO manquent
+[BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available (false)
+[BO1-SAVE-0] le drapeau RÉEL reste faux : seule cette suite simule le contrat livré
+[BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture
+[BO1-SVC-16] drapeau d'écriture à false : l'écriture est refusée SANS AUCUN appel réseau
+[CB-02] le CONTENU et le COMPORTEMENT du bouton sont inchangés
+[F02-1] le contrat d'écriture reste FERMÉ côté page pour ce lot
+[SW-01] le libellé exact est rendu dans les quatre langues du mandat
+[SWD-01] le libellé exact est rendu sur la cartouche ET dans le titre, dans les quatre langues
+archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from "..."')
+archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6/PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1/CATALOGUE SUBCATEGORIES BACKOFFICE v1/CATALOGUE SUBCATEGORIES BACKOFFICE v1.1, aucun nom contenant p3a1)
+archi: aucun fichier SQL ajouté par P3-A2 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER TRACKING FOUNDATION v3/PAYMENT P3-B5/PAYMENT P3-B6/PAYMENT STREAM B CURRENCY PREFLIGHT FIX v1.1/CATALOGUE SUBCATEGORIES BACKOFFICE v1/CATALOGUE SUBCATEGORIES BACKOFFICE v1.1, aucun nom contenant p3a2)
+aucun fichier Stuart n'a été modifié (périmètre Claude Monnet)
+aucun fichier catalogue UI marchand / photo produit (périmètre Claude Nougaro, OB-2) n'a été modifié -- OB-1 v1.1 RÉUTILISE get_merchant_catalogue (déjà publiée par OB-2 v1.1), ne le redéfinit ni ne le duplique jamais
+aucun fichier paiement backend/UI marchand n'a été modifié
+aucun fichier supabase/ (SQL/migration/backend) n'a été modifié -- OB-1 est SQL REQUIRED: NO
+git diff depuis la baseline publiée : SEULS les fichiers explicitement autorisés par OB-1 ont changé
+tests/cfte-v1-customer-name-and-email.test.ts
