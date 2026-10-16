@@ -1,0 +1,8 @@
+== R4 six-ux-1.txt: 0 échec(s)
+== R4 six-ux-2.txt: 1 échec(s)
+écran backoffice : affiche référence de commande, client, produits/quantités et statut d'accusé (sent)
+== R4 six-ux-3.txt: 0 échec(s)
+== base 97e0ddc six-base97-1.txt: 0 échec(s)
+== base 97e0ddc six-base97-2.txt: 0 échec(s)
+== base 97e0ddc six-base97-3.txt: 0 échec(s)
+== gap-01 isolé, 12 exécutions : R4 0/12 en échec, base 0/12 en échec
