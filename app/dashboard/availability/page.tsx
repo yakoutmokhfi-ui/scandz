@@ -391,6 +391,14 @@ export default function AvailabilityPage() {
   const load = useCallback(async (id: string) => {
     if (!id) return;
     const seq = ++requestSeqRef.current;
+    // R3-F01 : tout ce qui appartenait au contexte précédent (relecture en
+    // vol, message d'abandon, exemple en vol) est invalidé ICI, de façon
+    // synchrone. Les continuations de l'ancien restaurant ne pourront
+    // plus rien écrire dans celui-ci, en succès comme en erreur.
+    refreshSeqRef.current += 1;
+    previewSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     setSchedules([]);
     setV12({ status: "absent" });
     setPageError(null);
@@ -439,6 +447,12 @@ export default function AvailabilityPage() {
 
   const handleSelectRestaurant = useCallback((id: string) => {
     requestSeqRef.current += 1;
+    // R3-F01 : même invalidation synchrone que `load` -- l'état de
+    // relecture d'un commerçant n'appartient jamais au suivant.
+    refreshSeqRef.current += 1;
+    previewSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     setSchedules([]);
     setV12({ status: "absent" });
     setPageError(null);
@@ -571,6 +585,9 @@ export default function AvailabilityPage() {
 
   const runPreview = useCallback(async () => {
     if (!selected || !restaurantId || !selectedScopeKey) return;
+    // R3-F02 : pas de calcul tant qu'un conflit de version est ouvert --
+    // son résultat serait attribué à une version non vérifiée.
+    if (conflictInScope !== null) return;
     const seq = requestSeqRef.current;
     const previewSeq = ++previewSeqRef.current;
     const scopeAtRequest = selectedScopeKey;
@@ -616,6 +633,7 @@ export default function AvailabilityPage() {
     previewItems,
     previewPostalCode,
     previewSubtotal,
+    conflictInScope,
   ]);
 
   /** AUD-01 — provenance : l'aperçu n'est affichable que s'il provient
@@ -623,14 +641,17 @@ export default function AvailabilityPage() {
   const previewInScope =
     previewScopeKey !== null &&
     previewScopeKey === selectedScopeKey &&
-    previewGen === snapshotGen;
+    previewGen === snapshotGen &&
+    // R3-F02 : tant qu'un conflit de version n'est pas résolu, la version
+    // enregistrée n'est pas vérifiée : aucun exemple n'est « actuel ».
+    conflictInScope === null;
   /** Un aperçu de CETTE portée existe, mais pour une version de
    *  configuration qui n'est plus l'actuelle : jamais présenté comme
    *  actuel, jamais effacé en silence. */
   const previewStale =
     previewScopeKey !== null &&
     previewScopeKey === selectedScopeKey &&
-    previewGen !== snapshotGen &&
+    (previewGen !== snapshotGen || conflictInScope !== null) &&
     (preview !== null || previewError !== null);
 
   // ====================================================================
@@ -949,6 +970,12 @@ export default function AvailabilityPage() {
   const loadServerVersion = useCallback(
     async (target: { modeCode: string; fulfillmentRuleId: string | null }) => {
       if (!restaurantId) return;
+      // R3-F02 : le refus de concurrence PROUVE que la version enregistrée
+      // n'est plus celle que l'écran croyait. Dès cet instant -- avant
+      // même la fin de la relecture, avant tout choix du commerçant --
+      // tout exemple calculé auparavant (affiché OU encore en vol) est
+      // d'une version révolue : il ne sera jamais présenté comme actuel.
+      bumpSnapshotGen();
       tokenSeqRef.current += 1;
       const tokenSeq = tokenSeqRef.current;
       const scopeKey = scopeKeyOf(target.modeCode, target.fulfillmentRuleId);
@@ -969,7 +996,7 @@ export default function AvailabilityPage() {
       if (tokenSeq !== tokenSeqRef.current) return;
       setConflict({ restaurantId: id, scopeKey, server });
     },
-    [restaurantId]
+    [restaurantId, bumpSnapshotGen]
   );
 
   /**
@@ -1146,7 +1173,7 @@ export default function AvailabilityPage() {
       if (!stillCurrent()) {
         // Abandon COMPLET : ni listes, ni brouillon, ni jeton touchés.
         // Si une relecture plus récente existe, c'est elle qui parle.
-        if (seq === refreshSeqRef.current) {
+        if (seq === refreshSeqRef.current && requestSeq === requestSeqRef.current) {
           setReloading(false);
           setReloadAbandoned(true);
         }
@@ -1158,7 +1185,7 @@ export default function AvailabilityPage() {
       setReloadNonce((n) => n + 1);
     } catch (error) {
       if (!stillCurrent()) {
-        if (seq === refreshSeqRef.current) {
+        if (seq === refreshSeqRef.current && requestSeq === requestSeqRef.current) {
           setReloading(false);
           setReloadAbandoned(true);
         }
@@ -2130,7 +2157,7 @@ export default function AvailabilityPage() {
                           type="button"
                           id="av-server-example"
                           onClick={() => void runPreview()}
-                          disabled={previewLoading}
+                          disabled={previewLoading || conflictInScope !== null}
                           className="min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900"
                         >
                           {t("avServerExampleButton")}
@@ -2141,6 +2168,15 @@ export default function AvailabilityPage() {
                       </p>
                       {previewLoading && (
                         <p className="mt-2 text-sm text-stone-500">{t("avPreviewLoading")}</p>
+                      )}
+                      {conflictInScope !== null && (
+                        <p
+                          role="status"
+                          data-server-example-conflict="true"
+                          className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-950"
+                        >
+                          {t("avServerExampleConflict")}
+                        </p>
                       )}
                       {!previewLoading && previewStale && (
                         <p
@@ -2963,7 +2999,8 @@ export default function AvailabilityPage() {
                       <button
                         type="button"
                         onClick={() => void runPreview()}
-                        className="min-h-11 basis-full rounded-xl border border-stone-900 bg-stone-900 px-5 py-2.5 text-sm font-extrabold text-white sm:basis-auto"
+                        disabled={previewLoading || conflictInScope !== null}
+                        className="min-h-11 basis-full rounded-xl border border-stone-900 bg-stone-900 px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-50 sm:basis-auto"
                       >
                         {t("avPreviewRefresh")}
                       </button>
