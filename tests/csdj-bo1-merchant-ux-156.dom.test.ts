@@ -855,11 +855,80 @@ test("[UX156-10b] conflit de concurrence : l'état devient « conflit », rien n
   cleanup();
 });
 
-test("[UX156-10c] changement rapide de portée : le résumé et le brouillon ne mélangent jamais deux portées", async () => {
-  const { backend, mappings } = twoTenants();
-  const { container, cleanup } = setup({ backend, mappings });
+test("[UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état", async () => {
+  // F-03 (PR #157) : l'ancienne version ne changeait pas de portée et ne
+  // retardait aucune réponse -- elle ne prouvait rien. Ici : deux portées
+  // (retrait / règle de livraison), la lecture autoritaire de la LIVRAISON
+  // est retenue, on revient sur « Retrait » avant qu'elle n'arrive, puis on
+  // la libère.
+  const DELIVERY = "11111111-1111-1111-1111-111111111111";
+  const backend = new FakeFulfillmentWriteBackend();
+  const state = auLaitCruPickupFixture();
+  state.schedules.push({
+    ...JSON.parse(JSON.stringify(state.schedules[0])),
+    modeCode: "delivery",
+    fulfillmentRuleId: DELIVERY,
+    minLeadDays: 4,
+    cutoffTime: "09:00:00",
+    slots: [],
+    windows: [],
+    slotSelectionMode: "none",
+    updatedAt: "2026-10-14T00:00:02.222222Z",
+    revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  });
+  backend.setTenant("r1", state);
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const held: string[] = [];
+  const { container, cleanup } = setup({
+    backend,
+    holdAuthority: (_id, _mode, ruleId) => {
+      if (ruleId !== DELIVERY) return null;
+      held.push(ruleId);
+      return gate;
+    },
+  });
   await flush();
+  const select = q<HTMLSelectElement>(container, "#av-scope-select");
+  const pickupKey = select.value;
+  const deliveryKey = [...select.options].find((o) => o.value.includes(DELIVERY))!.value;
+  assert.notEqual(pickupKey, deliveryKey);
+  assert.equal(q<HTMLInputElement>(container, "#av-cutoff").value, "16:00", "précondition : brouillon du retrait");
+  assert.equal(q<HTMLInputElement>(container, "#av-lead-days").value, "1");
+
+  // 1. vers la livraison : sa lecture autoritaire est retenue.
+  typeInto(select, deliveryKey);
+  await flush();
+  assert.deepEqual(held, [DELIVERY], "la lecture de la livraison est bien en vol");
+
+  // 2. retour sur « Retrait » AVANT l'arrivée de la réponse de la livraison.
+  typeInto(select, pickupKey);
+  await flush();
+  assert.equal(select.value, pickupKey);
   assert.equal(q<HTMLInputElement>(container, "#av-cutoff").value, "16:00");
+  assert.equal(q<HTMLInputElement>(container, "#av-lead-days").value, "1");
+  const statusBefore = container.querySelector("[data-editor-status]")?.getAttribute("data-editor-status");
+
+  // 3. la réponse retardée de la livraison arrive maintenant.
+  release();
+  await flush();
+  await flush();
+
+  assert.equal(select.value, pickupKey, "la portée affichée n'a pas bougé");
+  assert.equal(q<HTMLInputElement>(container, "#av-cutoff").value, "16:00", "le brouillon du retrait a reçu l'heure limite de la livraison");
+  assert.equal(q<HTMLInputElement>(container, "#av-lead-days").value, "1", "le brouillon du retrait a reçu le délai de la livraison");
+  assert.equal(draftState(container), "clean", "aucune modification fantôme");
+  assert.equal(
+    container.querySelector("[data-editor-status]")?.getAttribute("data-editor-status"),
+    statusBefore,
+    "l'état annoncé a changé sous l'effet d'une réponse périmée"
+  );
+  // Le résumé enregistré décrit toujours le retrait (J+1), jamais la livraison (J+4).
+  const summary = text(q(container, "[data-summary-saved]"));
+  assert.ok(!summary.includes("09:00"), "le résumé mélange deux portées");
   cleanup();
 });
 

@@ -485,11 +485,12 @@ test("[BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que
   );
 });
 
-test("[BO1-SVC-16] le verrou d'écriture du service précède l'appel réseau (le drapeau est vrai depuis #154)", () => {
-  // Le drapeau réel vaut `true` depuis #154 : l'ancien test, qui jouait un
-  // refus local, ne peut plus s'exécuter sans écrire. L'invariant qui
-  // compte -- le verrou est LU avant tout appel -- est vérifié sur la
-  // source, comme dans [BO1-RPC-2b].
+test("[BO1-SVC-16] (complément STRUCTUREL) le verrou d'écriture précède l'appel réseau dans la source", () => {
+  // Ce test ne prouve PAS le refus : il n'est qu'un complément de lecture
+  // de la source. Le refus EFFECTIF (drapeau forcé à false, espion sur le
+  // transport, 0 RPC d'écriture, contrôle positif et preuve de mutation)
+  // est dans tests/csdj-bo1-availability-write-lock.test.ts
+  // ([BO1-LOCK-1] à [BO1-LOCK-3]) -- remédiation PR #157, F-03.
   const src = readFileSync(path.join(process.cwd(), "lib", "services", "availability.ts"), "utf8");
   const guard = src.indexOf("if (!CSDJ_BO1_WRITE_CONTRACT.available)");
   const call = src.search(/\.rpc\(\s*["'`]save_fulfillment_configuration/);
