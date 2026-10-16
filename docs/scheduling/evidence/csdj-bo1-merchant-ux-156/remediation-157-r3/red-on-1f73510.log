@@ -1,0 +1,128 @@
+TAP version 13
+# (node:919) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+not ok 1 - [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 241.016752
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:545:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    le bouton de B hérite du blocage de A
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:549:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+not ok 2 - [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 174.303266
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:545:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    le bouton de B hérite du blocage de A
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:549:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+not ok 3 - [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+  ---
+  duration_ms: 169.690076
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:567:1'
+  failureType: 'testCodeFailure'
+  error: "la relecture propre de B n'a pas abouti"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:574:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+not ok 4 - [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+  ---
+  duration_ms: 168.483798
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:602:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    ancien exemple encore présenté comme actuel pendant le conflit
+    
+    'ready' !== 'stale'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'stale'
+  actual: 'ready'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:619:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+not ok 5 - [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+  ---
+  duration_ms: 144.652986
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:628:1'
+  failureType: 'testCodeFailure'
+  error: "l'ancienne réponse est devenue « ready » pendant le conflit"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'ready'
+  actual: 'ready'
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts:649:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+ok 6 - [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+  ---
+  duration_ms: 176.611201
+  type: 'test'
+  ...
+# Subtest: [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+ok 7 - [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+  ---
+  duration_ms: 249.520835
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 2
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2301.543794
