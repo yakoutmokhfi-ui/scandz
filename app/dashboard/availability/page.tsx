@@ -301,6 +301,8 @@ export default function AvailabilityPage() {
     setSnapshotGen(snapshotGenRef.current);
   }, []);
   const [previewGen, setPreviewGen] = useState<number | null>(null);
+  /** Génération de la demande d'exemple EN VOL (R4-F02b), `null` si aucune. */
+  const [previewRequestGen, setPreviewRequestGen] = useState<number | null>(null);
   /**
    * ═══ CONFLIT DE CONCURRENCE ═══ (remédiation F-01)
    *
@@ -315,6 +317,13 @@ export default function AvailabilityPage() {
     restaurantId: string;
     scopeKey: string;
     server: AvailabilityDraft | null;
+    /**
+     * R4-F02a : le conflit est CONNU dès le refus STALE, avant que la
+     * version du serveur ne soit relue. Pendant la relecture
+     * (`reading: true`, `server: null`) la version enregistrée n'est pas
+     * vérifiée : ni calcul d'exemple, ni sauvegarde, ni exemple « actuel ».
+     */
+    reading: boolean;
   } | null>(null);
   /** Un rebase confirmé vient d'avoir lieu : on le dit, rien n'est enregistré. */
   const [rebased, setRebased] = useState(false);
@@ -391,6 +400,12 @@ export default function AvailabilityPage() {
   const load = useCallback(async (id: string) => {
     if (!id) return;
     const seq = ++requestSeqRef.current;
+    // R4-F01-SAVE : `saving` appartient au contexte qui a lancé
+    // l'enregistrement. Le `finally` de A est (volontairement) gardé par
+    // l'identité du restaurant : il ne peut plus remettre le drapeau à
+    // zéro pour B. C'est ICI, au changement de contexte, que le drapeau
+    // repart de zéro ; un enregistrement de B lèvera le sien.
+    setSaving(false);
     // R3-F01 : tout ce qui appartenait au contexte précédent (relecture en
     // vol, message d'abandon, exemple en vol) est invalidé ICI, de façon
     // synchrone. Les continuations de l'ancien restaurant ne pourront
@@ -447,6 +462,8 @@ export default function AvailabilityPage() {
 
   const handleSelectRestaurant = useCallback((id: string) => {
     requestSeqRef.current += 1;
+    // R4-F01-SAVE : voir `load` -- `saving` repart de zéro avec le contexte.
+    setSaving(false);
     // R3-F01 : même invalidation synchrone que `load` -- l'état de
     // relecture d'un commerçant n'appartient jamais au suivant.
     refreshSeqRef.current += 1;
@@ -598,6 +615,7 @@ export default function AvailabilityPage() {
     const isCurrent = () =>
       seq === requestSeqRef.current && previewSeq === previewSeqRef.current;
     setPreviewLoading(true);
+    setPreviewRequestGen(genAtRequest);
     setPreviewError(null);
     setPreview(null);
     setPreviewScopeKey(null);
@@ -624,7 +642,10 @@ export default function AvailabilityPage() {
       setPreviewGen(genAtRequest);
       setPreviewScopeKey(scopeAtRequest);
     } finally {
-      if (isCurrent()) setPreviewLoading(false);
+      if (isCurrent()) {
+        setPreviewLoading(false);
+        setPreviewRequestGen(null);
+      }
     }
   }, [
     restaurantId,
@@ -653,6 +674,16 @@ export default function AvailabilityPage() {
     previewScopeKey === selectedScopeKey &&
     (previewGen !== snapshotGen || conflictInScope !== null) &&
     (preview !== null || previewError !== null);
+  /**
+   * R4-F02b : une demande d'exemple est EN VOL pour une version révolue
+   * (STALE connu, enregistrement, relecture). L'écran le dit tout de suite
+   * -- « périmé » et non « chargement » -- sans attendre l'ancienne réponse.
+   * Une nouvelle demande reste possible (elle rend l'ancienne muette).
+   */
+  const previewInFlightStale =
+    previewLoading &&
+    previewRequestGen !== null &&
+    (previewRequestGen !== snapshotGen || conflictInScope !== null);
 
   // ====================================================================
   // ÉDITION — brouillon, validation, enregistrement (issue #149)
@@ -980,6 +1011,10 @@ export default function AvailabilityPage() {
       const tokenSeq = tokenSeqRef.current;
       const scopeKey = scopeKeyOf(target.modeCode, target.fulfillmentRuleId);
       const id = restaurantId;
+      // R4-F02a : l'état « conflit connu / version non vérifiée » existe
+      // AVANT le premier await, avec sa provenance (restaurant + portée).
+      // Les gardes de calcul, de rendu et de boutons le lisent aussitôt.
+      setConflict({ restaurantId: id, scopeKey, server: null, reading: true });
       let server: AvailabilityDraft | null = null;
       try {
         const reread = await getFulfillmentConfiguration(
@@ -994,7 +1029,7 @@ export default function AvailabilityPage() {
         server = null;
       }
       if (tokenSeq !== tokenSeqRef.current) return;
-      setConflict({ restaurantId: id, scopeKey, server });
+      setConflict({ restaurantId: id, scopeKey, server, reading: false });
     },
     [restaurantId, bumpSnapshotGen]
   );
@@ -1676,12 +1711,20 @@ export default function AvailabilityPage() {
                     role="alert"
                     data-conflict="true"
                     data-conflict-readable={conflictInScope.server ? "true" : "false"}
+                    data-conflict-reading={conflictInScope.reading ? "true" : "false"}
                     className="mt-4 rounded-2xl border-2 border-amber-700 bg-amber-50 p-4"
                   >
                     <h3 className="text-sm font-extrabold text-amber-950">
                       {t("avConflictTitle")}
                     </h3>
-                    {conflictInScope.server === null ? (
+                    {conflictInScope.reading ? (
+                      <p
+                        data-conflict-reading-note="true"
+                        className="mt-2 text-sm leading-relaxed text-amber-950"
+                      >
+                        {t("avConflictReading")}
+                      </p>
+                    ) : conflictInScope.server === null ? (
                       <>
                         <p className="mt-2 text-sm leading-relaxed text-amber-950">
                           {t("avConflictUnreadable")}
@@ -2139,13 +2182,15 @@ export default function AvailabilityPage() {
                         pour la configuration ENREGISTRÉE. */}
                     <div
                       data-server-example={
-                        previewLoading
-                          ? "loading"
-                          : previewStale
-                            ? "stale"
-                            : previewInScope && preview
-                              ? "ready"
-                              : "idle"
+                        previewInFlightStale
+                          ? "stale"
+                          : previewLoading
+                            ? "loading"
+                            : previewStale
+                              ? "stale"
+                              : previewInScope && preview
+                                ? "ready"
+                                : "idle"
                       }
                       className="mt-3 rounded-xl border border-stone-300 p-3"
                     >
@@ -2157,7 +2202,7 @@ export default function AvailabilityPage() {
                           type="button"
                           id="av-server-example"
                           onClick={() => void runPreview()}
-                          disabled={previewLoading || conflictInScope !== null}
+                          disabled={(previewLoading && !previewInFlightStale) || conflictInScope !== null}
                           className="min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900"
                         >
                           {t("avServerExampleButton")}
@@ -2166,7 +2211,7 @@ export default function AvailabilityPage() {
                       <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
                         {t("avServerExampleSaved")}
                       </p>
-                      {previewLoading && (
+                      {previewLoading && !previewInFlightStale && (
                         <p className="mt-2 text-sm text-stone-500">{t("avPreviewLoading")}</p>
                       )}
                       {conflictInScope !== null && (
@@ -2178,7 +2223,7 @@ export default function AvailabilityPage() {
                           {t("avServerExampleConflict")}
                         </p>
                       )}
-                      {!previewLoading && previewStale && (
+                      {(previewInFlightStale || (!previewLoading && previewStale)) && (
                         <p
                           role="status"
                           data-server-example-stale="true"
@@ -2999,7 +3044,7 @@ export default function AvailabilityPage() {
                       <button
                         type="button"
                         onClick={() => void runPreview()}
-                        disabled={previewLoading || conflictInScope !== null}
+                        disabled={(previewLoading && !previewInFlightStale) || conflictInScope !== null}
                         className="min-h-11 basis-full rounded-xl border border-stone-900 bg-stone-900 px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-50 sm:basis-auto"
                       >
                         {t("avPreviewRefresh")}
@@ -3009,10 +3054,10 @@ export default function AvailabilityPage() {
                       {t("avPreviewPostalHint")}
                     </p>
 
-                    {previewLoading && (
+                    {previewLoading && !previewInFlightStale && (
                       <p className="mt-3 text-sm text-stone-500">{t("avPreviewLoading")}</p>
                     )}
-                    {!previewLoading && previewStale && (
+                    {(previewInFlightStale || (!previewLoading && previewStale)) && (
                       <p
                         role="status"
                         data-preview-stale="true"
