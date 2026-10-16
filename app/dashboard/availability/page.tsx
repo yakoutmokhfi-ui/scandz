@@ -270,6 +270,38 @@ export default function AvailabilityPage() {
   /** Relecture demandée (après un enregistrement dont le snapshot est inexploitable). */
   const [reloadNonce, setReloadNonce] = useState(0);
   /**
+   * ═══ RELECTURE MANUELLE — GÉNÉRATIONS (remédiation PR #157, F-01) ═══
+   *
+   * « Relire depuis le serveur » est une opération EN DEUX TEMPS (les
+   * listes, puis la lecture autoritaire). Le premier temps est asynchrone :
+   * pendant l'attente le commerçant peut éditer ou changer de portée. La
+   * réponse n'est donc appliquée que si, À SON ARRIVÉE, rien n'a bougé :
+   *   - `refreshSeqRef` : une relecture plus récente (ou un changement de
+   *     portée) invalide celle-ci ;
+   *   - la portée affichée est la même ;
+   *   - le brouillon est LE MÊME OBJET qu'au départ (la moindre édition,
+   *     un enregistrement ou une résolution de conflit en fait un autre).
+   * Sinon la réponse est ABANDONNÉE tout entière : ni listes, ni
+   * brouillon, ni jeton n'est touché, et rien n'est enregistré.
+   */
+  const refreshSeqRef = useRef(0);
+  const [reloading, setReloading] = useState(false);
+  const [reloadAbandoned, setReloadAbandoned] = useState(false);
+  /**
+   * ═══ VERSION DE LA CONFIGURATION ENREGISTRÉE (remédiation F-02) ═══
+   * Un compteur incrémenté à CHAQUE pose d'un snapshot (lecture
+   * autoritaire, enregistrement, résolution de conflit). Un exemple du
+   * serveur porte la génération pour laquelle il a été demandé : il n'est
+   * présenté comme actuel que si elle est encore celle d'aujourd'hui.
+   */
+  const [snapshotGen, setSnapshotGen] = useState(0);
+  const snapshotGenRef = useRef(0);
+  const bumpSnapshotGen = useCallback(() => {
+    snapshotGenRef.current += 1;
+    setSnapshotGen(snapshotGenRef.current);
+  }, []);
+  const [previewGen, setPreviewGen] = useState<number | null>(null);
+  /**
    * ═══ CONFLIT DE CONCURRENCE ═══ (remédiation F-01)
    *
    * Un refus `CSDJBO1_STALE_CONFIGURATION` ne remplace RIEN : le
@@ -524,6 +556,11 @@ export default function AvailabilityPage() {
   const previewSeqRef = useRef(0);
 
   const selectScope = useCallback((key: string) => {
+    // Changer de portée annule toute relecture en vol : sa réponse
+    // concernerait une autre portée.
+    refreshSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     previewSeqRef.current += 1;
     setPreview(null);
     setPreviewScopeKey(null);
@@ -537,6 +574,10 @@ export default function AvailabilityPage() {
     const seq = requestSeqRef.current;
     const previewSeq = ++previewSeqRef.current;
     const scopeAtRequest = selectedScopeKey;
+    // F-02 : la version de la configuration enregistrée AU MOMENT de la
+    // demande. Le résultat la porte ; il ne sera présenté comme actuel
+    // que si elle n'a pas changé entre-temps.
+    const genAtRequest = snapshotGenRef.current;
     const isCurrent = () =>
       seq === requestSeqRef.current && previewSeq === previewSeqRef.current;
     setPreviewLoading(true);
@@ -558,10 +599,12 @@ export default function AvailabilityPage() {
       // sont posés dans le même passage synchrone, jamais l'un sans
       // l'autre.
       setPreview(result);
+      setPreviewGen(genAtRequest);
       setPreviewScopeKey(scopeAtRequest);
     } catch {
       if (!isCurrent()) return;
       setPreviewError(translate(uiLangRef.current, "avPreviewFailed"));
+      setPreviewGen(genAtRequest);
       setPreviewScopeKey(scopeAtRequest);
     } finally {
       if (isCurrent()) setPreviewLoading(false);
@@ -577,7 +620,18 @@ export default function AvailabilityPage() {
 
   /** AUD-01 — provenance : l'aperçu n'est affichable que s'il provient
    *  de la portée actuellement sélectionnée. */
-  const previewInScope = previewScopeKey !== null && previewScopeKey === selectedScopeKey;
+  const previewInScope =
+    previewScopeKey !== null &&
+    previewScopeKey === selectedScopeKey &&
+    previewGen === snapshotGen;
+  /** Un aperçu de CETTE portée existe, mais pour une version de
+   *  configuration qui n'est plus l'actuelle : jamais présenté comme
+   *  actuel, jamais effacé en silence. */
+  const previewStale =
+    previewScopeKey !== null &&
+    previewScopeKey === selectedScopeKey &&
+    previewGen !== snapshotGen &&
+    (preview !== null || previewError !== null);
 
   // ====================================================================
   // ÉDITION — brouillon, validation, enregistrement (issue #149)
@@ -621,6 +675,7 @@ export default function AvailabilityPage() {
     setDraft(null);
     setBaseline(null);
     setSnapshotKey(null);
+    bumpSnapshotGen();
     setConflict(null);
     setRebased(false);
     setSaveError(null);
@@ -666,6 +721,7 @@ export default function AvailabilityPage() {
       setDraft(built);
       setBaseline(built);
       setSnapshotKey({ restaurantId: id, scopeKey, source });
+      bumpSnapshotGen();
     })();
   }, [restaurantId, selectedScopeKey, inContext, reloadNonce]);
 
@@ -963,6 +1019,7 @@ export default function AvailabilityPage() {
         setDraft(fresh);
         setBaseline(fresh);
         setSnapshotKey({ restaurantId, scopeKey: savedScope, source: "authority" });
+        bumpSnapshotGen();
         setConflict(null);
         setSaved(true);
       } else {
@@ -1019,6 +1076,7 @@ export default function AvailabilityPage() {
     setDraft(server);
     setBaseline(server);
     setSnapshotKey({ restaurantId, scopeKey: selectedScopeKey, source: "authority" });
+    bumpSnapshotGen();
     setConflict(null);
     setSaveError(null);
     setSaved(false);
@@ -1040,6 +1098,7 @@ export default function AvailabilityPage() {
     setDraft(next);
     setBaseline(server);
     setSnapshotKey({ restaurantId, scopeKey: selectedScopeKey, source: "authority" });
+    bumpSnapshotGen();
     setConflict(null);
     setSaveError(null);
     setSaved(false);
@@ -1052,6 +1111,9 @@ export default function AvailabilityPage() {
     void loadServerVersion(draft);
   }, [draft, loadServerVersion]);
 
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
   /**
    * Relire les DEUX lectures du serveur (liste + configuration) sans
    * changer de portée. Refusé quand il y a des modifications non
@@ -1059,22 +1121,53 @@ export default function AvailabilityPage() {
    * silence.
    */
   const refreshFromServer = useCallback(async () => {
-    if (!restaurantId || dirty) return;
-    const seq = requestSeqRef.current;
+    // Une seule relecture en vol, et jamais par-dessus des modifications.
+    if (!restaurantId || dirty || reloading) return;
+    const seq = (refreshSeqRef.current += 1);
+    const requestSeq = requestSeqRef.current;
+    const scopeAtStart = selectedScopeKeyRef.current;
+    const draftAtStart = draftRef.current;
+    setReloadAbandoned(false);
+    setReloading(true);
+    // La réponse n'est appliquée que si RIEN n'a bougé depuis le départ :
+    // même relecture (pas de relecture plus récente, pas de changement de
+    // portée), même restaurant, même portée, et le brouillon est
+    // exactement le même objet (la moindre édition en fait un autre).
+    const stillCurrent = () =>
+      seq === refreshSeqRef.current &&
+      requestSeq === requestSeqRef.current &&
+      scopeAtStart === selectedScopeKeyRef.current &&
+      draftAtStart === draftRef.current;
     try {
       const [next, nextV12] = await Promise.all([
         getMerchantFulfillmentSchedules(restaurantId),
         getMerchantFulfillmentSchedulesV12(restaurantId),
       ]);
-      if (seq !== requestSeqRef.current) return;
+      if (!stillCurrent()) {
+        // Abandon COMPLET : ni listes, ni brouillon, ni jeton touchés.
+        // Si une relecture plus récente existe, c'est elle qui parle.
+        if (seq === refreshSeqRef.current) {
+          setReloading(false);
+          setReloadAbandoned(true);
+        }
+        return;
+      }
       setSchedules(next);
       setV12(nextV12);
+      setReloading(false);
       setReloadNonce((n) => n + 1);
     } catch (error) {
-      if (seq !== requestSeqRef.current) return;
+      if (!stillCurrent()) {
+        if (seq === refreshSeqRef.current) {
+          setReloading(false);
+          setReloadAbandoned(true);
+        }
+        return;
+      }
+      setReloading(false);
       setSaveError(translate(uiLangRef.current, readErrorKey(error)));
     }
-  }, [restaurantId, dirty]);
+  }, [restaurantId, dirty, reloading]);
 
   /** Divergences entre vos modifications et la version du serveur. */
   const divergences: DraftDivergence[] = useMemo(
@@ -1503,14 +1596,25 @@ export default function AvailabilityPage() {
                         type="button"
                         id="av-reload-server"
                         onClick={() => void refreshFromServer()}
-                        disabled={dirty}
+                        disabled={dirty || reloading}
+                        aria-busy={reloading}
                         className="mt-2 min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900 disabled:text-stone-400"
                       >
-                        {t("avSummaryReload")}
+                        {reloading ? t("avSummaryReloading") : t("avSummaryReload")}
                       </button>
                     </div>
                   )}
                 </section>
+
+                {reloadAbandoned && (
+                  <p
+                    role="status"
+                    data-reload-abandoned="true"
+                    className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+                  >
+                    {t("avReloadAbandoned")}
+                  </p>
+                )}
 
                 {/* Lecture complète indisponible : valeurs issues de la
                     liste, enregistrement fermé -- dit en tête, pas
@@ -1526,10 +1630,11 @@ export default function AvailabilityPage() {
                       type="button"
                       id="av-unverified-retry"
                       onClick={() => void refreshFromServer()}
-                      disabled={dirty}
+                      disabled={dirty || reloading}
+                      aria-busy={reloading}
                       className="mt-2 min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900 disabled:text-stone-400"
                     >
-                      {t("avSummaryReload")}
+                      {reloading ? t("avSummaryReloading") : t("avSummaryReload")}
                     </button>
                   </div>
                 )}
@@ -2007,7 +2112,13 @@ export default function AvailabilityPage() {
                         pour la configuration ENREGISTRÉE. */}
                     <div
                       data-server-example={
-                        previewLoading ? "loading" : previewInScope && preview ? "ready" : "idle"
+                        previewLoading
+                          ? "loading"
+                          : previewStale
+                            ? "stale"
+                            : previewInScope && preview
+                              ? "ready"
+                              : "idle"
                       }
                       className="mt-3 rounded-xl border border-stone-300 p-3"
                     >
@@ -2030,6 +2141,23 @@ export default function AvailabilityPage() {
                       </p>
                       {previewLoading && (
                         <p className="mt-2 text-sm text-stone-500">{t("avPreviewLoading")}</p>
+                      )}
+                      {!previewLoading && previewStale && (
+                        <p
+                          role="status"
+                          data-server-example-stale="true"
+                          className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-950"
+                        >
+                          {t("avServerExampleStale")}
+                        </p>
+                      )}
+                      {!previewLoading && previewInScope && dirty && (
+                        <p
+                          data-server-example-dirty="true"
+                          className="mt-2 text-xs font-bold text-amber-900"
+                        >
+                          {t("avServerExampleDirty")}
+                        </p>
                       )}
                       {!previewLoading && previewError && previewInScope && (
                         <p role="alert" className="mt-2 text-sm text-amber-900">
@@ -2846,6 +2974,15 @@ export default function AvailabilityPage() {
 
                     {previewLoading && (
                       <p className="mt-3 text-sm text-stone-500">{t("avPreviewLoading")}</p>
+                    )}
+                    {!previewLoading && previewStale && (
+                      <p
+                        role="status"
+                        data-preview-stale="true"
+                        className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-950"
+                      >
+                        {t("avServerExampleStale")}
+                      </p>
                     )}
                     {!previewLoading && previewError && previewInScope && (
                       <p
