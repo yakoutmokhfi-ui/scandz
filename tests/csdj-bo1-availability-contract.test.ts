@@ -181,9 +181,9 @@ test("[BO1-NOWRITE-4] le service enveloppe EXACTEMENT quatre lectures et une éc
   );
 });
 
-test("[BO1-NOWRITE-5] le contrat d'écriture est déclaré indisponible, et la page le relaie", () => {
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.reason, "CSDJ_BO1_WRITE_CONTRACT_PENDING");
+test("[BO1-NOWRITE-5] le contrat d'écriture est déclaré disponible (PR #154, SQL installé), et la page le relaie", () => {
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.reason, "CSDJ_BO1_WRITE_CONTRACT_READY");
   assert.equal(CSDJ_BO1_WRITE_CONTRACT.requestedContract, "save_fulfillment_configuration");
   assert.ok(
     pageSrc.includes("CSDJ_BO1_WRITE_CONTRACT"),
@@ -384,14 +384,14 @@ test("[BO1-PURE-6] LECTURE : ouverte à tout membre et à l'opérateur", () => {
   assert.equal(canReadFulfillmentSchedules({ role: undefined, isOperator: false }), false);
 });
 
-test("[BO1-PURE-7] les contrôles d'écriture sont inactifs, et la RAISON est distinguée", () => {
+test("[BO1-PURE-7] les contrôles d'écriture suivent le RÔLE ; le contrat étant disponible (#154), un propriétaire peut écrire", () => {
   const asStaff = writeControlsState({ role: "staff", isOperator: false });
   assert.deepEqual(asStaff, { enabled: false, reason: "role" });
   const asOwner = writeControlsState({ role: "owner", isOperator: false });
   assert.deepEqual(
     asOwner,
-    { enabled: false, reason: "write-contract" },
-    "un propriétaire a le rôle : son blocage vient du contrat d'écriture, et le message doit le dire"
+    { enabled: true },
+    "un propriétaire a le rôle et le contrat est disponible : rien ne le bloque (issue #156, constat 1)"
   );
 });
 

@@ -111,6 +111,9 @@ test("[SW-04] le dictionnaire néerlandais est PARTIEL, et le repli par clé res
     read("components", "dashboard", "DashboardNav.tsx"),
     read("lib", "availability-editor.ts"),
     read("lib", "availability-payload.ts"),
+    // Issue #156 : l'état affiché, le nom des modes et les phrases
+    // « ce que voit le client » dérivent leurs clés ici, comme ci-dessus.
+    read("lib", "availability-ux.ts"),
   ].join("\n");
   // Les clés sont lues sous deux formes dans ces sources -- `t("clé")` et
   // `translate(lang, "clé")` -- donc le relevé retient tout littéral de

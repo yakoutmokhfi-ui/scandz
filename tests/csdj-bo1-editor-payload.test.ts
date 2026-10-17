@@ -81,24 +81,17 @@ const codes = (draft: AvailabilityDraft) => validateDraft(draft).map((i) => i.co
 // 1. Le verrou d'écriture
 // --------------------------------------------------------------------
 
-test("[BO1-ED-1] le contrat d'écriture est toujours déclaré indisponible, et le service refuse SANS réseau", async () => {
+test("[BO1-ED-1] le contrat d'écriture est déclaré disponible depuis #154, et le service garde son verrou avant tout appel réseau", () => {
   // Issue #149 : « Ne jamais simplement basculer le flag avant qu'une
   // RPC transactionnelle Boulez existe et que les tests soient passés. »
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
-
-  const service = await import("../lib/services/availability.ts");
-  await assert.rejects(
-    () => service.saveFulfillmentConfiguration("r1", { modeCode: "pickup" }),
-    (error: unknown) => {
-      assert.ok(error instanceof service.AvailabilityWriteUnavailableError);
-      assert.equal(
-        (error as { reason: string }).reason,
-        "CSDJ_BO1_WRITE_CONTRACT_PENDING"
-      );
-      return true;
-    },
-    "l'écriture doit être refusée localement, avant tout appel réseau"
-  );
+  // Le SQL est installé et le flag a été basculé par #154 ; le VERROU,
+  // lui, reste dans le service (voir [BO1-RPC-2b]).
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.reason, "CSDJ_BO1_WRITE_CONTRACT_READY");
+  const svc = readFileSync(path.join(REPO_ROOT, "lib", "services", "availability.ts"), "utf8");
+  const guard = svc.indexOf("if (!CSDJ_BO1_WRITE_CONTRACT.available)");
+  const call = svc.search(/\.rpc\(\s*["'`]save_fulfillment_configuration/);
+  assert.ok(guard >= 0 && call > guard, "le verrou précède l'appel d'écriture");
 });
 
 test("[BO1-ED-2] une seule RPC d'écriture existe dans le lot, et c'est celle du contrat", () => {

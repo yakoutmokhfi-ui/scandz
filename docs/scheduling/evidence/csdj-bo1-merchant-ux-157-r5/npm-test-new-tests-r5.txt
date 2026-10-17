@@ -1,0 +1,11 @@
+[R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+[R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+[R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+[R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+[R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+[R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+[R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+[R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+[R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+[R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+[R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre

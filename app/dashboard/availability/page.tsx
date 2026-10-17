@@ -63,6 +63,13 @@ import {
   weekdayLabelKey,
   writeControlsState,
 } from "@/lib/availability-editor";
+import {
+  EDITOR_STATUS_KEY,
+  customerSentenceKeyOf,
+  editorStatusOf,
+  modeLabelKeyOf,
+  weeklyScheduleSummary,
+} from "@/lib/availability-ux";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import {
   CHECKOUT_DATE_SELECTION_MODES,
@@ -138,12 +145,8 @@ const STATE_KEY: Record<string, string> = {
 /** Ce que le client voit, dit en une phrase, depuis les seules
  *  politiques enregistrées — aucune supposition. */
 function customerSentenceKey(schedule: MerchantFulfillmentSchedule | undefined): string {
-  if (!schedule || !schedule.enabled) return "avCustomerNoDate";
-  if (schedule.dateSelectionMode === DATE_MODE_DERIVED) return "avCustomerFirstDate";
-  if (schedule.dateSelectionMode !== DATE_MODE_CUSTOMER) return "avCustomerNoDate";
-  if (schedule.slotSelectionMode === SLOT_MODE_FIXED_SLOTS) return "avCustomerDateAndSlot";
-  if (schedule.slotSelectionMode === SLOT_MODE_FREE_TIME) return "avCustomerDateAndTime";
-  return "avCustomerDateOnly";
+  if (!schedule) return "avCustomerNoDate";
+  return customerSentenceKeyOf(schedule);
 }
 
 function dateModeKey(mode: string): string {
@@ -267,6 +270,70 @@ export default function AvailabilityPage() {
   /** Relecture demandée (après un enregistrement dont le snapshot est inexploitable). */
   const [reloadNonce, setReloadNonce] = useState(0);
   /**
+   * ═══ RELECTURE MANUELLE — GÉNÉRATIONS (remédiation PR #157, F-01) ═══
+   *
+   * « Relire depuis le serveur » est une opération EN DEUX TEMPS (les
+   * listes, puis la lecture autoritaire). Le premier temps est asynchrone :
+   * pendant l'attente le commerçant peut éditer ou changer de portée. La
+   * réponse n'est donc appliquée que si, À SON ARRIVÉE, rien n'a bougé :
+   *   - `refreshSeqRef` : une relecture plus récente (ou un changement de
+   *     portée) invalide celle-ci ;
+   *   - la portée affichée est la même ;
+   *   - le brouillon est LE MÊME OBJET qu'au départ (la moindre édition,
+   *     un enregistrement ou une résolution de conflit en fait un autre).
+   * Sinon la réponse est ABANDONNÉE tout entière : ni listes, ni
+   * brouillon, ni jeton n'est touché, et rien n'est enregistré.
+   */
+  const refreshSeqRef = useRef(0);
+  /**
+   * R6 : « le brouillon affiché a des modifications non enregistrées »,
+   * lisible depuis une continuation asynchrone sans la rendre dépendante
+   * du rendu (mise à jour à chaque rendu, voir `dirty`).
+   */
+  const dirtyRef = useRef(false);
+  /**
+   * R7 : jetons d'une demande refusée STALE alors que la portée refusée
+   * est redevenue courante mais que sa lecture neuve est encore EN VOL
+   * (aucun snapshot affiché pour juger). Si cette lecture rend ces mêmes
+   * jetons (lecture faite avant le commit du tiers), la version affichée
+   * est connue périmée ; sinon la lecture est plus récente et rien ne
+   * se passe. Effacée dès qu'un snapshot de cette portée est jugé.
+   */
+  const refusedStaleRef = useRef<{
+    restaurantId: string;
+    scopeKey: string;
+    revisionRefused: string | null;
+    updatedAtRefused: string | null;
+  } | null>(null);
+  /**
+   * R6 : une sauvegarde de CETTE portée a abouti pendant que l'écran était
+   * ailleurs, alors que le snapshot affiché a été lu avant elle ET qu'il
+   * porte des modifications du commerçant (qu'on n'écrase pas). La page le
+   * dit ; le prochain enregistrement est de toute façon refusé STALE.
+   */
+  const [savedMeanwhile, setSavedMeanwhile] = useState<{
+    restaurantId: string;
+    scopeKey: string;
+  } | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const [reloadAbandoned, setReloadAbandoned] = useState(false);
+  /**
+   * ═══ VERSION DE LA CONFIGURATION ENREGISTRÉE (remédiation F-02) ═══
+   * Un compteur incrémenté à CHAQUE pose d'un snapshot (lecture
+   * autoritaire, enregistrement, résolution de conflit). Un exemple du
+   * serveur porte la génération pour laquelle il a été demandé : il n'est
+   * présenté comme actuel que si elle est encore celle d'aujourd'hui.
+   */
+  const [snapshotGen, setSnapshotGen] = useState(0);
+  const snapshotGenRef = useRef(0);
+  const bumpSnapshotGen = useCallback(() => {
+    snapshotGenRef.current += 1;
+    setSnapshotGen(snapshotGenRef.current);
+  }, []);
+  const [previewGen, setPreviewGen] = useState<number | null>(null);
+  /** Génération de la demande d'exemple EN VOL (R4-F02b), `null` si aucune. */
+  const [previewRequestGen, setPreviewRequestGen] = useState<number | null>(null);
+  /**
    * ═══ CONFLIT DE CONCURRENCE ═══ (remédiation F-01)
    *
    * Un refus `CSDJBO1_STALE_CONFIGURATION` ne remplace RIEN : le
@@ -280,6 +347,13 @@ export default function AvailabilityPage() {
     restaurantId: string;
     scopeKey: string;
     server: AvailabilityDraft | null;
+    /**
+     * R4-F02a : le conflit est CONNU dès le refus STALE, avant que la
+     * version du serveur ne soit relue. Pendant la relecture
+     * (`reading: true`, `server: null`) la version enregistrée n'est pas
+     * vérifiée : ni calcul d'exemple, ni sauvegarde, ni exemple « actuel ».
+     */
+    reading: boolean;
   } | null>(null);
   /** Un rebase confirmé vient d'avoir lieu : on le dit, rien n'est enregistré. */
   const [rebased, setRebased] = useState(false);
@@ -356,6 +430,20 @@ export default function AvailabilityPage() {
   const load = useCallback(async (id: string) => {
     if (!id) return;
     const seq = ++requestSeqRef.current;
+    // R4-F01-SAVE : `saving` appartient au contexte qui a lancé
+    // l'enregistrement. Le `finally` de A est (volontairement) gardé par
+    // l'identité du restaurant : il ne peut plus remettre le drapeau à
+    // zéro pour B. C'est ICI, au changement de contexte, que le drapeau
+    // repart de zéro ; un enregistrement de B lèvera le sien.
+    setSaving(false);
+    // R3-F01 : tout ce qui appartenait au contexte précédent (relecture en
+    // vol, message d'abandon, exemple en vol) est invalidé ICI, de façon
+    // synchrone. Les continuations de l'ancien restaurant ne pourront
+    // plus rien écrire dans celui-ci, en succès comme en erreur.
+    refreshSeqRef.current += 1;
+    previewSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     setSchedules([]);
     setV12({ status: "absent" });
     setPageError(null);
@@ -404,6 +492,14 @@ export default function AvailabilityPage() {
 
   const handleSelectRestaurant = useCallback((id: string) => {
     requestSeqRef.current += 1;
+    // R4-F01-SAVE : voir `load` -- `saving` repart de zéro avec le contexte.
+    setSaving(false);
+    // R3-F01 : même invalidation synchrone que `load` -- l'état de
+    // relecture d'un commerçant n'appartient jamais au suivant.
+    refreshSeqRef.current += 1;
+    previewSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     setSchedules([]);
     setV12({ status: "absent" });
     setPageError(null);
@@ -520,7 +616,27 @@ export default function AvailabilityPage() {
    */
   const previewSeqRef = useRef(0);
 
+  /**
+   * ═══ R5-SCOPE-STALE : IDENTITÉ DE PORTÉE DES OPÉRATIONS ASYNCHRONES ═══
+   * Un compteur incrémenté SYNCHRONIQUEMENT à chaque vrai changement de
+   * portée (`selectScope`). Une opération asynchrone (la sauvegarde) en
+   * relève la valeur à son départ ; si elle a changé à son retour, la
+   * portée pour laquelle elle a été lancée n'est plus celle de l'écran.
+   * Sa réponse est alors une réponse d'une AUTRE portée : elle ne touche
+   * ni le brouillon, ni le statut, ni les jetons, ni la génération de
+   * lecture, ni le conflit, ni le message d'erreur de la portée courante.
+   * Le restaurant a sa propre garde (`requestSeqRef`) ; elle reste
+   * inchangée et se cumule avec celle-ci.
+   */
+  const scopeEpochRef = useRef(0);
+
   const selectScope = useCallback((key: string) => {
+    if (key !== selectedScopeKeyRef.current) scopeEpochRef.current += 1;
+    // Changer de portée annule toute relecture en vol : sa réponse
+    // concernerait une autre portée.
+    refreshSeqRef.current += 1;
+    setReloading(false);
+    setReloadAbandoned(false);
     previewSeqRef.current += 1;
     setPreview(null);
     setPreviewScopeKey(null);
@@ -531,12 +647,20 @@ export default function AvailabilityPage() {
 
   const runPreview = useCallback(async () => {
     if (!selected || !restaurantId || !selectedScopeKey) return;
+    // R3-F02 : pas de calcul tant qu'un conflit de version est ouvert --
+    // son résultat serait attribué à une version non vérifiée.
+    if (conflictInScope !== null) return;
     const seq = requestSeqRef.current;
     const previewSeq = ++previewSeqRef.current;
     const scopeAtRequest = selectedScopeKey;
+    // F-02 : la version de la configuration enregistrée AU MOMENT de la
+    // demande. Le résultat la porte ; il ne sera présenté comme actuel
+    // que si elle n'a pas changé entre-temps.
+    const genAtRequest = snapshotGenRef.current;
     const isCurrent = () =>
       seq === requestSeqRef.current && previewSeq === previewSeqRef.current;
     setPreviewLoading(true);
+    setPreviewRequestGen(genAtRequest);
     setPreviewError(null);
     setPreview(null);
     setPreviewScopeKey(null);
@@ -555,13 +679,18 @@ export default function AvailabilityPage() {
       // sont posés dans le même passage synchrone, jamais l'un sans
       // l'autre.
       setPreview(result);
+      setPreviewGen(genAtRequest);
       setPreviewScopeKey(scopeAtRequest);
     } catch {
       if (!isCurrent()) return;
       setPreviewError(translate(uiLangRef.current, "avPreviewFailed"));
+      setPreviewGen(genAtRequest);
       setPreviewScopeKey(scopeAtRequest);
     } finally {
-      if (isCurrent()) setPreviewLoading(false);
+      if (isCurrent()) {
+        setPreviewLoading(false);
+        setPreviewRequestGen(null);
+      }
     }
   }, [
     restaurantId,
@@ -570,11 +699,36 @@ export default function AvailabilityPage() {
     previewItems,
     previewPostalCode,
     previewSubtotal,
+    conflictInScope,
   ]);
 
   /** AUD-01 — provenance : l'aperçu n'est affichable que s'il provient
    *  de la portée actuellement sélectionnée. */
-  const previewInScope = previewScopeKey !== null && previewScopeKey === selectedScopeKey;
+  const previewInScope =
+    previewScopeKey !== null &&
+    previewScopeKey === selectedScopeKey &&
+    previewGen === snapshotGen &&
+    // R3-F02 : tant qu'un conflit de version n'est pas résolu, la version
+    // enregistrée n'est pas vérifiée : aucun exemple n'est « actuel ».
+    conflictInScope === null;
+  /** Un aperçu de CETTE portée existe, mais pour une version de
+   *  configuration qui n'est plus l'actuelle : jamais présenté comme
+   *  actuel, jamais effacé en silence. */
+  const previewStale =
+    previewScopeKey !== null &&
+    previewScopeKey === selectedScopeKey &&
+    (previewGen !== snapshotGen || conflictInScope !== null) &&
+    (preview !== null || previewError !== null);
+  /**
+   * R4-F02b : une demande d'exemple est EN VOL pour une version révolue
+   * (STALE connu, enregistrement, relecture). L'écran le dit tout de suite
+   * -- « périmé » et non « chargement » -- sans attendre l'ancienne réponse.
+   * Une nouvelle demande reste possible (elle rend l'ancienne muette).
+   */
+  const previewInFlightStale =
+    previewLoading &&
+    previewRequestGen !== null &&
+    (previewRequestGen !== snapshotGen || conflictInScope !== null);
 
   // ====================================================================
   // ÉDITION — brouillon, validation, enregistrement (issue #149)
@@ -618,10 +772,12 @@ export default function AvailabilityPage() {
     setDraft(null);
     setBaseline(null);
     setSnapshotKey(null);
+    bumpSnapshotGen();
     setConflict(null);
     setRebased(false);
     setSaveError(null);
     setSaved(false);
+    setSavedMeanwhile(null);
     setDraftOfferPending(false);
     if (!selectedScopeKey || !inContext || !restaurantId) return;
     const schedule = listsRef.current.schedules.find(
@@ -663,6 +819,7 @@ export default function AvailabilityPage() {
       setDraft(built);
       setBaseline(built);
       setSnapshotKey({ restaurantId: id, scopeKey, source });
+      bumpSnapshotGen();
     })();
   }, [restaurantId, selectedScopeKey, inContext, reloadNonce]);
 
@@ -690,8 +847,43 @@ export default function AvailabilityPage() {
     draft !== null && (draftOfferPending || canFallBackToDraft(draft));
 
   const dirty = draft !== null && baseline !== null && isDraftDirty(draft, baseline);
+  dirtyRef.current = dirty;
   const changeCount =
     draft !== null && baseline !== null ? draftChangeCount(draft, baseline) : 0;
+
+  // ====================================================================
+  // ÉTAT AFFICHÉ AU COMMERÇANT (issue #156)
+  // ====================================================================
+  /** Nom humain d'un mode ; un code inconnu est affiché tel quel. */
+  const modeText = (code: string): string => {
+    const key = modeLabelKeyOf(code);
+    return key ? t(key) : code;
+  };
+  /** L'état unique annoncé : jamais « enregistré » à un rôle en lecture
+   *  seule, jamais « aucune modification » devant un conflit. */
+  const editorStatus = editorStatusOf({
+    roleCanWrite,
+    contractAvailable: CSDJ_BO1_WRITE_CONTRACT.available,
+    hasDraft: draft !== null,
+    conflict: conflictInScope !== null,
+    authoritative: snapshotAuthoritative,
+    saving,
+    saveFailed: saveError !== null,
+    saved,
+    dirty,
+  });
+  /** Phrase « ce que voit le client » : la version ENREGISTRÉE (lecture
+   *  autoritaire) et, s'il y en a, la version en cours d'édition. */
+  const persistedSentenceKey = baseline ? customerSentenceKeyOf(baseline) : null;
+  const draftSentenceKey = draft ? customerSentenceKeyOf(draft) : null;
+  const listSentenceKey = selected ? customerSentenceKey(selected) : null;
+  /** Les deux lectures du serveur (liste / configuration) se
+   *  contredisent : on le DIT, on ne choisit pas en silence. */
+  const readsDisagree =
+    snapshotAuthoritative &&
+    persistedSentenceKey !== null &&
+    listSentenceKey !== null &&
+    persistedSentenceKey !== listSentenceKey;
 
   const issuesOf = useCallback(
     (section: AvailabilityIssue["section"]) => issues.filter((i) => i.section === section),
@@ -856,10 +1048,27 @@ export default function AvailabilityPage() {
   const loadServerVersion = useCallback(
     async (target: { modeCode: string; fulfillmentRuleId: string | null }) => {
       if (!restaurantId) return;
+      // R5-SCOPE-STALE : on ne relit pas, et on ne touche à aucune
+      // génération, pour une portée qui n'est plus celle de l'écran. La
+      // lecture autoritaire de la portée COURANTE ne doit jamais être
+      // invalidée par la suite d'une opération d'une autre portée.
+      if (selectedScopeKeyRef.current !== scopeKeyOf(target.modeCode, target.fulfillmentRuleId)) {
+        return;
+      }
+      // R3-F02 : le refus de concurrence PROUVE que la version enregistrée
+      // n'est plus celle que l'écran croyait. Dès cet instant -- avant
+      // même la fin de la relecture, avant tout choix du commerçant --
+      // tout exemple calculé auparavant (affiché OU encore en vol) est
+      // d'une version révolue : il ne sera jamais présenté comme actuel.
+      bumpSnapshotGen();
       tokenSeqRef.current += 1;
       const tokenSeq = tokenSeqRef.current;
       const scopeKey = scopeKeyOf(target.modeCode, target.fulfillmentRuleId);
       const id = restaurantId;
+      // R4-F02a : l'état « conflit connu / version non vérifiée » existe
+      // AVANT le premier await, avec sa provenance (restaurant + portée).
+      // Les gardes de calcul, de rendu et de boutons le lisent aussitôt.
+      setConflict({ restaurantId: id, scopeKey, server: null, reading: true });
       let server: AvailabilityDraft | null = null;
       try {
         const reread = await getFulfillmentConfiguration(
@@ -874,9 +1083,9 @@ export default function AvailabilityPage() {
         server = null;
       }
       if (tokenSeq !== tokenSeqRef.current) return;
-      setConflict({ restaurantId: id, scopeKey, server });
+      setConflict({ restaurantId: id, scopeKey, server, reading: false });
     },
-    [restaurantId]
+    [restaurantId, bumpSnapshotGen]
   );
 
   /**
@@ -899,18 +1108,54 @@ export default function AvailabilityPage() {
     const intended = options.asDraft ? draftAsInactive(draft) : draft;
     if (validateDraft(intended).length > 0) return;
     const seq = requestSeqRef.current;
+    // R5-SCOPE-STALE : la portée pour laquelle cette sauvegarde part, et
+    // le rang de portée à cet instant. Au retour, les deux doivent être
+    // encore ceux de l'écran pour que la réponse touche l'écran.
+    const intendedScope = scopeKeyOf(intended.modeCode, intended.fulfillmentRuleId);
+    const epochAtStart = scopeEpochRef.current;
+    const stillInScope = () =>
+      scopeEpochRef.current === epochAtStart && selectedScopeKeyRef.current === intendedScope;
     setSaving(true);
     setSaveError(null);
     setSaved(false);
+    setSavedMeanwhile(null);
     setRebased(false);
     setDraftOfferPending(false);
     try {
       const payload = buildSaveFulfillmentConfigurationPayload(intended);
       const next = await saveFulfillmentConfiguration(restaurantId, payload);
       if (seq !== requestSeqRef.current) return;
-      const savedScope = scopeKeyOf(intended.modeCode, intended.fulfillmentRuleId);
+      const savedScope = intendedScope;
       setSchedules(next.schedules);
       setV12(next.v12);
+      // R5-SCOPE-STALE : l'enregistrement est réel et les listes sont à
+      // jour, mais l'écran n'est plus (ou n'a pas cessé de ne pas être) sur
+      // la portée enregistrée. Ni brouillon, ni jetons, ni génération, ni
+      // relecture forcée pour la portée courante : en revenant sur la
+      // portée enregistrée, la lecture autoritaire repart de zéro.
+      if (!stillInScope()) {
+        // R6-PREVIEW-ROUNDTRIP : l'enregistrement est RÉEL. Si l'écran est
+        // revenu sur la portée enregistrée (aller-retour pendant la
+        // sauvegarde), son snapshot a pu être lu AVANT ce commit :
+        //   - l'exemple calculé sur lui n'est plus celui de la
+        //     configuration enregistrée -> génération incrémentée ;
+        //   - sans modification du commerçant, une lecture neuve (après le
+        //     commit) remplace le snapshot ancien ; avec des modifications,
+        //     rien n'est écrasé : la page le dit, et le prochain
+        //     enregistrement partira avec des jetons anciens, donc sera
+        //     refusé STALE (jamais écrit en silence).
+        // Sur une AUTRE portée, rien ne change : la lecture de zéro au
+        // retour suffit et l'exemple de la portée affichée reste valable.
+        if (selectedScopeKeyRef.current === savedScope) {
+          bumpSnapshotGen();
+          if (dirtyRef.current) {
+            setSavedMeanwhile({ restaurantId, scopeKey: savedScope });
+          } else {
+            setReloadNonce((n) => n + 1);
+          }
+        }
+        return;
+      }
       // La réponse du serveur est le NOUVEAU snapshot indivisible :
       // brouillon, référence et jetons en sortent ensemble. Après un
       // enregistrement, « modifié » retombe parce que la base et
@@ -926,15 +1171,56 @@ export default function AvailabilityPage() {
         setDraft(fresh);
         setBaseline(fresh);
         setSnapshotKey({ restaurantId, scopeKey: savedScope, source: "authority" });
+        bumpSnapshotGen();
         setConflict(null);
         setSaved(true);
       } else {
-        // Snapshot inexploitable, ou portée changée pendant l'écriture :
-        // on repart d'une lecture autoritaire, jamais d'un mélange.
+        // Snapshot inexploitable : on repart d'une lecture autoritaire,
+        // jamais d'un mélange. (Le cas « portée changée pendant
+        // l'écriture » est traité plus haut, sans toucher l'écran.)
         setReloadNonce((n) => n + 1);
       }
     } catch (error) {
       if (seq !== requestSeqRef.current) return;
+      // R5-SCOPE-STALE : refus (STALE ou autre) d'une sauvegarde lancée pour
+      // une portée qui n'est plus celle de l'écran. Il ne produit AUCUN
+      // effet sur la portée courante : ni message, ni conflit, ni relecture
+      // qui invaliderait la lecture en cours. La portée abandonnée sera
+      // relue de zéro si on y revient.
+      if (!stillInScope()) {
+        // R7-ROUNDTRIP-STALE-PREVIEW : un refus STALE est une INFORMATION
+        // sur la version affichée quand l'écran est revenu sur la portée
+        // refusée ET que le snapshot affiché porte les MÊMES jetons que la
+        // demande refusée (lecture faite avant le commit du tiers). Cette
+        // version est alors connue périmée : même traitement qu'un refus
+        // en portée (exemple périmé dès le début, conflit relu à part,
+        // sauvegarde fermée, brouillon et saisie jamais écrasés).
+        // Autres cas : AUCUN effet (autre portée ; lecture encore en vol,
+        // donc pas de snapshot affiché ; snapshot affiché déjà plus récent
+        // que la demande refusée -- le contrôle négatif de l'audit R6).
+        if (
+          selectedScopeKeyRef.current === intendedScope &&
+          serverRefusalCode(error) === "CSDJBO1_STALE_CONFIGURATION"
+        ) {
+          const shown = draftRef.current;
+          if (
+            shown !== null &&
+            shown.expectedRevision === intended.expectedRevision &&
+            shown.expectedUpdatedAt === intended.expectedUpdatedAt
+          ) {
+            setSaveError(translate(uiLangRef.current, saveErrorKey(error)));
+            await loadServerVersion(intended);
+          } else if (shown === null) {
+            refusedStaleRef.current = {
+              restaurantId,
+              scopeKey: intendedScope,
+              revisionRefused: intended.expectedRevision,
+              updatedAtRefused: intended.expectedUpdatedAt,
+            };
+          }
+        }
+        return;
+      }
       if (error instanceof AvailabilityWriteUnavailableError) {
         setSaveError(translate(uiLangRef.current, "avSaveDisabledWhyContract"));
       } else {
@@ -974,6 +1260,25 @@ export default function AvailabilityPage() {
     }
   }, [draft, restaurantId, canSaveDraft, loadServerVersion]);
 
+  // R7 : jugement d'un snapshot arrivé APRÈS un refus STALE reçu pendant sa
+  // lecture. Mêmes jetons que la demande refusée = lecture antérieure au
+  // commit du tiers : version périmée connue, traitée comme un refus en
+  // portée. Jetons différents = lecture plus récente : rien à faire.
+  useEffect(() => {
+    const refused = refusedStaleRef.current;
+    if (refused === null) return;
+    if (refused.restaurantId !== restaurantId || refused.scopeKey !== selectedScopeKey) return;
+    if (!draft || snapshotKey?.source !== "authority") return;
+    refusedStaleRef.current = null;
+    if (
+      draft.expectedRevision === refused.revisionRefused &&
+      draft.expectedUpdatedAt === refused.updatedAtRefused
+    ) {
+      setSaveError(translate(uiLangRef.current, "avSaveStale"));
+      void loadServerVersion(draft);
+    }
+  }, [draft, snapshotKey, restaurantId, selectedScopeKey, loadServerVersion]);
+
   /** Résolution 1 — abandonner SES modifications, reprendre le serveur. */
   const takeServerVersion = useCallback(() => {
     if (!conflictInScope?.server || !restaurantId || !selectedScopeKey) return;
@@ -982,6 +1287,7 @@ export default function AvailabilityPage() {
     setDraft(server);
     setBaseline(server);
     setSnapshotKey({ restaurantId, scopeKey: selectedScopeKey, source: "authority" });
+    bumpSnapshotGen();
     setConflict(null);
     setSaveError(null);
     setSaved(false);
@@ -1003,6 +1309,7 @@ export default function AvailabilityPage() {
     setDraft(next);
     setBaseline(server);
     setSnapshotKey({ restaurantId, scopeKey: selectedScopeKey, source: "authority" });
+    bumpSnapshotGen();
     setConflict(null);
     setSaveError(null);
     setSaved(false);
@@ -1014,6 +1321,64 @@ export default function AvailabilityPage() {
     if (!draft) return;
     void loadServerVersion(draft);
   }, [draft, loadServerVersion]);
+
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  /**
+   * Relire les DEUX lectures du serveur (liste + configuration) sans
+   * changer de portée. Refusé quand il y a des modifications non
+   * enregistrées : une relecture les effacerait, et rien ne s'efface en
+   * silence.
+   */
+  const refreshFromServer = useCallback(async () => {
+    // Une seule relecture en vol, et jamais par-dessus des modifications.
+    if (!restaurantId || dirty || reloading) return;
+    const seq = (refreshSeqRef.current += 1);
+    const requestSeq = requestSeqRef.current;
+    const scopeAtStart = selectedScopeKeyRef.current;
+    const draftAtStart = draftRef.current;
+    setReloadAbandoned(false);
+    setReloading(true);
+    // La réponse n'est appliquée que si RIEN n'a bougé depuis le départ :
+    // même relecture (pas de relecture plus récente, pas de changement de
+    // portée), même restaurant, même portée, et le brouillon est
+    // exactement le même objet (la moindre édition en fait un autre).
+    const stillCurrent = () =>
+      seq === refreshSeqRef.current &&
+      requestSeq === requestSeqRef.current &&
+      scopeAtStart === selectedScopeKeyRef.current &&
+      draftAtStart === draftRef.current;
+    try {
+      const [next, nextV12] = await Promise.all([
+        getMerchantFulfillmentSchedules(restaurantId),
+        getMerchantFulfillmentSchedulesV12(restaurantId),
+      ]);
+      if (!stillCurrent()) {
+        // Abandon COMPLET : ni listes, ni brouillon, ni jeton touchés.
+        // Si une relecture plus récente existe, c'est elle qui parle.
+        if (seq === refreshSeqRef.current && requestSeq === requestSeqRef.current) {
+          setReloading(false);
+          setReloadAbandoned(true);
+        }
+        return;
+      }
+      setSchedules(next);
+      setV12(nextV12);
+      setReloading(false);
+      setReloadNonce((n) => n + 1);
+    } catch (error) {
+      if (!stillCurrent()) {
+        if (seq === refreshSeqRef.current && requestSeq === requestSeqRef.current) {
+          setReloading(false);
+          setReloadAbandoned(true);
+        }
+        return;
+      }
+      setReloading(false);
+      setSaveError(translate(uiLangRef.current, readErrorKey(error)));
+    }
+  }, [restaurantId, dirty, reloading]);
 
   /** Divergences entre vos modifications et la version du serveur. */
   const divergences: DraftDivergence[] = useMemo(
@@ -1071,16 +1436,18 @@ export default function AvailabilityPage() {
             toute la page. `role="status"` et non `alert` : ce n'est pas
             une avarie, c'est l'état voulu du lot. Le texte dit la
             raison ; la couleur ne porte aucune information seule. */}
-        <div
-          role="status"
-          data-write-contract={CSDJ_BO1_WRITE_CONTRACT.reason}
-          className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4"
-        >
-          <p className="text-sm font-bold text-amber-900">{t("avWriteContractPending")}</p>
-          <p className="mt-2 text-sm leading-relaxed text-amber-900">
-            {t("avWriteContractPendingDetail")}
-          </p>
-        </div>
+        {!CSDJ_BO1_WRITE_CONTRACT.available && (
+          <div
+            role="status"
+            data-write-contract={CSDJ_BO1_WRITE_CONTRACT.reason}
+            className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4"
+          >
+            <p className="text-sm font-bold text-amber-900">{t("avWriteContractPending")}</p>
+            <p className="mt-2 text-sm leading-relaxed text-amber-900">
+              {t("avWriteContractPendingDetail")}
+            </p>
+          </div>
+        )}
 
         {!roleCanWrite && (
           <p className="mt-3 rounded-xl bg-stone-100 p-3 text-sm text-stone-700">
@@ -1163,7 +1530,9 @@ export default function AvailabilityPage() {
                     const key = scopeKeyOf(s.modeCode, s.fulfillmentRuleId);
                     return (
                       <option key={key} value={key}>
-                        {s.modeCode} — {t(STATE_KEY[scopeStateOf(s)])}
+                        {modeText(s.modeCode)}
+                        {s.fulfillmentRuleId ? ` (${t("avScopeDeliveryRule")})` : ""} —{" "}
+                        {t(STATE_KEY[scopeStateOf(s)])}
                       </option>
                     );
                   })}
@@ -1201,7 +1570,7 @@ export default function AvailabilityPage() {
                         }
                       >
                         <td className="px-4 py-3">
-                          <strong className="text-stone-900">{s.modeCode}</strong>
+                          <strong className="text-stone-900">{modeText(s.modeCode)}</strong>
                           <span className="mt-0.5 block text-xs text-stone-500">
                             {s.fulfillmentRuleId
                               ? t("avScopeDeliveryRule")
@@ -1209,7 +1578,11 @@ export default function AvailabilityPage() {
                           </span>
                         </td>
                         <td className="px-2 py-3 text-stone-700">
-                          {t(customerSentenceKey(s))}
+                          {t(
+                            isSelected && persistedSentenceKey
+                              ? persistedSentenceKey
+                              : customerSentenceKey(s)
+                          )}
                         </td>
                         <td className="px-2 py-3">
                           <span
@@ -1238,6 +1611,9 @@ export default function AvailabilityPage() {
                 </tbody>
               </table>
 
+              <p className="px-4 pb-2 text-xs leading-relaxed text-stone-600">
+                {t("avScopeWhy")}
+              </p>
               <p className="px-4 pb-3 text-xs leading-relaxed text-stone-500">
                 {t("avStateSameEffect")}
               </p>
@@ -1251,60 +1627,240 @@ export default function AvailabilityPage() {
             {selected && (
               <>
                 {/* ===== BANDEAU DE PORTÉE ===== */}
-                <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-stone-300 bg-white p-4">
-                  <span className="rounded-full bg-stone-900 px-2.5 py-1 text-xs font-extrabold text-white">
-                    {t("avScopeBannerCurrent")}
-                  </span>
-                  <strong className="text-base text-stone-900">{selected.modeCode}</strong>
-                  <span className="text-sm text-stone-600">
-                    {t("avScopeTimezone")} <strong>{selected.timezone}</strong>
-                  </span>
-                  <span
-                    data-schedule-method={method}
-                    className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-extrabold text-blue-900"
-                  >
-                    {method === "v1.2" ? t("avMethodV12") : t("avMethodV1")}
-                  </span>
-                  <span className="flex-1" />
-                  <label
-                    className="flex items-center gap-2 text-sm font-bold text-stone-700"
-                    htmlFor="av-activate"
-                  >
-                    {t("avActivateLabel")}
-                  </label>
-                  {/* ACTIVATION — un réglage du BROUILLON, pas un
-                      interrupteur immédiat : « proposer des dates » part
-                      au serveur dans la même transaction que le reste
-                      (issue #149, états brouillon/actif). Cocher sans
-                      offre ne prend donc jamais effet : la validation
-                      rend `offer_missing` et l'enregistrement reste
-                      bloqué, avec le manque nommé juste en dessous.
+                <div className="mt-4 rounded-2xl border border-stone-300 bg-white p-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full bg-stone-900 px-2.5 py-1 text-xs font-extrabold text-white">
+                      {t("avScopeBannerCurrent")}
+                    </span>
+                    <strong className="text-base text-stone-900">
+                      {modeText(selected.modeCode)}
+                      {selected.fulfillmentRuleId ? ` — ${t("avScopeDeliveryRule")}` : ""}
+                    </strong>
+                    <span className="flex-1" />
+                    <label
+                      className="flex items-center gap-2 text-sm font-bold text-stone-700"
+                      htmlFor="av-activate"
+                    >
+                      {t("avActivateLabel")}
+                    </label>
+                    {/* ACTIVATION — un réglage du BROUILLON, pas un
+                        interrupteur immédiat : « proposer des dates »
+                        part au serveur dans la même transaction que le
+                        reste (issue #149). Cocher sans offre ne prend
+                        donc jamais effet : la validation rend
+                        `offer_missing` et l'enregistrement reste bloqué,
+                        avec le manque nommé juste en dessous.
 
-                      `writeDisabled` reste dans la condition : le CTO a
-                      demandé que les contrôles d'écriture ET
-                      D'ACTIVATION restent inactifs tant que le contrat
-                      d'écriture n'est pas approuvé. Les autres réglages
-                      du brouillon, eux, sont modifiables : ils ne
-                      peuvent de toute façon pas partir. */}
-                  <input
-                    id="av-activate"
-                    type="checkbox"
-                    checked={draft?.enabled ?? selected.enabled}
-                    onChange={(e) => patchDraft({ enabled: e.target.checked })}
-                    disabled={writeDisabled || !canEditDraft}
-                    aria-describedby="av-write-disabled-reason"
-                    className="h-5 w-5 accent-amber-700"
-                  />
+                        Tant que le serveur n'a pas rendu la
+                        configuration de cette portée (`draft === null`),
+                        la case est inactive : on n'affiche pas une
+                        valeur par défaut comme si elle était la vraie. */}
+                    <input
+                      id="av-activate"
+                      type="checkbox"
+                      checked={draft?.enabled ?? selected.enabled}
+                      onChange={(e) => patchDraft({ enabled: e.target.checked })}
+                      disabled={writeDisabled || !canEditDraft || draft === null}
+                      aria-describedby={
+                        writeDisabled ? "av-write-disabled-reason" : "av-activate-help"
+                      }
+                      className="h-5 w-5 accent-amber-700"
+                    />
+                  </div>
+
+                  {/* La raison d'un contrôle inactif n'est écrite que
+                      lorsqu'il est réellement inactif : une phrase
+                      « inactif » à côté d'un contrôle actif est un
+                      mensonge (issue #156, constat 1). */}
+                  {writeDisabled ? (
+                    <p
+                      id="av-write-disabled-reason"
+                      className="mt-2 text-xs leading-relaxed text-stone-600"
+                    >
+                      {t(writeDisabledKey)}
+                    </p>
+                  ) : (
+                    <p
+                      id="av-activate-help"
+                      className="mt-2 text-xs leading-relaxed text-stone-600"
+                    >
+                      {t("avActivateHelp")}
+                    </p>
+                  )}
+
                   <p
-                    id="av-write-disabled-reason"
-                    className="basis-full text-xs leading-relaxed text-stone-600"
+                    role="status"
+                    data-editor-status={editorStatus}
+                    className={
+                      "mt-2 inline-block rounded-full px-3 py-1 text-xs font-extrabold " +
+                      (editorStatus === "clean" || editorStatus === "saved"
+                        ? "bg-emerald-50 text-emerald-900"
+                        : editorStatus === "conflict" || editorStatus === "error"
+                          ? "bg-red-50 text-red-900"
+                          : "bg-amber-50 text-amber-900")
+                    }
                   >
-                    {t(writeDisabledKey)}
+                    <span className="sr-only">{t("avStatusLabel")} : </span>
+                    {t(EDITOR_STATUS_KEY[editorStatus])}
                   </p>
-                  <p className="basis-full text-xs leading-relaxed text-stone-600">
-                    {method === "v1.2" ? t("avMethodV12Hint") : t("avMethodV1Hint")}
-                  </p>
+
+                  <details data-tech-details="true" className="mt-3">
+                    <summary className="cursor-pointer text-xs font-extrabold text-amber-700">
+                      {t("avTechTitle")}
+                    </summary>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-stone-600">
+                      <code className="rounded bg-stone-100 px-1.5 py-0.5">
+                        {selected.modeCode}
+                      </code>
+                      <span>
+                        {t("avScopeTimezone")} <strong>{selected.timezone}</strong>
+                      </span>
+                      <span
+                        data-schedule-method={method}
+                        className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-extrabold text-blue-900"
+                      >
+                        {method === "v1.2" ? t("avMethodV12") : t("avMethodV1")}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-stone-600">
+                      {method === "v1.2" ? t("avMethodV12Hint") : t("avMethodV1Hint")}
+                    </p>
+                  </details>
                 </div>
+
+                {/* ===== CE QUE VERRONT LES CLIENTS =====
+                    La phrase vient du MÊME objet que le formulaire (le
+                    brouillon de la portée), et la version enregistrée
+                    est nommée à part : un réglage modifié mais non
+                    enregistré est dit « modifié, non enregistré » au
+                    lieu de contredire silencieusement le résumé. */}
+                <section
+                  data-customer-summary={
+                    draft === null ? "loading" : dirty ? "unsaved" : "saved"
+                  }
+                  className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
+                >
+                  <h3 className="text-sm font-extrabold text-stone-900">
+                    {t("avSummaryTitle")}
+                  </h3>
+                  {draft === null || draftSentenceKey === null ? (
+                    <p className="mt-2 text-sm text-stone-600">{t("avStatusLoading")}</p>
+                  ) : (
+                    <>
+                      {persistedSentenceKey && (
+                        <p data-summary-saved={persistedSentenceKey} className="mt-2 text-sm text-stone-800">
+                          <strong>{t("avSummarySaved")}</strong> — {t(persistedSentenceKey)}
+                        </p>
+                      )}
+                      {dirty && (
+                        <div
+                          data-summary-unsaved={draftSentenceKey}
+                          className="mt-2 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm text-amber-950"
+                        >
+                          <p>
+                            <strong>{t("avStatusDirty")}</strong> — {t(draftSentenceKey)}
+                          </p>
+                          <p className="mt-1 text-xs">{t("avSummaryUnsaved")}</p>
+                        </div>
+                      )}
+                      {!draft.enabled && (
+                        <p className="mt-2 text-xs text-stone-600">{t("avSummaryInactive")}</p>
+                      )}
+                      <h4 className="mt-3 text-xs font-extrabold uppercase tracking-wider text-stone-500">
+                        {t("avSummaryDaysTitle")}
+                      </h4>
+                      <ul
+                        data-weekly-summary="true"
+                        className="mt-2 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 lg:grid-cols-4"
+                      >
+                        {weeklyScheduleSummary(draft).map((day) => (
+                          <li
+                            key={day.weekday}
+                            data-summary-weekday={day.weekday}
+                            data-summary-closed={day.ranges.length === 0 ? "true" : "false"}
+                            className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-sm"
+                          >
+                            <strong className="text-stone-900">
+                              {t(weekdayLabelKey(day.weekday))}
+                            </strong>
+                            <span className="block text-stone-700">
+                              {day.ranges.length === 0 ? t("avDayClosed") : day.ranges.join(" · ")}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {readsDisagree && persistedSentenceKey && listSentenceKey && (
+                    <div
+                      role="alert"
+                      data-reads-disagree="true"
+                      className="mt-3 rounded-xl border-l-4 border-red-700 bg-red-50 p-3 text-sm text-red-900"
+                    >
+                      <p>
+                        {t("avSummaryMismatch", {
+                          list: t(listSentenceKey),
+                          config: t(persistedSentenceKey),
+                        })}
+                      </p>
+                      <button
+                        type="button"
+                        id="av-reload-server"
+                        onClick={() => void refreshFromServer()}
+                        disabled={dirty || reloading}
+                        aria-busy={reloading}
+                        className="mt-2 min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900 disabled:text-stone-400"
+                      >
+                        {reloading ? t("avSummaryReloading") : t("avSummaryReload")}
+                      </button>
+                    </div>
+                  )}
+                </section>
+
+                {reloadAbandoned && (
+                  <p
+                    role="status"
+                    data-reload-abandoned="true"
+                    className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+                  >
+                    {t("avReloadAbandoned")}
+                  </p>
+                )}
+
+                {savedMeanwhile !== null &&
+                  savedMeanwhile.restaurantId === restaurantId &&
+                  savedMeanwhile.scopeKey === selectedScopeKey && (
+                    <p
+                      role="status"
+                      data-saved-meanwhile="true"
+                      className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+                    >
+                      {t("avSavedMeanwhile")}
+                    </p>
+                  )}
+
+                {/* Lecture complète indisponible : valeurs issues de la
+                    liste, enregistrement fermé -- dit en tête, pas
+                    seulement dans la barre du bas. */}
+                {draft !== null && !snapshotAuthoritative && (
+                  <div
+                    role="alert"
+                    data-unverified="true"
+                    className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4"
+                  >
+                    <p className="text-sm text-amber-950">{t("avUnverifiedNote")}</p>
+                    <button
+                      type="button"
+                      id="av-unverified-retry"
+                      onClick={() => void refreshFromServer()}
+                      disabled={dirty || reloading}
+                      aria-busy={reloading}
+                      className="mt-2 min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900 disabled:text-stone-400"
+                    >
+                      {reloading ? t("avSummaryReloading") : t("avSummaryReload")}
+                    </button>
+                  </div>
+                )}
 
                 {/* ===== CONFLIT DE CONCURRENCE (F-01) =====
                     Deux versions SÉPARÉES : la vôtre (le brouillon) et
@@ -1316,12 +1872,20 @@ export default function AvailabilityPage() {
                     role="alert"
                     data-conflict="true"
                     data-conflict-readable={conflictInScope.server ? "true" : "false"}
+                    data-conflict-reading={conflictInScope.reading ? "true" : "false"}
                     className="mt-4 rounded-2xl border-2 border-amber-700 bg-amber-50 p-4"
                   >
                     <h3 className="text-sm font-extrabold text-amber-950">
                       {t("avConflictTitle")}
                     </h3>
-                    {conflictInScope.server === null ? (
+                    {conflictInScope.reading ? (
+                      <p
+                        data-conflict-reading-note="true"
+                        className="mt-2 text-sm leading-relaxed text-amber-950"
+                      >
+                        {t("avConflictReading")}
+                      </p>
+                    ) : conflictInScope.server === null ? (
                       <>
                         <p className="mt-2 text-sm leading-relaxed text-amber-950">
                           {t("avConflictUnreadable")}
@@ -1419,255 +1983,21 @@ export default function AvailabilityPage() {
                   </p>
                 )}
 
-                {/* ===== §2 — PRÉPARATION ET DÉLAIS ===== */}
+                {draft === null ? (
+                  <p
+                    role="status"
+                    data-draft-loading="true"
+                    className="mt-4 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600"
+                  >
+                    {t("avStatusLoading")}
+                  </p>
+                ) : (
+                <>
+                {/* ===== §2 — JOURS ET HORAIRES ===== */}
                 <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
                   <div className="border-b border-stone-100 p-4">
                     <p className="text-xs font-extrabold uppercase tracking-widest text-amber-700">
                       2
-                    </p>
-                    <h3 className="mt-1 text-base font-extrabold text-stone-900">
-                      {t("avPrepTitle")}
-                    </h3>
-                    <p className="mt-2 max-w-3xl text-sm text-stone-600">{t("avPrepHint")}</p>
-                  </div>
-
-                  <div className="p-4">
-                    <h4 className="text-sm font-extrabold text-stone-900">{t("avHowTitle")}</h4>
-                    <ol className="mt-3 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
-                      {[
-                        ["avStep1Title", "avStep1Text"],
-                        ["avStep2Title", "avStep2Text"],
-                        ["avStep3Title", "avStep3Text"],
-                        ["avStep4Title", "avStep4Text"],
-                      ].map(([titleKey, textKey]) => (
-                        <li
-                          key={titleKey}
-                          className="rounded-xl border border-stone-200 p-3"
-                        >
-                          <p className="text-xs font-extrabold uppercase tracking-wider text-amber-700">
-                            {t(titleKey)}
-                          </p>
-                          <p className="mt-2 text-sm leading-relaxed text-stone-700">
-                            {t(textKey)}
-                          </p>
-                        </li>
-                      ))}
-                    </ol>
-                    <p className="mt-3 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800">
-                      {t("avCutoffReachedNote")}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-5 p-4 sm:grid-cols-2">
-                    <div>
-                      <label
-                        className="mb-1.5 block text-xs font-bold text-stone-700"
-                        htmlFor="av-lead-days"
-                      >
-                        {t("avLeadDaysLabel")}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-extrabold text-stone-700">J +</span>
-                        <input
-                          id="av-lead-days"
-                          type="number"
-                          min={0}
-                          max={365}
-                          value={draft?.minLeadDays ?? ""}
-                          onChange={(e) => patchDraft({ minLeadDays: e.target.value })}
-                          disabled={!canEditDraft}
-                          className="min-h-11 w-24 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                        />
-                        <span className="text-sm text-stone-700">{t("avLeadDaysUnit")}</span>
-                      </div>
-                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
-                        {method === "v1.2" ? t("avLeadDaysHintV12") : t("avLeadDaysHintV1")}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label
-                        className="mb-1.5 block text-xs font-bold text-stone-700"
-                        htmlFor="av-timezone"
-                      >
-                        {t("avTimezoneLabel")}
-                      </label>
-                      <input
-                        id="av-timezone"
-                        type="text"
-                        value={draft?.timezone ?? ""}
-                        onChange={(e) => patchDraft({ timezone: e.target.value })}
-                        disabled={!canEditDraft}
-                        className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                      />
-                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
-                        {t("avTimezoneHint")}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label
-                        className="mb-1.5 block text-xs font-bold text-stone-700"
-                        htmlFor="av-cutoff"
-                      >
-                        {t("avCutoffLabel")}
-                      </label>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          id="av-cutoff"
-                          type="time"
-                          step={60}
-                          value={draft?.cutoffTime ?? ""}
-                          onChange={(e) => patchDraft({ cutoffTime: e.target.value })}
-                          placeholder={t("avCutoffNone")}
-                          disabled={!canEditDraft}
-                          className="min-h-11 w-36 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                        />
-                        {/* Retirer l'heure limite est un RÉGLAGE, pas une
-                            suppression : sans heure limite, aucune coupure
-                            n'est appliquée -- et ce n'est pas « minuit ». */}
-                        <button
-                          type="button"
-                          onClick={() => patchDraft({ cutoffTime: "" })}
-                          disabled={!canEditDraft || (draft?.cutoffTime ?? "") === ""}
-                          className="min-h-11 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-amber-700 disabled:text-stone-400"
-                        >
-                          {t("avCutoffClear")}
-                        </button>
-                      </div>
-                      {!draft?.cutoffTime && (
-                        <p className="mt-1.5 text-xs font-bold text-stone-700">
-                          {t("avCutoffNone")}
-                        </p>
-                      )}
-                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
-                        {method === "v1.2" ? t("avCutoffHintV12") : t("avCutoffHintV1")}
-                      </p>
-                    </div>
-
-                    {/* Le décalage n'existe QUE en méthode v1 : en v1.2 il
-                        est refusé par la fonction ET par une contrainte,
-                        donc il n'est pas affiché du tout. */}
-                    {method === "v1" && (
-                      <div>
-                        <label
-                          className="mb-1.5 block text-xs font-bold text-stone-700"
-                          htmlFor="av-cutoff-offset"
-                        >
-                          {t("avCutoffOffsetLabel")}
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            id="av-cutoff-offset"
-                            type="number"
-                            min={0}
-                            max={30}
-                            value={draft?.cutoffOffsetDays ?? ""}
-                            onChange={(e) => patchDraft({ cutoffOffsetDays: e.target.value })}
-                            disabled={!canEditDraft}
-                            className="min-h-11 w-24 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                          />
-                          <span className="text-sm text-stone-700">
-                            {t("avCutoffOffsetUnit")}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {issuesOf("policy").length > 0 && (
-                    <ul
-                      data-section-issues="policy"
-                      className="mx-4 list-disc space-y-1 rounded-xl bg-red-50 p-3 pl-8 text-sm text-red-900"
-                    >
-                      {issuesOf("policy").map((issue, index) => (
-                        <li key={`${issue.code}-${index}`}>{t(issueKey(issue.code))}</li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {/* Jours de préparation — éditables en méthode v1.2. */}
-                  <div className="p-4">
-                    <fieldset
-                      disabled={!canEditDraft || draft?.method !== "v1.2"}
-                      className="rounded-2xl border border-blue-200 bg-blue-50 p-4"
-                    >
-                      <legend className="px-2 text-xs font-extrabold text-blue-900">
-                        {t("avPrepDaysLabel")}
-                      </legend>
-                      <div className="flex flex-wrap gap-2">
-                        {WEEKDAY_DISPLAY_ORDER.map((weekday) => {
-                          const checked = draft?.preparationWeekdays.includes(weekday) ?? false;
-                          return (
-                            <label
-                              key={weekday}
-                              className={
-                                "inline-flex min-h-11 items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-bold text-stone-800 " +
-                                (checked ? "border-blue-700" : "border-stone-300")
-                              }
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleWeekday(weekday)}
-                                disabled={!canEditDraft || draft?.method !== "v1.2"}
-                                data-prep-weekday={weekday}
-                                className="h-4 w-4 accent-blue-700"
-                              />
-                              {t(weekdayLabelKey(weekday))}
-                            </label>
-                          );
-                        })}
-                      </div>
-                      <p className="mt-2 text-xs leading-relaxed text-blue-900">
-                        {t("avPrepDaysHint")}
-                      </p>
-                      {(draft?.preparationWeekdays.length ?? 0) === 0 && (
-                        <p className="mt-1.5 text-xs font-bold text-blue-900">
-                          {t("avPrepDaysEmpty")}
-                        </p>
-                      )}
-                      {draft?.method !== "v1.2" && (
-                        <p className="mt-1.5 text-xs leading-relaxed text-blue-900">
-                          {t("avPrepOnlyV12")}
-                        </p>
-                      )}
-                    </fieldset>
-                  </div>
-
-                  <details className="border-t border-stone-100">
-                    <summary className="cursor-pointer p-4 text-sm font-extrabold text-amber-700">
-                      {t("avAdvanced")}
-                    </summary>
-                    <div className="px-4 pb-4">
-                      <label
-                        className="mb-1.5 block text-xs font-bold text-stone-700"
-                        htmlFor="av-lead-minutes"
-                      >
-                        {t("avLeadMinutesLabel")}
-                      </label>
-                      <input
-                        id="av-lead-minutes"
-                        type="number"
-                        min={0}
-                        max={100000}
-                        value={draft?.leadTimeMinutes ?? ""}
-                        onChange={(e) => patchDraft({ leadTimeMinutes: e.target.value })}
-                        disabled={!canEditDraft}
-                        className="min-h-11 w-32 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
-                      />
-                      <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-stone-600">
-                        {t("avLeadMinutesHint")}
-                      </p>
-                    </div>
-                  </details>
-                </section>
-
-                {/* ===== §3 — DATES ET CRÉNEAUX ===== */}
-                <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
-                  <div className="border-b border-stone-100 p-4">
-                    <p className="text-xs font-extrabold uppercase tracking-widest text-amber-700">
-                      3
                     </p>
                     <h3 className="mt-1 text-base font-extrabold text-stone-900">
                       {t("avOffersTitle")}
@@ -1959,6 +2289,394 @@ export default function AvailabilityPage() {
                   </div>
                 </section>
 
+                {/* ===== §3 — PRÉPARATION ET DÉLAI ===== */}
+                <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
+                  <div className="border-b border-stone-100 p-4">
+                    <p className="text-xs font-extrabold uppercase tracking-widest text-amber-700">
+                      3
+                    </p>
+                    <h3 className="mt-1 text-base font-extrabold text-stone-900">
+                      {t("avPrepTitle")}
+                    </h3>
+                    <p className="mt-2 max-w-3xl text-sm text-stone-600">{t("avPrepHint")}</p>
+                  </div>
+
+                  {/* EN CLAIR : des phrases tirées des réglages saisis.
+                      Aucune date n'est calculée ici -- l'exemple daté
+                      vient du serveur, juste en dessous. */}
+                  <div className="p-4" data-plain-example="true">
+                    <h4 className="text-sm font-extrabold text-stone-900">
+                      {t("avExampleTitle")}
+                    </h4>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-stone-800">
+                      <li>
+                        {(Number.parseInt(draft.minLeadDays, 10) || 0) === 0
+                          ? t("avExampleLeadZero")
+                          : t("avExampleLeadN", {
+                              days: String(Number.parseInt(draft.minLeadDays, 10)),
+                            })}
+                      </li>
+                      <li>
+                        {draft.cutoffTime
+                          ? method === "v1.2"
+                            ? t("avExampleCutoffV12", { time: draft.cutoffTime })
+                            : t("avExampleCutoffV1", {
+                                time: draft.cutoffTime,
+                                offset: String(Number.parseInt(draft.cutoffOffsetDays, 10) || 0),
+                              })
+                          : t("avExampleCutoffNone")}
+                      </li>
+                      {draft.bookingHorizonDays !== "" && (
+                        <li>
+                          {t("avExampleHorizon", {
+                            days: String(Number.parseInt(draft.bookingHorizonDays, 10) || 0),
+                          })}
+                        </li>
+                      )}
+                    </ul>
+                    <p className="mt-2 text-xs leading-relaxed text-stone-600">
+                      {t("avExampleIndicative")}
+                    </p>
+
+                    {/* EXEMPLE DU SERVEUR : première date et créneaux tels
+                        que `get_checkout_fulfillment_schedule` les rend
+                        pour la configuration ENREGISTRÉE. */}
+                    <div
+                      data-server-example={
+                        previewInFlightStale
+                          ? "stale"
+                          : previewLoading
+                            ? "loading"
+                            : previewStale
+                              ? "stale"
+                              : previewInScope && preview
+                                ? "ready"
+                                : "idle"
+                      }
+                      className="mt-3 rounded-xl border border-stone-300 p-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h5 className="text-sm font-extrabold text-stone-900">
+                          {t("avServerExampleTitle")}
+                        </h5>
+                        <button
+                          type="button"
+                          id="av-server-example"
+                          onClick={() => void runPreview()}
+                          disabled={(previewLoading && !previewInFlightStale) || conflictInScope !== null}
+                          className="min-h-11 rounded-xl border border-stone-900 bg-white px-4 py-2 text-sm font-extrabold text-stone-900"
+                        >
+                          {t("avServerExampleButton")}
+                        </button>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
+                        {t("avServerExampleSaved")}
+                      </p>
+                      {previewLoading && !previewInFlightStale && (
+                        <p className="mt-2 text-sm text-stone-500">{t("avPreviewLoading")}</p>
+                      )}
+                      {conflictInScope !== null && (
+                        <p
+                          role="status"
+                          data-server-example-conflict="true"
+                          className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-950"
+                        >
+                          {t("avServerExampleConflict")}
+                        </p>
+                      )}
+                      {(previewInFlightStale || (!previewLoading && previewStale)) && (
+                        <p
+                          role="status"
+                          data-server-example-stale="true"
+                          className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-950"
+                        >
+                          {t("avServerExampleStale")}
+                        </p>
+                      )}
+                      {!previewLoading && previewInScope && dirty && (
+                        <p
+                          data-server-example-dirty="true"
+                          className="mt-2 text-xs font-bold text-amber-900"
+                        >
+                          {t("avServerExampleDirty")}
+                        </p>
+                      )}
+                      {!previewLoading && previewError && previewInScope && (
+                        <p role="alert" className="mt-2 text-sm text-amber-900">
+                          {previewError}
+                        </p>
+                      )}
+                      {!previewLoading && !previewError && preview && previewInScope && (
+                        <div className="mt-2 text-sm text-stone-800">
+                          {preview.firstEligibleDate ? (
+                            <>
+                              <p>
+                                {t("avServerExampleFirst")} :{" "}
+                                <strong data-server-example-first={preview.firstEligibleDate}>
+                                  {preview.firstEligibleDate}
+                                </strong>
+                              </p>
+                              {(preview.offers?.[preview.firstEligibleDate] ?? []).length > 0 && (
+                                <p className="mt-1">
+                                  {t("avServerExampleSlots")} :{" "}
+                                  {(preview.offers?.[preview.firstEligibleDate] ?? [])
+                                    .map(
+                                      (offer) =>
+                                        `${offer.slot_key ? `${offer.slot_key} ` : ""}${offer.starts_at}–${offer.ends_at}`
+                                    )
+                                    .join(" · ")}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p>{t("avServerExampleNone")}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-sm font-extrabold text-amber-700">
+                        {t("avHowSummary")}
+                      </summary>
+                      <h4 className="mt-3 text-sm font-extrabold text-stone-900">
+                        {t("avHowTitle")}
+                      </h4>
+                      <ol className="mt-3 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          ["avStep1Title", "avStep1Text"],
+                          ["avStep2Title", "avStep2Text"],
+                          ["avStep3Title", "avStep3Text"],
+                          ["avStep4Title", "avStep4Text"],
+                        ].map(([titleKey, textKey]) => (
+                          <li key={titleKey} className="rounded-xl border border-stone-200 p-3">
+                            <p className="text-xs font-extrabold uppercase tracking-wider text-amber-700">
+                              {t(titleKey)}
+                            </p>
+                            <p className="mt-2 text-sm leading-relaxed text-stone-700">
+                              {t(textKey)}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="mt-3 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800">
+                        {t("avCutoffReachedNote")}
+                      </p>
+                    </details>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-5 p-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-bold text-stone-700"
+                        htmlFor="av-lead-days"
+                      >
+                        {t("avLeadDaysLabel")}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-extrabold text-stone-700">J +</span>
+                        <input
+                          id="av-lead-days"
+                          type="number"
+                          min={0}
+                          max={365}
+                          value={draft?.minLeadDays ?? ""}
+                          onChange={(e) => patchDraft({ minLeadDays: e.target.value })}
+                          disabled={!canEditDraft}
+                          className="min-h-11 w-24 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+                        />
+                        <span className="text-sm text-stone-700">{t("avLeadDaysUnit")}</span>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
+                        {method === "v1.2" ? t("avLeadDaysHintV12") : t("avLeadDaysHintV1")}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-bold text-stone-700"
+                        htmlFor="av-timezone"
+                      >
+                        {t("avTimezoneLabel")}
+                      </label>
+                      <input
+                        id="av-timezone"
+                        type="text"
+                        value={draft?.timezone ?? ""}
+                        onChange={(e) => patchDraft({ timezone: e.target.value })}
+                        disabled={!canEditDraft}
+                        className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+                      />
+                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
+                        {t("avTimezoneHint")}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-bold text-stone-700"
+                        htmlFor="av-cutoff"
+                      >
+                        {t("avCutoffLabel")}
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          id="av-cutoff"
+                          type="time"
+                          step={60}
+                          value={draft?.cutoffTime ?? ""}
+                          onChange={(e) => patchDraft({ cutoffTime: e.target.value })}
+                          placeholder={t("avCutoffNone")}
+                          disabled={!canEditDraft}
+                          className="min-h-11 w-36 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+                        />
+                        {/* Retirer l'heure limite est un RÉGLAGE, pas une
+                            suppression : sans heure limite, aucune coupure
+                            n'est appliquée -- et ce n'est pas « minuit ». */}
+                        <button
+                          type="button"
+                          onClick={() => patchDraft({ cutoffTime: "" })}
+                          disabled={!canEditDraft || (draft?.cutoffTime ?? "") === ""}
+                          className="min-h-11 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-bold text-amber-700 disabled:text-stone-400"
+                        >
+                          {t("avCutoffClear")}
+                        </button>
+                      </div>
+                      {!draft?.cutoffTime && (
+                        <p className="mt-1.5 text-xs font-bold text-stone-700">
+                          {t("avCutoffNone")}
+                        </p>
+                      )}
+                      <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
+                        {method === "v1.2" ? t("avCutoffHintV12") : t("avCutoffHintV1")}
+                      </p>
+                    </div>
+
+                  </div>
+
+                  {issuesOf("policy").length > 0 && (
+                    <ul
+                      data-section-issues="policy"
+                      className="mx-4 list-disc space-y-1 rounded-xl bg-red-50 p-3 pl-8 text-sm text-red-900"
+                    >
+                      {issuesOf("policy").map((issue, index) => (
+                        <li key={`${issue.code}-${index}`}>{t(issueKey(issue.code))}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {/* Jours de préparation — éditables en méthode v1.2. */}
+                  {method === "v1.2" ? (
+                  <div className="p-4">
+                    <fieldset
+                      disabled={!canEditDraft || draft?.method !== "v1.2"}
+                      className="rounded-2xl border border-blue-200 bg-blue-50 p-4"
+                    >
+                      <legend className="px-2 text-xs font-extrabold text-blue-900">
+                        {t("avPrepDaysLabel")}
+                      </legend>
+                      <div className="flex flex-wrap gap-2">
+                        {WEEKDAY_DISPLAY_ORDER.map((weekday) => {
+                          const checked = draft?.preparationWeekdays.includes(weekday) ?? false;
+                          return (
+                            <label
+                              key={weekday}
+                              className={
+                                "inline-flex min-h-11 items-center gap-2 rounded-full border bg-white px-3.5 py-2 text-sm font-bold text-stone-800 " +
+                                (checked ? "border-blue-700" : "border-stone-300")
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleWeekday(weekday)}
+                                disabled={!canEditDraft || draft?.method !== "v1.2"}
+                                data-prep-weekday={weekday}
+                                className="h-4 w-4 accent-blue-700"
+                              />
+                              {t(weekdayLabelKey(weekday))}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-blue-900">
+                        {t("avPrepDaysHint")}
+                      </p>
+                      {(draft?.preparationWeekdays.length ?? 0) === 0 && (
+                        <p className="mt-1.5 text-xs font-bold text-blue-900">
+                          {t("avPrepDaysEmpty")}
+                        </p>
+                      )}
+                    </fieldset>
+                  </div>
+                  ) : (
+                    <div className="p-4">
+                      <p
+                        data-v12-only="true"
+                        className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm leading-relaxed text-stone-700"
+                      >
+                        <strong>{t("avV12OnlyTitle")}</strong> — {t("avV12OnlyText")}
+                      </p>
+                    </div>
+                  )}
+
+                  <details className="border-t border-stone-100">
+                    <summary className="cursor-pointer p-4 text-sm font-extrabold text-amber-700">
+                      {t("avAdvanced")}
+                    </summary>
+                    <div className="px-4 pb-4">
+                      {/* Le décalage n'existe QU'en méthode v1 : en v1.2 il
+                          est refusé par la fonction ET par une contrainte,
+                          donc il n'est pas affiché du tout. Réglage
+                          technique : rangé ici, pas dans le parcours. */}
+                      {method === "v1" && (
+                        <div className="mb-4">
+                          <label
+                            className="mb-1.5 block text-xs font-bold text-stone-700"
+                            htmlFor="av-cutoff-offset"
+                          >
+                            {t("avCutoffOffsetLabel")}
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              id="av-cutoff-offset"
+                              type="number"
+                              min={0}
+                              max={30}
+                              value={draft?.cutoffOffsetDays ?? ""}
+                              onChange={(e) => patchDraft({ cutoffOffsetDays: e.target.value })}
+                              disabled={!canEditDraft}
+                              className="min-h-11 w-24 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+                            />
+                            <span className="text-sm text-stone-700">
+                              {t("avCutoffOffsetUnit")}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <label
+                        className="mb-1.5 block text-xs font-bold text-stone-700"
+                        htmlFor="av-lead-minutes"
+                      >
+                        {t("avLeadMinutesLabel")}
+                      </label>
+                      <input
+                        id="av-lead-minutes"
+                        type="number"
+                        min={0}
+                        max={100000}
+                        value={draft?.leadTimeMinutes ?? ""}
+                        onChange={(e) => patchDraft({ leadTimeMinutes: e.target.value })}
+                        disabled={!canEditDraft}
+                        className="min-h-11 w-32 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
+                      />
+                      <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-stone-600">
+                        {t("avLeadMinutesHint")}
+                      </p>
+                    </div>
+                  </details>
+                </section>
+
                 {/* ===== §4 — FERMETURES ET FÉRIÉS ===== */}
                 <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
                   <div className="border-b border-stone-100 p-4">
@@ -2048,6 +2766,8 @@ export default function AvailabilityPage() {
                         </ul>
                       )}
 
+                      {method === "v1.2" ? (
+                        <>
                       <h4 className="mt-5 text-sm font-extrabold text-blue-900">
                         {t("avClosuresPrepTitle")}
                       </h4>
@@ -2119,11 +2839,6 @@ export default function AvailabilityPage() {
                       >
                         {t("avAddPrepClosure")}
                       </button>
-                      {draft?.method !== "v1.2" && (
-                        <p className="mt-1.5 text-xs leading-relaxed text-stone-600">
-                          {t("avPrepOnlyV12")}
-                        </p>
-                      )}
                       {issuesOf("preparation").length > 0 && (
                         <ul
                           data-section-issues="preparation"
@@ -2136,8 +2851,18 @@ export default function AvailabilityPage() {
                           ))}
                         </ul>
                       )}
+                        </>
+                      ) : (
+                        <p
+                          data-v12-only="closures"
+                          className="mt-5 rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs leading-relaxed text-stone-700"
+                        >
+                          <strong>{t("avV12OnlyTitle")}</strong> — {t("avV12OnlyText")}
+                        </p>
+                      )}
                     </div>
 
+                    {method === "v1.2" && (
                     <div>
                       <h4 className="text-sm font-extrabold text-stone-900">
                         {t("avHolidayTitle")}
@@ -2268,10 +2993,12 @@ export default function AvailabilityPage() {
                         </p>
                       </div>
                     </div>
+                    )}
                   </div>
                 </section>
 
                 {/* ===== §5 — CAPACITÉS ===== */}
+                {method === "v1.2" ? (
                 <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
                   <div className="border-b border-stone-100 p-4">
                     <p className="text-xs font-extrabold uppercase tracking-widest text-amber-700">
@@ -2390,6 +3117,19 @@ export default function AvailabilityPage() {
                     </div>
                   </div>
                 </section>
+                ) : (
+                  <details
+                    data-v12-only-section="capacity"
+                    className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4"
+                  >
+                    <summary className="cursor-pointer text-sm font-extrabold text-stone-700">
+                      {t("avCapacityTitle")}
+                    </summary>
+                    <p className="mt-2 text-sm leading-relaxed text-stone-700">
+                      {t("avV12OnlyText")}
+                    </p>
+                  </details>
+                )}
 
                 {/* ===== §6 — APERÇU SERVEUR ===== */}
                 <section className="mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
@@ -2402,6 +3142,12 @@ export default function AvailabilityPage() {
                     </h3>
                     <p className="mt-2 max-w-3xl text-sm leading-relaxed text-stone-600">
                       {t("avPreviewHint")}
+                    </p>
+                    <p
+                      data-preview-disclaimer="true"
+                      className="mt-2 max-w-3xl rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800"
+                    >
+                      {t("avPreviewNoOrder")}
                     </p>
                   </div>
 
@@ -2459,7 +3205,8 @@ export default function AvailabilityPage() {
                       <button
                         type="button"
                         onClick={() => void runPreview()}
-                        className="min-h-11 basis-full rounded-xl border border-stone-900 bg-stone-900 px-5 py-2.5 text-sm font-extrabold text-white sm:basis-auto"
+                        disabled={(previewLoading && !previewInFlightStale) || conflictInScope !== null}
+                        className="min-h-11 basis-full rounded-xl border border-stone-900 bg-stone-900 px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-50 sm:basis-auto"
                       >
                         {t("avPreviewRefresh")}
                       </button>
@@ -2468,8 +3215,17 @@ export default function AvailabilityPage() {
                       {t("avPreviewPostalHint")}
                     </p>
 
-                    {previewLoading && (
+                    {previewLoading && !previewInFlightStale && (
                       <p className="mt-3 text-sm text-stone-500">{t("avPreviewLoading")}</p>
+                    )}
+                    {(previewInFlightStale || (!previewLoading && previewStale)) && (
+                      <p
+                        role="status"
+                        data-preview-stale="true"
+                        className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-950"
+                      >
+                        {t("avServerExampleStale")}
+                      </p>
                     )}
                     {!previewLoading && previewError && previewInScope && (
                       <p
@@ -2574,6 +3330,8 @@ export default function AvailabilityPage() {
                       ))}
                     </ul>
                   </section>
+                )}
+                </>
                 )}
               </>
             )}

@@ -1,0 +1,274 @@
+TAP version 13
+# (node:10475) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-write-lock.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+ok 1 - [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+  ---
+  duration_ms: 32.136817
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+ok 2 - [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+  ---
+  duration_ms: 16.439711
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+ok 3 - [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+  ---
+  duration_ms: 13.876429
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+ok 4 - [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+  ---
+  duration_ms: 8.485337
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+ok 5 - [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+  ---
+  duration_ms: 7.703336
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+ok 6 - [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+  ---
+  duration_ms: 0.280357
+  type: 'test'
+  ...
+# (node:10488) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-156.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+ok 7 - [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+  ---
+  duration_ms: 142.076479
+  type: 'test'
+  ...
+# Subtest: [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+ok 8 - [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+  ---
+  duration_ms: 50.101027
+  type: 'test'
+  ...
+# Subtest: [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+ok 9 - [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+  ---
+  duration_ms: 55.406516
+  type: 'test'
+  ...
+# Subtest: [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+ok 10 - [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+  ---
+  duration_ms: 242.823325
+  type: 'test'
+  ...
+# Subtest: [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+ok 11 - [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+  ---
+  duration_ms: 58.829443
+  type: 'test'
+  ...
+# Subtest: [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+ok 12 - [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+  ---
+  duration_ms: 133.751053
+  type: 'test'
+  ...
+# Subtest: [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+ok 13 - [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+  ---
+  duration_ms: 51.474346
+  type: 'test'
+  ...
+# Subtest: [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+ok 14 - [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+  ---
+  duration_ms: 52.196176
+  type: 'test'
+  ...
+# Subtest: [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+ok 15 - [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+  ---
+  duration_ms: 103.294999
+  type: 'test'
+  ...
+# Subtest: [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+ok 16 - [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+  ---
+  duration_ms: 59.620722
+  type: 'test'
+  ...
+# Subtest: [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+ok 17 - [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+  ---
+  duration_ms: 0.286452
+  type: 'test'
+  ...
+# Subtest: [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+ok 18 - [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+  ---
+  duration_ms: 42.616922
+  type: 'test'
+  ...
+# Subtest: [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+ok 19 - [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+  ---
+  duration_ms: 48.774749
+  type: 'test'
+  ...
+# Subtest: [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+ok 20 - [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+  ---
+  duration_ms: 40.335707
+  type: 'test'
+  ...
+# Subtest: [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+ok 21 - [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+  ---
+  duration_ms: 78.219469
+  type: 'test'
+  ...
+# Subtest: [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+ok 22 - [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+  ---
+  duration_ms: 35.833185
+  type: 'test'
+  ...
+# Subtest: [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+ok 23 - [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+  ---
+  duration_ms: 43.656122
+  type: 'test'
+  ...
+# Subtest: [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+ok 24 - [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+  ---
+  duration_ms: 0.477589
+  type: 'test'
+  ...
+# Subtest: [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+ok 25 - [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+  ---
+  duration_ms: 41.323541
+  type: 'test'
+  ...
+# Subtest: [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+ok 26 - [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+  ---
+  duration_ms: 32.901976
+  type: 'test'
+  ...
+# Subtest: [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+ok 27 - [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+  ---
+  duration_ms: 0.626619
+  type: 'test'
+  ...
+# Subtest: [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+ok 28 - [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+  ---
+  duration_ms: 99.474863
+  type: 'test'
+  ...
+# Subtest: [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+ok 29 - [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+  ---
+  duration_ms: 88.237953
+  type: 'test'
+  ...
+# Subtest: [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+ok 30 - [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+  ---
+  duration_ms: 0.89315
+  type: 'test'
+  ...
+# Subtest: [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+ok 31 - [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+  ---
+  duration_ms: 116.350249
+  type: 'test'
+  ...
+# Subtest: [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+ok 32 - [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+  ---
+  duration_ms: 35.182658
+  type: 'test'
+  ...
+# Subtest: [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+ok 33 - [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+  ---
+  duration_ms: 40.330355
+  type: 'test'
+  ...
+# Subtest: [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+ok 34 - [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+  ---
+  duration_ms: 0.279608
+  type: 'test'
+  ...
+# (node:10502) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-remediation.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+ok 35 - [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+  ---
+  duration_ms: 152.609857
+  type: 'test'
+  ...
+# Subtest: [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+ok 36 - [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+  ---
+  duration_ms: 138.818455
+  type: 'test'
+  ...
+# Subtest: [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+ok 37 - [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+  ---
+  duration_ms: 132.052387
+  type: 'test'
+  ...
+# Subtest: [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+ok 38 - [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+  ---
+  duration_ms: 164.38792
+  type: 'test'
+  ...
+# Subtest: [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+ok 39 - [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+  ---
+  duration_ms: 226.544017
+  type: 'test'
+  ...
+# Subtest: [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+ok 40 - [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+  ---
+  duration_ms: 127.972125
+  type: 'test'
+  ...
+# Subtest: [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+ok 41 - [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+  ---
+  duration_ms: 75.83479
+  type: 'test'
+  ...
+# Subtest: [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+ok 42 - [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+  ---
+  duration_ms: 36.902667
+  type: 'test'
+  ...
+1..42
+# tests 42
+# suites 0
+# pass 42
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5099.8073

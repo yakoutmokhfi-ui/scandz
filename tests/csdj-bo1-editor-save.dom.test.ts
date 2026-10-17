@@ -44,11 +44,9 @@ import { CSDJ_BO1_WRITE_CONTRACT } from "../lib/availability-editor.ts";
 //      FICHIER DE TEST SEULEMENT, avec une raison distincte
 //      (`…_SIMULATED`) qui rend l'artifice visible dans le DOM.
 //
-// La constante RÉELLE du dépôt reste `available: false` : c'est vérifié
-// ci-dessous ([BO1-SAVE-0]) et deux autres suites l'épinglent déjà
-// (csdj-bo1-availability-contract, csdj-bo1-editor-payload). Aucun
-// basculement n'est donc prononcé par ce lot ; ce fichier dit
-// exactement ce que l'écran fera le jour où Boulez livrera la RPC.
+// La constante RÉELLE du dépôt vaut `available: true` depuis #154 : c'est
+// vérifié ci-dessous ([BO1-SAVE-0]). Le double ci-dessus ne sert plus
+// qu'à brancher le faux backend d'écriture.
 //
 // Le backend simulé expose son état en forme DOMAINE (`FakeTenantState`
 // est déjà en camelCase, champ pour champ comme
@@ -442,25 +440,34 @@ function twoTenants(): { backend: FakeFulfillmentWriteBackend; mappings: unknown
 // 0. L'artifice est NOMMÉ, et le dépôt n'a pas basculé.
 // --------------------------------------------------------------------
 
-test("[BO1-SAVE-0] le drapeau RÉEL reste faux : seule cette suite simule le contrat livré", async () => {
+test("[BO1-SAVE-0] le drapeau RÉEL est vrai depuis #154 : aucune bannière « contrat non approuvé » n'est rendue (issue #156, constat 1)", async () => {
   // La constante importée depuis la VRAIE source -- pas le double.
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.reason, "CSDJ_BO1_WRITE_CONTRACT_PENDING");
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.reason, "CSDJ_BO1_WRITE_CONTRACT_READY");
 
   const backend = new FakeFulfillmentWriteBackend();
   backend.setTenant("r1", auLaitCruPickupFixture());
   const { container, cleanup } = setup({ backend });
   await flush();
 
-  // Dans le DOM de CETTE suite, la raison affichée dit « simulé » : un
-  // futur lecteur ne peut pas confondre cette page avec la production.
-  assert.equal(
-    container.querySelector("[data-write-contract]")?.getAttribute("data-write-contract"),
-    WRITE_CONTRACT_SIMULATED_REASON
+  // Le contrat est disponible : ni bannière « en attente », ni phrase
+  // « inactif : … contrat » à côté de l'activation.
+  assert.equal(container.querySelector("[data-write-contract]"), null);
+  assert.ok(
+    !(container.textContent ?? "").includes("contrat d'écriture n'est pas encore approuvé"),
+    "aucune phrase périmée sur le contrat d'écriture"
+  );
+  assert.ok(
+    !(container.textContent ?? "").includes("Inactif : l'enregistrement attend le contrat"),
+    "aucune raison « inactif » périmée à côté de l'activation"
   );
   // Et l'écriture est bien actionnable ici, sinon les tests suivants ne
   // prouveraient rien.
   assert.equal(saveButton(container).getAttribute("data-write-disabled-reason"), "clean");
+  assert.equal(
+    container.querySelector("[data-editor-status]")?.getAttribute("data-editor-status"),
+    "clean"
+  );
   cleanup();
 });
 

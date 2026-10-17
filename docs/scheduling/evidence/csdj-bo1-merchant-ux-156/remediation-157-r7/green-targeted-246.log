@@ -1,0 +1,1574 @@
+TAP version 13
+# (node:5557) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-audit-remediation.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [AUD-01] un aperçu demandé pour la portée A ne s'affiche JAMAIS sous la portée B, même dans le même établissement
+ok 1 - [AUD-01] un aperçu demandé pour la portée A ne s'affiche JAMAIS sous la portée B, même dans le même établissement
+  ---
+  duration_ms: 137.511606
+  type: 'test'
+  ...
+# Subtest: [AUD-01b] la fonctionnalité reste intacte : l'aperçu de la portée courante s'affiche normalement
+ok 2 - [AUD-01b] la fonctionnalité reste intacte : l'aperçu de la portée courante s'affiche normalement
+  ---
+  duration_ms: 179.216012
+  type: 'test'
+  ...
+# Subtest: [AUD-02] un calendrier férié rattaché est annoncé avec l'identité rendue par le serveur, jamais « Aucun calendrier »
+ok 3 - [AUD-02] un calendrier férié rattaché est annoncé avec l'identité rendue par le serveur, jamais « Aucun calendrier »
+  ---
+  duration_ms: 66.72596
+  type: 'test'
+  ...
+# Subtest: [AUD-02b] sans calendrier rattaché, « Aucun calendrier » est affiché — et c'est alors vrai
+ok 4 - [AUD-02b] sans calendrier rattaché, « Aucun calendrier » est affiché — et c'est alors vrai
+  ---
+  duration_ms: 58.510324
+  type: 'test'
+  ...
+# Subtest: [AUD-04] un refus de rôle sur la lecture v1.2 est annoncé par une phrase traduite et non technique
+ok 5 - [AUD-04] un refus de rôle sur la lecture v1.2 est annoncé par une phrase traduite et non technique
+  ---
+  duration_ms: 62.117816
+  type: 'test'
+  ...
+# Subtest: [AUD-04b] les quatre statuts de la lecture v1.2 restent distincts, et aucun n'est muet
+ok 6 - [AUD-04b] les quatre statuts de la lecture v1.2 restent distincts, et aucun n'est muet
+  ---
+  duration_ms: 115.358385
+  type: 'test'
+  ...
+# (node:5572) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-a11y.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-A11Y-1] tout champ a une étiquette associée, ou un nom accessible explicite
+ok 7 - [BO1-A11Y-1] tout champ a une étiquette associée, ou un nom accessible explicite
+  ---
+  duration_ms: 118.471331
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-2] aucun faux contrôle : pas de role=button sur un div ou un span
+ok 8 - [BO1-A11Y-2] aucun faux contrôle : pas de role=button sur un div ou un span
+  ---
+  duration_ms: 75.529806
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-3] l'inactivité n'est jamais portée par la couleur seule : chaque contrôle inactif a sa phrase
+ok 9 - [BO1-A11Y-3] l'inactivité n'est jamais portée par la couleur seule : chaque contrôle inactif a sa phrase
+  ---
+  duration_ms: 64.737477
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-4] les régions vivantes sont correctement typées : état du lot en « status », erreur en « alert »
+ok 10 - [BO1-A11Y-4] les régions vivantes sont correctement typées : état du lot en « status », erreur en « alert »
+  ---
+  duration_ms: 66.946856
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-5] la hiérarchie de titres ne saute aucun niveau
+ok 11 - [BO1-A11Y-5] la hiérarchie de titres ne saute aucun niveau
+  ---
+  duration_ms: 47.705747
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-6] la direction d'écriture est posée sur le contenu, pas devinée
+ok 12 - [BO1-A11Y-6] la direction d'écriture est posée sur le contenu, pas devinée
+  ---
+  duration_ms: 43.148386
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-7] cibles tactiles : tout contrôle interactif garde au moins 44 px de hauteur
+ok 13 - [BO1-A11Y-7] cibles tactiles : tout contrôle interactif garde au moins 44 px de hauteur
+  ---
+  duration_ms: 63.775966
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-8] les couleurs de texte employées par la page passent 4,5:1 sur leur fond
+ok 14 - [BO1-A11Y-8] les couleurs de texte employées par la page passent 4,5:1 sur leur fond
+  ---
+  duration_ms: 0.531698
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-9] un groupe désactivé est annoncé comme tel, et porte une légende
+ok 15 - [BO1-A11Y-9] un groupe désactivé est annoncé comme tel, et porte une légende
+  ---
+  duration_ms: 46.468687
+  type: 'test'
+  ...
+# Subtest: [BO1-A11Y-10] le tableau des portées est un vrai tableau, avec des en-têtes de colonne
+ok 16 - [BO1-A11Y-10] le tableau des portées est un vrai tableau, avec des en-têtes de colonne
+  ---
+  duration_ms: 54.484531
+  type: 'test'
+  ...
+# (node:5586) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-contract.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-NOWRITE-1] la page n'appelle jamais Supabase directement : tout passe par le service
+ok 17 - [BO1-NOWRITE-1] la page n'appelle jamais Supabase directement : tout passe par le service
+  ---
+  duration_ms: 1.380911
+  type: 'test'
+  ...
+# Subtest: [BO1-NOWRITE-2] aucune SÉQUENCE d'écriture n'existe : une seule RPC transactionnelle, et rien d'autre
+ok 18 - [BO1-NOWRITE-2] aucune SÉQUENCE d'écriture n'existe : une seule RPC transactionnelle, et rien d'autre
+  ---
+  duration_ms: 0.61835
+  type: 'test'
+  ...
+# Subtest: [BO1-NOWRITE-3] le service n'exporte QU'UNE écriture, et c'est le contrat transactionnel demandé
+ok 19 - [BO1-NOWRITE-3] le service n'exporte QU'UNE écriture, et c'est le contrat transactionnel demandé
+  ---
+  duration_ms: 166.184218
+  type: 'test'
+  ...
+# Subtest: [BO1-NOWRITE-4] le service enveloppe EXACTEMENT quatre lectures et une écriture, et aucune autre RPC
+ok 20 - [BO1-NOWRITE-4] le service enveloppe EXACTEMENT quatre lectures et une écriture, et aucune autre RPC
+  ---
+  duration_ms: 0.471125
+  type: 'test'
+  ...
+# Subtest: [BO1-NOWRITE-5] le contrat d'écriture est déclaré disponible (PR \#154, SQL installé), et la page le relaie
+ok 21 - [BO1-NOWRITE-5] le contrat d'écriture est déclaré disponible (PR \#154, SQL installé), et la page le relaie
+  ---
+  duration_ms: 0.124768
+  type: 'test'
+  ...
+# Subtest: [BO1-NOWRITE-6] la demande de contrat et la matrice de dépendances existent et nomment ce qui est demandé
+ok 22 - [BO1-NOWRITE-6] la demande de contrat et la matrice de dépendances existent et nomment ce qui est demandé
+  ---
+  duration_ms: 0.417717
+  type: 'test'
+  ...
+# Subtest: [BO1-AUTHORITY-1] ni la page, ni le service, ni les helpers n'importent l'oracle d'éligibilité
+ok 23 - [BO1-AUTHORITY-1] ni la page, ni le service, ni les helpers n'importent l'oracle d'éligibilité
+  ---
+  duration_ms: 0.307184
+  type: 'test'
+  ...
+# Subtest: [BO1-AUTHORITY-2] l'aperçu passe par la lecture publique, et n'envoie aucune heure au serveur
+ok 24 - [BO1-AUTHORITY-2] l'aperçu passe par la lecture publique, et n'envoie aucune heure au serveur
+  ---
+  duration_ms: 0.603989
+  type: 'test'
+  ...
+# Subtest: [BO1-NAV-1] le nouvel onglet est exclu du repli générique de « Commandes » (pitfall L1B-02)
+ok 25 - [BO1-NAV-1] le nouvel onglet est exclu du repli générique de « Commandes » (pitfall L1B-02)
+  ---
+  duration_ms: 0.263857
+  type: 'test'
+  ...
+# Subtest: [BO1-I18N-1] chaque clé ajoutée par ce lot existe en français ET en anglais
+ok 26 - [BO1-I18N-1] chaque clé ajoutée par ce lot existe en français ET en anglais
+  ---
+  duration_ms: 0.766606
+  type: 'test'
+  ...
+# Subtest: [BO1-I18N-2] toute clé utilisée par la page ou les helpers est déclarée en français
+ok 27 - [BO1-I18N-2] toute clé utilisée par la page ou les helpers est déclarée en français
+  ---
+  duration_ms: 0.559922
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-1] la clé de portée distingue une portée de mode d'une portée de zone
+ok 28 - [BO1-PURE-1] la clé de portée distingue une portée de mode d'une portée de zone
+  ---
+  duration_ms: 0.131013
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-2] trois états de portée, et ils ne se confondent pas
+ok 29 - [BO1-PURE-2] trois états de portée, et ils ne se confondent pas
+  ---
+  duration_ms: 0.151491
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-3] le seau de capacité se DÉDUIT de la politique : journée entière hors créneaux nommés
+ok 30 - [BO1-PURE-3] le seau de capacité se DÉDUIT de la politique : journée entière hors créneaux nommés
+  ---
+  duration_ms: 0.11891
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-4] la méthode de planification vient de l'extension lue, jamais d'une supposition
+ok 31 - [BO1-PURE-4] la méthode de planification vient de l'extension lue, jamais d'une supposition
+  ---
+  duration_ms: 0.117786
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-5] ÉCRITURE : propriétaire ou responsable UNIQUEMENT -- aucune dérogation opérateur
+ok 32 - [BO1-PURE-5] ÉCRITURE : propriétaire ou responsable UNIQUEMENT -- aucune dérogation opérateur
+  ---
+  duration_ms: 0.087115
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-6] LECTURE : ouverte à tout membre et à l'opérateur
+ok 33 - [BO1-PURE-6] LECTURE : ouverte à tout membre et à l'opérateur
+  ---
+  duration_ms: 0.06694
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-7] les contrôles d'écriture suivent le RÔLE ; le contrat étant disponible (\#154), un propriétaire peut écrire
+ok 34 - [BO1-PURE-7] les contrôles d'écriture suivent le RÔLE ; le contrat étant disponible (\#154), un propriétaire peut écrire
+  ---
+  duration_ms: 0.197099
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-8] ce qui empêcherait de publier est nommé, cas par cas
+ok 35 - [BO1-PURE-8] ce qui empêcherait de publier est nommé, cas par cas
+  ---
+  duration_ms: 0.354611
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-9] le dérivé « première date imposée » n'exige pas moins qu'une date choisie
+ok 36 - [BO1-PURE-9] le dérivé « première date imposée » n'exige pas moins qu'une date choisie
+  ---
+  duration_ms: 0.080109
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-10] catalogues FERMÉS : neuf motifs, cinq statuts, et un repli nommé
+ok 37 - [BO1-PURE-10] catalogues FERMÉS : neuf motifs, cinq statuts, et un repli nommé
+  ---
+  duration_ms: 0.10518
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-11] 0 = dimanche, et la semaine s'affiche à partir du lundi
+ok 38 - [BO1-PURE-11] 0 = dimanche, et la semaine s'affiche à partir du lundi
+  ---
+  duration_ms: 0.126176
+  type: 'test'
+  ...
+# Subtest: [BO1-PURE-12] un échec de lecture ne laisse jamais fuir le message serveur
+ok 39 - [BO1-PURE-12] un échec de lecture ne laisse jamais fuir le message serveur
+  ---
+  duration_ms: 0.311927
+  type: 'test'
+  ...
+# (node:5595) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-mobile.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-MOB-1] barre d'onglets compactée : quatre par ligne sous « sm », classes d'origine au-dessus
+ok 40 - [BO1-MOB-1] barre d'onglets compactée : quatre par ligne sous « sm », classes d'origine au-dessus
+  ---
+  duration_ms: 92.83459
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-2] aucun défilement horizontal caché : la barre reste dans le flux
+ok 41 - [BO1-MOB-2] aucun défilement horizontal caché : la barre reste dans le flux
+  ---
+  duration_ms: 48.442961
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-3] libellés courts sur téléphone, complets sur bureau -- et les deux sont dans le DOM
+ok 42 - [BO1-MOB-3] libellés courts sur téléphone, complets sur bureau -- et les deux sont dans le DOM
+  ---
+  duration_ms: 68.198045
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-4] les portées : un sélecteur sur téléphone, un tableau sur bureau -- jamais les deux visibles
+ok 43 - [BO1-MOB-4] les portées : un sélecteur sur téléphone, un tableau sur bureau -- jamais les deux visibles
+  ---
+  duration_ms: 43.52461
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-5] une seule colonne sur téléphone : les grilles ne se déploient qu'au-dessus de « sm »
+ok 44 - [BO1-MOB-5] une seule colonne sur téléphone : les grilles ne se déploient qu'au-dessus de « sm »
+  ---
+  duration_ms: 89.331823
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-6] la barre d'enregistrement reste atteignable au pouce, et n'occulte pas le contenu
+ok 45 - [BO1-MOB-6] la barre d'enregistrement reste atteignable au pouce, et n'occulte pas le contenu
+  ---
+  duration_ms: 40.245481
+  type: 'test'
+  ...
+# Subtest: [BO1-MOB-7] l'aperçu serveur se remplit en colonne sur téléphone
+ok 46 - [BO1-MOB-7] l'aperçu serveur se remplit en colonne sur téléphone
+  ---
+  duration_ms: 62.966717
+  type: 'test'
+  ...
+# (node:5610) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-service.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-SVC-1] la lecture marchande appelle la bonne fonction avec le bon paramètre, et mappe les 15 colonnes
+ok 47 - [BO1-SVC-1] la lecture marchande appelle la bonne fonction avec le bon paramètre, et mappe les 15 colonnes
+  ---
+  duration_ms: 3.235111
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-2] une portée minimale ne produit ni NaN, ni undefined, ni liste absente
+ok 48 - [BO1-SVC-2] une portée minimale ne produit ni NaN, ni undefined, ni liste absente
+  ---
+  duration_ms: 0.265632
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-3] un refus de la lecture marchande remonte : c'est la page qui le traduit en phrase sûre
+ok 49 - [BO1-SVC-3] un refus de la lecture marchande remonte : c'est la page qui le traduit en phrase sûre
+  ---
+  duration_ms: 0.443532
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-4] PR \#146 non appliquée : la lecture v1.2 rend « absent » et ne jette JAMAIS
+ok 50 - [BO1-SVC-4] PR \#146 non appliquée : la lecture v1.2 rend « absent » et ne jette JAMAIS
+  ---
+  duration_ms: 0.419658
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-5] un refus de rôle et un échec technique sont deux statuts distincts
+ok 51 - [BO1-SVC-5] un refus de rôle et un échec technique sont deux statuts distincts
+  ---
+  duration_ms: 0.173473
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-6] PR \#146 appliquée : les extensions sont mappées, et un jour de semaine aberrant est écarté
+ok 52 - [BO1-SVC-6] PR \#146 appliquée : les extensions sont mappées, et un jour de semaine aberrant est écarté
+  ---
+  duration_ms: 0.306387
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-7] l'aperçu envoie les cinq paramètres publics, et AUCUNE heure
+ok 53 - [BO1-SVC-7] l'aperçu envoie les cinq paramètres publics, et AUCUNE heure
+  ---
+  duration_ms: 0.536805
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-8] paramètres optionnels omis : null et 0 sont envoyés explicitement, jamais undefined
+ok 54 - [BO1-SVC-8] paramètres optionnels omis : null et 0 sont envoyés explicitement, jamais undefined
+  ---
+  duration_ms: 0.220984
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-9] aucune ligne rendue : repli sur le statut « absent », jamais sur une disponibilité
+ok 55 - [BO1-SVC-9] aucune ligne rendue : repli sur le statut « absent », jamais sur une disponibilité
+  ---
+  duration_ms: 0.606303
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-10] un motif d'infaisabilité traverse tel quel : la page ne doit pas le deviner
+ok 56 - [BO1-SVC-10] un motif d'infaisabilité traverse tel quel : la page ne doit pas le deviner
+  ---
+  duration_ms: 0.598997
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-12] la lecture autoritaire envoie les trois paramètres du contrat et rend les deux jetons TELS QUE REÇUS
+ok 57 - [BO1-SVC-12] la lecture autoritaire envoie les trois paramètres du contrat et rend les deux jetons TELS QUE REÇUS
+  ---
+  duration_ms: 0.345482
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-13] une portée sans configuration rend null — jamais une erreur, jamais une configuration inventée
+ok 58 - [BO1-SVC-13] une portée sans configuration rend null — jamais une erreur, jamais une configuration inventée
+  ---
+  duration_ms: 0.130505
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-14] une réponse malformée est refusée par son nom, au lieu d'être devinée
+ok 59 - [BO1-SVC-14] une réponse malformée est refusée par son nom, au lieu d'être devinée
+  ---
+  duration_ms: 0.794119
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que la page le traduise
+ok 60 - [BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que la page le traduise
+  ---
+  duration_ms: 0.218665
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-16] (complément STRUCTUREL) le verrou d'écriture précède l'appel réseau dans la source
+ok 61 - [BO1-SVC-16] (complément STRUCTUREL) le verrou d'écriture précède l'appel réseau dans la source
+  ---
+  duration_ms: 0.377132
+  type: 'test'
+  ...
+# Subtest: [BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture
+ok 62 - [BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture
+  ---
+  duration_ms: 0.213178
+  type: 'test'
+  ...
+# (node:5623) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability-write-lock.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+ok 63 - [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+  ---
+  duration_ms: 26.01371
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+ok 64 - [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+  ---
+  duration_ms: 12.969013
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+ok 65 - [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+  ---
+  duration_ms: 11.824342
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+ok 66 - [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+  ---
+  duration_ms: 6.792781
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+ok 67 - [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+  ---
+  duration_ms: 7.83268
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+ok 68 - [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+  ---
+  duration_ms: 0.269096
+  type: 'test'
+  ...
+# (node:5636) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-availability.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-DOM-1] propriétaire, contrat disponible : AUCUNE bannière « contrat non approuvé », et l'enregistrement dit la vraie raison (version du serveur non lue)
+ok 69 - [BO1-DOM-1] propriétaire, contrat disponible : AUCUNE bannière « contrat non approuvé », et l'enregistrement dit la vraie raison (version du serveur non lue)
+  ---
+  duration_ms: 111.748763
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-2] aucun bouton de suppression n'existe nulle part (décision R2 n° 7)
+ok 70 - [BO1-DOM-2] aucun bouton de suppression n'existe nulle part (décision R2 n° 7)
+  ---
+  duration_ms: 41.559076
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-3] membre sans rôle d'écriture : bandeau de lecture seule, et la raison devient le RÔLE
+ok 71 - [BO1-DOM-3] membre sans rôle d'écriture : bandeau de lecture seule, et la raison devient le RÔLE
+  ---
+  duration_ms: 54.365511
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-4] opérateur Scanym : lecture complète, mais l'écriture reste refusée -- et le bandeau le dit
+ok 72 - [BO1-DOM-4] opérateur Scanym : lecture complète, mais l'écriture reste refusée -- et le bandeau le dit
+  ---
+  duration_ms: 52.79942
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-5] CSDJ v1.2 absent du serveur : annoncé non actif, jamais présenté comme opérationnel
+ok 73 - [BO1-DOM-5] CSDJ v1.2 absent du serveur : annoncé non actif, jamais présenté comme opérationnel
+  ---
+  duration_ms: 53.303225
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-6] CSDJ v1.2 présent : méthode v1.2, décalage d'heure limite retiré, capacité par créneau nommé
+ok 74 - [BO1-DOM-6] CSDJ v1.2 présent : méthode v1.2, décalage d'heure limite retiré, capacité par créneau nommé
+  ---
+  duration_ms: 56.079862
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-7] heure libre : le seau de capacité est la JOURNÉE ENTIÈRE, et l'avertissement est affiché
+ok 75 - [BO1-DOM-7] heure libre : le seau de capacité est la JOURNÉE ENTIÈRE, et l'avertissement est affiché
+  ---
+  duration_ms: 58.54985
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-8] l'aperçu affiche la réponse du serveur, motif nommé compris
+ok 76 - [BO1-DOM-8] l'aperçu affiche la réponse du serveur, motif nommé compris
+  ---
+  duration_ms: 75.401538
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-9] l'aperçu rend les dates et les créneaux proposés par le serveur
+ok 77 - [BO1-DOM-9] l'aperçu rend les dates et les créneaux proposés par le serveur
+  ---
+  duration_ms: 90.49836
+  type: 'test'
+  ...
+# Subtest: [BO1-DOM-10] isolation locataire : une réponse périmée d'un AUTRE établissement ne s'affiche jamais
+ok 78 - [BO1-DOM-10] isolation locataire : une réponse périmée d'un AUTRE établissement ne s'affiche jamais
+  ---
+  duration_ms: 68.119739
+  type: 'test'
+  ...
+# (node:5651) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-editor-payload.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-ED-1] le contrat d'écriture est déclaré disponible depuis \#154, et le service garde son verrou avant tout appel réseau
+ok 79 - [BO1-ED-1] le contrat d'écriture est déclaré disponible depuis \#154, et le service garde son verrou avant tout appel réseau
+  ---
+  duration_ms: 2.592624
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-2] une seule RPC d'écriture existe dans le lot, et c'est celle du contrat
+ok 80 - [BO1-ED-2] une seule RPC d'écriture existe dans le lot, et c'est celle du contrat
+  ---
+  duration_ms: 3.495621
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-3] le brouillon part de ce que le serveur a rendu, sans rien inventer
+ok 81 - [BO1-ED-3] le brouillon part de ce que le serveur a rendu, sans rien inventer
+  ---
+  duration_ms: 0.584032
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-4] la charge porte l'état VOULU en entier, jamais un delta
+ok 82 - [BO1-ED-4] la charge porte l'état VOULU en entier, jamais un delta
+  ---
+  duration_ms: 0.721049
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-5] une charge v1.2 porte ses trois sections, et le décalage d'heure limite y vaut 0
+ok 83 - [BO1-ED-5] une charge v1.2 porte ses trois sections, et le décalage d'heure limite y vaut 0
+  ---
+  duration_ms: 0.524059
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-6] un champ vidé devient null, jamais 0 ni chaîne vide
+ok 84 - [BO1-ED-6] un champ vidé devient null, jamais 0 ni chaîne vide
+  ---
+  duration_ms: 0.313439
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-7] « modifié » se déduit de la comparaison, et l'ordre des lignes n'en fait pas partie
+ok 85 - [BO1-ED-7] « modifié » se déduit de la comparaison, et l'ordre des lignes n'en fait pas partie
+  ---
+  duration_ms: 0.805852
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-8] un brouillon conforme ne produit aucun refus
+ok 86 - [BO1-ED-8] un brouillon conforme ne produit aucun refus
+  ---
+  duration_ms: 0.959339
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-9] chaque refus du serveur a son miroir local, nommé
+ok 87 - [BO1-ED-9] chaque refus du serveur a son miroir local, nommé
+  ---
+  duration_ms: 1.101569
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-10] l'offre : bornes, chevauchement, clés de créneau et doublons
+ok 88 - [BO1-ED-10] l'offre : bornes, chevauchement, clés de créneau et doublons
+  ---
+  duration_ms: 0.843023
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-11] activer une portée sans offre est refusé AVANT l'envoi, comme le serveur le refuserait
+ok 89 - [BO1-ED-11] activer une portée sans offre est refusé AVANT l'envoi, comme le serveur le refuserait
+  ---
+  duration_ms: 0.22806
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-12] fermetures : date valide, pas de doublon, motif borné, 731 au plus
+ok 90 - [BO1-ED-12] fermetures : date valide, pas de doublon, motif borné, 731 au plus
+  ---
+  duration_ms: 2.657922
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-13] chaque code de refus a sa phrase, dans les quatre langues du mandat
+ok 91 - [BO1-ED-13] chaque code de refus a sa phrase, dans les quatre langues du mandat
+  ---
+  duration_ms: 0.413665
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-14] un refus serveur devient une phrase sûre, jamais un code brut
+ok 92 - [BO1-ED-14] un refus serveur devient une phrase sûre, jamais un code brut
+  ---
+  duration_ms: 0.553673
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-15] la fixture « Au Lait Cru » est celle de l'issue, et elle n'est pas globale
+ok 93 - [BO1-ED-15] la fixture « Au Lait Cru » est celle de l'issue, et elle n'est pas globale
+  ---
+  duration_ms: 0.558033
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-16] le backend simulé écrit tout ou rien : un refus ne laisse RIEN
+ok 94 - [BO1-ED-16] le backend simulé écrit tout ou rien : un refus ne laisse RIEN
+  ---
+  duration_ms: 1.495321
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-17] édition concurrente : REFUSÉE, jamais écrasée
+ok 95 - [BO1-ED-17] édition concurrente : REFUSÉE, jamais écrasée
+  ---
+  duration_ms: 0.714961
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-18] isolation locataire : écrire chez l'un ne touche jamais l'autre
+ok 96 - [BO1-ED-18] isolation locataire : écrire chez l'un ne touche jamais l'autre
+  ---
+  duration_ms: 0.414494
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-19] rôle staff : refusé par le serveur simulé, comme par l'autorité SQL
+ok 97 - [BO1-ED-19] rôle staff : refusé par le serveur simulé, comme par l'autorité SQL
+  ---
+  duration_ms: 0.301301
+  type: 'test'
+  ...
+# Subtest: [BO1-ED-20] un enregistrement accepté remplace INTÉGRALEMENT les listes
+ok 98 - [BO1-ED-20] un enregistrement accepté remplace INTÉGRALEMENT les listes
+  ---
+  duration_ms: 11.597555
+  type: 'test'
+  ...
+# (node:5665) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-editor-save.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-SAVE-0] le drapeau RÉEL est vrai depuis \#154 : aucune bannière « contrat non approuvé » n'est rendue (issue \#156, constat 1)
+ok 99 - [BO1-SAVE-0] le drapeau RÉEL est vrai depuis \#154 : aucune bannière « contrat non approuvé » n'est rendue (issue \#156, constat 1)
+  ---
+  duration_ms: 107.75162
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-1] ajout d'un créneau et d'une règle de fermeture : UN seul appel, charge intégrale
+ok 100 - [BO1-SAVE-1] ajout d'un créneau et d'une règle de fermeture : UN seul appel, charge intégrale
+  ---
+  duration_ms: 252.970927
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-2] l'heure limite 16:00 de « Au Lait Cru » devient 17:30, et c'est la seule chose qui bouge
+ok 101 - [BO1-SAVE-2] l'heure limite 16:00 de « Au Lait Cru » devient 17:30, et c'est la seule chose qui bouge
+  ---
+  duration_ms: 132.527955
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-3] fermer le mardi = retirer ses lignes, et un jour sans ligne est un jour fermé
+ok 102 - [BO1-SAVE-3] fermer le mardi = retirer ses lignes, et un jour sans ligne est un jour fermé
+  ---
+  duration_ms: 139.066672
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-4] sauvegarde refusée : phrase traduite, aucun code brut, RIEN d'écrit, brouillon conservé
+ok 103 - [BO1-SAVE-4] sauvegarde refusée : phrase traduite, aucun code brut, RIEN d'écrit, brouillon conservé
+  ---
+  duration_ms: 93.745627
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-5] un réglage que le serveur refuserait bloque l'envoi AVANT le réseau, en nommant le réglage
+ok 104 - [BO1-SAVE-5] un réglage que le serveur refuserait bloque l'envoi AVANT le réseau, en nommant le réglage
+  ---
+  duration_ms: 91.527153
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6] concurrence (F01-B) : STALE puis SECOND CLIC — rien n'écrase le tiers, les deux versions restent séparées, et il faut un choix explicite
+ok 105 - [BO1-SAVE-6] concurrence (F01-B) : STALE puis SECOND CLIC — rien n'écrase le tiers, les deux versions restent séparées, et il faut un choix explicite
+  ---
+  duration_ms: 90.79909
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6c] conflit : « reprendre la version du serveur » abandonne MES modifications, rien d'autre
+ok 106 - [BO1-SAVE-6c] conflit : « reprendre la version du serveur » abandonne MES modifications, rien d'autre
+  ---
+  duration_ms: 72.712917
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6d] vrai conflit : le même réglage changé des DEUX côtés est nommé « des deux côtés », et mon choix est explicite
+ok 107 - [BO1-SAVE-6d] vrai conflit : le même réglage changé des DEUX côtés est nommé « des deux côtés », et mon choix est explicite
+  ---
+  duration_ms: 108.213054
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6e] deuxième refus après un rebase : le serveur a encore changé, et rien n'est écrasé non plus
+ok 108 - [BO1-SAVE-6e] deuxième refus après un rebase : le serveur a encore changé, et rien n'est écrasé non plus
+  ---
+  duration_ms: 176.726561
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6f] la relecture du serveur échoue : rien n'est résolu, rien n'est enregistré, et on propose de relire
+ok 109 - [BO1-SAVE-6f] la relecture du serveur échoue : rien n'est résolu, rien n'est enregistré, et on propose de relire
+  ---
+  duration_ms: 147.906814
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-A] interleaving : listes A → modification concurrente B → snapshot autoritaire B. Jamais A signé des jetons de B
+ok 110 - [BO1-F01-A] interleaving : listes A → modification concurrente B → snapshot autoritaire B. Jamais A signé des jetons de B
+  ---
+  duration_ms: 94.432929
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-A2] lecture autoritaire muette ou sans configuration : le brouillon se montre, l'enregistrement reste FERMÉ
+ok 111 - [BO1-F01-A2] lecture autoritaire muette ou sans configuration : le brouillon se montre, l'enregistrement reste FERMÉ
+  ---
+  duration_ms: 118.800846
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-C] changement rapide de portée et réponse autoritaire EN DÉSORDRE : la portée affichée n'est jamais celle d'une réponse tardive
+ok 112 - [BO1-F01-C] changement rapide de portée et réponse autoritaire EN DÉSORDRE : la portée affichée n'est jamais celle d'une réponse tardive
+  ---
+  duration_ms: 57.861282
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-D] multi-commerçants : une réponse autoritaire tardive d'un AUTRE établissement ne se mêle ni au brouillon ni aux jetons
+ok 113 - [BO1-F01-D] multi-commerçants : une réponse autoritaire tardive d'un AUTRE établissement ne se mêle ni au brouillon ni aux jetons
+  ---
+  duration_ms: 61.79119
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6b] la précision microseconde traverse l'écran SANS être tronquée
+ok 114 - [BO1-SAVE-6b] la précision microseconde traverse l'écran SANS être tronquée
+  ---
+  duration_ms: 76.177944
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-7] isolation locataire : enregistrer chez l'un ne touche jamais l'autre, et changer d'établissement repart de zéro
+ok 115 - [BO1-SAVE-7] isolation locataire : enregistrer chez l'un ne touche jamais l'autre, et changer d'établissement repart de zéro
+  ---
+  duration_ms: 63.540509
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-8] brouillon / enregistré / annulé : trois états lisibles, et « annuler » revient à l'état lu
+ok 116 - [BO1-SAVE-8] brouillon / enregistré / annulé : trois états lisibles, et « annuler » revient à l'état lu
+  ---
+  duration_ms: 27.953289
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-9] activer une portée qui ne proposerait aucune date est refusé AVANT l'envoi, et dit ce qui manque
+ok 117 - [BO1-SAVE-9] activer une portée qui ne proposerait aucune date est refusé AVANT l'envoi, et dit ce qui manque
+  ---
+  duration_ms: 24.016634
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-13] configuration incomplète : les manques sont nommés, le BROUILLON est proposé, et il n'est écrit qu'après confirmation
+ok 118 - [BO1-SAVE-13] configuration incomplète : les manques sont nommés, le BROUILLON est proposé, et il n'est écrit qu'après confirmation
+  ---
+  duration_ms: 28.743497
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-14] refus serveur « configuration incomplète » : le brouillon est proposé en réponse au REFUS, jamais enregistré d'office
+ok 119 - [BO1-SAVE-14] refus serveur « configuration incomplète » : le brouillon est proposé en réponse au REFUS, jamais enregistré d'office
+  ---
+  duration_ms: 43.238766
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-15] même en brouillon, une capacité ou une grille incohérente reste REFUSÉE
+ok 120 - [BO1-SAVE-15] même en brouillon, une capacité ou une grille incohérente reste REFUSÉE
+  ---
+  duration_ms: 61.677898
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-10] rôle staff : même contrat livré, l'écran n'offre AUCUN champ modifiable
+ok 121 - [BO1-SAVE-10] rôle staff : même contrat livré, l'écran n'offre AUCUN champ modifiable
+  ---
+  duration_ms: 32.208085
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-11] et si une interface future l'oubliait : le serveur refuse le rôle de toute façon
+ok 122 - [BO1-SAVE-11] et si une interface future l'oubliait : le serveur refuse le rôle de toute façon
+  ---
+  duration_ms: 0.65137
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-12] néerlandais : l'écran et sa barre d'enregistrement sont en NL, jamais un repli français visible
+ok 123 - [BO1-SAVE-12] néerlandais : l'écran et sa barre d'enregistrement sont en NL, jamais un repli français visible
+  ---
+  duration_ms: 70.905976
+  type: 'test'
+  ...
+# (node:5684) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-f01-snapshot.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-F01-1] le brouillon, sa référence ET les deux jetons sortent d'UNE seule réponse autoritaire
+ok 124 - [BO1-F01-1] le brouillon, sa référence ET les deux jetons sortent d'UNE seule réponse autoritaire
+  ---
+  duration_ms: 11.19439
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-2] le contenu vient du SNAPSHOT, jamais des listes : A (listes) + B (autorité) donne B
+ok 125 - [BO1-F01-2] le contenu vient du SNAPSHOT, jamais des listes : A (listes) + B (autorité) donne B
+  ---
+  duration_ms: 1.339893
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-3] snapshot v1.2 : les trois sections viennent du snapshot, et le décalage v1 n'existe pas
+ok 126 - [BO1-F01-3] snapshot v1.2 : les trois sections viennent du snapshot, et le décalage v1 n'existe pas
+  ---
+  duration_ms: 1.551172
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-4] un snapshot mal formé est refusé par son nom, jamais complété par un défaut
+ok 127 - [BO1-F01-4] un snapshot mal formé est refusé par son nom, jamais complété par un défaut
+  ---
+  duration_ms: 0.646818
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-5] les divergences sont nommées champ par champ, avec leur origine
+ok 128 - [BO1-F01-5] les divergences sont nommées champ par champ, avec leur origine
+  ---
+  duration_ms: 0.729758
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-6] le rebase garde MES changements, laisse survivre ceux du tiers, et prend les jetons du serveur
+ok 129 - [BO1-F01-6] le rebase garde MES changements, laisse survivre ceux du tiers, et prend les jetons du serveur
+  ---
+  duration_ms: 0.536555
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-7] sans aucune modification de ma part, le rebase est exactement la version du serveur
+ok 130 - [BO1-F01-7] sans aucune modification de ma part, le rebase est exactement la version du serveur
+  ---
+  duration_ms: 0.386443
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-8] la page n'a plus d'état « jetons » à part, ni d'injection de jetons à l'enregistrement
+ok 131 - [BO1-F01-8] la page n'a plus d'état « jetons » à part, ni d'injection de jetons à l'enregistrement
+  ---
+  duration_ms: 2.250157
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-9] le texte de la relecture ne promet plus qu'un second clic suffit, dans les quatre langues
+ok 132 - [BO1-F01-9] le texte de la relecture ne promet plus qu'un second clic suffit, dans les quatre langues
+  ---
+  duration_ms: 0.63734
+  type: 'test'
+  ...
+# (node:5692) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-f02-activation-invariant-contract.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [F02-1] le contrat d'écriture est OUVERT côté page depuis \#154 (le lot F-02 est installé)
+ok 133 - [F02-1] le contrat d'écriture est OUVERT côté page depuis \#154 (le lot F-02 est installé)
+  ---
+  duration_ms: 0.926783
+  type: 'test'
+  ...
+# Subtest: [F02-2] le lot ne crée que ses 2 fonctions et ses 4 déclencheurs de contrainte différés
+ok 134 - [F02-2] le lot ne crée que ses 2 fonctions et ses 4 déclencheurs de contrainte différés
+  ---
+  duration_ms: 0.397658
+  type: 'test'
+  ...
+# Subtest: [F02-3] aucun ALTER / DROP / DELETE / TRUNCATE / GRANT : le lot ne touche aucun objet audité
+ok 135 - [F02-3] aucun ALTER / DROP / DELETE / TRUNCATE / GRANT : le lot ne touche aucun objet audité
+  ---
+  duration_ms: 0.407871
+  type: 'test'
+  ...
+# Subtest: [F02-4] fonctions SECURITY DEFINER, search_path vide, fermées à tous les rôles applicatifs
+ok 136 - [F02-4] fonctions SECURITY DEFINER, search_path vide, fermées à tous les rôles applicatifs
+  ---
+  duration_ms: 0.389725
+  type: 'test'
+  ...
+# Subtest: [F02-5] même verrou de tenant que les mutateurs et la RPC (graine 1104), même code de refus (23514)
+ok 137 - [F02-5] même verrou de tenant que les mutateurs et la RPC (graine 1104), même code de refus (23514)
+  ---
+  duration_ms: 0.156514
+  type: 'test'
+  ...
+# Subtest: [F02-6] le retour arrière ne supprime que les objets du lot
+ok 138 - [F02-6] le retour arrière ne supprime que les objets du lot
+  ---
+  duration_ms: 0.336547
+  type: 'test'
+  ...
+# Subtest: [F02-7] le document de remédiation dit ce qu'il fait ET ses limites
+ok 139 - [F02-7] le document de remédiation dit ce qu'il fait ET ses limites
+  ---
+  duration_ms: 0.189424
+  type: 'test'
+  ...
+# (node:5700) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-156.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+ok 140 - [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+  ---
+  duration_ms: 166.859189
+  type: 'test'
+  ...
+# Subtest: [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+ok 141 - [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+  ---
+  duration_ms: 75.688614
+  type: 'test'
+  ...
+# Subtest: [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+ok 142 - [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+  ---
+  duration_ms: 55.311791
+  type: 'test'
+  ...
+# Subtest: [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+ok 143 - [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+  ---
+  duration_ms: 223.806416
+  type: 'test'
+  ...
+# Subtest: [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+ok 144 - [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+  ---
+  duration_ms: 52.367875
+  type: 'test'
+  ...
+# Subtest: [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+ok 145 - [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+  ---
+  duration_ms: 176.541592
+  type: 'test'
+  ...
+# Subtest: [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+ok 146 - [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+  ---
+  duration_ms: 64.596374
+  type: 'test'
+  ...
+# Subtest: [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+ok 147 - [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+  ---
+  duration_ms: 73.821804
+  type: 'test'
+  ...
+# Subtest: [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+ok 148 - [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+  ---
+  duration_ms: 91.88424
+  type: 'test'
+  ...
+# Subtest: [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+ok 149 - [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+  ---
+  duration_ms: 44.386139
+  type: 'test'
+  ...
+# Subtest: [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+ok 150 - [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+  ---
+  duration_ms: 0.33852
+  type: 'test'
+  ...
+# Subtest: [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+ok 151 - [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+  ---
+  duration_ms: 54.777791
+  type: 'test'
+  ...
+# Subtest: [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+ok 152 - [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+  ---
+  duration_ms: 47.969526
+  type: 'test'
+  ...
+# Subtest: [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+ok 153 - [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+  ---
+  duration_ms: 42.445783
+  type: 'test'
+  ...
+# Subtest: [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+ok 154 - [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+  ---
+  duration_ms: 79.233338
+  type: 'test'
+  ...
+# Subtest: [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+ok 155 - [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+  ---
+  duration_ms: 40.289504
+  type: 'test'
+  ...
+# Subtest: [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+ok 156 - [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+  ---
+  duration_ms: 51.811371
+  type: 'test'
+  ...
+# Subtest: [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+ok 157 - [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+  ---
+  duration_ms: 0.468838
+  type: 'test'
+  ...
+# Subtest: [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+ok 158 - [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+  ---
+  duration_ms: 32.004839
+  type: 'test'
+  ...
+# Subtest: [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+ok 159 - [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+  ---
+  duration_ms: 54.254066
+  type: 'test'
+  ...
+# Subtest: [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+ok 160 - [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+  ---
+  duration_ms: 0.501773
+  type: 'test'
+  ...
+# Subtest: [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+ok 161 - [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+  ---
+  duration_ms: 101.721553
+  type: 'test'
+  ...
+# Subtest: [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+ok 162 - [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+  ---
+  duration_ms: 89.585608
+  type: 'test'
+  ...
+# Subtest: [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+ok 163 - [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+  ---
+  duration_ms: 0.908933
+  type: 'test'
+  ...
+# Subtest: [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+ok 164 - [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+  ---
+  duration_ms: 118.080426
+  type: 'test'
+  ...
+# Subtest: [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+ok 165 - [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+  ---
+  duration_ms: 49.018711
+  type: 'test'
+  ...
+# Subtest: [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+ok 166 - [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+  ---
+  duration_ms: 49.097191
+  type: 'test'
+  ...
+# Subtest: [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+ok 167 - [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+  ---
+  duration_ms: 0.29164
+  type: 'test'
+  ...
+# (node:5718) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+ok 168 - [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 228.980843
+  type: 'test'
+  ...
+# Subtest: [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+ok 169 - [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 125.651038
+  type: 'test'
+  ...
+# Subtest: [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+ok 170 - [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+  ---
+  duration_ms: 186.567684
+  type: 'test'
+  ...
+# Subtest: [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+ok 171 - [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+  ---
+  duration_ms: 157.10225
+  type: 'test'
+  ...
+# Subtest: [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+ok 172 - [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+  ---
+  duration_ms: 143.177162
+  type: 'test'
+  ...
+# Subtest: [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+ok 173 - [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+  ---
+  duration_ms: 133.040115
+  type: 'test'
+  ...
+# Subtest: [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+ok 174 - [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+  ---
+  duration_ms: 80.920913
+  type: 'test'
+  ...
+# Subtest: [R3-I18N] FR/EN/AR/NL : la note de conflit et la note « périmé » existent, sans clé brute, et se rendent pendant un conflit STALE (AR en RTL)
+ok 175 - [R3-I18N] FR/EN/AR/NL : la note de conflit et la note « périmé » existent, sans clé brute, et se rendent pendant un conflit STALE (AR en RTL)
+  ---
+  duration_ms: 575.590101
+  type: 'test'
+  ...
+# (node:5733) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r4.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+ok 176 - [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+  ---
+  duration_ms: 216.13888
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+ok 177 - [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+  ---
+  duration_ms: 198.578631
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+ok 178 - [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+  ---
+  duration_ms: 196.984766
+  type: 'test'
+  ...
+# Subtest: [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+ok 179 - [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+  ---
+  duration_ms: 128.329915
+  type: 'test'
+  ...
+# Subtest: [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+ok 180 - [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+  ---
+  duration_ms: 81.033663
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+ok 181 - [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+  ---
+  duration_ms: 96.683137
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+ok 182 - [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+  ---
+  duration_ms: 136.52057
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+ok 183 - [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+  ---
+  duration_ms: 84.672847
+  type: 'test'
+  ...
+# Subtest: [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+ok 184 - [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+  ---
+  duration_ms: 609.468036
+  type: 'test'
+  ...
+# (node:5748) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+ok 185 - [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+  ---
+  duration_ms: 228.026997
+  type: 'test'
+  ...
+# Subtest: [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+ok 186 - [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 174.669979
+  type: 'test'
+  ...
+# Subtest: [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+ok 187 - [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 141.217117
+  type: 'test'
+  ...
+# Subtest: [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+ok 188 - [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+  ---
+  duration_ms: 228.237884
+  type: 'test'
+  ...
+# Subtest: [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+ok 189 - [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+  ---
+  duration_ms: 140.680778
+  type: 'test'
+  ...
+# Subtest: [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+ok 190 - [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+  ---
+  duration_ms: 160.871296
+  type: 'test'
+  ...
+# Subtest: [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+ok 191 - [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+  ---
+  duration_ms: 183.828605
+  type: 'test'
+  ...
+# Subtest: [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+ok 192 - [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+  ---
+  duration_ms: 130.465666
+  type: 'test'
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+ok 193 - [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 205.472958
+  type: 'test'
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+ok 194 - [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 225.132783
+  type: 'test'
+  ...
+# Subtest: [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+ok 195 - [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+  ---
+  duration_ms: 62.780404
+  type: 'test'
+  ...
+# (node:5764) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+ok 196 - [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+  ---
+  duration_ms: 420.877001
+  type: 'test'
+  ...
+# Subtest: [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+ok 197 - [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+  ---
+  duration_ms: 353.386768
+  type: 'test'
+  ...
+# Subtest: [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+ok 198 - [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+  ---
+  duration_ms: 97.846988
+  type: 'test'
+  ...
+# Subtest: [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+ok 199 - [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+  ---
+  duration_ms: 84.805993
+  type: 'test'
+  ...
+# Subtest: [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+ok 200 - [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+  ---
+  duration_ms: 472.192795
+  type: 'test'
+  ...
+# (node:5778) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r7.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R7-STALE-ORDRE-A] aller-retour (lecture AVANT le commit d'un tiers), exemple calculé, puis refus STALE de la demande retenue : l'exemple n'est plus « ready », le conflit est connu, la sauvegarde est fermée, rien n'est écrit
+ok 201 - [R7-STALE-ORDRE-A] aller-retour (lecture AVANT le commit d'un tiers), exemple calculé, puis refus STALE de la demande retenue : l'exemple n'est plus « ready », le conflit est connu, la sauvegarde est fermée, rien n'est écrit
+  ---
+  duration_ms: 465.422113
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-DIRTY] même scénario mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, le conflit est visible
+ok 202 - [R7-STALE-DIRTY] même scénario mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, le conflit est visible
+  ---
+  duration_ms: 303.985976
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-ORDRE-B] contrôle négatif : le tiers modifie AVANT la nouvelle lecture de pickup -- le snapshot affiché est déjà à jour : l'exemple reste « ready », ni conflit, ni erreur, ni lecture supplémentaire
+ok 203 - [R7-STALE-ORDRE-B] contrôle négatif : le tiers modifie AVANT la nouvelle lecture de pickup -- le snapshot affiché est déjà à jour : l'exemple reste « ready », ni conflit, ni erreur, ni lecture supplémentaire
+  ---
+  duration_ms: 145.97052
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-LECTURE-EN-VOL-recente] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture postérieure au commit du tiers) : la lecture n'est pas invalidée, aucun conflit
+ok 204 - [R7-STALE-LECTURE-EN-VOL-recente] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture postérieure au commit du tiers) : la lecture n'est pas invalidée, aucun conflit
+  ---
+  duration_ms: 88.540474
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-LECTURE-EN-VOL-ancienne] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture antérieure au commit du tiers) : à son arrivée la version périmée est connue : conflit, sauvegarde fermée
+ok 205 - [R7-STALE-LECTURE-EN-VOL-ancienne] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture antérieure au commit du tiers) : à son arrivée la version périmée est connue : conflit, sauvegarde fermée
+  ---
+  duration_ms: 81.988299
+  type: 'test'
+  ...
+# (node:5793) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-remediation.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+ok 206 - [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+  ---
+  duration_ms: 164.654909
+  type: 'test'
+  ...
+# Subtest: [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+ok 207 - [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+  ---
+  duration_ms: 145.318653
+  type: 'test'
+  ...
+# Subtest: [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+ok 208 - [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+  ---
+  duration_ms: 131.50329
+  type: 'test'
+  ...
+# Subtest: [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+ok 209 - [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+  ---
+  duration_ms: 102.221812
+  type: 'test'
+  ...
+# Subtest: [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+ok 210 - [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+  ---
+  duration_ms: 197.229209
+  type: 'test'
+  ...
+# Subtest: [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+ok 211 - [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+  ---
+  duration_ms: 99.68501
+  type: 'test'
+  ...
+# Subtest: [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+ok 212 - [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+  ---
+  duration_ms: 88.394632
+  type: 'test'
+  ...
+# Subtest: [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+ok 213 - [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+  ---
+  duration_ms: 59.85072
+  type: 'test'
+  ...
+# (node:5808) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-nav.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-NAV-DOM-1] le huitième onglet existe, porte le libellé attendu et conserve l'établissement
+ok 214 - [BO1-NAV-DOM-1] le huitième onglet existe, porte le libellé attendu et conserve l'établissement
+  ---
+  duration_ms: 36.377912
+  type: 'test'
+  ...
+# Subtest: [BO1-NAV-DOM-2] sur CHACUNE des huit routes, un seul onglet est actif (matrice complète, L1B-02)
+ok 215 - [BO1-NAV-DOM-2] sur CHACUNE des huit routes, un seul onglet est actif (matrice complète, L1B-02)
+  ---
+  duration_ms: 38.107835
+  type: 'test'
+  ...
+# Subtest: [BO1-NAV-DOM-3] « Commandes » n'est JAMAIS actif sur la nouvelle route -- la régression reproduite avant correction
+ok 216 - [BO1-NAV-DOM-3] « Commandes » n'est JAMAIS actif sur la nouvelle route -- la régression reproduite avant correction
+  ---
+  duration_ms: 4.863633
+  type: 'test'
+  ...
+# Subtest: [BO1-NAV-DOM-4] une route inconnue laisse « Commandes » actif, et aucun autre -- le repli reste un repli
+ok 217 - [BO1-NAV-DOM-4] une route inconnue laisse « Commandes » actif, et aucun autre -- le repli reste un repli
+  ---
+  duration_ms: 3.724162
+  type: 'test'
+  ...
+# Subtest: [BO1-NAV-DOM-5] les sept onglets antérieurs sont intacts : mêmes routes, même ordre relatif
+ok 218 - [BO1-NAV-DOM-5] les sept onglets antérieurs sont intacts : mêmes routes, même ordre relatif
+  ---
+  duration_ms: 6.181983
+  type: 'test'
+  ...
+# (node:5822) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-r1-contract.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-R1-1] charge v1 : jetons, listes explicites, décalage borné, et AUCUNE des trois sections v1.2
+ok 219 - [BO1-R1-1] charge v1 : jetons, listes explicites, décalage borné, et AUCUNE des trois sections v1.2
+  ---
+  duration_ms: 2.630174
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-2] charge v1.2 : les trois sections, et le décalage d'heure limite ABSENT quoi que dise le brouillon
+ok 220 - [BO1-R1-2] charge v1.2 : les trois sections, et le décalage d'heure limite ABSENT quoi que dise le brouillon
+  ---
+  duration_ms: 0.35319
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-3] le serveur de référence refuse les deux sens de la méthode et le décalage v1 hors 0..30
+ok 221 - [BO1-R1-3] le serveur de référence refuse les deux sens de la méthode et le décalage v1 hors 0..30
+  ---
+  duration_ms: 1.377269
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-4] bornes du contrat : 100 fenêtres, 200 créneaux, 731 fermetures — refusées avant l'envoi
+ok 222 - [BO1-R1-4] bornes du contrat : 100 fenêtres, 200 créneaux, 731 fermetures — refusées avant l'envoi
+  ---
+  duration_ms: 12.526472
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-5] le code métier est le préfixe avant le premier « : », rien d'autre
+ok 223 - [BO1-R1-5] le code métier est le préfixe avant le premier « : », rien d'autre
+  ---
+  duration_ms: 0.32086
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-6] SCANYM_CSDJBO1_POSTCHECK : message générique, sans le moindre détail technique, dans les quatre langues
+ok 224 - [BO1-R1-6] SCANYM_CSDJBO1_POSTCHECK : message générique, sans le moindre détail technique, dans les quatre langues
+  ---
+  duration_ms: 0.390289
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-7] aucune phrase de refus, dans aucune langue, ne contient SQLSTATE, DETAIL, HINT, un code ou un nom de table
+ok 225 - [BO1-R1-7] aucune phrase de refus, dans aucune langue, ne contient SQLSTATE, DETAIL, HINT, un code ou un nom de table
+  ---
+  duration_ms: 0.452758
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-8] repli brouillon : proposable pour une offre manquante, JAMAIS pour une capacité sans maximum, sans date, ou une grille incohérente
+ok 226 - [BO1-R1-8] repli brouillon : proposable pour une offre manquante, JAMAIS pour une capacité sans maximum, sans date, ou une grille incohérente
+  ---
+  duration_ms: 0.312904
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-9] le serveur de référence enregistre le brouillon incomplet, et refuse encore la capacité sans maximum
+ok 227 - [BO1-R1-9] le serveur de référence enregistre le brouillon incomplet, et refuse encore la capacité sans maximum
+  ---
+  duration_ms: 0.897434
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-10] les DEUX jetons sont comparés : horodatage tronqué, ou empreinte différente, ou jeton manquant = STALE
+ok 228 - [BO1-R1-10] les DEUX jetons sont comparés : horodatage tronqué, ou empreinte différente, ou jeton manquant = STALE
+  ---
+  duration_ms: 1.767057
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-11] la lecture autoritaire est strictement par (marchand, mode, règle) : un autre marchand, une autre règle ou un autre mode rendent null
+ok 229 - [BO1-R1-11] la lecture autoritaire est strictement par (marchand, mode, règle) : un autre marchand, une autre règle ou un autre mode rendent null
+  ---
+  duration_ms: 0.342584
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-12] une NOUVELLE livraison locale reçoit ses propres règles sans toucher Stuart, Chronofresh, le retrait, ni un autre marchand
+ok 230 - [BO1-R1-12] une NOUVELLE livraison locale reçoit ses propres règles sans toucher Stuart, Chronofresh, le retrait, ni un autre marchand
+  ---
+  duration_ms: 0.81323
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-13] une règle d'un autre marchand, ou jamais déclarée, est refusée : la portée ne s'invente pas
+ok 231 - [BO1-R1-13] une règle d'un autre marchand, ou jamais déclarée, est refusée : la portée ne s'invente pas
+  ---
+  duration_ms: 0.339703
+  type: 'test'
+  ...
+# Subtest: [BO1-R1-14] aucune règle d'Au Lait Cru ne devient un défaut global : un marchand vierge ne lit rien
+ok 232 - [BO1-R1-14] aucune règle d'Au Lait Cru ne devient un défaut global : un marchand vierge ne lit rien
+  ---
+  duration_ms: 0.207367
+  type: 'test'
+  ...
+# (node:5832) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-save-configuration-contract.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-RPC-1] le contrat d'écriture est OUVERT côté page depuis \#154 (audit et GO CIO obtenus, SQL installé)
+ok 233 - [BO1-RPC-1] le contrat d'écriture est OUVERT côté page depuis \#154 (audit et GO CIO obtenus, SQL installé)
+  ---
+  duration_ms: 1.183307
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-2] aucun code applicatif n'appelle la RPC (pas de SQL navigateur, pas d'écriture câblée)
+ok 234 - [BO1-RPC-2] aucun code applicatif n'appelle la RPC (pas de SQL navigateur, pas d'écriture câblée)
+  ---
+  duration_ms: 32.589522
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available
+ok 235 - [BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available
+  ---
+  duration_ms: 0.88068
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-3] SECURITY DEFINER, search_path vide, sur les trois fonctions
+ok 236 - [BO1-RPC-3] SECURITY DEFINER, search_path vide, sur les trois fonctions
+  ---
+  duration_ms: 0.2889
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-4] ACL : tout révoqué, puis authenticated sur save+get UNIQUEMENT
+ok 237 - [BO1-RPC-4] ACL : tout révoqué, puis authenticated sur save+get UNIQUEMENT
+  ---
+  duration_ms: 0.7234
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-5] verrou de tenant graine 1104 : le même que les mutateurs historiques
+ok 238 - [BO1-RPC-5] verrou de tenant graine 1104 : le même que les mutateurs historiques
+  ---
+  duration_ms: 0.160661
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-6] les trois codes nommés existent dans la RPC et dans le contrat documenté
+ok 239 - [BO1-RPC-6] les trois codes nommés existent dans la RPC et dans le contrat documenté
+  ---
+  duration_ms: 0.277184
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-7] aucun compte de capacité n'est renvoyé et aucune valeur par défaut globale n'est semée
+ok 240 - [BO1-RPC-7] aucun compte de capacité n'est renvoyé et aucune valeur par défaut globale n'est semée
+  ---
+  duration_ms: 0.420736
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-8] retour arrière : trois fonctions, aucune donnée, gardes nommées
+ok 241 - [BO1-RPC-8] retour arrière : trois fonctions, aucune donnée, gardes nommées
+  ---
+  duration_ms: 0.426151
+  type: 'test'
+  ...
+# Subtest: [BO1-RPC-9] le lot ne réapplique ni CSDJ-1, ni v1.2, ni CSDJ-3
+ok 242 - [BO1-RPC-9] le lot ne réapplique ni CSDJ-1, ni v1.2, ni CSDJ-3
+  ---
+  duration_ms: 0.525518
+  type: 'test'
+  ...
+# (node:5840) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-service-save.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-F01-SVC-1] l'écriture rend le snapshot de la RÉPONSE : configuration et jetons de la même version, microseconde verbatim
+ok 243 - [BO1-F01-SVC-1] l'écriture rend le snapshot de la RÉPONSE : configuration et jetons de la même version, microseconde verbatim
+  ---
+  duration_ms: 2.417321
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-SVC-2] réponse d'écriture sans configuration : UNE relecture autoritaire, dont la réponse ENTIÈRE est prise
+ok 244 - [BO1-F01-SVC-2] réponse d'écriture sans configuration : UNE relecture autoritaire, dont la réponse ENTIÈRE est prise
+  ---
+  duration_ms: 0.416811
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-SVC-3] écriture acceptée mais configuration introuvable à la relecture : refus nommé, jamais un snapshot inventé
+ok 245 - [BO1-F01-SVC-3] écriture acceptée mais configuration introuvable à la relecture : refus nommé, jamais un snapshot inventé
+  ---
+  duration_ms: 0.706865
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-SVC-4] un refus de concurrence traverse tel quel, et aucun jeton n'est lu dans une erreur
+ok 246 - [BO1-F01-SVC-4] un refus de concurrence traverse tel quel, et aucun jeton n'est lu dans une erreur
+  ---
+  duration_ms: 0.25437
+  type: 'test'
+  ...
+1..246
+# tests 246
+# suites 0
+# pass 246
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 30997.333428

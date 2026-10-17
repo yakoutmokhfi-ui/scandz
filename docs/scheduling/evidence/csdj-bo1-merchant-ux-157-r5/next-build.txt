@@ -1,0 +1,68 @@
+
+> scandz@0.1.0 build
+> next build
+
+   ▲ Next.js 15.5.21
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 12.3s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/34) ...
+   Generating static pages (8/34) 
+   Generating static pages (16/34) 
+   Generating static pages (25/34) 
+ ✓ Generating static pages (34/34)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                                  Size  First Load JS
+┌ ○ /                                                       178 B         103 kB
+├ ○ /_not-found                                             996 B         103 kB
+├ ○ /admin/establishments                                 3.03 kB         172 kB
+├ ○ /admin/establishments/catalogue-reset                 7.55 kB         172 kB
+├ ○ /admin/establishments/cockpit                         2.31 kB         180 kB
+├ ○ /admin/establishments/new                             7.02 kB         180 kB
+├ ƒ /api/admin/gap-01-ack-health-check                      178 B         103 kB
+├ ƒ /api/checkout/invoice-request                           178 B         103 kB
+├ ƒ /api/checkout/withdrawal-eligibility                    178 B         103 kB
+├ ƒ /api/dashboard/catalogue/product-photo                  178 B         103 kB
+├ ƒ /api/dashboard/catalogue/product-photo/retry-cleanup    178 B         103 kB
+├ ƒ /api/dashboard/legal-cgv/activate                       178 B         103 kB
+├ ƒ /api/dashboard/legal-cgv/publish                        178 B         103 kB
+├ ƒ /api/internal/payments/monetico/recover                 178 B         103 kB
+├ ƒ /api/internal/stuart/sandbox-readiness                  178 B         103 kB
+├ ƒ /api/internal/stuart/sandbox-trigger                    178 B         103 kB
+├ ƒ /api/internal/stuart/webhook                            178 B         103 kB
+├ ƒ /api/payments/monetico/callback                         178 B         103 kB
+├ ƒ /api/payments/monetico/checkout                         178 B         103 kB
+├ ƒ /api/track/exchange                                     178 B         103 kB
+├ ƒ /checkout/return/err                                    167 B         106 kB
+├ ƒ /checkout/return/ok                                     167 B         106 kB
+├ ○ /dashboard                                            9.48 kB         267 kB
+├ ○ /dashboard/availability                               20.3 kB         275 kB
+├ ○ /dashboard/catalogue                                  16.6 kB         286 kB
+├ ○ /dashboard/catalogue-import                           12.1 kB         195 kB
+├ ○ /dashboard/delivery-pricing                           7.74 kB         262 kB
+├ ○ /dashboard/forgot-password                            1.42 kB         247 kB
+├ ○ /dashboard/legal-cgv                                  24.5 kB         285 kB
+├ ○ /dashboard/login                                      1.55 kB         247 kB
+├ ○ /dashboard/payment                                    3.41 kB         258 kB
+├ ○ /dashboard/reset-password                             1.92 kB         248 kB
+├ ○ /dashboard/settings                                   12.9 kB         272 kB
+├ ○ /dashboard/translations                               10.4 kB         280 kB
+├ ○ /dashboard/withdrawal-requests                         3.4 kB         258 kB
+├ ƒ /legal/[slug]                                           178 B         103 kB
+├ ƒ /r/[slug]                                             33.9 kB         287 kB
+├ ƒ /track/[orderId]                                      3.82 kB         191 kB
+└ ƒ /track/[orderId]/withdrawal                             178 B         103 kB
++ First Load JS shared by all                              102 kB
+  ├ chunks/1255-612df69cb02f2021.js                       46.3 kB
+  ├ chunks/4bd1b696-f785427dddbba9fb.js                   54.2 kB
+  └ other shared chunks (total)                           1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+exit=0

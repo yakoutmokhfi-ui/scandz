@@ -1,0 +1,92 @@
+TAP version 13
+# (node:759) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+not ok 1 - [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+  ---
+  duration_ms: 390.911544
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:603:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    l'ancien exemple est resté « ready » après un succès confirmé
+    
+    'ready' !== 'stale'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'stale'
+  actual: 'ready'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:609:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+not ok 2 - [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+  ---
+  duration_ms: 369.58707
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:626:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    'ready' !== 'stale'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'stale'
+  actual: 'ready'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:635:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+ok 3 - [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+  ---
+  duration_ms: 181.974464
+  type: 'test'
+  ...
+# Subtest: [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+ok 4 - [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+  ---
+  duration_ms: 179.354143
+  type: 'test'
+  ...
+# Subtest: [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+not ok 5 - [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+  ---
+  duration_ms: 0.796991
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:708:1'
+  failureType: 'testCodeFailure'
+  error: 'fr.avSavedMeanwhile manquant'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts:712:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2182.3158
