@@ -37,8 +37,8 @@ function bodyOf(name: string): string {
   return SQL.slice(start, end);
 }
 
-test("[BO1-RPC-1] les contrats d'écriture restent FERMÉS côté page tant que l'audit et le GO manquent", () => {
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
+test("[BO1-RPC-1] le contrat d'écriture est OUVERT côté page depuis #154 (audit et GO CIO obtenus, SQL installé)", () => {
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
   assert.equal(CSDJ_BO1_WRITE_CONTRACT.requestedContract, "save_fulfillment_configuration");
 });
 
@@ -62,8 +62,8 @@ test("[BO1-RPC-2] aucun code applicatif n'appelle la RPC (pas de SQL navigateur,
   assert.deepEqual(hits, ["lib/services/availability.ts"]);
 });
 
-test("[BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available (false)", () => {
-  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, false);
+test("[BO1-RPC-2b] l'unique appel d'écriture est derrière le verrou CSDJ_BO1_WRITE_CONTRACT.available", () => {
+  assert.equal(CSDJ_BO1_WRITE_CONTRACT.available, true);
   const svc = read("lib/services/availability.ts");
   const code = svc.split("\n").filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join("\n");
   const calls = [...code.matchAll(/\.rpc\(\s*["'`]save_fulfillment_configuration/g)];

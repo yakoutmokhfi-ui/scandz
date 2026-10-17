@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 
@@ -485,22 +485,16 @@ test("[BO1-SVC-15] un refus de la lecture autoritaire remonte tel quel, pour que
   );
 });
 
-test("[BO1-SVC-16] drapeau d'écriture à false : l'écriture est refusée SANS AUCUN appel réseau", async () => {
-  script({});
-  await assert.rejects(
-    () =>
-      service.saveFulfillmentConfiguration("r-1", {
-        modeCode: "pickup",
-        fulfillmentRuleId: null,
-        method: "v1",
-        enabled: false,
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof service.AvailabilityWriteUnavailableError);
-      return true;
-    }
-  );
-  assert.deepEqual(calls(), [], "ni écriture, ni lecture : le refus précède le réseau");
+test("[BO1-SVC-16] (complément STRUCTUREL) le verrou d'écriture précède l'appel réseau dans la source", () => {
+  // Ce test ne prouve PAS le refus : il n'est qu'un complément de lecture
+  // de la source. Le refus EFFECTIF (drapeau forcé à false, espion sur le
+  // transport, 0 RPC d'écriture, contrôle positif et preuve de mutation)
+  // est dans tests/csdj-bo1-availability-write-lock.test.ts
+  // ([BO1-LOCK-1] à [BO1-LOCK-3]) -- remédiation PR #157, F-03.
+  const src = readFileSync(path.join(process.cwd(), "lib", "services", "availability.ts"), "utf8");
+  const guard = src.indexOf("if (!CSDJ_BO1_WRITE_CONTRACT.available)");
+  const call = src.search(/\.rpc\(\s*["'`]save_fulfillment_configuration/);
+  assert.ok(guard >= 0 && call > guard);
 });
 
 test("[BO1-SVC-11] le service n'a appelé, sur toute cette suite, AUCUNE fonction d'écriture", () => {

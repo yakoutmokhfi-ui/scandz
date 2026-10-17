@@ -1,0 +1,68 @@
+TAP version 13
+# (node:6351) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r4.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+ok 1 - [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+  ---
+  duration_ms: 273.516604
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+ok 2 - [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+  ---
+  duration_ms: 246.675004
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+ok 3 - [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+  ---
+  duration_ms: 261.130685
+  type: 'test'
+  ...
+# Subtest: [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+ok 4 - [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+  ---
+  duration_ms: 119.426712
+  type: 'test'
+  ...
+# Subtest: [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+ok 5 - [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+  ---
+  duration_ms: 70.861729
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+ok 6 - [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+  ---
+  duration_ms: 106.047576
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+ok 7 - [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+  ---
+  duration_ms: 164.021041
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+ok 8 - [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+  ---
+  duration_ms: 158.473761
+  type: 'test'
+  ...
+# Subtest: [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+ok 9 - [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+  ---
+  duration_ms: 376.747543
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2797.480485

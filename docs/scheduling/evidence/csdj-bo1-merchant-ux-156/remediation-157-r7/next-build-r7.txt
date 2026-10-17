@@ -1,0 +1,6 @@
+ ✓ Compiled successfully in 6.9s
+   Generating static pages (0/34) ...
+   Generating static pages (8/34) 
+   Generating static pages (16/34) 
+   Generating static pages (25/34) 
+ ✓ Generating static pages (34/34)

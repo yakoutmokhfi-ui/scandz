@@ -1,0 +1,44 @@
+TAP version 13
+# (node:5409) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r6.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+ok 1 - [R6-ROUNDTRIP] sauvegarde réussie tardive APRÈS un aller-retour : l'ancien exemple n'est plus « ready », l'écran rejoint la version enregistrée (désactivée), sans écriture supplémentaire
+  ---
+  duration_ms: 459.297471
+  type: 'test'
+  ...
+# Subtest: [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+ok 2 - [R6-ROUNDTRIP-DIRTY] même aller-retour mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, la page dit qu'une sauvegarde est intervenue, et son enregistrement passe par le refus STALE (jamais en silence)
+  ---
+  duration_ms: 445.42551
+  type: 'test'
+  ...
+# Subtest: [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+ok 3 - [R6-ORDRE] lecture APRÈS le commit (écriture libérée avant le retour) : l'écran est cohérent d'emblée et la correction n'ajoute pas de relecture inutile
+  ---
+  duration_ms: 149.971427
+  type: 'test'
+  ...
+# Subtest: [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+ok 4 - [R6-AUTRE-PORTEE] succès tardif de pickup pendant que delivery est affiché : l'exemple de delivery reste « ready », son brouillon et ses lectures ne bougent pas (pas de péremption inutile)
+  ---
+  duration_ms: 197.080749
+  type: 'test'
+  ...
+# Subtest: [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+ok 5 - [R6-I18N] FR/EN/AR/NL : la mention « sauvegarde intervenue entre-temps » existe, se rend (AR en RTL), sans clé brute
+  ---
+  duration_ms: 652.208169
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2995.605703

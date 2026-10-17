@@ -94,11 +94,15 @@ test("[BO1-A11Y-3] l'inactivité n'est jamais portée par la couleur seule : cha
 test("[BO1-A11Y-4] les régions vivantes sont correctement typées : état du lot en « status », erreur en « alert »", async () => {
   const ok = mount({ role: "owner" });
   await flush();
-  const banner = ok.container.querySelector("[data-write-contract]")!;
+  // Issue #156 : la bannière du contrat n'existe plus quand le contrat
+  // est disponible ; l'état de la configuration, lui, est toujours
+  // annoncé, et ce n'est pas une avarie : « status », pas « alert ».
+  assert.equal(ok.container.querySelector("[data-write-contract]"), null);
+  const banner = ok.container.querySelector("[data-editor-status]")!;
   assert.equal(
     banner.getAttribute("role"),
     "status",
-    "l'état du contrat d'écriture n'est pas une avarie : « status », pas « alert »"
+    "l'état de la configuration n'est pas une avarie : « status », pas « alert »"
   );
   ok.cleanup();
 
@@ -226,7 +230,7 @@ test("[BO1-A11Y-9] un groupe désactivé est annoncé comme tel, et porte une l�
   // l'ENREGISTREMENT -- la seule chose qui touche un client.
   const save = container.querySelector("[data-write-disabled-reason]") as HTMLButtonElement;
   assert.equal(save.disabled, true, "l'enregistrement reste verrouillé");
-  assert.equal(save.getAttribute("data-write-disabled-reason"), "write-contract");
+  assert.equal(save.getAttribute("data-write-disabled-reason"), "authority");
 
   // En revanche, un groupe qui ne s'applique PAS à la méthode de la
   // portée doit rester désactivé : proposer un réglage que le serveur
