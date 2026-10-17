@@ -285,6 +285,22 @@ export default function AvailabilityPage() {
    * brouillon, ni jeton n'est touché, et rien n'est enregistré.
    */
   const refreshSeqRef = useRef(0);
+  /**
+   * R6 : « le brouillon affiché a des modifications non enregistrées »,
+   * lisible depuis une continuation asynchrone sans la rendre dépendante
+   * du rendu (mise à jour à chaque rendu, voir `dirty`).
+   */
+  const dirtyRef = useRef(false);
+  /**
+   * R6 : une sauvegarde de CETTE portée a abouti pendant que l'écran était
+   * ailleurs, alors que le snapshot affiché a été lu avant elle ET qu'il
+   * porte des modifications du commerçant (qu'on n'écrase pas). La page le
+   * dit ; le prochain enregistrement est de toute façon refusé STALE.
+   */
+  const [savedMeanwhile, setSavedMeanwhile] = useState<{
+    restaurantId: string;
+    scopeKey: string;
+  } | null>(null);
   const [reloading, setReloading] = useState(false);
   const [reloadAbandoned, setReloadAbandoned] = useState(false);
   /**
@@ -747,6 +763,7 @@ export default function AvailabilityPage() {
     setRebased(false);
     setSaveError(null);
     setSaved(false);
+    setSavedMeanwhile(null);
     setDraftOfferPending(false);
     if (!selectedScopeKey || !inContext || !restaurantId) return;
     const schedule = listsRef.current.schedules.find(
@@ -816,6 +833,7 @@ export default function AvailabilityPage() {
     draft !== null && (draftOfferPending || canFallBackToDraft(draft));
 
   const dirty = draft !== null && baseline !== null && isDraftDirty(draft, baseline);
+  dirtyRef.current = dirty;
   const changeCount =
     draft !== null && baseline !== null ? draftChangeCount(draft, baseline) : 0;
 
@@ -1086,6 +1104,7 @@ export default function AvailabilityPage() {
     setSaving(true);
     setSaveError(null);
     setSaved(false);
+    setSavedMeanwhile(null);
     setRebased(false);
     setDraftOfferPending(false);
     try {
@@ -1100,7 +1119,29 @@ export default function AvailabilityPage() {
       // la portée enregistrée. Ni brouillon, ni jetons, ni génération, ni
       // relecture forcée pour la portée courante : en revenant sur la
       // portée enregistrée, la lecture autoritaire repart de zéro.
-      if (!stillInScope()) return;
+      if (!stillInScope()) {
+        // R6-PREVIEW-ROUNDTRIP : l'enregistrement est RÉEL. Si l'écran est
+        // revenu sur la portée enregistrée (aller-retour pendant la
+        // sauvegarde), son snapshot a pu être lu AVANT ce commit :
+        //   - l'exemple calculé sur lui n'est plus celui de la
+        //     configuration enregistrée -> génération incrémentée ;
+        //   - sans modification du commerçant, une lecture neuve (après le
+        //     commit) remplace le snapshot ancien ; avec des modifications,
+        //     rien n'est écrasé : la page le dit, et le prochain
+        //     enregistrement partira avec des jetons anciens, donc sera
+        //     refusé STALE (jamais écrit en silence).
+        // Sur une AUTRE portée, rien ne change : la lecture de zéro au
+        // retour suffit et l'exemple de la portée affichée reste valable.
+        if (selectedScopeKeyRef.current === savedScope) {
+          bumpSnapshotGen();
+          if (dirtyRef.current) {
+            setSavedMeanwhile({ restaurantId, scopeKey: savedScope });
+          } else {
+            setReloadNonce((n) => n + 1);
+          }
+        }
+        return;
+      }
       // La réponse du serveur est le NOUVEAU snapshot indivisible :
       // brouillon, référence et jetons en sortent ensemble. Après un
       // enregistrement, « modifié » retombe parce que la base et
@@ -1719,6 +1760,18 @@ export default function AvailabilityPage() {
                     {t("avReloadAbandoned")}
                   </p>
                 )}
+
+                {savedMeanwhile !== null &&
+                  savedMeanwhile.restaurantId === restaurantId &&
+                  savedMeanwhile.scopeKey === selectedScopeKey && (
+                    <p
+                      role="status"
+                      data-saved-meanwhile="true"
+                      className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+                    >
+                      {t("avSavedMeanwhile")}
+                    </p>
+                  )}
 
                 {/* Lecture complète indisponible : valeurs issues de la
                     liste, enregistrement fermé -- dit en tête, pas
