@@ -586,7 +586,22 @@ export default function AvailabilityPage() {
    */
   const previewSeqRef = useRef(0);
 
+  /**
+   * ═══ R5-SCOPE-STALE : IDENTITÉ DE PORTÉE DES OPÉRATIONS ASYNCHRONES ═══
+   * Un compteur incrémenté SYNCHRONIQUEMENT à chaque vrai changement de
+   * portée (`selectScope`). Une opération asynchrone (la sauvegarde) en
+   * relève la valeur à son départ ; si elle a changé à son retour, la
+   * portée pour laquelle elle a été lancée n'est plus celle de l'écran.
+   * Sa réponse est alors une réponse d'une AUTRE portée : elle ne touche
+   * ni le brouillon, ni le statut, ni les jetons, ni la génération de
+   * lecture, ni le conflit, ni le message d'erreur de la portée courante.
+   * Le restaurant a sa propre garde (`requestSeqRef`) ; elle reste
+   * inchangée et se cumule avec celle-ci.
+   */
+  const scopeEpochRef = useRef(0);
+
   const selectScope = useCallback((key: string) => {
+    if (key !== selectedScopeKeyRef.current) scopeEpochRef.current += 1;
     // Changer de portée annule toute relecture en vol : sa réponse
     // concernerait une autre portée.
     refreshSeqRef.current += 1;
@@ -1001,6 +1016,13 @@ export default function AvailabilityPage() {
   const loadServerVersion = useCallback(
     async (target: { modeCode: string; fulfillmentRuleId: string | null }) => {
       if (!restaurantId) return;
+      // R5-SCOPE-STALE : on ne relit pas, et on ne touche à aucune
+      // génération, pour une portée qui n'est plus celle de l'écran. La
+      // lecture autoritaire de la portée COURANTE ne doit jamais être
+      // invalidée par la suite d'une opération d'une autre portée.
+      if (selectedScopeKeyRef.current !== scopeKeyOf(target.modeCode, target.fulfillmentRuleId)) {
+        return;
+      }
       // R3-F02 : le refus de concurrence PROUVE que la version enregistrée
       // n'est plus celle que l'écran croyait. Dès cet instant -- avant
       // même la fin de la relecture, avant tout choix du commerçant --
@@ -1054,6 +1076,13 @@ export default function AvailabilityPage() {
     const intended = options.asDraft ? draftAsInactive(draft) : draft;
     if (validateDraft(intended).length > 0) return;
     const seq = requestSeqRef.current;
+    // R5-SCOPE-STALE : la portée pour laquelle cette sauvegarde part, et
+    // le rang de portée à cet instant. Au retour, les deux doivent être
+    // encore ceux de l'écran pour que la réponse touche l'écran.
+    const intendedScope = scopeKeyOf(intended.modeCode, intended.fulfillmentRuleId);
+    const epochAtStart = scopeEpochRef.current;
+    const stillInScope = () =>
+      scopeEpochRef.current === epochAtStart && selectedScopeKeyRef.current === intendedScope;
     setSaving(true);
     setSaveError(null);
     setSaved(false);
@@ -1063,9 +1092,15 @@ export default function AvailabilityPage() {
       const payload = buildSaveFulfillmentConfigurationPayload(intended);
       const next = await saveFulfillmentConfiguration(restaurantId, payload);
       if (seq !== requestSeqRef.current) return;
-      const savedScope = scopeKeyOf(intended.modeCode, intended.fulfillmentRuleId);
+      const savedScope = intendedScope;
       setSchedules(next.schedules);
       setV12(next.v12);
+      // R5-SCOPE-STALE : l'enregistrement est réel et les listes sont à
+      // jour, mais l'écran n'est plus (ou n'a pas cessé de ne pas être) sur
+      // la portée enregistrée. Ni brouillon, ni jetons, ni génération, ni
+      // relecture forcée pour la portée courante : en revenant sur la
+      // portée enregistrée, la lecture autoritaire repart de zéro.
+      if (!stillInScope()) return;
       // La réponse du serveur est le NOUVEAU snapshot indivisible :
       // brouillon, référence et jetons en sortent ensemble. Après un
       // enregistrement, « modifié » retombe parce que la base et
@@ -1085,12 +1120,19 @@ export default function AvailabilityPage() {
         setConflict(null);
         setSaved(true);
       } else {
-        // Snapshot inexploitable, ou portée changée pendant l'écriture :
-        // on repart d'une lecture autoritaire, jamais d'un mélange.
+        // Snapshot inexploitable : on repart d'une lecture autoritaire,
+        // jamais d'un mélange. (Le cas « portée changée pendant
+        // l'écriture » est traité plus haut, sans toucher l'écran.)
         setReloadNonce((n) => n + 1);
       }
     } catch (error) {
       if (seq !== requestSeqRef.current) return;
+      // R5-SCOPE-STALE : refus (STALE ou autre) d'une sauvegarde lancée pour
+      // une portée qui n'est plus celle de l'écran. Il ne produit AUCUN
+      // effet sur la portée courante : ni message, ni conflit, ni relecture
+      // qui invaliderait la lecture en cours. La portée abandonnée sera
+      // relue de zéro si on y revient.
+      if (!stillInScope()) return;
       if (error instanceof AvailabilityWriteUnavailableError) {
         setSaveError(translate(uiLangRef.current, "avSaveDisabledWhyContract"));
       } else {
