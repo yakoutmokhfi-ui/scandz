@@ -292,6 +292,20 @@ export default function AvailabilityPage() {
    */
   const dirtyRef = useRef(false);
   /**
+   * R7 : jetons d'une demande refusée STALE alors que la portée refusée
+   * est redevenue courante mais que sa lecture neuve est encore EN VOL
+   * (aucun snapshot affiché pour juger). Si cette lecture rend ces mêmes
+   * jetons (lecture faite avant le commit du tiers), la version affichée
+   * est connue périmée ; sinon la lecture est plus récente et rien ne
+   * se passe. Effacée dès qu'un snapshot de cette portée est jugé.
+   */
+  const refusedStaleRef = useRef<{
+    restaurantId: string;
+    scopeKey: string;
+    revisionRefused: string | null;
+    updatedAtRefused: string | null;
+  } | null>(null);
+  /**
    * R6 : une sauvegarde de CETTE portée a abouti pendant que l'écran était
    * ailleurs, alors que le snapshot affiché a été lu avant elle ET qu'il
    * porte des modifications du commerçant (qu'on n'écrase pas). La page le
@@ -1173,7 +1187,40 @@ export default function AvailabilityPage() {
       // effet sur la portée courante : ni message, ni conflit, ni relecture
       // qui invaliderait la lecture en cours. La portée abandonnée sera
       // relue de zéro si on y revient.
-      if (!stillInScope()) return;
+      if (!stillInScope()) {
+        // R7-ROUNDTRIP-STALE-PREVIEW : un refus STALE est une INFORMATION
+        // sur la version affichée quand l'écran est revenu sur la portée
+        // refusée ET que le snapshot affiché porte les MÊMES jetons que la
+        // demande refusée (lecture faite avant le commit du tiers). Cette
+        // version est alors connue périmée : même traitement qu'un refus
+        // en portée (exemple périmé dès le début, conflit relu à part,
+        // sauvegarde fermée, brouillon et saisie jamais écrasés).
+        // Autres cas : AUCUN effet (autre portée ; lecture encore en vol,
+        // donc pas de snapshot affiché ; snapshot affiché déjà plus récent
+        // que la demande refusée -- le contrôle négatif de l'audit R6).
+        if (
+          selectedScopeKeyRef.current === intendedScope &&
+          serverRefusalCode(error) === "CSDJBO1_STALE_CONFIGURATION"
+        ) {
+          const shown = draftRef.current;
+          if (
+            shown !== null &&
+            shown.expectedRevision === intended.expectedRevision &&
+            shown.expectedUpdatedAt === intended.expectedUpdatedAt
+          ) {
+            setSaveError(translate(uiLangRef.current, saveErrorKey(error)));
+            await loadServerVersion(intended);
+          } else if (shown === null) {
+            refusedStaleRef.current = {
+              restaurantId,
+              scopeKey: intendedScope,
+              revisionRefused: intended.expectedRevision,
+              updatedAtRefused: intended.expectedUpdatedAt,
+            };
+          }
+        }
+        return;
+      }
       if (error instanceof AvailabilityWriteUnavailableError) {
         setSaveError(translate(uiLangRef.current, "avSaveDisabledWhyContract"));
       } else {
@@ -1212,6 +1259,25 @@ export default function AvailabilityPage() {
       if (seq === requestSeqRef.current) setSaving(false);
     }
   }, [draft, restaurantId, canSaveDraft, loadServerVersion]);
+
+  // R7 : jugement d'un snapshot arrivé APRÈS un refus STALE reçu pendant sa
+  // lecture. Mêmes jetons que la demande refusée = lecture antérieure au
+  // commit du tiers : version périmée connue, traitée comme un refus en
+  // portée. Jetons différents = lecture plus récente : rien à faire.
+  useEffect(() => {
+    const refused = refusedStaleRef.current;
+    if (refused === null) return;
+    if (refused.restaurantId !== restaurantId || refused.scopeKey !== selectedScopeKey) return;
+    if (!draft || snapshotKey?.source !== "authority") return;
+    refusedStaleRef.current = null;
+    if (
+      draft.expectedRevision === refused.revisionRefused &&
+      draft.expectedUpdatedAt === refused.updatedAtRefused
+    ) {
+      setSaveError(translate(uiLangRef.current, "avSaveStale"));
+      void loadServerVersion(draft);
+    }
+  }, [draft, snapshotKey, restaurantId, selectedScopeKey, loadServerVersion]);
 
   /** Résolution 1 — abandonner SES modifications, reprendre le serveur. */
   const takeServerVersion = useCallback(() => {
