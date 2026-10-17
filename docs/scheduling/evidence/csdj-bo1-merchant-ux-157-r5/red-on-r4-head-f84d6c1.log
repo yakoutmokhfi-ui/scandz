@@ -1,0 +1,224 @@
+TAP version 13
+# (node:1678) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+not ok 1 - [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+  ---
+  duration_ms: 168.973372
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:551:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    la réponse valide de delivery a été ignorée
+    
+    null !== '9'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '9'
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:584:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+not ok 2 - [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 206.529697
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:620:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    'error' !== 'clean'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'clean'
+  actual: 'error'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:637:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+not ok 3 - [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 95.091636
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:620:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    null !== '9'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '9'
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:636:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+not ok 4 - [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+  ---
+  duration_ms: 141.058739
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:648:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    la réponse valide de pickup a été ignorée
+    
+    null !== '1'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '1'
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:678:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+ok 5 - [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+  ---
+  duration_ms: 87.874561
+  type: 'test'
+  ...
+# Subtest: [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+not ok 6 - [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+  ---
+  duration_ms: 180.951914
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:711:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    le STALE d'une portée abandonnée a déclenché une lecture
+    
+    5 !== 4
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 4
+  actual: 5
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:730:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+not ok 7 - [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+  ---
+  duration_ms: 61.934168
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:747:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    la lecture neuve de pickup a été invalidée
+    
+    null !== '7'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '7'
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:773:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+not ok 8 - [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+  ---
+  duration_ms: 50.507625
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:781:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    'error' !== 'clean'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'clean'
+  actual: 'error'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:793:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+not ok 9 - [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 52.644657
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:802:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    une réponse tardive d'une autre portée a relancé la lecture de delivery
+    
+    2 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:817:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+not ok 10 - [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 66.284315
+  type: 'test'
+  location: '/home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:802:3'
+  failureType: 'testCodeFailure'
+  error: |-
+    une réponse tardive d'une autre portée a relancé la lecture de delivery
+    
+    2 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts:817:14)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+ok 11 - [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+  ---
+  duration_ms: 159.466824
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 2
+# fail 9
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2231.782011

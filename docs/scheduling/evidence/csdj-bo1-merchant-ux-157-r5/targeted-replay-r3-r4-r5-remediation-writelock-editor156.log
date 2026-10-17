@@ -1,0 +1,608 @@
+TAP version 13
+# (node:9933) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-availability-write-lock.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+ok 1 - [BO1-LOCK-1] drapeau d'écriture à false : la sauvegarde est REFUSÉE et AUCUN appel n'atteint le transport
+  ---
+  duration_ms: 27.999107
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+ok 2 - [BO1-LOCK-2] contrôle positif : drapeau réel (true), la même requête atteint le transport (1 RPC d'écriture)
+  ---
+  duration_ms: 13.414965
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+ok 3 - [BO1-LOCK-3] preuve de mutation : sans le `throw`, drapeau à false, le service ÉCRIT -- le test négatif sait donc échouer
+  ---
+  duration_ms: 12.469001
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+ok 4 - [BO1-LOCK-4] drapeau à false : les contrôles d'écriture sont fermés pour TOUS les rôles, avec la raison « contrat » (propriétaire compris)
+  ---
+  duration_ms: 7.525565
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+ok 5 - [BO1-LOCK-5] drapeau réel (true) : seuls propriétaire et responsable écrivent ; employé, rôle absent et opérateur sont refusés
+  ---
+  duration_ms: 8.099633
+  type: 'test'
+  ...
+# Subtest: [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+ok 6 - [BO1-LOCK-6] la valeur du dépôt n'a pas été modifiée par ces tests (available = true)
+  ---
+  duration_ms: 0.231595
+  type: 'test'
+  ...
+# (node:9947) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-editor-save.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [BO1-SAVE-0] le drapeau RÉEL est vrai depuis \#154 : aucune bannière « contrat non approuvé » n'est rendue (issue \#156, constat 1)
+ok 7 - [BO1-SAVE-0] le drapeau RÉEL est vrai depuis \#154 : aucune bannière « contrat non approuvé » n'est rendue (issue \#156, constat 1)
+  ---
+  duration_ms: 128.815321
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-1] ajout d'un créneau et d'une règle de fermeture : UN seul appel, charge intégrale
+ok 8 - [BO1-SAVE-1] ajout d'un créneau et d'une règle de fermeture : UN seul appel, charge intégrale
+  ---
+  duration_ms: 243.563203
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-2] l'heure limite 16:00 de « Au Lait Cru » devient 17:30, et c'est la seule chose qui bouge
+ok 9 - [BO1-SAVE-2] l'heure limite 16:00 de « Au Lait Cru » devient 17:30, et c'est la seule chose qui bouge
+  ---
+  duration_ms: 94.050893
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-3] fermer le mardi = retirer ses lignes, et un jour sans ligne est un jour fermé
+ok 10 - [BO1-SAVE-3] fermer le mardi = retirer ses lignes, et un jour sans ligne est un jour fermé
+  ---
+  duration_ms: 121.672601
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-4] sauvegarde refusée : phrase traduite, aucun code brut, RIEN d'écrit, brouillon conservé
+ok 11 - [BO1-SAVE-4] sauvegarde refusée : phrase traduite, aucun code brut, RIEN d'écrit, brouillon conservé
+  ---
+  duration_ms: 113.348275
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-5] un réglage que le serveur refuserait bloque l'envoi AVANT le réseau, en nommant le réglage
+ok 12 - [BO1-SAVE-5] un réglage que le serveur refuserait bloque l'envoi AVANT le réseau, en nommant le réglage
+  ---
+  duration_ms: 99.48093
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6] concurrence (F01-B) : STALE puis SECOND CLIC — rien n'écrase le tiers, les deux versions restent séparées, et il faut un choix explicite
+ok 13 - [BO1-SAVE-6] concurrence (F01-B) : STALE puis SECOND CLIC — rien n'écrase le tiers, les deux versions restent séparées, et il faut un choix explicite
+  ---
+  duration_ms: 104.55615
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6c] conflit : « reprendre la version du serveur » abandonne MES modifications, rien d'autre
+ok 14 - [BO1-SAVE-6c] conflit : « reprendre la version du serveur » abandonne MES modifications, rien d'autre
+  ---
+  duration_ms: 117.015799
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6d] vrai conflit : le même réglage changé des DEUX côtés est nommé « des deux côtés », et mon choix est explicite
+ok 15 - [BO1-SAVE-6d] vrai conflit : le même réglage changé des DEUX côtés est nommé « des deux côtés », et mon choix est explicite
+  ---
+  duration_ms: 99.764329
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6e] deuxième refus après un rebase : le serveur a encore changé, et rien n'est écrasé non plus
+ok 16 - [BO1-SAVE-6e] deuxième refus après un rebase : le serveur a encore changé, et rien n'est écrasé non plus
+  ---
+  duration_ms: 207.147817
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6f] la relecture du serveur échoue : rien n'est résolu, rien n'est enregistré, et on propose de relire
+ok 17 - [BO1-SAVE-6f] la relecture du serveur échoue : rien n'est résolu, rien n'est enregistré, et on propose de relire
+  ---
+  duration_ms: 134.61378
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-A] interleaving : listes A → modification concurrente B → snapshot autoritaire B. Jamais A signé des jetons de B
+ok 18 - [BO1-F01-A] interleaving : listes A → modification concurrente B → snapshot autoritaire B. Jamais A signé des jetons de B
+  ---
+  duration_ms: 120.55138
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-A2] lecture autoritaire muette ou sans configuration : le brouillon se montre, l'enregistrement reste FERMÉ
+ok 19 - [BO1-F01-A2] lecture autoritaire muette ou sans configuration : le brouillon se montre, l'enregistrement reste FERMÉ
+  ---
+  duration_ms: 120.466998
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-C] changement rapide de portée et réponse autoritaire EN DÉSORDRE : la portée affichée n'est jamais celle d'une réponse tardive
+ok 20 - [BO1-F01-C] changement rapide de portée et réponse autoritaire EN DÉSORDRE : la portée affichée n'est jamais celle d'une réponse tardive
+  ---
+  duration_ms: 87.878836
+  type: 'test'
+  ...
+# Subtest: [BO1-F01-D] multi-commerçants : une réponse autoritaire tardive d'un AUTRE établissement ne se mêle ni au brouillon ni aux jetons
+ok 21 - [BO1-F01-D] multi-commerçants : une réponse autoritaire tardive d'un AUTRE établissement ne se mêle ni au brouillon ni aux jetons
+  ---
+  duration_ms: 46.436123
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-6b] la précision microseconde traverse l'écran SANS être tronquée
+ok 22 - [BO1-SAVE-6b] la précision microseconde traverse l'écran SANS être tronquée
+  ---
+  duration_ms: 54.675576
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-7] isolation locataire : enregistrer chez l'un ne touche jamais l'autre, et changer d'établissement repart de zéro
+ok 23 - [BO1-SAVE-7] isolation locataire : enregistrer chez l'un ne touche jamais l'autre, et changer d'établissement repart de zéro
+  ---
+  duration_ms: 82.083849
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-8] brouillon / enregistré / annulé : trois états lisibles, et « annuler » revient à l'état lu
+ok 24 - [BO1-SAVE-8] brouillon / enregistré / annulé : trois états lisibles, et « annuler » revient à l'état lu
+  ---
+  duration_ms: 43.716531
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-9] activer une portée qui ne proposerait aucune date est refusé AVANT l'envoi, et dit ce qui manque
+ok 25 - [BO1-SAVE-9] activer une portée qui ne proposerait aucune date est refusé AVANT l'envoi, et dit ce qui manque
+  ---
+  duration_ms: 32.409773
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-13] configuration incomplète : les manques sont nommés, le BROUILLON est proposé, et il n'est écrit qu'après confirmation
+ok 26 - [BO1-SAVE-13] configuration incomplète : les manques sont nommés, le BROUILLON est proposé, et il n'est écrit qu'après confirmation
+  ---
+  duration_ms: 55.562765
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-14] refus serveur « configuration incomplète » : le brouillon est proposé en réponse au REFUS, jamais enregistré d'office
+ok 27 - [BO1-SAVE-14] refus serveur « configuration incomplète » : le brouillon est proposé en réponse au REFUS, jamais enregistré d'office
+  ---
+  duration_ms: 152.926357
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-15] même en brouillon, une capacité ou une grille incohérente reste REFUSÉE
+ok 28 - [BO1-SAVE-15] même en brouillon, une capacité ou une grille incohérente reste REFUSÉE
+  ---
+  duration_ms: 97.677978
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-10] rôle staff : même contrat livré, l'écran n'offre AUCUN champ modifiable
+ok 29 - [BO1-SAVE-10] rôle staff : même contrat livré, l'écran n'offre AUCUN champ modifiable
+  ---
+  duration_ms: 54.732212
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-11] et si une interface future l'oubliait : le serveur refuse le rôle de toute façon
+ok 30 - [BO1-SAVE-11] et si une interface future l'oubliait : le serveur refuse le rôle de toute façon
+  ---
+  duration_ms: 0.729252
+  type: 'test'
+  ...
+# Subtest: [BO1-SAVE-12] néerlandais : l'écran et sa barre d'enregistrement sont en NL, jamais un repli français visible
+ok 31 - [BO1-SAVE-12] néerlandais : l'écran et sa barre d'enregistrement sont en NL, jamais un repli français visible
+  ---
+  duration_ms: 58.887339
+  type: 'test'
+  ...
+# (node:9961) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-156.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+ok 32 - [UX156-1] contrat disponible + rôle d'écriture : ni bannière, ni raison « inactif », état « enregistré »
+  ---
+  duration_ms: 114.803472
+  type: 'test'
+  ...
+# Subtest: [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+ok 33 - [UX156-1b] rôle sans droit d'écriture : l'état est « lecture seule », la raison est le RÔLE, rien d'actionnable
+  ---
+  duration_ms: 49.685368
+  type: 'test'
+  ...
+# Subtest: [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+ok 34 - [UX156-1c] l'opérateur Scanym n'a pas d'écriture : « lecture seule » aussi
+  ---
+  duration_ms: 69.367768
+  type: 'test'
+  ...
+# Subtest: [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+ok 35 - [UX156-2] une modification non enregistrée est annoncée « modifiée, non enregistrée » ; la version enregistrée reste nommée à part ; enregistrer réconcilie
+  ---
+  duration_ms: 163.964423
+  type: 'test'
+  ...
+# Subtest: [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+ok 36 - [UX156-2b] le sélecteur et le résumé enregistré proviennent de la MÊME lecture : rechargement = mêmes valeurs
+  ---
+  duration_ms: 37.616014
+  type: 'test'
+  ...
+# Subtest: [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+ok 37 - [UX156-2c] si la liste et la configuration du serveur se contredisent, la page le DIT, ne tranche pas en silence, et propose de relire
+  ---
+  duration_ms: 107.929626
+  type: 'test'
+  ...
+# Subtest: [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+ok 38 - [UX156-2d] pas de valeur par défaut affichée tant que le serveur n'a pas répondu : chargement annoncé, aucun sélecteur
+  ---
+  duration_ms: 42.61783
+  type: 'test'
+  ...
+# Subtest: [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+ok 39 - [UX156-2e] lecture autoritaire absente : valeurs de la liste, enregistrement fermé, DIT en tête avec un moyen de relire
+  ---
+  duration_ms: 58.28554
+  type: 'test'
+  ...
+# Subtest: [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+ok 40 - [UX156-2f] relire est REFUSÉ quand des modifications ne sont pas enregistrées (rien ne s'efface en silence)
+  ---
+  duration_ms: 100.061309
+  type: 'test'
+  ...
+# Subtest: [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+ok 41 - [UX156-3] « Retrait en boutique » à la place de « pickup » ; le code brut n'est plus que dans les détails techniques
+  ---
+  duration_ms: 39.67231
+  type: 'test'
+  ...
+# Subtest: [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+ok 42 - [UX156-3b] les noms de mode existent dans les quatre langues, sans doublon de terme anglais en FR
+  ---
+  duration_ms: 0.293783
+  type: 'test'
+  ...
+# Subtest: [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+ok 43 - [UX156-4] méthode v1 : aucun champ v1.2 demandé, aucun manque affiché, une seule phrase d'explication
+  ---
+  duration_ms: 51.066757
+  type: 'test'
+  ...
+# Subtest: [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+ok 44 - [UX156-4b] méthode v1.2 : les options v1.2 existent bel et bien (non régression)
+  ---
+  duration_ms: 61.271749
+  type: 'test'
+  ...
+# Subtest: [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+ok 45 - [UX156-5] exemple en clair tiré des réglages saisis (J+1, 16:00, décalage 1, horizon 14) ; aucune date calculée dans le navigateur
+  ---
+  duration_ms: 32.982322
+  type: 'test'
+  ...
+# Subtest: [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+ok 46 - [UX156-5b] l'exemple daté vient du serveur : première date + créneaux de CE jour-là, et il dit qu'il reflète la version enregistrée
+  ---
+  duration_ms: 58.282096
+  type: 'test'
+  ...
+# Subtest: [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+ok 47 - [UX156-9] l'aperçu serveur dit qu'il ne simule pas une commande et que le retrait n'est pas encore relié (CSDJ-2)
+  ---
+  duration_ms: 27.065203
+  type: 'test'
+  ...
+# Subtest: [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+ok 48 - [UX156-7] résumé hebdomadaire : mardi–samedi 11–14 et 16–20, dimanche et lundi fermés ; le brouillon n'a pas été réécrit
+  ---
+  duration_ms: 29.563286
+  type: 'test'
+  ...
+# Subtest: [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+ok 49 - [UX156-7b] weeklyScheduleSummary : un jour sans plage est fermé, en fenêtres comme en créneaux, trié par heure
+  ---
+  duration_ms: 0.607963
+  type: 'test'
+  ...
+# Subtest: [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+ok 50 - [UX156-6] la page explique quels modes sont modifiables et pourquoi les autres n'apparaissent pas
+  ---
+  duration_ms: 31.592907
+  type: 'test'
+  ...
+# Subtest: [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+ok 51 - [UX156-8] fermetures client et fermetures d'atelier sont des listes distinctes ; en v1 l'atelier et les fériés sont absents
+  ---
+  duration_ms: 27.219165
+  type: 'test'
+  ...
+# Subtest: [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+ok 52 - [UX156-10] editorStatusOf : ordre de gravité, jamais « enregistré » en lecture seule ni « propre » devant un conflit
+  ---
+  duration_ms: 0.692129
+  type: 'test'
+  ...
+# Subtest: [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+ok 53 - [UX156-10b] conflit de concurrence : l'état devient « conflit », rien n'est écrasé, F-01 intact
+  ---
+  duration_ms: 104.495554
+  type: 'test'
+  ...
+# Subtest: [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+ok 54 - [UX156-10c] changement RÉEL de portée pendant une lecture retardée : la réponse tardive de l'ancienne portée ne touche ni le brouillon, ni le résumé, ni l'état
+  ---
+  duration_ms: 86.171423
+  type: 'test'
+  ...
+# Subtest: [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+ok 55 - [UX156-11] FR/EN/AR/NL : toutes les clés de la refonte existent, sans valeur vide, avec les mêmes paramètres
+  ---
+  duration_ms: 0.996521
+  type: 'test'
+  ...
+# Subtest: [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+ok 56 - [UX156-11b] la page se rend en anglais, arabe et néerlandais avec les nouveaux libellés (jamais de clé brute)
+  ---
+  duration_ms: 119.978585
+  type: 'test'
+  ...
+# Subtest: [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+ok 57 - [UX156-12] clavier : les nouveaux contrôles sont de vrais boutons/cases, accessibles (id, libellé, pas de tabindex négatif)
+  ---
+  duration_ms: 44.274964
+  type: 'test'
+  ...
+# Subtest: [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+ok 58 - [UX156-12b] mobile : un sélecteur de portée, pas de tableau obligatoire ; les plages tiennent sur une colonne
+  ---
+  duration_ms: 52.138994
+  type: 'test'
+  ...
+# Subtest: [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+ok 59 - [UX156-13] customerSentenceKeyOf : même table de vérité pour la lecture enregistrée et le brouillon
+  ---
+  duration_ms: 0.418902
+  type: 'test'
+  ...
+# (node:9975) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r3.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+ok 60 - [R3-F01-release] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (succès), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 323.491537
+  type: 'test'
+  ...
+# Subtest: [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+ok 61 - [R3-F01-reject] relecture de A en vol, passage à B pleinement chargé : le bouton de B est libre AVANT et APRÈS l'arrivée de A (erreur), aucun message d'abandon n'est transféré
+  ---
+  duration_ms: 179.593218
+  type: 'test'
+  ...
+# Subtest: [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+ok 62 - [R3-F01-own] B lance SA propre relecture, puis A arrive : la relecture de B aboutit normalement et rien de A ne s'y mêle
+  ---
+  duration_ms: 253.645839
+  type: 'test'
+  ...
+# Subtest: [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+ok 63 - [R3-F02-a] STALE détecté, conflit NON résolu : l'ancien exemple (2026-10-20) n'est plus « ready », date masquée, statut périmé dit
+  ---
+  duration_ms: 221.874866
+  type: 'test'
+  ...
+# Subtest: [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+ok 64 - [R3-F02-b] exemple EN VOL quand le STALE arrive, libéré APRÈS le conflit : il n'est jamais « ready »
+  ---
+  duration_ms: 162.010328
+  type: 'test'
+  ...
+# Subtest: [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+ok 65 - [R3-F02-c] reprise de la version du serveur : l'exemple reste périmé jusqu'à une NOUVELLE demande, dont le résultat est alors cohérent
+  ---
+  duration_ms: 197.489222
+  type: 'test'
+  ...
+# Subtest: [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+ok 66 - [R3-F02-d] rebase manuel : exemple périmé jusqu'à la nouvelle demande ; et la sauvegarde reste IMPOSSIBLE sans résolution explicite
+  ---
+  duration_ms: 196.514875
+  type: 'test'
+  ...
+# Subtest: [R3-I18N] FR/EN/AR/NL : la note de conflit et la note « périmé » existent, sans clé brute, et se rendent pendant un conflit STALE (AR en RTL)
+ok 67 - [R3-I18N] FR/EN/AR/NL : la note de conflit et la note « périmé » existent, sans clé brute, et se rendent pendant un conflit STALE (AR en RTL)
+  ---
+  duration_ms: 250.273089
+  type: 'test'
+  ...
+# (node:9988) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r4.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+ok 68 - [R4-F02a-success] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture réussie
+  ---
+  duration_ms: 289.031653
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+ok 69 - [R4-F02a-error] STALE reçu, relecture du conflit RETENUE : conflit déjà posé, calcul impossible, aucune RPC d'exemple, aucune date courante ; puis relecture en erreur
+  ---
+  duration_ms: 233.543308
+  type: 'test'
+  ...
+# Subtest: [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+ok 70 - [R4-F02a-retry] relecture du conflit en erreur puis « Réessayer » retenu : retour à l'état « lecture en cours », calcul toujours impossible
+  ---
+  duration_ms: 204.451
+  type: 'test'
+  ...
+# Subtest: [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+ok 71 - [R4-F02b] exemple EN VOL au moment du STALE : l'écran annonce « périmé » IMMÉDIATEMENT (pas « loading »), avant la fin de la relecture et avant l'ancienne réponse
+  ---
+  duration_ms: 150.099253
+  type: 'test'
+  ...
+# Subtest: [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+ok 72 - [R4-F02b-late] ancienne réponse encore en vol APRÈS la résolution : une nouvelle demande reste possible et l'ancienne réponse tardive ne l'écrase pas
+  ---
+  duration_ms: 97.158872
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+ok 73 - [R4-F01-SAVE-success] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (succès) ; rien de A n'entre dans B
+  ---
+  duration_ms: 70.887614
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+ok 74 - [R4-F01-SAVE-error] sauvegarde de A en vol, passage à B chargé : B est modifiable AVANT et APRÈS l'arrivée de la réponse de A (erreur) ; rien de A n'entre dans B
+  ---
+  duration_ms: 87.386371
+  type: 'test'
+  ...
+# Subtest: [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+ok 75 - [R4-F01-SAVE-race] réponses DÉSORDONNÉES : B sauvegarde pendant que A est encore en vol ; la réponse de A (avant OU après celle de B) ne libère ni ne verrouille B
+  ---
+  duration_ms: 101.072247
+  type: 'test'
+  ...
+# Subtest: [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+ok 76 - [R4-I18N] FR/EN/AR/NL : la note « lecture du conflit en cours » existe, se rend pendant la relecture retenue (AR en RTL), sans clé brute ni date
+  ---
+  duration_ms: 507.692554
+  type: 'test'
+  ...
+# (node:10003) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-r5.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+ok 77 - [R5-SCOPE-STALE] pickup en cours de sauvegarde, passage à delivery (lecture retenue), STALE de pickup tardif, puis réponse delivery : delivery affiche son délai 9, état propre
+  ---
+  duration_ms: 187.008991
+  type: 'test'
+  ...
+# Subtest: [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+ok 78 - [R5-ORDRE-delivery-puis-STALE] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 178.845893
+  type: 'test'
+  ...
+# Subtest: [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+ok 79 - [R5-ORDRE-STALE-puis-delivery] les deux ordres d'arrivée donnent le même écran : delivery à 9, propre, sans conflit ni erreur de pickup
+  ---
+  duration_ms: 134.136752
+  type: 'test'
+  ...
+# Subtest: [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+ok 80 - [R5-SYMETRIQUE] delivery→pickup : sauvegarde delivery STALE tardive, lecture pickup retenue : pickup affiche son délai 1, propre
+  ---
+  duration_ms: 184.86022
+  type: 'test'
+  ...
+# Subtest: [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+ok 81 - [R5-STALE-PORTEE-ACTIVE] même scénario SANS changement de portée : le conflit reste visible, la relecture autoritaire aboutit, la sauvegarde reste fermée
+  ---
+  duration_ms: 122.496104
+  type: 'test'
+  ...
+# Subtest: [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+ok 82 - [R5-REPETE] pickup→delivery→pickup→delivery pendant la sauvegarde : le STALE tardif n'introduit ni conflit, ni erreur, ni relecture ; la dernière portée charge
+  ---
+  duration_ms: 168.349493
+  type: 'test'
+  ...
+# Subtest: [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+ok 83 - [R5-ALLER-RETOUR] pickup→delivery→pickup, lecture pickup retenue, STALE tardif : la lecture pickup en vol n'est pas invalidée
+  ---
+  duration_ms: 105.044741
+  type: 'test'
+  ...
+# Subtest: [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+ok 84 - [R5-ERREUR-AUTRE] refus non-STALE tardif d'une portée abandonnée : aucun message d'erreur, aucune offre de brouillon sur la portée courante
+  ---
+  duration_ms: 95.592228
+  type: 'test'
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+ok 85 - [R5-SUCCES-AUTRE-PORTEE-succes-avant-lecture] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 194.110546
+  type: 'test'
+  ...
+# Subtest: [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+ok 86 - [R5-SUCCES-AUTRE-PORTEE-lecture-avant-succes] sauvegarde pickup RÉUSSIE tardive pendant que delivery est affiché : delivery n'est ni relu ni réinitialisé ; pickup relu de zéro au retour
+  ---
+  duration_ms: 249.591308
+  type: 'test'
+  ...
+# Subtest: [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+ok 87 - [R5-ISOLATION] STALE tardif d'une portée abandonnée : aucune écriture, un autre commerçant et l'autre portée strictement intacts
+  ---
+  duration_ms: 136.762718
+  type: 'test'
+  ...
+# (node:10017) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/claude/scandz/tests/csdj-bo1-merchant-ux-157-remediation.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /home/claude/scandz/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+ok 88 - [R1] relecture retenue, saisie J+5 pendant l'attente, réponse tardive : la saisie SURVIT, rien n'est enregistré
+  ---
+  duration_ms: 178.89535
+  type: 'test'
+  ...
+# Subtest: [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+ok 89 - [R2] pendant la relecture de « Retrait », bascule vers la règle de livraison et saisie J+7 : la réponse tardive de « Retrait » ne touche PAS le brouillon de la livraison
+  ---
+  duration_ms: 157.084932
+  type: 'test'
+  ...
+# Subtest: [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+ok 90 - [R1b] sans aucune saisie, la relecture s'applique : les deux lectures concordent ensuite (contrôle positif)
+  ---
+  duration_ms: 104.839306
+  type: 'test'
+  ...
+# Subtest: [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+ok 91 - [R1c] relecture en cours : le bouton est inactif et dit « Relecture… » ; un second clic ne lance pas une seconde relecture
+  ---
+  duration_ms: 108.08418
+  type: 'test'
+  ...
+# Subtest: [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+ok 92 - [R3] exemple calculé (2026-10-20), désactivation puis enregistrement réussi : l'ancien exemple n'est plus présenté comme actuel
+  ---
+  duration_ms: 238.551314
+  type: 'test'
+  ...
+# Subtest: [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+ok 93 - [R3b] calcul EN VOL pendant un changement de version : la réponse tardive n'est jamais présentée comme actuelle
+  ---
+  duration_ms: 139.7178
+  type: 'test'
+  ...
+# Subtest: [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+ok 94 - [R3c] résolution d'un conflit STALE : l'exemple calculé avant n'est plus présenté comme actuel
+  ---
+  duration_ms: 82.32274
+  type: 'test'
+  ...
+# Subtest: [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+ok 95 - [R3d] des modifications non enregistrées sont dites ABSENTES de l'exemple, sans jamais être calculées dans le navigateur
+  ---
+  duration_ms: 38.99203
+  type: 'test'
+  ...
+1..95
+# tests 95
+# suites 0
+# pass 95
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 16604.743775
