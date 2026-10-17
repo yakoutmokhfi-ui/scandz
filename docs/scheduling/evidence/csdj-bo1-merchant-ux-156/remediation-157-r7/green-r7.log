@@ -1,0 +1,44 @@
+TAP version 13
+# (node:10330) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/tests/csdj-bo1-merchant-ux-157-r7.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/ux/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [R7-STALE-ORDRE-A] aller-retour (lecture AVANT le commit d'un tiers), exemple calculé, puis refus STALE de la demande retenue : l'exemple n'est plus « ready », le conflit est connu, la sauvegarde est fermée, rien n'est écrit
+ok 1 - [R7-STALE-ORDRE-A] aller-retour (lecture AVANT le commit d'un tiers), exemple calculé, puis refus STALE de la demande retenue : l'exemple n'est plus « ready », le conflit est connu, la sauvegarde est fermée, rien n'est écrit
+  ---
+  duration_ms: 446.445938
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-DIRTY] même scénario mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, le conflit est visible
+ok 2 - [R7-STALE-DIRTY] même scénario mais le commerçant a SAISI entre-temps : sa saisie n'est pas écrasée, l'exemple est périmé, le conflit est visible
+  ---
+  duration_ms: 349.272162
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-ORDRE-B] contrôle négatif : le tiers modifie AVANT la nouvelle lecture de pickup -- le snapshot affiché est déjà à jour : l'exemple reste « ready », ni conflit, ni erreur, ni lecture supplémentaire
+ok 3 - [R7-STALE-ORDRE-B] contrôle négatif : le tiers modifie AVANT la nouvelle lecture de pickup -- le snapshot affiché est déjà à jour : l'exemple reste « ready », ni conflit, ni erreur, ni lecture supplémentaire
+  ---
+  duration_ms: 151.133664
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-LECTURE-EN-VOL-recente] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture postérieure au commit du tiers) : la lecture n'est pas invalidée, aucun conflit
+ok 4 - [R7-STALE-LECTURE-EN-VOL-recente] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture postérieure au commit du tiers) : la lecture n'est pas invalidée, aucun conflit
+  ---
+  duration_ms: 147.072312
+  type: 'test'
+  ...
+# Subtest: [R7-STALE-LECTURE-EN-VOL-ancienne] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture antérieure au commit du tiers) : à son arrivée la version périmée est connue : conflit, sauvegarde fermée
+ok 5 - [R7-STALE-LECTURE-EN-VOL-ancienne] aller-retour, lecture de pickup EN VOL quand le refus STALE arrive (lecture antérieure au commit du tiers) : à son arrivée la version périmée est connue : conflit, sauvegarde fermée
+  ---
+  duration_ms: 190.953383
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2344.1504
