@@ -1,0 +1,679 @@
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import path from "node:path";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+import { JSDOM } from "jsdom";
+import * as esbuild from "esbuild";
+
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
+
+// ====================================================================
+// Scanym — CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
+// (FERME "SILENT INVOICE LOSS", HIGH, RELEASE-BLOCKING).
+//
+// Preuve comportementale RÉELLE, de bout en bout (montage complet de
+// MenuView, `supabase.rpc` ET `fetch` réellement interceptés,
+// interactions utilisateur réelles jusqu'au clic d'envoi ET de
+// reprise) -- réutilise EXACTEMENT le patron déjà établi par
+// tests/v122i-tracking-menuview-wiring.dom.test.ts.
+// ====================================================================
+
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+});
+const { window } = dom;
+(globalThis as any).window = window;
+(globalThis as any).document = window.document;
+Object.defineProperty(globalThis, "navigator", {
+  value: window.navigator,
+  configurable: true,
+});
+(globalThis as any).HTMLElement = window.HTMLElement;
+(globalThis as any).Event = window.Event;
+(globalThis as any).requestAnimationFrame = window.requestAnimationFrame.bind(window);
+(globalThis as any).cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+
+const React = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { supabase } = await import("../lib/supabase.ts");
+const { translate } = await import("../lib/i18n.ts");
+
+const REPO_ROOT = process.cwd();
+
+const aliasPlugin: esbuild.Plugin = {
+  name: "at-alias",
+  setup(build) {
+    build.onResolve({ filter: /^@\// }, (args) => {
+      const rel = args.path.slice(2);
+      const base = path.join(REPO_ROOT, rel);
+      const candidate = ["", ".tsx", ".ts"]
+        .map((ext) => base + ext)
+        .find((p) => existsSync(p));
+      const resolvedPath = candidate ?? base;
+      if (resolvedPath.endsWith(path.join("lib", "supabase.ts"))) {
+        return { path: pathToFileURL(resolvedPath).href, external: true };
+      }
+      return { path: resolvedPath };
+    });
+  },
+};
+
+const entrySource = `export { default as MenuView } from "@/components/MenuView";`;
+const buildResult = await esbuild.build({
+  stdin: { contents: entrySource, resolveDir: REPO_ROOT, loader: "tsx" },
+  bundle: true,
+  write: false,
+  format: "esm",
+  jsx: "automatic",
+  target: "es2022",
+  plugins: [aliasPlugin],
+  external: ["react", "react-dom", "react-dom/client"],
+});
+const code = buildResult.outputFiles[0].text;
+const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-csdj2-158-"));
+const tmpFile = path.join(tmpDir, "MenuView.mjs");
+writeFileSync(tmpFile, code);
+const { MenuView } = await import(pathToFileURL(tmpFile).href);
+
+/**
+ * MERCHANT CUSTOMER COMMUNICATIONS v1 (mandat §B) — l'écran de
+ * confirmation interroge désormais le serveur pour savoir si au moins
+ * une ligne de la commande est rétractable
+ * (POST /api/checkout/withdrawal-eligibility, voir
+ * lib/services/merchant-communications.ts::fetchWithdrawalEligibility).
+ *
+ * Ce harnais fournit donc la configuration que la PRODUCTION fournit,
+ * et il la fournit FERMÉE (`eligible:false`) : aucun appel à l'action de
+ * rétractation n'apparaît, le parcours observé par les assertions de ce
+ * fichier est donc exactement celui d'avant le lot.
+ *
+ * Conséquence voulue sur les COMPTEURS : les appels à cette route ne
+ * sont jamais délégués au mock du test, donc jamais comptés. C'est ce
+ * que les libellés de ces assertions disaient déjà (« appel fetch
+ * (facture) ») ; aucune assertion n'est affaiblie, et un appel
+ * INATTENDU vers une autre route atteint toujours le mock d'origine,
+ * qui lève comme avant.
+ */
+function withWithdrawalEligibilityClosed(inner: (...args: any[]) => any) {
+  return async (...args: any[]) => {
+    const first: any = args[0];
+    const url = String(first instanceof URL ? first.href : first?.url ?? first);
+    if (url.includes("/api/checkout/withdrawal-eligibility")) {
+      return new Response(JSON.stringify({ eligible: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return inner(...args);
+  };
+}
+
+rmSync(tmpDir, { recursive: true, force: true });
+
+function flush(ms = 0): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function waitFor(check: () => boolean, description: string, timeoutMs = 3000, intervalMs = 10): Promise<void> {
+  const start = Date.now();
+  while (!check()) {
+    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timeout (${timeoutMs}ms) : ${description}`);
+    await flush(intervalMs);
+  }
+}
+function setNativeValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+}
+function click(el: Element) {
+  el.dispatchEvent(new window.Event("click", { bubbles: true }));
+}
+/**
+ * Une case à cocher a besoin d'un VRAI `.click()` natif (qui bascule
+ * `checked` puis émet "change") -- un `dispatchEvent(new Event(...))`
+ * synthétique ne déclenche JAMAIS le comportement natif de bascule,
+ * contrairement à un simple bouton où seul le listener importe.
+ */
+function toggleCheckbox(el: HTMLInputElement) {
+  el.click();
+}
+function buttonWithText(container: Element, text: string): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+}
+function inputById(container: Element, id: string): HTMLInputElement | null {
+  return container.querySelector(`#${id}`);
+}
+function selectServiceMode(container: Element, label: string) {
+  const btn = buttonWithText(container, label);
+  assert.ok(btn, `le bouton de mode "${label}" doit être présent`);
+  click(btn!);
+}
+
+/** Même fixture que v122i/v101 (harnais MenuView déjà établi). */
+function sanaaCookiesRestaurant() {
+  return {
+    id: "r-sanaa-test",
+    name: "Sanaa Cookies (test)",
+    slug: "sanaa-cookies",
+    is_active: true,
+    created_at: "2026-01-01T00:00:00Z",
+    config: {
+      restaurant_id: "r-sanaa-test",
+      max_tables: 10,
+      currency: "EUR",
+      whatsapp_number: "+33600000000",
+      address: null, latitude: null, longitude: null,
+      logo_url: null, cover_url: null, opening_hours: null,
+      source_language: "fr",
+    },
+    categories: [{
+      id: "cat-1", restaurant_id: "r-sanaa-test", name: "Cookies", display_order: 1, is_active: true,
+      menu_items: [{
+        id: "item-1", category_id: "cat-1", name: "Cookie chocolat", description: null,
+        short_description: null, price: 3.5, image_url: null, display_order: 1, is_available: true,
+      }],
+    }],
+    hiddenCategories: [],
+    activeLanguages: [{ code: "fr", label: "Français", dir: "ltr", display_order: 1 }],
+  };
+}
+
+
+const SALE_MODE_CATALOG_ROWS = [
+  { code: "table", label: "Sur place", category: "dine_in" },
+  { code: "pickup", label: "Retrait", category: "pickup" },
+  { code: "delivery", label: "Livraison", category: "delivery" },
+];
+const SALE_MODE_ROWS = [
+  { mode_code: "pickup", customer_text: null, pricing_mode: "free" as const, fixed_fee: null, free_threshold: null, delay_value: null, delay_unit: null },
+  { mode_code: "delivery", customer_text: null, pricing_mode: "free" as const, fixed_fee: null, free_threshold: null, delay_value: null, delay_unit: null },
+];
+const REQS: Record<string, any[]> = {
+  pickup: [
+    { field: "customer_name", requirement: "required", one_of_group: null },
+    { field: "phone", requirement: "required", one_of_group: null },
+  ],
+  delivery: [
+    { field: "customer_name", requirement: "required", one_of_group: null },
+    { field: "delivery_address", requirement: "required", one_of_group: null },
+    { field: "phone", requirement: "required", one_of_group: null },
+    { field: "email", requirement: "optional", one_of_group: null },
+  ],
+};
+const ORDER_ID = "11111111-1111-4111-8111-111111111111";
+const TOKEN = "22222222-2222-4222-8222-222222222222";
+
+// ---------------- Réponses de get_checkout_fulfillment_schedule ----------------
+const SLOTS_20 = [
+  { slot_key: "morning", starts_at: "09:00", ends_at: "12:00" },
+  { slot_key: "afternoon", starts_at: "14:00", ends_at: "18:00" },
+];
+function row(patch: Record<string, unknown>) {
+  return {
+    delivery_applicable: false, delivery_eligible: false, delivery_block: null, delivery_customer_text: null,
+    schedule_status: "absent", unfulfillable_reason: null, schedule_timezone: "Europe/Paris",
+    date_selection_mode: null, slot_selection_mode: null, time_granularity_minutes: null,
+    first_eligible_date: null, eligible_dates: [], offers: null,
+    ...patch,
+  };
+}
+const FIXED = row({
+  schedule_status: "dates_available", date_selection_mode: "customer_selectable", slot_selection_mode: "fixed_slots",
+  first_eligible_date: "2026-10-20", eligible_dates: ["2026-10-20", "2026-10-22"],
+  offers: { "2026-10-20": SLOTS_20, "2026-10-22": [SLOTS_20[0]] },
+});
+const DATE_ONLY = row({
+  schedule_status: "dates_available", date_selection_mode: "customer_selectable", slot_selection_mode: "none",
+  first_eligible_date: "2026-10-20", eligible_dates: ["2026-10-20", "2026-10-22"],
+  offers: {
+    "2026-10-20": [{ slot_key: null, starts_at: "09:00", ends_at: "18:00" }],
+    "2026-10-22": [{ slot_key: null, starts_at: "09:00", ends_at: "18:00" }],
+  },
+});
+const WINDOWED = row({
+  schedule_status: "dates_available", date_selection_mode: "customer_selectable", slot_selection_mode: "time_within_window",
+  time_granularity_minutes: 30, first_eligible_date: "2026-10-20", eligible_dates: ["2026-10-20"],
+  offers: { "2026-10-20": [{ slot_key: null, starts_at: "09:00", ends_at: "10:30" }] },
+});
+const DERIVED = row({
+  schedule_status: "dates_available", date_selection_mode: "derived_earliest", slot_selection_mode: "none",
+  first_eligible_date: "2026-10-20", eligible_dates: ["2026-10-20"],
+  offers: { "2026-10-20": [{ slot_key: null, starts_at: "09:00", ends_at: "18:00" }] },
+});
+const AFTER_EXPIRY = row({
+  schedule_status: "dates_available", date_selection_mode: "customer_selectable", slot_selection_mode: "fixed_slots",
+  first_eligible_date: "2026-10-22", eligible_dates: ["2026-10-22"],
+  offers: { "2026-10-22": [SLOTS_20[0]] },
+});
+
+type Rpc = { name: string; args: any };
+interface ServerCfg {
+  /** Réponse du lecteur public ; une fonction permet de changer entre deux lectures. */
+  reader: (args: any, callIndex: number) => Record<string, unknown> | Error;
+  /** Simule `create_order` : renvoie un code SCANYM_SCHEDULE_* à refuser, ou null. */
+  refuse?: (customer: any, callIndex: number) => string | null;
+  /** Délai de create_order (ms) pour le test de double envoi. */
+  createDelayMs?: number;
+}
+function installServer(t: { mock: { method: Function } }, cfg: ServerCfg) {
+  const readerCalls: any[] = [];
+  const createCalls: any[] = [];
+  const unexpected: string[] = [];
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
+  t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") return { data: SALE_MODE_ROWS, error: null };
+    if (name === "get_restaurant_public_field_requirements") return { data: REQS[args.p_mode_code] ?? [], error: null };
+    if (name === "get_restaurant_public_delivery_info") {
+      return { data: [{ delivery_zone_prefixes: ["75"], delivery_min_items: 0, delivery_area_label: "Paris" }], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_countries") {
+      return { data: [{ country_code: "FR", country_name: "France", postal_code_pattern: "^[0-9]{5}$",
+        phone_pattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$", address_provider: "ban_ign", address_line_order: "number_first" }], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
+    if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
+    if (name === "get_checkout_fulfillment_schedule") {
+      readerCalls.push(args);
+      const r = cfg.reader(args, readerCalls.length - 1);
+      if (r instanceof Error) return { data: null, error: { code: "XX000", message: r.message } };
+      return { data: [r], error: null };
+    }
+    if (name === "create_order") {
+      const index = createCalls.length;
+      createCalls.push(args);
+      if (cfg.createDelayMs) await flush(cfg.createDelayMs);
+      const refused = cfg.refuse?.(args.p_customer, index) ?? null;
+      // Même porteur que la Production : SQLSTATE P0001, message == code.
+      if (refused) return { data: null, error: { code: "P0001", message: refused } };
+      return { data: [{ order_id: ORDER_ID, order_number: 42, public_token: TOKEN, total: 3.5, subtotal: 3.5, delivery_fee: 0 }], error: null };
+    }
+    if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    unexpected.push(name);
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+  return { readerCalls, createCalls, unexpected };
+}
+
+/**
+ * RÈGLE DE PRODUCTION reproduite (issue #158) : pour un retrait à date
+ * choisie par le client, `create_order` exige une date (et un créneau en
+ * `fixed_slots`) dans `p_customer.schedule`, sinon 400 / P0001 /
+ * SCANYM_SCHEDULE_REQUIRED.
+ */
+function requireSchedule(slotKeyRequired: boolean) {
+  return (customer: any): string | null => {
+    const s = customer?.schedule;
+    if (!s || !s.date) return "SCANYM_SCHEDULE_REQUIRED";
+    if (slotKeyRequired && !s.slot_key) return "SCANYM_SCHEDULE_REQUIRED";
+    return null;
+  };
+}
+
+function setSelect(el: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new window.Event("change", { bubbles: true }));
+}
+const q = (c: Element, id: string) => c.querySelector(`[data-testid="${id}"]`);
+const SEND = (lang = "fr") => translate(lang, "sendOrder");
+
+async function reach(mode: "pickup" | "delivery", lang = "fr") {
+  const restaurant: any = sanaaCookiesRestaurant();
+  if (lang !== "fr") {
+    restaurant.config.source_language = lang;
+    restaurant.activeLanguages = [{ code: lang, label: lang, dir: lang === "ar" ? "rtl" : "ltr", display_order: 1 }];
+  }
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(React.createElement(MenuView, { restaurant }));
+  await flush();
+
+  const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent === translate(lang, "add"));
+  assert.ok(addBtn, "le bouton Ajouter doit être présent");
+  click(addBtn!);
+  await flush();
+  const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+  if (cartBar) { click(cartBar); await flush(); }
+
+  selectServiceMode(container, translate(lang, mode));
+  await waitFor(() => inputById(container, "customer_name") !== null, "champs rendus");
+  setNativeValue(inputById(container, "customer_name")!, "Yakout");
+  setNativeValue(inputById(container, "phone")!, "0612345678");
+  if (mode === "delivery") {
+    setNativeValue(inputById(container, "street")!, "10 rue de Rivoli");
+    setNativeValue(inputById(container, "postalCode")!, "75001");
+    setNativeValue(inputById(container, "city")!, "Paris");
+  }
+  await flush(50);
+  await flush();
+  return { container, root };
+}
+const sendButton = (c: Element, lang = "fr") => buttonWithText(c, SEND(lang));
+async function pickFixed(container: Element, date: string, slotKey: string) {
+  await waitFor(() => q(container, "checkout-schedule-date") !== null, "sélecteur de date rendu");
+  setSelect(q(container, "checkout-schedule-date") as HTMLSelectElement, date);
+  await flush();
+  await waitFor(() => q(container, `checkout-schedule-slot-${slotKey}`) !== null, `créneau ${slotKey} proposé`);
+  click(q(container, `checkout-schedule-slot-${slotKey}`)!);
+  await flush();
+}
+async function withOpen<T>(fn: (opened: { n: number }) => Promise<T>): Promise<T> {
+  const realOpen = window.open;
+  const opened = { n: 0 };
+  (window as any).open = () => { opened.n += 1; return {}; };
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => { throw new Error("fetch inattendu"); });
+  try { return await fn(opened); } finally {
+    (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
+  }
+}
+const CONFIRMED = "Commande envoyée avec succès";
+
+// ====================================================================
+// 0. REPRODUCTION de l'issue #158 : le serveur exige un schedule ; le
+//    checkout d'avant ce correctif envoyait la commande SANS schedule.
+// ====================================================================
+test("[158-D0] REPRO : le checkout n'envoie JAMAIS une commande sans date/créneau quand le serveur en exige un", async (t) => {
+  const srv = installServer(t, { reader: () => FIXED, refuse: requireSchedule(true) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await flush(50);
+      const btn = sendButton(container);
+      if (btn) click(btn); // avant le correctif : le bouton est là et la commande part nue
+      await flush(100);
+      assert.equal(
+        srv.createCalls.filter((c) => !c.p_customer.schedule).length,
+        0,
+        "create_order appelé SANS p_customer.schedule alors que le serveur l'exige (SCANYM_SCHEDULE_REQUIRED, HTTP 400 en Production)"
+      );
+      assert.ok(!container.textContent!.includes(translate("fr", "orderFailed")), "aucun « L'envoi a échoué »");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D1] retrait fixed_slots : le client choisit date + créneau PROPOSÉS par le serveur, la commande part avec le schedule exact du contrat", async (t) => {
+  const srv = installServer(t, { reader: () => FIXED, refuse: requireSchedule(true) });
+  await withOpen(async (opened) => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule") !== null, "bloc date/créneau rendu en retrait");
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleTitlePickup")));
+      assert.equal(sendButton(container) === undefined, true, "envoi FERMÉ tant que date+créneau ne sont pas choisis");
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleChooseHint")), "indication visible");
+      // Le client ne peut choisir QUE parmi les dates du serveur.
+      const options = [...(q(container, "checkout-schedule-date") as HTMLSelectElement).options].map((o) => o.value).filter(Boolean);
+      assert.deepEqual(options, ["2026-10-20", "2026-10-22"]);
+
+      await pickFixed(container, "2026-10-20", "afternoon");
+      const btn = sendButton(container);
+      assert.ok(btn, "envoi ouvert une fois date + créneau choisis");
+      click(btn!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.equal(srv.createCalls.length, 1);
+      assert.deepEqual(srv.createCalls[0].p_customer.schedule, {
+        date: "2026-10-20", slot_key: "afternoon", starts_at: "14:00", ends_at: "18:00",
+      });
+      assert.equal(opened.n, 1);
+      // Le lecteur public a été appelé pour le retrait, sans heure fournie par le client.
+      assert.equal(srv.readerCalls[0].p_mode_code, "pickup");
+      assert.deepEqual(Object.keys(srv.readerCalls[0]).sort(),
+        ["p_mode_code", "p_postal_code", "p_restaurant_id", "p_subtotal", "p_total_count"]);
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D2] date seule (slot none) : pas de créneau à choisir, payload date + trois null", async (t) => {
+  const srv = installServer(t, { reader: () => DATE_ONLY, refuse: requireSchedule(false) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-date") !== null, "date rendue");
+      assert.equal(sendButton(container) === undefined, true);
+      setSelect(q(container, "checkout-schedule-date") as HTMLSelectElement, "2026-10-22");
+      await flush();
+      assert.equal(container.querySelectorAll('[data-testid^="checkout-schedule-slot-"]').length, 0, "aucun créneau");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.deepEqual(srv.createCalls[0].p_customer.schedule,
+        { date: "2026-10-22", slot_key: null, starts_at: null, ends_at: null });
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D3] time_within_window : heures de la grille serveur, payload avec l'heure choisie", async (t) => {
+  const srv = installServer(t, { reader: () => WINDOWED, refuse: requireSchedule(false) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-date") !== null, "date rendue");
+      setSelect(q(container, "checkout-schedule-date") as HTMLSelectElement, "2026-10-20");
+      await flush();
+      const times = [...(q(container, "checkout-schedule-time") as HTMLSelectElement).options].map((o) => o.value).filter(Boolean);
+      assert.deepEqual(times, ["09:00", "09:30", "10:00"]);
+      setSelect(q(container, "checkout-schedule-time") as HTMLSelectElement, "09:30");
+      await flush();
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.deepEqual(srv.createCalls[0].p_customer.schedule,
+        { date: "2026-10-20", slot_key: null, starts_at: "09:30", ends_at: "10:30" });
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D4] derived_earliest : date dérivée par le serveur, affichée, envoi ouvert, payload = date serveur", async (t) => {
+  const srv = installServer(t, { reader: () => DERIVED, refuse: requireSchedule(false) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-derived") !== null, "date prévue affichée");
+      assert.equal(q(container, "checkout-schedule-date") === null, true, "aucun choix de date");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.deepEqual(srv.createCalls[0].p_customer.schedule,
+        { date: "2026-10-20", slot_key: null, starts_at: null, ends_at: null });
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D5] RÉGRESSION : commerçant sans calendrier / calendrier désactivé / information seule / livraison refusée en amont => parcours INCHANGÉ (aucun bloc, aucun schedule envoyé)", async (t) => {
+  for (const status of ["absent", "informational_only", "blocked_upstream"]) {
+    const srv = installServer(t, { reader: () => row({ schedule_status: status }) });
+    await withOpen(async () => {
+      const { container, root } = await reach("pickup");
+      try {
+        // Pas d'attente de la lecture : l'assertion doit valoir À L'IDENTIQUE
+        // sur main (qui ne lit rien) et sur la branche (qui lit puis ne
+        // demande rien) -- c'est la preuve de non-régression.
+        await flush(80);
+        assert.equal(q(container, "checkout-schedule") === null, true, `${status}: aucun bloc date/créneau`);
+        click(sendButton(container)!);
+        await waitFor(() => container.textContent!.includes(CONFIRMED), `${status}: confirmation`);
+        assert.equal(srv.createCalls.length, 1);
+        assert.ok(!("schedule" in srv.createCalls[0].p_customer), `${status}: aucune clé schedule`);
+      } finally { root.unmount(); container.remove(); }
+    });
+    t.mock.restoreAll();
+  }
+});
+
+test("[158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais appelé, aucune date inventée", async (t) => {
+  const srv = installServer(t, { reader: () => row({ schedule_status: "unfulfillable", unfulfillable_reason: "no_eligible_date" }) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-blocked") !== null, "message bloquant");
+      assert.equal(sendButton(container) === undefined, true);
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleBlocked")));
+      assert.equal(srv.createCalls.length, 0);
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D7] lecture des disponibilités en échec : message + « Réessayer » ; l'envoi reste possible, le serveur reste l'autorité (REQUIRED => relecture, panier conservé)", async (t) => {
+  let phase = 0; // 0 : lecteur en panne ; 1 : lecteur rétabli
+  const srv = installServer(t, {
+    reader: () => (phase === 0 ? new Error("réseau") : FIXED),
+    refuse: requireSchedule(true),
+  });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-error") !== null, "erreur de lecture visible");
+      assert.ok(q(container, "checkout-schedule-retry"), "bouton Réessayer");
+      const btn = sendButton(container);
+      assert.ok(btn, "fail-open : le serveur reste l'autorité");
+      phase = 1;
+      click(btn!);
+      await waitFor(() => q(container, "checkout-schedule-notice") !== null, "message du refus typé");
+      assert.equal(srv.createCalls.length, 1);
+      assert.ok(!container.textContent!.includes(CONFIRMED));
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleChoose")));
+      // Relecture automatique : les disponibilités sont maintenant proposées.
+      await waitFor(() => q(container, "checkout-schedule-date") !== null, "disponibilités relues");
+      assert.ok(srv.readerCalls.length >= 2, "relecture après refus");
+      assert.ok(container.textContent!.includes("Cookie chocolat"), "panier conservé");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D8] sélection EXPIRÉE : refus typé => message, sélection vidée, disponibilités relues, panier conservé ; nouveau choix => commande acceptée", async (t) => {
+  let expired = false;
+  const srv = installServer(t, {
+    reader: () => (expired ? AFTER_EXPIRY : FIXED),
+    refuse: (customer, i) => (i === 0 ? "SCANYM_SCHEDULE_DATE_NOT_ELIGIBLE" : requireSchedule(true)(customer)),
+  });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await pickFixed(container, "2026-10-20", "afternoon");
+      expired = true; // la date 20 n'est plus offerte quand le client valide
+      click(sendButton(container)!);
+      await waitFor(() => q(container, "checkout-schedule-notice") !== null, "message de relecture");
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleRefresh")));
+      assert.ok(!container.textContent!.includes(CONFIRMED));
+      assert.ok(!container.textContent!.includes("DATE_NOT_ELIGIBLE"), "code technique jamais affiché");
+      await waitFor(() => {
+        const sel = q(container, "checkout-schedule-date") as HTMLSelectElement | null;
+        return sel !== null && [...sel.options].map((o) => o.value).filter(Boolean).join() === "2026-10-22";
+      }, "disponibilités relues");
+      assert.equal((q(container, "checkout-schedule-date") as HTMLSelectElement).value, "", "sélection vidée");
+      assert.equal(sendButton(container) === undefined, true, "envoi fermé jusqu'à un nouveau choix");
+      assert.ok(container.textContent!.includes("Cookie chocolat"), "panier conservé");
+
+      await pickFixed(container, "2026-10-22", "morning");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.equal(srv.createCalls.length, 2);
+      assert.equal(srv.createCalls[1].p_customer.schedule.date, "2026-10-22");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D9] pas de double envoi : un double clic rapide ne crée qu'UN create_order", async (t) => {
+  const srv = installServer(t, { reader: () => FIXED, refuse: requireSchedule(true), createDelayMs: 80 });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await pickFixed(container, "2026-10-20", "morning");
+      const btn = sendButton(container)!;
+      click(btn); click(btn);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.equal(srv.createCalls.length, 1);
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D10] livraison avec calendrier : lecture avec le code postal, choix, schedule transmis avec les champs de livraison ; sans calendrier : inchangé", async (t) => {
+  const srv = installServer(t, { reader: (a) => (a.p_mode_code === "delivery" ? FIXED : row({})), refuse: requireSchedule(true) });
+  await withOpen(async () => {
+    const { container, root } = await reach("delivery");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-date") !== null, "calendrier de livraison rendu");
+      assert.ok(container.textContent!.includes(translate("fr", "chkScheduleTitleDelivery")));
+      const call = srv.readerCalls.find((c) => c.p_mode_code === "delivery");
+      assert.ok(call && call.p_postal_code === "75001", "code postal transmis au lecteur");
+      await pickFixed(container, "2026-10-22", "morning");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      const c = srv.createCalls[0].p_customer;
+      assert.equal(c.schedule.date, "2026-10-22");
+      assert.equal(c.postalCode, "75001");
+      assert.equal(c.country, "FR");
+    } finally { root.unmount(); container.remove(); }
+  });
+  t.mock.restoreAll();
+  const srv2 = installServer(t, { reader: () => row({}) });
+  await withOpen(async () => {
+    const { container, root } = await reach("delivery");
+    try {
+      await waitFor(() => srv2.readerCalls.length > 0, "lecture");
+      await flush(30);
+      assert.equal(q(container, "checkout-schedule") === null, true);
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "confirmation");
+      assert.ok(!("schedule" in srv2.createCalls[0].p_customer));
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (RTL pour l'arabe)", async (t) => {
+  for (const lang of ["en", "nl", "ar"]) {
+    const srv = installServer(t, { reader: () => FIXED, refuse: requireSchedule(true) });
+    await withOpen(async () => {
+      const { container, root } = await reach("pickup", lang);
+      try {
+        await waitFor(() => q(container, "checkout-schedule-date") !== null, `${lang}: date rendue`);
+        assert.ok(container.textContent!.includes(translate(lang, "chkScheduleTitlePickup")), `${lang}: titre`);
+        assert.ok(container.textContent!.includes(translate(lang, "chkScheduleChooseHint")), `${lang}: indication`);
+        assert.notEqual(translate(lang, "chkScheduleTitlePickup"), translate("fr", "chkScheduleTitlePickup"));
+        await pickFixed(container, "2026-10-20", "morning");
+        click(sendButton(container, lang)!);
+        await waitFor(() => srv.createCalls.length === 1, `${lang}: create_order appelé`);
+        assert.equal(srv.createCalls[0].p_customer.schedule.slot_key, "morning");
+        // Mobile : contrôles pleine largeur et cibles tactiles >= 44px (classes), sans largeur fixe.
+        const sel = q(container, "checkout-schedule-date") as HTMLElement;
+        assert.ok(sel.className.includes("w-full"), `${lang}: sélecteur pleine largeur`);
+        const slot = q(container, "checkout-schedule-slot-morning") as HTMLElement;
+        assert.ok(slot.className.includes("min-h-[44px]"), `${lang}: cible tactile`);
+      } finally { root.unmount(); container.remove(); }
+    });
+    t.mock.restoreAll();
+  }
+});
+
+test("[158-D12] réponse illisible (statut inconnu) : fail-closed, message, envoi fermé, aucune commande", async (t) => {
+  const srv = installServer(t, { reader: () => row({ schedule_status: "future_status" }) });
+  await withOpen(async () => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => q(container, "checkout-schedule-unreadable") !== null, "message illisible");
+      assert.equal(sendButton(container) === undefined, true);
+      assert.equal(srv.createCalls.length, 0);
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+after(async () => {
+  window.close();
+  await esbuild.stop();
+  await new Promise((r) => setTimeout(r, 50));
+  for (const h of (process as any)._getActiveHandles?.() ?? []) {
+    if (typeof h.unref === "function") h.unref();
+  }
+  delete (globalThis as any).window;
+  delete (globalThis as any).document;
+  delete (globalThis as any).navigator;
+  delete (globalThis as any).HTMLElement;
+  delete (globalThis as any).Event;
+  delete (globalThis as any).requestAnimationFrame;
+  delete (globalThis as any).cancelAnimationFrame;
+});

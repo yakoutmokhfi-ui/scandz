@@ -2,6 +2,7 @@ import type { CartLine, OrderContext } from "@/lib/whatsapp";
 import { formatAddress, formatCustomerDisplayName } from "@/lib/customer";
 import type { Lang } from "@/lib/i18n";
 import { orderNotePayload } from "@/lib/order-note";
+import type { SchedulePayload } from "@/lib/checkout-schedule/model";
 
 /** Charge exacte envoyée à la RPC Postgres `create_order`. */
 export interface CreateOrderPayload {
@@ -12,7 +13,7 @@ export interface CreateOrderPayload {
   /** Coordonnées client, ou objet vide en mode "table". Reste un
    *  simple objet JSON transmis tel quel à la RPC : la validation de
    *  forme est faite côté serveur (create_order), pas ici. */
-  p_customer: Record<string, string | null | undefined>;
+  p_customer: Record<string, string | SchedulePayload | null | undefined>;
   p_note: string | null;
   p_language: Lang;
   /**
@@ -55,8 +56,18 @@ export function buildCreateOrderPayload(params: {
    *  serveur résout alors le pays lui-même s'il n'y en a qu'un, et
    *  refuse s'il y en a plusieurs. */
   deliveryCountryCode?: string | null;
+  /**
+   * CSDJ-2 / issue #158 -- date et créneau choisis par le client PARMI les
+   * offres rendues par le serveur (`get_checkout_fulfillment_schedule`),
+   * au format exact du contrat CSDJ v1.2 §5.1. Transmis dans
+   * `p_customer.schedule`, JAMAIS en mode « table ». Omis / null = rien
+   * n'est envoyé (marchand sans calendrier, comportement historique
+   * inchangé). Le serveur revalide TOUT : cette valeur est une
+   * déclaration du client, jamais une autorisation.
+   */
+  schedule?: SchedulePayload | null;
 }): CreateOrderPayload {
-  const { slug, context, lines, lang, note, cgvAccepted, deliveryCountryCode } = params;
+  const { slug, context, lines, lang, note, cgvAccepted, deliveryCountryCode, schedule } = params;
 
   const items = lines.map((l) => ({
     menu_item_id: l.item.id,
@@ -124,12 +135,17 @@ export function buildCreateOrderPayload(params: {
               : null,
         };
 
+  const customerWithSchedule =
+    context.mode !== "table" && schedule
+      ? { ...customer, schedule }
+      : customer;
+
   return {
     p_slug: slug,
     p_service_mode: context.mode,
     p_items: items,
     p_table_number: context.mode === "table" ? context.tableNumber : null,
-    p_customer: customer,
+    p_customer: customerWithSchedule,
     p_note: orderNotePayload(note),
     p_language: lang,
     p_cgv_accepted: cgvAccepted === true,

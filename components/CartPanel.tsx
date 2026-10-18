@@ -54,6 +54,8 @@ export default function CartPanel({
   onChangeInvoiceRequest,
   note,
   canSubmit,
+  scheduleHint,
+  scheduleSection,
   isSubmitting,
   submitError,
   invoiceRequestError,
@@ -132,6 +134,10 @@ export default function CartPanel({
   /** Note générale de commande (V65), unique, facultative — pas de note par ligne. */
   note: string;
   canSubmit: boolean;
+  /** CSDJ-2 / #158 -- non nul quand SEUL le calendrier empêche l'envoi. */
+  scheduleHint?: string | null;
+  /** CSDJ-2 / #158 -- sélecteur de date/créneau (rendu par MenuView). */
+  scheduleSection?: React.ReactNode;
   isSubmitting: boolean;
   submitError: string | null;
   /** CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -435,7 +441,9 @@ export default function CartPanel({
             ? t("missingFulfillment")
             : serviceMode === "table"
               ? t("missingTable")
-              : t("missingCustomer");
+              : scheduleHint
+                ? scheduleHint
+                : t("missingCustomer");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-espresso/50">
@@ -557,6 +565,11 @@ export default function CartPanel({
                   />
                 </div>
               )}
+
+              {/* CSDJ-2 / #158 -- date et créneau proposés par le SERVEUR
+                  (retrait ; livraison si un calendrier est configuré).
+                  Rien n'est rendu sans calendrier. */}
+              {scheduleSection}
 
               <div className="mt-4">
                 <InvoiceRequestFields

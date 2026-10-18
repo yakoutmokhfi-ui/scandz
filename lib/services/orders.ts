@@ -11,13 +11,22 @@ import {
   isCgvNotPublishedError,
   CgvAcceptanceRequiredError,
   CGV_ACCEPTANCE_REQUIRED_CODE,
+  scheduleOrderErrorCode,
+  ScheduleSelectionError,
 } from "@/lib/services/order-error";
+import type { SchedulePayload } from "@/lib/checkout-schedule/model";
 
 // Réexportés pour compatibilité : components/MenuView.tsx importe ces
 // symboles depuis "@/lib/services/orders". La classification elle-même
 // vit dans lib/services/order-error.ts (fonction pure, testable sans
 // dépendance Supabase — voir tests/v65-order-note.test.ts).
-export { OrderNoteTooLongError, ORDER_NOTE_TOO_LONG_CODE, CgvAcceptanceRequiredError, CGV_ACCEPTANCE_REQUIRED_CODE };
+export {
+  OrderNoteTooLongError,
+  ORDER_NOTE_TOO_LONG_CODE,
+  CgvAcceptanceRequiredError,
+  CGV_ACCEPTANCE_REQUIRED_CODE,
+  ScheduleSelectionError,
+};
 
 export interface CreatedOrder {
   orderId: string;
@@ -58,6 +67,10 @@ export async function createOrder(params: {
   cgvAccepted?: boolean;
   /** DELIVERY COUNTRY SCOPE v1 -- voir buildCreateOrderPayload. */
   deliveryCountryCode?: string | null;
+  /** CSDJ-2 / #158 -- date et créneau choisis parmi les offres du SERVEUR
+   *  (voir buildCreateOrderPayload). Omis = rien envoyé (comportement
+   *  historique, requis par tout commerçant sans calendrier). */
+  schedule?: SchedulePayload | null;
 }): Promise<CreatedOrder> {
   const payload = buildCreateOrderPayload(params);
 
@@ -81,6 +94,12 @@ export async function createOrder(params: {
     // de configuration interne.
     if (isCgvAcceptanceRequiredError(error) || isCgvNotPublishedError(error)) {
       throw new CgvAcceptanceRequiredError();
+    }
+    // CSDJ-2 / #158 : refus TYPÉ de la sélection de date/créneau. L'écran
+    // relit les disponibilités et redemande ; le panier n'est jamais vidé.
+    const scheduleCode = scheduleOrderErrorCode(error);
+    if (scheduleCode !== null) {
+      throw new ScheduleSelectionError(scheduleCode);
     }
     throw new Error(error.message);
   }
