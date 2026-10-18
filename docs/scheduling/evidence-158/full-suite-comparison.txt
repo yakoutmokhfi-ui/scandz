@@ -1,0 +1,8 @@
+main f852988 : # tests 5731 # pass 5717 # fail 14 
+branche      : # tests 5760 # pass 5746 # fail 14 
+
+Echecs NOUVEAUX sur la branche (par nom de test) :
+(aucun si vide)
+
+Echecs de main corrigés/disparus :
+(aucun si vide)

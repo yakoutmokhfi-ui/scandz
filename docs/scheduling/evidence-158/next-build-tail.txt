@@ -1,0 +1,12 @@
+├ ƒ /track/[orderId]                                       3.8 kB         192 kB
+└ ƒ /track/[orderId]/withdrawal                             177 B         102 kB
++ First Load JS shared by all                              102 kB
+  ├ chunks/2601-a00cb2cfc4ab4ed7.js                         46 kB
+  ├ chunks/7b863faf-77bc0f3a76e00130.js                   54.2 kB
+  └ other shared chunks (total)                           1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+build exit 0
