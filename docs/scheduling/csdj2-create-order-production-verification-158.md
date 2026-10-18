@@ -215,9 +215,57 @@ la base jetable ; en cas d'écart, la définition de Production fait foi et seul
 | M11 | Établissement **sans** calendrier, sans `schedule` | — | commande acceptée (non-régression des autres marchands) | |
 | M12 | `time_within_window` / `derived_earliest`, si configurés | charges du §4 | commande acceptée | |
 
-## 6. Critères de sortie
+## 6. Rapprochement avec les erreurs du 15 octobre (lecture seule — à remplir par DIRAC / CTO)
 
-- **P1 levé** si : A1–A6 joints, §4 rempli avec les lignes de la définition, M1–M12 observés sur base jetable et
+L'incident rapporte **4 réponses HTTP 400, `P0001`, `SCANYM_SCHEDULE_REQUIRED`, le 15 octobre**. Les sorties A1–A6 ne prouvent
+rien tant qu'elles ne sont pas rapprochées de ces quatre événements : une définition correcte sur la **mauvaise base** ne dit rien
+de la base touchée. Ce rapprochement ne demande **aucune écriture, aucun appel à `create_order`, aucune donnée client**.
+
+**R1 — Relever les 4 événements dans les journaux du fournisseur (consultation seule).** Pour chacun, ne noter que :
+horodatage UTC, hôte / identifiant du projet qui a reçu la requête, chemin (`/rest/v1/rpc/create_order` attendu), statut (400),
+code et message d'erreur (`P0001` / `SCANYM_SCHEDULE_REQUIRED`), et **les noms des clés** du corps (jamais les valeurs :
+ni nom, ni téléphone, ni adresse). Question à trancher pour chaque événement : `p_customer` portait-il une clé `schedule` ?
+
+**R2 — Identifier la base réellement touchée.** Comparer l'hôte / l'identifiant relevé en R1 à celui de la base interrogée pour
+A1–A6 (même projet, même environnement). Relever séparément l'hôte configuré dans l'hébergement du client déployé (le nom de la
+variable `NEXT_PUBLIC_SUPABASE_URL` et la partie hôte seulement, sans clé). Trois bases peuvent exister (Production, Preview,
+disponible localement) : A1–A6 doivent avoir été lus sur celle de R1.
+
+**R3 — Identifier le client qui a émis la requête.** Relever la révision déployée au moment des 4 événements (identifiant de
+déploiement et SHA). Avant la PR #160, `main` n'envoie jamais `schedule` : un `REQUIRED` est donc le comportement attendu d'une
+définition qui exige la date, et **non** la preuve d'un défaut du serveur. La PR #160 n'est pas déployée.
+
+**R4 — Rapprocher.** Remplir ce tableau avec les sorties, sans interprétation :
+
+| # | Fait relevé | Source | Valeur observée | Valeur attendue si le contrat v1.2 §5.1 s'applique |
+|---|---|---|---|---|
+| 1 | Base qui a reçu les 4 requêtes (R1) | journaux | | identique à celle de R2 |
+| 2 | Base lue pour A1–A6 | session SQL | | identique à la ligne 1 |
+| 3 | `prosrc_lf` de `create_order` (A1) | A1 | | différent de `c327445751333e7908d60e6d7f838eb5` (sinon pas de bloc `schedule`) |
+| 4 | Fonctions contenant `SCANYM_SCHEDULE_` (A2) | A2 | | `create_order` (ou l'appelée citée en A2) |
+| 5 | Codes présents dans le corps (A3/A4) | A3/A4 | | les 9 codes du contrat, mêmes classes |
+| 6 | Existence et droits de `get_checkout_fulfillment_schedule` (A1) | A1 | | présente, exécutable par le rôle du client (`anon`) |
+| 7 | Une seule surcharge de `create_order` à 8 arguments (A1) | A1 | | oui |
+| 8 | Clé `schedule` dans les 4 corps (R1) | journaux | | absente (client de `main`) |
+| 9 | Révision du client au moment des événements (R3) | hébergement | | antérieure à la PR #160 |
+
+**R5 — Lire le résultat (aucune conclusion hors de ce tableau).**
+
+| Constat | Conclusion permise | Suite |
+|---|---|---|
+| Lignes 1 = 2, ligne 4 vide pour `create_order`, ligne 3 = `c3274457…` | La base touchée n'a pas de bloc `schedule` : **l'incident ne vient pas de cette définition**. | Chercher l'autre fonction / trigger (A2, A5) ou une autre base. P1 **non clos**. |
+| Lignes 1 ≠ 2 | A1–A6 ont été lus sur la mauvaise base. | Refaire A1–A6 sur la base de la ligne 1. P1 **non clos**. |
+| Ligne 4 = `create_order`, ligne 5 conforme, ligne 8 « absente » | Le serveur applique bien le contrat v1.2 et le client de `main` ne l'envoyait pas : cohérent avec l'incident. | Poursuivre la matrice M1–M12 (§5). |
+| Ligne 5 non conforme (code, classe ou format) | Le serveur n'applique pas le contrat que la PR #160 suppose. | Ne pas fusionner ; corriger `toSchedulePayload()` après lecture de A3/A4, retester, refaire M1–M12. |
+| Ligne 6 : `get_checkout_fulfillment_schedule` absente ou non exécutable par le client | **Avec la PR #160, le retrait et la livraison avec code postal ne pourraient plus être envoyés** (l'erreur de lecture ferme l'envoi, par conception). | Décision CIO / DIRAC avant tout déploiement : déployer le lecteur d'abord, ou ne pas déployer le client. |
+| Ligne 8 : `schedule` présent dans un des 4 corps | Un autre client ou une version non prévue envoie déjà `schedule`. | Relever son format et le comparer à `toSchedulePayload()` avant toute conclusion. |
+
+Tant que ce tableau n'est pas rempli **et** que la matrice M1–M12 n'a pas été observée sur base jetable, le P1 reste
+**INCONCLUSIF**. Boulez ne remplit aucune cellule : il n'a accès ni aux journaux ni à la base hébergée.
+
+## 7. Critères de sortie
+
+- **P1 levé** si : A1–A6 joints, §6 (rapprochement R1–R5) rempli, §4 rempli avec les lignes de la définition, M1–M12 observés sur base jetable et
   conformes — ou, en cas d'écart, `toSchedulePayload()` corrigé, retesté (`tests/csdj2-checkout-schedule-158.test.ts`) et
   la matrice refaite.
 - **Reste INCONCLUSIF** tant que l'une de ces sorties manque. Un Preview authentifié ou une transaction réelle

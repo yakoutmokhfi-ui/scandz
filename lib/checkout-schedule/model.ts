@@ -97,13 +97,66 @@ export type ScheduleRequirement =
   | { kind: "blocked"; reason: string | null }
   | { kind: "derived"; date: string }
   | { kind: "choose"; slotMode: SlotMode }
-  | { kind: "unreadable" };
+  | { kind: "unreadable"; reason: UnreadableReason };
+
+/**
+ * POURQUOI une réponse du serveur est inexploitable (le client l'explique,
+ * il ne devine jamais) :
+ *  - `response`  : statut ou structure inconnus / incomplets ;
+ *  - `ambiguous` : deux créneaux (ou dates) de même clé, ou deux fenêtres qui
+ *                  se chevauchent -- le choix du client ne désignerait pas
+ *                  UN créneau précis ;
+ *  - `date`      : date impossible dans le calendrier (ex. 2026-02-31) ;
+ *  - `interval`  : fin d'un intervalle antérieure ou égale à son début ;
+ *  - `policy`    : politique de date ou de créneau inconnue, absente ou
+ *                  incompatible avec la dérivation de la date.
+ */
+export type UnreadableReason = "response" | "ambiguous" | "date" | "interval" | "policy";
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 
+/**
+ * Date de calendrier RÉELLE au format strict `YYYY-MM-DD`. Une date
+ * impossible (2026-02-31, 2026-04-31, 2025-02-29, mois 13, jour 00) est
+ * REFUSÉE, jamais normalisée en une autre date.
+ */
 export function isIsoDate(value: unknown): value is string {
-  return typeof value === "string" && DATE_PATTERN.test(value);
+  if (typeof value !== "string" || !DATE_PATTERN.test(value)) return false;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  if (month < 1 || month > 12 || day < 1) return false;
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day <= days;
+}
+
+function timeToMinutes(hhmm: string): number {
+  return Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+}
+
+/**
+ * Le choix du client doit désigner UNE offre :
+ *  - `fixed_slots` : deux offres de même `slot_key` le même jour = ambigu
+ *    (le client verrait deux créneaux, le payload n'en porterait qu'un) ;
+ *  - `time_within_window` : deux fenêtres qui se chevauchent le même jour
+ *    = une heure pourrait appartenir à deux fins de fenêtre différentes.
+ */
+function hasAmbiguousOffers(offers: CheckoutScheduleOffer[], slotMode: SlotMode): boolean {
+  if (slotMode === "fixed_slots") {
+    const keys = offers.map((o) => o.slotKey);
+    return new Set(keys).size !== keys.length;
+  }
+  if (slotMode === "time_within_window") {
+    const sorted = offers
+      .map((o) => [timeToMinutes(o.startsAt), timeToMinutes(o.endsAt)] as const)
+      .sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (sorted[i][0] < sorted[i - 1][1]) return true;
+    }
+  }
+  return false;
 }
 
 export function isStrictTime(value: unknown): value is string {
@@ -133,17 +186,46 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
     case "dates_available":
       break;
     default:
-      return { kind: "unreadable" };
+      return { kind: "unreadable", reason: "response" };
   }
 
-  if (view.eligibleDates.length === 0 || !view.eligibleDates.every(isIsoDate)) {
-    return { kind: "unreadable" };
+  // ── Cohérence de la réponse, AVANT toute politique : une réponse qui se
+  // contredit n'est pas une disponibilité (aucune normalisation, aucune
+  // correction, aucune date inventée).
+  if (view.eligibleDates.length === 0) {
+    return { kind: "unreadable", reason: "response" };
+  }
+  // Dates : calendrier réel, y compris les clés d'offres et la première date.
+  if (
+    !view.eligibleDates.every(isIsoDate) ||
+    !Object.keys(view.offers).every(isIsoDate) ||
+    (view.firstEligibleDate !== null && !isIsoDate(view.firstEligibleDate))
+  ) {
+    return { kind: "unreadable", reason: "date" };
+  }
+  // Intervalles : toute offre fournie doit avoir une fin STRICTEMENT après son début.
+  for (const list of Object.values(view.offers)) {
+    for (const o of Array.isArray(list) ? list : []) {
+      if (isStrictTime(o.startsAt) && isStrictTime(o.endsAt) && !(timeToMinutes(o.startsAt) < timeToMinutes(o.endsAt))) {
+        return { kind: "unreadable", reason: "interval" };
+      }
+    }
+  }
+  // Ambiguïté : une date ne figure qu'une fois.
+  if (new Set(view.eligibleDates).size !== view.eligibleDates.length) {
+    return { kind: "unreadable", reason: "ambiguous" };
   }
 
   if (view.dateSelectionMode === "derived_earliest") {
     const date = view.firstEligibleDate;
     if (!isIsoDate(date) || !view.eligibleDates.includes(date)) {
-      return { kind: "unreadable" };
+      return { kind: "unreadable", reason: "response" };
+    }
+    // Le serveur dérive la date ET aucun créneau n'est à choisir (contrat
+    // v1.2 §5.1 : date seule). Une politique de créneau inconnue, absente ou
+    // qui demanderait un choix n'a aucun comportement défini : on ne devine pas.
+    if (view.slotSelectionMode !== "none") {
+      return { kind: "unreadable", reason: "policy" };
     }
     return { kind: "derived", date };
   }
@@ -169,21 +251,25 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
               : o.slotKey === null)
         );
       });
-      if (!coherent) return { kind: "unreadable" };
+      if (!coherent) return { kind: "unreadable", reason: "response" };
       if (slotMode === "time_within_window") {
         const g = view.timeGranularityMinutes;
         if (typeof g !== "number" || !Number.isInteger(g) || g <= 0) {
-          return { kind: "unreadable" };
+          return { kind: "unreadable", reason: "policy" };
         }
+      }
+      // Ambiguïté : le choix du client doit désigner UNE offre.
+      if (view.eligibleDates.some((d) => hasAmbiguousOffers(offersOf(view, d), slotMode))) {
+        return { kind: "unreadable", reason: "ambiguous" };
       }
       return { kind: "choose", slotMode };
     }
-    return { kind: "unreadable" };
+    return { kind: "unreadable", reason: "policy" };
   }
 
   // `informational_only` en date mais statut `dates_available`, ou valeur
-  // inconnue : on ne devine pas.
-  return { kind: "unreadable" };
+  // inconnue / absente : on ne devine pas.
+  return { kind: "unreadable", reason: "policy" };
 }
 
 /**
@@ -243,13 +329,13 @@ export function isSelectionOffered(
       return (
         time === null &&
         slotKey !== null &&
-        offers.some((o) => o.slotKey === slotKey)
+        offers.filter((o) => o.slotKey === slotKey).length === 1
       );
     case "time_within_window": {
       if (slotKey !== null || time === null) return false;
       const g = view.timeGranularityMinutes;
       if (g === null) return false;
-      return offers.some((o) => windowTimes(o, g).includes(time));
+      return offers.filter((o) => windowTimes(o, g).includes(time)).length === 1;
     }
   }
 }
@@ -276,8 +362,10 @@ export function toSchedulePayload(
     case "none":
       return { date, slot_key: null, starts_at: null, ends_at: null };
     case "fixed_slots": {
-      const offer = offers.find((o) => o.slotKey === selection.slotKey);
-      if (!offer) return null;
+      // Exactement UNE offre : jamais « la première » d'un doublon.
+      const matches = offers.filter((o) => o.slotKey === selection.slotKey);
+      if (matches.length !== 1) return null;
+      const offer = matches[0];
       return {
         date,
         slot_key: offer.slotKey,
@@ -287,8 +375,9 @@ export function toSchedulePayload(
     }
     case "time_within_window": {
       const g = view.timeGranularityMinutes as number;
-      const offer = offers.find((o) => windowTimes(o, g).includes(selection.time as string));
-      if (!offer) return null;
+      const matches = offers.filter((o) => windowTimes(o, g).includes(selection.time as string));
+      if (matches.length !== 1) return null;
+      const offer = matches[0];
       return {
         date,
         slot_key: null,

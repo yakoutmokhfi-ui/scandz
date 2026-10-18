@@ -1,6 +1,7 @@
 "use client";
 
 import type { CheckoutScheduleState } from "@/lib/checkout-schedule/use-checkout-schedule";
+import { unreadableMessageKey } from "@/lib/checkout-schedule/messages";
 import {
   offersForDate,
   scheduleRequirement,
@@ -133,7 +134,7 @@ export default function CheckoutSchedulePicker({
     return frame(
       <div className="mt-2">
         <p role="alert" data-testid="checkout-schedule-unreadable" className="break-words text-sm text-stone-900">
-          {t("chkScheduleUnreadable")}
+          {t(unreadableMessageKey(requirement.reason))}
         </p>
         <button
           type="button"

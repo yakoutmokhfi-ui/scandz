@@ -1,5 +1,5 @@
 import type { CheckoutScheduleState } from "@/lib/checkout-schedule/use-checkout-schedule";
-import { scheduleRequirement } from "@/lib/checkout-schedule/model";
+import { scheduleRequirement, type UnreadableReason } from "@/lib/checkout-schedule/model";
 import type { ScheduleOrderErrorClass } from "@/lib/services/order-error";
 
 /**
@@ -10,14 +10,30 @@ import type { ScheduleOrderErrorClass } from "@/lib/services/order-error";
  * [SW-04]).
  */
 
+/** Explication d'une réponse inexploitable : le client sait POURQUOI rien ne part. */
+export function unreadableMessageKey(reason: UnreadableReason): string {
+  switch (reason) {
+    case "ambiguous":
+      return "chkScheduleUnreadableAmbiguous";
+    case "date":
+      return "chkScheduleUnreadableDate";
+    case "interval":
+      return "chkScheduleUnreadableInterval";
+    case "policy":
+      return "chkScheduleUnreadablePolicy";
+    default:
+      return "chkScheduleUnreadable";
+  }
+}
+
 /** Indication affichée à la place du bouton quand SEUL le calendrier manque. */
 export function scheduleHintKey(state: CheckoutScheduleState): string {
   if (state.status === "loading") return "chkScheduleLoading";
   if (state.status === "error") return "chkScheduleError";
   if (state.status === "ready") {
-    const kind = scheduleRequirement(state.view).kind;
-    if (kind === "blocked") return "chkScheduleBlocked";
-    if (kind === "unreadable") return "chkScheduleUnreadable";
+    const requirement = scheduleRequirement(state.view);
+    if (requirement.kind === "blocked") return "chkScheduleBlocked";
+    if (requirement.kind === "unreadable") return unreadableMessageKey(requirement.reason);
   }
   return "chkScheduleChooseHint";
 }
