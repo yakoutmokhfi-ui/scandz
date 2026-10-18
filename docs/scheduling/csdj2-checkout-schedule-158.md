@@ -45,7 +45,7 @@ Source : `docs/scheduling/csdj-v1.2-interface-contract.md` (branche de la PR #14
 | `absent` / `informational_only` / `blocked_upstream` | **rien** (parcours d'avant) | aucune clé `schedule` |
 | `unfulfillable` | message clair, envoi fermé (jamais de date inventée) | — |
 | statut ou politique inconnus, réponse incohérente | message, envoi fermé (fail-closed) | — |
-| lecture en échec | message + « Réessayer » ; l'envoi reste possible (le serveur reste l'autorité) | — |
+| lecture en échec, réponse vide / nulle / sans `schedule_status` / au statut hors catalogue / à plusieurs lignes *(corrigé au commit enfant, §10)* | message + « Réessayer » ; **envoi fermé, aucun `create_order`** | — |
 | mode table | aucune lecture, aucun schedule | `p_customer = {}` |
 
 Date expirée, créneau retiré ou plein, politique changée (`SCANYM_SCHEDULE_*`) : la sélection est vidée, les
@@ -75,7 +75,7 @@ D7 lecture en échec puis `REQUIRED`, D8 sélection expirée puis nouveau choix,
 1. **`components/CartPanel.tsx` est épinglé par SHA** (`tests/delivery-engine-unchanged-v1.test.ts`). Le diff de CartPanel est de 15 lignes (deux props optionnelles, une indication, un emplacement) ; l'épingle est mise à jour dans son **propre commit** (`282af7a`), comme le test le demande. Aucune ligne du moteur de tarifs ni de l'éligibilité n'est touchée.
 2. **Tests existants adaptés** (commit `a44b9f4`) : la lecture publique `get_checkout_fulfillment_schedule` est déclarée dans les mocks / listes de RPC autorisées de `v148`, `v149`, `v171b`, `cclt-v1-whatsapp-journey` — même patron que `get_restaurant_public_communication_texts`. `create_order`, Stuart et paiement restent interdits dans ces traces. `[SW-04]` : le périmètre des clés NL (mesuré sur les sources) inclut le sélecteur ; une traduction NL générale échoue toujours.
 3. **Livraison** : le même mécanisme s'applique à la livraison dès qu'un code postal valide désigne la règle **et** que le serveur renvoie un calendrier. Sans calendrier, rien ne change (test D10). À confirmer par Noether / DIRAC si la livraison doit rester hors de ce lot.
-4. **Fail-open sur lecture en échec** : choix délibéré (le serveur refuse avec un code typé et l'écran relit). À l'inverse, `loading`, `unfulfillable` et réponse illisible ferment l'envoi.
+4. ~~Fail-open sur lecture en échec~~ **corrigé au commit enfant (§10)** : un état du calendrier inconnu ferme l'envoi.
 5. **Verrou anti double envoi** (`submitInFlightRef`) : sur `main`, deux clics dans le même instant créaient deux commandes (`[158-D9]` rouge sur `main`). Le garde existant lisait l'état React, visible seulement au rendu suivant.
 6. **`time_within_window`** : `ends_at` envoyé = fin de fenêtre rendue par le serveur ; `starts_at` = heure choisie. Conforme à §5.1 tel que lu ; à confirmer à la revue.
 
@@ -95,3 +95,43 @@ commerçants sans calendrier ne voient aucune différence avant ou après.
 ## 9. Suite
 
 L'activation du retrait en Production et le déploiement relèvent d'un **GO CIO distinct** ; rien n'est activé par cette PR.
+
+## 10. Remédiation de l'audit de la PR #160 (commit enfant)
+
+**Finding — fail-open.** `mapCheckoutScheduleRow` transformait une réponse vide ou sans statut en `absent`, et une lecture en
+échec laissait l'envoi ouvert : dans ces cas `create_order` partait **sans `schedule`**, c'est-à-dire exactement le défaut de
+l'issue. Or le lecteur rend toujours **une seule ligne** dont `schedule_status` appartient à un catalogue fermé de 5 valeurs
+(`absent` y est explicite, `checkout_schedule_statuses()`), donc « vide / sans statut / statut inconnu » n'est pas « pas de
+calendrier » : c'est un état **inconnu**.
+
+**Correctif.**
+- `lib/checkout-schedule/map-row.ts` : toute réponse qui n'est pas exactement une ligne au statut du catalogue devient
+  `invalid` (jamais `absent`) ; le modèle la classe `unreadable` ; `scheduleAllowsSubmit(null, …)` passe de `true` à `false`.
+- `components/MenuView.tsx` : `scheduleOk` n'est vrai que pour `idle` (table, ou livraison sans code postal valide) ou
+  `ready` + exigence satisfaite. `loading`, `error`, `invalid` ⇒ envoi fermé (bouton absent, garde défensive dans
+  `handleSendOrder`), message, « Réessayer », panier intact, aucun `create_order`, aucune ouverture WhatsApp.
+- Le cas légitime reste intact : `absent` **explicite** ⇒ parcours d'avant, rien envoyé.
+
+**RED / GREEN** (`tests/csdj2-checkout-schedule-158-r1.dom.test.ts`, 8 variantes de réponse × retrait, + livraison) :
+RED sur le commit parent `88277b9` (`evidence-158-r1/red-parent-88277b9.tap`) : `[158-R1-0]` « tableau vide: create_order envoyé
+SANS p_customer.schedule alors que l'état du calendrier est INCONNU (fail-open) » ; `[158-R1-A]` et `[158-R1-D]` : pas de
+« Réessayer ». GREEN sur le commit enfant (`evidence-158-r1/green-*.tap`). Variantes : tableau vide, `data` null, ligne `{}`,
+ligne sans statut, statut inconnu, statut non textuel, deux lignes, lecture en échec ; puis réponse valide ⇒ choix ⇒ commande
+avec `schedule`. États couverts : absent (`[158-R1-B]`), invalides, disponibles (`[158-R1-C]`) ; unitaires `[158-15b]`, `[158-15c]`.
+
+**Conséquence assumée — tests existants.** Un `get_checkout_fulfillment_schedule` non servi ferme maintenant l'envoi. Onze
+fichiers de tests DOM dont le mock `supabase.rpc` levait sur toute RPC inconnue (et que le fail-open masquait) servent
+désormais la lecture « absent » : même patron de configuration que `get_restaurant_public_communication_texts`, aucune
+assertion modifiée. Le test `[158-D7]` (qui affirmait « lecture en échec ⇒ envoi possible ») est réécrit : le refus typé
+`REQUIRED` est maintenant testé quand le lecteur disait « absent » puis que le calendrier a été configuré entre-temps.
+
+**Point résiduel.** Si le lecteur répond `absent` alors que `create_order` exige une date (configuration changée entre la
+lecture et l'envoi), l'écran relit et affiche le message ; le cas est couvert par `[158-D7]`. Un désaccord **permanent** entre
+le lecteur et `create_order` (ce que le P1 doit exclure) afficherait ce message sans proposer de choix.
+
+**P1 — format Production de `create_order`.** Non déduit : procédure lecture seule + validation sur base jetable dans
+`docs/scheduling/csdj2-create-order-production-verification-158.md`. Constat nouveau à lever : le contrat v1.2 (§12.3) rapporte
+que le `md5(prosrc)` de `create_order` en Production égalait la tête du dépôt, qui **ne contient aucun bloc `schedule`**, alors
+que l'incident rapporte `SCANYM_SCHEDULE_REQUIRED`. Les requêtes de la procédure ont été vérifiées **syntaxiquement et à
+l'exécution sur une instance PGlite locale** (`evidence-158-r1/pglite-doc-queries.txt`), **jamais sur une base hébergée**.
+Le P1 reste **INCONCLUSIF** tant que les sorties Production (A1–A6) et la matrice M1–M12 ne sont pas jointes.

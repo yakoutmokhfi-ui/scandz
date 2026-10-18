@@ -1,0 +1,81 @@
+TAP version 13
+# Subtest: [158-R1-A] réponse calendrier vide / invalide / sans statut reconnu / en échec : AUCUN create_order, panier intact, « Réessayer » ; puis réponse valide => choix => commande avec schedule
+not ok 1 - [158-R1-A] réponse calendrier vide / invalide / sans statut reconnu / en échec : AUCUN create_order, panier intact, « Réessayer » ; puis réponse valide => choix => commande avec schedule
+  ---
+  duration_ms: 3197.444961
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:408:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : tableau vide: « Réessayer » proposé'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:419:9
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:377:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:416:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# createOrder: SCANYM_SCHEDULE_REQUIRED
+# Subtest: [158-R1-0] REPRO (audit \#160) : réponse calendrier vide / invalide => AUCUN create_order SANS schedule, même si le client clique
+not ok 2 - [158-R1-0] REPRO (audit \#160) : réponse calendrier vide / invalide => AUCUN create_order SANS schedule, même si le client clique
+  ---
+  duration_ms: 426.508492
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:442:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    tableau vide: create_order envoyé SANS p_customer.schedule alors que l'état du calendrier est INCONNU (fail-open)
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:452:16
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:377:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:445:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R1-B] `absent` EXPLICITE (calendrier non configuré) : parcours d'avant, envoi ouvert, aucun schedule
+ok 3 - [158-R1-B] `absent` EXPLICITE (calendrier non configuré) : parcours d'avant, envoi ouvert, aucun schedule
+  ---
+  duration_ms: 217.348275
+  type: 'test'
+  ...
+# Subtest: [158-R1-C] `dates_available` : choix puis commande avec schedule (état disponible)
+ok 4 - [158-R1-C] `dates_available` : choix puis commande avec schedule (état disponible)
+  ---
+  duration_ms: 161.045531
+  type: 'test'
+  ...
+# Subtest: [158-R1-D] livraison : réponse invalide => envoi fermé aussi (même mécanisme), puis réessai valide
+not ok 5 - [158-R1-D] livraison : réponse invalide => envoi fermé aussi (même mécanisme), puis réessai valide
+  ---
+  duration_ms: 3130.218505
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:492:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : « Réessayer »'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:502:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:377:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r1.dom.test.ts:499:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8157.526662
