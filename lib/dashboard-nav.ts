@@ -1,4 +1,5 @@
 import type { MerchantRestaurant } from "@/lib/dashboard-types";
+import { publicMenuUrlForSlug } from "@/lib/public-menu-url";
 
 /**
  * URL du menu public de l'établissement courant, dérivée de
@@ -12,6 +13,11 @@ import type { MerchantRestaurant } from "@/lib/dashboard-types";
  * profondeur, les slugs actuels (illico-presto, sanaa-cookies)
  * n'exigent rien de plus, mais rien ne garantit qu'un futur slug
  * reste toujours strictement alphanumérique-tiret.
+ *
+ * Issue #159 : un marchand doté d'une URL publique définitive
+ * (lib/public-menu-url.ts, ex. Au Lait Cru ->
+ * https://shop.scanym.com/au-lait-cru) ouvre cette URL ; tous les
+ * autres gardent le lien relatif `/r/{slug}`.
  */
 export function publicMenuHref(
   restaurantId: string,
@@ -20,10 +26,7 @@ export function publicMenuHref(
   const slug = mappings.find(
     (m) => m.restaurant_id === restaurantId
   )?.restaurants?.slug;
-  if (typeof slug !== "string") return null;
-  const normalizedSlug = slug.trim();
-  if (!normalizedSlug) return null;
-  return `/r/${encodeURIComponent(normalizedSlug)}`;
+  return publicMenuUrlForSlug(slug);
 }
 
 /**

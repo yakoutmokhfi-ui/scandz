@@ -23,8 +23,12 @@
 // Le slug lui-même est résolu par `getRestaurantBySlug` dans le handler
 // existant : un slug sans commerçant actif y donne le 404 habituel
 // (app/r/[slug]/not-found.tsx). Aucune donnée ni configuration commerçant
-// n'est touchée. Ajouter un alias = ajouter UNE entrée ici (+ le test).
-export const PUBLIC_SLUG_ALIASES = Object.freeze(["au-lait-cru"]);
+// n'est touchée. Ajouter un alias = ajouter UNE entrée dans config/public-slug-aliases.mjs (+ le test).
+import { PUBLIC_SLUG_ALIASES } from "./config/public-slug-aliases.mjs";
+
+// Liste déplacée dans config/public-slug-aliases.mjs (source unique, partagée
+// avec le back-office) ; ré-exportée ici pour les tests existants.
+export { PUBLIC_SLUG_ALIASES };
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

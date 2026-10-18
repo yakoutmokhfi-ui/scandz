@@ -18,6 +18,7 @@ import {
   summarizeCatalogue,
   type CatalogueSummary,
 } from "@/lib/operator-cockpit";
+import { publicMenuUrlForSlug } from "@/lib/public-menu-url";
 import { tAdmin } from "@/lib/admin-i18n";
 import CockpitSectionCard from "@/components/admin/CockpitSectionCard";
 
@@ -205,7 +206,9 @@ function CockpitBody({
   const publishStatus = summary ? deriveReadyToPublishStatus(summary.status) : "unavailable";
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const publicUrl = summary?.slug ? `${origin}/r/${summary.slug}` : null;
+  // Issue #159 : URL publique définitive si le marchand en a une
+  // (Au Lait Cru), sinon `{origin}/r/{slug}` comme avant.
+  const publicUrl = summary?.slug ? publicMenuUrlForSlug(summary.slug, origin) : null;
 
   // v1.1 — CATALOGUE/PHOTOS : résumé PUREMENT dérivé du résultat déjà
   // chargé par getMerchantCatalogue (aucune logique catalogue
