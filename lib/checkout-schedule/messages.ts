@@ -13,6 +13,7 @@ import type { ScheduleOrderErrorClass } from "@/lib/services/order-error";
 /** Indication affichée à la place du bouton quand SEUL le calendrier manque. */
 export function scheduleHintKey(state: CheckoutScheduleState): string {
   if (state.status === "loading") return "chkScheduleLoading";
+  if (state.status === "error") return "chkScheduleError";
   if (state.status === "ready") {
     const kind = scheduleRequirement(state.view).kind;
     if (kind === "blocked") return "chkScheduleBlocked";

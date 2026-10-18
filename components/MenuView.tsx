@@ -1458,19 +1458,19 @@ export default function MenuView({
   }, [scheduleState]);
 
   /**
-   * Le calendrier laisse-t-il partir la commande ?
+   * Le calendrier laisse-t-il partir la commande ? FAIL-CLOSED (audit de la
+   * PR #160) : tant que l'état du calendrier est INCONNU, rien ne part.
    *  - lecture en cours : non (on ne sait pas encore si une date est exigée) ;
-   *  - lecture en échec : OUI -- l'écran le dit et propose de réessayer, le
-   *    serveur reste l'autorité et refuse avec un code typé si une date est
-   *    exigée (relecture alors automatique) ;
-   *  - sinon : selon l'exigence du serveur (voir model.ts).
+   *  - lecture en échec : NON -- l'écran le dit et propose de réessayer ;
+   *  - réponse vide / invalide / au statut inconnu : NON (classée
+   *    `unreadable` par le modèle, même chemin « Réessayer ») ;
+   *  - lecture réussie : selon l'exigence du serveur (voir model.ts) ;
+   *  - `idle` (table, ou livraison sans code postal valide) : rien à lire.
    */
   const scheduleOk =
-    scheduleState.status === "loading"
-      ? false
-      : scheduleState.status === "ready"
-        ? scheduleAllowsSubmit(scheduleState.view, scheduleSelection)
-        : true;
+    scheduleState.status === "ready"
+      ? scheduleAllowsSubmit(scheduleState.view, scheduleSelection)
+      : scheduleState.status === "idle";
 
   /** La commande est prête à partir (le lien est construit après coup). */
   const canSubmit =

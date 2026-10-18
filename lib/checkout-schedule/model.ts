@@ -328,7 +328,9 @@ export function scheduleAllowsSubmit(
   view: CheckoutScheduleView | null,
   selection: ScheduleSelection
 ): boolean {
-  if (view === null) return true;
+  // Pas de vue = état du calendrier INCONNU : on ne laisse rien partir
+  // (fail-closed, audit de la PR #160).
+  if (view === null) return false;
   const requirement = scheduleRequirement(view);
   switch (requirement.kind) {
     case "none":

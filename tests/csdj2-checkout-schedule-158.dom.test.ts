@@ -518,19 +518,19 @@ test("[158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais a
   });
 });
 
-test("[158-D7] lecture des disponibilités en échec : message + « Réessayer » ; l'envoi reste possible, le serveur reste l'autorité (REQUIRED => relecture, panier conservé)", async (t) => {
-  let phase = 0; // 0 : lecteur en panne ; 1 : lecteur rétabli
+test("[158-D7] le serveur exige une date alors que la lecture disait « absent » (configuration changée entre-temps) : refus typé REQUIRED => message, relecture, choix proposé, panier conservé", async (t) => {
+  let phase = 0; // 0 : le lecteur dit « absent » ; 1 : calendrier maintenant configuré
   const srv = installServer(t, {
-    reader: () => (phase === 0 ? new Error("réseau") : FIXED),
+    reader: () => (phase === 0 ? row({ schedule_status: "absent" }) : FIXED),
     refuse: requireSchedule(true),
   });
   await withOpen(async () => {
     const { container, root } = await reach("pickup");
     try {
-      await waitFor(() => q(container, "checkout-schedule-error") !== null, "erreur de lecture visible");
-      assert.ok(q(container, "checkout-schedule-retry"), "bouton Réessayer");
+      await waitFor(() => srv.readerCalls.length > 0, "lecture faite");
+      await flush(50);
       const btn = sendButton(container);
-      assert.ok(btn, "fail-open : le serveur reste l'autorité");
+      assert.ok(btn, "lecture « absent » explicite : envoi ouvert");
       phase = 1;
       click(btn!);
       await waitFor(() => q(container, "checkout-schedule-notice") !== null, "message du refus typé");
@@ -541,6 +541,7 @@ test("[158-D7] lecture des disponibilités en échec : message + « Réessayer �
       await waitFor(() => q(container, "checkout-schedule-date") !== null, "disponibilités relues");
       assert.ok(srv.readerCalls.length >= 2, "relecture après refus");
       assert.ok(container.textContent!.includes("Cookie chocolat"), "panier conservé");
+      assert.equal(sendButton(container) === undefined, true, "envoi fermé jusqu'au choix");
     } finally { root.unmount(); container.remove(); }
   });
 });

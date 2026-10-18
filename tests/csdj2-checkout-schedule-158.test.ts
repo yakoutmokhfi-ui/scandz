@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   EMPTY_SCHEDULE_SELECTION,
@@ -10,7 +11,11 @@ import {
   windowTimes,
   type CheckoutScheduleView,
 } from "../lib/checkout-schedule/model.ts";
-import { mapCheckoutScheduleRow } from "../lib/checkout-schedule/map-row.ts";
+import {
+  INVALID_SCHEDULE_STATUS,
+  mapCheckoutScheduleResponse,
+  mapCheckoutScheduleRow,
+} from "../lib/checkout-schedule/map-row.ts";
 import { buildCreateOrderPayload } from "../lib/services/order-payload.ts";
 import {
   SCHEDULE_ORDER_ERROR_CLASSES,
@@ -242,8 +247,49 @@ test("[158-15] mapCheckoutScheduleRow : mapping snake_case -> modèle, statut ab
   assert.equal(v.status, "dates_available");
   assert.deepEqual(v.offers["2026-10-20"], [{ slotKey: "morning", startsAt: "09:00", endsAt: "12:00" }]);
   assert.equal(scheduleRequirement(v).kind, "choose");
-  assert.equal(mapCheckoutScheduleRow(null).status, "absent");
-  assert.equal(mapCheckoutScheduleRow({}).status, "absent");
+});
+
+test("[158-15b] FAIL-CLOSED (audit #160) : réponse vide / nulle / sans statut / statut inconnu / plusieurs lignes => INVALIDE (jamais « absent »), envoi fermé", () => {
+  const invalid = [
+    ["null", mapCheckoutScheduleResponse(null)],
+    ["undefined", mapCheckoutScheduleResponse(undefined)],
+    ["tableau vide", mapCheckoutScheduleResponse([])],
+    ["ligne vide", mapCheckoutScheduleResponse([{}])],
+    ["objet vide", mapCheckoutScheduleRow({})],
+    ["sans statut", mapCheckoutScheduleResponse([{ eligible_dates: ["2026-10-20"] }])],
+    ["statut null", mapCheckoutScheduleResponse([{ schedule_status: null }])],
+    ["statut inconnu", mapCheckoutScheduleResponse([{ schedule_status: "mystery" }])],
+    ["statut non textuel", mapCheckoutScheduleResponse([{ schedule_status: 7 }])],
+    ["statut vide", mapCheckoutScheduleResponse([{ schedule_status: "" }])],
+    ["deux lignes", mapCheckoutScheduleResponse([{ schedule_status: "absent" }, { schedule_status: "absent" }])],
+    ["chaîne", mapCheckoutScheduleResponse("absent")],
+    ["tableau imbriqué", mapCheckoutScheduleResponse([[{ schedule_status: "absent" }]])],
+  ] as const;
+  for (const [label, v] of invalid) {
+    assert.equal(v.status, INVALID_SCHEDULE_STATUS, label);
+    assert.equal(scheduleRequirement(v).kind, "unreadable", label);
+    assert.equal(scheduleAllowsSubmit(v, EMPTY_SCHEDULE_SELECTION), false, label);
+    assert.equal(toSchedulePayload(v, scheduleRequirement(v), EMPTY_SCHEDULE_SELECTION), null, label);
+  }
+  // Pas de vue du tout (lecture en cours / en échec) : envoi fermé.
+  assert.equal(scheduleAllowsSubmit(null, EMPTY_SCHEDULE_SELECTION), false);
+});
+
+test("[158-15c] états VALIDES : `absent` explicite => rien à demander ; `dates_available` => choix ; chaque statut du catalogue est reconnu", () => {
+  const absent = mapCheckoutScheduleResponse([{ schedule_status: "absent" }]);
+  assert.equal(absent.status, "absent");
+  assert.deepEqual(scheduleRequirement(absent), { kind: "none" });
+  assert.equal(scheduleAllowsSubmit(absent, EMPTY_SCHEDULE_SELECTION), true);
+  for (const status of ["absent", "blocked_upstream", "informational_only", "dates_available", "unfulfillable"]) {
+    assert.equal(mapCheckoutScheduleResponse([{ schedule_status: status }]).status, status);
+  }
+  const available = mapCheckoutScheduleResponse([{
+    schedule_status: "dates_available", date_selection_mode: "customer_selectable", slot_selection_mode: "fixed_slots",
+    first_eligible_date: "2026-10-20", eligible_dates: ["2026-10-20"],
+    offers: { "2026-10-20": [{ slot_key: "morning", starts_at: "09:00", ends_at: "12:00" }] },
+  }]);
+  assert.deepEqual(scheduleRequirement(available), { kind: "choose", slotMode: "fixed_slots" });
+  assert.equal(scheduleAllowsSubmit(available, EMPTY_SCHEDULE_SELECTION), false);
 });
 
 // -------------------- textes --------------------
@@ -261,4 +307,30 @@ test("[158-16] textes : toutes les clés chkSchedule* présentes en FR/EN/NL/AR,
   assert.notEqual(DICTS.en.chkScheduleChooseHint, DICTS.fr.chkScheduleChooseHint);
   assert.notEqual(DICTS.nl.chkScheduleChooseHint, DICTS.fr.chkScheduleChooseHint);
   assert.notEqual(DICTS.ar.chkScheduleChooseHint, DICTS.fr.chkScheduleChooseHint);
+});
+
+// -------------------- procédure de vérification (P1) --------------------
+test("[158-R1-E] la procédure de vérification Production cite EXACTEMENT les charges et les codes produits par le code (pas de dérive doc/code)", () => {
+  const doc = readFileSync("docs/scheduling/csdj2-create-order-production-verification-158.md", "utf8");
+  const payloads = [
+    toSchedulePayload(base, scheduleRequirement(base), { date: "2026-10-20", slotKey: "afternoon", time: null }),
+    toSchedulePayload(dateOnly, scheduleRequirement(dateOnly), { date: "2026-10-22", slotKey: null, time: null }),
+    toSchedulePayload(windowed, scheduleRequirement(windowed), { date: "2026-10-20", slotKey: null, time: "09:30" }),
+  ];
+  for (const p of payloads) {
+    assert.ok(p !== null);
+    assert.ok(doc.includes(JSON.stringify(p)), `charge absente du document : ${JSON.stringify(p)}`);
+  }
+  for (const code of Object.keys(SCHEDULE_ORDER_ERROR_CLASSES)) {
+    assert.ok(doc.includes(code.replace("SCANYM_SCHEDULE_", "")), `code absent du document : ${code}`);
+  }
+  // La lecture est en LECTURE SEULE : le document ne contient aucun DML/DDL exécutable sur Production.
+  const sqlBlocks = [...doc.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const prodBlocks = sqlBlocks.filter((b) => !b.includes("<CHARGE DU CAS>"));
+  assert.ok(prodBlocks.length >= 7);
+  for (const b of prodBlocks) {
+    const code = b.replace(/--.*$/gm, "");
+    assert.ok(!/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke)\b/i.test(code), `écriture dans un bloc de lecture : ${code.slice(0, 80)}`);
+    assert.ok(!/create_order\s*\(/i.test(code), "aucun appel à create_order sur Production");
+  }
 });

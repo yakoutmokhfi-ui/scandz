@@ -257,6 +257,10 @@ function installBackend(
     }
     if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
     if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
+    // CSDJ-2 / #158 : lecture publique des dates/créneaux, servie « absent »
+    // (aucun calendrier = parcours d'avant). Sans réponse VALIDE le checkout
+    // ne laisse plus partir la commande (fail-closed) : le mock doit donc la servir.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     if (name === "get_restaurant_public_cgv") return { data: [], error: null };
     if (name === "mark_whatsapp_opened") return { data: null, error: null };

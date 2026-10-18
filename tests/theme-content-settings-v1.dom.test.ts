@@ -143,6 +143,10 @@ function installSupabaseMock(t: { mock: { method: Function } }) {
   });
   t.mock.method(supabase, "from", () => chain);
   t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    // CSDJ-2 / #158 : lecture publique des dates/créneaux, servie « absent »
+    // (aucun calendrier = parcours d'avant). Sans réponse VALIDE le checkout
+    // ne laisse plus partir la commande (fail-closed) : le mock doit donc la servir.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") {
       TEXT_CALLS.push(args?.p_restaurant_id);
       return { data: TEXTS_BY_RESTAURANT[args?.p_restaurant_id] ?? [], error: null };
@@ -516,6 +520,10 @@ itCand("[HELP-7] lecture des textes en échec : aucun bouton, la vitrine continu
   installSupabaseMock(t);
   (supabase.rpc as any).mock.restore();
   t.mock.method(supabase, "rpc", async (name: string) => {
+    // CSDJ-2 / #158 : lecture publique des dates/créneaux, servie « absent »
+    // (aucun calendrier = parcours d'avant). Sans réponse VALIDE le checkout
+    // ne laisse plus partir la commande (fail-closed) : le mock doit donc la servir.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") return { data: null, error: { message: "boom" } };
     return { data: [], error: null };
   });
