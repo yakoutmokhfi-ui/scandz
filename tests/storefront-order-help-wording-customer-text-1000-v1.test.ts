@@ -114,6 +114,14 @@ test("[SW-04] le dictionnaire néerlandais est PARTIEL, et le repli par clé res
     // Issue #156 : l'état affiché, le nom des modes et les phrases
     // « ce que voit le client » dérivent leurs clés ici, comme ci-dessus.
     read("lib", "availability-ux.ts"),
+    // ÉLARGISSEMENT DOCUMENTÉ (CSDJ-2, issue #158) : l'issue exige les
+    // textes du choix de date/créneau au checkout « FR/EN/NL/AR ». Les clés
+    // `chkSchedule*` sont lues par CES DEUX sources uniquement (le
+    // sélecteur et le module qui choisit la clé d'un message) ; le
+    // périmètre reste MESURÉ sur les sources, jamais une liste figée, et
+    // une traduction néerlandaise générale de l'interface échoue toujours.
+    read("components", "CheckoutSchedulePicker.tsx"),
+    read("lib", "checkout-schedule", "messages.ts"),
   ].join("\n");
   // Les clés sont lues sous deux formes dans ces sources -- `t("clé")` et
   // `translate(lang, "clé")` -- donc le relevé retient tout littéral de

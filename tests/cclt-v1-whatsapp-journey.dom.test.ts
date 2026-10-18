@@ -213,6 +213,16 @@ function installBackend(t: any): Backend {
       // pas des appels inattendus.
       case "get_restaurant_public_communication_texts":
         return { data: [], error: null };
+      // CSDJ-2 / #158 -- lecture PUBLIQUE des dates et créneaux du checkout
+      // (get_checkout_fulfillment_schedule, CSDJ-1, tenant-safe), faite par
+      // MenuView dès qu'un mode retrait/livraison est choisi et le panier
+      // non vide. Servie « absent » : aucun calendrier configuré, c'est
+      // l'état de tout établissement avant CSDJ -- donc exactement le
+      // parcours que ces assertions vérifiaient déjà. Elle fait partie du
+      // CONTRAT de lecture publique du parcours, au même titre que
+      // get_restaurant_public_communication_texts ci-dessus.
+      case "get_checkout_fulfillment_schedule":
+        return { data: [{ schedule_status: "absent" }], error: null };
       default:
         backend.unexpected.push(`rpc:${name}`);
         throw new Error(`RPC inattendue : ${name}`);
