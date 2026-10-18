@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: [158-R2-1] deux créneaux de MÊME clé : jamais un créneau différent de celui choisi => envoi fermé + explication, panier intact
+ok 1 - [158-R2-1] deux créneaux de MÊME clé : jamais un créneau différent de celui choisi => envoi fermé + explication, panier intact
+  ---
+  duration_ms: 357.025739
+  type: 'test'
+  ...
+# Subtest: [158-R2-1b] REPRO : avec deux créneaux de même clé, la commande ne part JAMAIS avec un créneau autre que celui affiché
+ok 2 - [158-R2-1b] REPRO : avec deux créneaux de même clé, la commande ne part JAMAIS avec un créneau autre que celui affiché
+  ---
+  duration_ms: 193.780909
+  type: 'test'
+  ...
+# Subtest: [158-R2-2] dates IMPOSSIBLES (2026-02-31, 2026-04-31, 2025-02-29, mois 13, jour 00) : rejetées, jamais normalisées en une autre date
+ok 3 - [158-R2-2] dates IMPOSSIBLES (2026-02-31, 2026-04-31, 2025-02-29, mois 13, jour 00) : rejetées, jamais normalisées en une autre date
+  ---
+  duration_ms: 1136.971949
+  type: 'test'
+  ...
+# Subtest: [158-R2-2b] une date impossible MÊLÉE à des dates valides bloque aussi (aucune date partielle proposée)
+ok 4 - [158-R2-2b] une date impossible MÊLÉE à des dates valides bloque aussi (aucune date partielle proposée)
+  ---
+  duration_ms: 222.436605
+  type: 'test'
+  ...
+# Subtest: [158-R2-3] intervalle dont la fin PRÉCÈDE le début (ou égale) : rejeté (créneau fixe, fenêtre, date seule)
+ok 5 - [158-R2-3] intervalle dont la fin PRÉCÈDE le début (ou égale) : rejeté (créneau fixe, fenêtre, date seule)
+  ---
+  duration_ms: 874.647241
+  type: 'test'
+  ...
+# Subtest: [158-R2-2c] REPRO : une date impossible n'est jamais envoyée au serveur (ni telle quelle, ni normalisée)
+ok 6 - [158-R2-2c] REPRO : une date impossible n'est jamais envoyée au serveur (ni telle quelle, ni normalisée)
+  ---
+  duration_ms: 177.108607
+  type: 'test'
+  ...
+# Subtest: [158-R2-3c] REPRO : un créneau dont la fin précède le début n'est jamais envoyé
+ok 7 - [158-R2-3c] REPRO : un créneau dont la fin précède le début n'est jamais envoyé
+  ---
+  duration_ms: 176.299083
+  type: 'test'
+  ...
+# Subtest: [158-R2-4c] REPRO : politique de créneau inconnue avec derived_earliest => aucune commande
+ok 8 - [158-R2-4c] REPRO : politique de créneau inconnue avec derived_earliest => aucune commande
+  ---
+  duration_ms: 242.092655
+  type: 'test'
+  ...
+# Subtest: [158-R2-4] politique INCONNUE pour dériver la date ou le créneau : envoi fermé, aucune date envoyée
+ok 9 - [158-R2-4] politique INCONNUE pour dériver la date ou le créneau : envoi fermé, aucune date envoyée
+  ---
+  duration_ms: 1982.156609
+  type: 'test'
+  ...
+# Subtest: [158-R2-4b] NON-RÉGRESSION : derived_earliest + créneau « none » reste envoyable avec la date du serveur
+ok 10 - [158-R2-4b] NON-RÉGRESSION : derived_earliest + créneau « none » reste envoyable avec la date du serveur
+  ---
+  duration_ms: 100.123
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6578.398441

@@ -135,3 +135,79 @@ que le `md5(prosrc)` de `create_order` en Production égalait la tête du dépô
 que l'incident rapporte `SCANYM_SCHEDULE_REQUIRED`. Les requêtes de la procédure ont été vérifiées **syntaxiquement et à
 l'exécution sur une instance PGlite locale** (`evidence-158-r1/pglite-doc-queries.txt`), **jamais sur une base hébergée**.
 Le P1 reste **INCONCLUSIF** tant que les sorties Production (A1–A6) et la matrice M1–M12 ne sont pas jointes.
+
+## 11. Remédiation du contre-audit de la PR #160 (réponses calendrier incohérentes)
+
+Parent audité : `f81bb606e5baf2d52fffbb3f01ddd3a63b201d10`. Le contre-audit confirme que le fail-open initial est corrigé ; quatre
+réponses **incohérentes** restaient envoyables. Principe commun : une réponse qui ne se laisse pas lire **sans deviner** ferme l'envoi
+(`unreadable` + raison), l'écran explique pourquoi et propose « Réessayer », le panier reste intact, aucun `create_order`, aucune ouverture
+WhatsApp. Aucune disponibilité n'est inventée, rien n'est normalisé, rien n'est « corrigé » côté navigateur : le serveur reste l'autorité.
+
+### 11.1 Les quatre cas
+
+| # | Réponse incohérente | Avant (f81bb60) | Après | Raison affichée |
+|---|---|---|---|---|
+| 1 | Deux créneaux de même `slot_key` le même jour (ou deux dates identiques, ou deux fenêtres qui se chevauchent) | `toSchedulePayload` prenait le **premier** créneau qui correspondait à la clé : l'heure de début/fin envoyée pouvait différer de celle que le client voyait choisie | envoi fermé ; `isSelectionOffered` et `toSchedulePayload` exigent **exactement une** offre correspondante (défense en profondeur) | `ambiguous` |
+| 2 | Date impossible (`2026-02-31`, `2026-04-31`, `2025-02-29`, `2026-13-01`, `2026-10-00`) | `isIsoDate` ne contrôlait que la forme : la date impossible partait telle quelle | `isIsoDate` vérifie mois (1–12), jour (1–nb de jours du mois), années bissextiles ; la valeur n'est **jamais** convertie en autre date. Vaut pour dates éligibles, clés d'offres, première date éligible et date dérivée | `date` |
+| 3 | Intervalle dont la fin précède ou égale le début (`14:00`→`09:00`, `14:00`→`14:00`) | accepté (créneau fixe, fenêtre, date seule, dérivée) | refusé dans tous les modes ; un intervalle d'une minute reste valide | `interval` |
+| 4 | Politique inconnue nécessaire pour dériver la date ou le créneau : `derived_earliest` avec créneau ≠ `none`, mode de date ou de créneau inconnu/absent, fenêtre sans granularité entière > 0 | traités comme un cas connu ou ignorés | envoi fermé | `policy` |
+
+Fichiers : `lib/checkout-schedule/model.ts` (règles ci-dessus ; un type `UnreadableReason`), `lib/checkout-schedule/messages.ts`
+(`unreadableMessageKey`), `components/CheckoutSchedulePicker.tsx` (affiche la raison), `lib/i18n.ts` (4 messages × fr/en/ar/nl). Aucun SQL,
+aucun autre fichier de production. `MenuView.tsx`, `CartPanel.tsx` (SHA épinglé) et les services ne changent pas dans ce commit.
+
+**Décision à confirmer (CIO / DIRAC).** `derived_earliest` avec un créneau ≠ `none` est **bloqué** (`policy`) : le contrat v1.2 dit que, en
+date dérivée, le créneau et l'heure fournis donnent `selection_not_expected`. Bloquer côté client évite d'envoyer une sélection que le serveur
+refuserait ; si le CIO préfère laisser le serveur trancher, c'est une ligne à retirer (et le test `[158-R2-4]` à adapter) — non fait sans accord.
+
+### 11.2 RED / GREEN
+
+| Test | RED sur f81bb60 | GREEN sur 5ef2063 |
+|---|---|---|
+| `tests/csdj2-checkout-schedule-158-r2.dom.test.ts` (10 tests, parcours complet jsdom + bundle MenuView) | 9/10 en échec (`evidence-158-r2/red-parent-f81bb60-dom.tap`) : « créneau différent de celui choisi envoyé », « date impossible envoyée », « intervalle inversé envoyé », « politique inconnue : envoi ouvert » | 10/10 (`green-r2-dom.tap`) |
+| `tests/csdj2-checkout-schedule-158-r2.test.ts` (5 tests purs) | 4/4 en échec sur le modèle parent (`red-parent-f81bb60-pure.tap`) ; `[158-R2-P5]` (traductions) ne peut pas s'exécuter sur le parent : la clé de message n'y existe pas | 5/5 (`green-r2-pure.tap`) |
+
+Chaque cas DOM vérifie : bouton d'envoi absent, explication française visible, « Réessayer » présent, aucun choix de créneau ni sélecteur de
+date, « Cookie chocolat » toujours dans le panier, **0** `create_order`, **0** ouverture WhatsApp ; puis, après réponse saine, la commande part
+avec le bon `schedule`. Non-régression : `[158-R2-4b]` (dérivée + créneau `none` reste envoyable). Aucun test existant retiré ni affaibli : les 19
+purs, 13 DOM et 5 `r1` passent inchangés.
+
+### 11.3 Vérifications
+
+- Tests ciblés : 19 + 13 + 5 + 5 + 10 + 16 (épinglage `delivery-engine-unchanged-v1`) = 68/68 ; SW-04 (`storefront-order-help-wording…`) : seul `[SW-01]` en échec, **identique sur main** (préexistant) ; dérive documentaire `[158-R1-E]` verte.
+- `npx tsc --noEmit -p .` : aucune erreur. `next build` (variables factices) : succès, `exit=0` (`next-build-tail.txt`).
+- Parent : `f81bb606e5baf2d52fffbb3f01ddd3a63b201d10` ; candidat : voir le commentaire de la PR (SHA et arbre).
+
+### 11.4 Suite complète comparée par identité — les « 5 échecs de plus » de Turing
+
+Méthode : identité d'échec = (fichier, nom du test) extraite du TAP (`evidence-158-r2/tools/failids.py`), jamais le seul compteur. Huit
+exécutions complètes, une à la fois (`full-suite-comparison.txt`, listes `failures-*.tsv`) :
+
+- **Avec variables d'environnement** : main (f852988 et pointe a66fcc6), parent f81bb60 (deux fois), candidat, candidat fusionné à la pointe de main : **14 échecs, mêmes 14 identités partout**. Le candidat n'ajoute ni ne retire aucun échec. Ces 14 existent sur main (OB-1 non-modification ×5, SW-01/CB-02/SWD-01, BL-1, deux gardes structurelles P3-A1, une P3-A2, « Scénario 16 », « 1-3 technical details… »).
+- **Sans variables** : main, parent et candidat ont **les mêmes 15 identités** (les 14 + le fichier `cfte-v1-customer-name-and-email.test.ts` entier, 21 tests non exécutés parce que `lib/supabase.ts` lève sans variables).
+- **Répétition** : parent mesuré deux fois (identique) ; les 52 tests de la PR : 5 exécutions séquentielles + 12 sous charge CPU, 17/17 vertes.
+
+**Conclusion mesurée : les 5 échecs supplémentaires ne sont PAS reproduits** — ni dans l'arbre candidat, ni dans le parent, ni selon la présence des
+variables, ni sous charge, ni après fusion avec la pointe actuelle de main. Je ne peux donc pas dire s'ils sont « nouveaux » (aucun signe de
+régression due à la PR), « intermittents » (aucune bascule observée : 17 exécutions ciblées répétées, et deux mesures du parent aux identités identiques) ou « environnementaux »
+(une différence d'environnement existe — le fichier `cfte` — mais elle est identique pour main). Je ne conclus pas au-delà.
+
+Ce qui manque pour trancher, à fournir par le contre-audit : **les 5 noms de tests (fichier + nom)**, le **SHA de sa référence**, sa
+version de Node, son nombre de CPU, la présence des trois variables Supabase et la profondeur de son clone Git. Points de comparaison utiles :
+(a) le nombre 5 coïncide avec les 5 tests de `ob1-non-modification-proof`, qui échouent **déjà sur main** ici parce qu'ils comparent
+`git diff --name-only 7dde570…` à une liste de fichiers autorisés — leur résultat dépend de l'état Git de l'arbre, pas du code testé ; c'est une
+piste, **non vérifiée** ; (b) la référence de Turing est-elle `f852988` ou une pointe de main plus récente (main a avancé : #161/#162) ?
+Le script `tools/failids.py` permet de produire la liste d'identités de n'importe quelle exécution pour un `diff` direct.
+
+### 11.5 P1 — toujours INCONCLUSIF
+
+Rien en Production n'a été lu ni touché. `docs/scheduling/csdj2-create-order-production-verification-158.md` reçoit un §6 « Rapprochement
+avec les erreurs du 15 octobre » (R1–R5) que DIRAC ou le CTO remplissent en **lecture seule** : journaux des 4 requêtes (base touchée, clés du
+corps), comparaison avec la base lue en A1–A6, révision cliente déployée, et table de lecture des résultats. Nouveau point à lever avant
+tout déploiement : si `get_checkout_fulfillment_schedule` n'existe pas ou n'est pas exécutable par le client en Production, la PR #160 ferme
+l'envoi du retrait (par conception, fail-closed) — décision CIO / DIRAC. Le P1 n'est pas clos tant que A1–A6, R1–R5 et M1–M12 ne sont pas joints.
+
+### 11.6 Limites
+
+Tout est mesuré sur doublures (mocks `supabase.rpc`, jsdom) ; aucune base hébergée, aucun Preview authentifié, aucune commande réelle. La
+fusion avec la pointe de main est une simulation locale jetable, non poussée. Les requêtes de la procédure P1 n'ont été exécutées que sur PGlite local.

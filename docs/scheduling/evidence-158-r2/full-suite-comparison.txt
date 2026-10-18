@@ -1,0 +1,27 @@
+CSDJ-2 / #158 — comparaison PAR IDENTITÉ (fichier + nom de test) des suites complètes, PR #160, contre-audit
+Commande (npm test) : node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts
+Identité d'un échec = (fichier de test, nom du test) extraite du TAP (tools/failids.py). Node v22.22.2 ; 2 CPU.
+« env » = NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY = valeurs factices ; « noenv » = non définies.
+Chaque exécution a tourné SEULE sur la machine (une à la fois).
+
+ arbre                                   SHA        env     tests  pass  fail  identités d'échec
+ main (base de la PR)                    f852988    env     5731   5717  14    L0 (référence, 14 noms)
+ main (pointe actuelle, PR #161/#162)    a66fcc6    env     5754   5740  14    = L0
+ parent audité (PR #160)                 f81bb60    env     5768   5754  14    = L0   (2 exécutions : identiques entre elles)
+ CANDIDAT                                5ef2063    env     5783   5769  14    = L0
+ candidat fusionné à la pointe de main   d7ad2a2*   env     5806   5792  14    = L0   (*fusion locale jetable, non poussée)
+ main                                    f852988    noenv   5710   5695  15    L0 + cfte-v1-customer-name-and-email (fichier entier)
+ parent audité                           f81bb60    noenv   5747   5732  15    = main noenv
+ CANDIDAT                                5ef2063    noenv   5762   5747  15    = main noenv
+
+Différence candidat - main, avec env : 0 échec en plus, 0 en moins (diff vide, failures-*.tsv). Tests ajoutés : +52 (19+13+5 pour le
+parent, +5+10 pour ce commit), tous verts. Écart de nombre de tests main→candidat = 5783-5731 = 52.
+
+Les 14 échecs de référence L0 (déjà présents sur main, indépendants de la PR) : delivery-public-text-v1.dom (1), ob1-non-modification-proof (5),
+storefront-order-help-wording-customer-text-1000-v1 (SW-01, CB-02, SWD-01 : 3), theme-content-settings-v1.dom (BL-1), v110c-payment-p3a1-structural (2),
+v111h-payment-p3a2-structural (1), v149-operator-dashboard-context-v1.dom (Scénario 16).
+
+Répétition ciblée des tests de la PR (52 tests : 19+13+5+5+10) : 5 exécutions séquentielles + 12 exécutions sous charge CPU (3 boucles en parallèle +
+2 processus `yes`) = 17/17 vertes (flake-repeat.txt).
+
+NON REPRODUIT : les « 5 échecs de plus » rapportés par Turing n'apparaissent dans AUCUNE des 8 configurations mesurées ci-dessus. Voir §11.4 du rapport.
