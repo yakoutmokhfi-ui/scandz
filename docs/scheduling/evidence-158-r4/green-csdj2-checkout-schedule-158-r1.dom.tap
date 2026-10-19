@@ -1,0 +1,44 @@
+TAP version 13
+# (node:5229) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/csdj2-checkout-schedule-158-r1.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R1-A] réponse calendrier vide / invalide / sans statut reconnu / en échec : AUCUN create_order, panier intact, « Réessayer » ; puis réponse valide => choix => commande avec schedule
+ok 1 - [158-R1-A] réponse calendrier vide / invalide / sans statut reconnu / en échec : AUCUN create_order, panier intact, « Réessayer » ; puis réponse valide => choix => commande avec schedule
+  ---
+  duration_ms: 1319.302382
+  type: 'test'
+  ...
+# Subtest: [158-R1-0] REPRO (audit \#160) : réponse calendrier vide / invalide => AUCUN create_order SANS schedule, même si le client clique
+ok 2 - [158-R1-0] REPRO (audit \#160) : réponse calendrier vide / invalide => AUCUN create_order SANS schedule, même si le client clique
+  ---
+  duration_ms: 3212.816298
+  type: 'test'
+  ...
+# Subtest: [158-R1-B] `absent` EXPLICITE (calendrier non configuré) : parcours d'avant, envoi ouvert, aucun schedule
+ok 3 - [158-R1-B] `absent` EXPLICITE (calendrier non configuré) : parcours d'avant, envoi ouvert, aucun schedule
+  ---
+  duration_ms: 173.938988
+  type: 'test'
+  ...
+# Subtest: [158-R1-C] `dates_available` : choix puis commande avec schedule (état disponible)
+ok 4 - [158-R1-C] `dates_available` : choix puis commande avec schedule (état disponible)
+  ---
+  duration_ms: 139.008373
+  type: 'test'
+  ...
+# Subtest: [158-R1-D] livraison : réponse invalide => envoi fermé aussi (même mécanisme), puis réessai valide
+ok 5 - [158-R1-D] livraison : réponse invalide => envoi fermé aussi (même mécanisme), puis réessai valide
+  ---
+  duration_ms: 196.347402
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6051.353467

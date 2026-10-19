@@ -1,0 +1,15 @@
+tests/catalogue-product-reorder-v1.dom.test.ts	[C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif (borne atteinte), le focus passe au bouton opposé du MÊME produ
+tests/delivery-public-text-v1.dom.test.ts	1-3. technical details never appear: zones, postcodes, base fee, mode, threshold, min items, discount, provider, code, order
+tests/ob1-non-modification-proof.test.ts	aucun fichier Stuart n'a été modifié (périmètre Claude Monnet)
+tests/ob1-non-modification-proof.test.ts	aucun fichier catalogue UI marchand / photo produit (périmètre Claude Nougaro, OB-2) n'a été modifié -- OB-1 v1.1 RÉUTILISE get_merchant_cat
+tests/ob1-non-modification-proof.test.ts	aucun fichier paiement backend/UI marchand n'a été modifié
+tests/ob1-non-modification-proof.test.ts	aucun fichier supabase/ (SQL/migration/backend) n'a été modifié -- OB-1 est SQL REQUIRED: NO
+tests/ob1-non-modification-proof.test.ts	git diff depuis la baseline publiée : SEULS les fichiers explicitement autorisés par OB-1 ont changé
+tests/storefront-order-help-wording-customer-text-1000-v1.dom.test.ts	[CB-02] le CONTENU et le COMPORTEMENT du bouton sont inchangés
+tests/storefront-order-help-wording-customer-text-1000-v1.dom.test.ts	[SWD-01] le libellé exact est rendu sur la cartouche ET dans le titre, dans les quatre langues
+tests/storefront-order-help-wording-customer-text-1000-v1.test.ts	[SW-01] le libellé exact est rendu dans les quatre langues du mandat
+tests/theme-content-settings-v1.dom.test.ts	[BL-1] sans configuration, le rendu est IDENTIQUE à celui de main (empreinte 412dbb5)
+tests/v110c-payment-p3a1-structural.test.ts	archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIEN
+tests/v110c-payment-p3a1-structural.test.ts	archi: aucun fichier SQL ajouté par P3-A1 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER 
+tests/v111h-payment-p3a2-structural.test.ts	archi: aucun fichier SQL ajouté par P3-A2 (nombre inchangé depuis PAYMENT P3-B0/P3-B1/ORDERS ACL HARDENING/P3-B2/P3-B3/P3-B4/CUSTOMER ORDER 
+tests/v149-operator-dashboard-context-v1.dom.test.ts	Scénario 16 — Delivery pricing : un opérateur consultant un établissement hors adhésion ne voit JAMAIS de bouton d'édition actif (canEdit re

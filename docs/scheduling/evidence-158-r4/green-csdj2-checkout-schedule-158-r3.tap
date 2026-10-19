@@ -1,0 +1,44 @@
+TAP version 13
+# (node:5285) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/csdj2-checkout-schedule-158-r3.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R3-P1] dérivée valide : exigence « derived », payload DATE SEULE conforme au contrat
+ok 1 - [158-R3-P1] dérivée valide : exigence « derived », payload DATE SEULE conforme au contrat
+  ---
+  duration_ms: 3.576848
+  type: 'test'
+  ...
+# Subtest: [158-R3-P2] cas Turing : offres absentes (null / {} / liste vide / autre date) => date dérivée NON disponible
+ok 2 - [158-R3-P2] cas Turing : offres absentes (null / {} / liste vide / autre date) => date dérivée NON disponible
+  ---
+  duration_ms: 0.936106
+  type: 'test'
+  ...
+# Subtest: [158-R3-P3] offres mal formées : heures hors format, secondes, vides, 24:00, clé de créneau => fermé
+ok 3 - [158-R3-P3] offres mal formées : heures hors format, secondes, vides, 24:00, clé de créneau => fermé
+  ---
+  duration_ms: 0.515148
+  type: 'test'
+  ...
+# Subtest: [158-R3-P4] bornes strictes inversées ou égales => raison « interval » (déjà fermé, conservé)
+ok 4 - [158-R3-P4] bornes strictes inversées ou égales => raison « interval » (déjà fermé, conservé)
+  ---
+  duration_ms: 0.14759
+  type: 'test'
+  ...
+# Subtest: [158-R3-P5] l'exigence « derived » est atteinte APRÈS validation : aucune autre branche ne la précède
+ok 5 - [158-R3-P5] l'exigence « derived » est atteinte APRÈS validation : aucune autre branche ne la précède
+  ---
+  duration_ms: 0.226343
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 285.874092

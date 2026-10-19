@@ -1,0 +1,44 @@
+TAP version 13
+# (node:5250) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/csdj2-checkout-schedule-158-r2.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R2-P1] créneaux de MÊME clé : réponse ambiguë, jamais le « premier » créneau
+ok 1 - [158-R2-P1] créneaux de MÊME clé : réponse ambiguë, jamais le « premier » créneau
+  ---
+  duration_ms: 3.585859
+  type: 'test'
+  ...
+# Subtest: [158-R2-P2] dates IMPOSSIBLES refusées, jamais normalisées ; dates valides acceptées (années bissextiles comprises)
+ok 2 - [158-R2-P2] dates IMPOSSIBLES refusées, jamais normalisées ; dates valides acceptées (années bissextiles comprises)
+  ---
+  duration_ms: 0.901583
+  type: 'test'
+  ...
+# Subtest: [158-R2-P3] intervalles dont la fin PRÉCÈDE (ou égale) le début : refusés, tous modes
+ok 3 - [158-R2-P3] intervalles dont la fin PRÉCÈDE (ou égale) le début : refusés, tous modes
+  ---
+  duration_ms: 0.282609
+  type: 'test'
+  ...
+# Subtest: [158-R2-P4] politique INCONNUE pour dériver la date ou le créneau : bloqué ; politiques connues inchangées
+ok 4 - [158-R2-P4] politique INCONNUE pour dériver la date ou le créneau : bloqué ; politiques connues inchangées
+  ---
+  duration_ms: 0.380879
+  type: 'test'
+  ...
+# Subtest: [158-R2-P5] chaque raison a une explication traduite FR/EN/NL/AR, distincte du message générique
+ok 5 - [158-R2-P5] chaque raison a une explication traduite FR/EN/NL/AR, distincte du message générique
+  ---
+  duration_ms: 0.491069
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 300.322439

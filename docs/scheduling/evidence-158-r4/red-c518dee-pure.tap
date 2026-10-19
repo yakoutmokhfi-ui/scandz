@@ -1,0 +1,388 @@
+TAP version 13
+# (node:627) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# \# COVERAGE data: derived=15 selNone=15 fixed=15 window=15 absent=15 blocked_upstream=15 informational_only=15 unfulfillable=15
+# \# COVERAGE ligne: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE schedule_status: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE schedule_timezone: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE unfulfillable_reason: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE date_selection_mode: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE slot_selection_mode: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE time_granularity_minutes: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE first_eligible_date: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE eligible_dates: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE eligible_dates[i]: derived=37 selNone=74 fixed=74 window=74 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE offers[date]: derived=37 selNone=74 fixed=74 window=74 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j]: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].slot_key: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].starts_at: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].ends_at: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE classes de valeurs distinctes : 55
+# \# COVERAGE cas (champ x classe x politique x verdict) distincts : 5182
+# Subtest: [158-R4-B0] corpus VALIDE : l'oracle et le code concordent (contrôle de l'oracle lui-même)
+ok 1 - [158-R4-B0] corpus VALIDE : l'oracle et le code concordent (contrôle de l'oracle lui-même)
+  ---
+  duration_ms: 5.499321
+  type: 'test'
+  ...
+# Subtest: [158-R4-1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01 (date dérivée) : réponse brute => illisible, jamais « derived »
+not ok 2 - [158-R4-1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01 (date dérivée) : réponse brute => illisible, jamais « derived »
+  ---
+  duration_ms: 2.991941
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:111:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   "slot_key:42: le code retourne « derived » au lieu d'illisible",
+    +   'slot_key:42: envoi OUVERT',
+    +   "slot_key:false: le code retourne « derived » au lieu d'illisible",
+    +   'slot_key:false: envoi OUVERT',
+    +   "slot_key:{}: le code retourne « derived » au lieu d'illisible",
+    +   'slot_key:{}: envoi OUVERT',
+    +   "slot_key:[]: le code retourne « derived » au lieu d'illisible",
+    +   'slot_key:[]: envoi OUVERT',
+    +   "starts_at/ends_at:tableaux: le code retourne « derived » au lieu d'illisible",
+    +   'starts_at/ends_at:tableaux: envoi OUVERT',
+    +   "offers[25]=null: le code retourne « derived » au lieu d'illisible",
+    +   'offers[25]=null: envoi OUVERT',
+    +   "offers[25]={}: le code retourne « derived » au lieu d'illisible",
+    +   'offers[25]={}: envoi OUVERT',
+    +   `offers[25]="bad": le code retourne « derived » au lieu d'illisible`,
+    +   'offers[25]="bad": envoi OUVERT'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: "slot_key:42: le code retourne « derived » au lieu d'illisible"
+    1: 'slot_key:42: envoi OUVERT'
+    2: "slot_key:false: le code retourne « derived » au lieu d'illisible"
+    3: 'slot_key:false: envoi OUVERT'
+    4: "slot_key:{}: le code retourne « derived » au lieu d'illisible"
+    5: 'slot_key:{}: envoi OUVERT'
+    6: "slot_key:[]: le code retourne « derived » au lieu d'illisible"
+    7: 'slot_key:[]: envoi OUVERT'
+    8: "starts_at/ends_at:tableaux: le code retourne « derived » au lieu d'illisible"
+    9: 'starts_at/ends_at:tableaux: envoi OUVERT'
+    10: "offers[25]=null: le code retourne « derived » au lieu d'illisible"
+    11: 'offers[25]=null: envoi OUVERT'
+    12: "offers[25]={}: le code retourne « derived » au lieu d'illisible"
+    13: 'offers[25]={}: envoi OUVERT'
+    14: `offers[25]="bad": le code retourne « derived » au lieu d'illisible`
+    15: 'offers[25]="bad": envoi OUVERT'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:131:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-R4-2] FORME DE `data` : null, undefined, vide, 2 lignes, objet nu, imbriqué, scalaire => fermé (tous les corpus)
+not ok 3 - [158-R4-2] FORME DE `data` : null, undefined, vide, 2 lignes, objet nu, imbriqué, scalaire => fermé (tous les corpus)
+  ---
+  duration_ms: 1.7612
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:134:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    forme de data : 8 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived data=objet-nu: oracle=closed code=derived',
+    +   'selNone data=objet-nu: oracle=closed code=choose/none',
+    +   'fixed data=objet-nu: oracle=closed code=choose/fixed_slots',
+    +   'window data=objet-nu: oracle=closed code=choose/time_within_window',
+    +   'absent data=objet-nu: oracle=closed code=none',
+    +   'blocked_upstream data=objet-nu: oracle=closed code=none',
+    +   'informational_only data=objet-nu: oracle=closed code=none',
+    +   'unfulfillable data=objet-nu: oracle=closed code=blocked'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived data=objet-nu: oracle=closed code=derived'
+    1: 'selNone data=objet-nu: oracle=closed code=choose/none'
+    2: 'fixed data=objet-nu: oracle=closed code=choose/fixed_slots'
+    3: 'window data=objet-nu: oracle=closed code=choose/time_within_window'
+    4: 'absent data=objet-nu: oracle=closed code=none'
+    5: 'blocked_upstream data=objet-nu: oracle=closed code=none'
+    6: 'informational_only data=objet-nu: oracle=closed code=none'
+    7: 'unfulfillable data=objet-nu: oracle=closed code=blocked'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:91:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:139:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R4-3] MATRICE champ x classe de valeur x politique : chaque chemin de chaque réponse type reçoit chaque classe
+not ok 4 - [158-R4-3] MATRICE champ x classe de valeur x politique : chaque chemin de chaque réponse type reçoit chaque classe
+  ---
+  duration_ms: 107.62854
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:142:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    matrice (5994 cas) : 821 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived @ unfulfillable_reason <- 0: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- 1: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- 42: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- -1: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- 1.5: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- 30-nombre: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- true: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- false: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-vide: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-heure: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-null: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- liste-de-listes: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- objet-vide: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- objet-a1: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- offre-cle-42: oracle=closed code=derived',
+    +   'derived @ unfulfillable_reason <- offre-inversee: oracle=closed code=derived',
+    +   'derived @ schedule_timezone <- 0: oracle=closed code=derived',
+    +   'derived @ schedule_timezone <- 1: oracle=closed code=derived',
+    +   'derived @ schedule_timezone <- 42: oracle=closed code=derived',
+    +   'derived @ schedule_timezone <- -1: oracle=closed code=derived',
+    +   'derived @ schedule_timezone <- 1.5: oracle=closed code=derived'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived @ unfulfillable_reason <- 0: oracle=closed code=derived'
+    1: 'derived @ unfulfillable_reason <- 1: oracle=closed code=derived'
+    2: 'derived @ unfulfillable_reason <- 42: oracle=closed code=derived'
+    3: 'derived @ unfulfillable_reason <- -1: oracle=closed code=derived'
+    4: 'derived @ unfulfillable_reason <- 1.5: oracle=closed code=derived'
+    5: 'derived @ unfulfillable_reason <- 30-nombre: oracle=closed code=derived'
+    6: 'derived @ unfulfillable_reason <- true: oracle=closed code=derived'
+    7: 'derived @ unfulfillable_reason <- false: oracle=closed code=derived'
+    8: 'derived @ unfulfillable_reason <- liste-vide: oracle=closed code=derived'
+    9: 'derived @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=derived'
+    10: 'derived @ unfulfillable_reason <- liste-heure: oracle=closed code=derived'
+    11: 'derived @ unfulfillable_reason <- liste-null: oracle=closed code=derived'
+    12: 'derived @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=derived'
+    13: 'derived @ unfulfillable_reason <- liste-de-listes: oracle=closed code=derived'
+    14: 'derived @ unfulfillable_reason <- objet-vide: oracle=closed code=derived'
+    15: 'derived @ unfulfillable_reason <- objet-a1: oracle=closed code=derived'
+    16: 'derived @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=derived'
+    17: 'derived @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=derived'
+    18: 'derived @ unfulfillable_reason <- offre-cle-42: oracle=closed code=derived'
+    19: 'derived @ unfulfillable_reason <- offre-inversee: oracle=closed code=derived'
+    20: 'derived @ schedule_timezone <- 0: oracle=closed code=derived'
+    21: 'derived @ schedule_timezone <- 1: oracle=closed code=derived'
+    22: 'derived @ schedule_timezone <- 42: oracle=closed code=derived'
+    23: 'derived @ schedule_timezone <- -1: oracle=closed code=derived'
+    24: 'derived @ schedule_timezone <- 1.5: oracle=closed code=derived'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:91:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:156:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R4-4] COMBINAISONS : 2 à 4 mutations simultanées tirées d'un PRNG déterministe (6000 cas)
+not ok 5 - [158-R4-4] COMBINAISONS : 2 à 4 mutations simultanées tirées d'un PRNG déterministe (6000 cas)
+  ---
+  duration_ms: 235.07017
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:159:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    combinaisons : 198 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived [time_granularity_minutes<-objet-a1 ; schedule_timezone<-1.5]: oracle=closed code=derived',
+    +   'selNone [delivery_customer_text<-heure-09:60 ; time_granularity_minutes<-true]: oracle=closed code=choose/none',
+    +   'selNone [schedule_timezone<--1 ; delivery_customer_text<-heure-09:00:00 ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none',
+    +   'window [delivery_eligible<-liste-de-listes ; offers.2026-10-26.0.slot_key<-objet-a1 ; delivery_block<-1]: oracle=closed code=choose/time_within_window',
+    +   'derived [delivery_applicable<-1 ; unfulfillable_reason<-1.5 ; schedule_timezone<-heure-9:00 ; time_granularity_minutes<-30-nombre]: oracle=closed code=derived',
+    +   'fixed [schedule_timezone<-espace ; unfulfillable_reason<-offre-valide-jour]: oracle=closed code=choose/fixed_slots',
+    +   'derived [time_granularity_minutes<-offre-valide-jour ; offers.2026-10-24.0.slot_key<-null]: oracle=closed code=derived',
+    +   'derived [offers.2026-10-24.0.slot_key<--1 ; offers.2026-10-24.0.slot_key<-1]: oracle=closed code=derived',
+    +   'derived [unfulfillable_reason<-liste-null ; schedule_timezone<-1.5 ; schedule_timezone<-1 ; delivery_block<-1.5]: oracle=closed code=derived',
+    +   'selNone [unfulfillable_reason<-offre-sans-cle ; offers.2026-10-24.0.slot_key<-liste-chaine-vide ; offers.2026-10-24.0.slot_key.0<-30-chaine ; unfulfillable_reason.0.ends_at<-minuit-texte]: oracle=closed code=choose/none',
+    +   'derived [delivery_eligible<-42 ; delivery_block<-30-chaine ; unfulfillable_reason<--1]: oracle=closed code=derived',
+    +   'fixed [delivery_block<--1 ; unfulfillable_reason<-30-nombre]: oracle=closed code=choose/fixed_slots',
+    +   'derived [time_granularity_minutes<-30-chaine ; time_granularity_minutes<-offre-inversee]: oracle=closed code=derived',
+    +   'fixed [delivery_applicable<-1 ; schedule_timezone<-0]: oracle=closed code=choose/fixed_slots',
+    +   'selNone [delivery_applicable<-offre-cle-42 ; offers.2026-10-24.0.slot_key<-liste-vide]: oracle=closed code=choose/none',
+    +   'selNone [unfulfillable_reason<-liste-null ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none',
+    +   'derived [time_granularity_minutes<-offre-sans-cle ; time_granularity_minutes.0.ends_at<-42]: oracle=closed code=derived',
+    +   'selNone [time_granularity_minutes<-chaine-vide ; unfulfillable_reason<-false]: oracle=closed code=choose/none',
+    +   'selNone [time_granularity_minutes<-texte ; schedule_timezone<-espace]: oracle=closed code=choose/none',
+    +   'window [offers.2026-10-26.0.starts_at<-liste-heure ; delivery_block<-0]: oracle=closed code=choose/time_within_window',
+    +   'window [delivery_eligible<-liste-heure ; schedule_timezone<-0]: oracle=closed code=choose/time_within_window',
+    +   'window [delivery_block<-liste-de-listes ; schedule_timezone<-30-nombre]: oracle=closed code=choose/time_within_window',
+    +   'derived [unfulfillable_reason<-objet-vide ; unfulfillable_reason<-heure-09:60 ; schedule_timezone<-objet-a1]: oracle=closed code=derived',
+    +   'fixed [time_granularity_minutes<-offre-inversee ; time_granularity_minutes.0<-minuit-texte ; schedule_timezone<-liste-de-listes]: oracle=closed code=choose/fixed_slots',
+    +   'derived [schedule_timezone<-date-non-bissextile ; schedule_timezone<-date-horodatée ; offers.2026-10-24.0.slot_key<-1.5 ; schedule_timezone<-offre-inversee]: oracle=closed code=derived'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived [time_granularity_minutes<-objet-a1 ; schedule_timezone<-1.5]: oracle=closed code=derived'
+    1: 'selNone [delivery_customer_text<-heure-09:60 ; time_granularity_minutes<-true]: oracle=closed code=choose/none'
+    2: 'selNone [schedule_timezone<--1 ; delivery_customer_text<-heure-09:00:00 ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none'
+    3: 'window [delivery_eligible<-liste-de-listes ; offers.2026-10-26.0.slot_key<-objet-a1 ; delivery_block<-1]: oracle=closed code=choose/time_within_window'
+    4: 'derived [delivery_applicable<-1 ; unfulfillable_reason<-1.5 ; schedule_timezone<-heure-9:00 ; time_granularity_minutes<-30-nombre]: oracle=closed code=derived'
+    5: 'fixed [schedule_timezone<-espace ; unfulfillable_reason<-offre-valide-jour]: oracle=closed code=choose/fixed_slots'
+    6: 'derived [time_granularity_minutes<-offre-valide-jour ; offers.2026-10-24.0.slot_key<-null]: oracle=closed code=derived'
+    7: 'derived [offers.2026-10-24.0.slot_key<--1 ; offers.2026-10-24.0.slot_key<-1]: oracle=closed code=derived'
+    8: 'derived [unfulfillable_reason<-liste-null ; schedule_timezone<-1.5 ; schedule_timezone<-1 ; delivery_block<-1.5]: oracle=closed code=derived'
+    9: 'selNone [unfulfillable_reason<-offre-sans-cle ; offers.2026-10-24.0.slot_key<-liste-chaine-vide ; offers.2026-10-24.0.slot_key.0<-30-chaine ; unfulfillable_reason.0.ends_at<-minuit-texte]: oracle=closed code=choose/none'
+    10: 'derived [delivery_eligible<-42 ; delivery_block<-30-chaine ; unfulfillable_reason<--1]: oracle=closed code=derived'
+    11: 'fixed [delivery_block<--1 ; unfulfillable_reason<-30-nombre]: oracle=closed code=choose/fixed_slots'
+    12: 'derived [time_granularity_minutes<-30-chaine ; time_granularity_minutes<-offre-inversee]: oracle=closed code=derived'
+    13: 'fixed [delivery_applicable<-1 ; schedule_timezone<-0]: oracle=closed code=choose/fixed_slots'
+    14: 'selNone [delivery_applicable<-offre-cle-42 ; offers.2026-10-24.0.slot_key<-liste-vide]: oracle=closed code=choose/none'
+    15: 'selNone [unfulfillable_reason<-liste-null ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none'
+    16: 'derived [time_granularity_minutes<-offre-sans-cle ; time_granularity_minutes.0.ends_at<-42]: oracle=closed code=derived'
+    17: 'selNone [time_granularity_minutes<-chaine-vide ; unfulfillable_reason<-false]: oracle=closed code=choose/none'
+    18: 'selNone [time_granularity_minutes<-texte ; schedule_timezone<-espace]: oracle=closed code=choose/none'
+    19: 'window [offers.2026-10-26.0.starts_at<-liste-heure ; delivery_block<-0]: oracle=closed code=choose/time_within_window'
+    20: 'window [delivery_eligible<-liste-heure ; schedule_timezone<-0]: oracle=closed code=choose/time_within_window'
+    21: 'window [delivery_block<-liste-de-listes ; schedule_timezone<-30-nombre]: oracle=closed code=choose/time_within_window'
+    22: 'derived [unfulfillable_reason<-objet-vide ; unfulfillable_reason<-heure-09:60 ; schedule_timezone<-objet-a1]: oracle=closed code=derived'
+    23: 'fixed [time_granularity_minutes<-offre-inversee ; time_granularity_minutes.0<-minuit-texte ; schedule_timezone<-liste-de-listes]: oracle=closed code=choose/fixed_slots'
+    24: 'derived [schedule_timezone<-date-non-bissextile ; schedule_timezone<-date-horodatée ; offers.2026-10-24.0.slot_key<-1.5 ; schedule_timezone<-offre-inversee]: oracle=closed code=derived'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:91:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:179:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R4-5] FIDÉLITÉ DU PAYLOAD : toute réponse valide (corpus + mutants valides) produit des payloads égaux aux valeurs BRUTES, sans valeur par défaut
+ok 6 - [158-R4-5] FIDÉLITÉ DU PAYLOAD : toute réponse valide (corpus + mutants valides) produit des payloads égaux aux valeurs BRUTES, sans valeur par défaut
+  ---
+  duration_ms: 57.650103
+  type: 'test'
+  ...
+# Subtest: [158-R4-6] COUVERTURE : chaque champ consommé reçoit chaque classe d'entrée sur chaque politique (relevé émis en TAP)
+ok 7 - [158-R4-6] COUVERTURE : chaque champ consommé reçoit chaque classe d'entrée sur chaque politique (relevé émis en TAP)
+  ---
+  duration_ms: 138.717947
+  type: 'test'
+  ...
+# Subtest: [158-R4-7] statuts non disponibles : toute donnée de date/offre qui les accompagne est incohérente => fermé (absent, blocked_upstream, informational_only, unfulfillable)
+not ok 8 - [158-R4-7] statuts non disponibles : toute donnée de date/offre qui les accompagne est incohérente => fermé (absent, blocked_upstream, informational_only, unfulfillable)
+  ---
+  duration_ms: 2.52415
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:266:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    statuts non disponibles + données : 20 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'absent + dates: oracle=closed code=none',
+    +   'absent + première date: oracle=closed code=none',
+    +   'absent + offres: oracle=closed code=none',
+    +   'absent + dates de mauvais type: oracle=closed code=none',
+    +   'absent + offres de mauvais type: oracle=closed code=none',
+    +   'blocked_upstream + dates: oracle=closed code=none',
+    +   'blocked_upstream + première date: oracle=closed code=none',
+    +   'blocked_upstream + offres: oracle=closed code=none',
+    +   'blocked_upstream + dates de mauvais type: oracle=closed code=none',
+    +   'blocked_upstream + offres de mauvais type: oracle=closed code=none',
+    +   'informational_only + dates: oracle=closed code=none',
+    +   'informational_only + première date: oracle=closed code=none',
+    +   'informational_only + offres: oracle=closed code=none',
+    +   'informational_only + dates de mauvais type: oracle=closed code=none',
+    +   'informational_only + offres de mauvais type: oracle=closed code=none',
+    +   'unfulfillable + dates: oracle=closed code=blocked',
+    +   'unfulfillable + première date: oracle=closed code=blocked',
+    +   'unfulfillable + offres: oracle=closed code=blocked',
+    +   'unfulfillable + dates de mauvais type: oracle=closed code=blocked',
+    +   'unfulfillable + offres de mauvais type: oracle=closed code=blocked'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'absent + dates: oracle=closed code=none'
+    1: 'absent + première date: oracle=closed code=none'
+    2: 'absent + offres: oracle=closed code=none'
+    3: 'absent + dates de mauvais type: oracle=closed code=none'
+    4: 'absent + offres de mauvais type: oracle=closed code=none'
+    5: 'blocked_upstream + dates: oracle=closed code=none'
+    6: 'blocked_upstream + première date: oracle=closed code=none'
+    7: 'blocked_upstream + offres: oracle=closed code=none'
+    8: 'blocked_upstream + dates de mauvais type: oracle=closed code=none'
+    9: 'blocked_upstream + offres de mauvais type: oracle=closed code=none'
+    10: 'informational_only + dates: oracle=closed code=none'
+    11: 'informational_only + première date: oracle=closed code=none'
+    12: 'informational_only + offres: oracle=closed code=none'
+    13: 'informational_only + dates de mauvais type: oracle=closed code=none'
+    14: 'informational_only + offres de mauvais type: oracle=closed code=none'
+    15: 'unfulfillable + dates: oracle=closed code=blocked'
+    16: 'unfulfillable + première date: oracle=closed code=blocked'
+    17: 'unfulfillable + offres: oracle=closed code=blocked'
+    18: 'unfulfillable + dates de mauvais type: oracle=closed code=blocked'
+    19: 'unfulfillable + offres de mauvais type: oracle=closed code=blocked'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:91:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.test.ts:282:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 3
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 892.870968

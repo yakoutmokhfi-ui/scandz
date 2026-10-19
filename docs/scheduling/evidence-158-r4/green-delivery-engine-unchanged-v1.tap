@@ -1,0 +1,110 @@
+TAP version 13
+# (node:5320) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/delivery-engine-unchanged-v1.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: unchanged since base 79653919: lib/delivery.ts
+ok 1 - unchanged since base 79653919: lib/delivery.ts
+  ---
+  duration_ms: 1.346346
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-discount.ts
+ok 2 - unchanged since base 79653919: lib/delivery-discount.ts
+  ---
+  duration_ms: 0.179682
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-pricing-policy.ts
+ok 3 - unchanged since base 79653919: lib/delivery-pricing-policy.ts
+  ---
+  duration_ms: 0.250477
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-pricing-policy-errors.ts
+ok 4 - unchanged since base 79653919: lib/delivery-pricing-policy-errors.ts
+  ---
+  duration_ms: 0.082481
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-customer-notice.ts
+ok 5 - unchanged since base 79653919: lib/delivery-customer-notice.ts
+  ---
+  duration_ms: 0.134488
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-country.ts
+ok 6 - unchanged since base 79653919: lib/delivery-country.ts
+  ---
+  duration_ms: 0.075284
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/delivery-zone-validation.ts
+ok 7 - unchanged since base 79653919: lib/delivery-zone-validation.ts
+  ---
+  duration_ms: 0.240466
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/sale-modes-public.ts
+ok 8 - unchanged since base 79653919: lib/sale-modes-public.ts
+  ---
+  duration_ms: 0.212666
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/sale-modes-types.ts
+ok 9 - unchanged since base 79653919: lib/sale-modes-types.ts
+  ---
+  duration_ms: 0.296027
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: lib/menu-i18n.ts
+ok 10 - unchanged since base 79653919: lib/menu-i18n.ts
+  ---
+  duration_ms: 0.341626
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: components/CartPanel.tsx
+ok 11 - unchanged since base 79653919: components/CartPanel.tsx
+  ---
+  duration_ms: 0.202682
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql
+ok 12 - unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql
+  ---
+  duration_ms: 0.148116
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b234.sql
+ok 13 - unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b234.sql
+  ---
+  duration_ms: 0.129556
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b5.sql
+ok 14 - unchanged since base 79653919: supabase/DRAFT-lot-delivery-pricing-v2-b5.sql
+  ---
+  duration_ms: 0.082497
+  type: 'test'
+  ...
+# Subtest: unchanged since base 79653919: supabase/DRAFT-lot-delivery-country-scope-v1.sql
+ok 15 - unchanged since base 79653919: supabase/DRAFT-lot-delivery-country-scope-v1.sql
+  ---
+  duration_ms: 0.070196
+  type: 'test'
+  ...
+# Subtest: DeliveryPostcodeResult (availability, real fee, discount applied, missing items, matched rule text) is byte-identical to base
+ok 16 - DeliveryPostcodeResult (availability, real fee, discount applied, missing items, matched rule text) is byte-identical to base
+  ---
+  duration_ms: 0.170217
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 246.696905

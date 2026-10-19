@@ -1,0 +1,44 @@
+TAP version 13
+# (node:5164) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/csdj2-checkout-schedule-158-r4.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R4-D1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01, retrait ET livraison : fermé, panier/coordonnées conservés, 0 commande, reprise => 1 appel date seule
+ok 1 - [158-R4-D1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01, retrait ET livraison : fermé, panier/coordonnées conservés, 0 commande, reprise => 1 appel date seule
+  ---
+  duration_ms: 3769.421276
+  type: 'test'
+  ...
+# Subtest: [158-R4-D2] ÉCHANTILLON STRATIFIÉ de la matrice (champ x classe x politique) : toute réponse que l'oracle juge invalide ferme l'envoi (retrait 4 politiques x 18, livraison x 6)
+ok 2 - [158-R4-D2] ÉCHANTILLON STRATIFIÉ de la matrice (champ x classe x politique) : toute réponse que l'oracle juge invalide ferme l'envoi (retrait 4 politiques x 18, livraison x 6)
+  ---
+  duration_ms: 44420.743945
+  type: 'test'
+  ...
+# Subtest: [158-R4-D3] ÉCHANTILLON de FORMES de `data` (null, vide, 2 lignes, objet nu, imbriqué) : fermé en retrait et livraison, quelle que soit la politique saine ensuite
+ok 3 - [158-R4-D3] ÉCHANTILLON de FORMES de `data` (null, vide, 2 lignes, objet nu, imbriqué) : fermé en retrait et livraison, quelle que soit la politique saine ensuite
+  ---
+  duration_ms: 12798.84278
+  type: 'test'
+  ...
+# Subtest: [158-R4-D4] RÉPONSES VALIDES (corpus + mutants que l'oracle juge valides) : payloads égaux aux valeurs brutes, un seul appel, retrait ET livraison
+ok 4 - [158-R4-D4] RÉPONSES VALIDES (corpus + mutants que l'oracle juge valides) : payloads égaux aux valeurs brutes, un seul appel, retrait ET livraison
+  ---
+  duration_ms: 5903.924103
+  type: 'test'
+  ...
+# Subtest: [158-R4-D5] statuts hors calendrier : informational_only / blocked_upstream => rien à choisir, commande SANS schedule ; unfulfillable => envoi fermé ; absent explicite inchangé
+ok 5 - [158-R4-D5] statuts hors calendrier : informational_only / blocked_upstream => rien à choisir, commande SANS schedule ; unfulfillable => envoi fermé ; absent explicite inchangé
+  ---
+  duration_ms: 1045.784579
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 69103.452225

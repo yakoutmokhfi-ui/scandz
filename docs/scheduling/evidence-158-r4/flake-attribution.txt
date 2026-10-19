@@ -1,0 +1,16 @@
+Protocole : code de main a66fcc6 (r4main, aucun fichier du candidat) ; les 2 tests qui ont échoué (v155 import, catalogue reorder) lancés en parallèle (--test-concurrency=2) pendant qu'un processus de charge exécute csdj2-checkout-schedule-158-r4.dom.test.ts (candidat) ; 4 itérations.
+iter 1: # pass 42 # fail 0  
+iter 2: # pass 40 # fail 2  not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est présent dans la section 
+not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 existante, pour l'étab
+iter 3: # pass 42 # fail 0  
+iter 4: # pass 41 # fail 1  not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est présent dans la section 
+Témoin sans charge (mêmes 2 fichiers, main a66fcc6, parallélisme 2) :
+témoin 1: # pass 42 # fail 0 
+témoin 2: # pass 42 # fail 0 
+témoin 3: # pass 42 # fail 0 
+témoin 4: # pass 42 # fail 0 
+
+Conclusion : sur le code de main (aucun fichier du candidat), le test v155 « le lien 'Importer un catalogue'... » échoue 2 fois sur 4 dès qu'un processus voisin exécute
+le test DOM R4 (CPU-bound), et 0 fois sur 4 sans charge. Mécanisme : attente fixe flush(50 ms) sur un bundle jsdom, affamée sur 2 cœurs. Le test catalogue-product-reorder
+([C] FOCUS CLAVIER) a échoué une fois dans la suite candidate (c2c) sans être reproduit isolément en 5 essais ; même famille (DOM + timing, 48 s mesurées pendant l'échec), mais NON reproduit ici : attribution par analogie, pas par preuve directe.
+Conséquence : mes tests DOM R4 ajoutent de la charge CPU (D2 ≈ 46 s) qui déclenche des flakes préexistants de tests sans rapport en parallélisme 2.

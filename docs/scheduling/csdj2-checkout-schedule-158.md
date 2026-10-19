@@ -274,3 +274,67 @@ durée d'une minute, `00:00–23:59`), date seule, créneaux fixes, fenêtre, ab
 
 Doublures (mocks `supabase.rpc`, jsdom) ; aucune base hébergée, aucun Preview authentifié, aucune commande réelle. La conformité à la base **déployée** n'est pas établie.
 **P1 Production : INCONCLUSIF** — aucune des preuves de lecture seule (A1–A6, R1–R5 de `csdj2-create-order-production-verification-158.md` §6, M1–M12) n'a été fournie. Rien ici n'a touché la Production.
+
+## 13. CSDJ2-R4-01 (P2) — aucune coercition de la réponse RPC ; revue systématique champs × types × politiques
+
+Candidat audité : `c518dee146cabd960ec93d550b8c0463186b54b8` (tree `9f8552a97d55d87309b3389a4219837d0b9d0c35`). Commits enfants (sans réécriture d'historique) :
+`facf3089cde319753c4fa6f3ab0821a417136f71` (tests, rouges sur c518dee) puis `5ba60a04891502853155af9a268ee01e7271a9fb` (correctif, tree `3c96e755beea43b17cf5d920e23a19f540a5e2ac`).
+Preuves : `docs/scheduling/evidence-158-r4/`.
+
+### 13.1 Cause
+`map-row.ts` normalisait une réponse mal typée en valeur valide (clé de créneau non textuelle → `null`, `String()` sur les heures, offres non tableau → `[]`). Le modèle voyait une réponse
+« propre » et acceptait la date seule. Les huit reproductions de Turing (clé `42/false/{}/[]`, heures en tableau, offre d'une autre date `null/{}/"bad"`) en sont des instances ; la classe est « toute coercition qui rend valide ce qui ne l'est pas ».
+
+### 13.2 Correctif (3 fichiers de production)
+- `lib/checkout-schedule/map-row.ts` : validation stricte du brut, aucune coercition. Réponse = tableau d'**une** ligne (un objet nu est refusé). Types vérifiés : fuseau, raison, modes, première date, granularité,
+  dates (tableau de chaînes), offres (objet de tableaux d'objets simples, `slot_key` **propre** `null|chaîne`, heures chaînes). Statut non disponible avec dates/offres → invalide. Sinon statut `invalid` → modèle `unreadable/response`, envoi fermé.
+- `lib/checkout-schedule/model.ts` : le modèle revalide les types (défense en profondeur) ; première date = `eligible_dates[0]` ; clés d'offres = dates éligibles ; `isValidSchedulePayload` (clés exactes, vraie date, heures strictes début < fin, créneau cohérent).
+- `lib/services/order-payload.ts` : dernier garde — `SCHEDULE_PAYLOAD_INVALID` si un `schedule` (hors table) est mal formé. Rien d'autre ne change (CartPanel épinglé inchangé, aucun SQL).
+
+### 13.3 Couverture (ce qui est réellement exercé)
+Oracle indépendant (`tests/_csdj2-r4-oracle.ts`, écrit à partir du contrat v1.2 et du SQL source, pas du code testé). 4 réponses de base (dérivée, sans créneau, créneaux fixes, fenêtre) + 4 statuts sans date (absent, blocked_upstream, informational_only, unfulfillable).
+
+| Niveau | Contenu | Résultat |
+|---|---|---|
+| R4-B0 | corpus valide : oracle = code | OK |
+| R4-1 / D1 | les 8 cas R4-01, retrait **et** livraison, reprise saine → 1 commande date seule | OK (RED sur c518dee) |
+| R4-2 / D3 | forme de `data` : null, undefined, vide, 2 lignes, objet nu, imbriqué, scalaire × 8 bases | OK |
+| R4-3 | matrice : **chaque chemin** (statut, fuseau, raison, modes, granularité, première date, dates, dates[i], offres, offres[date], [j], slot_key, starts_at, ends_at) × **55 classes de valeurs** (absent, null, nombres, booléens, chaînes vides/mal formées, tableaux/objets inattendus, listes vides, doublons, heures 24:00/25:00/inversées/avec secondes…) × politique — **5 994 cas**, 5 182 triplets distincts (relevé `# COVERAGE` dans `green-r4-pure.tap`) | 0 écart oracle/code (c518dee : 821 lignes d'écart) |
+| R4-4 | 6 000 combinaisons de 2 à 4 mutations, PRNG à graine fixe | 0 écart (c518dee : 198) |
+| D2 | ≥ 100 parcours DOM stratifiés (retrait 4 politiques × 18, livraison × 6) | OK |
+| R4-5 / D4 | réponses valides (corpus + mutants valides) → payload égal au brut, sans valeur par défaut | OK |
+| R4-7 / D5 | statuts non disponibles accompagnés de dates/offres → fermé ; sans données → comportement inchangé | OK |
+| R4-8 | modèle seul face à une vue mal typée | OK |
+| R4-9, R4-12 | mapper : chaque champ × chaque mauvais type ; `__proto__` ; `slot_key` hérité par prototype | OK |
+| R4-10 | `buildCreateOrderPayload` : charge mal formée refusée, valide acceptée, table ignorée | OK |
+| R4-11 / R4-13 | audit des chemins d'envoi par sources ; doublons de sélection | OK |
+
+Les six contre-exemples antérieurs et les positifs « dérivée valide » sont rejoués (suites r1–r3 et 158, intactes, au vert).
+
+### 13.4 Chemins d'envoi et consommateurs du mapper
+Un seul lecteur côté checkout (`lib/services/checkout-schedule.ts`), un seul mapper, un seul constructeur de charge, un seul appelant `createOrder` (MenuView), un seul producteur de `schedule` (`toSchedulePayload`), un seul garde d'envoi (`scheduleAllowsSubmit`) — assertés par R4-11.
+Second appelant du même RPC : `lib/services/availability.ts::getCheckoutFulfillmentSchedulePreview` (aperçu marchand, `app/dashboard/availability/page.tsx`), **non modifié**, coercition indulgente, affichage seul, n'atteint jamais le checkout (assertion R4-11). Risque résiduel : il peut afficher un état que le checkout refuse.
+
+### 13.5 Test des tests (mutations)
+22 mutations des gardes (`evidence-158-r4/mutation-tests.txt`, `tools/mutate.py`) : 20 détectées d'emblée. M03 (présence propre de `slot_key`) **n'était pas détectée** → R4-12 ajouté, détectée. M20 (première offre retenue) reste non détectée seule : mutant équivalent, car `isSelectionOffered` refuse déjà les doublons en amont ; la double mutation M22 est détectée par R4-13. M19 (garde du gestionnaire) n'est détectée que par l'audit de sources R4-11, pas par un test DOM.
+RED : les tests R4-1…R4-4, R4-7 (pure) et D1…D3 (DOM) ont été vus rouges sur c518dee. R4-8…R4-13 ont été ajoutés après cette capture ; sur c518dee leur fichier ne s'exécute pas (import de `isValidSchedulePayload` absent) — ils ne sont donc pas « rouges par assertion », mais par absence du garde.
+
+### 13.6 Vérifications
+- `tsc --noEmit` : exit 0. `next build` (variables factices) : exit 0.
+- Ciblés : 19 + 13 + 5 + 5 + 10 + 5 + 5 + 14 + 5 + 16 = 97/97. Diff complet relu : 3 fichiers de production modifiés, 3 fichiers de test ajoutés ; **aucun test existant modifié, retiré ni affaibli**.
+- Suites complètes par identité (même main `a66fcc6`, mêmes variables) : voir `full-suite-comparison.txt`. Candidat parallélisme 1 : mêmes 14 identités que L0. Main parallélisme 2 : 3/3 mêmes 14. Candidat parallélisme 2 : 1 run sur 3 identique à L0 (plus un run initial avec 1 échec en plus) ; les 2 runs à 15 échecs ajoutent chacun **un** test sans rapport.
+
+### 13.7 Écart en parallélisme 2 (attribué, avec ses limites)
+Extra 1 : `tests/v155-admin-catalogue-import-entry-point.dom.test.ts` (attente fixe 50 ms). **Prouvé** : sur le code de main (aucun fichier du candidat), il échoue 2 fois sur 4 quand le test DOM R4 tourne à côté, 0 fois sur 4 sans charge (`flake-attribution.txt`) ; son bundle ne contient aucun fichier modifié.
+Extra 2 : `tests/catalogue-product-reorder-v1.dom.test.ts` ([C] FOCUS CLAVIER), 48 s mesurées pendant l'échec ; passe isolé 5/5. **Non reproduit sous charge** : attribution par analogie, pas par preuve directe.
+Cause : mes tests DOM R4 (D2 ≈ 46 s) consomment le CPU sur 2 cœurs. Ce n'est pas un défaut du correctif, mais c'est un coût réel de la suite ajoutée ; réduire D2 est possible si le CIO préfère une suite moins gourmande.
+
+### 13.8 Choix à confirmer (appliqués, non contournés)
+Objet nu = invalide ; statut non disponible avec dates/offres = invalide ; première date = `eligible_dates[0]` ; clés d'offres = dates éligibles exactement ; `slot_key` propre obligatoire (`null|chaîne`) ; tout état à offre mal formée, **même pour une autre date**, ferme l'envoi.
+
+### 13.9 Limites et risques résiduels
+- Doublures uniquement (mocks `supabase.rpc`, jsdom, Node 22/Linux) : ni navigateur réel, ni base hébergée, ni Preview authentifié, ni commande réelle.
+- L'oracle partage ma lecture du contrat et du SQL source du dépôt, pas de la base **déployée**. Preuve de couverture ≠ preuve de correction : 55 classes × chemins connus, pas l'exhaustivité.
+- **Plus strict que Production, possiblement** : si le lecteur déployé diffère du SQL source (ex. dates non triées, offres pour d'autres dates, timezone absente tolérée), une réponse légitime pourrait fermer l'envoi (risque de disponibilité, fail-closed). À lever par la lecture seule P1.
+- Champs vérifiés en type seulement et non consommés côté client : fuseau, raison, granularité hors fenêtre. Champs inconnus ignorés. Ordre des dates non imposé. État `idle` (livraison sans code postal valide) n'envoie aucun calendrier. Aperçu marchand indulgent (13.4).
+- **P1 Production : INCONCLUSIF.** A1–A6, B1–B11, R1–R5 (rapprochement des quatre HTTP 400 P0001 `SCANYM_SCHEDULE_REQUIRED` du 15 oct. 12:19–12:28 UTC) et M1–M12 n'ont pas été fournis par un détenteur autorisé ; existence/permissions du lecteur avant tout déploiement client non établies. PR reste DRAFT ; aucun accès Production, SQL hébergé, merge, déploiement ni commande réelle. L'activation du retrait en Production demande un GO CIO séparé.
