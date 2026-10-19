@@ -68,7 +68,13 @@ const derived: CheckoutScheduleView = {
   ...base,
   dateSelectionMode: "derived_earliest",
   slotSelectionMode: "none",
-  offers: { "2026-10-20": [{ slotKey: null, startsAt: "09:00", endsAt: "18:00" }], "2026-10-22": [] },
+  // CSDJ2-R5 : la seconde date éligible portait `[]` (aucune offre) -- une réponse qui se contredit, que
+  // le client doit désormais refuser (voir tests/csdj2-checkout-schedule-158-r5.test.ts). Donnée rendue
+  // cohérente ; l'assertion de [158-6] (date dérivée, payload date seule) est INCHANGÉE.
+  offers: {
+    "2026-10-20": [{ slotKey: null, startsAt: "09:00", endsAt: "18:00" }],
+    "2026-10-22": [{ slotKey: null, startsAt: "09:00", endsAt: "18:00" }],
+  },
 };
 const none = (status: string): CheckoutScheduleView => ({
   ...base, status, dateSelectionMode: null, slotSelectionMode: null,

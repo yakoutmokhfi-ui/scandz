@@ -227,3 +227,18 @@ test("[158-R5-7] COUVERTURE : position de la date x forme d'offres x politique (
   }
   assert.ok(MISSING !== undefined);
 });
+
+test("[158-R5-8] ÉPINGLE : l'ancienne donnée de [158-6] (dérivée + 2e date à offres vides []) est désormais ILLISIBLE ; la donnée cohérente reste « derived »", () => {
+  const offer = { slotKey: null, startsAt: "09:00", endsAt: "18:00" };
+  const old: CheckoutScheduleView = {
+    status: "dates_available", unfulfillableReason: null, timezone: "Europe/Paris",
+    dateSelectionMode: "derived_earliest", slotSelectionMode: "none", timeGranularityMinutes: null,
+    firstEligibleDate: "2026-10-20", eligibleDates: ["2026-10-20", "2026-10-22"],
+    offers: { "2026-10-20": [offer], "2026-10-22": [] },
+  };
+  assert.deepEqual(scheduleRequirement(old), { kind: "unreadable", reason: "response" });
+  assert.equal(scheduleAllowsSubmit(old, EMPTY_SCHEDULE_SELECTION), false);
+  const coherent = { ...old, offers: { "2026-10-20": [offer], "2026-10-22": [offer] } };
+  assert.deepEqual(scheduleRequirement(coherent), { kind: "derived", date: "2026-10-20" });
+  assert.equal(scheduleAllowsSubmit(coherent, EMPTY_SCHEDULE_SELECTION), true);
+});

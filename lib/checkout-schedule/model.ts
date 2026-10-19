@@ -315,7 +315,18 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
     if (derivedOffers.length === 0) {
       return { kind: "unreadable", reason: "response" };
     }
-    // Toute offre fournie, pour n'importe quelle date, doit être bien formée.
+    // CSDJ2-R5 : CHAQUE date éligible doit porter au moins une offre bien
+    // formée, pas seulement la date dérivée (le lecteur n'émet pas une date
+    // dont toutes les offres ont été écartées). Une autre date éligible à liste
+    // vide est une réponse qui se contredit : on n'envoie rien.
+    for (const d of view.eligibleDates) {
+      const list = offersOf(view, d);
+      if (!Array.isArray(list) || list.length === 0 || !list.every(isWellFormedDateOnlyOffer)) {
+        return { kind: "unreadable", reason: "response" };
+      }
+    }
+    // Toute offre fournie (même pour une clé hors dates éligibles, déjà refusée
+    // plus haut) doit être bien formée.
     for (const list of Object.values(view.offers)) {
       if (!Array.isArray(list) || !list.every(isWellFormedDateOnlyOffer)) {
         return { kind: "unreadable", reason: "response" };
