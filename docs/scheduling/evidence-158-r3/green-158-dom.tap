@@ -1,0 +1,90 @@
+TAP version 13
+# Subtest: [158-D0] REPRO : le checkout n'envoie JAMAIS une commande sans date/créneau quand le serveur en exige un
+ok 1 - [158-D0] REPRO : le checkout n'envoie JAMAIS une commande sans date/créneau quand le serveur en exige un
+  ---
+  duration_ms: 349.991029
+  type: 'test'
+  ...
+# Subtest: [158-D1] retrait fixed_slots : le client choisit date + créneau PROPOSÉS par le serveur, la commande part avec le schedule exact du contrat
+ok 2 - [158-D1] retrait fixed_slots : le client choisit date + créneau PROPOSÉS par le serveur, la commande part avec le schedule exact du contrat
+  ---
+  duration_ms: 171.451299
+  type: 'test'
+  ...
+# Subtest: [158-D2] date seule (slot none) : pas de créneau à choisir, payload date + trois null
+ok 3 - [158-D2] date seule (slot none) : pas de créneau à choisir, payload date + trois null
+  ---
+  duration_ms: 163.854818
+  type: 'test'
+  ...
+# Subtest: [158-D3] time_within_window : heures de la grille serveur, payload avec l'heure choisie
+ok 4 - [158-D3] time_within_window : heures de la grille serveur, payload avec l'heure choisie
+  ---
+  duration_ms: 140.715305
+  type: 'test'
+  ...
+# Subtest: [158-D4] derived_earliest : date dérivée par le serveur, affichée, envoi ouvert, payload = date serveur
+ok 5 - [158-D4] derived_earliest : date dérivée par le serveur, affichée, envoi ouvert, payload = date serveur
+  ---
+  duration_ms: 108.369435
+  type: 'test'
+  ...
+# Subtest: [158-D5] RÉGRESSION : commerçant sans calendrier / calendrier désactivé / information seule / livraison refusée en amont => parcours INCHANGÉ (aucun bloc, aucun schedule envoyé)
+ok 6 - [158-D5] RÉGRESSION : commerçant sans calendrier / calendrier désactivé / information seule / livraison refusée en amont => parcours INCHANGÉ (aucun bloc, aucun schedule envoyé)
+  ---
+  duration_ms: 591.008116
+  type: 'test'
+  ...
+# Subtest: [158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais appelé, aucune date inventée
+ok 7 - [158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais appelé, aucune date inventée
+  ---
+  duration_ms: 121.595569
+  type: 'test'
+  ...
+# createOrder: SCANYM_SCHEDULE_REQUIRED
+# Subtest: [158-D7] le serveur exige une date alors que la lecture disait « absent » (configuration changée entre-temps) : refus typé REQUIRED => message, relecture, choix proposé, panier conservé
+ok 8 - [158-D7] le serveur exige une date alors que la lecture disait « absent » (configuration changée entre-temps) : refus typé REQUIRED => message, relecture, choix proposé, panier conservé
+  ---
+  duration_ms: 167.16071
+  type: 'test'
+  ...
+# createOrder: SCANYM_SCHEDULE_DATE_NOT_ELIGIBLE
+# Subtest: [158-D8] sélection EXPIRÉE : refus typé => message, sélection vidée, disponibilités relues, panier conservé ; nouveau choix => commande acceptée
+ok 9 - [158-D8] sélection EXPIRÉE : refus typé => message, sélection vidée, disponibilités relues, panier conservé ; nouveau choix => commande acceptée
+  ---
+  duration_ms: 169.317295
+  type: 'test'
+  ...
+# Subtest: [158-D9] pas de double envoi : un double clic rapide ne crée qu'UN create_order
+ok 10 - [158-D9] pas de double envoi : un double clic rapide ne crée qu'UN create_order
+  ---
+  duration_ms: 204.244368
+  type: 'test'
+  ...
+# Subtest: [158-D10] livraison avec calendrier : lecture avec le code postal, choix, schedule transmis avec les champs de livraison ; sans calendrier : inchangé
+ok 11 - [158-D10] livraison avec calendrier : lecture avec le code postal, choix, schedule transmis avec les champs de livraison ; sans calendrier : inchangé
+  ---
+  duration_ms: 345.69974
+  type: 'test'
+  ...
+# Subtest: [158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (RTL pour l'arabe)
+ok 12 - [158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (RTL pour l'arabe)
+  ---
+  duration_ms: 383.440333
+  type: 'test'
+  ...
+# Subtest: [158-D12] réponse illisible (statut inconnu) : fail-closed, message, envoi fermé, aucune commande
+ok 13 - [158-D12] réponse illisible (statut inconnu) : fail-closed, message, envoi fermé, aucune commande
+  ---
+  duration_ms: 125.507963
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4054.685734

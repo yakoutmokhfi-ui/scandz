@@ -211,3 +211,66 @@ l'envoi du retrait (par conception, fail-closed) — décision CIO / DIRAC. Le P
 
 Tout est mesuré sur doublures (mocks `supabase.rpc`, jsdom) ; aucune base hébergée, aucun Preview authentifié, aucune commande réelle. La
 fusion avec la pointe de main est une simulation locale jetable, non poussée. Les requêtes de la procédure P1 n'ont été exécutées que sur PGlite local.
+
+## 12. CSDJ2-R3-01 (P2) — date dérivée : valider les offres avant de la déclarer disponible
+
+Candidat de départ : `427c395aaa31858144d0f80cd0afdd775b6c4daf` (tree `64f1c644573305c23d3744d47a502b88b0e4392d`). Finding du contre-audit Turing :
+dans le chemin `derived_earliest` avec `slot_selection_mode='none'`, le modèle retournait l'exigence « derived » **avant** d'avoir validé les offres.
+
+### 12.1 Défaut
+
+`offers:null` (que le mapper transforme en objet vide), une offre mal formée (`slot_key:null, starts_at:"25:00", ends_at:"09:00"`) ou des
+bornes inversées en format non strict (`18:00:00`→`09:00:00`) laissaient partir un `create_order` date seule (`{date, slot_key:null,
+starts_at:null, ends_at:null}`), en retrait comme en livraison. Cause : le contrôle d'ordre des bornes ne s'applique que si **les deux heures
+sont strictes**, et le contrôle de complétude/forme des offres n'existait que dans la branche `customer_selectable`. Défaut préexistant à
+`5ef2063` (déjà présent sur `f81bb60`), non introduit par la remédiation précédente.
+
+### 12.2 Correctif (`lib/checkout-schedule/model.ts`, +32 lignes, aucun autre fichier de production)
+
+Avant de retourner « derived », la réponse doit contenir pour la date dérivée **au moins une offre**, et **toute offre fournie, pour n'importe quelle
+date,** doit être bien formée pour la politique `none` : `slot_key` nul, `starts_at` et `ends_at` en `HH:MM` strict (`00:00`–`23:59`), fin
+strictement après le début. Sinon : `unreadable` (raison `response`, ou `interval` pour des bornes strictes inversées/égales, déjà traitées) ⇒
+envoi fermé, explication, « Réessayer », panier conservé, 0 `create_order`, 0 ouverture WhatsApp. Le payload du cas dérivé valide est **inchangé**
+(date seule, contrat v1.2 §5.1).
+
+Fondement dans le SQL source du dépôt (lecture seule du fichier, **pas** de la base déployée) :
+`supabase/DRAFT-lot-checkout-scheduling-foundation-v1.sql` — le lecteur n'ajoute une date que si au moins une offre a été retenue (« Une date dont
+TOUTES les offres ont été écartées n'est pas une date éligible »), émet `starts_at`/`ends_at` en `to_char(…,'HH24:MI')`, et `slot_key` nul pour les
+fenêtres (politique `none`). Une réponse qui s'en écarte est donc incohérente au regard de la source connue ; ce que Production a réellement
+déployé reste à lire (P1).
+
+Choix à connaître (décrits, non contournés) :
+- une date dérivée dont les offres sont **absentes** est refusée, alors que le contrat n'affiche pas d'heure pour une date dérivée : la présence d'offres
+  sert de preuve que le serveur a retenu la date, pas de donnée affichée ;
+- une offre mal formée pour une **autre** date que la date dérivée ferme aussi l'envoi (réponse contradictoire) ; si le CIO préfère n'exiger la forme
+  que de la date dérivée, c'est une boucle à restreindre dans le modèle et un test à adapter — non fait sans accord ;
+- les bornes non strictes inversées (`18:00:00`→`09:00:00`) sont refusées comme **réponse mal formée** (message générique « disponibilités
+  inexploitables »), non comme « intervalle » : la forme est invalide avant d'être comparée.
+
+### 12.3 RED / GREEN
+
+| Test | RED sur 427c395 | GREEN sur 60e25ed |
+|---|---|---|
+| `tests/csdj2-checkout-schedule-158-r3.dom.test.ts` (5 tests, vrai MenuView sous jsdom, 13 réponses × retrait et × livraison) | 3/5 en échec (`evidence-158-r3/red-427c395-dom.tap`) : 11 des 13 réponses envoient `create_order` date seule et ouvrent WhatsApp (les 2 réponses à bornes strictes inversées étaient déjà fermées) | 5/5 (`green-r3-dom.tap`) |
+| `tests/csdj2-checkout-schedule-158-r3.test.ts` (5 tests purs : exigence, payload, mapper brut `offers:null`) | 2/5 en échec (`red-427c395-pure.tap`) ; les 3 autres sont des contrôles positifs/inchangés | 5/5 (`green-r3-pure.tap`) |
+
+Les 13 réponses : `offers:null`, offres absentes, liste vide, `25:00→09:00`, `24:00`, `18:00:00→09:00:00`, `09:00:00→18:00:00`, heure vide, strict inversé,
+durée nulle, bonne + mal formée, clé de créneau présente, offres d'une autre date seulement. Pour chacune : envoi fermé, raison visible, « Réessayer »,
+nom et téléphone conservés, panier intact, 0 `create_order`, 0 WhatsApp ; puis, réponse valide : un seul appel (double clic compris) avec
+`{"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}`. Contrôles positifs conservés : dérivée valide (une offre, bornes adjacentes,
+durée d'une minute, `00:00–23:59`), date seule, créneaux fixes, fenêtre, absence explicite, dates bissextiles 2000/2028/2400.
+
+### 12.4 Vérifications
+
+- Ciblés : 19 + 13 + 5 + 5 + 10 + 5 + 5 + 16 (épinglage `delivery-engine-unchanged-v1`) = 78/78 ; aucun test existant retiré ni modifié.
+- `tsc --noEmit` : exit 0 (`tsc.txt`). `next build` (variables factices) : succès, `exit=0` (`next-build-tail.txt`).
+- Suites complètes par identité (`full-suite-comparison.txt`) : candidat `60e25ed` en parallélisme 1 et 2 et main `a66fcc6` en parallélisme 2 : **14 échecs, mêmes 14
+  identités que L0** ; 0 nouvel échec, 0 en moins ; +10 tests.
+- Écart signalé par Turing (Windows, Node v24, 23 échecs communs, dont 5 seulement sur main, 0 de plus sur le candidat) : non reproduit sous Linux/Node v22
+  (14 partout, y compris en parallélisme 2). Je ne l'attribue pas : ses 14 identités historiques sont retrouvées, les autres sont des différences d'environnement
+  (chemins Windows, origine Supabase factice, attentes courtes des tests DOM) qu'il a lui-même laissées en échec.
+
+### 12.5 Limites et P1
+
+Doublures (mocks `supabase.rpc`, jsdom) ; aucune base hébergée, aucun Preview authentifié, aucune commande réelle. La conformité à la base **déployée** n'est pas établie.
+**P1 Production : INCONCLUSIF** — aucune des preuves de lecture seule (A1–A6, R1–R5 de `csdj2-create-order-production-verification-158.md` §6, M1–M12) n'a été fournie. Rien ici n'a touché la Production.

@@ -1,0 +1,185 @@
+TAP version 13
+# Subtest: [158-R3-1] REPRO CSDJ2-R3-01 : date dérivée + offres absentes / mal formées / non strictes => envoi fermé (retrait)
+not ok 1 - [158-R3-1] REPRO CSDJ2-R3-01 : date dérivée + offres absentes / mal formées / non strictes => envoi fermé (retrait)
+  ---
+  duration_ms: 2673.931878
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:476:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    réponses invalides encore envoyables ou mal gérées
+    + actual - expected
+    
+    + [
+    +   'pickup / offers:null: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / offers absent pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   "pickup / liste d'offres vide pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)",
+    +   'pickup / offre mal formée 25:00 -> 09:00 (cas Turing): envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / heure 24:00 hors format: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / bornes non strictes inversées 18:00:00 -> 09:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / bornes non strictes ordonnées 09:00:00 -> 18:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / heure vide: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / une bonne offre + une offre mal formée: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'pickup / clé de créneau présente alors que la politique est « none »: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   "pickup / offres de la date dérivée absentes, offres d'une AUTRE date présentes: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'pickup / offers:null: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    1: 'pickup / offers absent pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    2: "pickup / liste d'offres vide pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+    3: 'pickup / offre mal formée 25:00 -> 09:00 (cas Turing): envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    4: 'pickup / heure 24:00 hors format: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    5: 'pickup / bornes non strictes inversées 18:00:00 -> 09:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    6: 'pickup / bornes non strictes ordonnées 09:00:00 -> 18:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    7: 'pickup / heure vide: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    8: 'pickup / une bonne offre + une offre mal formée: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    9: 'pickup / clé de créneau présente alors que la politique est « none »: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    10: "pickup / offres de la date dérivée absentes, offres d'une AUTRE date présentes: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:482:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-R3-2] même chose en LIVRAISON : fermé, explication, panier intact, reprise valide => un seul appel date seule
+not ok 2 - [158-R3-2] même chose en LIVRAISON : fermé, explication, panier intact, reprise valide => un seul appel date seule
+  ---
+  duration_ms: 2911.663329
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:485:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    réponses invalides encore envoyables ou mal gérées
+    + actual - expected
+    
+    + [
+    +   'delivery / offers:null: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / offers absent pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   "delivery / liste d'offres vide pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)",
+    +   'delivery / offre mal formée 25:00 -> 09:00 (cas Turing): envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / heure 24:00 hors format: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / bornes non strictes inversées 18:00:00 -> 09:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / bornes non strictes ordonnées 09:00:00 -> 18:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / heure vide: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / une bonne offre + une offre mal formée: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   'delivery / clé de créneau présente alors que la politique est « none »: envoi FERMÉ (aucune commande date seule sur réponse invalide)',
+    +   "delivery / offres de la date dérivée absentes, offres d'une AUTRE date présentes: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'delivery / offers:null: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    1: 'delivery / offers absent pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    2: "delivery / liste d'offres vide pour la date dérivée: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+    3: 'delivery / offre mal formée 25:00 -> 09:00 (cas Turing): envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    4: 'delivery / heure 24:00 hors format: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    5: 'delivery / bornes non strictes inversées 18:00:00 -> 09:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    6: 'delivery / bornes non strictes ordonnées 09:00:00 -> 18:00:00: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    7: 'delivery / heure vide: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    8: 'delivery / une bonne offre + une offre mal formée: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    9: 'delivery / clé de créneau présente alors que la politique est « none »: envoi FERMÉ (aucune commande date seule sur réponse invalide)'
+    10: "delivery / offres de la date dérivée absentes, offres d'une AUTRE date présentes: envoi FERMÉ (aucune commande date seule sur réponse invalide)"
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:491:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R3-3] REPRO (aucun create_order) : sur chacune des 13 réponses, un clic forcé n'envoie jamais de commande date seule
+not ok 3 - [158-R3-3] REPRO (aucun create_order) : sur chacune des 13 réponses, un clic forcé n'envoie jamais de commande date seule
+  ---
+  duration_ms: 4040.73906
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:494:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    commandes envoyées sur une réponse calendrier invalide
+    + actual - expected
+    
+    + [
+    +   'offers:null: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'offers:null: WhatsApp ouvert',
+    +   'offers absent pour la date dérivée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'offers absent pour la date dérivée: WhatsApp ouvert',
+    +   `liste d'offres vide pour la date dérivée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}`,
+    +   "liste d'offres vide pour la date dérivée: WhatsApp ouvert",
+    +   'offre mal formée 25:00 -> 09:00 (cas Turing): create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'offre mal formée 25:00 -> 09:00 (cas Turing): WhatsApp ouvert',
+    +   'heure 24:00 hors format: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'heure 24:00 hors format: WhatsApp ouvert',
+    +   'bornes non strictes inversées 18:00:00 -> 09:00:00: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'bornes non strictes inversées 18:00:00 -> 09:00:00: WhatsApp ouvert',
+    +   'bornes non strictes ordonnées 09:00:00 -> 18:00:00: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'bornes non strictes ordonnées 09:00:00 -> 18:00:00: WhatsApp ouvert',
+    +   'heure vide: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'heure vide: WhatsApp ouvert',
+    +   'une bonne offre + une offre mal formée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'une bonne offre + une offre mal formée: WhatsApp ouvert',
+    +   'clé de créneau présente alors que la politique est « none »: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}',
+    +   'clé de créneau présente alors que la politique est « none »: WhatsApp ouvert',
+    +   `offres de la date dérivée absentes, offres d'une AUTRE date présentes: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}`,
+    +   "offres de la date dérivée absentes, offres d'une AUTRE date présentes: WhatsApp ouvert"
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'offers:null: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    1: 'offers:null: WhatsApp ouvert'
+    2: 'offers absent pour la date dérivée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    3: 'offers absent pour la date dérivée: WhatsApp ouvert'
+    4: `liste d'offres vide pour la date dérivée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}`
+    5: "liste d'offres vide pour la date dérivée: WhatsApp ouvert"
+    6: 'offre mal formée 25:00 -> 09:00 (cas Turing): create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    7: 'offre mal formée 25:00 -> 09:00 (cas Turing): WhatsApp ouvert'
+    8: 'heure 24:00 hors format: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    9: 'heure 24:00 hors format: WhatsApp ouvert'
+    10: 'bornes non strictes inversées 18:00:00 -> 09:00:00: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    11: 'bornes non strictes inversées 18:00:00 -> 09:00:00: WhatsApp ouvert'
+    12: 'bornes non strictes ordonnées 09:00:00 -> 18:00:00: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    13: 'bornes non strictes ordonnées 09:00:00 -> 18:00:00: WhatsApp ouvert'
+    14: 'heure vide: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    15: 'heure vide: WhatsApp ouvert'
+    16: 'une bonne offre + une offre mal formée: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    17: 'une bonne offre + une offre mal formée: WhatsApp ouvert'
+    18: 'clé de créneau présente alors que la politique est « none »: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}'
+    19: 'clé de créneau présente alors que la politique est « none »: WhatsApp ouvert'
+    20: `offres de la date dérivée absentes, offres d'une AUTRE date présentes: create_order envoyé {"date":"2026-10-20","slot_key":null,"starts_at":null,"ends_at":null}`
+    21: "offres de la date dérivée absentes, offres d'une AUTRE date présentes: WhatsApp ouvert"
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.dom.test.ts:511:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R3-4] NON-RÉGRESSION : dérivée valide (une ou plusieurs offres bien formées) reste envoyable avec la date seule du serveur
+ok 4 - [158-R3-4] NON-RÉGRESSION : dérivée valide (une ou plusieurs offres bien formées) reste envoyable avec la date seule du serveur
+  ---
+  duration_ms: 461.796024
+  type: 'test'
+  ...
+# Subtest: [158-R3-5] NON-RÉGRESSION : date seule, créneaux fixes, fenêtre et absence explicite de calendrier restent inchangés
+ok 5 - [158-R3-5] NON-RÉGRESSION : date seule, créneaux fixes, fenêtre et absence explicite de calendrier restent inchangés
+  ---
+  duration_ms: 388.641561
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11713.643423

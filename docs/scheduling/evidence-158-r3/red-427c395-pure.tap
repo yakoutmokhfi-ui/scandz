@@ -1,0 +1,102 @@
+TAP version 13
+# Subtest: [158-R3-P1] dérivée valide : exigence « derived », payload DATE SEULE conforme au contrat
+ok 1 - [158-R3-P1] dérivée valide : exigence « derived », payload DATE SEULE conforme au contrat
+  ---
+  duration_ms: 2.605975
+  type: 'test'
+  ...
+# Subtest: [158-R3-P2] cas Turing : offres absentes (null / {} / liste vide / autre date) => date dérivée NON disponible
+not ok 2 - [158-R3-P2] cas Turing : offres absentes (null / {} / liste vide / autre date) => date dérivée NON disponible
+  ---
+  duration_ms: 1.500854
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:59:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    offers:null
+    + actual - expected
+    
+      {
+    +   date: '2026-10-24',
+    +   kind: 'derived'
+    -   kind: 'unreadable',
+    -   reason: 'response'
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    kind: 'unreadable'
+    reason: 'response'
+  actual:
+    kind: 'derived'
+    date: '2026-10-24'
+  operator: 'deepStrictEqual'
+  stack: |-
+    assertClosed (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:37:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:66:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-R3-P3] offres mal formées : heures hors format, secondes, vides, 24:00, clé de créneau => fermé
+not ok 3 - [158-R3-P3] offres mal formées : heures hors format, secondes, vides, 24:00, clé de créneau => fermé
+  ---
+  duration_ms: 0.675823
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:74:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    25:00 -> 09:00 (cas Turing)
+    + actual - expected
+    
+      {
+    +   date: '2026-10-24',
+    +   kind: 'derived'
+    -   kind: 'unreadable',
+    -   reason: 'response'
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    kind: 'unreadable'
+    reason: 'response'
+  actual:
+    kind: 'derived'
+    date: '2026-10-24'
+  operator: 'deepStrictEqual'
+  stack: |-
+    assertClosed (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:37:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r3.test.ts:87:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R3-P4] bornes strictes inversées ou égales => raison « interval » (déjà fermé, conservé)
+ok 4 - [158-R3-P4] bornes strictes inversées ou égales => raison « interval » (déjà fermé, conservé)
+  ---
+  duration_ms: 0.253406
+  type: 'test'
+  ...
+# Subtest: [158-R3-P5] l'exigence « derived » est atteinte APRÈS validation : aucune autre branche ne la précède
+ok 5 - [158-R3-P5] l'exigence « derived » est atteinte APRÈS validation : aucune autre branche ne la précède
+  ---
+  duration_ms: 0.399241
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 3
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 285.733233
