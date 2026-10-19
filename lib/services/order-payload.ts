@@ -2,7 +2,7 @@ import type { CartLine, OrderContext } from "@/lib/whatsapp";
 import { formatAddress, formatCustomerDisplayName } from "@/lib/customer";
 import type { Lang } from "@/lib/i18n";
 import { orderNotePayload } from "@/lib/order-note";
-import type { SchedulePayload } from "@/lib/checkout-schedule/model";
+import { isValidSchedulePayload, type SchedulePayload } from "@/lib/checkout-schedule/model";
 
 /** Charge exacte envoyée à la RPC Postgres `create_order`. */
 export interface CreateOrderPayload {
@@ -135,6 +135,12 @@ export function buildCreateOrderPayload(params: {
               : null,
         };
 
+  // CSDJ2-R4-01 : dernier garde avant le réseau -- jamais une déclaration de date
+  // mal formée (date impossible, heures hors format, bornes inversées, clé sans
+  // heures) dans `p_customer.schedule`. Le serveur revalide de toute façon.
+  if (context.mode !== "table" && schedule && !isValidSchedulePayload(schedule)) {
+    throw new Error("SCHEDULE_PAYLOAD_INVALID");
+  }
   const customerWithSchedule =
     context.mode !== "table" && schedule
       ? { ...customer, schedule }

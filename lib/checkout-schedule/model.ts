@@ -73,6 +73,26 @@ export interface SchedulePayload {
   ends_at: string | null;
 }
 
+/**
+ * DERNIER GARDE avant le réseau (CSDJ2-R4-01, revue des chemins d'envoi) : le
+ * `schedule` qui part dans `p_customer` a EXACTEMENT les quatre clés du contrat,
+ * une vraie date, et des heures soit toutes deux nulles, soit toutes deux
+ * strictes avec fin > début ; une clé de créneau implique ses deux heures.
+ * `toSchedulePayload` ne produit que de tels objets ; ce contrôle protège contre
+ * tout autre appelant de `buildCreateOrderPayload`.
+ */
+export function isValidSchedulePayload(p: unknown): p is SchedulePayload {
+  if (p === null || typeof p !== "object" || Array.isArray(p)) return false;
+  const o = p as Record<string, unknown>;
+  const keys = Object.keys(o).sort().join(",");
+  if (keys !== "date,ends_at,slot_key,starts_at") return false;
+  if (!isIsoDate(o.date)) return false;
+  if (!(o.slot_key === null || (typeof o.slot_key === "string" && o.slot_key.length > 0))) return false;
+  if (o.starts_at === null && o.ends_at === null) return o.slot_key === null;
+  if (!isStrictTime(o.starts_at) || !isStrictTime(o.ends_at)) return false;
+  return timeToMinutes(o.starts_at) < timeToMinutes(o.ends_at);
+}
+
 export type SlotMode = "none" | "fixed_slots" | "time_within_window";
 
 /**
@@ -178,6 +198,34 @@ function isWellFormedDateOnlyOffer(o: CheckoutScheduleOffer): boolean {
   );
 }
 
+/**
+ * DÉFENSE EN PROFONDEUR (CSDJ2-R4-01) : le mapper refuse déjà tout type
+ * inattendu, mais le modèle ne suppose pas que sa vue vient du mapper. Une vue
+ * dont un champ n'a pas le type déclaré (clé de créneau non textuelle, heure
+ * non chaîne, liste non tableau pour N'IMPORTE QUELLE date, granularité non
+ * numérique...) est illisible -- on ne la « normalise » pas.
+ */
+function isWellTypedView(v: CheckoutScheduleView): boolean {
+  const strOrNull = (x: unknown) => x === null || typeof x === "string";
+  if (!strOrNull(v.timezone) || v.timezone === "") return false;
+  if (!strOrNull(v.unfulfillableReason) || !strOrNull(v.dateSelectionMode) || !strOrNull(v.slotSelectionMode) || !strOrNull(v.firstEligibleDate)) return false;
+  const g: unknown = v.timeGranularityMinutes;
+  if (!(g === null || (typeof g === "number" && Number.isFinite(g)))) return false;
+  if (!Array.isArray(v.eligibleDates) || !v.eligibleDates.every((d) => typeof d === "string")) return false;
+  const offers: unknown = v.offers;
+  if (offers === null || typeof offers !== "object" || Array.isArray(offers)) return false;
+  for (const list of Object.values(offers as Record<string, unknown>)) {
+    if (!Array.isArray(list)) return false;
+    for (const o of list as unknown[]) {
+      if (o === null || typeof o !== "object" || Array.isArray(o)) return false;
+      const x = o as Record<string, unknown>;
+      if (!(x.slotKey === null || typeof x.slotKey === "string")) return false;
+      if (typeof x.startsAt !== "string" || typeof x.endsAt !== "string") return false;
+    }
+  }
+  return true;
+}
+
 function offersOf(view: CheckoutScheduleView, date: string): CheckoutScheduleOffer[] {
   const list = view.offers[date];
   return Array.isArray(list) ? list : [];
@@ -207,6 +255,9 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
   // ── Cohérence de la réponse, AVANT toute politique : une réponse qui se
   // contredit n'est pas une disponibilité (aucune normalisation, aucune
   // correction, aucune date inventée).
+  if (!isWellTypedView(view)) {
+    return { kind: "unreadable", reason: "response" };
+  }
   if (view.eligibleDates.length === 0) {
     return { kind: "unreadable", reason: "response" };
   }
@@ -229,6 +280,17 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
   // Ambiguïté : une date ne figure qu'une fois.
   if (new Set(view.eligibleDates).size !== view.eligibleDates.length) {
     return { kind: "unreadable", reason: "ambiguous" };
+  }
+
+  // Cohérence date / offres (lecteur SQL : `first_eligible_date` = première date
+  // éligible, et `offers` porte EXACTEMENT les dates éligibles). Une offre pour une
+  // date non éligible, ou une date éligible sans offre, est une contradiction.
+  if (view.firstEligibleDate !== view.eligibleDates[0]) {
+    return { kind: "unreadable", reason: "response" };
+  }
+  const offerDates = Object.keys(view.offers);
+  if (offerDates.length !== view.eligibleDates.length || !offerDates.every((d) => view.eligibleDates.includes(d))) {
+    return { kind: "unreadable", reason: "response" };
   }
 
   if (view.dateSelectionMode === "derived_earliest") {
