@@ -338,3 +338,47 @@ Objet nu = invalide ; statut non disponible avec dates/offres = invalide ; premi
 - **Plus strict que Production, possiblement** : si le lecteur déployé diffère du SQL source (ex. dates non triées, offres pour d'autres dates, timezone absente tolérée), une réponse légitime pourrait fermer l'envoi (risque de disponibilité, fail-closed). À lever par la lecture seule P1.
 - Champs vérifiés en type seulement et non consommés côté client : fuseau, raison, granularité hors fenêtre. Champs inconnus ignorés. Ordre des dates non imposé. État `idle` (livraison sans code postal valide) n'envoie aucun calendrier. Aperçu marchand indulgent (13.4).
 - **P1 Production : INCONCLUSIF.** A1–A6, B1–B11, R1–R5 (rapprochement des quatre HTTP 400 P0001 `SCANYM_SCHEDULE_REQUIRED` du 15 oct. 12:19–12:28 UTC) et M1–M12 n'ont pas été fournis par un détenteur autorisé ; existence/permissions du lecteur avant tout déploiement client non établies. PR reste DRAFT ; aucun accès Production, SQL hébergé, merge, déploiement ni commande réelle. L'activation du retrait en Production demande un GO CIO séparé.
+
+## 14. CSDJ2-R5 (P2) — autre date éligible à offres vides ; écarts de suites expliqués
+
+Candidat audité : `d28bea9570ac80c8a490e1a9e93cb0af5e45a84b` (tree `32eba13456190b0b665c57faa51c0dfbde876442`). Commits enfants : tests `f7206eb893369728ce9dfa4207e2289b1698b3ef` (rouges sur d28bea9), correctif `fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975` (tree `00f5c779a061e81b6ac3ebc367e1e28df5bdb12f`). Preuves : `evidence-158-r5/`.
+**Le rapport Turing `rapport-contre-audit-pr160-d28bea9.txt` n'était ni dans la PR ni dans mes fichiers** : je n'ai donc pas rejoué ses six reproductions exactes. J'ai traité la classe décrite par Noether (première date valide + autre date éligible à liste d'offres vide, en retrait et en livraison) et ses variantes. Si le rapport est joint, ses six cas devront être rejoués tels quels.
+
+### 14.1 Cause et correctif
+`scheduleRequirement`, branche `derived_earliest`, n'exigeait une offre que pour la date dérivée ; les autres dates éligibles n'étaient contrôlées que sur la forme de leurs offres **fournies** : une liste `[]` passait. Correctif (`lib/checkout-schedule/model.ts`, +12 lignes) : **chaque** date éligible doit porter au moins une offre bien formée, sinon `unreadable/response` (envoi fermé). Les branches à date choisie par le client avaient déjà cette règle.
+
+### 14.2 Pourquoi R4 ne l'avait pas vu
+L'oracle R4 jugeait déjà « fermé » une date sans offre ; c'est la **génération de cas** qui manquait : la base dérivée n'avait qu'une date et la matrice ne mutait que des chemins existants — elle ne pouvait pas créer une date de plus. R5 ajoute des **opérateurs structurels** (`tests/_csdj2-r5-oracle.ts`) : bases valides à 1, 2 ou 3 dates pour les 4 politiques ; ajout d'une date à chaque position avec 18 formes d'offres ; clé d'offres en trop ou manquante ; retrait d'un seul côté ou des deux ; doublon ; réordonnancement ; première date forcée. Plus des propriétés **métamorphiques sans oracle** (vider/retirer/invalider les offres de n'importe quelle date ferme ; ajouter une date valide ne ferme pas).
+
+### 14.3 RED / GREEN et couverture
+| Test | RED sur d28bea9 | GREEN sur fb6c237 |
+|---|---|---|
+| `…-r5.test.ts` (9 purs : B0, finding, 1 571 variantes structurelles, métamorphique, matrice 6 142 cas sur bases multi-dates, 5 000 combinaisons, fidélité, couverture, épingle) | 5/8 en échec ; 22 lignes d'écart, **toutes** « liste vide pour une autre date en mode dérivé » (`red-d28bea9-mismatches.txt`) | 9/9, 0 écart |
+| `…-r5.dom.test.ts` (3 DOM : 6 cas × retrait/livraison, 35 parcours structurels, positifs à 2–3 dates avec reprise) | 3/3 en échec : envoi **ouvert** sur les cas à 2e/3e date vide (8 parcours), reprise bloquée | 3/3 |
+
+Pour chaque réponse invalide : envoi fermé, motif et « Réessayer » visibles, panier et coordonnées conservés, 0 `create_order`, 0 WhatsApp ; réponse saine ensuite : un seul appel, payload date seule. Positifs conservés : dérivée à 1, 2, 3 dates, date seule, créneaux fixes, fenêtre. Rejoués au vert : R4-01 (huit cas), R3, R2, R1, #158 pure/DOM, épinglage `delivery-engine-unchanged` (97 + 12 = 109 tests ciblés).
+Mutations (`mutation-tests.txt`) : liste vide acceptée (M23), contrôle limité à la date dérivée (M24), limité à la première et la dernière date (M25) — **détectées** par R5-1…R5-5. Les 22 mutations de R4 ne sont pas rejouées dans cette passe (code inchangé hors du bloc ajouté).
+
+### 14.4 Modification d'un test existant (à connaître)
+**Un seul test existant a été modifié** : la *donnée* de départ de `[158-6]` (`tests/csdj2-checkout-schedule-158.test.ts`, +7/−1) contenait précisément la combinaison jugée invalide (dérivée, 2e date éligible à `[]`) et attendait `derived`. Je ne pouvais pas fermer la classe sans y toucher. J'ai remplacé la liste vide par une offre valide ; **les assertions sont identiques** (date dérivée 2026-10-20, envoi ouvert, payload date seule). L'ancienne donnée est **épinglée comme illisible** par `[158-R5-8]`. Aucun autre test existant n'est modifié, retiré ni affaibli ; diff relu (`git diff d28bea9` : 1 fichier de production, 1 test modifié, 3 fichiers de test ajoutés, 0 test supprimé). Si le CIO refuse ce choix, la règle R5 doit être restreinte et `[158-R5-*]` adaptés.
+
+### 14.5 Écarts de la suite complète
+Environnement figé : Linux, Node 22, 2 cœurs, variables Supabase factices, `node_modules` identique ; main `a66fcc63c2447f4f887961a8864d23a38143fdf0`, candidat `fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975`. Identité = (fichier, nom) tirée du TAP. L0 = 14 identités (`failures-L0-main-a66fcc6.tsv`).
+
+| Condition | Runs | Résultat |
+|---|---|---|
+| séquentiel (`--test-concurrency=1`) | candidat 2, main 1 | **exactement les 14 identités de L0** |
+| parallélisme 2 | main 3 | **L0** 3 fois sur 3 |
+| parallélisme 2 | candidat 3 | 1 run = L0 ; **2 runs = L0 + `catalogue-product-reorder-v1.dom` « [C] FOCUS CLAVIER »** (le même) |
+
+(Passe précédente, candidat 5ba60a0, parallélisme 2 : 3 runs dont 2 avec **un** échec en plus — `v155-admin-catalogue-import-entry-point.dom` puis le même « FOCUS CLAVIER ».)
+
+**Reproduit** : sur le code de **main**, sans aucun fichier du candidat, deux tests s'effondrent sous charge CPU (`load-isolation.txt`, parallélisme 2, 5 itérations par condition) :
+sans charge 0/5 échec (FOCUS CLAVIER, import catalogue) ; avec mon test DOM R4 : 2/5 et 4/5 ; avec mon test DOM R5 : 1/5 et 3/5 ; avec **une boucle CPU pure** `while(true){}` (aucun code du dépôt) : 3/5 et 3/5 ; avec deux boucles : 2/2 et 2/2 (iterations E #3–#5 exclues, voir la note du fichier). Mécanisme visible dans le code : `flush(60)` / `flush(50)` fixes sur des rendus jsdom, sur 2 cœurs partagés.
+**Conséquence directe** : le seul échec propre au candidat en parallélisme 2 est un flake préexistant, déclenché par la charge **supplémentaire** de mes tests DOM (R4 D2 ≈ 46 s ; R5 ≈ 15 s). Je ne l'écarte donc pas : la suite du candidat est plus gourmande et rend ces tests flaky plus probables à 2 cœurs.
+**Non reproduit** : le même flake dans un run **complet** de main en parallélisme 2 (0/6 sur main, toutes passes) ; je n'ai pas observé main flaker dans la suite entière, seulement dans l'expérience ciblée. Les 14 échecs L0 eux-mêmes sont identiques partout (structurels/de périmètre, non liés au calendrier).
+**Inexpliqué / non couvert** : l'écart que Turing rapporte sous Windows/Node 24 (23 communs en séquentiel, 24 candidat vs 27 main en parallèle) n'a pas été reproduit sous Linux/Node 22 et je n'ai pas son rapport brut : je ne peux pas l'attribuer. Aucune mesure à plus de 2 cœurs n'a été faite.
+**Option proposée, non appliquée** (elle modifierait des tests existants de R4) : alléger R4-D2 pour réduire la charge. À décider par le CIO.
+
+### 14.6 Limites et risques résiduels
+Mocks (`supabase.rpc`), jsdom, Node 22/Linux ; ni base hébergée, ni navigateur réel ; l'oracle suit ma lecture du contrat et du SQL source (c'est lui qui avait déjà la bonne règle ; le défaut venait de la génération de cas) ; la recherche structurelle est large (≈ 13 000 cas purs, 38 parcours DOM) mais **pas exhaustive** : ordre des dates non imposé, plus de 3 dates non testées, offres très nombreuses non testées. Les risques de R4 §13.9 restent valables, dont celui d'être **plus strict que Production** (une date éligible sans offre dans le lecteur déployé fermerait l'envoi). **P1 Production : INCONCLUSIF** (A1–A6, B1–B11, R1–R5, M1–M12 non fournis ; quatre HTTP 400 P0001 du 15 oct. 12:19–12:28 UTC non rapprochés). PR en Draft ; aucun accès Production, SQL hébergé, merge, déploiement ni commande réelle.

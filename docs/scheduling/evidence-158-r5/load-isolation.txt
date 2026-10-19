@@ -1,0 +1,28 @@
+A sans charge #1: # pass 42 # fail 0 
+A sans charge #2: # pass 42 # fail 0 
+A sans charge #3: # pass 42 # fail 0 
+A sans charge #4: # pass 42 # fail 0 
+A sans charge #5: # pass 42 # fail 0 
+B charge = test DOM R4 (candidat) #1: # pass 42 # fail 0 
+B charge = test DOM R4 (candidat) #2: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi # pass 39 # fail 3 
+B charge = test DOM R4 (candidat) #3: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés # pass 40 # fail 2 
+B charge = test DOM R4 (candidat) #4: not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés # pass 41 # fail 1 
+B charge = test DOM R4 (candidat) #5: not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent # pass 39 # fail 3 
+C charge = test DOM R5 (candidat) #1: not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent # pass 39 # fail 3 
+C charge = test DOM R5 (candidat) #2: not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés # pass 41 # fail 1 
+C charge = test DOM R5 (candidat) #3: not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi # pass 40 # fail 2 
+C charge = test DOM R5 (candidat) #4: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( # pass 41 # fail 1 
+C charge = test DOM R5 (candidat) #5: # pass 42 # fail 0 
+D charge = 1 boucle CPU pure (aucun code du dépôt) #1: # pass 42 # fail 0 
+D charge = 1 boucle CPU pure (aucun code du dépôt) #2: # pass 42 # fail 0 
+D charge = 1 boucle CPU pure (aucun code du dépôt) #3: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent # pass 38 # fail 4 
+D charge = 1 boucle CPU pure (aucun code du dépôt) #4: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent # pass 38 # fail 4 
+D charge = 1 boucle CPU pure (aucun code du dépôt) #5: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent # pass 38 # fail 4 
+E charge = 2 boucles CPU pures #1: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent not ok 42 - Régression de contrôle : les 9 sections mandatées du cockpit restent toutes # pass 37 # fail 5 
+E charge = 2 boucles CPU pures #2: not ok 9 - [C] FOCUS CLAVIER : le bouton actionné garde le focus ; s'il devient inactif ( not ok 38 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien 'Importer un catalogue' est prés not ok 39 - ADMIN CATALOGUE IMPORT ENTRY POINT : le lien pointe vers la page OB-3/OB-4 exi not ok 40 - ADMIN CATALOGUE IMPORT ENTRY POINT : deux établissements distincts obtiennent not ok 42 - Régression de contrôle : les 9 sections mandatées du cockpit restent toutes # pass 37 # fail 5 
+
+NOTE D'HONNÊTETÉ : la condition E devait avoir 5 itérations ; l'itération E #3 a chevauché mon exécution des tests GREEN et un arrêt manuel des boucles CPU, puis le script a été interrompu.
+E #3 à #5 sont donc EXCLUES (non interprétables). Restent E #1 et E #2 (propres) : 2 sur 2 échouent, 5 échecs à chaque fois.
+Protocole : code de main a66fcc6 (aucun fichier du candidat) ; fichiers testés : tests/v155-admin-catalogue-import-entry-point.dom.test.ts + tests/catalogue-product-reorder-v1.dom.test.ts, --test-concurrency=2 ; 
+A = sans charge ; B = + tests/csdj2-checkout-schedule-158-r4.dom.test.ts (candidat) ; C = + tests/csdj2-checkout-schedule-158-r5.dom.test.ts (candidat) ; D = + 1 boucle `node -e "while(true){}"` ; E = + 2 boucles.
+Machine : 2 cœurs (nproc = 2).
