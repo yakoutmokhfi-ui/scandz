@@ -163,6 +163,21 @@ export function isStrictTime(value: unknown): value is string {
   return typeof value === "string" && TIME_PATTERN.test(value);
 }
 
+/**
+ * Offre « date seule » (politique de créneau `none`) bien formée : heures
+ * strictes HH:MM, fin strictement après le début, pas de clé de créneau.
+ */
+function isWellFormedDateOnlyOffer(o: CheckoutScheduleOffer): boolean {
+  return (
+    o !== null &&
+    typeof o === "object" &&
+    o.slotKey === null &&
+    isStrictTime(o.startsAt) &&
+    isStrictTime(o.endsAt) &&
+    timeToMinutes(o.startsAt) < timeToMinutes(o.endsAt)
+  );
+}
+
 function offersOf(view: CheckoutScheduleView, date: string): CheckoutScheduleOffer[] {
   const list = view.offers[date];
   return Array.isArray(list) ? list : [];
@@ -226,6 +241,23 @@ export function scheduleRequirement(view: CheckoutScheduleView): ScheduleRequire
     // qui demanderait un choix n'a aucun comportement défini : on ne devine pas.
     if (view.slotSelectionMode !== "none") {
       return { kind: "unreadable", reason: "policy" };
+    }
+    // CSDJ2-R3-01 : une date dérivée n'est une DISPONIBILITÉ que si le serveur
+    // a rendu, pour CETTE date, au moins une offre bien formée (le lecteur
+    // exclut une journée sans offre et émet des heures HH:MM). Réponse sans
+    // offre, offre mal formée (heure hors format, secondes, vide, clé de
+    // créneau alors que la politique est « none ») : on n'envoie PAS une
+    // commande date seule sur une réponse qui se contredit. Les bornes strictes
+    // inversées sont déjà refusées plus haut (`interval`).
+    const derivedOffers = offersOf(view, date);
+    if (derivedOffers.length === 0) {
+      return { kind: "unreadable", reason: "response" };
+    }
+    // Toute offre fournie, pour n'importe quelle date, doit être bien formée.
+    for (const list of Object.values(view.offers)) {
+      if (!Array.isArray(list) || !list.every(isWellFormedDateOnlyOffer)) {
+        return { kind: "unreadable", reason: "response" };
+      }
     }
     return { kind: "derived", date };
   }
