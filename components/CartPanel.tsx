@@ -64,6 +64,8 @@ export default function CartPanel({
   onChangeQuantity,
   onSelectTable,
   onSelectFulfillment,
+  blockedModeNotice = null,
+  onAttemptBlockedMode,
   onChangeCustomer,
   deliveryCountry = null,
   deliveryCountryOptions = [],
@@ -151,6 +153,19 @@ export default function CartPanel({
   onChangeQuantity: (key: string, delta: number) => void;
   onSelectTable: (table: number) => void;
   onSelectFulfillment: (t: ServiceMode) => void;
+  /**
+   * AVERTISSEMENT DE MODE REFUSÉ (issue #155) -- mode que le panier
+   * rend indisponible ET que le client vient d'essayer (ou qui vient
+   * de lui être retiré par MenuView parce qu'un article ajouté le
+   * bloque). C'est, avec le mode ACTIF, la seule situation où le motif
+   * du refus est affiché : tant que le client est sur un autre mode
+   * (ex. « À emporter »), il n'a rien à lire sur la livraison. `null`
+   * ou absent : aucune tentative en cours.
+   */
+  blockedModeNotice?: ServiceMode | null;
+  /** Signale à MenuView qu'un mode refusé vient d'être explicitement
+   *  tenté (clic/toucher/clavier sur le bouton marqué indisponible). */
+  onAttemptBlockedMode?: (mode: ServiceMode) => void;
   onChangeCustomer: (patch: Partial<CustomerInfo>) => void;
   /** DELIVERY COUNTRY SCOPE v1 -- passe-plat vers FulfillmentSelector.
    *  AUCUNE décision n'est prise ici : ce composant ne connaît ni pays
@@ -391,6 +406,28 @@ export default function CartPanel({
    * situation).
    */
   const unblockedServiceModes = availableServiceModes.filter((m) => !blockedModes[m]);
+
+  /**
+   * AVERTISSEMENT DE MODE REFUSÉ (issue #155) -- le motif d'un refus
+   * (« Livraison indisponible avec ce panier : Lait cru. ») n'est
+   * affiché QUE dans l'un de ces cas :
+   *   - ce mode est le mode ACTIF (état transitoire : MenuView le
+   *     désélectionne aussitôt) ;
+   *   - le client l'a explicitement TENTÉ, ou vient de se le voir
+   *     retirer (`blockedModeNotice`) ;
+   *   - aucun autre mode n'est utilisable avec ce panier : le client
+   *     ne peut alors rien commander et doit savoir pourquoi.
+   * Ailleurs -- notamment avec « À emporter » actif et du lait cru
+   * dans le panier -- aucun avertissement de livraison n'est montré.
+   * Le REFUS lui-même est inchangé (`blockedModes`, bouton marqué
+   * indisponible, aucune sélection possible, create_order reste
+   * l'autorité).
+   */
+  const showBlockedMessage = (mode: ServiceMode): boolean =>
+    Boolean(blockedModes[mode]) &&
+    (serviceMode === mode ||
+      blockedModeNotice === mode ||
+      unblockedServiceModes.length === 0);
 
   /**
    * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE POPUP v1 :
@@ -689,17 +726,45 @@ export default function CartPanel({
                           // aucun retrait d'article : le client doit
                           // d'abord ajuster son panier (message dédié
                           // ci-dessous) ou choisir un autre mode.
-                          if (blockedByCart) return;
+                          //
+                          // Issue #155 : le bouton n'est PLUS
+                          // `disabled` natif (un bouton désactivé ne
+                          // reçoit aucun geste : la tentative serait
+                          // inobservable et le refus jamais expliqué
+                          // à qui l'essaie). Il reste exposé comme
+                          // indisponible (`aria-disabled`) ; le geste
+                          // déclenche l'explication, jamais la sélection.
+                          if (blockedByCart) {
+                            onAttemptBlockedMode?.(mode);
+                            return;
+                          }
                           onSelectFulfillment(mode);
                         }}
-                        disabled={Boolean(blockedByCart)}
+                        aria-disabled={blockedByCart ? true : undefined}
                         aria-pressed={selected}
-                        aria-invalid={deliveryIncomplete || Boolean(blockedByCart) || undefined}
-                        aria-describedby={blockedByCart ? `mode-blocked-${mode}` : undefined}
+                        aria-invalid={
+                          deliveryIncomplete ||
+                          (Boolean(blockedByCart) && showBlockedMessage(mode)) ||
+                          undefined
+                        }
+                        aria-describedby={
+                          blockedByCart && showBlockedMessage(mode)
+                            ? `mode-blocked-${mode}`
+                            : undefined
+                        }
                         className={
                           "min-w-0 flex-1 rounded-xl border px-2 py-2.5 text-sm font-semibold " +
                           (blockedByCart
-                            ? "cursor-not-allowed border-amber-200 bg-amber-50/60 text-amber-900/70"
+                            // Issue #155 : l'ambre est la couleur d'un état
+                            // d'ERREUR (livraison choisie mais incomplète,
+                            // ou refus expliqué). Un mode refusé que le
+                            // client n'utilise ni n'essaie reste donc
+                            // NEUTRE (grisé) -- sinon il se lit comme « la
+                            // livraison est sélectionnée en erreur » alors
+                            // que « À emporter » est le mode actif.
+                            ? showBlockedMessage(mode)
+                              ? "cursor-not-allowed border-amber-200 bg-amber-50/60 text-amber-900/70"
+                              : "cursor-not-allowed border-transparent bg-crema text-ink-on-bg-muted opacity-60 shadow-sm"
                             : deliveryIncomplete
                               ? "border-amber-500 bg-amber-50 text-amber-900"
                               : selected
@@ -740,7 +805,7 @@ export default function CartPanel({
                     de `availableServiceModes` est bloqué ici. */}
                 {availableServiceModes.map((mode) => {
                   const blockers = blockedModes[mode];
-                  if (!blockers) return null;
+                  if (!blockers || !showBlockedMessage(mode)) return null;
                   return (
                     <p
                       key={`blocked-${mode}`}
