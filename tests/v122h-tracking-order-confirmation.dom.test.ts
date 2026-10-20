@@ -127,6 +127,10 @@ const RESTAURANT = {
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "22222222-2222-4222-8222-222222222222";
 const TRACKING_PATH = `/track/${ORDER_ID}#${TOKEN}`;
+/** RÉTRACTATION DIRECTE (modifié) : le bouton ouvre DIRECTEMENT le formulaire de la
+ *  même commande -- même order_id, même jeton, jeton toujours dans le FRAGMENT seul --
+ *  avec `?view=withdrawal` (paramètre de présentation, sans jeton ni pouvoir d'accès). */
+const WITHDRAWAL_VIEW_PATH = `/track/${ORDER_ID}?view=withdrawal#${TOKEN}`;
 
 /**
  * ─── MCC-V1-CONTRACT-CHANGE-01 (MERCHANT CUSTOMER COMMUNICATIONS v1,
@@ -175,7 +179,7 @@ test("mandat §20 : trackingPath fourni -- un lien RÉEL (<a href>) est rendu, e
 
   const anchor = findTrackingAnchor(container);
   assert.ok(anchor, "un <a href=\"/track/...\"> doit être rendu");
-  assert.equal(anchor!.getAttribute("href"), TRACKING_PATH, "le composant ne doit JAMAIS altérer/reconstruire le chemin reçu");
+  assert.equal(anchor!.getAttribute("href"), WITHDRAWAL_VIEW_PATH, "le composant dérive le lien du formulaire du chemin reçu : même commande, même jeton en fragment, jamais un jeton régénéré");
   assert.equal(anchor!.textContent, "Demander une rétractation");
   assert.equal(anchor!.tagName, "A", "un lien HTML natif -- pas un bouton avec navigation JS");
 
@@ -215,7 +219,8 @@ test("mandat §6/§7 : le href rendu ne contient JAMAIS le format v1 <order_id>/
   const href = findTrackingAnchor(container)!.getAttribute("href")!;
   const url = new URL(href, "https://example.com");
   assert.equal(url.pathname, `/track/${ORDER_ID}`);
-  assert.equal(url.search, "", "aucune chaîne de requête ne doit porter le jeton");
+  assert.equal(url.search, "?view=withdrawal", "la seule requête est la vue (présentation) -- aucune chaîne de requête ne doit porter le jeton");
+  assert.equal(url.search.includes(TOKEN), false);
   assert.equal(url.hash, `#${TOKEN}`);
   assert.equal(href.includes(`/track/${ORDER_ID}/${TOKEN}`), false, "JAMAIS le format v1 FORBIDDEN (mandat §6)");
   assert.equal(href.includes("?token="), false);
@@ -248,7 +253,7 @@ test("mandat §25 : langue anglaise (I18nProvider) -- le même composant, la mê
   const anchor = findTrackingAnchor(container);
   assert.ok(anchor, "le lien doit rester présent en anglais");
   assert.equal(anchor!.textContent, "Request a withdrawal");
-  assert.equal(anchor!.getAttribute("href"), TRACKING_PATH, "le chemin transmis reste inchangé, quelle que soit la langue");
+  assert.equal(anchor!.getAttribute("href"), WITHDRAWAL_VIEW_PATH, "le lien du formulaire reste identique, quelle que soit la langue");
 
   root.unmount();
   container.remove();

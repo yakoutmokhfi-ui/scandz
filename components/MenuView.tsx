@@ -469,6 +469,14 @@ export default function MenuView({
   // ci-dessous, une fois la liste réelle connue.
   const [serviceMode, setServiceMode] = useState<ServiceMode | null>(null);
   /**
+   * Issue #155 -- mode refusé par le panier dont le motif doit être
+   * affiché : celui que le client vient d'essayer, ou celui qui vient de
+   * lui être retiré (voir l'effet de désélection plus bas). Effacé par
+   * toute sélection de mode (`onSelectFulfillment`). Présentation
+   * uniquement : ne modifie ni le panier, ni les règles de refus.
+   */
+  const [blockedModeNotice, setBlockedModeNotice] = useState<ServiceMode | null>(null);
+  /**
    * SCANYM — CUSTOMER ORDERING UX — FULFILLMENT CHOICE v1.1 (POST-
    * SELECTION AUTO-SCROLL / FOCUS).
    *
@@ -1092,9 +1100,25 @@ export default function MenuView({
     if (serviceMode === null) return;
     const blocked = blockingItemsByMode(lines.map((l) => l.item));
     if (blocked[serviceMode]) {
+      // Issue #155 : le mode retiré au client est celui dont le motif
+      // doit lui être expliqué (CartPanel n'affiche plus le motif d'un
+      // refus qu'en mode actif / sur tentative explicite).
+      setBlockedModeNotice(serviceMode);
       setServiceMode(null);
     }
   }, [lines, serviceMode]);
+
+  /**
+   * Issue #155 -- le motif d'un mode refusé n'a plus lieu d'être dès
+   * que le panier ne bloque plus ce mode (article retiré) : la
+   * mémoire de la tentative est effacée pour ne jamais faire réapparaître
+   * un avertissement « fantôme » si l'article est rajouté plus tard.
+   */
+  useEffect(() => {
+    if (blockedModeNotice === null) return;
+    const blocked = blockingItemsByMode(lines.map((l) => l.item));
+    if (!blocked[blockedModeNotice]) setBlockedModeNotice(null);
+  }, [lines, blockedModeNotice]);
 
   /**
    * Clic "Ajouter" ou "+" sur une carte du menu.
@@ -2173,7 +2197,10 @@ export default function MenuView({
             setCart((c) => changeLineQuantity(c, key, delta))
           }
           onSelectTable={setTableNumber}
+          blockedModeNotice={blockedModeNotice}
+          onAttemptBlockedMode={setBlockedModeNotice}
           onSelectFulfillment={(t) => {
+            setBlockedModeNotice(null);
             setServiceMode(t);
             setShowErrors(true);
             // FULFILLMENT CHOICE v1.1 : marque cette sélection comme

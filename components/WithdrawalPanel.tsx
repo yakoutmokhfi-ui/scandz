@@ -107,15 +107,43 @@ export default function WithdrawalPanel({
   orderNumber,
   options,
   lang,
+  startOpen = false,
+  backHref,
 }: {
   orderId: string;
   orderNumber: number;
   options: WithdrawalPanelOption[];
   lang: Lang;
+  /**
+   * RÉTRACTATION DIRECTE : monté par la vue « formulaire seul » de la
+   * page de suivi (`?view=withdrawal`), le panneau démarre sur l'étape
+   * de sélection au lieu du bouton d'ouverture (qui serait alors un
+   * SECOND bouton redondant avec celui de l'écran de confirmation) et
+   * porte le titre de page (h1). Ne change rien d'autre : mêmes
+   * étapes, mêmes contrôles, même envoi, aucune écriture à l'ouverture.
+   */
+  startOpen?: boolean;
+  /**
+   * Vue autonome uniquement : destination du « Retour » de la PREMIÈRE
+   * étape. Sans elle, « Retour » refermait le formulaire sur le bouton
+   * d'entrée -- redondant ici, puisque l'accès direct existe précisément
+   * pour supprimer cet écran intermédiaire. C'est un lien ordinaire vers
+   * la page de suivi parent (chemin propre, jamais de jeton) : il
+   * repasse par la session serveur, donc ne contourne aucune
+   * vérification. Ignoré hors vue autonome (là, le bouton d'entrée est
+   * celui de la page de suivi et « Retour » y ramène, comme avant).
+   */
+  backHref?: string;
 }) {
   const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
 
-  const [step, setStep] = useState<Step>("closed");
+  // Destination du « Retour » de la vue autonome : uniquement un chemin
+  // PROPRE `/track/<id>` (aucune requête, aucun fragment, aucun hôte).
+  // Toute autre valeur est ignorée -- jamais un lien arbitraire.
+  const safeBackHref =
+    typeof backHref === "string" && /^\/track\/[^/?#]+$/.test(backHref) ? backHref : null;
+
+  const [step, setStep] = useState<Step>(startOpen ? "selection" : "closed");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   // LOT 2 -- QUANTITÉ UX. Tampon de SAISIE BRUTE, distinct de
   // `quantities` (la quantité RETENUE, seule source pour `checked`,
@@ -279,7 +307,11 @@ export default function WithdrawalPanel({
   if (step === "selection") {
     return (
       <section className="mt-6 rounded-2xl border border-ink-on-bg/15 p-4" data-withdrawal-step="selection">
-        <h2 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h2>
+        {startOpen ? (
+          <h1 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h1>
+        ) : (
+          <h2 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h2>
+        )}
         <p className="mt-1 text-sm text-ink-on-bg-muted">{t("withdrawalOrderRef", { n: orderNumber })}</p>
         <p className="mt-2 text-sm text-ink-on-bg-muted">{t("withdrawalSelectionHelp")}</p>
 
@@ -334,13 +366,23 @@ export default function WithdrawalPanel({
         </ul>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setStep("closed")}
-            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
-          >
-            {t("withdrawalBack")}
-          </button>
+          {startOpen && safeBackHref ? (
+            <a
+              href={safeBackHref}
+              data-withdrawal-action="back"
+              className="inline-flex min-h-11 items-center rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
+            >
+              {t("withdrawalBack")}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStep("closed")}
+              className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
+            >
+              {t("withdrawalBack")}
+            </button>
+          )}
           <button
             type="button"
             data-withdrawal-action="continue"

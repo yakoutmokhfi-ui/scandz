@@ -103,6 +103,82 @@ export function parseTrackingFragment(value: string): TrackingFragment | null {
  * Ne prend jamais `publicToken` en paramètre : cette fonction ne PEUT
  * PAS produire un lien porteur de jeton, par construction.
  */
-export function buildCleanTrackingPath(orderId: string): string {
-  return `/track/${encodeURIComponent(orderId)}`;
+export function buildCleanTrackingPath(
+  orderId: string,
+  view: TrackingView | null = null
+): string {
+  const base = `/track/${encodeURIComponent(orderId)}`;
+  return view === TRACKING_VIEW_WITHDRAWAL
+    ? `${base}?${TRACKING_VIEW_PARAM}=${TRACKING_VIEW_WITHDRAWAL}`
+    : base;
+}
+
+/**
+ * RÉTRACTATION DIRECTE -- vue « formulaire seul » de la page de suivi.
+ *
+ * Le bouton « Demander une rétractation » de l'écran de confirmation
+ * ouvre directement le formulaire, sans afficher d'abord la page de
+ * suivi : `/track/<order_id>?view=withdrawal#<jeton>`.
+ *
+ * `view` est un paramètre de PRÉSENTATION, pas un droit d'accès :
+ *   - il n'accorde RIEN : sans session de suivi valide pour CETTE
+ *     commande, la page affiche la même passerelle d'entrée qu'avant
+ *     (le jeton reste dans le fragment, jamais envoyé au serveur) ;
+ *   - l'éligibilité reste décidée côté serveur par la RPC liée à la
+ *     capacité (jamais par ce paramètre) ;
+ *   - c'est une LISTE BLANCHE stricte à une seule valeur, comparée
+ *     par égalité exacte : toute autre valeur (casse, espaces,
+ *     répétition, tableau, vide) retombe sur la vue de suivi par
+ *     défaut.
+ */
+export const TRACKING_VIEW_PARAM = "view";
+export const TRACKING_VIEW_WITHDRAWAL = "withdrawal";
+export type TrackingView = typeof TRACKING_VIEW_WITHDRAWAL;
+
+/** `searchParams.view` -> vue reconnue, ou `null` (vue par défaut). */
+export function parseTrackingView(raw: unknown): TrackingView | null {
+  return raw === TRACKING_VIEW_WITHDRAWAL ? TRACKING_VIEW_WITHDRAWAL : null;
+}
+
+/**
+ * Vue conservée par la passerelle d'entrée après l'échange : la chaîne
+ * de requête doit être EXACTEMENT `?view=withdrawal` -- ni autre
+ * paramètre, ni répétition, ni casse différente. Tout le reste est
+ * abandonné (chemin propre), comme avant ce lot.
+ */
+export function parseTrackingViewFromSearch(search: string): TrackingView | null {
+  return search === `?${TRACKING_VIEW_PARAM}=${TRACKING_VIEW_WITHDRAWAL}`
+    ? TRACKING_VIEW_WITHDRAWAL
+    : null;
+}
+
+/** Lien de la vue formulaire, à partir de l'identifiant et du jeton. */
+export function buildWithdrawalViewPath(orderId: string, publicToken: string): string {
+  return `${buildCleanTrackingPath(orderId, TRACKING_VIEW_WITHDRAWAL)}#${encodeURIComponent(publicToken)}`;
+}
+
+/**
+ * Dérive le lien de la vue formulaire d'un lien de suivi DÉJÀ construit
+ * (`/track/<order_id>#<fragment>`). Échec FERMÉ : toute entrée qui n'a
+ * pas EXACTEMENT cette forme (chemin absolu autre que `/track/<uuid>`,
+ * requête déjà présente, plusieurs `#`, fragment qui n'est ni un jeton
+ * ni une capacité reconnus) renvoie `null` -- jamais une URL « réparée ».
+ */
+export function withdrawalViewPathFromTrackingPath(trackingPath: string): string | null {
+  const prefix = "/track/";
+  if (typeof trackingPath !== "string" || !trackingPath.startsWith(prefix)) return null;
+  const hashAt = trackingPath.indexOf("#");
+  if (hashAt === -1) return null;
+  const rawId = trackingPath.slice(prefix.length, hashAt);
+  const rawFragment = trackingPath.slice(hashAt + 1);
+  if (!isPlausibleUuid(rawId)) return null;
+  if (rawFragment.length === 0 || /[#?/]/.test(rawFragment)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawFragment);
+  } catch {
+    return null;
+  }
+  if (parseTrackingFragment(decoded) === null) return null;
+  return `${buildCleanTrackingPath(rawId, TRACKING_VIEW_WITHDRAWAL)}#${rawFragment}`;
 }

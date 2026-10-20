@@ -517,7 +517,13 @@ test("[Panier mixte] un item restreint bloque le mode exclu dans la rangée : bo
 
     const deliveryBtn = inlineButtonWithText(container, "Livraison");
     assert.ok(deliveryBtn, "le bouton 'Livraison' doit exister dans la rangée inline");
-    assert.equal(deliveryBtn!.disabled, true, "le bouton 'Livraison' doit être désactivé (bloqué par le panier)");
+    // Issue #155 (MODIFIÉ) : le bouton refusé n'est plus `disabled` natif
+    // mais `aria-disabled` (pour que la tentative soit observable), et le
+    // motif n'est affiché qu'à la TENTATIVE (voir
+    // tests/checkout-pickup-warning-155.dom.test.ts).
+    assert.equal(deliveryBtn!.getAttribute("aria-disabled"), "true", "le bouton 'Livraison' doit être marqué indisponible (bloqué par le panier)");
+    click(deliveryBtn!);
+    await flush();
     assert.equal(deliveryBtn!.getAttribute("aria-invalid"), "true");
     const describedBy = deliveryBtn!.getAttribute("aria-describedby");
     assert.equal(describedBy, "mode-blocked-delivery");
@@ -610,8 +616,9 @@ test("[Panier mixte] produit restreint à room_service SEUL -- bloque LES DEUX m
     const pickupBtn = inlineButtonWithText(container, "À emporter");
     const deliveryBtn = inlineButtonWithText(container, "Livraison");
     assert.ok(pickupBtn && deliveryBtn, "les deux boutons de mode doivent exister");
-    assert.equal(pickupBtn!.disabled, true, "'À emporter' doit être bloqué (room_service n'y est pas inclus)");
-    assert.equal(deliveryBtn!.disabled, true, "'Livraison' doit être bloqué (room_service n'y est pas inclus)");
+    // Issue #155 (MODIFIÉ) : `aria-disabled` au lieu de `disabled` natif.
+    assert.equal(pickupBtn!.getAttribute("aria-disabled"), "true", "'À emporter' doit être bloqué (room_service n'y est pas inclus)");
+    assert.equal(deliveryBtn!.getAttribute("aria-disabled"), "true", "'Livraison' doit être bloqué (room_service n'y est pas inclus)");
 
     const pickupMsg = container.querySelector("#mode-blocked-pickup");
     const deliveryMsg = container.querySelector("#mode-blocked-delivery");
@@ -756,7 +763,14 @@ test("[Désélection auto] un mode déjà choisi ET utilisable devient indisponi
       "false",
       "le bouton Livraison ne doit plus apparaître comme sélectionné"
     );
-    assert.equal(deliveryInlineBtn?.disabled, true, "et doit maintenant apparaître désactivé (bloqué par le panier)");
+    // Issue #155 (MODIFIÉ) : `aria-disabled` au lieu de `disabled` natif, et le
+    // mode qui vient d'être retiré au client est expliqué.
+    assert.equal(deliveryInlineBtn?.getAttribute("aria-disabled"), "true", "et doit maintenant apparaître indisponible (bloqué par le panier)");
+    assert.equal(
+      container.querySelector("#mode-blocked-delivery")?.textContent?.trim(),
+      "Livraison indisponible avec ce panier : Coffret retrait seul.",
+      "le mode désélectionné par le panier doit rester expliqué"
+    );
 
     // Toujours aucun article retiré : les deux produits restent dans
     // le panier malgré la réinitialisation du mode.

@@ -23,7 +23,11 @@ import {
 } from "@/lib/tracking/status";
 import { resolveStatusText } from "@/lib/tracking/status-text";
 import { getOrderTrackingStatusTextOverrides } from "@/lib/server/tracking-status-text";
-import { buildCleanTrackingPath } from "@/lib/tracking/link";
+import {
+  TRACKING_VIEW_WITHDRAWAL,
+  buildCleanTrackingPath,
+  parseTrackingView,
+} from "@/lib/tracking/link";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
 import { translate, resolveLangFromParam } from "@/lib/i18n";
 import { DEFAULT_THEME, TRACKING_SURFACE_COLORS, themeStyle } from "@/lib/themes";
@@ -33,7 +37,10 @@ import TrackingManualRefreshLink from "@/components/TrackingManualRefreshLink";
 import TrackingEntryGate from "@/components/TrackingEntryGate";
 import TrackingFragmentScrubber from "@/components/TrackingFragmentScrubber";
 import WithdrawalPanel from "@/components/WithdrawalPanel";
-import { getWithdrawalOptions } from "@/lib/server/withdrawal-service";
+import {
+  WithdrawalAccessError,
+  getWithdrawalOptions,
+} from "@/lib/server/withdrawal-service";
 import Ltr from "@/components/Bidi";
 
 /**
@@ -120,10 +127,17 @@ export default async function TrackingPage({
   searchParams,
 }: {
   params: Promise<{ orderId: string }>;
-  searchParams: Promise<{ lang?: string | string[] }>;
+  searchParams: Promise<{ lang?: string | string[]; view?: string | string[] }>;
 }) {
   const { orderId } = await params;
-  const lang = resolveLang((await searchParams).lang);
+  const query = await searchParams;
+  const lang = resolveLang(query.lang);
+  // RÉTRACTATION DIRECTE : vue « formulaire seul » demandée par le
+  // bouton de l'écran de confirmation. Paramètre de PRÉSENTATION à
+  // liste blanche stricte (lib/tracking/link.ts) -- il n'accorde aucun
+  // accès : la session de suivi de CETTE commande est exigée ci-dessous,
+  // exactement comme pour la vue par défaut.
+  const view = parseTrackingView(query.view);
   const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
 
   // Mandat §13 : un order_id manifestement malformé dans le chemin
@@ -160,6 +174,77 @@ export default async function TrackingPage({
     return (
       <TrackingShell>
         <TrackingEntryGate orderId={orderId} lang={lang} />
+      </TrackingShell>
+    );
+  }
+
+  // RÉTRACTATION DIRECTE -- session valide pour CETTE commande
+  // établie ci-dessus. La vue « formulaire seul » ne lit NI le suivi, NI
+  // la frise, NI le contact : uniquement les lignes encore rétractables,
+  // avec la même capacité et la même RPC que le panneau de la vue par
+  // défaut (éligibilité décidée côté serveur sur l'instantané immuable
+  // de la commande, jamais par ce paramètre).
+  if (view === TRACKING_VIEW_WITHDRAWAL) {
+    let resolved: Awaited<ReturnType<typeof getWithdrawalOptions>>;
+    try {
+      resolved = await getWithdrawalOptions({
+        orderId: session.orderId,
+        capabilityId: session.capabilityId,
+        secret: session.secret,
+      });
+    } catch (err) {
+      if (err instanceof WithdrawalAccessError) {
+        return (
+          <TrackingShell>
+            <StatusMessage title={t("trackingInvalidTitle")} message={t("trackingInvalidMessage")} />
+          </TrackingShell>
+        );
+      }
+      // Échec FERMÉ : aucun formulaire si l'éligibilité n'a pas pu être
+      // établie. Indisponibilité TEMPORAIRE, avec repli vers le suivi.
+      return (
+        <TrackingShell>
+          <div data-withdrawal-unavailable="error">
+            <StatusMessage
+              title={t("trackingUnavailableTitle")}
+              message={t("trackingUnavailableMessage")}
+            />
+          </div>
+          <BackToTrackingLink href={cleanPath} label={t("withdrawalDirectToTracking")} />
+        </TrackingShell>
+      );
+    }
+
+    if (resolved.options.length === 0) {
+      return (
+        <TrackingShell>
+          <div data-withdrawal-unavailable="none">
+            <StatusMessage
+              title={t("withdrawalDirectNoneTitle")}
+              message={t("withdrawalDirectNoneMessage")}
+            />
+          </div>
+          <BackToTrackingLink href={cleanPath} label={t("withdrawalDirectToTracking")} />
+        </TrackingShell>
+      );
+    }
+
+    return (
+      <TrackingShell>
+        <WithdrawalPanel
+          orderId={orderId}
+          orderNumber={resolved.orderNumber}
+          options={resolved.options.map((option) => ({
+            orderItemId: option.orderItemId,
+            itemName: option.itemName,
+            optionName: option.optionName,
+            orderedQuantity: option.orderedQuantity,
+            remainingQuantity: option.remainingQuantity,
+          }))}
+          lang={lang}
+          startOpen
+          backHref={cleanPath}
+        />
       </TrackingShell>
     );
   }
@@ -544,6 +629,19 @@ function TrackingShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </main>
+  );
+}
+
+/** Repli vers la page de suivi complète (chemin PROPRE, jamais de jeton). */
+function BackToTrackingLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      data-withdrawal-back-to-tracking=""
+      className="mt-8 inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-xl border border-caramel px-4 py-2 text-sm font-bold text-accent-dark-on-bg"
+    >
+      {label}
+    </a>
   );
 }
 

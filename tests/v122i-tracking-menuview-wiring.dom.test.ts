@@ -230,7 +230,9 @@ const TOKEN = "22222222-2222-4222-8222-222222222222";
 function assertTrackingHrefIsSecure(href: string) {
   const url = new URL(href, "https://example.com");
   assert.equal(url.pathname, `/track/${ORDER_ID}`, "le pathname ne doit contenir QUE l'order_id");
-  assert.equal(url.search, "", "aucune chaîne de requête ne doit porter le jeton");
+  // RÉTRACTATION DIRECTE (modifié) : seule requête admise = la vue de présentation.
+  assert.equal(url.search, "?view=withdrawal", "aucune chaîne de requête ne doit porter le jeton (seule la vue formulaire est admise)");
+  assert.equal(url.search.includes(TOKEN), false, "le jeton n'est jamais dans la requête");
   assert.equal(url.hash, `#${TOKEN}`, "le jeton n'apparaît QUE dans le fragment");
   assert.equal(href.includes(`/track/${ORDER_ID}/${TOKEN}`), false, "JAMAIS le format v1 <order_id>/<token> (mandat §6, FORBIDDEN)");
   assert.equal(href.includes("?token="), false, "JAMAIS un jeton en paramètre de requête");
