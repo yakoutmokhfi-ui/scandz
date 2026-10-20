@@ -638,6 +638,40 @@ test("[WD-16] passerelle : sans `view`, ou avec une valeur inconnue/malveillante
   }
 });
 
+test("[WD-18] parcours bout en bout : lien du bouton -> passerelle (échange) -> `view=withdrawal` survit dans l'URL -> la page rend le formulaire seul, sans frise ni second bouton", async (t) => {
+  installRpc(t);
+  // 1. Le lien exact produit par l'écran de confirmation.
+  const { container: conf, root: confRoot } = await renderConfirmation({
+    trackingPath: `/track/${ORDER_ID}#${TOKEN}`,
+    withdrawalEligible: true,
+  });
+  const href = (conf.querySelector("[data-order-confirmation-withdrawal]") as HTMLAnchorElement).getAttribute("href")!;
+  confRoot.unmount();
+  conf.remove();
+  assert.equal(href, `/track/${ORDER_ID}?view=withdrawal#${TOKEN}`);
+
+  // 2. Première visite SANS session : la passerelle échange le jeton (corps du POST)
+  //    puis réécrit l'URL en conservant `?view=withdrawal` et en retirant le fragment.
+  const u = new URL(href, "http://localhost");
+  const gate = await runGate(u.pathname + u.search, u.hash);
+  assert.equal(gate.search, "?view=withdrawal");
+  assert.equal(gate.hash, "");
+  assert.deepEqual(gate.fetchCalls[0]!.body, { orderId: ORDER_ID, publicToken: TOKEN });
+
+  // 3. Le rendu serveur qui suit (session désormais posée) reçoit cette même requête.
+  const view = new URLSearchParams(gate.search).get("view") ?? undefined;
+  const { container, root } = await renderPage({ search: { view } });
+  try {
+    assert.ok(q(container, FORM_STEP), "formulaire ouvert d'emblée");
+    assert.ok(q(container, OPEN_BTN) === null, "aucun second bouton");
+    assertNoTrackingView(container);
+    assert.equal(container.innerHTML.includes(TOKEN), false);
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
 // ------------------------------------------------------------------
 // 7. i18n : nouvelles clés présentes et traduites
 // ------------------------------------------------------------------
