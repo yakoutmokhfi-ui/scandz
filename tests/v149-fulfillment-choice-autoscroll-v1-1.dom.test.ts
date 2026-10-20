@@ -284,6 +284,15 @@ function mockRpc(
     // Servie VIDE : « aucun texte personnalise », qui est l'etat de
     // tout etablissement avant configuration -- donc exactement les
     // formulations plateforme que ces assertions verifiaient deja.
+    // CSDJ-2 / #158 -- lecture PUBLIQUE des dates et créneaux du checkout
+    // (get_checkout_fulfillment_schedule, CSDJ-1, tenant-safe), faite par
+    // MenuView dès qu'un mode retrait/livraison est choisi et le panier
+    // non vide. Servie « absent » : aucun calendrier configuré, c'est
+    // l'état de tout établissement avant CSDJ -- donc exactement le
+    // parcours que ces assertions vérifiaient déjà. Elle fait partie du
+    // CONTRAT de lecture publique du parcours, au même titre que
+    // get_restaurant_public_communication_texts ci-dessus.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
@@ -586,6 +595,11 @@ test("11/12/13 -- trace exhaustive des RPC pendant sélection + bascule : jamais
       // Stuart ni au paiement. Même nature que les lectures ci-dessus.
       "get_restaurant_public_communication_texts",
       "get_restaurant_public_cgv",
+      // CSDJ-2 / #158 : lecture publique des dates/créneaux du checkout
+      // (CSDJ-1), faite par MenuView quand un mode retrait/livraison est
+      // choisi. Même nature que les lectures ci-dessus : jamais liée à
+      // create_order, à Stuart ni au paiement.
+      "get_checkout_fulfillment_schedule",
     ]);
     const unexpected = calledRpcNames.filter((n) => !KNOWN_SAFE_RPCS.has(n));
     assert.deepEqual(

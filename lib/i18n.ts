@@ -1484,6 +1484,29 @@ const fr: Dict = {
   dsInvoiceRequested: "Facture demandée",
   dsInvoiceVatNumber: "N° TVA",
   dsInvoiceSiren: "SIREN",
+
+  // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
+  chkScheduleTitlePickup: "Quand venir retirer votre commande ?",
+  chkScheduleTitleDelivery: "Quand souhaitez-vous être livré ?",
+  chkScheduleDateLabel: "Jour",
+  chkScheduleSlotLabel: "Créneau",
+  chkScheduleTimeLabel: "Heure",
+  chkScheduleChoosePlaceholder: "Choisir…",
+  chkScheduleDerived: "Date prévue : {date}",
+  chkScheduleLoading: "Chargement des disponibilités…",
+  chkScheduleError: "Les disponibilités n'ont pas pu être chargées.",
+  chkScheduleRetry: "Réessayer",
+  chkScheduleBlocked: "Aucune date n'est disponible pour le moment : la commande ne peut pas être envoyée.",
+  chkScheduleUnreadable: "Les disponibilités ne peuvent pas être affichées pour le moment. Réessayez plus tard.",
+  chkScheduleChooseHint: "Choisissez une date et un horaire pour envoyer la commande",
+  chkScheduleRefresh: "Les disponibilités ont changé et ont été actualisées. Choisissez à nouveau une date et un horaire. Votre panier est conservé.",
+  chkScheduleReselect: "La date ou l'horaire choisi n'a pas pu être pris en compte. Choisissez-les à nouveau. Votre panier est conservé.",
+  chkScheduleChoose: "Choisissez une date et un horaire avant d'envoyer la commande. Votre panier est conservé.",
+  // CSDJ-2 / #158 (contre-audit PR #160) — réponses calendrier incohérentes, expliquées.
+  chkScheduleUnreadableAmbiguous: "Les disponibilités reçues sont ambiguës : deux créneaux ou dates identiques, ou qui se chevauchent. Pour ne pas réserver un autre créneau que le vôtre, la commande ne peut pas être envoyée pour le moment. Réessayez dans un instant ou contactez l'établissement.",
+  chkScheduleUnreadableDate: "Les disponibilités reçues contiennent une date qui n'existe pas. Pour éviter toute erreur de date, la commande ne peut pas être envoyée pour le moment. Réessayez dans un instant ou contactez l'établissement.",
+  chkScheduleUnreadableInterval: "Les disponibilités reçues contiennent un horaire incohérent : la fin précède le début. Pour éviter toute erreur d'horaire, la commande ne peut pas être envoyée pour le moment. Réessayez dans un instant ou contactez l'établissement.",
+  chkScheduleUnreadablePolicy: "Les règles de choix de la date ou de l'horaire ne sont pas reconnues. Pour ne pas deviner un créneau à votre place, la commande ne peut pas être envoyée pour le moment. Réessayez dans un instant ou contactez l'établissement.",
 };
 
 const en: Dict = {
@@ -2769,6 +2792,29 @@ const en: Dict = {
   dsInvoiceRequested: "Invoice requested",
   dsInvoiceVatNumber: "VAT number",
   dsInvoiceSiren: "SIREN",
+
+  // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
+  chkScheduleTitlePickup: "When will you collect your order?",
+  chkScheduleTitleDelivery: "When would you like to be delivered?",
+  chkScheduleDateLabel: "Day",
+  chkScheduleSlotLabel: "Time slot",
+  chkScheduleTimeLabel: "Time",
+  chkScheduleChoosePlaceholder: "Choose…",
+  chkScheduleDerived: "Planned date: {date}",
+  chkScheduleLoading: "Loading availability…",
+  chkScheduleError: "Availability could not be loaded.",
+  chkScheduleRetry: "Try again",
+  chkScheduleBlocked: "No date is available at the moment: the order cannot be sent.",
+  chkScheduleUnreadable: "Availability cannot be displayed right now. Please try again later.",
+  chkScheduleChooseHint: "Choose a date and a time to send the order",
+  chkScheduleRefresh: "Availability has changed and was refreshed. Please choose a date and a time again. Your cart has been kept.",
+  chkScheduleReselect: "The chosen date or time could not be used. Please choose them again. Your cart has been kept.",
+  chkScheduleChoose: "Choose a date and a time before sending the order. Your cart has been kept.",
+  // CSDJ-2 / #158 (contre-audit PR #160) — réponses calendrier incohérentes, expliquées.
+  chkScheduleUnreadableAmbiguous: "The availability received is ambiguous: two identical or overlapping slots or dates. So that we never book a different slot from yours, the order cannot be sent for now. Please try again in a moment or contact the venue.",
+  chkScheduleUnreadableDate: "The availability received contains a date that does not exist. To avoid any date error, the order cannot be sent for now. Please try again in a moment or contact the venue.",
+  chkScheduleUnreadableInterval: "The availability received contains an inconsistent time: the end is before the start. To avoid any time error, the order cannot be sent for now. Please try again in a moment or contact the venue.",
+  chkScheduleUnreadablePolicy: "The rules for choosing the date or time are not recognised. So that we never guess a slot for you, the order cannot be sent for now. Please try again in a moment or contact the venue.",
 };
 
 // Arabe littéraire (arabe standard moderne).
@@ -4044,6 +4090,29 @@ const ar: Dict = {
   dsInvoiceRequested: "طلب فاتورة",
   dsInvoiceVatNumber: "رقم التعريف الضريبي",
   dsInvoiceSiren: "رقم SIREN",
+
+  // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
+  chkScheduleTitlePickup: "متى ستستلم طلبك؟",
+  chkScheduleTitleDelivery: "متى تود أن يُسلَّم طلبك؟",
+  chkScheduleDateLabel: "اليوم",
+  chkScheduleSlotLabel: "الفترة",
+  chkScheduleTimeLabel: "الوقت",
+  chkScheduleChoosePlaceholder: "اختر…",
+  chkScheduleDerived: "التاريخ المقرَّر: {date}",
+  chkScheduleLoading: "جارٍ تحميل المواعيد المتاحة…",
+  chkScheduleError: "تعذّر تحميل المواعيد المتاحة.",
+  chkScheduleRetry: "إعادة المحاولة",
+  chkScheduleBlocked: "لا يتوفر أي تاريخ حاليًا: لا يمكن إرسال الطلب.",
+  chkScheduleUnreadable: "تعذّر عرض المواعيد المتاحة حاليًا. يرجى المحاولة لاحقًا.",
+  chkScheduleChooseHint: "اختر تاريخًا ووقتًا لإرسال الطلب",
+  chkScheduleRefresh: "تغيّرت المواعيد المتاحة وتم تحديثها. يرجى اختيار التاريخ والوقت من جديد. تم الاحتفاظ بسلتك.",
+  chkScheduleReselect: "تعذّر اعتماد التاريخ أو الوقت المختار. يرجى اختيارهما من جديد. تم الاحتفاظ بسلتك.",
+  chkScheduleChoose: "اختر تاريخًا ووقتًا قبل إرسال الطلب. تم الاحتفاظ بسلتك.",
+  // CSDJ-2 / #158 (contre-audit PR #160) — réponses calendrier incohérentes, expliquées.
+  chkScheduleUnreadableAmbiguous: "المواعيد المتاحة المستلمة غامضة: فترتان أو تاريخان متطابقان أو متداخلان. حتى لا نحجز فترة غير التي اخترتها، لا يمكن إرسال الطلب حاليًا. يرجى المحاولة بعد قليل أو التواصل مع المحل.",
+  chkScheduleUnreadableDate: "المواعيد المتاحة المستلمة تتضمن تاريخًا غير موجود. لتجنب أي خطأ في التاريخ، لا يمكن إرسال الطلب حاليًا. يرجى المحاولة بعد قليل أو التواصل مع المحل.",
+  chkScheduleUnreadableInterval: "المواعيد المتاحة المستلمة تتضمن وقتًا غير متسق: النهاية قبل البداية. لتجنب أي خطأ في الوقت، لا يمكن إرسال الطلب حاليًا. يرجى المحاولة بعد قليل أو التواصل مع المحل.",
+  chkScheduleUnreadablePolicy: "قواعد اختيار التاريخ أو الوقت غير معروفة. حتى لا نخمّن فترة بدلًا منك، لا يمكن إرسال الطلب حاليًا. يرجى المحاولة بعد قليل أو التواصل مع المحل.",
 };
 
 /**
@@ -4442,6 +4511,29 @@ const nl: Dict = {
   "mcTitle": "Mijn kaart",
   "mcTitleShort": "Kaart",
   "mcLoading": "Laden…",
+
+  // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
+  "chkScheduleTitlePickup": "Wanneer haalt u uw bestelling af?",
+  "chkScheduleTitleDelivery": "Wanneer wilt u de levering ontvangen?",
+  "chkScheduleDateLabel": "Dag",
+  "chkScheduleSlotLabel": "Tijdvak",
+  "chkScheduleTimeLabel": "Tijd",
+  "chkScheduleChoosePlaceholder": "Kies…",
+  "chkScheduleDerived": "Geplande datum: {date}",
+  "chkScheduleLoading": "Beschikbaarheid laden…",
+  "chkScheduleError": "De beschikbaarheid kon niet worden geladen.",
+  "chkScheduleRetry": "Opnieuw proberen",
+  "chkScheduleBlocked": "Er is momenteel geen datum beschikbaar: de bestelling kan niet worden verzonden.",
+  "chkScheduleUnreadable": "De beschikbaarheid kan momenteel niet worden weergegeven. Probeer het later opnieuw.",
+  "chkScheduleChooseHint": "Kies een datum en een tijd om de bestelling te verzenden",
+  "chkScheduleRefresh": "De beschikbaarheid is gewijzigd en vernieuwd. Kies opnieuw een datum en een tijd. Uw winkelmand blijft bewaard.",
+  "chkScheduleReselect": "De gekozen datum of tijd kon niet worden gebruikt. Kies ze opnieuw. Uw winkelmand blijft bewaard.",
+  "chkScheduleChoose": "Kies een datum en een tijd voordat u de bestelling verzendt. Uw winkelmand blijft bewaard.",
+  // CSDJ-2 / #158 (contre-audit PR #160) — réponses calendrier incohérentes, expliquées.
+  "chkScheduleUnreadableAmbiguous": "De ontvangen beschikbaarheid is dubbelzinnig: twee identieke of overlappende tijdvakken of data. Om nooit een ander tijdvak te boeken dan het uwe, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
+  "chkScheduleUnreadableDate": "De ontvangen beschikbaarheid bevat een datum die niet bestaat. Om elke datumfout te vermijden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
+  "chkScheduleUnreadableInterval": "De ontvangen beschikbaarheid bevat een inconsistente tijd: het einde ligt vóór het begin. Om elke tijdfout te vermijden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
+  "chkScheduleUnreadablePolicy": "De regels voor het kiezen van de datum of tijd worden niet herkend. Om niet voor u een tijdvak te raden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
 };
 
 export const DICTS: Record<Lang, Dict> = { fr, en, ar, nl };

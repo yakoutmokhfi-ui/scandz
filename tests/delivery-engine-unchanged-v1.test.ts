@@ -22,7 +22,14 @@ const PINNED: Record<string, string> = {
   "lib/sale-modes-public.ts": "34bec4a68c5b4b6e538cc78ba2dc053d8954a99a3d54051710a407766eb4749f",
   "lib/sale-modes-types.ts": "239edb1b6d797e499ebb2db91bf4e430a70b4fb017c033b38aad24c5c15d78e0",
   "lib/menu-i18n.ts": "e150fe5e7d6f955296683064804318f7600fc150a06cbc2f48834ab1487a0b2e",
-  "components/CartPanel.tsx": "97f7cf27009753ff8e8822a9cabfd7ed52104a026fbf75fdd11724028800cc62",
+  // RE-ÉPINGLAGE DÉLIBÉRÉ, dans son propre commit (CSDJ-2, issue #158) :
+  // CartPanel reçoit deux props optionnelles (`scheduleSection`,
+  // `scheduleHint`) pour afficher le choix de date/créneau du retrait et
+  // l'indication « choisissez une date ». AUCUNE ligne du moteur de tarifs,
+  // de l'éligibilité par code postal, du périmètre pays, du minimum
+  // d'articles ni des frais n'est touchée : voir le diff de ce commit.
+  // Ancien SHA-256 : 97f7cf27009753ff8e8822a9cabfd7ed52104a026fbf75fdd11724028800cc62
+  "components/CartPanel.tsx": "8696fc3b3b4dcef840f7b07e4abfb61d06300cd5680157db84e980b61ebb33e1",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

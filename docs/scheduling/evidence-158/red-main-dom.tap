@@ -1,0 +1,230 @@
+TAP version 13
+# createOrder: SCANYM_SCHEDULE_REQUIRED
+# Subtest: [158-D0] REPRO : le checkout n'envoie JAMAIS une commande sans date/créneau quand le serveur en exige un
+not ok 1 - [158-D0] REPRO : le checkout n'envoie JAMAIS une commande sans date/créneau quand le serveur en exige un
+  ---
+  duration_ms: 366.61693
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:384:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    create_order appelé SANS p_customer.schedule alors que le serveur l'exige (SCANYM_SCHEDULE_REQUIRED, HTTP 400 en Production)
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:393:14
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:386:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-D1] retrait fixed_slots : le client choisit date + créneau PROPOSÉS par le serveur, la commande part avec le schedule exact du contrat
+not ok 2 - [158-D1] retrait fixed_slots : le client choisit date + créneau PROPOSÉS par le serveur, la commande part avec le schedule exact du contrat
+  ---
+  duration_ms: 3127.512422
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:403:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : bloc date/créneau rendu en retrait'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:408:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:405:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D2] date seule (slot none) : pas de créneau à choisir, payload date + trois null
+not ok 3 - [158-D2] date seule (slot none) : pas de créneau à choisir, payload date + trois null
+  ---
+  duration_ms: 3120.681341
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:434:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : date rendue'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:439:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:436:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D3] time_within_window : heures de la grille serveur, payload avec l'heure choisie
+not ok 4 - [158-D3] time_within_window : heures de la grille serveur, payload avec l'heure choisie
+  ---
+  duration_ms: 3125.786788
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:452:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : date rendue'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:457:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:454:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D4] derived_earliest : date dérivée par le serveur, affichée, envoi ouvert, payload = date serveur
+not ok 5 - [158-D4] derived_earliest : date dérivée par le serveur, affichée, envoi ouvert, payload = date serveur
+  ---
+  duration_ms: 3112.696092
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:472:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : date prévue affichée'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:477:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:474:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D5] RÉGRESSION : commerçant sans calendrier / calendrier désactivé / information seule / livraison refusée en amont => parcours INCHANGÉ (aucun bloc, aucun schedule envoyé)
+ok 6 - [158-D5] RÉGRESSION : commerçant sans calendrier / calendrier désactivé / information seule / livraison refusée en amont => parcours INCHANGÉ (aucun bloc, aucun schedule envoyé)
+  ---
+  duration_ms: 584.07356
+  type: 'test'
+  ...
+# Subtest: [158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais appelé, aucune date inventée
+not ok 7 - [158-D6] unfulfillable : échec CLAIR, envoi fermé, create_order jamais appelé, aucune date inventée
+  ---
+  duration_ms: 3104.638419
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:508:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : message bloquant'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:513:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:510:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D7] lecture des disponibilités en échec : message + « Réessayer » ; l'envoi reste possible, le serveur reste l'autorité (REQUIRED => relecture, panier conservé)
+not ok 8 - [158-D7] lecture des disponibilités en échec : message + « Réessayer » ; l'envoi reste possible, le serveur reste l'autorité (REQUIRED => relecture, panier conservé)
+  ---
+  duration_ms: 3108.408745
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:521:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : erreur de lecture visible'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:530:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:527:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D8] sélection EXPIRÉE : refus typé => message, sélection vidée, disponibilités relues, panier conservé ; nouveau choix => commande acceptée
+not ok 9 - [158-D8] sélection EXPIRÉE : refus typé => message, sélection vidée, disponibilités relues, panier conservé ; nouveau choix => commande acceptée
+  ---
+  duration_ms: 3100.615553
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:548:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : sélecteur de date rendu'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async pickFixed (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:360:3)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:557:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:554:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D9] pas de double envoi : un double clic rapide ne crée qu'UN create_order
+not ok 10 - [158-D9] pas de double envoi : un double clic rapide ne crée qu'UN create_order
+  ---
+  duration_ms: 3115.905902
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:581:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : sélecteur de date rendu'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async pickFixed (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:360:3)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:586:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:583:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D10] livraison avec calendrier : lecture avec le code postal, choix, schedule transmis avec les champs de livraison ; sans calendrier : inchangé
+not ok 11 - [158-D10] livraison avec calendrier : lecture avec le code postal, choix, schedule transmis avec les champs de livraison ; sans calendrier : inchangé
+  ---
+  duration_ms: 3123.993619
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:595:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : calendrier de livraison rendu'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:600:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:597:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (RTL pour l'arabe)
+not ok 12 - [158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (RTL pour l'arabe)
+  ---
+  duration_ms: 3112.840873
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:628:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : en: date rendue'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:634:9
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:631:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-D12] réponse illisible (statut inconnu) : fail-closed, message, envoi fermé, aucune commande
+not ok 13 - [158-D12] réponse illisible (statut inconnu) : fail-closed, message, envoi fermé, aucune commande
+  ---
+  duration_ms: 3103.774116
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:653:1'
+  failureType: 'testCodeFailure'
+  error: 'waitFor timeout (3000ms) : message illisible'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    waitFor (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:122:47)
+    async file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:658:7
+    async withOpen (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:373:16)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/red158/tests/csdj2-checkout-schedule-158.dom.test.ts:655:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 1
+# fail 12
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36276.388028

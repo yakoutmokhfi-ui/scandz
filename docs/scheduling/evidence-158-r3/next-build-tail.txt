@@ -1,0 +1,20 @@
+├ ○ /dashboard/login                                      1.56 kB         249 kB
+├ ○ /dashboard/payment                                    3.39 kB         260 kB
+├ ○ /dashboard/reset-password                             1.92 kB         250 kB
+├ ○ /dashboard/settings                                   12.8 kB         274 kB
+├ ○ /dashboard/translations                               10.4 kB         282 kB
+├ ○ /dashboard/withdrawal-requests                         3.4 kB         260 kB
+├ ƒ /legal/[slug]                                           177 B         102 kB
+├ ƒ /r/[slug]                                             38.2 kB         293 kB
+├ ƒ /track/[orderId]                                       3.8 kB         193 kB
+└ ƒ /track/[orderId]/withdrawal                             177 B         102 kB
++ First Load JS shared by all                              102 kB
+  ├ chunks/2601-a00cb2cfc4ab4ed7.js                         46 kB
+  ├ chunks/7b863faf-77bc0f3a76e00130.js                   54.2 kB
+  └ other shared chunks (total)                           1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+exit=0

@@ -1,0 +1,44 @@
+TAP version 13
+# (node:9913) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/tests/csdj2-checkout-schedule-158-r3.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R3-1] REPRO CSDJ2-R3-01 : date dérivée + offres absentes / mal formées / non strictes => envoi fermé (retrait)
+ok 1 - [158-R3-1] REPRO CSDJ2-R3-01 : date dérivée + offres absentes / mal formées / non strictes => envoi fermé (retrait)
+  ---
+  duration_ms: 3409.055839
+  type: 'test'
+  ...
+# Subtest: [158-R3-2] même chose en LIVRAISON : fermé, explication, panier intact, reprise valide => un seul appel date seule
+ok 2 - [158-R3-2] même chose en LIVRAISON : fermé, explication, panier intact, reprise valide => un seul appel date seule
+  ---
+  duration_ms: 3604.528054
+  type: 'test'
+  ...
+# Subtest: [158-R3-3] REPRO (aucun create_order) : sur chacune des 13 réponses, un clic forcé n'envoie jamais de commande date seule
+ok 3 - [158-R3-3] REPRO (aucun create_order) : sur chacune des 13 réponses, un clic forcé n'envoie jamais de commande date seule
+  ---
+  duration_ms: 2560.23442
+  type: 'test'
+  ...
+# Subtest: [158-R3-4] NON-RÉGRESSION : dérivée valide (une ou plusieurs offres bien formées) reste envoyable avec la date seule du serveur
+ok 4 - [158-R3-4] NON-RÉGRESSION : dérivée valide (une ou plusieurs offres bien formées) reste envoyable avec la date seule du serveur
+  ---
+  duration_ms: 551.6773
+  type: 'test'
+  ...
+# Subtest: [158-R3-5] NON-RÉGRESSION : date seule, créneaux fixes, fenêtre et absence explicite de calendrier restent inchangés
+ok 5 - [158-R3-5] NON-RÉGRESSION : date seule, créneaux fixes, fenêtre et absence explicite de calendrier restent inchangés
+  ---
+  duration_ms: 405.769892
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12054.96033

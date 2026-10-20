@@ -1,0 +1,32 @@
+TAP version 13
+# (node:9684) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/tests/csdj2-checkout-schedule-158-r5.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R5-D1] LE FINDING R5, retrait ET livraison : date dérivée valide + autre date éligible à offres vides => fermé, panier/coordonnées conservés, 0 commande, 0 WhatsApp ; reprise => 1 appel date seule
+ok 1 - [158-R5-D1] LE FINDING R5, retrait ET livraison : date dérivée valide + autre date éligible à offres vides => fermé, panier/coordonnées conservés, 0 commande, 0 WhatsApp ; reprise => 1 appel date seule
+  ---
+  duration_ms: 3476.921213
+  type: 'test'
+  ...
+# Subtest: [158-R5-D2] ÉCHANTILLON STRUCTUREL (4 politiques, 1 à 3 dates) : toute variante que l'oracle juge invalide ferme l'envoi, une par famille d'opérateur
+ok 2 - [158-R5-D2] ÉCHANTILLON STRUCTUREL (4 politiques, 1 à 3 dates) : toute variante que l'oracle juge invalide ferme l'envoi, une par famille d'opérateur
+  ---
+  duration_ms: 8615.720403
+  type: 'test'
+  ...
+# Subtest: [158-R5-D3] CONTRÔLES POSITIFS : réponses valides à 2 ou 3 dates (dérivée, date seule, créneaux, fenêtre) => envoi possible, payload égal au brut, UN seul appel
+ok 3 - [158-R5-D3] CONTRÔLES POSITIFS : réponses valides à 2 ou 3 dates (dérivée, date seule, créneaux, fenêtre) => envoi possible, payload égal au brut, UN seul appel
+  ---
+  duration_ms: 1451.336603
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14935.237456

@@ -318,6 +318,10 @@ function mockRpc(
     // Servie VIDE : « aucun texte personnalise », qui est l'etat de
     // tout etablissement avant configuration -- donc exactement les
     // formulations plateforme que ces assertions verifiaient deja.
+    // CSDJ-2 / #158 : lecture publique des dates/créneaux, servie « absent »
+    // (aucun calendrier = parcours d'avant). Sans réponse VALIDE le checkout
+    // ne laisse plus partir la commande (fail-closed) : le mock doit donc la servir.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue dans ce test : ${name}`);
   });
@@ -513,6 +517,10 @@ test("LOT 2B.4a.2 (fail-closed, DOM réel) : pendant le chargement des exigences
     // Servie VIDE : « aucun texte personnalise », qui est l'etat de
     // tout etablissement avant configuration -- donc exactement les
     // formulations plateforme que ces assertions verifiaient deja.
+    // CSDJ-2 / #158 : lecture publique des dates/créneaux, servie « absent »
+    // (aucun calendrier = parcours d'avant). Sans réponse VALIDE le checkout
+    // ne laisse plus partir la commande (fail-closed) : le mock doit donc la servir.
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
     if (name === "get_restaurant_public_communication_texts") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });

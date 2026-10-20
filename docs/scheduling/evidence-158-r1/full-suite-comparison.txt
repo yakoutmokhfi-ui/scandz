@@ -1,0 +1,9 @@
+main f852988 : # tests 5731 # pass 5717 # fail 14 
+PR #160 HEAD 88277b9 : 5760 tests, 14 échecs (mêmes)
+commit enfant : # tests 5768 # pass 5754 # fail 14 
+
+Echecs NOUVEAUX du commit enfant par rapport à main (par nom de test) :
+(aucun si vide)
+
+Echecs de main disparus :
+(aucun si vide)

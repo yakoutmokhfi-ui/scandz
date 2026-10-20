@@ -1,0 +1,181 @@
+TAP version 13
+# (node:601) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R4-D1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01, retrait ET livraison : fermé, panier/coordonnées conservés, 0 commande, reprise => 1 appel date seule
+not ok 1 - [158-R4-D1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01, retrait ET livraison : fermé, panier/coordonnées conservés, 0 commande, reprise => 1 appel date seule
+  ---
+  duration_ms: 2966.63003
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:510:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    réponses brutes invalides encore envoyables ou mal gérées
+    + actual - expected
+    
+    + [
+    +   'pickup / slot_key:42: envoi FERMÉ',
+    +   'pickup / slot_key:false: envoi FERMÉ',
+    +   'pickup / slot_key:{}: envoi FERMÉ',
+    +   'pickup / slot_key:[]: envoi FERMÉ',
+    +   'pickup / starts_at/ends_at tableaux: envoi FERMÉ',
+    +   'pickup / offers[25]=null: envoi FERMÉ',
+    +   'pickup / offers[25]={}: envoi FERMÉ',
+    +   'pickup / offers[25]="bad": envoi FERMÉ',
+    +   'delivery / slot_key:42: envoi FERMÉ',
+    +   'delivery / slot_key:false: envoi FERMÉ',
+    +   'delivery / slot_key:{}: envoi FERMÉ',
+    +   'delivery / slot_key:[]: envoi FERMÉ',
+    +   'delivery / starts_at/ends_at tableaux: envoi FERMÉ',
+    +   'delivery / offers[25]=null: envoi FERMÉ',
+    +   'delivery / offers[25]={}: envoi FERMÉ',
+    +   'delivery / offers[25]="bad": envoi FERMÉ'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'pickup / slot_key:42: envoi FERMÉ'
+    1: 'pickup / slot_key:false: envoi FERMÉ'
+    2: 'pickup / slot_key:{}: envoi FERMÉ'
+    3: 'pickup / slot_key:[]: envoi FERMÉ'
+    4: 'pickup / starts_at/ends_at tableaux: envoi FERMÉ'
+    5: 'pickup / offers[25]=null: envoi FERMÉ'
+    6: 'pickup / offers[25]={}: envoi FERMÉ'
+    7: 'pickup / offers[25]="bad": envoi FERMÉ'
+    8: 'delivery / slot_key:42: envoi FERMÉ'
+    9: 'delivery / slot_key:false: envoi FERMÉ'
+    10: 'delivery / slot_key:{}: envoi FERMÉ'
+    11: 'delivery / slot_key:[]: envoi FERMÉ'
+    12: 'delivery / starts_at/ends_at tableaux: envoi FERMÉ'
+    13: 'delivery / offers[25]=null: envoi FERMÉ'
+    14: 'delivery / offers[25]={}: envoi FERMÉ'
+    15: 'delivery / offers[25]="bad": envoi FERMÉ'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:528:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-R4-D2] ÉCHANTILLON STRATIFIÉ de la matrice (champ x classe x politique) : toute réponse que l'oracle juge invalide ferme l'envoi (retrait 4 politiques x 18, livraison x 6)
+not ok 2 - [158-R4-D2] ÉCHANTILLON STRATIFIÉ de la matrice (champ x classe x politique) : toute réponse que l'oracle juge invalide ferme l'envoi (retrait 4 politiques x 18, livraison x 6)
+  ---
+  duration_ms: 42154.360509
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:531:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    39 écart(s) sur 203 parcours
+    + actual - expected
+    
+    + [
+    +   'pickup / derived @ unfulfillable_reason <- 0: envoi FERMÉ',
+    +   'pickup / derived @ schedule_timezone <- 0: envoi FERMÉ',
+    +   'pickup / derived @ time_granularity_minutes <- true: envoi FERMÉ',
+    +   'pickup / derived @ offers.2026-10-24.0.slot_key <- absent: envoi FERMÉ',
+    +   'pickup / derived @ unfulfillable_reason <- offre-cle-42: envoi FERMÉ',
+    +   'pickup / derived @ offers.2026-10-24.0.slot_key <- 30-nombre: envoi FERMÉ',
+    +   'pickup / derived @ unfulfillable_reason <- objet-vide: envoi FERMÉ',
+    +   'delivery / derived @ unfulfillable_reason <- objet-vide: envoi FERMÉ',
+    +   'pickup / selNone @ unfulfillable_reason <- 0: raison visible',
+    +   'pickup / selNone @ schedule_timezone <- 0: raison visible',
+    +   'pickup / selNone @ time_granularity_minutes <- true: raison visible',
+    +   'pickup / selNone @ first_eligible_date <- absent: raison visible',
+    +   'pickup / selNone @ eligible_dates.0 <- absent: raison visible',
+    +   'pickup / selNone @ eligible_dates.1 <- absent: raison visible',
+    +   'pickup / selNone @ offers.2026-10-24.0.slot_key <- absent: raison visible',
+    +   'pickup / selNone @ offers.2026-10-26.0.slot_key <- absent: raison visible',
+    +   'pickup / selNone @ offers.2026-10-24.0.slot_key <- offre-inversee: raison visible',
+    +   'pickup / selNone @ offers.2026-10-24.0.slot_key <- offre-sans-cle: raison visible',
+    +   'delivery / selNone @ offers.2026-10-24.0.slot_key <- offre-sans-cle: raison visible',
+    +   'pickup / selNone @ schedule_timezone <- 1.5: raison visible'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'pickup / derived @ unfulfillable_reason <- 0: envoi FERMÉ'
+    1: 'pickup / derived @ schedule_timezone <- 0: envoi FERMÉ'
+    2: 'pickup / derived @ time_granularity_minutes <- true: envoi FERMÉ'
+    3: 'pickup / derived @ offers.2026-10-24.0.slot_key <- absent: envoi FERMÉ'
+    4: 'pickup / derived @ unfulfillable_reason <- offre-cle-42: envoi FERMÉ'
+    5: 'pickup / derived @ offers.2026-10-24.0.slot_key <- 30-nombre: envoi FERMÉ'
+    6: 'pickup / derived @ unfulfillable_reason <- objet-vide: envoi FERMÉ'
+    7: 'delivery / derived @ unfulfillable_reason <- objet-vide: envoi FERMÉ'
+    8: 'pickup / selNone @ unfulfillable_reason <- 0: raison visible'
+    9: 'pickup / selNone @ schedule_timezone <- 0: raison visible'
+    10: 'pickup / selNone @ time_granularity_minutes <- true: raison visible'
+    11: 'pickup / selNone @ first_eligible_date <- absent: raison visible'
+    12: 'pickup / selNone @ eligible_dates.0 <- absent: raison visible'
+    13: 'pickup / selNone @ eligible_dates.1 <- absent: raison visible'
+    14: 'pickup / selNone @ offers.2026-10-24.0.slot_key <- absent: raison visible'
+    15: 'pickup / selNone @ offers.2026-10-26.0.slot_key <- absent: raison visible'
+    16: 'pickup / selNone @ offers.2026-10-24.0.slot_key <- offre-inversee: raison visible'
+    17: 'pickup / selNone @ offers.2026-10-24.0.slot_key <- offre-sans-cle: raison visible'
+    18: 'delivery / selNone @ offers.2026-10-24.0.slot_key <- offre-sans-cle: raison visible'
+    19: 'pickup / selNone @ schedule_timezone <- 1.5: raison visible'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:561:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R4-D3] ÉCHANTILLON de FORMES de `data` (null, vide, 2 lignes, objet nu, imbriqué) : fermé en retrait et livraison, quelle que soit la politique saine ensuite
+not ok 3 - [158-R4-D3] ÉCHANTILLON de FORMES de `data` (null, vide, 2 lignes, objet nu, imbriqué) : fermé en retrait et livraison, quelle que soit la politique saine ensuite
+  ---
+  duration_ms: 12796.713975
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:564:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    4 écart(s)
+    + actual - expected
+    
+    + [
+    +   'pickup / derived data=objet-nu: envoi FERMÉ',
+    +   'pickup / fixed data=objet-nu: raison visible',
+    +   'delivery / derived data=objet-nu: envoi FERMÉ',
+    +   'delivery / fixed data=objet-nu: raison visible'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'pickup / derived data=objet-nu: envoi FERMÉ'
+    1: 'pickup / fixed data=objet-nu: raison visible'
+    2: 'delivery / derived data=objet-nu: envoi FERMÉ'
+    3: 'delivery / fixed data=objet-nu: raison visible'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r4.dom.test.ts:573:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R4-D4] RÉPONSES VALIDES (corpus + mutants que l'oracle juge valides) : payloads égaux aux valeurs brutes, un seul appel, retrait ET livraison
+ok 4 - [158-R4-D4] RÉPONSES VALIDES (corpus + mutants que l'oracle juge valides) : payloads égaux aux valeurs brutes, un seul appel, retrait ET livraison
+  ---
+  duration_ms: 5970.936339
+  type: 'test'
+  ...
+# Subtest: [158-R4-D5] statuts hors calendrier : informational_only / blocked_upstream => rien à choisir, commande SANS schedule ; unfulfillable => envoi fermé ; absent explicite inchangé
+ok 5 - [158-R4-D5] statuts hors calendrier : informational_only / blocked_upstream => rien à choisir, commande SANS schedule ; unfulfillable => envoi fermé ; absent explicite inchangé
+  ---
+  duration_ms: 1026.436456
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 2
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 66025.601955

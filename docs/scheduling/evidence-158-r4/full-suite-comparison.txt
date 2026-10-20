@@ -1,0 +1,14 @@
+cand-c1 sha=5ba60a04891502853155af9a268ee01e7271a9fb # tests 5812 # pass 5798 # fail 14 
+cand-c2 sha=5ba60a04891502853155af9a268ee01e7271a9fb # tests 5812 # pass 5797 # fail 15 
+cand-c2b sha=5ba60a04891502853155af9a268ee01e7271a9fb # tests 5812 # pass 5798 # fail 14 
+cand-c2c sha=5ba60a04891502853155af9a268ee01e7271a9fb # tests 5812 # pass 5797 # fail 15 
+main-c2 sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+main-c2b sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+main-c2c sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+
+Identités = (fichier, nom) tirées du TAP (tools/failids.py). L0 = 14 identités sur main a66fcc6.
+cand-c1 (parallélisme 1)  : mêmes 14 identités que L0.
+cand-c2 / c2b / c2c        : c2b = mêmes 14 ; c2 = 14 + tests/v155-admin-catalogue-import-entry-point.dom.test.ts ("le lien 'Importer un catalogue'...") ;
+                             c2c = 14 + tests/catalogue-product-reorder-v1.dom.test.ts ("[C] FOCUS CLAVIER..."). 
+main-c2 / c2b / c2c        : mêmes 14 identités que L0, 3 fois sur 3.
+Attribution : NON PROUVÉE (voir rapport §13.7). Les deux tests en plus passent isolés (12/12 et 5/5) et ne bundlent aucun fichier modifié.

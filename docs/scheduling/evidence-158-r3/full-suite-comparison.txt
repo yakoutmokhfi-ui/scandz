@@ -1,0 +1,16 @@
+CSDJ-2 / #158 — CSDJ2-R3-01 : comparaison PAR IDENTITÉ (fichier + nom) des suites complètes
+Commande : node --experimental-strip-types --import ./tests/register.mjs --test [--test-concurrency=N] tests/*.test.ts
+Node v22.22.2 ; 2 CPU ; Linux. Variables Supabase factices définies. Chaque exécution a tourné SEULE sur la machine.
+Identité d'échec = (fichier, nom du test) extraite du TAP (tools/failids.py).
+
+ arbre                               SHA        parallélisme  tests  pass  fail  identités
+ L0 : main (base de la PR)           f852988    1 (défaut)    5731   5717  14    L0 (failures-L0-main-f852988.tsv)
+ main (pointe actuelle)              a66fcc6    2             5754   5740  14    = L0
+ CANDIDAT                            60e25ed    1 (défaut)    5793   5779  14    = L0
+ CANDIDAT                            60e25ed    2             5793   5779  14    = L0
+
+Candidat - main : 0 échec en plus, 0 en moins (diff vide). Tests ajoutés par la PR : +62 (52 avant ce commit, +10 : 5 purs + 5 DOM `r3`),
+tous verts. 5793 - 5731 = 62.
+Rappel des mesures précédentes (evidence-158-r2/) : main, parent f81bb60 et 427c395 donnaient les mêmes 14 identités, avec et sans variables.
+Écart du contre-audit Turing (Windows, Node v24, 28 échecs sur main / 23 sur le candidat, « 0 supplémentaire sur le candidat ») : non
+reproduit ici (14 partout) ; il y est enregistré comme différence d'environnement, voir le rapport §12.4.

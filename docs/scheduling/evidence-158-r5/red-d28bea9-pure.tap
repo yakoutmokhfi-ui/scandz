@@ -1,0 +1,277 @@
+TAP version 13
+# (node:569) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# \# COVERAGE-R5 combinaison|derived|fermé: 1601
+# \# COVERAGE-R5 combinaison|derived|valide: 93
+# \# COVERAGE-R5 combinaison|fixed|fermé: 1025
+# \# COVERAGE-R5 combinaison|fixed|valide: 64
+# \# COVERAGE-R5 combinaison|selNone|fermé: 1040
+# \# COVERAGE-R5 combinaison|selNone|valide: 63
+# \# COVERAGE-R5 combinaison|window|fermé: 1052
+# \# COVERAGE-R5 combinaison|window|valide: 62
+# \# COVERAGE-R5 matrice|derived|fermé: 1893
+# \# COVERAGE-R5 matrice|derived|valide: 401
+# \# COVERAGE-R5 matrice|fixed|fermé: 1080
+# \# COVERAGE-R5 matrice|fixed|valide: 252
+# \# COVERAGE-R5 matrice|selNone|fermé: 984
+# \# COVERAGE-R5 matrice|selNone|valide: 200
+# \# COVERAGE-R5 matrice|window|fermé: 1134
+# \# COVERAGE-R5 matrice|window|valide: 198
+# \# COVERAGE-R5 struct|derived|fermé: 448
+# \# COVERAGE-R5 struct|derived|valide: 31
+# \# COVERAGE-R5 struct|fixed|fermé: 337
+# \# COVERAGE-R5 struct|fixed|valide: 27
+# \# COVERAGE-R5 struct|selNone|fermé: 337
+# \# COVERAGE-R5 struct|selNone|valide: 27
+# \# COVERAGE-R5 struct|window|fermé: 337
+# \# COVERAGE-R5 struct|window|valide: 27
+# \# COVERAGE-R5 formes d'offres par date : 18 ; positions testées : 0..n par base ; bases : derived,selNone,fixed,window,derived2,derived3,selNone3,fixed3,window3
+# Subtest: [158-R5-B0] bases multi-dates VALIDES : l'oracle et le code concordent (contrôle de l'oracle étendu)
+ok 1 - [158-R5-B0] bases multi-dates VALIDES : l'oracle et le code concordent (contrôle de l'oracle étendu)
+  ---
+  duration_ms: 5.893819
+  type: 'test'
+  ...
+# Subtest: [158-R5-1] LE FINDING R5 : date dérivée valide + AUTRE date éligible à liste d'offres vide => illisible (2 et 3 dates, toutes positions)
+not ok 2 - [158-R5-1] LE FINDING R5 : date dérivée valide + AUTRE date éligible à liste d'offres vide => illisible (2 et 3 dates, toutes positions)
+  ---
+  duration_ms: 1.757123
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:81:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   "2 dates, 2e vide: le code retourne « derived » au lieu d'illisible",
+    +   '2 dates, 2e vide: envoi OUVERT',
+    +   "3 dates, 2e vide: le code retourne « derived » au lieu d'illisible",
+    +   '3 dates, 2e vide: envoi OUVERT',
+    +   "3 dates, 3e vide: le code retourne « derived » au lieu d'illisible",
+    +   '3 dates, 3e vide: envoi OUVERT',
+    +   "3 dates, 2e et 3e vides: le code retourne « derived » au lieu d'illisible",
+    +   '3 dates, 2e et 3e vides: envoi OUVERT'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: "2 dates, 2e vide: le code retourne « derived » au lieu d'illisible"
+    1: '2 dates, 2e vide: envoi OUVERT'
+    2: "3 dates, 2e vide: le code retourne « derived » au lieu d'illisible"
+    3: '3 dates, 2e vide: envoi OUVERT'
+    4: "3 dates, 3e vide: le code retourne « derived » au lieu d'illisible"
+    5: '3 dates, 3e vide: envoi OUVERT'
+    6: "3 dates, 2e et 3e vides: le code retourne « derived » au lieu d'illisible"
+    7: '3 dates, 2e et 3e vides: envoi OUVERT'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:104:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: [158-R5-2] OPÉRATEURS STRUCTURELS sur toutes les bases (1 à 3 dates, 4 politiques) : oracle = code, envoi fermé si invalide
+not ok 3 - [158-R5-2] OPÉRATEURS STRUCTURELS sur toutes les bases (1 à 3 dates, 4 politiques) : oracle = code, envoi fermé si invalide
+  ---
+  duration_ms: 68.767469
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:107:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    structurel (1571 cas) : 9 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived :: +date@1 offres=liste vide []: oracle=closed code=derived',
+    +   'derived2 :: +date@1 offres=liste vide []: oracle=closed code=derived',
+    +   'derived2 :: +date@2 offres=liste vide []: oracle=closed code=derived',
+    +   'derived2 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived',
+    +   'derived3 :: +date@1 offres=liste vide []: oracle=closed code=derived',
+    +   'derived3 :: +date@2 offres=liste vide []: oracle=closed code=derived',
+    +   'derived3 :: +date@3 offres=liste vide []: oracle=closed code=derived',
+    +   'derived3 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived',
+    +   'derived3 :: offres[2=2026-10-27] <- liste vide []: oracle=closed code=derived'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived :: +date@1 offres=liste vide []: oracle=closed code=derived'
+    1: 'derived2 :: +date@1 offres=liste vide []: oracle=closed code=derived'
+    2: 'derived2 :: +date@2 offres=liste vide []: oracle=closed code=derived'
+    3: 'derived2 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived'
+    4: 'derived3 :: +date@1 offres=liste vide []: oracle=closed code=derived'
+    5: 'derived3 :: +date@2 offres=liste vide []: oracle=closed code=derived'
+    6: 'derived3 :: +date@3 offres=liste vide []: oracle=closed code=derived'
+    7: 'derived3 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived'
+    8: 'derived3 :: offres[2=2026-10-27] <- liste vide []: oracle=closed code=derived'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:66:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:117:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R5-3] MÉTAMORPHIQUE (sans oracle) : retirer, vider ou invalider les offres de N'IMPORTE QUELLE date d'une réponse valide la ferme ; ajouter une date valide ne la ferme pas
+not ok 4 - [158-R5-3] MÉTAMORPHIQUE (sans oracle) : retirer, vider ou invalider les offres de N'IMPORTE QUELLE date d'une réponse valide la ferme ; ajouter une date valide ne la ferme pas
+  ---
+  duration_ms: 3.747559
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:120:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + [
+    +   'derived2 / 2026-10-25 / liste vide: « derived » au lieu de fermé',
+    +   'derived2 / 2026-10-25 / liste vide: envoi ouvert',
+    +   'derived3 / 2026-10-25 / liste vide: « derived » au lieu de fermé',
+    +   'derived3 / 2026-10-25 / liste vide: envoi ouvert',
+    +   'derived3 / 2026-10-27 / liste vide: « derived » au lieu de fermé',
+    +   'derived3 / 2026-10-27 / liste vide: envoi ouvert'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived2 / 2026-10-25 / liste vide: « derived » au lieu de fermé'
+    1: 'derived2 / 2026-10-25 / liste vide: envoi ouvert'
+    2: 'derived3 / 2026-10-25 / liste vide: « derived » au lieu de fermé'
+    3: 'derived3 / 2026-10-25 / liste vide: envoi ouvert'
+    4: 'derived3 / 2026-10-27 / liste vide: « derived » au lieu de fermé'
+    5: 'derived3 / 2026-10-27 / liste vide: envoi ouvert'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:148:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R5-4] MATRICE champ x classe de valeur sur les bases MULTI-DATES (chaque chemin de chaque date)
+not ok 5 - [158-R5-4] MATRICE champ x classe de valeur sur les bases MULTI-DATES (chaque chemin de chaque date)
+  ---
+  duration_ms: 158.343224
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:151:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    matrice multi-dates (6142 cas) : 5 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived2 @ offers.date#1 <- liste-vide: oracle=closed code=derived',
+    +   'derived2 @ offers.date#1.0 <- absent: oracle=closed code=derived',
+    +   'derived3 @ offers.date#1 <- liste-vide: oracle=closed code=derived',
+    +   'derived3 @ offers.date#1.0 <- absent: oracle=closed code=derived',
+    +   'derived3 @ offers.date#2 <- liste-vide: oracle=closed code=derived'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived2 @ offers.date#1 <- liste-vide: oracle=closed code=derived'
+    1: 'derived2 @ offers.date#1.0 <- absent: oracle=closed code=derived'
+    2: 'derived3 @ offers.date#1 <- liste-vide: oracle=closed code=derived'
+    3: 'derived3 @ offers.date#1.0 <- absent: oracle=closed code=derived'
+    4: 'derived3 @ offers.date#2 <- liste-vide: oracle=closed code=derived'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:66:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:164:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R5-5] COMBINAISONS STRUCTURE + VALEUR : 1 à 3 opérations tirées d'un PRNG déterministe (5000 cas, bases multi-dates)
+not ok 6 - [158-R5-5] COMBINAISONS STRUCTURE + VALEUR : 1 à 3 opérations tirées d'un PRNG déterministe (5000 cas, bases multi-dates)
+  ---
+  duration_ms: 4548.070576
+  type: 'test'
+  location: '/tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:167:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    combinaisons structure+valeur : 8 écart(s) entre l'oracle et le code (25 premiers)
+    + actual - expected
+    
+    + [
+    +   'derived3 [S(+date@1 offres=liste vide [])]: oracle=closed code=derived',
+    +   "derived2 [S(+date@2 offres=liste vide []) ; V(delivery_block<-true) ; S(clé d'offres EN TROP offres=liste vide [])]: oracle=closed code=derived",
+    +   "derived3 [S(clé d'offres EN TROP offres=[texte]) ; V(schedule_timezone<-null) ; S(+date@2 offres=liste vide [])]: oracle=closed code=derived",
+    +   'derived2 [S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived',
+    +   'derived2 [V(delivery_applicable<-offre-inversee) ; S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived',
+    +   'derived [V(schedule_timezone<-absent) ; S(+date@1 offres=liste vide [])]: oracle=closed code=derived',
+    +   'derived3 [V(schedule_timezone<-heure-9:00) ; S(+date@3 offres=liste vide [])]: oracle=closed code=derived',
+    +   'derived3 [S(offres[2=2026-10-27] <- liste vide []) ; V(delivery_customer_text<-objet-a1)]: oracle=closed code=derived'
+    + ]
+    - []
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    0: 'derived3 [S(+date@1 offres=liste vide [])]: oracle=closed code=derived'
+    1: "derived2 [S(+date@2 offres=liste vide []) ; V(delivery_block<-true) ; S(clé d'offres EN TROP offres=liste vide [])]: oracle=closed code=derived"
+    2: "derived3 [S(clé d'offres EN TROP offres=[texte]) ; V(schedule_timezone<-null) ; S(+date@2 offres=liste vide [])]: oracle=closed code=derived"
+    3: 'derived2 [S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived'
+    4: 'derived2 [V(delivery_applicable<-offre-inversee) ; S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived'
+    5: 'derived [V(schedule_timezone<-absent) ; S(+date@1 offres=liste vide [])]: oracle=closed code=derived'
+    6: 'derived3 [V(schedule_timezone<-heure-9:00) ; S(+date@3 offres=liste vide [])]: oracle=closed code=derived'
+    7: 'derived3 [S(offres[2=2026-10-27] <- liste vide []) ; V(delivery_customer_text<-objet-a1)]: oracle=closed code=derived'
+  operator: 'deepStrictEqual'
+  stack: |-
+    report (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:66:10)
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/chk158/tests/csdj2-checkout-schedule-158-r5.test.ts:193:3)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: [158-R5-6] FIDÉLITÉ : une réponse valide à 2 ou 3 dates garde ses dates, sa première date, et un payload dérivé = première date SEULE (jamais une autre)
+ok 7 - [158-R5-6] FIDÉLITÉ : une réponse valide à 2 ou 3 dates garde ses dates, sa première date, et un payload dérivé = première date SEULE (jamais une autre)
+  ---
+  duration_ms: 0.510256
+  type: 'test'
+  ...
+# Subtest: [158-R5-7] COUVERTURE : position de la date x forme d'offres x politique (relevé TAP)
+ok 8 - [158-R5-7] COUVERTURE : position de la date x forme d'offres x politique (relevé TAP)
+  ---
+  duration_ms: 0.994017
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 3
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5109.244049

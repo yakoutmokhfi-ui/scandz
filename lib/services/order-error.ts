@@ -74,3 +74,61 @@ export function isCgvNotPublishedError(
   if (!error) return false;
   return error.code === "P0001" && error.message === CGV_NOT_PUBLISHED_CODE;
 }
+
+/**
+ * CSDJ-2 / issue #158 -- erreurs TYPÉES de sélection de date/créneau
+ * levées par `create_order` (contrat CSDJ v1.2, §10).
+ *
+ * Porteur : `RAISE EXCEPTION` SQLSTATE `P0001` dont le message est EXACTEMENT
+ * le code typé. Même discipline que ci-dessus : le COUPLE code ET message
+ * est exigé, jamais le message seul (P0001 est le SQLSTATE générique de
+ * `raise exception`).
+ *
+ * Classes (ce que le parcours doit faire) :
+ *  - `choose`   : le client n'a rien choisi -> demander de choisir ;
+ *  - `reselect` : la sélection envoyée est mal formée -> redemander ;
+ *  - `refresh`  : ce que le client a vu n'est plus offert (date expirée,
+ *                 créneau retiré ou plein, politique changée) -> RELIRE les
+ *                 disponibilités, vider la sélection, redemander. Le texte
+ *                 client est générique : aucune raison ni capacité n'est
+ *                 divulguée.
+ */
+export const SCHEDULE_ORDER_ERROR_CLASSES = {
+  SCANYM_SCHEDULE_REQUIRED: "choose",
+  SCANYM_SCHEDULE_MALFORMED: "reselect",
+  SCANYM_SCHEDULE_UNFULFILLABLE: "refresh",
+  SCANYM_SCHEDULE_NOT_SELECTABLE: "refresh",
+  SCANYM_SCHEDULE_NOT_OFFERED: "refresh",
+  SCANYM_SCHEDULE_DATE_NOT_ELIGIBLE: "refresh",
+  SCANYM_SCHEDULE_SLOT_INVALID: "refresh",
+  SCANYM_SCHEDULE_TIME_INVALID: "refresh",
+  SCANYM_SCHEDULE_SLOT_FULL: "refresh",
+} as const;
+
+export type ScheduleOrderErrorCode = keyof typeof SCHEDULE_ORDER_ERROR_CLASSES;
+export type ScheduleOrderErrorClass =
+  (typeof SCHEDULE_ORDER_ERROR_CLASSES)[ScheduleOrderErrorCode];
+
+/** Le code typé de sélection, ou `null` si l'erreur n'en est pas une. */
+export function scheduleOrderErrorCode(
+  error: RpcErrorLike | null | undefined
+): ScheduleOrderErrorCode | null {
+  if (!error || error.code !== "P0001") return null;
+  const message = error.message;
+  if (typeof message !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(SCHEDULE_ORDER_ERROR_CLASSES, message)
+    ? (message as ScheduleOrderErrorCode)
+    : null;
+}
+
+/** Erreur reconnaissable levée quand le serveur refuse la sélection de date/créneau. */
+export class ScheduleSelectionError extends Error {
+  readonly code: ScheduleOrderErrorCode;
+  readonly kind: ScheduleOrderErrorClass;
+  constructor(code: ScheduleOrderErrorCode) {
+    super(code);
+    this.name = "ScheduleSelectionError";
+    this.code = code;
+    this.kind = SCHEDULE_ORDER_ERROR_CLASSES[code];
+  }
+}

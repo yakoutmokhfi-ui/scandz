@@ -1,0 +1,18 @@
+cand-c1a sha=fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 # tests 5824 # pass 5810 # fail 14 
+cand-c1b sha=fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 # tests 5824 # pass 5810 # fail 14 
+cand-c2a sha=fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 # tests 5824 # pass 5809 # fail 15 
+cand-c2b sha=fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 # tests 5824 # pass 5810 # fail 14 
+cand-c2c sha=fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 # tests 5824 # pass 5809 # fail 15 
+main-c1a sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+main-c2a sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+main-c2b sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+main-c2c sha=a66fcc63c2447f4f887961a8864d23a38143fdf0 # tests 5754 # pass 5740 # fail 14 
+
+Candidat = fb6c237a5497aeaf8a0fe8ffa99cbfa9daa6e975 ; main = a66fcc63c2447f4f887961a8864d23a38143fdf0 ; mêmes variables d'environnement factices ; Linux, Node 22, 2 cœurs ; node_modules identique (lien).
+Identité d'un échec = (fichier, nom) tirée du TAP (tools/failids.py). L0 = 14 identités (failures-L0-main-a66fcc6.tsv).
+Résultat :
+- séquentiel (--test-concurrency=1) : candidat 2/2 et main 1/1 = exactement les 14 identités L0.
+- parallélisme 2 : main 3/3 = L0. Candidat : c2b = L0 ; c2a et c2c = L0 + UN échec :
+  tests/catalogue-product-reorder-v1.dom.test.ts « [C] FOCUS CLAVIER ... » (le même les deux fois).
+Tests : candidat 5 824, main 5 754 : +70 = les fichiers de test de la PR #160 que main n'a pas (aucun test existant de main retiré).
+Attribution : voir load-isolation.txt et le rapport §14.4.

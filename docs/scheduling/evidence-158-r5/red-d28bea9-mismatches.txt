@@ -1,0 +1,27 @@
+## bases valides
+
+## structurel (1571 cas)
+derived :: +date@1 offres=liste vide []: oracle=closed code=derived
+derived2 :: +date@1 offres=liste vide []: oracle=closed code=derived
+derived2 :: +date@2 offres=liste vide []: oracle=closed code=derived
+derived2 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived
+derived3 :: +date@1 offres=liste vide []: oracle=closed code=derived
+derived3 :: +date@2 offres=liste vide []: oracle=closed code=derived
+derived3 :: +date@3 offres=liste vide []: oracle=closed code=derived
+derived3 :: offres[1=2026-10-25] <- liste vide []: oracle=closed code=derived
+derived3 :: offres[2=2026-10-27] <- liste vide []: oracle=closed code=derived
+## matrice multi-dates (6142 cas)
+derived2 @ offers.date#1 <- liste-vide: oracle=closed code=derived
+derived2 @ offers.date#1.0 <- absent: oracle=closed code=derived
+derived3 @ offers.date#1 <- liste-vide: oracle=closed code=derived
+derived3 @ offers.date#1.0 <- absent: oracle=closed code=derived
+derived3 @ offers.date#2 <- liste-vide: oracle=closed code=derived
+## combinaisons structure+valeur
+derived3 [S(+date@1 offres=liste vide [])]: oracle=closed code=derived
+derived2 [S(+date@2 offres=liste vide []) ; V(delivery_block<-true) ; S(clé d'offres EN TROP offres=liste vide [])]: oracle=closed code=derived
+derived3 [S(clé d'offres EN TROP offres=[texte]) ; V(schedule_timezone<-null) ; S(+date@2 offres=liste vide [])]: oracle=closed code=derived
+derived2 [S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived
+derived2 [V(delivery_applicable<-offre-inversee) ; S(offres[1=2026-10-25] <- liste vide [])]: oracle=closed code=derived
+derived [V(schedule_timezone<-absent) ; S(+date@1 offres=liste vide [])]: oracle=closed code=derived
+derived3 [V(schedule_timezone<-heure-9:00) ; S(+date@3 offres=liste vide [])]: oracle=closed code=derived
+derived3 [S(offres[2=2026-10-27] <- liste vide []) ; V(delivery_customer_text<-objet-a1)]: oracle=closed code=derived

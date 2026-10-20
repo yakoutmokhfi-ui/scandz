@@ -1,0 +1,14 @@
+Vérification des requêtes de docs/scheduling/csdj2-create-order-production-verification-158.md sur une instance PGlite LOCALE (PostgreSQL embarqué, base vide + fonctions factices). Jamais sur une base hébergée. Valide la syntaxe et l'exécution des requêtes, pas le contenu de Production.
+block 0: OK rows=0 :: begin read only
+block 0: OK rows=1 :: select current_setting('transaction_read_only') as read_only
+block 1: OK rows=2 :: select p.oid::regprocedure::text                            
+block 2: OK rows=1 :: select p.oid::regprocedure::text                         as 
+block 3: OK rows=1 :: select x.n, x.line
+block 4: OK rows=1 :: select p.oid::regprocedure::text as fn, pg_get_functiondef(p
+block 5: OK rows=1 :: select p.oid::regprocedure::text as fn, p.prosecdef, p.proac
+block 5: OK rows=1 :: select to_regclass('public.order_fulfillment_schedule_snapsh
+block 5: OK rows=0 :: select t.tgname, t.tgenabled, pg_get_triggerdef(t.oid) as de
+block 6: OK rows=1 :: select to_regclass('supabase_migrations.schema_migrations') 
+block 7: OK rows=0 :: rollback
+block 8: template OK
+ok=12 ko=0

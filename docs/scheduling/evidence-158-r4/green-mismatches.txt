@@ -1,0 +1,10 @@
+## corpus valide
+
+## forme de data
+
+## matrice (5994 cas)
+
+## combinaisons
+
+## statuts non disponibles + données
+

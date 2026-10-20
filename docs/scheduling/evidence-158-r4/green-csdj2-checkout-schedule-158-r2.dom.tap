@@ -1,0 +1,74 @@
+TAP version 13
+# (node:5264) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/tests/csdj2-checkout-schedule-158-r2.dom.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r4cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: [158-R2-1] deux créneaux de MÊME clé : jamais un créneau différent de celui choisi => envoi fermé + explication, panier intact
+ok 1 - [158-R2-1] deux créneaux de MÊME clé : jamais un créneau différent de celui choisi => envoi fermé + explication, panier intact
+  ---
+  duration_ms: 371.710977
+  type: 'test'
+  ...
+# Subtest: [158-R2-1b] REPRO : avec deux créneaux de même clé, la commande ne part JAMAIS avec un créneau autre que celui affiché
+ok 2 - [158-R2-1b] REPRO : avec deux créneaux de même clé, la commande ne part JAMAIS avec un créneau autre que celui affiché
+  ---
+  duration_ms: 194.122509
+  type: 'test'
+  ...
+# Subtest: [158-R2-2] dates IMPOSSIBLES (2026-02-31, 2026-04-31, 2025-02-29, mois 13, jour 00) : rejetées, jamais normalisées en une autre date
+ok 3 - [158-R2-2] dates IMPOSSIBLES (2026-02-31, 2026-04-31, 2025-02-29, mois 13, jour 00) : rejetées, jamais normalisées en une autre date
+  ---
+  duration_ms: 1174.813402
+  type: 'test'
+  ...
+# Subtest: [158-R2-2b] une date impossible MÊLÉE à des dates valides bloque aussi (aucune date partielle proposée)
+ok 4 - [158-R2-2b] une date impossible MÊLÉE à des dates valides bloque aussi (aucune date partielle proposée)
+  ---
+  duration_ms: 220.166227
+  type: 'test'
+  ...
+# Subtest: [158-R2-3] intervalle dont la fin PRÉCÈDE le début (ou égale) : rejeté (créneau fixe, fenêtre, date seule)
+ok 5 - [158-R2-3] intervalle dont la fin PRÉCÈDE le début (ou égale) : rejeté (créneau fixe, fenêtre, date seule)
+  ---
+  duration_ms: 877.198999
+  type: 'test'
+  ...
+# Subtest: [158-R2-2c] REPRO : une date impossible n'est jamais envoyée au serveur (ni telle quelle, ni normalisée)
+ok 6 - [158-R2-2c] REPRO : une date impossible n'est jamais envoyée au serveur (ni telle quelle, ni normalisée)
+  ---
+  duration_ms: 172.118943
+  type: 'test'
+  ...
+# Subtest: [158-R2-3c] REPRO : un créneau dont la fin précède le début n'est jamais envoyé
+ok 7 - [158-R2-3c] REPRO : un créneau dont la fin précède le début n'est jamais envoyé
+  ---
+  duration_ms: 191.984171
+  type: 'test'
+  ...
+# Subtest: [158-R2-4c] REPRO : politique de créneau inconnue avec derived_earliest => aucune commande
+ok 8 - [158-R2-4c] REPRO : politique de créneau inconnue avec derived_earliest => aucune commande
+  ---
+  duration_ms: 247.237951
+  type: 'test'
+  ...
+# Subtest: [158-R2-4] politique INCONNUE pour dériver la date ou le créneau : envoi fermé, aucune date envoyée
+ok 9 - [158-R2-4] politique INCONNUE pour dériver la date ou le créneau : envoi fermé, aucune date envoyée
+  ---
+  duration_ms: 2006.738378
+  type: 'test'
+  ...
+# Subtest: [158-R2-4b] NON-RÉGRESSION : derived_earliest + créneau « none » reste envoyable avec la date du serveur
+ok 10 - [158-R2-4b] NON-RÉGRESSION : derived_earliest + créneau « none » reste envoyable avec la date du serveur
+  ---
+  duration_ms: 107.088766
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6631.478929

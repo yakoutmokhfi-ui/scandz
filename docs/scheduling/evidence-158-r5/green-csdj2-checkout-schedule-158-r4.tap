@@ -1,0 +1,117 @@
+TAP version 13
+# (node:9707) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/tests/csdj2-checkout-schedule-158-r4.test.ts is not specified and it doesn't parse as CommonJS.
+# Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+# To eliminate this warning, add "type": "module" to /tmp/claude-0/-home-claude/2499d641-6765-5ef0-9d27-bf4f052dd788/scratchpad/r5cand/package.json.
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# \# COVERAGE data: derived=15 selNone=15 fixed=15 window=15 absent=15 blocked_upstream=15 informational_only=15 unfulfillable=15
+# \# COVERAGE ligne: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE schedule_status: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE schedule_timezone: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE unfulfillable_reason: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE date_selection_mode: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE slot_selection_mode: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE time_granularity_minutes: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE first_eligible_date: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE eligible_dates: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE eligible_dates[i]: derived=37 selNone=74 fixed=74 window=74 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers: derived=37 selNone=37 fixed=37 window=37 absent=37 blocked_upstream=37 informational_only=37 unfulfillable=37
+# \# COVERAGE offers[date]: derived=37 selNone=74 fixed=74 window=74 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j]: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].slot_key: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].starts_at: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE offers[date][j].ends_at: derived=37 selNone=74 fixed=111 window=111 absent=0 blocked_upstream=0 informational_only=0 unfulfillable=0
+# \# COVERAGE classes de valeurs distinctes : 55
+# \# COVERAGE cas (champ x classe x politique x verdict) distincts : 5182
+# Subtest: [158-R4-B0] corpus VALIDE : l'oracle et le code concordent (contrôle de l'oracle lui-même)
+ok 1 - [158-R4-B0] corpus VALIDE : l'oracle et le code concordent (contrôle de l'oracle lui-même)
+  ---
+  duration_ms: 17.380827
+  type: 'test'
+  ...
+# Subtest: [158-R4-1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01 (date dérivée) : réponse brute => illisible, jamais « derived »
+ok 2 - [158-R4-1] LES HUIT REPRODUCTIONS de CSDJ2-R4-01 (date dérivée) : réponse brute => illisible, jamais « derived »
+  ---
+  duration_ms: 0.56776
+  type: 'test'
+  ...
+# Subtest: [158-R4-2] FORME DE `data` : null, undefined, vide, 2 lignes, objet nu, imbriqué, scalaire => fermé (tous les corpus)
+ok 3 - [158-R4-2] FORME DE `data` : null, undefined, vide, 2 lignes, objet nu, imbriqué, scalaire => fermé (tous les corpus)
+  ---
+  duration_ms: 0.861425
+  type: 'test'
+  ...
+# Subtest: [158-R4-3] MATRICE champ x classe de valeur x politique : chaque chemin de chaque réponse type reçoit chaque classe
+ok 4 - [158-R4-3] MATRICE champ x classe de valeur x politique : chaque chemin de chaque réponse type reçoit chaque classe
+  ---
+  duration_ms: 139.275336
+  type: 'test'
+  ...
+# Subtest: [158-R4-4] COMBINAISONS : 2 à 4 mutations simultanées tirées d'un PRNG déterministe (6000 cas)
+ok 5 - [158-R4-4] COMBINAISONS : 2 à 4 mutations simultanées tirées d'un PRNG déterministe (6000 cas)
+  ---
+  duration_ms: 268.453032
+  type: 'test'
+  ...
+# Subtest: [158-R4-5] FIDÉLITÉ DU PAYLOAD : toute réponse valide (corpus + mutants valides) produit des payloads égaux aux valeurs BRUTES, sans valeur par défaut
+ok 6 - [158-R4-5] FIDÉLITÉ DU PAYLOAD : toute réponse valide (corpus + mutants valides) produit des payloads égaux aux valeurs BRUTES, sans valeur par défaut
+  ---
+  duration_ms: 151.06324
+  type: 'test'
+  ...
+# Subtest: [158-R4-6] COUVERTURE : chaque champ consommé reçoit chaque classe d'entrée sur chaque politique (relevé émis en TAP)
+ok 7 - [158-R4-6] COUVERTURE : chaque champ consommé reçoit chaque classe d'entrée sur chaque politique (relevé émis en TAP)
+  ---
+  duration_ms: 164.718201
+  type: 'test'
+  ...
+# Subtest: [158-R4-7] statuts non disponibles : toute donnée de date/offre qui les accompagne est incohérente => fermé (absent, blocked_upstream, informational_only, unfulfillable)
+ok 8 - [158-R4-7] statuts non disponibles : toute donnée de date/offre qui les accompagne est incohérente => fermé (absent, blocked_upstream, informational_only, unfulfillable)
+  ---
+  duration_ms: 0.541979
+  type: 'test'
+  ...
+# Subtest: [158-R4-8] LE MODÈLE SEUL refuse une vue mal typée (sans passer par le mapper) : aucune normalisation en aval
+ok 9 - [158-R4-8] LE MODÈLE SEUL refuse une vue mal typée (sans passer par le mapper) : aucune normalisation en aval
+  ---
+  duration_ms: 0.752155
+  type: 'test'
+  ...
+# Subtest: [158-R4-9] LE MAPPER refuse tout type inattendu (statut `invalid`) : aucune coercition, sur chaque champ x chaque mauvais type
+ok 10 - [158-R4-9] LE MAPPER refuse tout type inattendu (statut `invalid`) : aucune coercition, sur chaque champ x chaque mauvais type
+  ---
+  duration_ms: 21.608654
+  type: 'test'
+  ...
+# Subtest: [158-R4-10] DERNIER GARDE : `buildCreateOrderPayload` refuse tout `schedule` mal formé (aucun réseau), laisse passer les valides et ignore la table
+ok 11 - [158-R4-10] DERNIER GARDE : `buildCreateOrderPayload` refuse tout `schedule` mal formé (aucun réseau), laisse passer les valides et ignore la table
+  ---
+  duration_ms: 6.043329
+  type: 'test'
+  ...
+# Subtest: [158-R4-11] AUDIT DES CHEMINS D'ENVOI (invariant de sources) : un seul lecteur, un seul mapper, un seul constructeur de charge, un seul appelant, un seul producteur de schedule
+ok 12 - [158-R4-11] AUDIT DES CHEMINS D'ENVOI (invariant de sources) : un seul lecteur, un seul mapper, un seul constructeur de charge, un seul appelant, un seul producteur de schedule
+  ---
+  duration_ms: 339.624128
+  type: 'test'
+  ...
+# Subtest: [158-R4-12] `slot_key` ABSENT n'est jamais lu comme null, même si la chaîne de prototypes en fournit un (présence PROPRE exigée)
+ok 13 - [158-R4-12] `slot_key` ABSENT n'est jamais lu comme null, même si la chaîne de prototypes en fournit un (présence PROPRE exigée)
+  ---
+  duration_ms: 0.63616
+  type: 'test'
+  ...
+# Subtest: [158-R4-13] SÉLECTION : un doublon de clé de créneau ou d'heure n'est jamais résolu en « première offre » (isSelectionOffered ET toSchedulePayload, chacun seul)
+ok 14 - [158-R4-13] SÉLECTION : un doublon de clé de créneau ou d'heure n'est jamais résolu en « première offre » (isSelectionOffered ET toSchedulePayload, chacun seul)
+  ---
+  duration_ms: 0.496272
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1762.946327

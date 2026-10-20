@@ -68,6 +68,17 @@ import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
+import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
+import { useCheckoutSchedule } from "@/lib/checkout-schedule/use-checkout-schedule";
+import { scheduleHintKey, scheduleNoticeKey } from "@/lib/checkout-schedule/messages";
+import {
+  EMPTY_SCHEDULE_SELECTION,
+  reconcileSelection,
+  scheduleAllowsSubmit,
+  scheduleRequirement,
+  toSchedulePayload,
+  type ScheduleSelection,
+} from "@/lib/checkout-schedule/model";
 // DELIVERY COUNTRY SCOPE v1 -- pays de livraison autorisés pour CET
 // établissement (L2), projetés avec leurs capacités (L1). Rien ici ne
 // connaît « FR » : tout vient du serveur.
@@ -76,6 +87,7 @@ import {
   type DeliveryCountryOption,
   countryValidationInput,
   effectiveCountry,
+  isValidPostalCodeFor,
   resolveDeliveryCountry,
 } from "@/lib/delivery-country";
 // ADDRESS UX v1 -- résolution code postal -> ville (France uniquement,
@@ -101,6 +113,7 @@ import {
   markWhatsappOpened,
   OrderNoteTooLongError,
   CgvAcceptanceRequiredError,
+  ScheduleSelectionError,
   type CreatedOrder,
 } from "@/lib/services/orders";
 import {
@@ -767,7 +780,17 @@ export default function MenuView({
 
   // Envoi de la commande
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // CSDJ-2 / #158 -- verrou SYNCHRONE contre le double envoi : l'état
+  // `isSubmitting` ne change qu'au rendu suivant, un second clic dans le
+  // même instant verrait encore `false`. Le ref, lui, est visible tout de suite.
+  const submitInFlightRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // CSDJ-2 / #158 -- date et créneau choisis PARMI les offres du serveur,
+  // et message d'une relecture déclenchée par un refus typé du serveur.
+  const [scheduleSelection, setScheduleSelection] = useState<ScheduleSelection>(
+    EMPTY_SCHEDULE_SELECTION
+  );
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
 
   /**
    * SELLER LEGAL PROFILE + CGV ENGINE v1 -- Phase 1. `cgvInfo` reflète
@@ -1401,8 +1424,63 @@ export default function MenuView({
     return null;
   }, [settings, tableNumber, serviceMode, deliveryStatus, customer, customerValid]);
 
+  /**
+   * CSDJ-2 / #158 -- LECTURE SERVEUR des dates et créneaux du checkout.
+   * Retrait : toujours. Livraison : dès qu'un code postal valide désigne
+   * la règle. Table : jamais (aucune planification en salle). Le client
+   * ne calcule rien : il choisit parmi ce que le serveur propose, et
+   * `create_order` revalide.
+   */
+  const scheduleModeCode: "pickup" | "delivery" | null =
+    serviceMode === "pickup"
+      ? "pickup"
+      : serviceMode === "delivery" &&
+          isValidPostalCodeFor(deliveryCountry, customer.postalCode)
+        ? "delivery"
+        : null;
+  const { state: scheduleState, refetch: refetchSchedule } = useCheckoutSchedule({
+    restaurantId: lines.length > 0 ? restaurant.id : null,
+    modeCode: scheduleModeCode,
+    postalCode: customer.postalCode,
+    totalCount,
+    subtotal: totalPrice,
+  });
+
+  // Jamais de sélection fantôme : elle est gardée si le serveur la propose
+  // encore, vidée sinon (changement de mode, de panier, relecture).
+  useEffect(() => {
+    if (scheduleState.status === "ready") {
+      setScheduleSelection((prev) => reconcileSelection(scheduleState.view, prev));
+    } else if (scheduleState.status === "idle") {
+      setScheduleSelection(EMPTY_SCHEDULE_SELECTION);
+      setScheduleNotice(null);
+    }
+  }, [scheduleState]);
+
+  /**
+   * Le calendrier laisse-t-il partir la commande ? FAIL-CLOSED (audit de la
+   * PR #160) : tant que l'état du calendrier est INCONNU, rien ne part.
+   *  - lecture en cours : non (on ne sait pas encore si une date est exigée) ;
+   *  - lecture en échec : NON -- l'écran le dit et propose de réessayer ;
+   *  - réponse vide / invalide / au statut inconnu : NON (classée
+   *    `unreadable` par le modèle, même chemin « Réessayer ») ;
+   *  - lecture réussie : selon l'exigence du serveur (voir model.ts) ;
+   *  - `idle` (table, ou livraison sans code postal valide) : rien à lire.
+   */
+  const scheduleOk =
+    scheduleState.status === "ready"
+      ? scheduleAllowsSubmit(scheduleState.view, scheduleSelection)
+      : scheduleState.status === "idle";
+
   /** La commande est prête à partir (le lien est construit après coup). */
-  const canSubmit = lines.length > 0 && orderContext !== null && invoiceRequestValid;
+  const canSubmit =
+    lines.length > 0 && orderContext !== null && invoiceRequestValid && scheduleOk;
+
+  /** Indication affichée à la place du bouton quand SEUL le calendrier manque. */
+  const scheduleHint: string | null =
+    lines.length > 0 && orderContext !== null && invoiceRequestValid && !scheduleOk
+      ? translate(lang, scheduleHintKey(scheduleState))
+      : null;
 
   /**
    * Clic sur "Envoyer la commande".
@@ -1590,13 +1668,16 @@ export default function MenuView({
   }
 
   async function handleSendOrder() {
-    if (isSubmitting) return;          // double-clic
+    if (isSubmitting || submitInFlightRef.current) return;          // double-clic
     if (!orderContext || lines.length === 0) return;
     if (!invoiceRequestValid) return;  // garde défensif, cohérent avec canSubmit
+    // CSDJ-2 / #158 : même garde défensive pour le calendrier.
+    if (!scheduleOk) return;
     // Garde défensif, cohérent avec le bouton désactivé de
     // CartPanel : ne dépend jamais uniquement du disabled côté UI.
     if (cgvInfo?.enforced && !cgvAccepted) return;
 
+    submitInFlightRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -1614,6 +1695,17 @@ export default function MenuView({
       const frozenLines = lines;
       const frozenOrderContext = orderContext;
       const frozenNote = note;
+      // CSDJ-2 / #158 -- `p_customer.schedule` : date et créneau choisis
+      // parmi les offres du SERVEUR, jamais une valeur forgée. `null` =
+      // rien à envoyer (aucun calendrier : parcours historique).
+      const frozenSchedule =
+        scheduleState.status === "ready"
+          ? toSchedulePayload(
+              scheduleState.view,
+              scheduleRequirement(scheduleState.view),
+              scheduleSelection
+            )
+          : null;
 
       const order = await createOrder({
         slug: restaurant.slug,
@@ -1628,6 +1720,7 @@ export default function MenuView({
         // DELIVERY COUNTRY SCOPE v1 -- pays RÉSOLU depuis la
         // configuration du marchand, jamais une constante.
         deliveryCountryCode: deliveryCountry?.countryCode ?? null,
+        schedule: frozenSchedule,
       });
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -1672,6 +1765,16 @@ export default function MenuView({
         invoiceRequest.wantsInvoice
       );
     } catch (err) {
+      // CSDJ-2 / #158 -- refus TYPÉ de la date/du créneau par le serveur :
+      // la sélection est vidée, les disponibilités sont RELUES, un message
+      // compréhensible (générique, sans motif ni capacité) est affiché. Le
+      // panier est conservé ; aucune confirmation.
+      if (err instanceof ScheduleSelectionError) {
+        setScheduleSelection(EMPTY_SCHEDULE_SELECTION);
+        setScheduleNotice(translate(lang, scheduleNoticeKey(err.kind)));
+        void refetchSchedule();
+        return;
+      }
       // Le rejet serveur de note trop longue (V65) a un message dédié ;
       // toute autre erreur (réseau, règle métier, etc.) reste générique.
       // Le message Postgres brut n'est jamais affiché tel quel.
@@ -1683,6 +1786,7 @@ export default function MenuView({
             : t("orderFailed")
       );
     } finally {
+      submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -2039,6 +2143,27 @@ export default function MenuView({
           onChangeInvoiceRequest={setInvoiceRequest}
           note={note}
           canSubmit={canSubmit}
+          scheduleHint={scheduleHint}
+          scheduleSection={
+            scheduleModeCode !== null ? (
+              <CheckoutSchedulePicker
+                t={t}
+                lang={lang}
+                mode={scheduleModeCode}
+                state={scheduleState}
+                selection={scheduleSelection}
+                notice={scheduleNotice}
+                onChange={(next) => {
+                  setScheduleNotice(null);
+                  setScheduleSelection(next);
+                }}
+                onRetry={() => {
+                  setScheduleNotice(null);
+                  void refetchSchedule();
+                }}
+              />
+            ) : null
+          }
           isSubmitting={isSubmitting}
           submitError={submitError}
           invoiceRequestError={invoiceRequestError}

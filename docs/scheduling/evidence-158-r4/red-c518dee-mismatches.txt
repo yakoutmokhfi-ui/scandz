@@ -1,0 +1,1053 @@
+## corpus valide
+
+## forme de data
+derived data=objet-nu: oracle=closed code=derived
+selNone data=objet-nu: oracle=closed code=choose/none
+fixed data=objet-nu: oracle=closed code=choose/fixed_slots
+window data=objet-nu: oracle=closed code=choose/time_within_window
+absent data=objet-nu: oracle=closed code=none
+blocked_upstream data=objet-nu: oracle=closed code=none
+informational_only data=objet-nu: oracle=closed code=none
+unfulfillable data=objet-nu: oracle=closed code=blocked
+## matrice (5994 cas)
+derived @ unfulfillable_reason <- 0: oracle=closed code=derived
+derived @ unfulfillable_reason <- 1: oracle=closed code=derived
+derived @ unfulfillable_reason <- 42: oracle=closed code=derived
+derived @ unfulfillable_reason <- -1: oracle=closed code=derived
+derived @ unfulfillable_reason <- 1.5: oracle=closed code=derived
+derived @ unfulfillable_reason <- 30-nombre: oracle=closed code=derived
+derived @ unfulfillable_reason <- true: oracle=closed code=derived
+derived @ unfulfillable_reason <- false: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-vide: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-heure: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-null: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=derived
+derived @ unfulfillable_reason <- liste-de-listes: oracle=closed code=derived
+derived @ unfulfillable_reason <- objet-vide: oracle=closed code=derived
+derived @ unfulfillable_reason <- objet-a1: oracle=closed code=derived
+derived @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=derived
+derived @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=derived
+derived @ unfulfillable_reason <- offre-cle-42: oracle=closed code=derived
+derived @ unfulfillable_reason <- offre-inversee: oracle=closed code=derived
+derived @ schedule_timezone <- 0: oracle=closed code=derived
+derived @ schedule_timezone <- 1: oracle=closed code=derived
+derived @ schedule_timezone <- 42: oracle=closed code=derived
+derived @ schedule_timezone <- -1: oracle=closed code=derived
+derived @ schedule_timezone <- 1.5: oracle=closed code=derived
+derived @ schedule_timezone <- 30-nombre: oracle=closed code=derived
+derived @ schedule_timezone <- true: oracle=closed code=derived
+derived @ schedule_timezone <- false: oracle=closed code=derived
+derived @ schedule_timezone <- chaine-vide: oracle=closed code=derived
+derived @ schedule_timezone <- liste-vide: oracle=closed code=derived
+derived @ schedule_timezone <- liste-chaine-vide: oracle=closed code=derived
+derived @ schedule_timezone <- liste-heure: oracle=closed code=derived
+derived @ schedule_timezone <- liste-null: oracle=closed code=derived
+derived @ schedule_timezone <- liste-objet-vide: oracle=closed code=derived
+derived @ schedule_timezone <- liste-de-listes: oracle=closed code=derived
+derived @ schedule_timezone <- objet-vide: oracle=closed code=derived
+derived @ schedule_timezone <- objet-a1: oracle=closed code=derived
+derived @ schedule_timezone <- offre-valide-jour: oracle=closed code=derived
+derived @ schedule_timezone <- offre-sans-cle: oracle=closed code=derived
+derived @ schedule_timezone <- offre-cle-42: oracle=closed code=derived
+derived @ schedule_timezone <- offre-inversee: oracle=closed code=derived
+derived @ time_granularity_minutes <- true: oracle=closed code=derived
+derived @ time_granularity_minutes <- false: oracle=closed code=derived
+derived @ time_granularity_minutes <- chaine-vide: oracle=closed code=derived
+derived @ time_granularity_minutes <- espace: oracle=closed code=derived
+derived @ time_granularity_minutes <- texte: oracle=closed code=derived
+derived @ time_granularity_minutes <- minuit-texte: oracle=closed code=derived
+derived @ time_granularity_minutes <- heure-9:00: oracle=closed code=derived
+derived @ time_granularity_minutes <- heure-09:00:00: oracle=closed code=derived
+derived @ time_granularity_minutes <- heure-24:00: oracle=closed code=derived
+derived @ time_granularity_minutes <- heure-25:00: oracle=closed code=derived
+derived @ time_granularity_minutes <- heure-09:60: oracle=closed code=derived
+derived @ time_granularity_minutes <- date-iso: oracle=closed code=derived
+derived @ time_granularity_minutes <- date-impossible: oracle=closed code=derived
+derived @ time_granularity_minutes <- date-horodatée: oracle=closed code=derived
+derived @ time_granularity_minutes <- date-non-bissextile: oracle=closed code=derived
+derived @ time_granularity_minutes <- 30-chaine: oracle=closed code=derived
+derived @ time_granularity_minutes <- cle-valide: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-vide: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-chaine-vide: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-heure: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-null: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-objet-vide: oracle=closed code=derived
+derived @ time_granularity_minutes <- liste-de-listes: oracle=closed code=derived
+derived @ time_granularity_minutes <- objet-vide: oracle=closed code=derived
+derived @ time_granularity_minutes <- objet-a1: oracle=closed code=derived
+derived @ time_granularity_minutes <- offre-valide-jour: oracle=closed code=derived
+derived @ time_granularity_minutes <- offre-sans-cle: oracle=closed code=derived
+derived @ time_granularity_minutes <- offre-cle-42: oracle=closed code=derived
+derived @ time_granularity_minutes <- offre-inversee: oracle=closed code=derived
+derived @ offers.2026-10-24 <- offre-sans-cle: oracle=closed code=derived
+derived @ offers.2026-10-24 <- offre-cle-42: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- absent: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- 0: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- 1: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- 42: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- -1: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- 1.5: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- 30-nombre: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- true: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- false: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-vide: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-chaine-vide: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-heure: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-null: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-objet-vide: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- liste-de-listes: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- objet-vide: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- objet-a1: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- offre-valide-jour: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- offre-sans-cle: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- offre-cle-42: oracle=closed code=derived
+derived @ offers.2026-10-24.0.slot_key <- offre-inversee: oracle=closed code=derived
+derived @ offers.2026-10-24.0.starts_at <- liste-heure: oracle=closed code=derived
+selNone @ unfulfillable_reason <- 0: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- 1: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- 42: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- -1: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- 1.5: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- 30-nombre: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- true: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- false: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-vide: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-heure: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-null: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- liste-de-listes: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- objet-vide: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- objet-a1: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- offre-cle-42: oracle=closed code=choose/none
+selNone @ unfulfillable_reason <- offre-inversee: oracle=closed code=choose/none
+selNone @ schedule_timezone <- 0: oracle=closed code=choose/none
+selNone @ schedule_timezone <- 1: oracle=closed code=choose/none
+selNone @ schedule_timezone <- 42: oracle=closed code=choose/none
+selNone @ schedule_timezone <- -1: oracle=closed code=choose/none
+selNone @ schedule_timezone <- 1.5: oracle=closed code=choose/none
+selNone @ schedule_timezone <- 30-nombre: oracle=closed code=choose/none
+selNone @ schedule_timezone <- true: oracle=closed code=choose/none
+selNone @ schedule_timezone <- false: oracle=closed code=choose/none
+selNone @ schedule_timezone <- chaine-vide: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-vide: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-chaine-vide: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-heure: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-null: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-objet-vide: oracle=closed code=choose/none
+selNone @ schedule_timezone <- liste-de-listes: oracle=closed code=choose/none
+selNone @ schedule_timezone <- objet-vide: oracle=closed code=choose/none
+selNone @ schedule_timezone <- objet-a1: oracle=closed code=choose/none
+selNone @ schedule_timezone <- offre-valide-jour: oracle=closed code=choose/none
+selNone @ schedule_timezone <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ schedule_timezone <- offre-cle-42: oracle=closed code=choose/none
+selNone @ schedule_timezone <- offre-inversee: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- true: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- false: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- chaine-vide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- espace: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- texte: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- minuit-texte: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- heure-9:00: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- heure-09:00:00: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- heure-24:00: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- heure-25:00: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- heure-09:60: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- date-iso: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- date-impossible: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- date-horodatée: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- date-non-bissextile: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- 30-chaine: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- cle-valide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-vide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-chaine-vide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-heure: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-null: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-objet-vide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- liste-de-listes: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- objet-vide: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- objet-a1: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- offre-valide-jour: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- offre-cle-42: oracle=closed code=choose/none
+selNone @ time_granularity_minutes <- offre-inversee: oracle=closed code=choose/none
+selNone @ first_eligible_date <- absent: oracle=closed code=choose/none
+selNone @ first_eligible_date <- null: oracle=closed code=choose/none
+selNone @ eligible_dates.0 <- absent: oracle=closed code=choose/none
+selNone @ eligible_dates.1 <- absent: oracle=closed code=choose/none
+selNone @ offers.2026-10-24 <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ offers.2026-10-24 <- offre-cle-42: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- absent: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- 0: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- 1: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- 42: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- -1: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- 1.5: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- 30-nombre: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- true: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- false: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-chaine-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-heure: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-null: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-objet-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- liste-de-listes: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- objet-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- objet-a1: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- offre-valide-jour: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- offre-cle-42: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.slot_key <- offre-inversee: oracle=closed code=choose/none
+selNone @ offers.2026-10-24.0.starts_at <- liste-heure: oracle=closed code=choose/none
+selNone @ offers.2026-10-26 <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ offers.2026-10-26 <- offre-cle-42: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- absent: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- 0: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- 1: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- 42: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- -1: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- 1.5: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- 30-nombre: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- true: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- false: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-chaine-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-heure: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-null: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-objet-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- liste-de-listes: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- objet-vide: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- objet-a1: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- offre-valide-jour: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- offre-sans-cle: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- offre-cle-42: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.slot_key <- offre-inversee: oracle=closed code=choose/none
+selNone @ offers.2026-10-26.0.starts_at <- liste-heure: oracle=closed code=choose/none
+fixed @ unfulfillable_reason <- 0: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- 1: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- 42: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- -1: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- 1.5: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- 30-nombre: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- true: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- false: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-vide: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-heure: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-null: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- liste-de-listes: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- objet-a1: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- offre-cle-42: oracle=closed code=choose/fixed_slots
+fixed @ unfulfillable_reason <- offre-inversee: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- 0: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- 1: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- 42: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- -1: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- 1.5: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- 30-nombre: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- true: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- false: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- chaine-vide: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-vide: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-chaine-vide: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-heure: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-null: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- liste-de-listes: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- objet-a1: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- offre-valide-jour: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- offre-sans-cle: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- offre-cle-42: oracle=closed code=choose/fixed_slots
+fixed @ schedule_timezone <- offre-inversee: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- true: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- false: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- chaine-vide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- espace: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- texte: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- minuit-texte: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- heure-9:00: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- heure-09:00:00: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- heure-24:00: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- heure-25:00: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- heure-09:60: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- date-iso: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- date-impossible: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- date-horodatée: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- date-non-bissextile: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- 30-chaine: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- cle-valide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-vide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-chaine-vide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-heure: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-null: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- liste-de-listes: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- objet-vide: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- objet-a1: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- offre-valide-jour: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- offre-sans-cle: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- offre-cle-42: oracle=closed code=choose/fixed_slots
+fixed @ time_granularity_minutes <- offre-inversee: oracle=closed code=choose/fixed_slots
+fixed @ first_eligible_date <- absent: oracle=closed code=choose/fixed_slots
+fixed @ first_eligible_date <- null: oracle=closed code=choose/fixed_slots
+fixed @ eligible_dates.0 <- absent: oracle=closed code=choose/fixed_slots
+fixed @ eligible_dates.1 <- absent: oracle=closed code=choose/fixed_slots
+fixed @ offers.2026-10-24.0.starts_at <- liste-heure: oracle=closed code=choose/fixed_slots
+fixed @ offers.2026-10-24.1.starts_at <- liste-heure: oracle=closed code=choose/fixed_slots
+fixed @ offers.2026-10-26.0.starts_at <- liste-heure: oracle=closed code=choose/fixed_slots
+window @ unfulfillable_reason <- 0: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- 1: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- 42: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- -1: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- 1.5: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- 30-nombre: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- true: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- false: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-vide: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-chaine-vide: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-heure: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-null: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-objet-vide: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- liste-de-listes: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- objet-vide: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- objet-a1: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- offre-valide-jour: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ unfulfillable_reason <- offre-inversee: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- 0: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- 1: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- 42: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- -1: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- 1.5: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- 30-nombre: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- true: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- false: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- chaine-vide: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-vide: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-chaine-vide: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-heure: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-null: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-objet-vide: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- liste-de-listes: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- objet-vide: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- objet-a1: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- offre-valide-jour: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ schedule_timezone <- offre-inversee: oracle=closed code=choose/time_within_window
+window @ time_granularity_minutes <- true: oracle=closed code=choose/time_within_window
+window @ time_granularity_minutes <- 30-chaine: oracle=closed code=choose/time_within_window
+window @ first_eligible_date <- absent: oracle=closed code=choose/time_within_window
+window @ first_eligible_date <- null: oracle=closed code=choose/time_within_window
+window @ eligible_dates.0 <- absent: oracle=closed code=choose/time_within_window
+window @ eligible_dates.1 <- absent: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24 <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24 <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- absent: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- 0: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- 1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- 42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- -1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- 1.5: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- 30-nombre: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- true: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- false: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-chaine-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-heure: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-null: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- liste-de-listes: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- objet-a1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- offre-valide-jour: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.slot_key <- offre-inversee: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.0.starts_at <- liste-heure: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- absent: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- 0: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- 1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- 42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- -1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- 1.5: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- 30-nombre: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- true: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- false: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-chaine-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-heure: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-null: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- liste-de-listes: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- objet-a1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- offre-valide-jour: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-24.1.slot_key <- offre-inversee: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26 <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26 <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- absent: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- 0: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- 1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- 42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- -1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- 1.5: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- 30-nombre: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- true: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- false: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-chaine-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-heure: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-null: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- liste-de-listes: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- objet-vide: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- objet-a1: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- offre-valide-jour: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- offre-sans-cle: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- offre-cle-42: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.slot_key <- offre-inversee: oracle=closed code=choose/time_within_window
+window @ offers.2026-10-26.0.starts_at <- liste-heure: oracle=closed code=choose/time_within_window
+absent @ first_eligible_date <- 0: oracle=closed code=none
+absent @ first_eligible_date <- 1: oracle=closed code=none
+absent @ first_eligible_date <- 42: oracle=closed code=none
+absent @ first_eligible_date <- -1: oracle=closed code=none
+absent @ first_eligible_date <- 1.5: oracle=closed code=none
+absent @ first_eligible_date <- 30-nombre: oracle=closed code=none
+absent @ first_eligible_date <- true: oracle=closed code=none
+absent @ first_eligible_date <- false: oracle=closed code=none
+absent @ first_eligible_date <- chaine-vide: oracle=closed code=none
+absent @ first_eligible_date <- espace: oracle=closed code=none
+absent @ first_eligible_date <- texte: oracle=closed code=none
+absent @ first_eligible_date <- minuit-texte: oracle=closed code=none
+absent @ first_eligible_date <- heure-9:00: oracle=closed code=none
+absent @ first_eligible_date <- heure-09:00:00: oracle=closed code=none
+absent @ first_eligible_date <- heure-24:00: oracle=closed code=none
+absent @ first_eligible_date <- heure-25:00: oracle=closed code=none
+absent @ first_eligible_date <- heure-09:60: oracle=closed code=none
+absent @ first_eligible_date <- date-iso: oracle=closed code=none
+absent @ first_eligible_date <- date-impossible: oracle=closed code=none
+absent @ first_eligible_date <- date-horodatée: oracle=closed code=none
+absent @ first_eligible_date <- date-non-bissextile: oracle=closed code=none
+absent @ first_eligible_date <- 30-chaine: oracle=closed code=none
+absent @ first_eligible_date <- cle-valide: oracle=closed code=none
+absent @ first_eligible_date <- liste-vide: oracle=closed code=none
+absent @ first_eligible_date <- liste-chaine-vide: oracle=closed code=none
+absent @ first_eligible_date <- liste-heure: oracle=closed code=none
+absent @ first_eligible_date <- liste-null: oracle=closed code=none
+absent @ first_eligible_date <- liste-objet-vide: oracle=closed code=none
+absent @ first_eligible_date <- liste-de-listes: oracle=closed code=none
+absent @ first_eligible_date <- objet-vide: oracle=closed code=none
+absent @ first_eligible_date <- objet-a1: oracle=closed code=none
+absent @ first_eligible_date <- offre-valide-jour: oracle=closed code=none
+absent @ first_eligible_date <- offre-sans-cle: oracle=closed code=none
+absent @ first_eligible_date <- offre-cle-42: oracle=closed code=none
+absent @ first_eligible_date <- offre-inversee: oracle=closed code=none
+absent @ eligible_dates <- 0: oracle=closed code=none
+absent @ eligible_dates <- 1: oracle=closed code=none
+absent @ eligible_dates <- 42: oracle=closed code=none
+absent @ eligible_dates <- -1: oracle=closed code=none
+absent @ eligible_dates <- 1.5: oracle=closed code=none
+absent @ eligible_dates <- 30-nombre: oracle=closed code=none
+absent @ eligible_dates <- true: oracle=closed code=none
+absent @ eligible_dates <- false: oracle=closed code=none
+absent @ eligible_dates <- chaine-vide: oracle=closed code=none
+absent @ eligible_dates <- espace: oracle=closed code=none
+absent @ eligible_dates <- texte: oracle=closed code=none
+absent @ eligible_dates <- minuit-texte: oracle=closed code=none
+absent @ eligible_dates <- heure-9:00: oracle=closed code=none
+absent @ eligible_dates <- heure-09:00:00: oracle=closed code=none
+absent @ eligible_dates <- heure-24:00: oracle=closed code=none
+absent @ eligible_dates <- heure-25:00: oracle=closed code=none
+absent @ eligible_dates <- heure-09:60: oracle=closed code=none
+absent @ eligible_dates <- date-iso: oracle=closed code=none
+absent @ eligible_dates <- date-impossible: oracle=closed code=none
+absent @ eligible_dates <- date-horodatée: oracle=closed code=none
+absent @ eligible_dates <- date-non-bissextile: oracle=closed code=none
+absent @ eligible_dates <- 30-chaine: oracle=closed code=none
+absent @ eligible_dates <- cle-valide: oracle=closed code=none
+absent @ eligible_dates <- liste-chaine-vide: oracle=closed code=none
+absent @ eligible_dates <- liste-heure: oracle=closed code=none
+absent @ eligible_dates <- liste-null: oracle=closed code=none
+absent @ eligible_dates <- liste-objet-vide: oracle=closed code=none
+absent @ eligible_dates <- liste-de-listes: oracle=closed code=none
+absent @ eligible_dates <- objet-vide: oracle=closed code=none
+absent @ eligible_dates <- objet-a1: oracle=closed code=none
+absent @ eligible_dates <- offre-valide-jour: oracle=closed code=none
+absent @ eligible_dates <- offre-sans-cle: oracle=closed code=none
+absent @ eligible_dates <- offre-cle-42: oracle=closed code=none
+absent @ eligible_dates <- offre-inversee: oracle=closed code=none
+absent @ offers <- 0: oracle=closed code=none
+absent @ offers <- 1: oracle=closed code=none
+absent @ offers <- 42: oracle=closed code=none
+absent @ offers <- -1: oracle=closed code=none
+absent @ offers <- 1.5: oracle=closed code=none
+absent @ offers <- 30-nombre: oracle=closed code=none
+absent @ offers <- true: oracle=closed code=none
+absent @ offers <- false: oracle=closed code=none
+absent @ offers <- chaine-vide: oracle=closed code=none
+absent @ offers <- espace: oracle=closed code=none
+absent @ offers <- texte: oracle=closed code=none
+absent @ offers <- minuit-texte: oracle=closed code=none
+absent @ offers <- heure-9:00: oracle=closed code=none
+absent @ offers <- heure-09:00:00: oracle=closed code=none
+absent @ offers <- heure-24:00: oracle=closed code=none
+absent @ offers <- heure-25:00: oracle=closed code=none
+absent @ offers <- heure-09:60: oracle=closed code=none
+absent @ offers <- date-iso: oracle=closed code=none
+absent @ offers <- date-impossible: oracle=closed code=none
+absent @ offers <- date-horodatée: oracle=closed code=none
+absent @ offers <- date-non-bissextile: oracle=closed code=none
+absent @ offers <- 30-chaine: oracle=closed code=none
+absent @ offers <- cle-valide: oracle=closed code=none
+absent @ offers <- liste-vide: oracle=closed code=none
+absent @ offers <- liste-chaine-vide: oracle=closed code=none
+absent @ offers <- liste-heure: oracle=closed code=none
+absent @ offers <- liste-null: oracle=closed code=none
+absent @ offers <- liste-objet-vide: oracle=closed code=none
+absent @ offers <- liste-de-listes: oracle=closed code=none
+absent @ offers <- objet-a1: oracle=closed code=none
+absent @ offers <- offre-valide-jour: oracle=closed code=none
+absent @ offers <- offre-sans-cle: oracle=closed code=none
+absent @ offers <- offre-cle-42: oracle=closed code=none
+absent @ offers <- offre-inversee: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 0: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 1: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 42: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- -1: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 1.5: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 30-nombre: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- true: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- false: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- chaine-vide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- espace: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- texte: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- minuit-texte: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- heure-9:00: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- heure-09:00:00: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- heure-24:00: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- heure-25:00: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- heure-09:60: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- date-iso: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- date-impossible: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- date-horodatée: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- date-non-bissextile: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- 30-chaine: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- cle-valide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-vide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-chaine-vide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-heure: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-null: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-objet-vide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- liste-de-listes: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- objet-vide: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- objet-a1: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- offre-valide-jour: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- offre-sans-cle: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- offre-cle-42: oracle=closed code=none
+blocked_upstream @ first_eligible_date <- offre-inversee: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 0: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 1: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 42: oracle=closed code=none
+blocked_upstream @ eligible_dates <- -1: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 1.5: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 30-nombre: oracle=closed code=none
+blocked_upstream @ eligible_dates <- true: oracle=closed code=none
+blocked_upstream @ eligible_dates <- false: oracle=closed code=none
+blocked_upstream @ eligible_dates <- chaine-vide: oracle=closed code=none
+blocked_upstream @ eligible_dates <- espace: oracle=closed code=none
+blocked_upstream @ eligible_dates <- texte: oracle=closed code=none
+blocked_upstream @ eligible_dates <- minuit-texte: oracle=closed code=none
+blocked_upstream @ eligible_dates <- heure-9:00: oracle=closed code=none
+blocked_upstream @ eligible_dates <- heure-09:00:00: oracle=closed code=none
+blocked_upstream @ eligible_dates <- heure-24:00: oracle=closed code=none
+blocked_upstream @ eligible_dates <- heure-25:00: oracle=closed code=none
+blocked_upstream @ eligible_dates <- heure-09:60: oracle=closed code=none
+blocked_upstream @ eligible_dates <- date-iso: oracle=closed code=none
+blocked_upstream @ eligible_dates <- date-impossible: oracle=closed code=none
+blocked_upstream @ eligible_dates <- date-horodatée: oracle=closed code=none
+blocked_upstream @ eligible_dates <- date-non-bissextile: oracle=closed code=none
+blocked_upstream @ eligible_dates <- 30-chaine: oracle=closed code=none
+blocked_upstream @ eligible_dates <- cle-valide: oracle=closed code=none
+blocked_upstream @ eligible_dates <- liste-chaine-vide: oracle=closed code=none
+blocked_upstream @ eligible_dates <- liste-heure: oracle=closed code=none
+blocked_upstream @ eligible_dates <- liste-null: oracle=closed code=none
+blocked_upstream @ eligible_dates <- liste-objet-vide: oracle=closed code=none
+blocked_upstream @ eligible_dates <- liste-de-listes: oracle=closed code=none
+blocked_upstream @ eligible_dates <- objet-vide: oracle=closed code=none
+blocked_upstream @ eligible_dates <- objet-a1: oracle=closed code=none
+blocked_upstream @ eligible_dates <- offre-valide-jour: oracle=closed code=none
+blocked_upstream @ eligible_dates <- offre-sans-cle: oracle=closed code=none
+blocked_upstream @ eligible_dates <- offre-cle-42: oracle=closed code=none
+blocked_upstream @ eligible_dates <- offre-inversee: oracle=closed code=none
+blocked_upstream @ offers <- 0: oracle=closed code=none
+blocked_upstream @ offers <- 1: oracle=closed code=none
+blocked_upstream @ offers <- 42: oracle=closed code=none
+blocked_upstream @ offers <- -1: oracle=closed code=none
+blocked_upstream @ offers <- 1.5: oracle=closed code=none
+blocked_upstream @ offers <- 30-nombre: oracle=closed code=none
+blocked_upstream @ offers <- true: oracle=closed code=none
+blocked_upstream @ offers <- false: oracle=closed code=none
+blocked_upstream @ offers <- chaine-vide: oracle=closed code=none
+blocked_upstream @ offers <- espace: oracle=closed code=none
+blocked_upstream @ offers <- texte: oracle=closed code=none
+blocked_upstream @ offers <- minuit-texte: oracle=closed code=none
+blocked_upstream @ offers <- heure-9:00: oracle=closed code=none
+blocked_upstream @ offers <- heure-09:00:00: oracle=closed code=none
+blocked_upstream @ offers <- heure-24:00: oracle=closed code=none
+blocked_upstream @ offers <- heure-25:00: oracle=closed code=none
+blocked_upstream @ offers <- heure-09:60: oracle=closed code=none
+blocked_upstream @ offers <- date-iso: oracle=closed code=none
+blocked_upstream @ offers <- date-impossible: oracle=closed code=none
+blocked_upstream @ offers <- date-horodatée: oracle=closed code=none
+blocked_upstream @ offers <- date-non-bissextile: oracle=closed code=none
+blocked_upstream @ offers <- 30-chaine: oracle=closed code=none
+blocked_upstream @ offers <- cle-valide: oracle=closed code=none
+blocked_upstream @ offers <- liste-vide: oracle=closed code=none
+blocked_upstream @ offers <- liste-chaine-vide: oracle=closed code=none
+blocked_upstream @ offers <- liste-heure: oracle=closed code=none
+blocked_upstream @ offers <- liste-null: oracle=closed code=none
+blocked_upstream @ offers <- liste-objet-vide: oracle=closed code=none
+blocked_upstream @ offers <- liste-de-listes: oracle=closed code=none
+blocked_upstream @ offers <- objet-a1: oracle=closed code=none
+blocked_upstream @ offers <- offre-valide-jour: oracle=closed code=none
+blocked_upstream @ offers <- offre-sans-cle: oracle=closed code=none
+blocked_upstream @ offers <- offre-cle-42: oracle=closed code=none
+blocked_upstream @ offers <- offre-inversee: oracle=closed code=none
+informational_only @ first_eligible_date <- 0: oracle=closed code=none
+informational_only @ first_eligible_date <- 1: oracle=closed code=none
+informational_only @ first_eligible_date <- 42: oracle=closed code=none
+informational_only @ first_eligible_date <- -1: oracle=closed code=none
+informational_only @ first_eligible_date <- 1.5: oracle=closed code=none
+informational_only @ first_eligible_date <- 30-nombre: oracle=closed code=none
+informational_only @ first_eligible_date <- true: oracle=closed code=none
+informational_only @ first_eligible_date <- false: oracle=closed code=none
+informational_only @ first_eligible_date <- chaine-vide: oracle=closed code=none
+informational_only @ first_eligible_date <- espace: oracle=closed code=none
+informational_only @ first_eligible_date <- texte: oracle=closed code=none
+informational_only @ first_eligible_date <- minuit-texte: oracle=closed code=none
+informational_only @ first_eligible_date <- heure-9:00: oracle=closed code=none
+informational_only @ first_eligible_date <- heure-09:00:00: oracle=closed code=none
+informational_only @ first_eligible_date <- heure-24:00: oracle=closed code=none
+informational_only @ first_eligible_date <- heure-25:00: oracle=closed code=none
+informational_only @ first_eligible_date <- heure-09:60: oracle=closed code=none
+informational_only @ first_eligible_date <- date-iso: oracle=closed code=none
+informational_only @ first_eligible_date <- date-impossible: oracle=closed code=none
+informational_only @ first_eligible_date <- date-horodatée: oracle=closed code=none
+informational_only @ first_eligible_date <- date-non-bissextile: oracle=closed code=none
+informational_only @ first_eligible_date <- 30-chaine: oracle=closed code=none
+informational_only @ first_eligible_date <- cle-valide: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-vide: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-chaine-vide: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-heure: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-null: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-objet-vide: oracle=closed code=none
+informational_only @ first_eligible_date <- liste-de-listes: oracle=closed code=none
+informational_only @ first_eligible_date <- objet-vide: oracle=closed code=none
+informational_only @ first_eligible_date <- objet-a1: oracle=closed code=none
+informational_only @ first_eligible_date <- offre-valide-jour: oracle=closed code=none
+informational_only @ first_eligible_date <- offre-sans-cle: oracle=closed code=none
+informational_only @ first_eligible_date <- offre-cle-42: oracle=closed code=none
+informational_only @ first_eligible_date <- offre-inversee: oracle=closed code=none
+informational_only @ eligible_dates <- 0: oracle=closed code=none
+informational_only @ eligible_dates <- 1: oracle=closed code=none
+informational_only @ eligible_dates <- 42: oracle=closed code=none
+informational_only @ eligible_dates <- -1: oracle=closed code=none
+informational_only @ eligible_dates <- 1.5: oracle=closed code=none
+informational_only @ eligible_dates <- 30-nombre: oracle=closed code=none
+informational_only @ eligible_dates <- true: oracle=closed code=none
+informational_only @ eligible_dates <- false: oracle=closed code=none
+informational_only @ eligible_dates <- chaine-vide: oracle=closed code=none
+informational_only @ eligible_dates <- espace: oracle=closed code=none
+informational_only @ eligible_dates <- texte: oracle=closed code=none
+informational_only @ eligible_dates <- minuit-texte: oracle=closed code=none
+informational_only @ eligible_dates <- heure-9:00: oracle=closed code=none
+informational_only @ eligible_dates <- heure-09:00:00: oracle=closed code=none
+informational_only @ eligible_dates <- heure-24:00: oracle=closed code=none
+informational_only @ eligible_dates <- heure-25:00: oracle=closed code=none
+informational_only @ eligible_dates <- heure-09:60: oracle=closed code=none
+informational_only @ eligible_dates <- date-iso: oracle=closed code=none
+informational_only @ eligible_dates <- date-impossible: oracle=closed code=none
+informational_only @ eligible_dates <- date-horodatée: oracle=closed code=none
+informational_only @ eligible_dates <- date-non-bissextile: oracle=closed code=none
+informational_only @ eligible_dates <- 30-chaine: oracle=closed code=none
+informational_only @ eligible_dates <- cle-valide: oracle=closed code=none
+informational_only @ eligible_dates <- liste-chaine-vide: oracle=closed code=none
+informational_only @ eligible_dates <- liste-heure: oracle=closed code=none
+informational_only @ eligible_dates <- liste-null: oracle=closed code=none
+informational_only @ eligible_dates <- liste-objet-vide: oracle=closed code=none
+informational_only @ eligible_dates <- liste-de-listes: oracle=closed code=none
+informational_only @ eligible_dates <- objet-vide: oracle=closed code=none
+informational_only @ eligible_dates <- objet-a1: oracle=closed code=none
+informational_only @ eligible_dates <- offre-valide-jour: oracle=closed code=none
+informational_only @ eligible_dates <- offre-sans-cle: oracle=closed code=none
+informational_only @ eligible_dates <- offre-cle-42: oracle=closed code=none
+informational_only @ eligible_dates <- offre-inversee: oracle=closed code=none
+informational_only @ offers <- 0: oracle=closed code=none
+informational_only @ offers <- 1: oracle=closed code=none
+informational_only @ offers <- 42: oracle=closed code=none
+informational_only @ offers <- -1: oracle=closed code=none
+informational_only @ offers <- 1.5: oracle=closed code=none
+informational_only @ offers <- 30-nombre: oracle=closed code=none
+informational_only @ offers <- true: oracle=closed code=none
+informational_only @ offers <- false: oracle=closed code=none
+informational_only @ offers <- chaine-vide: oracle=closed code=none
+informational_only @ offers <- espace: oracle=closed code=none
+informational_only @ offers <- texte: oracle=closed code=none
+informational_only @ offers <- minuit-texte: oracle=closed code=none
+informational_only @ offers <- heure-9:00: oracle=closed code=none
+informational_only @ offers <- heure-09:00:00: oracle=closed code=none
+informational_only @ offers <- heure-24:00: oracle=closed code=none
+informational_only @ offers <- heure-25:00: oracle=closed code=none
+informational_only @ offers <- heure-09:60: oracle=closed code=none
+informational_only @ offers <- date-iso: oracle=closed code=none
+informational_only @ offers <- date-impossible: oracle=closed code=none
+informational_only @ offers <- date-horodatée: oracle=closed code=none
+informational_only @ offers <- date-non-bissextile: oracle=closed code=none
+informational_only @ offers <- 30-chaine: oracle=closed code=none
+informational_only @ offers <- cle-valide: oracle=closed code=none
+informational_only @ offers <- liste-vide: oracle=closed code=none
+informational_only @ offers <- liste-chaine-vide: oracle=closed code=none
+informational_only @ offers <- liste-heure: oracle=closed code=none
+informational_only @ offers <- liste-null: oracle=closed code=none
+informational_only @ offers <- liste-objet-vide: oracle=closed code=none
+informational_only @ offers <- liste-de-listes: oracle=closed code=none
+informational_only @ offers <- objet-a1: oracle=closed code=none
+informational_only @ offers <- offre-valide-jour: oracle=closed code=none
+informational_only @ offers <- offre-sans-cle: oracle=closed code=none
+informational_only @ offers <- offre-cle-42: oracle=closed code=none
+informational_only @ offers <- offre-inversee: oracle=closed code=none
+unfulfillable @ first_eligible_date <- 0: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- 1: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- 42: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- -1: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- 1.5: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- 30-nombre: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- true: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- false: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- chaine-vide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- espace: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- texte: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- minuit-texte: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- heure-9:00: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- heure-09:00:00: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- heure-24:00: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- heure-25:00: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- heure-09:60: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- date-iso: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- date-impossible: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- date-horodatée: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- date-non-bissextile: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- 30-chaine: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- cle-valide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-vide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-chaine-vide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-heure: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-null: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-objet-vide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- liste-de-listes: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- objet-vide: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- objet-a1: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- offre-valide-jour: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- offre-sans-cle: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- offre-cle-42: oracle=closed code=blocked
+unfulfillable @ first_eligible_date <- offre-inversee: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 0: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 1: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 42: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- -1: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 1.5: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 30-nombre: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- true: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- false: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- chaine-vide: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- espace: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- texte: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- minuit-texte: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- heure-9:00: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- heure-09:00:00: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- heure-24:00: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- heure-25:00: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- heure-09:60: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- date-iso: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- date-impossible: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- date-horodatée: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- date-non-bissextile: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- 30-chaine: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- cle-valide: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- liste-chaine-vide: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- liste-heure: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- liste-null: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- liste-objet-vide: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- liste-de-listes: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- objet-vide: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- objet-a1: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- offre-valide-jour: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- offre-sans-cle: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- offre-cle-42: oracle=closed code=blocked
+unfulfillable @ eligible_dates <- offre-inversee: oracle=closed code=blocked
+unfulfillable @ offers <- 0: oracle=closed code=blocked
+unfulfillable @ offers <- 1: oracle=closed code=blocked
+unfulfillable @ offers <- 42: oracle=closed code=blocked
+unfulfillable @ offers <- -1: oracle=closed code=blocked
+unfulfillable @ offers <- 1.5: oracle=closed code=blocked
+unfulfillable @ offers <- 30-nombre: oracle=closed code=blocked
+unfulfillable @ offers <- true: oracle=closed code=blocked
+unfulfillable @ offers <- false: oracle=closed code=blocked
+unfulfillable @ offers <- chaine-vide: oracle=closed code=blocked
+unfulfillable @ offers <- espace: oracle=closed code=blocked
+unfulfillable @ offers <- texte: oracle=closed code=blocked
+unfulfillable @ offers <- minuit-texte: oracle=closed code=blocked
+unfulfillable @ offers <- heure-9:00: oracle=closed code=blocked
+unfulfillable @ offers <- heure-09:00:00: oracle=closed code=blocked
+unfulfillable @ offers <- heure-24:00: oracle=closed code=blocked
+unfulfillable @ offers <- heure-25:00: oracle=closed code=blocked
+unfulfillable @ offers <- heure-09:60: oracle=closed code=blocked
+unfulfillable @ offers <- date-iso: oracle=closed code=blocked
+unfulfillable @ offers <- date-impossible: oracle=closed code=blocked
+unfulfillable @ offers <- date-horodatée: oracle=closed code=blocked
+unfulfillable @ offers <- date-non-bissextile: oracle=closed code=blocked
+unfulfillable @ offers <- 30-chaine: oracle=closed code=blocked
+unfulfillable @ offers <- cle-valide: oracle=closed code=blocked
+unfulfillable @ offers <- liste-vide: oracle=closed code=blocked
+unfulfillable @ offers <- liste-chaine-vide: oracle=closed code=blocked
+unfulfillable @ offers <- liste-heure: oracle=closed code=blocked
+unfulfillable @ offers <- liste-null: oracle=closed code=blocked
+unfulfillable @ offers <- liste-objet-vide: oracle=closed code=blocked
+unfulfillable @ offers <- liste-de-listes: oracle=closed code=blocked
+unfulfillable @ offers <- objet-a1: oracle=closed code=blocked
+unfulfillable @ offers <- offre-valide-jour: oracle=closed code=blocked
+unfulfillable @ offers <- offre-sans-cle: oracle=closed code=blocked
+unfulfillable @ offers <- offre-cle-42: oracle=closed code=blocked
+unfulfillable @ offers <- offre-inversee: oracle=closed code=blocked
+## combinaisons
+derived [time_granularity_minutes<-objet-a1 ; schedule_timezone<-1.5]: oracle=closed code=derived
+selNone [delivery_customer_text<-heure-09:60 ; time_granularity_minutes<-true]: oracle=closed code=choose/none
+selNone [schedule_timezone<--1 ; delivery_customer_text<-heure-09:00:00 ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none
+window [delivery_eligible<-liste-de-listes ; offers.2026-10-26.0.slot_key<-objet-a1 ; delivery_block<-1]: oracle=closed code=choose/time_within_window
+derived [delivery_applicable<-1 ; unfulfillable_reason<-1.5 ; schedule_timezone<-heure-9:00 ; time_granularity_minutes<-30-nombre]: oracle=closed code=derived
+fixed [schedule_timezone<-espace ; unfulfillable_reason<-offre-valide-jour]: oracle=closed code=choose/fixed_slots
+derived [time_granularity_minutes<-offre-valide-jour ; offers.2026-10-24.0.slot_key<-null]: oracle=closed code=derived
+derived [offers.2026-10-24.0.slot_key<--1 ; offers.2026-10-24.0.slot_key<-1]: oracle=closed code=derived
+derived [unfulfillable_reason<-liste-null ; schedule_timezone<-1.5 ; schedule_timezone<-1 ; delivery_block<-1.5]: oracle=closed code=derived
+selNone [unfulfillable_reason<-offre-sans-cle ; offers.2026-10-24.0.slot_key<-liste-chaine-vide ; offers.2026-10-24.0.slot_key.0<-30-chaine ; unfulfillable_reason.0.ends_at<-minuit-texte]: oracle=closed code=choose/none
+derived [delivery_eligible<-42 ; delivery_block<-30-chaine ; unfulfillable_reason<--1]: oracle=closed code=derived
+fixed [delivery_block<--1 ; unfulfillable_reason<-30-nombre]: oracle=closed code=choose/fixed_slots
+derived [time_granularity_minutes<-30-chaine ; time_granularity_minutes<-offre-inversee]: oracle=closed code=derived
+fixed [delivery_applicable<-1 ; schedule_timezone<-0]: oracle=closed code=choose/fixed_slots
+selNone [delivery_applicable<-offre-cle-42 ; offers.2026-10-24.0.slot_key<-liste-vide]: oracle=closed code=choose/none
+selNone [unfulfillable_reason<-liste-null ; delivery_customer_text<-liste-heure]: oracle=closed code=choose/none
+derived [time_granularity_minutes<-offre-sans-cle ; time_granularity_minutes.0.ends_at<-42]: oracle=closed code=derived
+selNone [time_granularity_minutes<-chaine-vide ; unfulfillable_reason<-false]: oracle=closed code=choose/none
+selNone [time_granularity_minutes<-texte ; schedule_timezone<-espace]: oracle=closed code=choose/none
+window [offers.2026-10-26.0.starts_at<-liste-heure ; delivery_block<-0]: oracle=closed code=choose/time_within_window
+window [delivery_eligible<-liste-heure ; schedule_timezone<-0]: oracle=closed code=choose/time_within_window
+window [delivery_block<-liste-de-listes ; schedule_timezone<-30-nombre]: oracle=closed code=choose/time_within_window
+derived [unfulfillable_reason<-objet-vide ; unfulfillable_reason<-heure-09:60 ; schedule_timezone<-objet-a1]: oracle=closed code=derived
+fixed [time_granularity_minutes<-offre-inversee ; time_granularity_minutes.0<-minuit-texte ; schedule_timezone<-liste-de-listes]: oracle=closed code=choose/fixed_slots
+derived [schedule_timezone<-date-non-bissextile ; schedule_timezone<-date-horodatée ; offers.2026-10-24.0.slot_key<-1.5 ; schedule_timezone<-offre-inversee]: oracle=closed code=derived
+window [offers.2026-10-26<-offre-cle-42 ; eligible_dates.1<-absent]: oracle=closed code=choose/time_within_window
+window [delivery_eligible<-objet-a1 ; offers.2026-10-24.0.slot_key<-liste-objet-vide]: oracle=closed code=choose/time_within_window
+derived [delivery_eligible<-offre-valide-jour ; delivery_eligible.0.starts_at<-date-horodatée ; schedule_timezone<-30-nombre]: oracle=closed code=derived
+derived [unfulfillable_reason<-offre-cle-42 ; offers.2026-10-24.0.slot_key<-liste-chaine-vide]: oracle=closed code=derived
+window [delivery_customer_text<-chaine-vide ; offers.2026-10-24.0.slot_key<-objet-vide ; delivery_block<-0 ; delivery_eligible<-1]: oracle=closed code=choose/time_within_window
+derived [delivery_applicable<-liste-null ; time_granularity_minutes<-date-horodatée]: oracle=closed code=derived
+derived [schedule_timezone<-liste-chaine-vide ; unfulfillable_reason<-heure-9:00]: oracle=closed code=derived
+selNone [unfulfillable_reason<-texte ; offers.2026-10-26.0.slot_key<-offre-inversee]: oracle=closed code=choose/none
+derived [time_granularity_minutes<-liste-objet-vide ; delivery_customer_text<-date-impossible ; time_granularity_minutes<-liste-de-listes]: oracle=closed code=derived
+fixed [schedule_timezone<-objet-a1 ; offers.2026-10-24.1.slot_key<-date-impossible]: oracle=closed code=choose/fixed_slots
+derived [delivery_block<-heure-9:00 ; schedule_timezone<-texte ; offers.2026-10-24.0.slot_key<-liste-objet-vide]: oracle=closed code=derived
+window [unfulfillable_reason<-offre-valide-jour ; unfulfillable_reason.0.ends_at<-liste-chaine-vide]: oracle=closed code=choose/time_within_window
+derived [schedule_timezone<-offre-inversee ; delivery_applicable<-texte]: oracle=closed code=derived
+fixed [delivery_customer_text<-date-horodatée ; schedule_timezone<-objet-vide ; unfulfillable_reason<-cle-valide]: oracle=closed code=choose/fixed_slots
+fixed [delivery_applicable<-date-horodatée ; unfulfillable_reason<-liste-chaine-vide]: oracle=closed code=choose/fixed_slots
+window [schedule_timezone<-offre-sans-cle ; schedule_timezone<-liste-heure ; offers.2026-10-26.0.slot_key<-0]: oracle=closed code=choose/time_within_window
+selNone [delivery_applicable<-false ; schedule_timezone<-true]: oracle=closed code=choose/none
+selNone [offers.2026-10-24.0.slot_key<-1.5 ; delivery_applicable<-minuit-texte]: oracle=closed code=choose/none
+selNone [unfulfillable_reason<-liste-heure ; unfulfillable_reason<--1]: oracle=closed code=choose/none
+fixed [schedule_timezone<-liste-vide ; time_granularity_minutes<-liste-objet-vide]: oracle=closed code=choose/fixed_slots
+window [offers.2026-10-24.1.ends_at<-texte ; offers.2026-10-24.0.ends_at<-heure-09:00:00 ; eligible_dates.0<-absent]: oracle=closed code=choose/time_within_window
+selNone [offers.2026-10-24.0.slot_key<-offre-valide-jour ; time_granularity_minutes<-date-horodatée]: oracle=closed code=choose/none
+window [delivery_block<-heure-09:60 ; unfulfillable_reason<--1]: oracle=closed code=choose/time_within_window
+fixed [unfulfillable_reason<-liste-null ; delivery_eligible<-0]: oracle=closed code=choose/fixed_slots
+selNone [offers.2026-10-24.0.slot_key<-liste-objet-vide ; offers.2026-10-26.0.slot_key<-liste-chaine-vide]: oracle=closed code=choose/none
+window [unfulfillable_reason<-liste-objet-vide ; delivery_block<-liste-heure]: oracle=closed code=choose/time_within_window
+fixed [offers.2026-10-24.1.slot_key<-espace ; schedule_timezone<-1 ; offers.2026-10-24.0.slot_key<-cle-valide ; delivery_eligible<-objet-a1]: oracle=closed code=choose/fixed_slots
+selNone [offers.2026-10-26<-offre-sans-cle ; offers.2026-10-24.0.slot_key<--1]: oracle=closed code=choose/none
+selNone [schedule_timezone<-heure-25:00 ; delivery_applicable<-liste-null ; offers.2026-10-24.0.slot_key<-offre-valide-jour]: oracle=closed code=choose/none
+selNone [delivery_customer_text<-false ; offers.2026-10-26.0.slot_key<-objet-a1]: oracle=closed code=choose/none
+selNone [offers.2026-10-24.0.slot_key<-objet-vide ; delivery_block<-date-impossible]: oracle=closed code=choose/none
+fixed [schedule_timezone<-liste-chaine-vide ; delivery_eligible<-30-chaine ; time_granularity_minutes<-offre-inversee]: oracle=closed code=choose/fixed_slots
+selNone [delivery_eligible<-liste-de-listes ; offers.2026-10-24.0.slot_key<-1]: oracle=closed code=choose/none
+selNone [offers.2026-10-24.0.slot_key<-liste-de-listes ; delivery_customer_text<-1]: oracle=closed code=choose/none
+derived [unfulfillable_reason<-liste-heure ; delivery_block<-30-nombre ; schedule_timezone<-liste-objet-vide]: oracle=closed code=derived
+derived [delivery_eligible<-offre-valide-jour ; schedule_timezone<-30-nombre ; time_granularity_minutes<-offre-valide-jour]: oracle=closed code=derived
+window [offers.2026-10-26.0.slot_key<-offre-sans-cle ; delivery_customer_text<-42]: oracle=closed code=choose/time_within_window
+selNone [time_granularity_minutes<-liste-objet-vide ; delivery_eligible<-offre-valide-jour]: oracle=closed code=choose/none
+derived [delivery_applicable<-date-impossible ; offers.2026-10-24.0.slot_key<-liste-objet-vide ; delivery_customer_text<-heure-24:00]: oracle=closed code=derived
+selNone [offers.2026-10-24.0.slot_key<-true ; delivery_applicable<-chaine-vide]: oracle=closed code=choose/none
+derived [delivery_applicable<-offre-cle-42 ; time_granularity_minutes<-objet-vide ; delivery_eligible<-date-horodatée]: oracle=closed code=derived
+selNone [time_granularity_minutes<-liste-objet-vide ; time_granularity_minutes<-liste-heure]: oracle=closed code=choose/none
+window [offers.2026-10-24.0.ends_at<-heure-09:00:00 ; offers.2026-10-24.1<-liste-heure ; offers.2026-10-24<-offre-sans-cle]: oracle=closed code=choose/time_within_window
+window [delivery_applicable<-offre-inversee ; offers.2026-10-24.1.slot_key<-offre-sans-cle]: oracle=closed code=choose/time_within_window
+window [delivery_eligible<-cle-valide ; offers.2026-10-26<-offre-cle-42 ; delivery_eligible<--1 ; delivery_customer_text<-liste-vide]: oracle=closed code=choose/time_within_window
+window [unfulfillable_reason<-heure-24:00 ; offers.2026-10-26.0.starts_at<-liste-heure ; schedule_timezone<-heure-09:60]: oracle=closed code=choose/time_within_window
+window [offers.2026-10-24.0.slot_key<-false ; delivery_block<-liste-chaine-vide]: oracle=closed code=choose/time_within_window
+derived [delivery_block<-30-nombre ; unfulfillable_reason<-true ; offers.2026-10-24.0.slot_key<-liste-heure]: oracle=closed code=derived
+window [offers.2026-10-24.1.slot_key<-objet-a1 ; delivery_eligible<-texte]: oracle=closed code=choose/time_within_window
+window [schedule_timezone<-1 ; delivery_block<-liste-vide]: oracle=closed code=choose/time_within_window
+fixed [delivery_applicable<-absent ; schedule_timezone<-liste-chaine-vide]: oracle=closed code=choose/fixed_slots
+derived [unfulfillable_reason<-1.5 ; schedule_timezone<--1 ; schedule_timezone<-date-iso]: oracle=closed code=derived
+selNone [time_granularity_minutes<-objet-vide ; offers.2026-10-24.0.slot_key<-null]: oracle=closed code=choose/none
+fixed [eligible_dates.0<-absent ; offers.2026-10-24.1.ends_at<-0]: oracle=closed code=choose/fixed_slots
+fixed [delivery_block<-30-chaine ; unfulfillable_reason<-objet-vide]: oracle=closed code=choose/fixed_slots
+fixed [delivery_applicable<-null ; unfulfillable_reason<-1]: oracle=closed code=choose/fixed_slots
+selNone [offers.2026-10-24<-objet-vide ; offers.2026-10-24<-offre-cle-42]: oracle=closed code=choose/none
+fixed [offers.2026-10-24.1.slot_key<-30-chaine ; eligible_dates.0<-absent]: oracle=closed code=choose/fixed_slots
+derived [offers.2026-10-24.0.slot_key<-offre-cle-42 ; delivery_block<-minuit-texte ; unfulfillable_reason<-false]: oracle=closed code=derived
+window [schedule_timezone<-1.5 ; unfulfillable_reason<-null ; delivery_eligible<-heure-09:60]: oracle=closed code=choose/time_within_window
+window [offers.2026-10-24.0.starts_at<-liste-heure ; offers.2026-10-24.0.slot_key<-offre-sans-cle ; delivery_eligible<-offre-cle-42 ; delivery_eligible.0.ends_at<-liste-chaine-vide]: oracle=closed code=choose/time_within_window
+derived [delivery_applicable<-heure-09:00:00 ; unfulfillable_reason<-liste-chaine-vide]: oracle=closed code=derived
+window [offers.2026-10-24.1<-date-horodatée ; delivery_eligible<-date-non-bissextile ; offers.2026-10-24<-offre-cle-42]: oracle=closed code=choose/time_within_window
+derived [unfulfillable_reason<-chaine-vide ; schedule_timezone<-liste-null]: oracle=closed code=derived
+selNone [offers.2026-10-26.0.starts_at<-liste-heure ; offers.2026-10-26.0.slot_key<-false]: oracle=closed code=choose/none
+fixed [schedule_timezone<-objet-a1 ; delivery_eligible<-heure-09:00:00 ; delivery_eligible<-cle-valide]: oracle=closed code=choose/fixed_slots
+derived [time_granularity_minutes<-heure-9:00 ; delivery_block<-true ; delivery_block<-absent]: oracle=closed code=derived
+derived [delivery_customer_text<-heure-09:60 ; delivery_applicable<-42 ; time_granularity_minutes<-chaine-vide ; delivery_block<-espace]: oracle=closed code=derived
+derived [delivery_applicable<-0 ; unfulfillable_reason<-offre-inversee]: oracle=closed code=derived
+derived [offers.2026-10-24.0.slot_key<-offre-cle-42 ; delivery_block<--1]: oracle=closed code=derived
+derived [delivery_applicable<-liste-heure ; schedule_timezone<-1]: oracle=closed code=derived
+window [offers.2026-10-24.1.slot_key<-liste-objet-vide ; offers.2026-10-24.1.slot_key<-absent ; offers.2026-10-26.0.slot_key<-null]: oracle=closed code=choose/time_within_window
+fixed [offers.2026-10-24.0.starts_at<-minuit-texte ; time_granularity_minutes<-30-chaine]: oracle=closed code=choose/fixed_slots
+fixed [schedule_timezone<-offre-inversee ; time_granularity_minutes<-heure-09:60]: oracle=closed code=choose/fixed_slots
+derived [time_granularity_minutes<-liste-de-listes ; delivery_customer_text<-objet-a1 ; delivery_eligible<-chaine-vide]: oracle=closed code=derived
+derived [time_granularity_minutes<-offre-inversee ; offers.2026-10-24.0.slot_key<-liste-heure]: oracle=closed code=derived
+selNone [unfulfillable_reason<-heure-25:00 ; time_granularity_minutes<-offre-cle-42]: oracle=closed code=choose/none
+derived [schedule_timezone<-offre-inversee ; unfulfillable_reason<-heure-09:60 ; schedule_timezone.0<-1.5]: oracle=closed code=derived
+derived [offers.2026-10-24.0.starts_at<-minuit-texte ; time_granularity_minutes<-liste-chaine-vide]: oracle=closed code=derived
+derived [delivery_applicable<-liste-null ; unfulfillable_reason<-false ; time_granularity_minutes<-1]: oracle=closed code=derived
+derived [delivery_eligible<-chaine-vide ; time_granularity_minutes<-espace]: oracle=closed code=derived
+selNone [schedule_timezone<-liste-heure ; schedule_timezone<-objet-a1 ; delivery_eligible<-42 ; offers.2026-10-24.0.slot_key<-liste-heure]: oracle=closed code=choose/none
+derived [unfulfillable_reason<-liste-objet-vide ; schedule_timezone<-1.5 ; delivery_applicable<-heure-09:00:00 ; delivery_applicable<-heure-9:00]: oracle=closed code=derived
+selNone [delivery_block<-cle-valide ; schedule_timezone<-liste-vide]: oracle=closed code=choose/none
+selNone [unfulfillable_reason<-liste-objet-vide ; delivery_applicable<-null]: oracle=closed code=choose/none
+selNone [delivery_customer_text<-liste-vide ; schedule_timezone<-date-horodatée ; schedule_timezone<-false]: oracle=closed code=choose/none
+window [offers.2026-10-24.1.slot_key<-objet-a1 ; delivery_eligible<-offre-inversee]: oracle=closed code=choose/time_within_window
+derived [delivery_customer_text<-date-non-bissextile ; time_granularity_minutes<-heure-24:00 ; delivery_block<-date-impossible]: oracle=closed code=derived
+selNone [delivery_eligible<-heure-25:00 ; unfulfillable_reason<-1]: oracle=closed code=choose/none
+fixed [time_granularity_minutes<-offre-cle-42 ; delivery_applicable<-liste-chaine-vide]: oracle=closed code=choose/fixed_slots
+selNone [schedule_timezone<-minuit-texte ; schedule_timezone<--1]: oracle=closed code=choose/none
+derived [time_granularity_minutes<-true ; unfulfillable_reason<-heure-24:00]: oracle=closed code=derived
+window [eligible_dates.1<-absent ; offers.2026-10-26.0.starts_at<-null]: oracle=closed code=choose/time_within_window
+selNone [delivery_block<-offre-inversee ; offers.2026-10-26<-offre-cle-42]: oracle=closed code=choose/none
+derived [delivery_applicable<-offre-sans-cle ; offers.2026-10-24.0.slot_key<-liste-null ; delivery_applicable<-liste-de-listes]: oracle=closed code=derived
+window [offers.2026-10-24.1.slot_key<-offre-sans-cle ; offers.2026-10-24.1.slot_key<-offre-sans-cle]: oracle=closed code=choose/time_within_window
+selNone [schedule_timezone<-heure-25:00 ; offers.2026-10-24.0.slot_key<-heure-25:00 ; delivery_block<-espace ; eligible_dates.0<-absent]: oracle=closed code=choose/none
+selNone [eligible_dates.0<-absent ; unfulfillable_reason<-date-non-bissextile]: oracle=closed code=choose/none
+fixed [unfulfillable_reason<-liste-heure ; delivery_eligible<-date-iso]: oracle=closed code=choose/fixed_slots
+window [unfulfillable_reason<-liste-de-listes ; delivery_block<-1 ; delivery_customer_text<-false]: oracle=closed code=choose/time_within_window
+derived [time_granularity_minutes<-objet-vide ; delivery_block<-heure-09:00:00]: oracle=closed code=derived
+fixed [delivery_block<-heure-9:00 ; unfulfillable_reason<-offre-valide-jour ; delivery_applicable<-espace ; delivery_block<-null]: oracle=closed code=choose/fixed_slots
+fixed [delivery_block<-liste-vide ; schedule_timezone<-liste-heure]: oracle=closed code=choose/fixed_slots
+selNone [offers.2026-10-26.0.slot_key<-offre-inversee ; offers.2026-10-26.0.slot_key.0.slot_key<-date-non-bissextile ; delivery_eligible<-1.5 ; offers.2026-10-26.0.slot_key.0.slot_key<-0]: oracle=closed code=choose/none
+fixed [schedule_timezone<-0 ; time_granularity_minutes<-date-horodatée ; delivery_block<-objet-vide]: oracle=closed code=choose/fixed_slots
+selNone [delivery_applicable<-heure-24:00 ; offers.2026-10-26.0.slot_key<-liste-null]: oracle=closed code=choose/none
+selNone [time_granularity_minutes<-liste-de-listes ; delivery_customer_text<-30-nombre ; delivery_block<-true]: oracle=closed code=choose/none
+fixed [time_granularity_minutes<-liste-heure ; delivery_block<-offre-cle-42]: oracle=closed code=choose/fixed_slots
+derived [offers.2026-10-24.0.starts_at<-espace ; offers.2026-10-24<-offre-cle-42 ; delivery_eligible<-heure-09:00:00]: oracle=closed code=derived
+selNone [schedule_timezone<-42 ; delivery_eligible<-cle-valide]: oracle=closed code=choose/none
+derived [delivery_applicable<-offre-inversee ; schedule_timezone<-liste-chaine-vide ; schedule_timezone.0<-liste-vide]: oracle=closed code=derived
+fixed [time_granularity_minutes<-offre-sans-cle ; delivery_applicable<-true ; schedule_timezone<-minuit-texte]: oracle=closed code=choose/fixed_slots
+derived [offers.2026-10-24.0.slot_key<-1.5 ; delivery_customer_text<-true]: oracle=closed code=derived
+selNone [time_granularity_minutes<-minuit-texte ; time_granularity_minutes<-liste-heure]: oracle=closed code=choose/none
+window [unfulfillable_reason<-liste-objet-vide ; delivery_applicable<-heure-25:00]: oracle=closed code=choose/time_within_window
+derived [delivery_block<-date-iso ; delivery_eligible<-date-iso ; delivery_applicable<-objet-vide ; time_granularity_minutes<-liste-vide]: oracle=closed code=derived
+selNone [delivery_eligible<-1 ; schedule_timezone<-offre-sans-cle]: oracle=closed code=choose/none
+derived [schedule_timezone<-liste-null ; offers.2026-10-24.0.slot_key<-absent]: oracle=closed code=derived
+derived [time_granularity_minutes<-liste-chaine-vide ; time_granularity_minutes.0<-42]: oracle=closed code=derived
+derived [unfulfillable_reason<-1.5 ; delivery_block<-offre-valide-jour]: oracle=closed code=derived
+derived [delivery_block<-objet-vide ; offers.2026-10-24.0.slot_key<-date-impossible ; offers.2026-10-24<-offre-cle-42]: oracle=closed code=derived
+selNone [unfulfillable_reason<-1.5 ; delivery_customer_text<-null]: oracle=closed code=choose/none
+selNone [eligible_dates.1<-absent ; offers.2026-10-26.0<-42 ; delivery_eligible<-liste-null]: oracle=closed code=choose/none
+selNone [unfulfillable_reason<-30-chaine ; offers.2026-10-24.0.slot_key<-30-nombre]: oracle=closed code=choose/none
+derived [delivery_customer_text<-heure-25:00 ; time_granularity_minutes<-liste-vide]: oracle=closed code=derived
+derived [offers.2026-10-24.0.slot_key<-objet-a1 ; delivery_applicable<-false ; offers.2026-10-24.0.slot_key<-offre-valide-jour]: oracle=closed code=derived
+window [offers.2026-10-24.1.slot_key<-liste-null ; unfulfillable_reason<-objet-vide ; delivery_applicable<-heure-09:60]: oracle=closed code=choose/time_within_window
+window [schedule_timezone<-0 ; delivery_customer_text<-heure-09:60]: oracle=closed code=choose/time_within_window
+window [delivery_applicable<-absent ; unfulfillable_reason<-liste-heure ; delivery_customer_text<-objet-vide ; delivery_eligible<-null]: oracle=closed code=choose/time_within_window
+derived [unfulfillable_reason<--1 ; schedule_timezone<-1]: oracle=closed code=derived
+selNone [offers.2026-10-24.0.ends_at<-offre-inversee ; eligible_dates.0<-absent]: oracle=closed code=choose/none
+derived [time_granularity_minutes<-date-non-bissextile ; delivery_customer_text<-offre-cle-42 ; delivery_applicable<-liste-chaine-vide ; schedule_timezone<-null]: oracle=closed code=derived
+derived [delivery_customer_text<--1 ; delivery_block<-offre-sans-cle ; offers.2026-10-24.0.slot_key<-false]: oracle=closed code=derived
+selNone [offers.2026-10-26.0.slot_key<-liste-heure ; delivery_block<-minuit-texte]: oracle=closed code=choose/none
+selNone [delivery_customer_text<-30-chaine ; offers.2026-10-26.0.slot_key<-chaine-vide ; offers.2026-10-26.0.slot_key<-objet-a1]: oracle=closed code=choose/none
+selNone [offers.2026-10-26.0.starts_at<-liste-heure ; unfulfillable_reason<-liste-objet-vide]: oracle=closed code=choose/none
+fixed [unfulfillable_reason<-offre-sans-cle ; delivery_block<-liste-null]: oracle=closed code=choose/fixed_slots
+derived [delivery_block<-heure-09:60 ; unfulfillable_reason<-liste-chaine-vide ; schedule_timezone<-true]: oracle=closed code=derived
+fixed [offers.2026-10-24.1.slot_key<-heure-24:00 ; time_granularity_minutes<-date-horodatée]: oracle=closed code=choose/fixed_slots
+derived [delivery_applicable<-liste-vide ; delivery_customer_text<-heure-9:00 ; schedule_timezone<-objet-vide]: oracle=closed code=derived
+derived [time_granularity_minutes<-1 ; delivery_applicable<-1.5 ; schedule_timezone<-liste-objet-vide]: oracle=closed code=derived
+fixed [eligible_dates.0<-absent ; offers.2026-10-24.0<-cle-valide ; delivery_customer_text<-espace]: oracle=closed code=choose/fixed_slots
+selNone [schedule_timezone<-minuit-texte ; delivery_customer_text<-texte ; offers.2026-10-24.0.starts_at<-liste-heure]: oracle=closed code=choose/none
+selNone [offers.2026-10-26.0.slot_key<-offre-sans-cle ; delivery_applicable<-chaine-vide]: oracle=closed code=choose/none
+derived [offers.2026-10-24.0.slot_key<-objet-a1 ; delivery_eligible<-date-iso ; delivery_customer_text<-30-nombre]: oracle=closed code=derived
+selNone [time_granularity_minutes<-date-non-bissextile ; offers.2026-10-24.0.slot_key<-objet-vide]: oracle=closed code=choose/none
+derived [delivery_customer_text<-date-horodatée ; offers.2026-10-24.0.starts_at<-liste-de-listes ; offers.2026-10-24.0.starts_at.0<-minuit-texte ; delivery_customer_text<-true]: oracle=closed code=derived
+derived [offers.2026-10-24.0.slot_key<-offre-sans-cle ; time_granularity_minutes<-heure-09:60 ; unfulfillable_reason<-0 ; offers.2026-10-24.0.slot_key.0.starts_at<-cle-valide]: oracle=closed code=derived
+fixed [schedule_timezone<-minuit-texte ; delivery_eligible<-objet-vide ; time_granularity_minutes<-false ; delivery_customer_text<-offre-inversee]: oracle=closed code=choose/fixed_slots
+derived [unfulfillable_reason<-liste-chaine-vide ; delivery_applicable<-42 ; delivery_customer_text<-liste-heure ; offers.2026-10-24.0.slot_key<-liste-chaine-vide]: oracle=closed code=derived
+derived [delivery_applicable<-1 ; time_granularity_minutes<-liste-objet-vide]: oracle=closed code=derived
+derived [schedule_timezone<-cle-valide ; offers.2026-10-24<-offre-cle-42]: oracle=closed code=derived
+window [schedule_timezone<-liste-objet-vide ; offers.2026-10-24.0.slot_key<-objet-vide]: oracle=closed code=choose/time_within_window
+window [offers.2026-10-26.0.slot_key<-liste-heure ; offers.2026-10-26.0.slot_key.0<-minuit-texte]: oracle=closed code=choose/time_within_window
+selNone [offers.2026-10-24.0.slot_key<-false ; delivery_customer_text<-date-horodatée]: oracle=closed code=choose/none
+window [offers.2026-10-26.0.starts_at<-heure-24:00 ; offers.2026-10-26<-offre-sans-cle]: oracle=closed code=choose/time_within_window
+window [offers.2026-10-24.0.slot_key<-liste-objet-vide ; delivery_eligible<-30-nombre ; eligible_dates.0<-date-iso ; time_granularity_minutes<-42]: oracle=closed code=choose/time_within_window
+derived [offers.2026-10-24.0.slot_key<-liste-chaine-vide ; delivery_eligible<-heure-25:00 ; delivery_applicable<-false]: oracle=closed code=derived
+fixed [delivery_block<-1.5 ; unfulfillable_reason<-liste-chaine-vide]: oracle=closed code=choose/fixed_slots
+selNone [time_granularity_minutes<-absent ; unfulfillable_reason<-liste-de-listes]: oracle=closed code=choose/none
+window [delivery_block<-objet-a1 ; delivery_block<-date-impossible ; offers.2026-10-26.0.slot_key<-liste-vide ; unfulfillable_reason<-offre-sans-cle]: oracle=closed code=choose/time_within_window
+derived [schedule_timezone<-offre-sans-cle ; schedule_timezone.0<-objet-vide ; unfulfillable_reason<-null]: oracle=closed code=derived
+fixed [schedule_timezone<-chaine-vide ; delivery_applicable<-objet-vide]: oracle=closed code=choose/fixed_slots
+derived [offers.2026-10-24.0.slot_key<-42 ; offers.2026-10-24.0.slot_key<-liste-heure]: oracle=closed code=derived
+derived [delivery_block<-date-horodatée ; unfulfillable_reason<-1]: oracle=closed code=derived
+derived [time_granularity_minutes<-offre-valide-jour ; delivery_block<-0 ; delivery_block<--1]: oracle=closed code=derived
+derived [offers.2026-10-24<-offre-sans-cle ; delivery_applicable<-liste-objet-vide ; delivery_applicable<-offre-cle-42]: oracle=closed code=derived
+window [delivery_applicable<-objet-a1 ; schedule_timezone<-texte ; first_eligible_date<-absent ; delivery_customer_text<-chaine-vide]: oracle=closed code=choose/time_within_window
+window [offers.2026-10-24.1.slot_key<-liste-heure ; offers.2026-10-26.0.slot_key<-objet-a1]: oracle=closed code=choose/time_within_window
+selNone [offers.2026-10-26.0.slot_key<-liste-vide ; delivery_eligible<-heure-09:60]: oracle=closed code=choose/none
+selNone [schedule_timezone<-42 ; offers.2026-10-24.0.ends_at<-date-impossible ; eligible_dates.0<-absent]: oracle=closed code=choose/none
+derived [delivery_eligible<-texte ; unfulfillable_reason<-liste-de-listes ; time_granularity_minutes<-30-chaine ; schedule_timezone<-liste-null]: oracle=closed code=derived
+derived [offers.2026-10-24.0.slot_key<-42 ; schedule_timezone<-minuit-texte]: oracle=closed code=derived
+## statuts non disponibles + données
+absent + dates: oracle=closed code=none
+absent + première date: oracle=closed code=none
+absent + offres: oracle=closed code=none
+absent + dates de mauvais type: oracle=closed code=none
+absent + offres de mauvais type: oracle=closed code=none
+blocked_upstream + dates: oracle=closed code=none
+blocked_upstream + première date: oracle=closed code=none
+blocked_upstream + offres: oracle=closed code=none
+blocked_upstream + dates de mauvais type: oracle=closed code=none
+blocked_upstream + offres de mauvais type: oracle=closed code=none
+informational_only + dates: oracle=closed code=none
+informational_only + première date: oracle=closed code=none
+informational_only + offres: oracle=closed code=none
+informational_only + dates de mauvais type: oracle=closed code=none
+informational_only + offres de mauvais type: oracle=closed code=none
+unfulfillable + dates: oracle=closed code=blocked
+unfulfillable + première date: oracle=closed code=blocked
+unfulfillable + offres: oracle=closed code=blocked
+unfulfillable + dates de mauvais type: oracle=closed code=blocked
+unfulfillable + offres de mauvais type: oracle=closed code=blocked
