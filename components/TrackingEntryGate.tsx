@@ -6,7 +6,9 @@ import { translate, type Lang } from "@/lib/i18n";
 import {
   buildCleanTrackingPath,
   parseTrackingFragment,
+  parseTrackingViewFromSearch,
   type TrackingFragment,
+  type TrackingView,
 } from "@/lib/tracking/link";
 
 /**
@@ -87,6 +89,11 @@ export default function TrackingEntryGate({
   const [rawHash] = useState<string>(() =>
     typeof window === "undefined" ? "" : window.location.hash
   );
+  // RÉTRACTATION DIRECTE : vue demandée par le lien (liste blanche
+  // stricte), capturée au rendu pour la même raison que `rawHash`.
+  const [preservedView] = useState<TrackingView | null>(() =>
+    typeof window === "undefined" ? null : parseTrackingViewFromSearch(window.location.search)
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -139,7 +146,18 @@ export default function TrackingEntryGate({
           // visible AVANT de redemander le rendu serveur -- jamais de
           // fenêtre où l'URL affichée porte encore le jeton pendant
           // qu'un nouveau contenu se charge.
-          window.history.replaceState(null, "", buildCleanTrackingPath(orderId));
+          //
+          // RÉTRACTATION DIRECTE : la SEULE valeur de requête conservée
+          // est `view=withdrawal` (liste blanche stricte, égalité
+          // exacte, paramètre unique) -- sans cela, l'actualisation
+          // serveur ci-dessous ramènerait le client sur la page de
+          // suivi complète. Aucun autre paramètre n'est recopié, et le
+          // jeton (fragment) est retiré comme avant.
+          window.history.replaceState(
+            null,
+            "",
+            buildCleanTrackingPath(orderId, preservedView)
+          );
           router.refresh();
           return;
         }
@@ -157,7 +175,7 @@ export default function TrackingEntryGate({
     return () => {
       cancelled = true;
     };
-  }, [orderId, router, rawHash]);
+  }, [orderId, router, rawHash, preservedView]);
 
   const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
 

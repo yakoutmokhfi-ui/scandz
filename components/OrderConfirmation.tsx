@@ -6,6 +6,7 @@ import { formatAddress } from "@/lib/customer";
 import { useI18n } from "@/lib/i18n-context";
 import type { Translator } from "@/lib/i18n";
 import Ltr from "@/components/Bidi";
+import { withdrawalViewPathFromTrackingPath } from "@/lib/tracking/link";
 import { isWhatsappEnabled } from "@/lib/customer-contact";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 import { resolveCommunicationText } from "@/lib/communications/resolve";
@@ -215,7 +216,19 @@ export default function OrderConfirmation({
   // MCC-V1-CONTRACT-CHANGE-01 : plus aucun bouton « Suivre ma
   // commande ». Le SEUL appel à l'action conservé est la rétractation,
   // et uniquement sur preuve serveur.
-  const showWithdrawalCta = withdrawalEligible === true && trackingPath !== null;
+  //
+  // RÉTRACTATION DIRECTE : le bouton ouvre DIRECTEMENT le formulaire
+  // (`/track/<id>?view=withdrawal#<jeton>`) au lieu de la page de suivi
+  // complète. Le lien est DÉRIVÉ du lien de suivi déjà construit, avec
+  // échec fermé : un lien qui n'a pas exactement la forme attendue ne
+  // produit AUCUN bouton (jamais une URL réparée). Le jeton reste dans
+  // le fragment ; la preuve d'éligibilité et la session de suivi sont
+  // revérifiées côté serveur à l'arrivée (app/track/[orderId]/page.tsx).
+  const withdrawalHref =
+    withdrawalEligible === true && trackingPath !== null
+      ? withdrawalViewPathFromTrackingPath(trackingPath)
+      : null;
+  const showWithdrawalCta = withdrawalHref !== null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-crema px-6 py-10">
@@ -264,7 +277,7 @@ export default function OrderConfirmation({
             QUE react/react-dom. */}
         {showWithdrawalCta && (
           <a
-            href={trackingPath}
+            href={withdrawalHref}
             data-order-confirmation-withdrawal=""
             className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl bg-caramel py-3.5 text-center font-bold text-caramel-ink shadow-sm"
           >

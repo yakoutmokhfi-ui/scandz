@@ -225,6 +225,9 @@ const PICKUP_REQS = [
 const ORDER_A = { orderId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", token: "aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa", number: 101 };
 const ORDER_B = { orderId: "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb", token: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb", number: 102 };
 const trackingPathOf = (o: typeof ORDER_A) => `/track/${o.orderId}#${o.token}`;
+/** RÉTRACTATION DIRECTE : le CTA ouvre la vue formulaire de la MÊME commande. */
+const withdrawalPathOf = (o: { orderId: string; token: string }) =>
+  `/track/${o.orderId}?view=withdrawal#${o.token}`;
 
 interface Backend {
   readonly createOrderCalls: number[];
@@ -469,7 +472,7 @@ test("[RACE-3] quand le CTA s'affiche, son href est EXACTEMENT le trackingPath d
     await waitFor(() => withdrawalCta(container) !== null, "CTA de rétractation affiché pour A");
 
     const ctaA = withdrawalCta(container)!;
-    assert.equal(ctaA.getAttribute("href"), trackingPathOf(ORDER_A), "le href est le trackingPath de A");
+    assert.equal(ctaA.getAttribute("href"), withdrawalPathOf(ORDER_A), "le href est la vue formulaire de A");
     // La preuve a bien été demandée POUR CE COUPLE, pas pour un autre.
     assert.deepEqual(backend.eligibilityCalls[0], {
       orderId: ORDER_A.orderId,
@@ -478,7 +481,7 @@ test("[RACE-3] quand le CTA s'affiche, son href est EXACTEMENT le trackingPath d
     // Le jeton ne voyage que dans le fragment (contrat §6/§7 préservé).
     const urlA = new URL(ctaA.getAttribute("href")!, "http://localhost");
     assert.equal(urlA.pathname, `/track/${ORDER_A.orderId}`);
-    assert.equal(urlA.search, "");
+    assert.equal(urlA.search, "?view=withdrawal");
     assert.equal(urlA.hash, `#${ORDER_A.token}`);
 
     // --- B rétractable AUSSI : le CTA doit basculer sur B, jamais
@@ -493,7 +496,7 @@ test("[RACE-3] quand le CTA s'affiche, son href est EXACTEMENT le trackingPath d
     await waitFor(() => withdrawalCta(container) !== null, "CTA de rétractation affiché pour B");
 
     const ctaB = withdrawalCta(container)!;
-    assert.equal(ctaB.getAttribute("href"), trackingPathOf(ORDER_B), "le href est désormais le trackingPath de B");
+    assert.equal(ctaB.getAttribute("href"), withdrawalPathOf(ORDER_B), "le href est désormais la vue formulaire de B");
     assert.equal(
       ctaB.getAttribute("href")!.includes(ORDER_A.orderId),
       false,

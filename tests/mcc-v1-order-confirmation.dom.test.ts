@@ -237,15 +237,19 @@ test("[WITHDRAWAL-2] `false` => aucun CTA", async () => {
   root.unmount();
 });
 
-test("[WITHDRAWAL-3] `true` + chemin disponible => CTA rendu, pointant EXACTEMENT le chemin transmis", async () => {
+test("[WITHDRAWAL-3] `true` + chemin disponible => CTA rendu, pointant la VUE FORMULAIRE de la commande transmise", async () => {
   const { container, root } = await render({ withdrawalEligible: true, trackingPath: TRACKING_PATH });
   const cta = container.querySelector<HTMLAnchorElement>("[data-order-confirmation-withdrawal]");
   assert.ok(cta, "le CTA de rétractation doit être rendu");
-  assert.equal(cta!.getAttribute("href"), TRACKING_PATH);
+  // RÉTRACTATION DIRECTE (modifié, voir tests/withdrawal-direct-form-v1.dom.test.ts) :
+  // le CTA ouvre directement le formulaire -- même commande, même jeton,
+  // `?view=withdrawal` en plus -- au lieu de la page de suivi complète.
+  assert.equal(cta!.getAttribute("href"), `/track/${ORDER_ID}?view=withdrawal#${TOKEN}`);
   assert.equal(cta!.textContent, translate("fr", "confirmWithdrawalCta"));
   // Le jeton ne voyage QUE dans le fragment -- contrat §6/§7 préservé.
   assert.equal(cta!.getAttribute("href")!.includes(`/${TOKEN}`), false);
-  assert.equal(cta!.getAttribute("href")!.includes("?"), false);
+  assert.equal(cta!.getAttribute("href")!.split("#")[0]!.includes(TOKEN), false);
+  assert.equal(cta!.getAttribute("href")!.split("#")[0]!.endsWith("?view=withdrawal"), true);
   root.unmount();
 });
 

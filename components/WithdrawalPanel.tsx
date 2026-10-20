@@ -107,15 +107,25 @@ export default function WithdrawalPanel({
   orderNumber,
   options,
   lang,
+  startOpen = false,
 }: {
   orderId: string;
   orderNumber: number;
   options: WithdrawalPanelOption[];
   lang: Lang;
+  /**
+   * RÉTRACTATION DIRECTE : monté par la vue « formulaire seul » de la
+   * page de suivi (`?view=withdrawal`), le panneau démarre sur l'étape
+   * de sélection au lieu du bouton d'ouverture (qui serait alors un
+   * SECOND bouton redondant avec celui de l'écran de confirmation) et
+   * porte le titre de page (h1). Ne change rien d'autre : mêmes
+   * étapes, mêmes contrôles, même envoi, aucune écriture à l'ouverture.
+   */
+  startOpen?: boolean;
 }) {
   const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
 
-  const [step, setStep] = useState<Step>("closed");
+  const [step, setStep] = useState<Step>(startOpen ? "selection" : "closed");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   // LOT 2 -- QUANTITÉ UX. Tampon de SAISIE BRUTE, distinct de
   // `quantities` (la quantité RETENUE, seule source pour `checked`,
@@ -279,7 +289,11 @@ export default function WithdrawalPanel({
   if (step === "selection") {
     return (
       <section className="mt-6 rounded-2xl border border-ink-on-bg/15 p-4" data-withdrawal-step="selection">
-        <h2 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h2>
+        {startOpen ? (
+          <h1 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h1>
+        ) : (
+          <h2 className="text-lg font-bold text-ink-on-bg">{t("withdrawalEntryAction")}</h2>
+        )}
         <p className="mt-1 text-sm text-ink-on-bg-muted">{t("withdrawalOrderRef", { n: orderNumber })}</p>
         <p className="mt-2 text-sm text-ink-on-bg-muted">{t("withdrawalSelectionHelp")}</p>
 
