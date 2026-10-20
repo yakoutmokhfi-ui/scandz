@@ -243,6 +243,7 @@ export default async function TrackingPage({
           }))}
           lang={lang}
           startOpen
+          backHref={cleanPath}
         />
       </TrackingShell>
     );

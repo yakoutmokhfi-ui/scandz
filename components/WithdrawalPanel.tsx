@@ -108,6 +108,7 @@ export default function WithdrawalPanel({
   options,
   lang,
   startOpen = false,
+  backHref,
 }: {
   orderId: string;
   orderNumber: number;
@@ -122,8 +123,25 @@ export default function WithdrawalPanel({
    * étapes, mêmes contrôles, même envoi, aucune écriture à l'ouverture.
    */
   startOpen?: boolean;
+  /**
+   * Vue autonome uniquement : destination du « Retour » de la PREMIÈRE
+   * étape. Sans elle, « Retour » refermait le formulaire sur le bouton
+   * d'entrée -- redondant ici, puisque l'accès direct existe précisément
+   * pour supprimer cet écran intermédiaire. C'est un lien ordinaire vers
+   * la page de suivi parent (chemin propre, jamais de jeton) : il
+   * repasse par la session serveur, donc ne contourne aucune
+   * vérification. Ignoré hors vue autonome (là, le bouton d'entrée est
+   * celui de la page de suivi et « Retour » y ramène, comme avant).
+   */
+  backHref?: string;
 }) {
   const t = (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
+
+  // Destination du « Retour » de la vue autonome : uniquement un chemin
+  // PROPRE `/track/<id>` (aucune requête, aucun fragment, aucun hôte).
+  // Toute autre valeur est ignorée -- jamais un lien arbitraire.
+  const safeBackHref =
+    typeof backHref === "string" && /^\/track\/[^/?#]+$/.test(backHref) ? backHref : null;
 
   const [step, setStep] = useState<Step>(startOpen ? "selection" : "closed");
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -348,13 +366,23 @@ export default function WithdrawalPanel({
         </ul>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setStep("closed")}
-            className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
-          >
-            {t("withdrawalBack")}
-          </button>
+          {startOpen && safeBackHref ? (
+            <a
+              href={safeBackHref}
+              data-withdrawal-action="back"
+              className="inline-flex min-h-11 items-center rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
+            >
+              {t("withdrawalBack")}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setStep("closed")}
+              className="min-h-11 rounded-xl border border-ink-on-bg/30 px-4 py-2 text-sm font-semibold text-ink-on-bg"
+            >
+              {t("withdrawalBack")}
+            </button>
+          )}
           <button
             type="button"
             data-withdrawal-action="continue"

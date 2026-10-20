@@ -138,6 +138,7 @@ const mockPlugin: esbuild.Plugin = {
 const entrySource = `
 export { default as TrackingPage } from "@/app/track/[orderId]/page";
 export { default as OrderConfirmation } from "@/components/OrderConfirmation";
+export { default as WithdrawalPanel } from "@/components/WithdrawalPanel";
 export * as linkHelpers from "@/lib/tracking/link";
 `;
 
@@ -170,7 +171,7 @@ const code = buildResult.outputFiles[0].text;
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-wdirect-"));
 const tmpFile = path.join(tmpDir, "Bundle.mjs");
 writeFileSync(tmpFile, code);
-const { TrackingPage, OrderConfirmation, linkHelpers } = await import(pathToFileURL(tmpFile).href);
+const { TrackingPage, OrderConfirmation, WithdrawalPanel, linkHelpers } = await import(pathToFileURL(tmpFile).href);
 rmSync(tmpDir, { recursive: true, force: true });
 
 function flush(ms = 20): Promise<void> {
@@ -669,6 +670,208 @@ test("[WD-18] parcours bout en bout : lien du bouton -> passerelle (échange) ->
   } finally {
     root.unmount();
     container.remove();
+  }
+});
+
+// ------------------------------------------------------------------
+// 6b. « Retour » de la vue autonome (défaut P3, contre-audit Turing sur 5b81d34)
+//
+// Dans la vue formulaire seule, « Retour » (première étape) refermait le
+// formulaire et ramenait le client à un bouton d'entrée REDONDANT
+// (« Exercer mon droit de rétractation ») -- exactement l'écran
+// intermédiaire que le parcours direct supprime. Destination cohérente :
+// la page de suivi PARENT (`/track/<id>`, chemin propre, sans jeton ni
+// requête) où ce panneau vit déjà derrière son bouton d'entrée ; elle
+// repasse par la session serveur, donc ne contourne aucune vérification.
+// ------------------------------------------------------------------
+
+function backControl(c: Element): HTMLElement | null {
+  const section = q(c, FORM_STEP);
+  if (!section) return null;
+  return ([...section.querySelectorAll("a,button")] as HTMLElement[]).find(
+    (el) => (el.textContent ?? "").trim() === "Retour"
+  ) ?? null;
+}
+
+test("[WD-19] vue autonome, étape de sélection : « Retour » mène à la page de suivi PARENT (lien propre, sans jeton ni requête) -- il ne referme pas le formulaire sur un bouton d'entrée redondant", async (t) => {
+  installRpc(t);
+  setLocation(`/track/${ORDER_ID}?view=withdrawal`);
+  const { container, root } = await renderPage({ search: { view: "withdrawal" } });
+  try {
+    const back = backControl(container);
+    assert.ok(back, "un contrôle « Retour » existe à la première étape");
+    // Reproduction du défaut : activer « Retour » ne doit JAMAIS laisser le client sur le
+    // bouton d'entrée redondant (avant le correctif, le panneau se refermait dessus).
+    back!.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }));
+    await flush(30);
+    assert.ok(q(container, OPEN_BTN) === null, "jamais le bouton d'entrée redondant après « Retour »");
+    // Le contrôle est une vraie navigation vers la page parent, au chemin PROPRE.
+    assert.equal(backControl(container) === null ? "A" : backControl(container)!.tagName, "A", "navigation réelle vers la page parent, pas un état local");
+    assert.equal(back!.getAttribute("href"), `/track/${ORDER_ID}`, "chemin PROPRE : ni jeton, ni requête, ni fragment");
+    assert.equal(container.innerHTML.includes(TOKEN), false);
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[WD-20] vue de suivi par défaut : « Retour » de la sélection referme le panneau derrière SON bouton d'entrée (comportement inchangé -- là, ce bouton n'est pas redondant)", async (t) => {
+  installRpc(t);
+  setLocation(`/track/${ORDER_ID}`);
+  const { container, root } = await renderPage({ search: {} });
+  try {
+    (q(container, OPEN_BTN) as HTMLElement).click();
+    await flush(30);
+    const back = backControl(container);
+    assert.ok(back);
+    assert.equal(back!.tagName, "BUTTON", "état local, pas de navigation");
+    back!.click();
+    await flush(30);
+    assert.ok(q(container, OPEN_BTN) !== null, "retour au bouton d'entrée de la page de suivi");
+    assert.ok(q(container, FORM_STEP) === null);
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[WD-21] vue autonome : « Retour » de l'étape de vérification revient à la SÉLECTION (jamais hors du formulaire), et aucune entrée d'historique n'est créée par le panneau", async (t) => {
+  installRpc(t);
+  setLocation(`/track/${ORDER_ID}?view=withdrawal`);
+  let pushes = 0;
+  const realPush = window.history.pushState.bind(window.history);
+  const realReplace = window.history.replaceState.bind(window.history);
+  (window.history as any).pushState = (...a: unknown[]) => { pushes++; return (realPush as any)(...a); };
+  (window.history as any).replaceState = (...a: unknown[]) => { pushes++; return (realReplace as any)(...a); };
+  const { container, root } = await renderPage({ search: { view: "withdrawal" } });
+  try {
+    pushes = 0; // ne compte que les interactions du panneau (le scrubber de fragment est hors périmètre)
+    (q(container, `[data-withdrawal-line="${LINE_A}"] input[type=checkbox]`) as HTMLInputElement).click();
+    await flush(30);
+    (q(container, '[data-withdrawal-action="continue"]') as HTMLButtonElement).click();
+    await flush(30);
+    assert.ok(q(container, '[data-withdrawal-step="review"]'));
+    const reviewBack = ([...q(container, '[data-withdrawal-step="review"]')!.querySelectorAll("button")] as HTMLElement[]).find((b) => (b.textContent ?? "").trim() === "Retour")!;
+    reviewBack.click();
+    await flush(30);
+    assert.ok(q(container, FORM_STEP), "retour à la sélection");
+    assert.ok(q(container, OPEN_BTN) === null);
+    assert.equal(pushes, 0, "le panneau ne manipule jamais l'historique du navigateur");
+  } finally {
+    window.history.pushState = realPush;
+    window.history.replaceState = realReplace;
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[WD-22] destination du « Retour » : la page parent repasse par la session serveur -- sans session valide pour CETTE commande, aucune donnée de suivi ni de commande", async (t) => {
+  const calls = installRpc(t);
+  for (const cookie of [null, createTrackingSessionToken(OTHER_ORDER_ID, CAP_ID, SECRET), "garbage"]) {
+    setLocation(`/track/${ORDER_ID}`); // aucun fragment : le lien propre ne porte aucune capacité
+    const { container, root } = await renderPage({ search: {}, cookie });
+    try {
+      await flush(40);
+      assert.ok(q(container, "ol") === null, "aucune frise");
+      assert.ok(q(container, FORM_STEP) === null && q(container, OPEN_BTN) === null);
+      assert.equal((container.textContent ?? "").includes("104"), false, "aucun numéro de commande");
+      assert.equal((container.textContent ?? "").includes("Fromage"), false);
+    } finally {
+      root.unmount();
+      container.remove();
+    }
+  }
+  assert.deepEqual(calls, [], "aucune lecture sans session valide");
+});
+
+test("[WD-23] bouton Précédent du navigateur après « Retour » : la vue formulaire est RE-DEMANDÉE au serveur -- sans session, non éligible ou erreur, jamais de formulaire ni de commande ; avec session et éligibilité, formulaire frais", async (t) => {
+  let plan: RpcPlan = {};
+  const calls: string[] = [];
+  t.mock.method(supabase, "rpc", async (name: string) => {
+    calls.push(name);
+    if (name === "get_order_tracking_by_capability") return { data: [VALID_ROW], error: null };
+    if (name === "get_withdrawal_options_by_capability") {
+      if (plan.options === "error") return { data: null, error: { message: "boom" } };
+      return { data: plan.options ?? OPTION_ROWS, error: null };
+    }
+    if (name === "get_order_tracking_customer_context_by_capability") return { data: [], error: null };
+    if (name === "get_order_tracking_status_text_by_capability") return { data: [], error: null };
+    throw new Error(`RPC inattendue : ${name}`);
+  });
+
+  const back = async (opts: { cookie?: string | null; plan?: RpcPlan }) => {
+    plan = opts.plan ?? {};
+    setLocation(`/track/${ORDER_ID}?view=withdrawal`);
+    return renderPage({ search: { view: "withdrawal" }, cookie: opts.cookie });
+  };
+
+  // 0. aller : formulaire -> « Retour » (lien parent) ; la page parent est le suivi complet.
+  setLocation(`/track/${ORDER_ID}`);
+  const parent = await renderPage({ search: {} });
+  assert.ok(q(parent.container, "ol"), "la page parent est le suivi complet (session valide)");
+  parent.root.unmount(); parent.container.remove();
+
+  // 1. Précédent, session expirée / retirée
+  let r = await back({ cookie: null });
+  await flush(40);
+  assert.ok(q(r.container, FORM_STEP) === null && q(r.container, "[data-withdrawal-line]") === null);
+  assert.equal((r.container.textContent ?? "").includes("Fromage"), false);
+  r.root.unmount(); r.container.remove();
+
+  // 2. Précédent, session d'une autre commande
+  r = await back({ cookie: createTrackingSessionToken(OTHER_ORDER_ID, CAP_ID, SECRET) });
+  await flush(40);
+  assert.ok(q(r.container, FORM_STEP) === null);
+  r.root.unmount(); r.container.remove();
+
+  // 3. Précédent, session valide mais commande devenue non éligible
+  r = await back({ plan: { options: [] } });
+  assert.ok(q(r.container, FORM_STEP) === null && q(r.container, OPEN_BTN) === null);
+  assert.ok(q(r.container, "[data-withdrawal-unavailable=none]"));
+  r.root.unmount(); r.container.remove();
+
+  // 4. Précédent, erreur de lecture d'éligibilité : échec fermé
+  r = await back({ plan: { options: "error" } });
+  assert.ok(q(r.container, FORM_STEP) === null);
+  assert.ok(q(r.container, "[data-withdrawal-unavailable=error]"));
+  r.root.unmount(); r.container.remove();
+
+  // 5. Précédent, tout valide : formulaire FRAIS (rien d'une saisie précédente)
+  r = await back({});
+  assert.ok(q(r.container, FORM_STEP));
+  assert.equal(q(r.container, '[data-withdrawal-step="review"]'), null);
+  r.root.unmount(); r.container.remove();
+
+  // Lectures d'éligibilité : 1 (page parent, étape 0) + 3 (cas 3, 4, 5 : relue à chaque retour).
+  // Les cas 1-2 (sans session valide pour cette commande) n'en ont fait AUCUNE.
+  assert.equal(calls.filter((c) => c === "get_withdrawal_options_by_capability").length, 4);
+});
+
+test("[WD-24] destination du « Retour » : seul un chemin propre /track/<id> est accepté ; tout autre lien (hôte externe, protocole-relatif, javascript:, requête, fragment, jeton) est IGNORÉ -- jamais un lien arbitraire", async () => {
+  const mount = async (backHref: string | undefined) => {
+    const container = window.document.createElement("div");
+    window.document.body.appendChild(container);
+    const root = createRoot(container);
+    root.render(
+      React.createElement(WithdrawalPanel, {
+        orderId: ORDER_ID, orderNumber: 104, lang: "fr", startOpen: true, backHref,
+        options: [{ orderItemId: LINE_A, itemName: "Fromage frais", optionName: null, orderedQuantity: 2, remainingQuantity: 2 }],
+      })
+    );
+    await flush(30);
+    return { container, root };
+  };
+  const good = await mount(`/track/${ORDER_ID}`);
+  assert.equal(backControl(good.container)!.tagName, "A");
+  assert.equal(backControl(good.container)!.getAttribute("href"), `/track/${ORDER_ID}`);
+  good.root.unmount(); good.container.remove();
+  for (const bad of [undefined, "", "https://evil.example/track/x", "//evil.example/x", "javascript:alert(1)", `/track/${ORDER_ID}?view=withdrawal`, `/track/${ORDER_ID}#${TOKEN}`, `/track/${ORDER_ID}/withdrawal`, "/track/", "/dashboard"]) {
+    const m = await mount(bad);
+    const ctl = backControl(m.container);
+    assert.ok(ctl, "un « Retour » existe");
+    assert.equal(ctl!.tagName, "BUTTON", `lien non sûr accepté : ${JSON.stringify(bad)}`);
+    assert.equal(ctl!.hasAttribute("href"), false);
+    m.root.unmount(); m.container.remove();
   }
 });
 
