@@ -45,6 +45,15 @@ export function validateSupabaseUrl(value) {
   return url.origin;
 }
 
+export function validateSupabaseSecretKey(value) {
+  if (typeof value !== "string") throw new Error("INVALID_SUPABASE_KEY");
+  // Current Supabase secret keys are opaque `sb_secret_...` values. Legacy
+  // service_role keys are JWTs and still need the Authorization header.
+  if (/^sb_secret_[A-Za-z0-9_-]{20,}$/.test(value)) return "secret";
+  if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) return "legacy-jwt";
+  throw new Error("INVALID_SUPABASE_KEY");
+}
+
 function ask(prompt) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -107,13 +116,13 @@ async function responseJson(response, code) {
 
 export async function provisionTestCredential({ supabaseUrl, serviceRoleKey, credential, fetchImpl = fetch }) {
   const origin = validateSupabaseUrl(supabaseUrl);
-  if (typeof serviceRoleKey !== "string" || serviceRoleKey.length < 20) throw new Error("INVALID_SERVICE_KEY");
+  const keyType = validateSupabaseSecretKey(serviceRoleKey);
   const parsed = validateCredential(credential);
   const headers = {
     apikey: serviceRoleKey,
-    Authorization: `Bearer ${serviceRoleKey}`,
     Accept: "application/json",
   };
+  if (keyType === "legacy-jwt") headers.Authorization = `Bearer ${serviceRoleKey}`;
   const request = (url, init = {}) => fetchImpl(url, { ...init, signal: AbortSignal.timeout(15_000) });
 
   const restaurantResponse = await request(
@@ -170,7 +179,7 @@ async function main() {
 
   const supabaseUrl = process.env.SUPABASE_URL || await ask("URL Supabase Scanym (Settings → API) : ");
   validateSupabaseUrl(supabaseUrl);
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || await hiddenPrompt("Clé service_role Supabase (saisie masquée) : ");
+  const serviceRoleKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || await hiddenPrompt("Clé secrète Supabase (sb_secret_… ou ancien service_role, saisie masquée) : ");
   const tpe = (await ask("TPE Monetico [35VV71I] : ")) || "35VV71I";
   const societe = (await ask("Code société [aulaitcru — redirection hébergée] : ")) || "aulaitcru";
   const securityKey = await hiddenPrompt("Clé de sécurité Monetico (40 caractères, saisie masquée) : ");
