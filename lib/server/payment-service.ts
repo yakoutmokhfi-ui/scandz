@@ -546,6 +546,65 @@ interface OrderPaymentContextRow {
 }
 
 /**
+ * PAYMENT P4-A — ORDER PAYMENT REQUIRED.
+ *
+ * Fait passer une commande de `not_required` à `required` (et UNIQUEMENT
+ * cette transition) via `public.require_order_payment` (SQL DRAFT
+ * supabase/DRAFT-lot-payment-p4a-order-payment-required.sql) : la
+ * décision est prise CÔTÉ BASE à partir de la configuration prestataire
+ * activée+vérifiée de l'établissement, de `orders.status = 'new'` et du
+ * total > 0 -- jamais d'un paramètre navigateur. Idempotente : l'état
+ * courant est renvoyé tel quel (`changed = false`) quand rien ne change.
+ * `null` = aucune ligne (possession non prouvée).
+ */
+export interface RequireOrderPaymentInput {
+  orderId: string;
+  publicToken: string;
+  providerCode: string;
+}
+
+export interface RequireOrderPaymentResult {
+  paymentStatus: string;
+  changed: boolean;
+}
+
+interface RequireOrderPaymentRow {
+  payment_status: string;
+  changed: boolean;
+}
+
+export async function requireOrderPayment(
+  input: RequireOrderPaymentInput
+): Promise<RequireOrderPaymentResult | null> {
+  const client = getServiceRoleSupabaseClient();
+
+  let data: RequireOrderPaymentRow[] | RequireOrderPaymentRow | null;
+  let error: PostgrestError | null;
+  try {
+    ({ data, error } = await client.rpc("require_order_payment", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+      p_provider_code: input.providerCode,
+    }));
+  } catch {
+    throw new PaymentServerUnavailableError();
+  }
+
+  if (error) {
+    logRpcFailure("require_order_payment", error.code);
+    throw new PaymentServerRpcError("require_order_payment", error.code);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+
+  return {
+    paymentStatus: String(row.payment_status),
+    changed: row.changed === true,
+  };
+}
+
+/**
  * Vérifie la possession client anonyme (`order_id` + `public_token`,
  * modèle EXACT déjà établi par `mark_whatsapp_opened`/
  * `get_order_payment_status`) et renvoie le couple minimal

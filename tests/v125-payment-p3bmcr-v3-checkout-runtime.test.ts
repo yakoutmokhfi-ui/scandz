@@ -241,14 +241,99 @@ test("paymentStatus='paid' -- court-circuit immédiat, AUCUN autre appel RPC", a
     assert.equal(calls.length, 1);
   }));
 
-test("paymentStatus='not_required' -- court-circuit immédiat", async (t) =>
+// PAYMENT P4-A -- ORDER PAYMENT REQUIRED (MODIFIÉ) : `not_required` n'est
+// plus un court-circuit inconditionnel. Le runtime lit d'abord la
+// configuration prestataire de l'établissement ; sans configuration
+// activée+vérifiée, le comportement historique est conservé (aucun
+// paiement, AUCUN appel à require_order_payment ni initiate_payment_attempt).
+test("paymentStatus='not_required' SANS configuration activée+vérifiée -- 'checkout_not_needed', require_order_payment JAMAIS appelée", async (t) =>
   withEnabledKillSwitch(async () => {
-    routeRpc(t, {
+    for (const env of [
+      { is_enabled: false, configuration_status: "verified" },
+      { is_enabled: true, configuration_status: "configured" },
+      { is_enabled: false, configuration_status: "not_configured" },
+    ]) {
+      const calls = routeRpc(t, {
+        get_order_payment_context: () =>
+          ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
+        get_payment_runtime_provider_environment: () =>
+          ok({ provider_code: "monetico", mode: "test", ...env }),
+      });
+      const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+      assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
+      assert.ok(!calls.some((c) => c.name === "require_order_payment"), JSON.stringify(env));
+      assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
+      t.mock.restoreAll();
+    }
+  }));
+
+test("P4-A : paymentStatus='not_required' AVEC configuration activée+vérifiée -- require_order_payment appelée (order_id + public_token + 'monetico'), puis chemin FRESH complet -> 'ready'", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, {
+      ...freshReadyHandlers(),
       get_order_payment_context: () =>
         ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
+      require_order_payment: () => ok({ payment_status: "required", changed: true }),
+    });
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assertReady(result);
+    const req = calls.find((c) => c.name === "require_order_payment");
+    assert.ok(req, "require_order_payment doit être appelée");
+    assert.deepEqual(req!.args, { p_order_id: "order-1", p_public_token: "tok-1", p_provider_code: "monetico" });
+    // Ordre : contexte -> environnement -> require -> (préflight devise ...) -> initiate EN DERNIER.
+    const names = calls.map((c) => c.name);
+    assert.ok(names.indexOf("get_payment_runtime_provider_environment") < names.indexOf("require_order_payment"));
+    assert.ok(names.indexOf("require_order_payment") < names.indexOf("initiate_payment_attempt"));
+  }));
+
+test("P4-A : la base REFUSE la transition (commande déjà acceptée / total 0 / config retirée entre-temps -> payment_status reste not_required) -- 'checkout_not_needed', initiate JAMAIS appelée", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, {
+      ...freshReadyHandlers(),
+      get_order_payment_context: () =>
+        ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
+      require_order_payment: () => ok({ payment_status: "not_required", changed: false }),
     });
     const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
     assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
+    assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
+  }));
+
+test("P4-A : require_order_payment renvoie un ensemble VIDE (possession non prouvée) -- 'checkout_not_needed', initiate JAMAIS appelée", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, {
+      ...freshReadyHandlers(),
+      get_order_payment_context: () =>
+        ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
+      require_order_payment: () => ({ data: [], error: null }),
+    });
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
+    assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
+  }));
+
+test("P4-A : paymentStatus déjà 'required' (commande marquée lors d'un appel précédent) -- require_order_payment PAS rappelée, chemin FRESH -> 'ready'", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, {
+      ...freshReadyHandlers(),
+      get_order_payment_context: () =>
+        ok({ restaurant_id: "resto-1", payment_status: "required" }),
+    });
+    const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    assertReady(result);
+    assert.ok(!calls.some((c) => c.name === "require_order_payment"));
+  }));
+
+test("P4-A : erreur RPC sur require_order_payment -- propagée (jamais un 'ready' silencieux), initiate JAMAIS appelée", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, {
+      ...freshReadyHandlers(),
+      get_order_payment_context: () =>
+        ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
+      require_order_payment: () => ({ data: null, error: { code: "42501", message: "denied" } }),
+    });
+    await assert.rejects(initiateCheckout({ orderId: "order-1", publicToken: "tok-1" }));
+    assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
   }));
 
 test("provider désactivé (isEnabled=false) -- 'provider_unavailable', initiate_payment_attempt JAMAIS appelée", async (t) =>
