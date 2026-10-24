@@ -61,6 +61,9 @@ export default function CartPanel({
   invoiceRequestError,
   isRetryingInvoice,
   onRetryInvoiceRequest,
+  paymentError = null,
+  isRetryingPayment = false,
+  onRetryPayment,
   onChangeQuantity,
   onSelectTable,
   onSelectFulfillment,
@@ -148,6 +151,13 @@ export default function CartPanel({
   invoiceRequestError: string | null;
   isRetryingInvoice: boolean;
   onRetryInvoiceRequest: () => void;
+  /** PAYMENT P4-A -- non nul UNIQUEMENT quand la commande a été créée
+   *  mais que le paiement en ligne n'a pas pu démarrer : le bouton
+   *  d'envoi normal est remplacé par une reprise CIBLÉE du paiement
+   *  (même commande, jamais une nouvelle soumission du panier). */
+  paymentError?: string | null;
+  isRetryingPayment?: boolean;
+  onRetryPayment?: () => void;
   onChangeQuantity: (key: string, delta: number) => void;
   onSelectTable: (table: number) => void;
   onSelectFulfillment: (t: ServiceMode) => void;
@@ -798,7 +808,30 @@ export default function CartPanel({
               </p>
             )}
 
-            {invoiceRequestError ? (
+            {paymentError ? (
+              // PAYMENT P4-A : la commande existe déjà et attend son
+              // paiement -- reprise CIBLÉE (POST checkout sur la MÊME
+              // commande, reprise idempotente côté serveur), jamais une
+              // nouvelle soumission du panier.
+              <>
+                <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800" data-payment-error="">
+                  {paymentError}
+                </p>
+                <button
+                  type="button"
+                  data-payment-action="retry"
+                  onClick={onRetryPayment}
+                  disabled={isRetryingPayment}
+                  aria-busy={isRetryingPayment}
+                  className={
+                    "block w-full rounded-xl py-3.5 text-center font-bold text-white " +
+                    (isRetryingPayment ? "cursor-wait bg-espresso/60" : "bg-espresso")
+                  }
+                >
+                  {isRetryingPayment ? t("paymentRedirecting") : t("paymentRetry")}
+                </button>
+              </>
+            ) : invoiceRequestError ? (
               // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST
               // v1.2 (FERME "SILENT INVOICE LOSS") : la commande
               // existe déjà -- le bouton d'envoi NORMAL est remplacé
