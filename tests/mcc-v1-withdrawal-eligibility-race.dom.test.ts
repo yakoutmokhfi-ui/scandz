@@ -286,6 +286,15 @@ function installBackend(
 
   (globalThis as any).fetch = async (input: unknown, init: any) => {
     const url = String(input);
+    // PAYMENT P4-A (MODIFIÉ) : après create_order, la boutique demande désormais au
+    // serveur si un paiement en ligne est requis (POST /api/payments/monetico/checkout).
+    // Ce harnais répond « non » : parcours historique inchangé.
+    if (url.includes("/api/payments/monetico/checkout")) {
+      return new Response(JSON.stringify({ outcome: "checkout_not_needed", reason: "not_required" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.includes("/api/checkout/withdrawal-eligibility")) {
       const body = JSON.parse(init.body);
       backend.eligibilityCalls.push({ orderId: body.orderId, publicToken: body.publicToken });

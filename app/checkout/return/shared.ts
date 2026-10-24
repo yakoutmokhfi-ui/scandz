@@ -88,6 +88,11 @@ export async function resolvePaymentReturnStatus(
     case "paid":
       return { kind: "paid", trackingPath };
     case "pending":
+    // PAYMENT P4-A : `required` = paiement exigé mais aucune tentative
+    // encore initiée (retour navigateur avant/sans initiation) -- pas un
+    // échec, pas un paiement : traité comme « en cours », jamais comme
+    // refusé.
+    case "required":
       return { kind: "pending", trackingPath };
     case "not_required":
       return { kind: "not_required", trackingPath };

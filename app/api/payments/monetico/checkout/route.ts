@@ -4,6 +4,7 @@ import {
   initiateCheckout,
   PaymentCheckoutRuntimeDisabledError,
 } from "@/lib/server/payment-checkout-runtime";
+import { setOrderBillingContext } from "@/lib/server/payment-service";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — ROUTE D'INITIATION.
@@ -30,10 +31,77 @@ interface CheckoutRequestBody {
   orderId?: unknown;
   publicToken?: unknown;
   language?: unknown;
+  /** PAYMENT P4-A -- contexte de facturation, voir `parseBilling`. */
+  billing?: unknown;
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * PAYMENT P4-A -- CONTEXTE DE FACTURATION FOURNI PAR LE NAVIGATEUR.
+ *
+ * Le client ne connaît pas à l'avance l'obligation de paiement : il
+ * appelle d'abord cette route SANS `billing` ; `409 billing_required`
+ * lui indique alors de collecter l'adresse de facturation (Monetico,
+ * annexe 9.5 : rue, ville, code postal, pays obligatoires) et de
+ * rappeler la route AVEC `billing`. Deux formes, toutes deux validées
+ * fail-closed par la RPC `set_order_billing_context` (P3-B6) :
+ *   - `{ source: "delivery_reuse", country }` : les 4 champs d'adresse
+ *     sont COPIÉS par la base depuis l'adresse de livraison de CETTE
+ *     commande (jamais acceptés tels quels), `country` reste confirmé
+ *     explicitement ;
+ *   - `{ source: "manual", addressLine1, city, postalCode, country,
+ *     addressLine2?, customerName?, customerEmail?, customerPhone? }`.
+ * Aucun de ces champs ne décide de l'applicabilité `shipping` (dérivée
+ * exclusivement de `orders.service_mode`, v4) ni du montant.
+ * Forme inconnue -> `null` (rejet 400, aucune écriture).
+ */
+type ParsedBilling =
+  | { source: "delivery_reuse"; country: string }
+  | {
+      source: "manual";
+      addressLine1: string;
+      addressLine2?: string;
+      city: string;
+      postalCode: string;
+      country: string;
+      customerName?: string;
+      customerEmail?: string;
+      customerPhone?: string;
+    };
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function parseBilling(raw: unknown): ParsedBilling | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  const country = typeof b.country === "string" ? b.country.trim().toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(country)) return null;
+  if (b.source === "delivery_reuse") {
+    return { source: "delivery_reuse", country };
+  }
+  if (b.source === "manual") {
+    const addressLine1 = optionalString(b.addressLine1);
+    const city = optionalString(b.city);
+    const postalCode = optionalString(b.postalCode);
+    if (!addressLine1 || !city || !postalCode) return null;
+    return {
+      source: "manual",
+      addressLine1,
+      addressLine2: optionalString(b.addressLine2),
+      city,
+      postalCode,
+      country,
+      customerName: optionalString(b.customerName),
+      customerEmail: optionalString(b.customerEmail),
+      customerPhone: optionalString(b.customerPhone),
+    };
+  }
+  return null;
 }
 
 /**
@@ -60,6 +128,37 @@ export async function POST(request: NextRequest) {
   }
   const orderId = body.orderId;
   const publicToken = body.publicToken;
+
+  // PAYMENT P4-A : facturation fournie -> enregistrée AVANT l'initiation,
+  // fail-closed (forme inconnue ou refus de la RPC = 400, aucune
+  // tentative de paiement initiée). Absente -> chemin inchangé.
+  if (body.billing !== undefined) {
+    const billing = parseBilling(body.billing);
+    if (billing === null) {
+      return NextResponse.json({ outcome: "invalid_request", reason: "billing_invalid" }, { status: 400 });
+    }
+    try {
+      await setOrderBillingContext(
+        billing.source === "delivery_reuse"
+          ? { orderId, publicToken, source: "delivery_reuse", country: billing.country }
+          : {
+              orderId,
+              publicToken,
+              source: "manual",
+              addressLine1: billing.addressLine1,
+              addressLine2: billing.addressLine2,
+              city: billing.city,
+              postalCode: billing.postalCode,
+              country: billing.country,
+              customerName: billing.customerName,
+              customerEmail: billing.customerEmail,
+              customerPhone: billing.customerPhone,
+            }
+      );
+    } catch {
+      return NextResponse.json({ outcome: "invalid_request", reason: "billing_invalid" }, { status: 400 });
+    }
+  }
 
   try {
     const result = await initiateCheckout({

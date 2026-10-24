@@ -299,9 +299,13 @@ test("CartPanel.tsx : note de commande invalide -- pastille rouge fixe (border-r
 // fixes, remplacent amber par une vraie couleur d'erreur).
 // --------------------------------------------------------------------
 
-test("CartPanel.tsx : bandeaux submitError / invoiceRequestError -- vraie couleur d'erreur (bg-red-50/text-red-800), plus amber", () => {
+test("CartPanel.tsx : bandeaux submitError / invoiceRequestError / paymentError -- vraie couleur d'erreur (bg-red-50/text-red-800), plus amber", () => {
   const occurrences = [...cartPanelSrc.matchAll(/bg-red-50 p-3 text-sm text-red-800/g)].length;
-  assert.equal(occurrences, 2, "submitError et invoiceRequestError doivent tous deux utiliser la même pastille rouge fixe");
+  // PAYMENT P4-A (MODIFIÉ) : un troisième bandeau, `paymentError` (commande
+  // créée mais paiement en ligne non démarré), utilise la MÊME pastille rouge
+  // fixe -- l'intention de ce test (jamais d'amber, une seule pastille
+  // d'erreur) est conservée.
+  assert.equal(occurrences, 3, "submitError, invoiceRequestError et paymentError doivent tous utiliser la même pastille rouge fixe");
   assert.ok(!cartPanelSrc.includes('bg-amber-50 p-3 text-sm text-amber-900'), "ancien bandeau amber résiduel");
 });
 

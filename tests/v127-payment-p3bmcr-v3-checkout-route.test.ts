@@ -203,6 +203,86 @@ test("billing manquant -- 409 billing_required, distinct de provider_unavailable
     assert.deepEqual(body, { outcome: "billing_required" });
   }));
 
+// ------------------------------------------------------------------
+// PAYMENT P4-A -- `billing` dans le corps : enregistré AVANT l'initiation,
+// fail-closed, jamais sans preuve de possession (la RPC la vérifie).
+// ------------------------------------------------------------------
+const BILLING_ROW_OK = () => ok({ order_id: "order-1", source: "manual", updated_at: "2026-10-24T10:00:00Z" });
+
+test("P4-A : billing manual valide -- set_order_billing_context appelée AVANT initiate (bons arguments, pays en MAJUSCULES, champs vides omis), puis 200 ready", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, readyHandlers({ set_order_billing_context: BILLING_ROW_OK }));
+    const res = await POST(postJson({
+      orderId: "order-1", publicToken: "tok-1",
+      billing: { source: "manual", addressLine1: " 12 rue des Lilas ", city: "Annecy", postalCode: "74000", country: "fr", addressLine2: "", customerName: "Victor Hugo", customerEmail: "", customerPhone: "+33611223344" },
+    }));
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).outcome, "ready");
+    const set = calls.find((c) => c.name === "set_order_billing_context");
+    assert.ok(set);
+    assert.deepEqual(set!.args, {
+      p_order_id: "order-1", p_public_token: "tok-1", p_source: "manual",
+      p_address_line_1: "12 rue des Lilas", p_address_line_2: null, p_city: "Annecy", p_postal_code: "74000",
+      p_country: "FR", p_state_or_province: null, p_customer_name: "Victor Hugo", p_customer_email: null, p_customer_phone: "+33611223344",
+    });
+    const names = calls.map((c) => c.name);
+    assert.ok(names.indexOf("set_order_billing_context") < names.indexOf("initiate_payment_attempt"));
+  }));
+
+test("P4-A : billing delivery_reuse -- la base copie l'adresse de livraison (aucun champ d'adresse transmis), pays confirmé explicitement", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, readyHandlers({ set_order_billing_context: BILLING_ROW_OK }));
+    const res = await POST(postJson({ orderId: "order-1", publicToken: "tok-1", billing: { source: "delivery_reuse", country: "FR", addressLine1: "IGNORÉ" } }));
+    assert.equal(res.status, 200);
+    const set = calls.find((c) => c.name === "set_order_billing_context")!;
+    assert.equal(set.args.p_source, "delivery_reuse");
+    assert.equal(set.args.p_country, "FR");
+    assert.equal(set.args.p_address_line_1, null, "jamais une adresse fournie par le navigateur sous delivery_reuse");
+  }));
+
+test("P4-A : billing de forme invalide (source inconnue, pays absent/3 lettres, rue/ville/CP manquants, tableau) -- 400 billing_invalid, AUCUN appel RPC", async (t) =>
+  withEnabledKillSwitch(async () => {
+    for (const billing of [
+      { source: "other", country: "FR" },
+      { source: "manual", addressLine1: "1 rue", city: "A", postalCode: "1", country: "FRA" },
+      { source: "manual", addressLine1: "1 rue", city: "A", postalCode: "1" },
+      { source: "manual", city: "A", postalCode: "1", country: "FR" },
+      { source: "manual", addressLine1: "1 rue", postalCode: "1", country: "FR" },
+      { source: "manual", addressLine1: "1 rue", city: "A", country: "FR" },
+      { source: "delivery_reuse" },
+      ["manual"],
+      "manual",
+      null,
+    ]) {
+      const calls = routeRpc(t, readyHandlers());
+      const res = await POST(postJson({ orderId: "order-1", publicToken: "tok-1", billing }));
+      assert.equal(res.status, 400, JSON.stringify(billing));
+      assert.deepEqual(await res.json(), { outcome: "invalid_request", reason: "billing_invalid" });
+      assert.equal(calls.length, 0, `aucune RPC pour ${JSON.stringify(billing)}`);
+      t.mock.restoreAll();
+    }
+  }));
+
+test("P4-A : la RPC set_order_billing_context REFUSE (jeton incorrect, adresse de livraison absente, longueur) -- 400 billing_invalid, initiate JAMAIS appelée", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, readyHandlers({
+      set_order_billing_context: () => ({ data: null, error: { code: "P0002", message: "introuvable" } }),
+    }));
+    const res = await POST(postJson({ orderId: "order-1", publicToken: "tok-1", billing: { source: "delivery_reuse", country: "FR" } }));
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { outcome: "invalid_request", reason: "billing_invalid" });
+    assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
+    assert.ok(!calls.some((c) => c.name === "get_order_payment_context"), "l'initiation n'a même pas commencé");
+  }));
+
+test("P4-A : sans `billing` -- chemin INCHANGÉ (set_order_billing_context jamais appelée)", async (t) =>
+  withEnabledKillSwitch(async () => {
+    const calls = routeRpc(t, readyHandlers());
+    const res = await POST(postJson({ orderId: "order-1", publicToken: "tok-1" }));
+    assert.equal(res.status, 200);
+    assert.ok(!calls.some((c) => c.name === "set_order_billing_context"));
+  }));
+
 test("checkout prêt -- 200 ready, submissionUrl/fields présents, url_retour_ok/err pointent vers l'origine canonique avec un jeton de relais opaque", async (t) =>
   withEnabledKillSwitch(async () => {
     routeRpc(t, readyHandlers());
