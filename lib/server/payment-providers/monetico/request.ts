@@ -102,7 +102,7 @@ function formatDate(d: Date): string {
  *
  * RÉTROCOMPATIBILITÉ STRICTE (mandat P3-B6 §18, non-régression MAC) :
  * `billing`/`shipping` omis (aucun argument fourni) produit EXACTEMENT
- * le même JSON qu'avant ce lot (`{correlationId}` ou `{}`) -- aucun
+ * le même JSON qu'avant ce lot (`{}` depuis PAYMENT P4-B) -- aucun
  * test PAYMENT P3-A2 existant ne peut donc être affecté. `billing`
  * n'est ajouté que si fourni ; `shipping` de même, et INDÉPENDAMMENT
  * de `billing` (mandat §14 : la décision d'inclure `shipping`
@@ -118,12 +118,20 @@ function buildContexteCommande(
   billing?: MoneticoBillingContext,
   shipping?: MoneticoShippingContext
 ): string {
+  // PAYMENT P4-B — MONETICO CONTEXTE_COMMANDE FORMAT FIX (25/10/2026) :
+  // `correlationId` N'EST PLUS ÉMIS. Constat terrain (premier paiement de
+  // test Au Lait Cru) : Monetico refuse le formulaire avec « Champ(s)
+  // inattendu(s) : /contexte_commande/correlationId » -- la clé n'existe
+  // pas dans le schéma Annexe 9.5 (billing/shipping/client/shoppingCart).
+  // La corrélation commande <-> transaction est portée par `reference`
+  // (mécanisme officiel, déjà utilisé par callback.ts). Le paramètre
+  // `orderCorrelationId` est conservé dans la signature pour ne pas
+  // casser les appelants, mais ignoré.
+  void orderCorrelationId;
   const payload: {
-    correlationId?: string;
     billing?: MoneticoBillingContext;
     shipping?: MoneticoShippingContext;
   } = {};
-  if (orderCorrelationId) payload.correlationId = orderCorrelationId;
   if (billing) payload.billing = billing;
   if (shipping) payload.shipping = shipping;
   const json = JSON.stringify(payload);

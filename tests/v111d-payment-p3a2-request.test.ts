@@ -139,7 +139,10 @@ test("request: contexte_commande est du base64 valide décodant vers un JSON min
     FIXED_DATE
   );
   const decoded = JSON.parse(Buffer.from(fields.contexte_commande, "base64").toString("utf8"));
-  assert.deepEqual(decoded, { correlationId: "corr-42" });
+  // PAYMENT P4-B (25/10/2026) : `correlationId` n'est PLUS émis -- Monetico
+  // le refuse (« champ inattendu »). La corrélation passe par `reference`.
+  assert.deepEqual(decoded, {});
+  assert.equal("correlationId" in decoded, false);
 });
 
 test("request: contexte_commande sans corrélation fournie reste un JSON minimal vide", () => {

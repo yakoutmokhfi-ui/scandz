@@ -70,13 +70,15 @@ test("contexte_commande: billing fourni -> décodé exactement sous {billing: {.
   assert.deepEqual(decoded, { billing: BILLING });
 });
 
-test("contexte_commande: billing + corrélation -> les deux clés présentes, jamais de shipping/panier fabriqué", () => {
+test("contexte_commande: billing + corrélation fournie -> billing seul (correlationId ignoré, P4-B), jamais de shipping/panier fabriqué", () => {
   const fields = buildMoneticoPaymentRequest(
     baseInput({ billingContext: BILLING, orderCorrelationId: "corr-1" }),
     FIXED_DATE
   );
   const decoded = JSON.parse(Buffer.from(fields.contexte_commande, "base64").toString("utf8"));
-  assert.deepEqual(decoded, { correlationId: "corr-1", billing: BILLING });
+  // PAYMENT P4-B : `correlationId` jamais émis (refusé par Monetico).
+  assert.deepEqual(decoded, { billing: BILLING });
+  assert.equal("correlationId" in decoded, false);
   assert.equal("shipping" in decoded, false);
   assert.equal("shoppingCart" in decoded, false);
   assert.equal("client" in decoded, false);

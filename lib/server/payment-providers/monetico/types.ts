@@ -101,9 +101,9 @@ export interface BuildMoneticoRequestInput {
   /** Code langue ISO documenté (DE/EN/ES/FR/IT/JA/NL/PT/SV) -- "FR"
    *  par défaut. */
   language?: string;
-  /** Identifiant de corrélation NON SECRET, optionnel, placé dans
-   *  `contexte_commande` (mandat §18 : "minimum safe metadata needed
-   *  for correlation", jamais de secret). */
+  /** OBSOLÈTE depuis PAYMENT P4-B (25/10/2026) : accepté mais IGNORÉ --
+   *  Monetico refuse toute clé `correlationId` dans `contexte_commande`
+   *  (« champ inattendu »). La corrélation passe par `reference`. */
   orderCorrelationId?: string;
   /**
    * PAYMENT P3-B6 — CHECKOUT BILLING CONTEXT v1. Objet `billing` déjà

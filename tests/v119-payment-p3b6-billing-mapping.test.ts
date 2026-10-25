@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 // §16). Fonctions PURES, aucun mock nécessaire.
 // ====================================================================
 
-const { mapToMoneticoBilling, mapToMoneticoShipping } = await import(
+const { mapToMoneticoBilling, mapToMoneticoShipping, formatMoneticoPhone } = await import(
   "../lib/server/payment-providers/monetico/billing-mapping.ts"
 );
 const { MoneticoProtocolError } = await import(
@@ -28,7 +28,7 @@ function fullContext(overrides: Record<string, unknown> = {}) {
     stateOrProvince: "FR-IDF",
     customerName: "Jean Dupont",
     customerEmail: "jean@example.com",
-    customerPhone: "0612345678",
+    customerPhone: "+33612345678",
     ...overrides,
   };
 }
@@ -44,7 +44,7 @@ test("mapToMoneticoBilling: mapping complet -- toutes les clés Monetico exactes
     stateOrProvince: "FR-IDF",
     name: "Jean Dupont",
     email: "jean@example.com",
-    phone: "0612345678",
+    phone: "+33-612345678",
   });
 });
 
@@ -141,9 +141,8 @@ test("mapToMoneticoShipping: fail-closed identique (aucune règle de validation 
 // stateOrProvince : forme ISO 3166-2 CONSERVATRICE (2 lettres pays +
 // tiret + 1-3 alphanumériques), PAS une validation d'appartenance au
 // registre complet (mandat v2 §6 -- documenté explicitement dans
-// billing-mapping.ts). phone : contenu numérique, "+" optionnel en
-// première position UNIQUEMENT, espaces supprimés (seule normalisation
-// autorisée), aucune autre ponctuation/lettre.
+// billing-mapping.ts). phone : format Monetico `+CC-NNNN` ou omission
+// (PAYMENT P4-B, voir plus bas).
 // ====================================================================
 
 const STATE_OR_PROVINCE_PASS = ["FR-IDF", "US-CA", "fr-idf", "US-ca"];
@@ -189,34 +188,42 @@ test("mapToMoneticoBilling: stateOrProvince valide mais > 10 caractères après 
   );
 });
 
+// PAYMENT P4-B (25/10/2026) — Monetico exige `+CC-NNNN` (E.164, tiret
+// après l'indicatif) ; `phone` est facultatif : tout numéro non
+// exprimable dans cette forme est OMIS, jamais réécrit, jamais bloquant.
 const PHONE_PASS: Array<[string, string]> = [
-  ["0612345678", "0612345678"],
-  ["+33612345678", "+33612345678"],
-  ["06 12 34 56 78", "0612345678"], // espaces supprimés -- seule normalisation autorisée
-  ["+33 6 12 34 56 78", "+33612345678"],
+  ["+33612345678", "+33-612345678"],
+  ["+33 6 12 34 56 78", "+33-612345678"], // espaces de présentation retirés
+  ["+33-6-12-34-56-78", "+33-612345678"], // tirets de présentation retirés
+  ["0033612345678", "+33-612345678"], // préfixe international 00
+  ["+32 479 12 34 56", "+32-479123456"], // Belgique
+  ["+213 550 12 34 56", "+213-550123456"], // Algérie (indicatif 3 chiffres)
+  ["+1 (415) 555-0100", "+1-4155550100"], // indicatif 1 chiffre, parenthèses
 ];
 for (const [input, expected] of PHONE_PASS) {
-  test(`mapToMoneticoBilling: phone "${input}" -- forme valide -> accepté, canonique = "${expected}"`, () => {
+  test(`mapToMoneticoBilling: phone "${input}" -- forme internationale -> "${expected}" (format Monetico)`, () => {
     const result = mapToMoneticoBilling(fullContext({ customerPhone: input }));
     assert.equal(result.phone, expected);
+    assert.equal(formatMoneticoPhone(input), expected);
   });
 }
 
-const PHONE_FAIL = [
+const PHONE_OMITTED = [
+  "0612345678", // forme nationale : indicatif JAMAIS deviné d'après le pays
+  "06 12 34 56 78",
   "++33612345678", // "+" répété
-  "06+12345678", // "+" mal placé (pas en première position)
-  "06.12.34.56.78", // ponctuation (points) -- jamais silencieusement supprimée comme les espaces
-  "06-12-34-56-78", // ponctuation (tirets)
-  "(06)12345678", // parenthèses
-  "0612345O78", // lettre "O" au lieu d'un chiffre
-  "phone: 0612345678", // texte libre mêlé à des chiffres
+  "06+12345678", // "+" mal placé
+  "0612345O78", // lettre
+  "phone: 0612345678", // texte libre
+  "+999123456", // indicatif inconnu
+  "+33612", // trop court
+  "+" + "1".repeat(16), // > 15 chiffres (hors E.164)
 ];
-for (const value of PHONE_FAIL) {
-  test(`mapToMoneticoBilling: phone "${value}" -- forme invalide -> rejeté (MoneticoProtocolError), JAMAIS réécrit vers un autre numéro`, () => {
-    assert.throws(
-      () => mapToMoneticoBilling(fullContext({ customerPhone: value })),
-      MoneticoProtocolError
-    );
+for (const value of PHONE_OMITTED) {
+  test(`mapToMoneticoBilling: phone "${value}" -- non exprimable en +CC-NNNN -> OMIS (jamais réécrit, jamais bloquant)`, () => {
+    const result = mapToMoneticoBilling(fullContext({ customerPhone: value }));
+    assert.equal("phone" in result, false);
+    assert.equal(formatMoneticoPhone(value), undefined);
   });
 }
 
@@ -225,16 +232,9 @@ test("mapToMoneticoBilling: phone absent/blanc -> omis (comportement inchangé, 
   assert.equal("phone" in mapToMoneticoBilling(fullContext({ customerPhone: "   " })), false);
 });
 
-test("mapToMoneticoBilling: phone valide mais > 18 caractères APRÈS suppression des espaces -> rejeté", () => {
+test("mapToMoneticoBilling: phone -- les autres champs obligatoires restent validés indépendamment du téléphone", () => {
   assert.throws(
-    () => mapToMoneticoBilling(fullContext({ customerPhone: "+" + "1".repeat(19) })),
+    () => mapToMoneticoBilling(fullContext({ customerPhone: "+33612345678", city: "" })),
     MoneticoProtocolError
   );
-});
-
-test("mapToMoneticoBilling: phone exactement 18 caractères après suppression des espaces -> accepté (limite inclusive)", () => {
-  const result = mapToMoneticoBilling(
-    fullContext({ customerPhone: "+" + "1".repeat(17) })
-  );
-  assert.equal(result.phone!.length, 18);
 });
