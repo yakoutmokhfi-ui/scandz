@@ -294,7 +294,8 @@ test("checkout prêt -- 200 ready, submissionUrl/fields présents, url_retour_ok
     assert.ok(body.submissionUrl.startsWith("https://p.monetico-services.com/"));
 
     const decoded = JSON.parse(Buffer.from(body.fields.contexte_commande, "base64").toString("utf8"));
-    assert.equal(decoded.correlationId, "order-1");
+    // PAYMENT P4-B : aucune clé `correlationId` (Monetico la refuse).
+    assert.equal("correlationId" in decoded, false);
 
     assert.ok(body.fields.url_retour_ok.startsWith("https://checkout.example.test/checkout/return/ok?"));
     assert.ok(body.fields.url_retour_err.startsWith("https://checkout.example.test/checkout/return/err?"));

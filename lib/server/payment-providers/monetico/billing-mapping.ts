@@ -69,7 +69,6 @@ const MAX_POSTAL_CODE = 10;
 const MAX_STATE_OR_PROVINCE = 10;
 const MAX_NAME = 45;
 const MAX_EMAIL = 100;
-const MAX_PHONE = 18;
 const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 
 /**
@@ -90,23 +89,66 @@ const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const STATE_OR_PROVINCE_PATTERN = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;
 
 /**
- * v2 CORRECTIF (ferme P3B6-MONETICO-FORMAT-01) — après le seul
- * ajustement de forme explicitement autorisé (suppression des espaces
- * -- une convention de saisie humaine extrêmement courante et JAMAIS
- * ambiguë, ex. "06 12 34 56 78"), la valeur DOIT correspondre
- * exactement à : un "+" optionnel EN PREMIÈRE POSITION SEULEMENT, puis
- * UNIQUEMENT des chiffres. Rejette structurellement : un "+" répété ou
- * mal placé ("++33...", "06+1234..."), toute lettre, toute autre
- * ponctuation (tirets, points, parenthèses -- explicitement listés
- * comme "arbitrary punctuation" par le mandat, jamais silencieusement
- * supprimés comme les espaces). Rien d'autre n'est transformé -- pas de
- * réécriture de préfixe international, pas de suppression de zéro
- * initial : la représentation canonique de sortie est la chaîne
- * dé-espacée elle-même, jamais une valeur DIFFÉRENTE du numéro fourni
- * (mandat v2 §6 : "do not silently transform ambiguous malformed input
- * into a different number").
+ * PAYMENT P4-B — MONETICO CONTEXTE_COMMANDE FORMAT FIX (25/10/2026).
+ * CONSTAT TERRAIN (premier paiement de test Au Lait Cru, TPE test) :
+ * Monetico a refusé le formulaire avec « Format invalide pour le(s)
+ * champ(s) : /contexte_commande/billing/phone ». Le format attendu par
+ * la plateforme est le numéro international E.164 avec un TIRET entre
+ * l'indicatif pays et le numéro national (exemple documenté Monetico :
+ * `+33-612345678`). `phone` est FACULTATIF dans `billing`/`shipping`.
+ *
+ * RÈGLE (remplace la règle v2 "chaîne dé-espacée telle quelle") :
+ *  - séparateurs de présentation retirés (espaces, points, tirets,
+ *    parenthèses) ; un préfixe `00` est lu comme `+` ;
+ *  - un numéro fourni en forme INTERNATIONALE (`+CC…`) dont l'indicatif
+ *    est reconnu (table ci-dessous, préfixe le plus long d'abord) est
+ *    émis sous la forme `+CC-NNNN` ;
+ *  - TOUT AUTRE cas (forme nationale `06…`, indicatif inconnu, lettres,
+ *    longueur hors E.164) → `phone` OMIS. Jamais de "réparation" : on
+ *    n'ajoute JAMAIS un indicatif deviné d'après le pays de facturation
+ *    (ce serait potentiellement un AUTRE numéro, mandat v2 §6) et on ne
+ *    bloque plus un paiement à cause d'un champ facultatif.
  */
-const PHONE_PATTERN = /^\+?[0-9]+$/;
+const PHONE_COUNTRY_CODES: ReadonlySet<string> = new Set([
+  // 1 chiffre
+  "1", "7",
+  // 2 chiffres (Europe, Afrique du Nord, Asie principale)
+  "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46",
+  "47", "48", "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63",
+  "64", "65", "66", "81", "82", "84", "86", "90", "91", "92", "93", "94", "95", "98",
+  // 3 chiffres (Maghreb, Europe, Moyen-Orient)
+  "212", "213", "216", "218", "221", "223", "224", "225", "226", "227", "228", "229",
+  "230", "234", "237", "241", "242", "243", "248", "254", "255", "256", "261", "262",
+  "350", "351", "352", "353", "354", "355", "356", "357", "358", "359", "370", "371",
+  "372", "373", "374", "375", "376", "377", "378", "380", "381", "382", "383", "385",
+  "386", "387", "389", "420", "421", "423", "590", "594", "596", "852", "853", "886",
+  "960", "961", "962", "963", "964", "965", "966", "967", "968", "970", "971", "972",
+  "973", "974", "975", "976", "977", "992", "993", "994", "995", "996", "998",
+]);
+const PHONE_SEPARATORS = /[\s.\-()]/g;
+const PHONE_INTERNATIONAL_PATTERN = /^\+[0-9]{7,15}$/;
+
+/**
+ * Forme canonique Monetico `+CC-NNNN` ou `undefined` (omission).
+ * Exportée pour test direct ; ne lève jamais d'exception.
+ */
+export function formatMoneticoPhone(value: string | null | undefined): string | undefined {
+  const trimmed = (value ?? "").trim();
+  if (trimmed.length === 0) return undefined;
+  let compact = trimmed.replace(PHONE_SEPARATORS, "");
+  if (compact.startsWith("00")) compact = "+" + compact.slice(2);
+  if (!PHONE_INTERNATIONAL_PATTERN.test(compact)) return undefined;
+  const digits = compact.slice(1);
+  for (const len of [3, 2, 1]) {
+    const cc = digits.slice(0, len);
+    if (cc.length === len && PHONE_COUNTRY_CODES.has(cc)) {
+      const national = digits.slice(len);
+      if (national.length < 4) return undefined;
+      return `+${cc}-${national}`;
+    }
+  }
+  return undefined;
+}
 
 function requireNonEmpty(value: string | null | undefined, field: string, max: number): string {
   const trimmed = (value ?? "").trim();
@@ -162,27 +204,12 @@ function mapStateOrProvinceField(value: string | null | undefined): string | und
 }
 
 /**
- * v2 CORRECTIF (ferme P3B6-MONETICO-FORMAT-01) — `phone` : absent/blanc
- * → omis ; fourni mais dépassant `MAX_PHONE` (mesuré APRÈS suppression
- * des espaces, seule normalisation autorisée) → rejet explicite ; fourni,
- * de longueur valide, mais de forme incompatible avec `PHONE_PATTERN`
- * (lettres, ponctuation, "+" répété/mal placé) → rejet explicite --
- * JAMAIS de tentative de "réparation"/réécriture vers un numéro
- * différent (mandat v2 §6). La représentation canonique de sortie est la
- * chaîne dé-espacée elle-même.
+ * `phone` : voir `formatMoneticoPhone` (PAYMENT P4-B) -- format Monetico
+ * `+CC-NNNN` ou omission ; jamais d'exception, jamais de réécriture vers
+ * un numéro différent de celui fourni.
  */
 function mapPhoneField(value: string | null | undefined): string | undefined {
-  const trimmed = (value ?? "").trim();
-  if (trimmed.length === 0) return undefined;
-  const despaced = trimmed.replace(/\s+/g, "");
-  if (despaced.length === 0) return undefined;
-  if (despaced.length > MAX_PHONE) {
-    throw new MoneticoProtocolError("MONETICO_BILLING_TOO_LONG_PHONE");
-  }
-  if (!PHONE_PATTERN.test(despaced)) {
-    throw new MoneticoProtocolError("MONETICO_BILLING_INVALID_PHONE");
-  }
-  return despaced;
+  return formatMoneticoPhone(value);
 }
 
 /**
