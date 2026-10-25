@@ -246,6 +246,15 @@ function installBackend(t: any): Backend {
     // n'apparaît, le parcours observé par les assertions ci-dessous est
     // donc exactement celui d'avant le lot. Toute AUTRE requête sortante
     // continue de lever, exactement comme avant.
+    // PAYMENT P4-A (MODIFIÉ) : après create_order, la boutique demande désormais au
+    // serveur si un paiement en ligne est requis (POST /api/payments/monetico/checkout).
+    // Ce harnais répond « non » : parcours historique inchangé.
+    if (String(input).includes("/api/payments/monetico/checkout")) {
+      return new Response(JSON.stringify({ outcome: "checkout_not_needed", reason: "not_required" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (String(input).includes("/api/checkout/withdrawal-eligibility")) {
       return new Response(JSON.stringify({ eligible: false }), {
         status: 200,

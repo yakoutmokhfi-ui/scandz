@@ -29,7 +29,15 @@ const PINNED: Record<string, string> = {
   // de l'éligibilité par code postal, du périmètre pays, du minimum
   // d'articles ni des frais n'est touchée : voir le diff de ce commit.
   // Ancien SHA-256 : 97f7cf27009753ff8e8822a9cabfd7ed52104a026fbf75fdd11724028800cc62
-  "components/CartPanel.tsx": "8696fc3b3b4dcef840f7b07e4abfb61d06300cd5680157db84e980b61ebb33e1",
+  // RE-ÉPINGLAGE DÉLIBÉRÉ, dans son propre commit (PAYMENT P4-A) :
+  // CartPanel reçoit trois props optionnelles (`paymentError`,
+  // `isRetryingPayment`, `onRetryPayment`) pour remplacer le bouton d'envoi
+  // par une reprise CIBLÉE du paiement quand la commande existe déjà.
+  // AUCUNE ligne du moteur de tarifs, de l'éligibilité par code postal, du
+  // périmètre pays, du minimum d'articles ni des frais n'est touchée : voir
+  // le diff de ce commit.
+  // Ancien SHA-256 : 8696fc3b3b4dcef840f7b07e4abfb61d06300cd5680157db84e980b61ebb33e1
+  "components/CartPanel.tsx": "d0061d421a1eb48920f480f3220fc656a62640b4051b7e1040a14f6002ac198b",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

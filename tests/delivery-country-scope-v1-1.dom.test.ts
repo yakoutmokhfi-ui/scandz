@@ -318,6 +318,14 @@ function installBackend(
         headers: { "content-type": "application/json" },
       });
     }
+    // PAYMENT P4-A (MODIFIÉ) : après create_order, la boutique demande désormais au
+    // serveur si un paiement en ligne est requis. Ce harnais répond « non ».
+    if (url.includes("/api/payments/monetico/checkout")) {
+      return new Response(JSON.stringify({ outcome: "checkout_not_needed", reason: "not_required" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     throw new Error(`requête sortante inattendue : ${url}`);
   });
   return { createOrderCalls: () => rpcCalls.filter((c) => c.name === "create_order").map((c) => c.args) };

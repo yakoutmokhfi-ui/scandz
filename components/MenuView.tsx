@@ -130,6 +130,9 @@ import { dirOf, translate, type Lang } from "@/lib/i18n";
 import { tName, tCategoryDescription, tSubcategoryName } from "@/lib/menu-i18n";
 import { blockingItemsByMode } from "@/lib/service-mode-restrictions";
 import Ltr from "@/components/Bidi";
+import BillingAddressDialog, { type BillingAddressValues } from "@/components/BillingAddressDialog";
+import { startOnlineCheckout, type CheckoutBillingInput } from "@/lib/services/payment-checkout";
+import { submitPaymentRedirect } from "@/lib/payment-redirect";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
 const DEMO_SLUG = "le-sirocco";
@@ -898,6 +901,37 @@ export default function MenuView({
   const [pendingInvoiceCompletion, setPendingInvoiceCompletion] = useState<PendingInvoiceCompletion | null>(null);
   const [invoiceRequestError, setInvoiceRequestError] = useState<string | null>(null);
   const [isRetryingInvoice, setIsRetryingInvoice] = useState(false);
+
+  /**
+   * PAYMENT P4-A -- PAIEMENT EN LIGNE (Monetico) APRÈS create_order.
+   *
+   * La commande est DÉJÀ créée quand ce flux commence ; ce composant ne
+   * décide ni si le paiement est requis (serveur : configuration
+   * prestataire de l'établissement), ni le montant, ni les URLs. Il
+   * appelle la route de paiement et traite CHAQUE réponse :
+   *   - not_needed       -> parcours historique (completeOrderFlow) ;
+   *   - ready            -> formulaire signé rejoué tel quel vers Monetico
+   *                         (le navigateur quitte la boutique ; la
+   *                         confirmation se fait sur les pages de retour,
+   *                         à partir du statut lu CÔTÉ SERVEUR) ;
+   *   - billing_required -> dialogue d'adresse de facturation, puis
+   *                         nouvel appel AVEC l'adresse (même commande) ;
+   *   - billing_invalid  -> erreur dans le dialogue, saisie conservée ;
+   *   - unavailable      -> la commande existe mais n'a pas pu être mise
+   *                         en paiement : reprise CIBLÉE (même commande,
+   *                         jamais une nouvelle création).
+   * `pendingPayment` conserve TOUT ce qu'il faut pour terminer ou
+   * reprendre sans recréer de commande.
+   */
+  interface PendingPayment extends PendingInvoiceCompletion {
+    invoiceRequested: boolean;
+  }
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [isRetryingPayment, setIsRetryingPayment] = useState(false);
+  const [billingPromptOpen, setBillingPromptOpen] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [billingBusy, setBillingBusy] = useState(false);
   const [confirmedNumber, setConfirmedNumber] = useState<number | null>(null);
 
   const activeCategory = restaurant.categories.find(
@@ -1757,13 +1791,13 @@ export default function MenuView({
         }
       }
 
-      completeOrderFlow(
+      await proceedAfterOrderCreated({
         order,
         frozenLines,
         frozenOrderContext,
         frozenNote,
-        invoiceRequest.wantsInvoice
-      );
+        invoiceRequested: invoiceRequest.wantsInvoice,
+      });
     } catch (err) {
       // CSDJ-2 / #158 -- refus TYPÉ de la date/du créneau par le serveur :
       // la sélection est vidée, les disponibilités sont RELUES, un message
@@ -1809,6 +1843,115 @@ export default function MenuView({
    * répétition de cette reprise, corrigée ou non, ne produit jamais
    * de seconde ligne.
    */
+  /**
+   * PAYMENT P4-A -- point de passage UNIQUE après create_order (et
+   * après la demande de facture, le cas échéant) : tente le paiement en
+   * ligne ; sans paiement requis, termine le parcours historique.
+   */
+  async function proceedAfterOrderCreated(pending: PendingPayment): Promise<void> {
+    setPaymentError(null);
+    setPendingInvoiceCompletion(null);
+    setInvoiceRequestError(null);
+    // Livraison : l'adresse de livraison de la commande sert de
+    // facturation (copiée CÔTÉ BASE, jamais renvoyée depuis ici) ; le
+    // pays est confirmé explicitement. Retrait : le serveur répondra
+    // `billing_required` et le client saisira son adresse.
+    const billing: CheckoutBillingInput | undefined =
+      pending.frozenOrderContext.mode === "delivery"
+        ? { source: "delivery_reuse", country: deliveryCountry?.countryCode ?? "FR" }
+        : undefined;
+    await runOnlineCheckout(pending, billing);
+  }
+
+  async function runOnlineCheckout(
+    pending: PendingPayment,
+    billing: CheckoutBillingInput | undefined
+  ): Promise<void> {
+    const outcome = await startOnlineCheckout({
+      orderId: pending.order.orderId,
+      publicToken: pending.order.publicToken,
+      language: lang,
+      billing,
+    });
+    switch (outcome.kind) {
+      case "not_needed":
+        setPendingPayment(null);
+        setBillingPromptOpen(false);
+        completeOrderFlow(
+          pending.order,
+          pending.frozenLines,
+          pending.frozenOrderContext,
+          pending.frozenNote,
+          pending.invoiceRequested
+        );
+        return;
+      case "ready":
+        // Le navigateur quitte la boutique : aucun état de confirmation
+        // n'est posé ici (il viendrait d'une autorité NON serveur). Le
+        // panier reste tel quel tant que la page n'est pas quittée.
+        setPendingPayment(pending);
+        setBillingPromptOpen(false);
+        submitPaymentRedirect(document, outcome.submissionUrl, outcome.fields);
+        return;
+      case "billing_required":
+        setPendingPayment(pending);
+        setBillingError(null);
+        setBillingPromptOpen(true);
+        return;
+      case "billing_invalid":
+        setPendingPayment(pending);
+        setBillingError(t("paymentBillingInvalid"));
+        setBillingPromptOpen(true);
+        return;
+      case "unavailable":
+      default:
+        setPendingPayment(pending);
+        setBillingPromptOpen(false);
+        setPaymentError(t("paymentUnavailable"));
+        return;
+    }
+  }
+
+  async function handleRetryPayment() {
+    if (!pendingPayment || isRetryingPayment) return;
+    setIsRetryingPayment(true);
+    try {
+      await proceedAfterOrderCreated(pendingPayment);
+    } finally {
+      setIsRetryingPayment(false);
+    }
+  }
+
+  async function handleBillingSubmit(values: BillingAddressValues) {
+    if (!pendingPayment || billingBusy) return;
+    setBillingBusy(true);
+    setBillingError(null);
+    try {
+      const ctx = pendingPayment.frozenOrderContext;
+      const c = ctx.mode === "table" ? null : ctx.customer;
+      await runOnlineCheckout(pendingPayment, {
+        source: "manual",
+        addressLine1: values.addressLine1,
+        addressLine2: values.addressLine2 || undefined,
+        city: values.city,
+        postalCode: values.postalCode,
+        country: values.country,
+        customerName: c?.name || undefined,
+        customerEmail: c?.email || undefined,
+        customerPhone: c?.phone || undefined,
+      });
+    } finally {
+      setBillingBusy(false);
+    }
+  }
+
+  function handleBillingCancel() {
+    // La commande existe déjà : on ne la perd pas, on laisse une reprise
+    // ciblée du paiement (jamais une nouvelle commande).
+    setBillingPromptOpen(false);
+    setPaymentError(t("paymentUnavailable"));
+  }
+
   async function handleRetryInvoiceRequest() {
     if (!pendingInvoiceCompletion || isRetryingInvoice) return;
     // Revalidation cliente de CONFORT avant l'appel réseau -- la RPC
@@ -1822,13 +1965,13 @@ export default function MenuView({
         buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
       );
       if (outcome.ok) {
-        completeOrderFlow(
+        await proceedAfterOrderCreated({
           order,
           frozenLines,
           frozenOrderContext,
           frozenNote,
-          invoiceRequest.wantsInvoice
-        );
+          invoiceRequested: invoiceRequest.wantsInvoice,
+        });
       } else {
         setInvoiceRequestError(t("invoiceRequestFailed"));
       }
@@ -1839,6 +1982,8 @@ export default function MenuView({
 
   function closeConfirmation() {
     setIsConfirmationOpen(false);
+    setPendingPayment(null);
+    setPaymentError(null);
     changeActiveCategory(restaurant.categories[0]?.id ?? "");
     // Mandat §11 : jamais d'état de suivi résiduel entre deux
     // commandes -- la prochaine commande reconstruira son propre
@@ -2169,6 +2314,9 @@ export default function MenuView({
           invoiceRequestError={invoiceRequestError}
           isRetryingInvoice={isRetryingInvoice}
           onRetryInvoiceRequest={handleRetryInvoiceRequest}
+          paymentError={paymentError}
+          isRetryingPayment={isRetryingPayment}
+          onRetryPayment={() => void handleRetryPayment()}
           onChangeQuantity={(key, delta) =>
             setCart((c) => changeLineQuantity(c, key, delta))
           }
@@ -2196,6 +2344,30 @@ export default function MenuView({
           communicationTexts={communicationTexts}
         />
       )}
+
+      <BillingAddressDialog
+        open={billingPromptOpen}
+        initial={{
+          addressLine1:
+            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+              ? pendingPayment.frozenOrderContext.customer.street
+              : "",
+          addressLine2: "",
+          postalCode:
+            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+              ? pendingPayment.frozenOrderContext.customer.postalCode
+              : "",
+          city:
+            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+              ? pendingPayment.frozenOrderContext.customer.city
+              : "",
+          country: deliveryCountry?.countryCode ?? "FR",
+        }}
+        error={billingError}
+        busy={billingBusy}
+        onSubmit={(values) => void handleBillingSubmit(values)}
+        onCancel={handleBillingCancel}
+      />
 
       {isConfirmationOpen && (
         <OrderConfirmation

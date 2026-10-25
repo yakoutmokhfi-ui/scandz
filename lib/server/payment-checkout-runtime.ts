@@ -9,6 +9,7 @@ import {
   getOrderServiceMode,
   getPaymentProviderCredential,
   initiatePaymentAttempt,
+  requireOrderPayment,
   type PaymentProviderRuntimeMode,
 } from "@/lib/server/payment-service";
 import { parseMoneticoCredential } from "@/lib/server/payment-providers/monetico/credentials";
@@ -240,7 +241,28 @@ export async function initiateCheckout(
     return { outcome: "checkout_not_needed", reason: "already_paid" };
   }
   if (context.paymentStatus === "not_required") {
-    return { outcome: "checkout_not_needed", reason: "not_required" };
+    // PAYMENT P4-A -- ORDER PAYMENT REQUIRED. Une commande naît
+    // `not_required` (P1). Si l'établissement a une configuration
+    // prestataire ACTIVÉE ET VÉRIFIÉE, le paiement est obligatoire :
+    // la base (require_order_payment, SECURITY DEFINER) décide seule
+    // de la transition not_required -> required (status=new, total>0,
+    // configuration activée+vérifiée revérifiée côté SQL). Sinon,
+    // comportement historique : aucun paiement en ligne.
+    const gate = await getPaymentRuntimeProviderEnvironment({
+      restaurantId: context.restaurantId,
+      providerCode: PROVIDER_CODE,
+    });
+    if (!gate.isEnabled || gate.configurationStatus !== "verified") {
+      return { outcome: "checkout_not_needed", reason: "not_required" };
+    }
+    const required = await requireOrderPayment({
+      orderId: input.orderId,
+      publicToken: input.publicToken,
+      providerCode: PROVIDER_CODE,
+    });
+    if (required === null || required.paymentStatus !== "required") {
+      return { outcome: "checkout_not_needed", reason: "not_required" };
+    }
   }
 
   // ------------------------------------------------------------

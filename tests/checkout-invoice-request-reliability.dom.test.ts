@@ -100,6 +100,15 @@ function withWithdrawalEligibilityClosed(inner: (...args: any[]) => any) {
   return async (...args: any[]) => {
     const first: any = args[0];
     const url = String(first instanceof URL ? first.href : first?.url ?? first);
+    // PAYMENT P4-A (MODIFIÉ) : après create_order, la boutique demande désormais au
+    // serveur si un paiement en ligne est requis (POST /api/payments/monetico/checkout).
+    // Ce harnais répond « non » : parcours historique inchangé.
+    if (url.includes("/api/payments/monetico/checkout")) {
+      return new Response(JSON.stringify({ outcome: "checkout_not_needed", reason: "not_required" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.includes("/api/checkout/withdrawal-eligibility")) {
       return new Response(JSON.stringify({ eligible: false }), {
         status: 200,
@@ -886,6 +895,11 @@ test("EMAIL-VALIDATION-CUSTOMER. email client au format invalide bloque le check
   const createOrderCalls = mockRpcEmailRequired(t);
   const realOpen = window.open;
   (window as any).open = () => ({});
+  // PAYMENT P4-A (MODIFIÉ) : ce scénario n'interceptait pas `fetch` (aucune
+  // requête attendue hors facture) ; la boutique demande désormais au serveur
+  // si un paiement est requis -- même harnais « non » que les autres scénarios.
+  const realFetch = globalThis.fetch;
+  (globalThis as any).fetch = withWithdrawalEligibilityClosed(async () => { throw new Error("fetch inattendu"); });
 
   const restaurant = sanaaCookiesRestaurant();
   const container = window.document.createElement("div");
@@ -932,6 +946,7 @@ test("EMAIL-VALIDATION-CUSTOMER. email client au format invalide bloque le check
     container.remove();
   } finally {
     (window as any).open = realOpen;
+    (globalThis as any).fetch = realFetch;
   }
 });
 
