@@ -13,6 +13,8 @@ import {
   updateRestaurantIdentity,
   updateRestaurantBgColor,
   getRestaurantThemeTokens,
+  getRestaurantPhotoOverlay,
+  updateRestaurantPhotoOverlay,
   updateRestaurantThemeTokens,
   updateRestaurantSocialLinks,
   updateRestaurantLanguages,
@@ -71,6 +73,8 @@ import { isValidWhatsappNumber, normalizeWhatsappNumber } from "@/lib/whatsapp";
 import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
 import ThemeTokensFields, { emptyThemeTokenInputs, type ThemeTokenInputs } from "@/components/dashboard/ThemeTokensFields";
 import { THEME_TOKEN_KEYS, canonicalThemeTokens, validateThemeTokens } from "@/lib/theme-tokens";
+import PhotoOverlayField from "@/components/dashboard/PhotoOverlayField";
+import { LEGACY_STOREFRONT_PHOTO_OVERLAY, type StorefrontPhotoOverlay } from "@/lib/storefront-photo-overlay";
 import { isValidMapsUrl, normalizeMapsUrl, MAPS_URL_MAX_LENGTH } from "@/lib/maps-url";
 import { isValidInstagramUrl, isValidTiktokUrl, isValidFacebookUrl } from "@/lib/social-links";
 
@@ -121,6 +125,8 @@ type GeneralSettingsSnapshot = {
   bgColor: string | null;
   /** THEME & CONTENT SETTINGS v1 — forme canonique des jetons de surface (lib/theme-tokens.ts). */
   themeTokens: string;
+  /** STOREFRONT PHOTO OVERLAY v1 — valeur lue (lib/storefront-photo-overlay.ts). */
+  photoOverlay: StorefrontPhotoOverlay;
   instagramUrl: string | null;
   tiktokUrl: string | null;
   facebookUrl: string | null;
@@ -259,6 +265,9 @@ function bgColorGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapsho
 function themeTokensGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.themeTokens !== b.themeTokens;
 }
+function photoOverlayGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.photoOverlay !== b.photoOverlay;
+}
 function socialGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.instagramUrl !== b.instagramUrl || a.tiktokUrl !== b.tiktokUrl || a.facebookUrl !== b.facebookUrl;
 }
@@ -329,6 +338,12 @@ export default function SettingsPage() {
   // n'est jamais écrit (aucune écrasement d'une valeur jamais lue).
   const [themeTokenInputs, setThemeTokenInputs] = useState<ThemeTokenInputs>(emptyThemeTokenInputs());
   const [themeTokensReadable, setThemeTokensReadable] = useState(false);
+  // STOREFRONT PHOTO OVERLAY v1 — même discipline : `photoOverlayReadable`
+  // reste FAUX tant que la lecture dédiée n'a pas abouti pour
+  // l'établissement courant ; la section est alors désactivée et le groupe
+  // n'est jamais écrit.
+  const [photoOverlay, setPhotoOverlay] = useState<StorefrontPhotoOverlay>(LEGACY_STOREFRONT_PHOTO_OVERLAY);
+  const [photoOverlayReadable, setPhotoOverlayReadable] = useState(false);
   const [instagramUrl, setInstagramUrl] = useState("");
   const [tiktokUrl, setTiktokUrl] = useState("");
   const [facebookUrl, setFacebookUrl] = useState("");
@@ -592,6 +607,8 @@ export default function SettingsPage() {
       // jamais les jetons de l'établissement précédent.
       setThemeTokenInputs(emptyThemeTokenInputs());
       setThemeTokensReadable(false);
+      setPhotoOverlay(LEGACY_STOREFRONT_PHOTO_OVERLAY);
+      setPhotoOverlayReadable(false);
       setInstagramUrl(s.instagram_url ?? "");
       setTiktokUrl(s.tiktok_url ?? "");
       setFacebookUrl(s.facebook_url ?? "");
@@ -619,6 +636,7 @@ export default function SettingsPage() {
         announcementActive: s.announcement_active ?? false,
         bgColor: normStrOrNull(s.bg_color ?? ""),
         themeTokens: canonicalThemeTokens({}),
+        photoOverlay: LEGACY_STOREFRONT_PHOTO_OVERLAY,
         instagramUrl: normStrOrNull(s.instagram_url ?? ""),
         tiktokUrl: normStrOrNull(s.tiktok_url ?? ""),
         facebookUrl: normStrOrNull(s.facebook_url ?? ""),
@@ -808,6 +826,23 @@ export default function SettingsPage() {
         if (!token.isCurrent()) return;
         setThemeTokenInputs(emptyThemeTokenInputs());
         setThemeTokensReadable(false);
+      }
+
+      // STOREFRONT PHOTO OVERLAY v1 — lecture INDÉPENDANTE, même garde de
+      // provenance après l'await. Échec (colonne pas encore appliquée,
+      // valeur hors jeu fermé) => section DÉSACTIVÉE, groupe non écrit.
+      try {
+        const stored = await getRestaurantPhotoOverlay(id);
+        if (!token.isCurrent()) return;
+        setPhotoOverlay(stored);
+        setPhotoOverlayReadable(true);
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, photoOverlay: stored };
+        }
+      } catch {
+        if (!token.isCurrent()) return;
+        setPhotoOverlay(LEGACY_STOREFRONT_PHOTO_OVERLAY);
+        setPhotoOverlayReadable(false);
       }
 
       try {
@@ -1267,6 +1302,11 @@ export default function SettingsPage() {
         themeTokensReadable && themeTokenCheck.ok
           ? canonicalThemeTokens(themeTokenCheck.tokens)
           : (generalSnapshotRef.current?.themeTokens ?? canonicalThemeTokens({})),
+      // Non lisible => la valeur de l'instantané est reportée telle quelle
+      // : le groupe n'est alors jamais « modifié ».
+      photoOverlay: photoOverlayReadable
+        ? photoOverlay
+        : (generalSnapshotRef.current?.photoOverlay ?? LEGACY_STOREFRONT_PHOTO_OVERLAY),
       instagramUrl: normStrOrNull(instagramUrl),
       tiktokUrl: normStrOrNull(tiktokUrl),
       facebookUrl: normStrOrNull(facebookUrl),
@@ -1352,6 +1392,7 @@ export default function SettingsPage() {
     const bgColorDirty = !generalSnap || bgColorGroupDirty(generalSnap, currentGeneral);
     const themeTokensDirty =
       themeTokensReadable && themeTokenCheck.ok && !!generalSnap && themeTokensGroupDirty(generalSnap, currentGeneral);
+    const photoOverlayDirty = photoOverlayReadable && !!generalSnap && photoOverlayGroupDirty(generalSnap, currentGeneral);
     const socialDirty = !generalSnap || socialGroupDirty(generalSnap, currentGeneral);
     const languagesDirty = !generalSnap || languagesGroupDirty(generalSnap, currentGeneral);
 
@@ -1768,6 +1809,21 @@ export default function SettingsPage() {
       } catch {
         if (!token.isCurrent()) return;
         failedKeys.push("stThemeTokensSaveError");
+      }
+    }
+
+    if (photoOverlayDirty) {
+      attemptedCount++;
+      try {
+        await updateRestaurantPhotoOverlay(restaurantId, currentGeneral.photoOverlay);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, photoOverlay: currentGeneral.photoOverlay };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stPhotoOverlaySaveError");
       }
     }
 
@@ -2343,6 +2399,21 @@ export default function SettingsPage() {
             inputs={themeTokenInputs}
             onChange={setThemeTokenInputs}
             disabled={!canEdit || !themeTokensReadable}
+            t={t}
+          />
+        </section>
+
+        {/* STOREFRONT PHOTO OVERLAY v1 — assombrissement de la photo
+            principale de la vitrine, réglage PAR établissement. Désactivée
+            tant que la lecture dédiée n'a pas abouti. */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4" data-settings-photo-overlay-section="">
+          <h3 className="font-bold text-stone-900">{t("stPhotoOverlayTitle")}</h3>
+          <PhotoOverlayField
+            value={photoOverlay}
+            onChange={setPhotoOverlay}
+            disabled={!canEdit || !photoOverlayReadable}
+            coverUrl={coverUrl}
+            ink={secondaryColor.trim() || null}
             t={t}
           />
         </section>

@@ -1,4 +1,5 @@
 import { sanitizeThemeTokens, type ThemeTokens } from "@/lib/theme-tokens";
+import { isStorefrontPhotoOverlay, type StorefrontPhotoOverlay } from "@/lib/storefront-photo-overlay";
 import { supabase } from "@/lib/supabase";
 import { ORDER_PAGE_SIZE, validateOrderCursor, type OrderCursor } from "@/lib/dashboard-pagination";
 import type {
@@ -1165,6 +1166,42 @@ export async function updateRestaurantThemeTokens(
   const { error } = await supabase.rpc("update_restaurant_theme_tokens", {
     p_restaurant_id: restaurantId,
     p_tokens: tokens,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * STOREFRONT PHOTO OVERLAY v1 — voile sombre de la photo principale
+ * (lib/storefront-photo-overlay.ts).
+ *
+ * LECTURE INDÉPENDANTE de getRestaurantSettings (même raison que pour les
+ * jetons de thème) : tant que la colonne n'est pas appliquée, une colonne
+ * manquante dans le SELECT principal ferait échouer TOUTE la page
+ * Réglages. Ici l'échec reste local : l'appelant désactive la section et
+ * n'écrit rien. Une valeur reçue hors jeu fermé est REFUSÉE (erreur), et
+ * non devinée : on n'affiche jamais « standard » à un commerçant dont la
+ * valeur réelle est inconnue.
+ */
+export async function getRestaurantPhotoOverlay(restaurantId: string): Promise<StorefrontPhotoOverlay> {
+  const { data, error } = await supabase
+    .from("restaurant_configs")
+    .select("storefront_photo_overlay")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const value = (data as { storefront_photo_overlay?: unknown } | null)?.storefront_photo_overlay;
+  if (!isStorefrontPhotoOverlay(value)) throw new Error("storefront_photo_overlay unavailable");
+  return value;
+}
+
+/** Écriture par la SEULE voie RPC (jeu fermé validé côté serveur, rôle owner/manager ou opérateur). */
+export async function updateRestaurantPhotoOverlay(
+  restaurantId: string,
+  overlay: StorefrontPhotoOverlay
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_photo_overlay", {
+    p_restaurant_id: restaurantId,
+    p_overlay: overlay,
   });
   if (error) throw new Error(error.message);
 }
