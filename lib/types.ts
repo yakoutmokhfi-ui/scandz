@@ -67,6 +67,14 @@ export interface RestaurantConfig {
    *  `unknown` volontairement : la valeur est TOUJOURS repassée par
    *  sanitizeThemeTokens avant usage, jamais lue telle quelle. */
   theme_tokens?: unknown;
+  /** UX LOT 2026-10 (demande Emmanuel) — champ « Note pour le
+   *  restaurant » du checkout, PAR ÉTABLISSEMENT. `false` = champ non
+   *  rendu et note jamais transmise ; `true`/`null`/absent = champ
+   *  affiché (comportement historique, inchangé tant que la migration
+   *  supabase/DRAFT-lot-order-note-toggle-v1.sql n'est pas jouée).
+   *  Configuration marchande (colonne restaurant_configs), jamais un
+   *  nom d'établissement codé en dur. */
+  order_note_enabled?: boolean | null;
   /** STOREFRONT PHOTO OVERLAY v1 — voile sombre de la photo principale :
    *  'none' | 'light' | 'standard'. Colonne additive ; absente (colonne
    *  pas encore appliquée), inconnue ou invalide => traitée comme

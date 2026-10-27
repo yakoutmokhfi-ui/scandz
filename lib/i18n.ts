@@ -1471,9 +1471,14 @@ const fr: Dict = {
   // CUSTOMER BILLING PROFILE v2 -- le libellé PORTE la mention
   // « optionnel », comme invVatNumber : l'optionalité est visible dans
   // le champ lui-même, pas seulement dans une ligne d'aide.
-  invSiren: "SIREN (optionnel)",
+  // UX LOT 2026-10 (demande Emmanuel) : SIRET à la place du SIREN,
+  // OBLIGATOIRE pour une facture au nom d'une entreprise (présence
+  // seulement, aucun contrôle de format). Clés conservées (invSiren…)
+  // pour ne pas renommer la colonne de stockage ni les tests existants.
+  invSiren: "SIRET",
   invCompanyIdentifiersOptionalHint:
-    "Le SIREN et le numéro de TVA sont facultatifs : vous pouvez laisser ces champs vides. Aucun SIRET n'est demandé.",
+    "Le SIRET est obligatoire pour une facture au nom d'une entreprise. Le numéro de TVA est facultatif.",
+  invoiceSiretRequired: "Le SIRET est requis pour une facture au nom d'une entreprise.",
   invFirstName: "Prénom",
   invLastName: "Nom",
   invContactName: "Nom du contact",
@@ -1489,7 +1494,7 @@ const fr: Dict = {
   invoicePostalCodeTooLong: "Le code postal dépasse la longueur maximale autorisée (10 caractères).",
   invoiceCompanyNameTooLong: "La raison sociale dépasse la longueur maximale autorisée (120 caractères).",
   invoiceVatNumberTooLong: "Le numéro de TVA dépasse la longueur maximale autorisée (30 caractères).",
-  invoiceSirenTooLong: "Le SIREN dépasse la longueur maximale autorisée (14 caractères).",
+  invoiceSirenTooLong: "Le SIRET dépasse la longueur maximale autorisée (14 caractères).",
   invoiceFirstNameTooLong: "Le prénom dépasse la longueur maximale autorisée (45 caractères).",
   invoiceLastNameTooLong: "Le nom dépasse la longueur maximale autorisée (45 caractères).",
   invoiceContactNameTooLong: "Le nom du contact dépasse la longueur maximale autorisée (45 caractères).",
@@ -1501,7 +1506,7 @@ const fr: Dict = {
   invBillingAddressDiffers: "Adresse de facturation différente de l'adresse de livraison ?",
   dsInvoiceRequested: "Facture demandée",
   dsInvoiceVatNumber: "N° TVA",
-  dsInvoiceSiren: "SIREN",
+  dsInvoiceSiren: "SIRET",
 
   // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
   chkScheduleTitlePickup: "Quand venir retirer votre commande ?",
@@ -2796,9 +2801,10 @@ const en: Dict = {
   invCountry: "Country",
   invCompanyLegalName: "Company legal name",
   invVatNumber: "VAT number (optional)",
-  invSiren: "SIREN (optional)",
+  invSiren: "SIRET",
   invCompanyIdentifiersOptionalHint:
-    "SIREN and VAT number are optional: you may leave these fields empty. No SIRET is requested.",
+    "The SIRET is required for an invoice issued to a company. The VAT number is optional.",
+  invoiceSiretRequired: "The SIRET is required for an invoice issued to a company.",
   invFirstName: "First name",
   invLastName: "Last name",
   invContactName: "Contact name",
@@ -2814,7 +2820,7 @@ const en: Dict = {
   invoicePostalCodeTooLong: "Postal code exceeds the maximum allowed length (10 characters).",
   invoiceCompanyNameTooLong: "Company legal name exceeds the maximum allowed length (120 characters).",
   invoiceVatNumberTooLong: "VAT number exceeds the maximum allowed length (30 characters).",
-  invoiceSirenTooLong: "SIREN exceeds the maximum allowed length (14 characters).",
+  invoiceSirenTooLong: "SIRET exceeds the maximum allowed length (14 characters).",
   invoiceFirstNameTooLong: "First name exceeds the maximum allowed length (45 characters).",
   invoiceLastNameTooLong: "Last name exceeds the maximum allowed length (45 characters).",
   invoiceContactNameTooLong: "Contact name exceeds the maximum allowed length (45 characters).",
@@ -2826,7 +2832,7 @@ const en: Dict = {
   invBillingAddressDiffers: "Billing address different from delivery address?",
   dsInvoiceRequested: "Invoice requested",
   dsInvoiceVatNumber: "VAT number",
-  dsInvoiceSiren: "SIREN",
+  dsInvoiceSiren: "SIRET",
 
   // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
   chkScheduleTitlePickup: "When will you collect your order?",
@@ -4111,9 +4117,10 @@ const ar: Dict = {
   invCountry: "الدولة",
   invCompanyLegalName: "الاسم القانوني للشركة",
   invVatNumber: "رقم التعريف الضريبي (اختياري)",
-  invSiren: "رقم SIREN (اختياري)",
+  invSiren: "رقم SIRET",
   invCompanyIdentifiersOptionalHint:
-    "رقم SIREN ورقم التعريف الضريبي اختياريان: يمكنك ترك هذين الحقلين فارغين. ولا يُطلب رقم SIRET.",
+    "رقم SIRET إلزامي للفاتورة باسم شركة. رقم التعريف الضريبي اختياري.",
+  invoiceSiretRequired: "رقم SIRET مطلوب للفاتورة باسم شركة.",
   invFirstName: "الاسم الأول",
   invLastName: "اسم العائلة",
   invContactName: "اسم جهة الاتصال",
@@ -4129,7 +4136,7 @@ const ar: Dict = {
   invoicePostalCodeTooLong: "الرمز البريدي يتجاوز الحد الأقصى المسموح به (10 أحرف).",
   invoiceCompanyNameTooLong: "الاسم القانوني للشركة يتجاوز الحد الأقصى المسموح به (120 حرفًا).",
   invoiceVatNumberTooLong: "رقم التعريف الضريبي يتجاوز الحد الأقصى المسموح به (30 حرفًا).",
-  invoiceSirenTooLong: "رقم SIREN يتجاوز الحد الأقصى المسموح به (14 حرفًا).",
+  invoiceSirenTooLong: "رقم SIRET يتجاوز الحد الأقصى المسموح به (14 حرفًا).",
   invoiceFirstNameTooLong: "الاسم الأول يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
   invoiceLastNameTooLong: "اسم العائلة يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
   invoiceContactNameTooLong: "اسم جهة الاتصال يتجاوز الحد الأقصى المسموح به (45 حرفًا).",
@@ -4141,7 +4148,7 @@ const ar: Dict = {
   invBillingAddressDiffers: "هل عنوان الفوترة مختلف عن عنوان التوصيل؟",
   dsInvoiceRequested: "طلب فاتورة",
   dsInvoiceVatNumber: "رقم التعريف الضريبي",
-  dsInvoiceSiren: "رقم SIREN",
+  dsInvoiceSiren: "رقم SIRET",
 
   // CSDJ-2 / #158 — date et créneau au checkout (retrait / livraison).
   chkScheduleTitlePickup: "متى ستستلم طلبك؟",

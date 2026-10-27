@@ -37,7 +37,15 @@ const PINNED: Record<string, string> = {
   // périmètre pays, du minimum d'articles ni des frais n'est touchée : voir
   // le diff de ce commit.
   // Ancien SHA-256 : 8696fc3b3b4dcef840f7b07e4abfb61d06300cd5680157db84e980b61ebb33e1
-  "components/CartPanel.tsx": "d0061d421a1eb48920f480f3220fc656a62640b4051b7e1040a14f6002ac198b",
+  // UX LOT 2026-10 (demande Emmanuel) -- re-pin : CartPanel gagne le
+  // masquage du champ note (restaurant_configs.order_note_enabled =
+  // false) et, audit Maxwell P2, l'ignorance de la validation de note
+  // quand le champ est désactivé. (La case de confirmation d'âge du
+  // commit 34cc977 a été retirée : décision de périmètre 27/10/2026.)
+  // Moteur de tarifs / éligibilité / périmètre pays / minimum / frais :
+  // AUCUNE ligne touchée (voir le diff du commit).
+  // SHA-256 précédent : d0061d421a1eb48920f480f3220fc656a62640b4051b7e1040a14f6002ac198b
+  "components/CartPanel.tsx": "2c2b47a6456eef5bcd27cafb87b3570589137b18e5307c47ee697967beea0939",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

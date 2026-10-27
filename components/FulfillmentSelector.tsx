@@ -654,7 +654,9 @@ export default function FulfillmentSelector({
           <p
             data-testid="delivery-country-scope-prominent"
             data-country-codes={deliveryCountryScope.map((c) => c.countryCode).join(",")}
-            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-sm font-semibold text-ink-on-bg"
+            // UX LOT 2026-10 (demande Emmanuel) : texte CENTRÉ (text-center),
+            // aucun changement de texte ni de logique.
+            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-center text-sm font-semibold text-ink-on-bg"
           >
             {countryScopeMessage}
           </p>
@@ -706,7 +708,8 @@ export default function FulfillmentSelector({
           <p
             data-testid="delivery-country-context"
             data-country-code={deliveryCountry.countryCode}
-            className="text-xs text-stone-500"
+            // UX LOT 2026-10 : centré, comme le message proéminent.
+            className="text-center text-xs text-stone-500"
           >
             {t("countryDeliveryContext", { country: deliveryCountry.countryName })}
           </p>
@@ -857,7 +860,15 @@ export default function FulfillmentSelector({
         {t(type === "delivery" ? "deliveryDetails" : "yourDetails")}
       </h3>
 
-      {deliveryModeAvailable && message && (
+      {/* UX LOT 2026-10 (PR #166, constat « textes propres au mode ») :
+          ce bandeau est l'état de LIVRAISON (texte de la règle appariée
+          par le code postal, hors zone, minimum, code postal manquant).
+          `status` est calculé depuis le code postal quel que soit le
+          mode : sans la garde `type === "delivery"`, le bandeau (et donc
+          le texte de la règle de livraison) restait affiché en mode
+          RETRAIT après une bascule, sous « Vos coordonnées ». En retrait,
+          seul `pickupExplanation` (plus bas) décrit le mode. */}
+      {type === "delivery" && deliveryModeAvailable && message && (
         <div
           role="status"
           aria-live="polite"

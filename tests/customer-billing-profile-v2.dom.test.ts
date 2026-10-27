@@ -378,32 +378,32 @@ test("particulier : la charge utile porte le nom RECOMPOSÉ (repli sur la comman
 });
 
 // ==================================================================
-// 2. SOCIÉTÉ — optionalité visible, aucun SIRET
+// 2. SOCIÉTÉ — SIRET requis (UX LOT 2026-10), TVA optionnelle
 // ==================================================================
 
-test("société : raison sociale, SIREN et TVA apparaissent, et les deux identifiants s'annoncent OPTIONNELS", async (t) => {
+test("société : raison sociale, SIRET et TVA apparaissent ; le SIRET est annoncé requis, la TVA optionnelle", async (t) => {
   mockRpc(t);
   const { container, root } = await reachBillingBlock();
   try {
     await selectCompany(container);
     assert.ok(inputById(container, "invoice-company-legal-name"), "raison sociale rendue");
-    assert.ok(inputById(container, "invoice-siren"), "SIREN rendu");
+    assert.ok(inputById(container, "invoice-siren"), "champ SIRET rendu (id historique invoice-siren)");
     assert.ok(inputById(container, "invoice-vat-number"), "TVA rendue");
 
-    // L'optionalité est VISIBLE, dans le libellé du champ lui-même.
-    assert.match(labelFor(container, "invoice-siren"), /optionnel/i);
+    // UX LOT 2026-10 : le libellé dit « SIRET », sans « optionnel » ;
+    // la TVA reste annoncée optionnelle.
+    assert.match(labelFor(container, "invoice-siren"), /SIRET/);
+    assert.ok(!/SIREN/.test(labelFor(container, "invoice-siren")), "plus de SIREN dans le libellé");
+    assert.ok(!/optionnel/i.test(labelFor(container, "invoice-siren")), "le SIRET n'est plus annoncé optionnel");
     assert.match(labelFor(container, "invoice-vat-number"), /optionnel/i);
 
-    // …et une ligne d'aide dit explicitement qu'aucun SIRET n'est
-    // demandé.
+    // …et la ligne d'aide dit que le SIRET est obligatoire.
     const hint = container.querySelector("[data-invoice-identifiers-optional]");
     assert.ok(hint, "la ligne d'aide des identifiants doit être rendue");
-    assert.match(hint!.textContent ?? "", /facultatifs/i);
-    assert.match(hint!.textContent ?? "", /Aucun SIRET/i);
+    assert.match(hint!.textContent ?? "", /SIRET est obligatoire/i);
 
-    // AUCUN champ SIRET n'existe dans tout le formulaire.
+    // Aucun second champ (pas de doublon « siret » à côté de `siren`).
     assert.equal(container.querySelector('[id*="siret" i]'), null);
-    assert.ok(!/SIRET\s*:/i.test(container.textContent ?? ""));
 
     // Les champs PARTICULIER se retirent (aucun doublon de nom).
     assert.equal(inputById(container, "invoice-first-name"), null);
@@ -414,7 +414,7 @@ test("société : raison sociale, SIREN et TVA apparaissent, et les deux identif
   }
 });
 
-test("société SANS SIREN NI TVA : la commande aboutit, les deux champs partent à null", async (t) => {
+test("société SANS SIRET : aucune soumission possible, erreur affichée ; SIRET saisi -> la commande aboutit, TVA absente -> null", async (t) => {
   mockRpc(t);
   const payloads: Array<Record<string, unknown>> = [];
   const realFetch = globalThis.fetch;
@@ -430,13 +430,23 @@ test("société SANS SIREN NI TVA : la commande aboutit, les deux champs partent
     await selectCompany(container);
     setNativeValue(inputById(container, "invoice-company-legal-name")!, "Maison Hugo SARL");
     await flush(50);
+    // UX LOT 2026-10 : SIRET vide -> le bouton d'envoi n'est PAS rendu
+    // (canSubmit faux) et l'erreur de présence est affichée sous le
+    // champ. Aucun appel réseau.
+    assert.equal(buttonWithText(container, "Enregistrer et continuer sur WhatsApp") ?? null, null, "pas de bouton d'envoi sans SIRET");
+    assert.match(container.textContent ?? "", /Le SIRET est requis pour une facture au nom d'une entreprise\./);
+    assert.equal(payloads.length, 0, "aucune commande envoyée sans SIRET");
+
+    setNativeValue(inputById(container, "invoice-siren")!, "12345678900012");
+    await flush(50);
+    assert.ok(!/Le SIRET est requis/.test(container.textContent ?? ""), "l'erreur disparaît une fois le SIRET saisi");
     click(buttonWithText(container, "Enregistrer et continuer sur WhatsApp")!);
     await waitFor(() => container.textContent?.includes("Commande envoyée avec succès") ?? false, "confirmation attendue");
 
     const body = payloads[0]!;
     assert.equal(body.invoiceType, "company");
     assert.equal(body.companyLegalName, "Maison Hugo SARL");
-    assert.equal(body.siren, null, "SIREN absent -> null, jamais un blocage");
+    assert.equal(body.siren, "12345678900012", "SIRET transmis tel quel");
     assert.equal(body.vatNumber, null, "TVA absente -> null, jamais un blocage");
   } finally {
     root.unmount();
@@ -446,7 +456,7 @@ test("société SANS SIREN NI TVA : la commande aboutit, les deux champs partent
   }
 });
 
-test("société : le SIREN saisi part TEL QUEL -- espaces internes compris, aucune « correction »", async (t) => {
+test("société : le SIRET saisi part TEL QUEL -- espaces internes compris, aucune « correction » (aucun contrôle de format)", async (t) => {
   mockRpc(t);
   const payloads: Array<Record<string, unknown>> = [];
   const realFetch = globalThis.fetch;
@@ -561,6 +571,8 @@ test("[CBP-01-B/DOM] particulier Alice Martin -> bascule SOCIÉTÉ, contact Bob 
     // 3/4. Bascule en SOCIÉTÉ, puis saisie du contact VISIBLE.
     await selectCompany(container);
     setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    // UX LOT 2026-10 : SIRET requis pour une société.
+    setNativeValue(inputById(container, "invoice-siren")!, "12345678900012");
     setNativeValue(inputById(container, "invoice-contact-name")!, "Bob Durand");
     await flush(50);
 

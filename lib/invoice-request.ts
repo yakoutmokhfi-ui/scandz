@@ -80,8 +80,10 @@ export interface InvoiceRequestInfo {
   country: string;
   companyLegalName: string;
   vatNumber: string;
-  /** CUSTOMER BILLING PROFILE v2 -- SIREN tel que saisi, OPTIONNEL en
-   *  toutes circonstances (y compris facture société). */
+  /** CUSTOMER BILLING PROFILE v2 / UX LOT 2026-10 -- SIRET tel que
+   *  saisi (clé et colonne de stockage historiques `siren`, inchangées :
+   *  aucune migration hébergée). REQUIS pour une facture entreprise
+   *  (présence seulement), sans objet pour un particulier. */
   siren: string;
   /** CUSTOMER BILLING PROFILE v2 -- prénom de facturation (saisie
    *  séparée). Recomposé avec `lastName` dans `contactName` par
@@ -320,13 +322,16 @@ export function getInvoiceRequestErrors(
     errors.vatNumber = "invoiceVatNumberTooLong";
   }
 
-  // CUSTOMER BILLING PROFILE v2 -- SIREN : une SEULE règle, la
-  // longueur, et seulement si une valeur est saisie. Jamais « requis »
-  // (pas même pour une facture société), jamais un contrôle de format,
-  // jamais une clé de contrôle, jamais une normalisation : le produit
-  // interdit explicitement de corriger un identifiant saisi par le
-  // client.
-  if (info.siren.trim().length > INVOICE_FIELD_MAX_LENGTHS.siren) {
+  // UX LOT 2026-10 (demande Emmanuel) -- le champ `siren` porte
+  // désormais le SIRET et devient OBLIGATOIRE pour une facture au nom
+  // d'une entreprise (invoiceType === "company"). PRÉSENCE seulement :
+  // aucun contrôle de format, aucune clé de contrôle, aucune
+  // normalisation -- la valeur saisie prévaut (règle v2 conservée).
+  // Pour un particulier, le champ n'est pas rendu et reste optionnel.
+  // Remplace la décision v2 « jamais requis » (signalée dans la PR).
+  if (info.invoiceType === "company" && info.siren.trim().length === 0) {
+    errors.siren = "invoiceSiretRequired";
+  } else if (info.siren.trim().length > INVOICE_FIELD_MAX_LENGTHS.siren) {
     errors.siren = "invoiceSirenTooLong";
   }
 

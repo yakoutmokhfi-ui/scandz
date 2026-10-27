@@ -230,6 +230,18 @@ test("[A11Y] chaque pilule garde son propre sens d'écriture (dir=auto) et un co
   container.remove();
 });
 
+test("[UX LOT 2026-10] la liste des tags est CENTRÉE (justify-center), toujours en flex-wrap, dans les trois variantes de carte", async () => {
+  for (const variant of ["classic", "editorial", "inline"] as const) {
+    const { container, root } = render(baseItem({ customer_tags: ["Bio", "Truffe", "Fermier"] }), variant);
+    await waitFor(() => container.querySelector("[data-product-tags]") !== null, `la liste doit apparaître (${variant})`);
+    const cls = (container.querySelector("[data-product-tags]")!.getAttribute("class") ?? "").split(/\s+/);
+    assert.ok(cls.includes("justify-center"), `tags centrés (${variant})`);
+    assert.ok(cls.includes("flex") && cls.includes("flex-wrap"), `flex-wrap conservé (${variant})`);
+    root.unmount();
+    container.remove();
+  }
+});
+
 test("[A11Y] le nom accessible de la liste est localisé (en, ar)", async () => {
   const en = render(baseItem({ customer_tags: ["Bio"] }), "classic", "en");
   const ar = render(baseItem({ customer_tags: ["Bio"] }), "classic", "ar");

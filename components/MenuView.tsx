@@ -1728,7 +1728,10 @@ export default function MenuView({
       // future reprise après correction.
       const frozenLines = lines;
       const frozenOrderContext = orderContext;
-      const frozenNote = note;
+      // UX LOT 2026-10 -- établissement sans champ note
+      // (order_note_enabled = false) : AUCUNE note transmise, même si un
+      // état résiduel existait (le champ n'est pas rendu, voir CartPanel).
+      const frozenNote = restaurant.config.order_note_enabled === false ? "" : note;
       // CSDJ-2 / #158 -- `p_customer.schedule` : date et créneau choisis
       // parmi les offres du SERVEUR, jamais une valeur forgée. `null` =
       // rien à envoyer (aucun calendrier : parcours historique).

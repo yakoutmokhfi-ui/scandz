@@ -30,7 +30,14 @@ export default function ProductTags({
   }
 
   return (
-    <ul aria-label={label} data-product-tags="true" className="mt-1 flex flex-wrap gap-1">
+    <ul
+      aria-label={label}
+      data-product-tags="true"
+      // UX LOT 2026-10 (demande Emmanuel) : liste des tags CENTRÉE
+      // (justify-center) -- les pilules restent en flex-wrap, la
+      // dernière ligne est centrée elle aussi ; aucun autre changement.
+      className="mt-1 flex flex-wrap justify-center gap-1"
+    >
       {labels.map((tag) => (
         <li
           key={tag}

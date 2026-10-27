@@ -208,6 +208,10 @@ export default function CartPanel({
   // CUSTOMER CONTACT + LIVE TRACKING v1 -- même autorité que MenuView.
   const whatsappEnabled = isWhatsappEnabled(restaurant.config);
   const { currency, max_tables } = restaurant.config;
+  // UX LOT 2026-10 -- champ « Note pour le restaurant » désactivable
+  // PAR ÉTABLISSEMENT (restaurant_configs.order_note_enabled = false).
+  // Absent/NULL/true : rendu historique inchangé.
+  const orderNoteEnabled = restaurant.config.order_note_enabled !== false;
   const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
   const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
   const timingNoticeGuardRef = useRef(false);
@@ -362,7 +366,13 @@ export default function CartPanel({
   // Compteur et validation alignés sur le comptage serveur (voir
   // lib/order-note.ts) : ni note.length ni maxLength natif seuls, pour
   // rester cohérent avec des emojis / caractères arabes.
-  const noteState = normalizeOrderNote(note);
+  // UX LOT 2026-10 / audit Maxwell P2 (commit 34cc977) : champ note
+  // DÉSACTIVÉ par l'établissement -> sa validation est IGNORÉE. Une
+  // ancienne valeur en état (saisie avant la désactivation, ou trop
+  // longue) ne peut plus bloquer l'envoi, et MenuView ne la transmet de
+  // toute façon jamais (frozenNote = "" quand order_note_enabled =
+  // false). Champ actif : validation inchangée.
+  const noteState = normalizeOrderNote(orderNoteEnabled ? note : "");
 
   /**
    * PRODUCT SERVICE MODES v1 -- panier mixte (issue #11, décision CIO) :
@@ -596,7 +606,8 @@ export default function CartPanel({
                 />
               </div>
 
-              <div className="mt-4">
+              {orderNoteEnabled && (
+              <div className="mt-4" data-order-note-block="">
                 <label
                   htmlFor="order-note"
                   className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted"
@@ -639,6 +650,7 @@ export default function CartPanel({
                   })}
                 </p>
               </div>
+              )}
             </>
           )}
         </div>

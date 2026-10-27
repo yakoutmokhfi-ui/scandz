@@ -130,31 +130,43 @@ test("particulier : AUCUN champ société n'est requis ni transmis", () => {
 // 2. PROFIL SOCIÉTÉ — et l'optionalité des identifiants
 // ==================================================================
 
-test("société : raison sociale, adresse, SIREN et TVA -> valide", () => {
+test("société : raison sociale, adresse, SIRET et TVA -> valide", () => {
   assert.deepEqual(getInvoiceRequestErrors(company()), {});
 });
 
-test("société SANS SIREN -> valide", () => {
+// UX LOT 2026-10 (demande Emmanuel) : le champ `siren` porte le SIRET
+// et devient REQUIS pour une facture entreprise -- PRÉSENCE seulement.
+// Remplace la règle v2 « société SANS SIREN -> valide ».
+test("société SANS SIRET -> refusée (invoiceSiretRequired), et rien d'autre", () => {
   const info = company({ siren: "" });
-  assert.deepEqual(getInvoiceRequestErrors(info), {});
-  assert.equal(normalizeOptional(info.siren), undefined, "un SIREN vide n'est jamais transmis");
+  assert.deepEqual(getInvoiceRequestErrors(info), { siren: "invoiceSiretRequired" });
+  assert.equal(hasInvoiceRequestErrors(info), true);
+  assert.equal(normalizeOptional(info.siren), undefined, "un SIRET vide n'est jamais transmis");
+});
+
+test("société avec SIRET composé de blancs seulement -> refusée (présence = non vide après trim)", () => {
+  assert.deepEqual(getInvoiceRequestErrors(company({ siren: "   " })), { siren: "invoiceSiretRequired" });
+});
+
+test("particulier : le SIRET n'est jamais exigé (champ sans objet)", () => {
+  assert.deepEqual(getInvoiceRequestErrors(individual({ siren: "" })), {});
 });
 
 test("société SANS numéro de TVA -> valide", () => {
   assert.deepEqual(getInvoiceRequestErrors(company({ vatNumber: "" })), {});
 });
 
-test("société SANS SIREN NI TVA -> valide (les deux sont optionnels, pas l'un OU l'autre)", () => {
-  const info = company({ siren: "", vatNumber: "" });
+test("société avec SIRET mais SANS TVA -> valide (la TVA reste optionnelle)", () => {
+  const info = company({ vatNumber: "" });
   assert.deepEqual(getInvoiceRequestErrors(info), {});
   assert.equal(hasInvoiceRequestErrors(info), false);
 });
 
-test("société : seule la raison sociale reste requise -- règle ANTÉRIEURE, inchangée par ce lot", () => {
-  const errors = getInvoiceRequestErrors(company({ companyLegalName: "" }));
+test("société : raison sociale ET SIRET requis -- aucune autre obligation nouvelle", () => {
+  const errors = getInvoiceRequestErrors(company({ companyLegalName: "", siren: "" }));
   assert.equal(errors.companyLegalName, "invoiceCompanyNameRequired");
-  // …et rien d'autre n'est réclamé.
-  assert.deepEqual(Object.keys(errors), ["companyLegalName"]);
+  assert.equal(errors.siren, "invoiceSiretRequired");
+  assert.deepEqual(Object.keys(errors).sort(), ["companyLegalName", "siren"]);
 });
 
 test("les champs optionnels le restent : aucun d'eux ne produit d'erreur à vide", () => {
@@ -172,7 +184,7 @@ test("les champs optionnels le restent : aucun d'eux ne produit d'erreur à vide
   assert.deepEqual(getInvoiceRequestErrors(minimal), {});
 });
 
-test("un SIREN trop long est refusé en LONGUEUR seulement -- jamais en format", () => {
+test("un SIRET trop long est refusé en LONGUEUR seulement -- jamais en format", () => {
   const errors = getInvoiceRequestErrors(company({ siren: "1".repeat(INVOICE_FIELD_MAX_LENGTHS.siren + 1) }));
   assert.equal(errors.siren, "invoiceSirenTooLong");
   // Une valeur « mal formée » mais courte passe : ce n'est pas à la
@@ -185,8 +197,11 @@ test("un SIREN trop long est refusé en LONGUEUR seulement -- jamais en format",
 // 3. AUCUN SIRET, AUCUNE INFÉRENCE, AUCUNE CORRECTION
 // ==================================================================
 
-test("aucun SIRET n'existe dans le contrat de facturation client", () => {
-  // Le type de saisie, la table et les deux RPC : aucun SIRET.
+test("le SIRET est porté par le champ/la colonne historiques `siren` : aucune colonne, aucun paramètre SIRET déclaré (aucune migration)", () => {
+  // UX LOT 2026-10 : le SIRET remplace le SIREN dans l'INTERFACE et la
+  // règle de validation, mais le contrat de stockage reste `siren`
+  // (aucune migration hébergée). Le type de saisie, la table et les
+  // deux RPC : aucune déclaration SIRET.
   assert.ok(!("siret" in EMPTY_INVOICE_REQUEST));
   // Le SQL du lot MENTIONNE « siret » à trois endroits, et ces trois
   // endroits sont des GARDES : deux vérifications qui REFUSENT un
@@ -199,11 +214,13 @@ test("aucun SIRET n'existe dans le contrat de facturation client", () => {
   assert.ok(!/p_siret|v_siret/i.test(sqlCode), "aucun paramètre ni variable SIRET");
   // …et les gardes, elles, existent bel et bien.
   assert.match(sqlCode, /column_name like '%siret%'/);
-  const lib = read("lib", "invoice-request.ts");
+  // lib/invoice-request.ts porte désormais la clé d'erreur
+  // `invoiceSiretRequired` (règle de présence) : il est volontairement
+  // exclu de ce balayage ; service et route n'ont toujours aucun
+  // identifiant SIRET exécutable (ils transmettent `siren`).
   const service = read("lib", "server", "invoice-request-service.ts");
   const route = read("app", "api", "checkout", "invoice-request", "route.ts");
   for (const [name, source] of [
-    ["lib/invoice-request.ts", lib],
     ["lib/server/invoice-request-service.ts", service],
     ["app/api/checkout/invoice-request/route.ts", route],
   ] as const) {
@@ -522,26 +539,30 @@ test("texte marchand : aucun libellé propre à un commerçant n'est codé en du
 // 9. LIBELLÉS : L'OPTIONALITÉ EST VISIBLE
 // ==================================================================
 
-test("libellés : SIREN et TVA annoncent leur optionalité dans les trois langues", () => {
+test("libellés (UX LOT 2026-10) : le champ dit « SIRET » sans mention « optionnel » ; la TVA reste annoncée optionnelle", () => {
   for (const [lang, marker] of [["fr", "optionnel"], ["en", "optional"], ["ar", "اختياري"]] as const) {
+    assert.ok(translate(lang, "invSiren").includes("SIRET"), `invSiren doit dire SIRET en ${lang}`);
+    assert.ok(!translate(lang, "invSiren").includes("SIREN"), `invSiren ne doit plus dire SIREN en ${lang}`);
     assert.ok(
-      translate(lang, "invSiren").toLowerCase().includes(marker.toLowerCase()),
-      `invSiren doit dire « optionnel » en ${lang}`
+      !translate(lang, "invSiren").toLowerCase().includes(marker.toLowerCase()),
+      `invSiren ne doit plus dire « optionnel » en ${lang}`
     );
     assert.ok(
       translate(lang, "invVatNumber").toLowerCase().includes(marker.toLowerCase()),
       `invVatNumber doit dire « optionnel » en ${lang}`
     );
+    assert.ok(translate(lang, "dsInvoiceSiren").includes("SIRET"), `dsInvoiceSiren (back-office) doit dire SIRET en ${lang}`);
+    assert.ok(translate(lang, "invoiceSiretRequired").includes("SIRET"), `invoiceSiretRequired en ${lang}`);
   }
-  // …et la ligne d'aide dit explicitement qu'aucun SIRET n'est demandé.
-  assert.match(translate("fr", "invCompanyIdentifiersOptionalHint"), /facultatifs/);
-  assert.match(translate("fr", "invCompanyIdentifiersOptionalHint"), /Aucun SIRET/);
-  assert.match(translate("en", "invCompanyIdentifiersOptionalHint"), /No SIRET/);
+  // …et la ligne d'aide dit que le SIRET est obligatoire, la TVA facultative.
+  assert.match(translate("fr", "invCompanyIdentifiersOptionalHint"), /SIRET est obligatoire/);
+  assert.match(translate("fr", "invCompanyIdentifiersOptionalHint"), /TVA est facultatif/);
+  assert.match(translate("en", "invCompanyIdentifiersOptionalHint"), /SIRET is required/);
 });
 
 test("libellés : prénom et nom de facturation existent dans les trois langues", () => {
   for (const lang of ["fr", "en", "ar"] as const) {
-    for (const key of ["invFirstName", "invLastName", "invSiren", "dsInvoiceSiren", "invoiceSirenTooLong"]) {
+    for (const key of ["invFirstName", "invLastName", "invSiren", "dsInvoiceSiren", "invoiceSirenTooLong", "invoiceSiretRequired"]) {
       const value = translate(lang, key);
       assert.ok(value && value !== key, `clé ${key} manquante en ${lang}`);
     }
@@ -720,15 +741,19 @@ test("[CBP-01-E] le nom FINAL (repli compris) est validé contre la limite de st
 
   // c) société : la limite porte sur le champ société, et le repli
   //    n'intervient jamais.
+  // UX LOT 2026-10 : SIRET fourni (requis pour une société) pour que
+  // seule la règle testée ici (nom de contact) soit en jeu.
   const companyLong = afterSwitch({
     invoiceType: "company",
     companyLegalName: "ACME SARL",
+    siren: "12345678900012",
     contactName: long,
   });
   assert.equal(getInvoiceRequestErrors(companyLong).contactName, "invoiceContactNameTooLong");
   const companyShort = afterSwitch({
     invoiceType: "company",
     companyLegalName: "ACME SARL",
+    siren: "12345678900012",
     contactName: "Bob Durand",
   });
   assert.deepEqual(

@@ -43,6 +43,13 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+/** UX LOT 2026-10 / audit Maxwell P2 -- présence = au moins un caractère
+ *  NON BLANC. Sert uniquement au contrôle ; la valeur transmise à la RPC
+ *  reste l'ORIGINALE (aucune normalisation, aucun trim de la charge). */
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 function isOptionalString(value: unknown): value is string | undefined | null {
   return value === undefined || value === null || typeof value === "string";
 }
@@ -99,6 +106,18 @@ export async function POST(request: NextRequest) {
   // jamais un remplacement de la validation serveur SQL.
   if (body.invoiceType === "company" && !isNonEmptyString(body.companyLegalName)) {
     return validationFailureResponse("companyLegalName");
+  }
+  // UX LOT 2026-10 (demande Emmanuel) -- SIRET (champ `siren`) REQUIS
+  // pour une facture entreprise : contrôle de PRÉSENCE seulement, miroir
+  // de getInvoiceRequestErrors (lib/invoice-request.ts, qui compare sur
+  // trim()). Audit Maxwell P2 (commit 34cc977) : une valeur composée
+  // UNIQUEMENT de blancs n'est pas une présence -> isNonBlankString.
+  // Aucun contrôle de format, aucune normalisation : la valeur envoyée à
+  // la RPC ci-dessous reste `body.siren` tel quel. La RPC SQL, inchangée,
+  // n'impose pas cette présence : ce contrôle de route est donc
+  // l'autorité serveur de cette règle.
+  if (body.invoiceType === "company" && !isNonBlankString(body.siren)) {
+    return validationFailureResponse("siren");
   }
 
   try {
