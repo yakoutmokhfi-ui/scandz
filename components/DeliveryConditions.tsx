@@ -12,6 +12,7 @@ function DeliveryDialog({ open, title, onDismiss, children, marker }: {
   open: boolean; title: string; onDismiss: () => void; children: ReactNode; marker: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const titleId = useId();
   const { t } = useI18n();
   useEffect(() => {
@@ -19,6 +20,17 @@ function DeliveryDialog({ open, title, onDismiss, children, marker }: {
     if (!dialog) return;
     if (open && !dialog.open) {
       try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
+      // UX LOT 2026-10 (PR #166, retour de vérification en production) :
+      // ce dialogue est le VRAI « Comment passer commande ? » de la
+      // vitrine (deliveryConditionsTitle). Le bouton « Fermer », en bas,
+      // portait `autoFocus` : showModal() lui donnait le focus et le
+      // faisait défiler dans la vue -- avec plusieurs règles de livraison
+      // (contenu > 85dvh) la fenêtre s'ouvrait EN BAS, titre et début du
+      // texte hors écran. Désormais : défilement remis au début, focus
+      // sur le TITRE (focusable par programme seulement) sans défilement.
+      // Mesuré en Chromium réel (scripts/ux-real-browser-check.mjs).
+      dialog.scrollTop = 0;
+      titleRef.current?.focus({ preventScroll: true });
     } else if (!open && dialog.open) {
       try { dialog.close(); } catch { dialog.removeAttribute("open"); }
     }
@@ -27,9 +39,9 @@ function DeliveryDialog({ open, title, onDismiss, children, marker }: {
     onClose={onDismiss} onCancel={onDismiss}
     onClick={(e) => { if (e.target === ref.current) onDismiss(); }}
     className="m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-espresso/10 bg-crema p-5 text-ink-on-bg shadow-xl backdrop:bg-espresso/40">
-    <h2 id={titleId} className="text-xl font-bold">{title}</h2>
+    <h2 id={titleId} ref={titleRef} tabIndex={-1} data-delivery-dialog-title className="text-xl font-bold outline-none">{title}</h2>
     <div className="mt-3 space-y-3">{children}</div>
-    <button type="button" autoFocus onClick={onDismiss} className="mt-5 min-h-11 w-full rounded-xl bg-caramel px-4 py-2.5 font-bold text-caramel-ink">{t("close")}</button>
+    <button type="button" data-delivery-dialog-close onClick={onDismiss} className="mt-5 min-h-11 w-full rounded-xl bg-caramel px-4 py-2.5 font-bold text-caramel-ink">{t("close")}</button>
   </dialog>;
 }
 

@@ -272,8 +272,12 @@ test("[CB-03] la FENÊTRE garde son texte et son alignement : rien n'y est centr
     const paragraph = r.dialog!.querySelector("[data-delivery-rule-text]")!;
     assert.equal(paragraph.className, "whitespace-pre-wrap break-words text-sm leading-relaxed");
     assert.equal(paragraph.textContent, "Ligne 1\nLigne 2");
-    // Titre et bouton de fermeture de la fenêtre : classes inchangées.
-    assert.equal(r.dialog!.querySelector("h2")!.className, "text-xl font-bold");
+    // Titre : mêmes classes de texte ; UX LOT 2026-10 (PR #166) y ajoute
+    // `outline-none` (le titre reçoit le focus programmatique à
+    // l'ouverture, sans anneau de focus visible) -- aucun centrage.
+    const h2cls = r.dialog!.querySelector("h2")!.className.split(/\s+/);
+    for (const c of ["text-xl", "font-bold"]) assert.ok(h2cls.includes(c), `classe ${c} attendue sur le titre`);
+    assert.ok(!h2cls.some((c) => /text-(center|start|left|right)/.test(c)), "titre jamais centré/réaligné");
   } finally {
     await r.unmount();
   }

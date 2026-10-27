@@ -406,6 +406,20 @@ test("[FAIL-CLOSED] identifiants inconnus / d'un autre établissement : jamais r
   cleanup(x);
 });
 
+// UX LOT 2026-10 (PR #166, retour de vérification en production) : la
+// rangée est centrée quand elle tient (w-fit + mx-auto) et reste une
+// rangée défilante bornée (max-w-full + overflow-x-auto) quand elle
+// déborde. jsdom ne calcule pas la mise en page : la preuve de rendu est
+// scripts/ux-real-browser-check.mjs (Chromium réel, marges mesurées).
+test("[CENTRAGE] la rangée porte w-fit + mx-auto + max-w-full (centrée si elle tient, défilante sinon), sans justify-center (qui tronquerait le début)", async () => {
+  const x = await render(restaurant(PUBLISHED));
+  const row = collectionsNav(x.container)!.querySelector("ul")!;
+  const cls = (row.getAttribute("class") ?? "").split(/\s+/);
+  for (const c of ["w-fit", "mx-auto", "max-w-full", "overflow-x-auto", "flex-nowrap"]) assert.ok(cls.includes(c), `classe ${c} attendue`);
+  assert.equal(cls.includes("justify-center"), false, "jamais justify-center sur une rangée défilante");
+  cleanup(x);
+});
+
 test("[MOBILE] une seule ligne horizontale défilable, jamais repliée, non collée", async () => {
   const x = await render(restaurant(PUBLISHED));
   const nav = collectionsNav(x.container)!;

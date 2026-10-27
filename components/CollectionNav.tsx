@@ -53,9 +53,17 @@ export default function CollectionNav({
 
   return (
     <nav aria-label={navLabel} data-customer-collections-nav="true" className="px-4">
+      {/* UX LOT 2026-10 (PR #166, retour de vérification en production) :
+          la rangée est CENTRÉE quand elle tient dans la largeur
+          (`w-fit` + `mx-auto` : la liste prend la largeur de son contenu
+          et se centre) et redevient une rangée défilante classique dès
+          qu'elle déborde (`max-w-full` + `overflow-x-auto` : première
+          pastille visible à gauche, jamais tronquée -- `justify-center`
+          seul aurait masqué le début d'une rangée débordante). Mesuré en
+          Chromium réel (scripts/ux-real-browser-check.mjs). */}
       <ul
         data-customer-collections-row="true"
-        className="scrollbar-none flex flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1"
+        className="scrollbar-none mx-auto flex w-fit max-w-full flex-nowrap gap-2 overflow-x-auto overscroll-x-contain py-1"
       >
         {collections.map((collection) => {
           const isActive = collection.id === activeId;
