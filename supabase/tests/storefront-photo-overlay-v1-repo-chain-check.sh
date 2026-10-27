@@ -185,6 +185,11 @@ FP_ROWS_SQL="select md5(string_agg(row_to_json(c)::jsonb::text, '|' order by res
 FP_FUNCS_SQL="select md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'"
 FP_COLS_SQL="select md5(string_agg(column_name||':'||data_type||':'||coalesce(column_default,'')||':'||is_nullable, '|' order by column_name)) from information_schema.columns where table_schema='public' and table_name='restaurant_configs'"
 ROWS_BEFORE="$(val "$DB" '' '' "$FP_ROWS_SQL")"; FUNCS_BEFORE="$(val "$DB" '' '' "$FP_FUNCS_SQL")"; COLS_BEFORE="$(val "$DB" '' '' "$FP_COLS_SQL")"
+# [2c] (correction post-contre-audit 1076a6f) : l'empreinte « avant » des fonctions EXISTANTES est prise ICI, AVANT l'application du lot.
+# Version précédente : les deux empreintes étaient calculées après migration (comparaison tautologique, faux PASS possible).
+FP_FUNCS_EXCL_SQL="select md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay'"
+FUNCS_EXCL_BEFORE="$(val "$DB" '' '' "$FP_FUNCS_EXCL_SQL")"
+N_FUNCS_EXCL_BEFORE="$(val "$DB" '' '' "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay'")"
 N_BEFORE="$(val "$DB" '' '' "select count(*) from public.restaurant_configs")"
 BG_ACL_BEFORE="$(val "$DB" '' '' "select string_agg(r||':'||p||':'||has_column_privilege(r,'public.restaurant_configs','bg_color',p)::text, ',' order by r,p) from unnest(array['anon','authenticated','service_role']) r, unnest(array['SELECT','INSERT','UPDATE']) p")"
 TBL_ACL_BEFORE="$(val "$DB" '' '' "select coalesce(relacl::text,'') from pg_class where oid='public.restaurant_configs'::regclass")"
@@ -197,9 +202,20 @@ if apply_file "$DB" "$LOT"; then pass "[1] le lot s'applique sur la chaîne rée
 expect_eq "[2a] TOUTES les lignes existantes (fixtures + create_establishment réel) valent 'standard'" "$(val "$DB" '' '' "select count(*) from public.restaurant_configs where storefront_photo_overlay = 'standard'")" "$N_BEFORE"
 ROWS_AFTER="$(val "$DB" '' '' "select md5(string_agg((row_to_json(c)::jsonb - 'storefront_photo_overlay')::text, '|' order by restaurant_id)) from public.restaurant_configs c")"
 expect_eq "[2b] aucune AUTRE colonne d'aucune ligne n'a changé (empreinte hors colonne du lot)" "$ROWS_AFTER" "$ROWS_BEFORE"
-FUNCS_AFTER="$(val "$DB" '' '' "select md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay'")"
-FUNCS_BEFORE_X="$(val "$DB" '' '' "select md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay'")"
-expect_eq "[2c] aucune fonction existante du schéma public n'est modifiée (create_establishment, update_restaurant_*, assert_*, …)" "$FUNCS_AFTER" "$FUNCS_BEFORE_X"
+FUNCS_AFTER="$(val "$DB" '' '' "$FP_FUNCS_EXCL_SQL")"
+if [[ "$FUNCS_EXCL_BEFORE" =~ ^[0-9a-f]{32}$ ]]; then pass "[2c0] empreinte AVANT-lot des fonctions existantes valide (prise avant l'application du lot)"; else fail "[2c0] empreinte avant-lot invalide : « $FUNCS_EXCL_BEFORE »"; fi
+expect_eq "[2c] aucune fonction existante du schéma public n'est modifiée (empreinte AVANT-lot = APRÈS-lot, hors RPC du lot)" "$FUNCS_AFTER" "$FUNCS_EXCL_BEFORE"
+expect_eq "[2c1] même nombre de fonctions existantes avant/après" "$(val "$DB" '' '' "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay'")" "$N_FUNCS_EXCL_BEFORE"
+# [2c-sens] sensibilité : le contrôle DOIT détecter une modification. Dans une transaction annulée d'office (RAISE), on altère le corps
+# d'une fonction existante puis on recalcule l'empreinte : elle doit différer de l'empreinte avant-lot.
+SENS_OUT="$(run "$DB" '' '' "do \$\$ declare d text; fp text; begin
+  d := pg_get_functiondef('public.assert_restaurant_asset_role(uuid)'::regprocedure);
+  execute replace(d, 'AS \$function\$', 'AS \$function\$ /*sens*/');
+  select md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.oid::regprocedure::text)) into fp from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname <> 'update_restaurant_photo_overlay';
+  raise exception 'SENSFP=%', fp; end \$\$;" | tr -d ' ' | grep -o 'SENSFP=[0-9a-f]*' | head -1)"
+SENS_FP="${SENS_OUT#SENSFP=}"
+if [ -n "$SENS_FP" ] && [ "$SENS_FP" != "$FUNCS_EXCL_BEFORE" ]; then pass "[2c-sens] l'empreinte DÉTECTE une fonction existante modifiée (contrôle non tautologique)"; else fail "[2c-sens] l'empreinte n'a pas détecté la modification simulée (sens=« $SENS_FP »)"; fi
+expect_eq "[2c-sens2] la modification simulée a été annulée (empreinte inchangée après)" "$(val "$DB" '' '' "$FP_FUNCS_EXCL_SQL")" "$FUNCS_EXCL_BEFORE"
 expect_eq "[2d] seule la colonne du lot est ajoutée à restaurant_configs" "$(val "$DB" '' '' "select count(*) from information_schema.columns where table_schema='public' and table_name='restaurant_configs'")" "$(val ovl_theme_first '' '' "select count(*)+1 from information_schema.columns where table_schema='public' and table_name='restaurant_configs'")"
 expect_eq "[2e] les policies RLS de restaurant_configs sont inchangées" "$(val "$DB" '' '' "select md5(string_agg(policyname||cmd||coalesce(qual,'')||coalesce(with_check,''), '|' order by policyname)) from pg_policies where tablename='restaurant_configs'")" "$POL_BEFORE"
 expect_eq "[2f] l'ACL de TABLE de restaurant_configs est inchangée (aucun GRANT ajouté)" "$(val "$DB" '' '' "select coalesce(relacl::text,'') from pg_class where oid='public.restaurant_configs'::regclass")" "$TBL_ACL_BEFORE"
