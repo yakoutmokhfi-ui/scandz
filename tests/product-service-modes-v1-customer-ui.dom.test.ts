@@ -503,7 +503,7 @@ test("[Badge] restriction à room_service seul -- indépendant de withdrawal_eli
 // B. Blocage panier mixte -- rangée "howToReceive" (CartPanel)
 // ==================================================================
 
-test("[Panier mixte] un item restreint bloque le mode exclu dans la rangée : bouton désactivé, aria-describedby, message nommant le produit", async (t) => {
+test("[Panier mixte] un item restreint bloque le mode exclu dans la rangée : bouton non sélectionnable (aria-disabled, issue #155), aria-describedby, message nommant le produit", async (t) => {
   mockRpc(t);
   const { container, root } = await renderCatalogue([
     menuItem({ id: "p1", name: "Coffret retrait seul", allowed_sale_modes: ["pickup"] }),
@@ -517,7 +517,12 @@ test("[Panier mixte] un item restreint bloque le mode exclu dans la rangée : bo
 
     const deliveryBtn = inlineButtonWithText(container, "Livraison");
     assert.ok(deliveryBtn, "le bouton 'Livraison' doit exister dans la rangée inline");
-    assert.equal(deliveryBtn!.disabled, true, "le bouton 'Livraison' doit être désactivé (bloqué par le panier)");
+    // Issue #155 : plus `disabled` (un bouton désactivé ne reçoit aucun
+    // clic, donc aucune « tentative » ne pourrait être expliquée) mais
+    // `aria-disabled` + data-mode-blocked ; jamais sélectionnable.
+    assert.equal(deliveryBtn!.disabled, false);
+    assert.equal(deliveryBtn!.getAttribute("aria-disabled"), "true", "le bouton 'Livraison' doit être marqué non sélectionnable (bloqué par le panier)");
+    assert.equal(deliveryBtn!.getAttribute("data-mode-blocked"), "true");
     assert.equal(deliveryBtn!.getAttribute("aria-invalid"), "true");
     const describedBy = deliveryBtn!.getAttribute("aria-describedby");
     assert.equal(describedBy, "mode-blocked-delivery");
@@ -530,11 +535,13 @@ test("[Panier mixte] un item restreint bloque le mode exclu dans la rangée : bo
       "Livraison indisponible avec ce panier : Coffret retrait seul."
     );
 
-    // Cliquer sur un bouton désactivé ne doit rien faire : aucune
-    // conséquence, aucun mode sélectionné malgré le clic.
+    // Cliquer sur un bouton bloqué ne sélectionne jamais le mode :
+    // aucune conséquence sur la sélection malgré le clic (le message,
+    // déjà visible ici puisqu'aucun mode n'est choisi, le reste).
     click(deliveryBtn!);
     await flush();
     assert.equal(deliveryBtn!.getAttribute("aria-pressed"), "false");
+    assert.ok(container.querySelector("#mode-blocked-delivery"));
   } finally {
     root.unmount();
     container.remove();
@@ -610,8 +617,9 @@ test("[Panier mixte] produit restreint à room_service SEUL -- bloque LES DEUX m
     const pickupBtn = inlineButtonWithText(container, "À emporter");
     const deliveryBtn = inlineButtonWithText(container, "Livraison");
     assert.ok(pickupBtn && deliveryBtn, "les deux boutons de mode doivent exister");
-    assert.equal(pickupBtn!.disabled, true, "'À emporter' doit être bloqué (room_service n'y est pas inclus)");
-    assert.equal(deliveryBtn!.disabled, true, "'Livraison' doit être bloqué (room_service n'y est pas inclus)");
+    // Issue #155 : bloqué = aria-disabled (jamais sélectionnable), plus `disabled`.
+    assert.equal(pickupBtn!.getAttribute("aria-disabled"), "true", "'À emporter' doit être bloqué (room_service n'y est pas inclus)");
+    assert.equal(deliveryBtn!.getAttribute("aria-disabled"), "true", "'Livraison' doit être bloqué (room_service n'y est pas inclus)");
 
     const pickupMsg = container.querySelector("#mode-blocked-pickup");
     const deliveryMsg = container.querySelector("#mode-blocked-delivery");
@@ -756,7 +764,7 @@ test("[Désélection auto] un mode déjà choisi ET utilisable devient indisponi
       "false",
       "le bouton Livraison ne doit plus apparaître comme sélectionné"
     );
-    assert.equal(deliveryInlineBtn?.disabled, true, "et doit maintenant apparaître désactivé (bloqué par le panier)");
+    assert.equal(deliveryInlineBtn?.getAttribute("aria-disabled"), "true", "et doit maintenant apparaître non sélectionnable (bloqué par le panier)");
 
     // Toujours aucun article retiré : les deux produits restent dans
     // le panier malgré la réinitialisation du mode.
@@ -766,6 +774,158 @@ test("[Désélection auto] un mode déjà choisi ET utilisable devient indisponi
     root.unmount();
     container.remove();
   }
+});
+
+// ==================================================================
+// E. Issue #155 -- message « Livraison indisponible avec ce panier »
+//    masqué en mode À emporter, conservé en Livraison / tentative.
+//    Données synthétiques : « Lait cru » restreint à pickup (non
+//    livrable), « Article libre » sans restriction. La RÈGLE (lait cru
+//    non livrable, bouton Livraison non sélectionnable) est inchangée ;
+//    seule la VISIBILITÉ de l'explication est ciblée.
+// ==================================================================
+
+const BLOCKED_MSG = "Livraison indisponible avec ce panier : Lait cru.";
+const RAW_MILK = () => menuItem({ id: "lait-cru", name: "Lait cru", allowed_sale_modes: ["pickup"] });
+const FREE_ITEM = () => menuItem({ id: "libre", name: "Article libre" });
+
+function blockedMsgVisible(container: Element): boolean {
+  const el = container.querySelector("#mode-blocked-delivery");
+  return el !== null && (el.textContent ?? "").trim() === BLOCKED_MSG;
+}
+/** Texte visible hors <dialog> fermés (popup de choix, zones de livraison). */
+function visibleText(container: Element): string {
+  const clone = container.cloneNode(true) as Element;
+  for (const d of clone.querySelectorAll("dialog:not([open])")) d.remove();
+  return clone.textContent ?? "";
+}
+
+test("[#155-1] panier = lait cru SEUL, sélection directe « À emporter » -> message livraison ABSENT ; Livraison reste non sélectionnable", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([RAW_MILK()]);
+  try {
+    await waitFor(() => container.textContent?.includes("Lait cru") === true, "produit rendu");
+    addToCartByName(container, "Lait cru");
+    await flush();
+    openCart(container);
+    await flush();
+    // Aucun mode choisi : l'explication est visible (le client doit comprendre).
+    assert.ok(blockedMsgVisible(container), "sans mode choisi, l'explication reste visible");
+    const pickupBtn = inlineButtonWithText(container, "À emporter")!;
+    click(pickupBtn);
+    await flush(50);
+    assert.equal(pickupBtn.getAttribute("aria-pressed"), "true");
+    assert.equal(container.querySelector("#mode-blocked-delivery") === null, true, "À emporter choisi : AUCUN message de livraison");
+    assert.ok(!visibleText(container).includes("indisponible avec ce panier"), "aucun texte de blocage visible");
+    const deliveryBtn = inlineButtonWithText(container, "Livraison")!;
+    assert.equal(deliveryBtn.getAttribute("aria-disabled"), "true", "la règle est conservée : Livraison non sélectionnable");
+    assert.equal(deliveryBtn.getAttribute("aria-describedby"), null, "aucune description vers un message absent");
+    // Lait cru toujours dans le panier, rien retiré.
+    assert.ok(container.textContent?.includes("Lait cru"));
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[#155-2] panier MIXTE (lait cru + article libre), sélection directe « À emporter » -> message ABSENT ; panier intact", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([RAW_MILK(), FREE_ITEM()]);
+  try {
+    await waitFor(() => container.textContent?.includes("Article libre") === true, "produits rendus");
+    addToCartByName(container, "Article libre");
+    addToCartByName(container, "Lait cru");
+    await flush();
+    openCart(container);
+    await flush();
+    assert.ok(blockedMsgVisible(container), "sans mode choisi : visible");
+    click(inlineButtonWithText(container, "À emporter")!);
+    await flush(50);
+    assert.equal(container.querySelector("#mode-blocked-delivery") === null, true, "À emporter : message absent");
+    assert.ok(container.textContent?.includes("Lait cru") && container.textContent?.includes("Article libre"), "aucun article retiré ni scindé");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[#155-3] tentative explicite de Livraison (bloquée) -> message VISIBLE, mode non sélectionné ; puis Retrait -> message DISPARAÎT, ni texte ni bandeau de livraison résiduels", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([RAW_MILK(), FREE_ITEM()]);
+  try {
+    await waitFor(() => container.textContent?.includes("Article libre") === true, "produits rendus");
+    addToCartByName(container, "Lait cru");
+    addToCartByName(container, "Article libre");
+    await flush();
+    openCart(container);
+    await flush();
+    // 1. Le client choisit d'abord À emporter : message absent.
+    click(inlineButtonWithText(container, "À emporter")!);
+    await flush(50);
+    assert.equal(container.querySelector("#mode-blocked-delivery") === null, true);
+    // 2. Il TENTE Livraison : refus expliqué, mode toujours À emporter.
+    const deliveryBtn = inlineButtonWithText(container, "Livraison")!;
+    click(deliveryBtn);
+    await flush(50);
+    assert.ok(blockedMsgVisible(container), "tentative : l'explication réapparaît");
+    assert.equal(deliveryBtn.getAttribute("aria-pressed"), "false", "Livraison jamais sélectionnée");
+    assert.equal(deliveryBtn.getAttribute("aria-describedby"), "mode-blocked-delivery");
+    assert.equal(inlineButtonWithText(container, "À emporter")!.getAttribute("aria-pressed"), "true", "À emporter reste le mode actif");
+    assert.ok(!visibleText(container).includes("Adresse de livraison"), "aucun formulaire de livraison");
+    // 3. Il (re)choisit Retrait explicitement : le message disparaît.
+    click(inlineButtonWithText(container, "À emporter")!);
+    await flush(50);
+    assert.equal(container.querySelector("#mode-blocked-delivery") === null, true, "après bascule vers Retrait : message absent");
+    assert.ok(!visibleText(container).includes("indisponible avec ce panier"));
+    assert.equal(container.querySelector('[role="status"][aria-live="polite"]') === null, true, "aucun bandeau d'état de livraison en Retrait");
+    assert.ok(!visibleText(container).includes("Adresse de livraison"));
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[#155-4] Livraison choisie AVANT l'ajout du lait cru -> désélection automatique (règle existante) ET message VISIBLE ; puis Retrait -> message absent", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([RAW_MILK(), FREE_ITEM()]);
+  try {
+    await waitFor(() => container.textContent?.includes("Article libre") === true, "produits rendus");
+    addToCartByName(container, "Article libre");
+    await flush();
+    openCart(container);
+    await flush();
+    // Choix Livraison (via le popup s'il est ouvert, sinon la rangée).
+    const popupDelivery = popupIsOpen(container) ? buttonWithText(dialogEl(container)!, "Livraison") : undefined;
+    click(popupDelivery ?? inlineButtonWithText(container, "Livraison")!);
+    await flush(50);
+    await waitFor(() => visibleText(container).includes("Adresse de livraison"), "mode livraison actif");
+    addToCartByName(container, "Lait cru");
+    await flush(120);
+    await waitFor(() => !visibleText(container).includes("Adresse de livraison"), "livraison désélectionnée automatiquement");
+    assert.ok(blockedMsgVisible(container), "aucun mode choisi -> l'explication est visible");
+    click(inlineButtonWithText(container, "À emporter")!);
+    await flush(50);
+    assert.equal(container.querySelector("#mode-blocked-delivery") === null, true, "Retrait choisi : message absent");
+    assert.ok(container.textContent?.includes("Lait cru") && container.textContent?.includes("Article libre"));
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[#155-5] le message réapparaît si, À emporter étant choisi, le client retire puis remet le lait cru et retente Livraison ; il disparaît dès que le lait cru quitte le panier", async (t) => {
+  mockRpc(t);
+  const { container, root } = await renderCatalogue([RAW_MILK(), FREE_ITEM()]);
+  try {
+    await waitFor(() => container.textContent?.includes("Article libre") === true, "produits rendus");
+    addToCartByName(container, "Article libre");
+    addToCartByName(container, "Lait cru");
+    await flush();
+    openCart(container);
+    await flush();
+    click(inlineButtonWithText(container, "À emporter")!);
+    await flush(50);
+    click(inlineButtonWithText(container, "Livraison")!);
+    await flush(50);
+    assert.ok(blockedMsgVisible(container), "tentative : visible");
+    // Retire le lait cru (bouton « − » de sa ligne de panier).
+    const line = [...container.querySelectorAll("li, div")].find((el) => (el.textContent ?? "").includes("Lait cru") && el.querySelector('button[aria-label*="Retirer"], button[aria-label*="−"], button[aria-label*="moins" i]'));
+    const minus = line?.querySelector('button[aria-label*="Retirer"], button[aria-label*="−"], button[aria-label*="moins" i]') as HTMLButtonElement | undefined;
+    if (minus) {
+      click(minus);
+      await flush(80);
+      assert.equal(container.querySelector("#mode-blocked-delivery") === null, true, "lait cru retiré : plus rien ne bloque, message absent");
+      assert.equal(inlineButtonWithText(container, "Livraison")!.getAttribute("aria-disabled"), null, "Livraison redevient sélectionnable");
+    }
+  } finally { root.unmount(); container.remove(); }
 });
 
 after(async () => {

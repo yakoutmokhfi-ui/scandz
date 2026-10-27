@@ -45,7 +45,12 @@ const PINNED: Record<string, string> = {
   // Moteur de tarifs / éligibilité / périmètre pays / minimum / frais :
   // AUCUNE ligne touchée (voir le diff du commit).
   // SHA-256 précédent : d0061d421a1eb48920f480f3220fc656a62640b4051b7e1040a14f6002ac198b
-  "components/CartPanel.tsx": "2c2b47a6456eef5bcd27cafb87b3570589137b18e5307c47ee697967beea0939",
+  // Issue #155 -- re-pin : visibilité CIBLÉE du message « {mode}
+  // indisponible avec ce panier » (masqué quand un autre mode est choisi,
+  // réaffiché à la tentative) ; bouton bloqué en aria-disabled. Règles de
+  // livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
+  // SHA-256 précédent : 2c2b47a6456eef5bcd27cafb87b3570589137b18e5307c47ee697967beea0939
+  "components/CartPanel.tsx": "1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",
