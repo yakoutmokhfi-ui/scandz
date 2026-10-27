@@ -65,6 +65,65 @@ export const EMPTY_SCHEDULE_SELECTION: ScheduleSelection = {
   time: null,
 };
 
+/**
+ * Issue #170 (défaut P2, audit de e5aa05a) -- PORTÉE d'une sélection.
+ *
+ * Une date + une clé de créneau n'ont de sens que pour la règle de livraison
+ * qui les a proposées : deux règles peuvent réutiliser la même date ET la même
+ * clé (« s-a ») avec des fenêtres différentes. Le client ne connaît pas la
+ * règle (le serveur la résout depuis le code postal) ; la portée est donc
+ * tout ce que le serveur REÇOIT pour la résoudre :
+ *   - retrait : (restaurant, retrait) ;
+ *   - livraison : (restaurant, livraison, code postal, nombre d'articles,
+ *     sous-total) -- le panier compte, car il peut changer la règle retenue.
+ * `null` = rien à lire (table, aucun mode, livraison sans code postal valide).
+ *
+ * Une sélection n'est conservée que si sa portée est STRICTEMENT identique à
+ * la portée courante (comparaison de chaînes, aucune équivalence « proche »).
+ */
+export function checkoutScheduleScope(p: {
+  restaurantId: string | null;
+  modeCode: "pickup" | "delivery" | null;
+  postalCode?: string | null;
+  totalCount?: number;
+  subtotal?: number | null;
+}): string | null {
+  if (p.restaurantId === null || p.modeCode === null) return null;
+  if (p.modeCode === "pickup") return JSON.stringify([p.restaurantId, "pickup"]);
+  return JSON.stringify([
+    p.restaurantId,
+    "delivery",
+    p.postalCode ?? null,
+    p.totalCount ?? 0,
+    p.subtotal ?? null,
+  ]);
+}
+
+/** Une sélection ET la portée pour laquelle le client l'a faite. */
+export interface ScopedScheduleSelection {
+  scope: string | null;
+  selection: ScheduleSelection;
+}
+
+export const EMPTY_SCOPED_SCHEDULE_SELECTION: ScopedScheduleSelection = {
+  scope: null,
+  selection: EMPTY_SCHEDULE_SELECTION,
+};
+
+/**
+ * La sélection valable pour la portée COURANTE : celle du client si (et
+ * seulement si) elle a été faite pour exactement cette portée, sinon VIDE.
+ * Jamais de repli sur « la même date » ou « la même clé ».
+ */
+export function selectionInScope(
+  owned: ScopedScheduleSelection,
+  currentScope: string | null
+): ScheduleSelection {
+  return currentScope !== null && owned.scope === currentScope
+    ? owned.selection
+    : EMPTY_SCHEDULE_SELECTION;
+}
+
 /** Format exact de `p_customer.schedule` (contrat CSDJ v1.2, §5.1). */
 export interface SchedulePayload {
   date: string;
@@ -511,6 +570,23 @@ export function reconcileSelection(
     return { date: selection.date, slotKey: null, time: null };
   }
   return EMPTY_SCHEDULE_SELECTION;
+}
+
+/**
+ * Réconciliation PAR PORTÉE : la vue `view` a été lue pour `viewScope`. Si la
+ * sélection appartient à une autre portée, elle est VIDÉE (date comprise) --
+ * aucune présélection, même si le serveur propose la même date ou la même clé.
+ * Dans la même portée, voir `reconcileSelection`.
+ */
+export function reconcileScopedSelection(
+  view: CheckoutScheduleView | null,
+  owned: ScopedScheduleSelection,
+  viewScope: string | null
+): ScopedScheduleSelection {
+  if (viewScope === null) return EMPTY_SCOPED_SCHEDULE_SELECTION;
+  if (owned.scope !== viewScope) return { scope: viewScope, selection: EMPTY_SCHEDULE_SELECTION };
+  const next = reconcileSelection(view, owned.selection);
+  return next === owned.selection ? owned : { scope: viewScope, selection: next };
 }
 
 /**
