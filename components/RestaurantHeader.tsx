@@ -210,7 +210,7 @@ export default function RestaurantHeader({
               data-social-brand="instagram"
               className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current${socialBacking}`}
             >
-              <InstagramBrandIcon />
+              <InstagramBrandIcon backed={photoOverlay !== "standard"} />
             </a>
           )}
           {config.tiktok_url && (
@@ -222,7 +222,7 @@ export default function RestaurantHeader({
               data-social-brand="tiktok"
               className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current${socialBacking}`}
             >
-              <TikTokBrandIcon />
+              <TikTokBrandIcon backed={photoOverlay !== "standard"} />
             </a>
           )}
           {config.facebook_url && (
