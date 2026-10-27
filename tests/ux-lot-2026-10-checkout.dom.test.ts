@@ -53,6 +53,7 @@ const aliasPlugin: esbuild.Plugin = {
 const entrySource = `
 export { default as MenuView } from "@/components/MenuView";
 export { default as OrderHelpButton } from "@/components/OrderHelpButton";
+export { DeliveryConditionsButton } from "@/components/DeliveryConditions";
 export { I18nProvider } from "@/lib/i18n-context";
 `;
 
@@ -74,7 +75,7 @@ const code = buildResult.outputFiles[0].text;
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-dom-uxlot-"));
 const tmpFile = path.join(tmpDir, "MenuView.mjs");
 writeFileSync(tmpFile, code);
-const { MenuView, OrderHelpButton, I18nProvider } = await import(pathToFileURL(tmpFile).href);
+const { MenuView, OrderHelpButton, DeliveryConditionsButton, I18nProvider } = await import(pathToFileURL(tmpFile).href);
 rmSync(tmpDir, { recursive: true, force: true });
 
 function flush(ms = 0): Promise<void> {
@@ -539,6 +540,50 @@ test("[MODE-COPY-1] Livraison 75017 -> seul le texte de la RÈGLE de livraison ;
     selectServiceMode(container, "Livraison");
     await waitFor(() => visibleText(container).includes(DELIVERY_COPY), "texte de la règle à nouveau attendu");
     assert.ok(!visibleText(container).includes(PICKUP_COPY));
+  } finally { root.unmount(); container.remove(); }
+});
+
+// -------------------------------------------------------------------
+// E. « Comment passer commande ? » RÉEL de la vitrine = dialogue des
+//    conditions de livraison (DeliveryConditionsButton, i18n
+//    deliveryConditionsTitle) -- retour de vérification en production
+//    (PR #166) : il s'ouvrait en bas (autoFocus sur « Fermer »). Preuve
+//    de mise en page réelle : scripts/ux-real-browser-check.mjs.
+// -------------------------------------------------------------------
+
+test("[HELP-2] dialogue des conditions de livraison : à l'ouverture, défilement en haut, focus sur le TITRE, bouton Fermer sans autoFocus", async () => {
+  const rules = Array.from({ length: 4 }, (_, i) => ({
+    fulfillmentCode: `r${i}`, zonePrefixes: ["75"], isFallback: i === 3, minItems: null, displayOrder: i,
+    pricingMode: "fixed", fixedFee: 10, freeThreshold: null, customerTextHash: null, translations: null,
+    customerText: `Zone ${i + 1} : ` + Array.from({ length: 9 }, (_, k) => `ligne ${k + 1} des conditions.`).join("\n"),
+  }));
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(
+    React.createElement(I18nProvider, { lang: "fr", sourceLanguage: "fr", activeLanguages: [{ code: "fr", dir: "ltr" }] },
+      React.createElement(DeliveryConditionsButton, { rules, currency: "EUR" }))
+  );
+  await flush();
+  try {
+    const trigger = [...container.querySelectorAll("button")].find((b) => b.textContent === "Comment passer commande ?");
+    assert.ok(trigger, "bouton « Comment passer commande ? » rendu");
+    const dlg = container.querySelector('dialog[data-delivery-dialog="conditions"]') as HTMLDialogElement;
+    assert.ok(dlg);
+    Object.defineProperty(dlg, "scrollTop", { value: 900, writable: true, configurable: true });
+    click(trigger!);
+    await flush();
+    assert.ok(dlg.hasAttribute("open") || dlg.open, "dialogue ouvert");
+    assert.equal(dlg.scrollTop, 0, "défilement remis en haut");
+    const title = dlg.querySelector("[data-delivery-dialog-title]") as HTMLElement;
+    assert.ok(title, "titre rendu");
+    assert.equal(title.getAttribute("tabindex"), "-1");
+    assert.equal(window.document.activeElement, title, "focus initial sur le titre");
+    const close = dlg.querySelector("[data-delivery-dialog-close]") as HTMLButtonElement;
+    assert.ok(close, "bouton Fermer rendu");
+    assert.equal(close.hasAttribute("autofocus"), false, "plus d'autoFocus sur Fermer");
+    assert.notEqual(window.document.activeElement, close);
+    assert.equal(dlg.querySelectorAll("[data-delivery-rule-text]").length, 4, "les 4 textes de règle sont rendus");
   } finally { root.unmount(); container.remove(); }
 });
 
