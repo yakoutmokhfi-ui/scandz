@@ -51,6 +51,8 @@ function OrderHelpPanel({ label, title, body }: { label: string; title: string; 
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -60,6 +62,18 @@ function OrderHelpPanel({ label, title, body }: { label: string; title: string; 
       } catch {
         dialog.setAttribute("open", "");
       }
+      // UX LOT 2026-10 (demande Emmanuel) : la PARTIE HAUTE du texte
+      // doit être visible en premier. Auparavant le bouton « Fermer »
+      // (en bas) recevait le focus initial (`autoFocus`) : pour un
+      // contenu plus haut que la fenêtre (max-h-[85dvh], overflow-y-auto),
+      // le navigateur faisait défiler la fenêtre jusqu'au bouton et le
+      // début du texte sortait de l'écran. Désormais : défilement remis
+      // au DÉBUT, puis focus sur le TITRE (focusable par programme
+      // seulement, tabIndex=-1) -- le lecteur d'écran annonce le titre,
+      // le texte commence par son début. Le bouton « Fermer » reste
+      // atteignable au clavier (Tab) et par Échap.
+      dialog.scrollTop = 0;
+      titleRef.current?.focus({ preventScroll: true });
     } else if (!open && dialog.open) {
       try {
         dialog.close();
@@ -96,7 +110,13 @@ function OrderHelpPanel({ label, title, body }: { label: string; title: string; 
         }}
         className="m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto rounded-2xl border border-espresso/10 bg-crema p-5 text-ink-on-bg shadow-xl backdrop:bg-espresso/40"
       >
-        <h2 id={titleId} className="break-words text-xl font-bold">
+        <h2
+          id={titleId}
+          ref={titleRef}
+          tabIndex={-1}
+          data-order-help-title=""
+          className="break-words text-xl font-bold outline-none"
+        >
           {title}
         </h2>
         <p className="mt-3 whitespace-pre-line break-words text-sm leading-relaxed" data-order-help-body="">
@@ -104,7 +124,7 @@ function OrderHelpPanel({ label, title, body }: { label: string; title: string; 
         </p>
         <button
           type="button"
-          autoFocus
+          data-order-help-close=""
           onClick={() => dialogRef.current?.close()}
           className="mt-5 min-h-11 w-full rounded-xl bg-caramel px-4 py-2.5 font-bold text-caramel-ink"
         >

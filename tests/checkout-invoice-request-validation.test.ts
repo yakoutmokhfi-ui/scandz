@@ -53,6 +53,8 @@ test("3. facture société complète -- aucune erreur", () => {
     postalCode: "69001",
     country: "FR",
     companyLegalName: "ACME SARL",
+    // UX LOT 2026-10 : SIRET requis pour une facture société.
+    siren: "12345678900012",
   });
   assert.deepEqual(getInvoiceRequestErrors(info), {});
 });
@@ -66,6 +68,7 @@ test("4. société SANS nom légal -- erreur companyLegalName précisément", ()
     postalCode: "69001",
     country: "FR",
     companyLegalName: "",
+    siren: "12345678900012",
   });
   const errors = getInvoiceRequestErrors(info);
   assert.equal(errors.companyLegalName, "invoiceCompanyNameRequired");
@@ -240,6 +243,7 @@ test("21. TOUS les champs à leur limite EXACTE simultanément -- entièrement v
     country: "FR",
     companyLegalName: repeat("d", INVOICE_FIELD_MAX_LENGTHS.companyLegalName),
     vatNumber: repeat("9", INVOICE_FIELD_MAX_LENGTHS.vatNumber),
+    siren: repeat("7", INVOICE_FIELD_MAX_LENGTHS.siren),
     contactName: repeat("e", INVOICE_FIELD_MAX_LENGTHS.contactName),
     contactEmail: emailAtMaxLength,
   });
@@ -260,6 +264,7 @@ function withCompanyEmail(email: string): InvoiceRequestInfo {
     wantsInvoice: true, invoiceType: "company",
     addressLine1: "1 rue Test", city: "Paris", postalCode: "75001", country: "FR",
     companyLegalName: "ACME",
+    siren: "12345678900012",
     contactEmail: email,
   });
 }

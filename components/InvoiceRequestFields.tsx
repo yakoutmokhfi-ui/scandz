@@ -407,19 +407,17 @@ export default function InvoiceRequestFields({
             maxLength={INVOICE_FIELD_MAX_LENGTHS.contactEmail}
           />
 
-          {/* CUSTOMER BILLING PROFILE v2 -- identifiants d'entreprise :
-              SIREN et numéro de TVA, TOUS DEUX OPTIONNELS, et dits
-              tels dans leur propre libellé (l'optionalité doit être
-              VISIBLE). Aucun champ SIRET n'existe ici ; aucune valeur
-              n'est dérivée de l'autre ; la saisie du client n'est
-              jamais corrigée. */}
+          {/* UX LOT 2026-10 (demande Emmanuel) -- identifiants
+              d'entreprise : SIRET (REQUIS pour une facture entreprise,
+              présence seulement, aucun contrôle de format -- id/clé de
+              stockage historiques `siren` conservés, aucune migration)
+              et numéro de TVA (optionnel, inchangé). Aucune valeur n'est
+              dérivée de l'autre ; la saisie du client n'est jamais
+              corrigée. */}
           {info.invoiceType === "company" && (
             <>
               <Field
                 id="invoice-siren"
-                // Le libellé PORTE LUI-MÊME la mention « optionnel »
-                // (comme `invVatNumber` depuis v1.1) : l'optionalité
-                // reste visible même si cette ligne d'aide manquait.
                 label={t("invSiren")}
                 value={info.siren}
                 error={errors.siren ? t(errors.siren) : undefined}

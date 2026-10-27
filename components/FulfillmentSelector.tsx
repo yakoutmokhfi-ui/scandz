@@ -654,7 +654,9 @@ export default function FulfillmentSelector({
           <p
             data-testid="delivery-country-scope-prominent"
             data-country-codes={deliveryCountryScope.map((c) => c.countryCode).join(",")}
-            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-sm font-semibold text-ink-on-bg"
+            // UX LOT 2026-10 (demande Emmanuel) : texte CENTRÉ (text-center),
+            // aucun changement de texte ni de logique.
+            className="rounded-xl border border-caramel/30 bg-caramel/10 p-3 text-center text-sm font-semibold text-ink-on-bg"
           >
             {countryScopeMessage}
           </p>
@@ -706,7 +708,8 @@ export default function FulfillmentSelector({
           <p
             data-testid="delivery-country-context"
             data-country-code={deliveryCountry.countryCode}
-            className="text-xs text-stone-500"
+            // UX LOT 2026-10 : centré, comme le message proéminent.
+            className="text-center text-xs text-stone-500"
           >
             {t("countryDeliveryContext", { country: deliveryCountry.countryName })}
           </p>

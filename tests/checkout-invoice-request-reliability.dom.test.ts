@@ -644,6 +644,8 @@ test("12/13. facture individuelle et société restent valides après le changem
     toggleCheckbox(companyRadio);
     await flush();
     setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    // UX LOT 2026-10 : SIRET requis pour une facture société.
+    setNativeValue(inputById(container, "invoice-siren")!, "12345678900012");
     await flush(50);
     await flush();
 
@@ -972,6 +974,8 @@ test("EMAIL-VALIDATION-INVOICE. email de contact facture (société) au format i
     toggleCheckbox(companyRadio);
     await flush();
     setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    // UX LOT 2026-10 : SIRET requis pour une facture société.
+    setNativeValue(inputById(container, "invoice-siren")!, "12345678900012");
     await waitFor(() => inputById(container, "invoice-contact-email") !== null, "champ email de contact facture rendu (type société)");
 
     // Email de contact au format structurellement invalide.
@@ -1027,6 +1031,8 @@ test("EMAIL-VALIDATION-RETRY. facture société avec email de contact, échec r�
     toggleCheckbox(companyRadio);
     await flush();
     setNativeValue(inputById(container, "invoice-company-legal-name")!, "ACME SARL");
+    // UX LOT 2026-10 : SIRET requis pour une facture société.
+    setNativeValue(inputById(container, "invoice-siren")!, "12345678900012");
     await waitFor(() => inputById(container, "invoice-contact-email") !== null, "champ email de contact facture rendu");
     // Email VALIDE côté client dès le premier envoi -- l'échec simulé
     // ici est un échec RÉSEAU/SERVEUR (outcome "unavailable"), jamais

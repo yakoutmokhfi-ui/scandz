@@ -100,6 +100,14 @@ export async function POST(request: NextRequest) {
   if (body.invoiceType === "company" && !isNonEmptyString(body.companyLegalName)) {
     return validationFailureResponse("companyLegalName");
   }
+  // UX LOT 2026-10 (demande Emmanuel) -- SIRET (champ `siren`) REQUIS
+  // pour une facture entreprise : contrôle de PRÉSENCE seulement, miroir
+  // de getInvoiceRequestErrors (lib/invoice-request.ts). Aucun contrôle
+  // de format. La RPC SQL, inchangée, n'impose pas cette présence : ce
+  // contrôle de route est donc l'autorité serveur de cette règle.
+  if (body.invoiceType === "company" && !isNonEmptyString(body.siren)) {
+    return validationFailureResponse("siren");
+  }
 
   try {
     const result = await setOrderInvoiceRequest({

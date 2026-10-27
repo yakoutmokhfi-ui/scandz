@@ -78,6 +78,9 @@ export default function CartPanel({
   cgvEnforced,
   cgvAccepted,
   onChangeCgvAccepted,
+  ageConfirmationRequired,
+  ageConfirmed,
+  onChangeAgeConfirmed,
   cgvLegalHref,
   onSendOrder,
   onClose,
@@ -198,6 +201,18 @@ export default function CartPanel({
   cgvEnforced: boolean;
   cgvAccepted: boolean;
   onChangeCgvAccepted: (accepted: boolean) => void;
+  /**
+   * UX LOT 2026-10 (demande Emmanuel) -- confirmation d'âge. `required`
+   * est VRAI uniquement si le panier contient au moins une boisson
+   * alcoolisée (lib/cart.ts::cartContainsAlcohol, drapeau marchand
+   * `contains_alcohol`). Case décochée par défaut ; tant qu'elle n'est
+   * pas cochée, l'envoi est impossible. Ce n'est PAS une vérification
+   * d'identité ni une garantie de conformité : une déclaration du
+   * client, au même titre que l'acceptation des CGV.
+   */
+  ageConfirmationRequired: boolean;
+  ageConfirmed: boolean;
+  onChangeAgeConfirmed: (confirmed: boolean) => void;
   /** Lien vers la page légale publique du marchand (app/legal/[slug]),
    *  non-null uniquement quand `cgvEnforced` l'est aussi. */
   cgvLegalHref: string | null;
@@ -208,11 +223,20 @@ export default function CartPanel({
   // CUSTOMER CONTACT + LIVE TRACKING v1 -- même autorité que MenuView.
   const whatsappEnabled = isWhatsappEnabled(restaurant.config);
   const { currency, max_tables } = restaurant.config;
+  // UX LOT 2026-10 -- champ « Note pour le restaurant » désactivable
+  // PAR ÉTABLISSEMENT (restaurant_configs.order_note_enabled = false).
+  // Absent/NULL/true : rendu historique inchangé.
+  const orderNoteEnabled = restaurant.config.order_note_enabled !== false;
   const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
   const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
   const timingNoticeGuardRef = useRef(false);
 
+  // UX LOT 2026-10 -- l'envoi reste impossible tant que la confirmation
+  // d'âge requise n'est pas donnée (même garde que les CGV).
+  const ageGateBlocked = ageConfirmationRequired && !ageConfirmed;
+
   function requestOrderSubmission() {
+    if (ageGateBlocked) return;
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (deliveryCustomerNotice) {
       setTimingNoticeOpen(true);
@@ -222,6 +246,7 @@ export default function CartPanel({
   }
 
   async function confirmTimingNotice() {
+    if (ageGateBlocked) return;
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (timingNoticeGuardRef.current || timingNoticeConfirming || isSubmitting) return;
     timingNoticeGuardRef.current = true;
@@ -596,7 +621,8 @@ export default function CartPanel({
                 />
               </div>
 
-              <div className="mt-4">
+              {orderNoteEnabled && (
+              <div className="mt-4" data-order-note-block="">
                 <label
                   htmlFor="order-note"
                   className="text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted"
@@ -639,6 +665,7 @@ export default function CartPanel({
                   })}
                 </p>
               </div>
+              )}
             </>
           )}
         </div>
@@ -881,6 +908,24 @@ export default function CartPanel({
 
             {canSubmit && noteState.isValid && !pricingUnavailable ? (
               <>
+                {/* UX LOT 2026-10 -- confirmation d'âge, rendue
+                    UNIQUEMENT si le panier contient une boisson
+                    alcoolisée. Décochée par défaut ; bloque l'envoi. */}
+                {ageConfirmationRequired && (
+                  <label
+                    data-age-confirmation=""
+                    className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      data-age-confirmation-input=""
+                      checked={ageConfirmed}
+                      onChange={(e) => onChangeAgeConfirmed(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>{t("ageConfirmationLabel")}</span>
+                  </label>
+                )}
                 {cgvEnforced && (
                   <label className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted">
                     <input
@@ -914,7 +959,7 @@ export default function CartPanel({
                 </p>
                 <button
                   onClick={requestOrderSubmission}
-                  disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
+                  disabled={isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked}
                   aria-busy={isSubmitting}
                   className={
                     "block w-full rounded-xl py-3.5 text-center font-bold " +
@@ -937,7 +982,7 @@ export default function CartPanel({
                     // simple opacité réduite de la couleur active) pour
                     // un état "clairement inactif" sans ambiguïté --
                     // les deux paires vérifiées WCAG (5,02:1 et 6,90:1).
-                    (isSubmitting || (cgvEnforced && !cgvAccepted)
+                    (isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked
                       ? "cursor-not-allowed bg-stone-300 text-stone-700"
                       : "bg-green-700 text-white")
                   }

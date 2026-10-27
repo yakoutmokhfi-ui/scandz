@@ -101,7 +101,9 @@ test("8. erreur SQL 22004 (validation) -- réponse de validation distinguable, 4
 
 test("10. erreur SQL 22023 (LOT EMAIL VALIDATION v1 -- format email invalide) -- réponse de validation distinguable, 400, jamais un faux succès", async (t) => {
   t.mock.method(client, "rpc", async () => ({ data: null, error: { code: "22023", message: "SCANYM_INVOICE_REQUEST: p_contact_email invalide" } }));
-  const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", contactEmail: "not-an-email" }));
+  // UX LOT 2026-10 : SIRET (champ `siren`) requis pour une société --
+  // fourni ici pour que ce test continue d'atteindre la RPC.
+  const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren: "12345678900012", contactEmail: "not-an-email" }));
   assert.equal(response.status, 400);
   const data = await response.json();
   assert.equal(data.outcome, "invalid_request");
@@ -114,5 +116,37 @@ test("9. réponse OK ne contient jamais de champ de paiement/Stuart", async (t) 
   const keys = Object.keys(data);
   for (const forbidden of ["payment", "stuart", "monetico", "pdf"]) {
     assert.ok(!keys.some((k) => k.toLowerCase().includes(forbidden)), `aucune clé liée à ${forbidden} ne doit jamais apparaître`);
+  }
+});
+
+// ==================================================================
+// UX LOT 2026-10 (demande Emmanuel) -- SIRET requis pour une facture
+// au nom d'une entreprise : contrôle de PRÉSENCE côté route (autorité
+// serveur de cette règle, la RPC SQL restant inchangée), jamais de
+// format.
+// ==================================================================
+
+test("11. company sans siren (SIRET) -- 400 invalid_field 'siren', rejeté AVANT tout appel réseau", async (t) => {
+  let called = false;
+  t.mock.method(client, "rpc", async () => { called = true; throw new Error("jamais appelé"); });
+  for (const siren of [undefined, null, ""]) {
+    const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren }));
+    assert.equal(response.status, 400, `siren=${JSON.stringify(siren)}`);
+    const data = await response.json();
+    assert.equal(data.outcome, "invalid_field");
+    assert.equal(data.field, "siren");
+  }
+  assert.equal(called, false);
+});
+
+test("12. company avec siren de forme quelconque (aucun contrôle de format) -- atteint la RPC ; individual sans siren -- atteint la RPC", async (t) => {
+  for (const body of [
+    { ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren: "123 456 789 00012" },
+    { ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren: "abc" },
+    { ...VALID_BODY, invoiceType: "individual", siren: undefined },
+  ]) {
+    mockRpcOk(t);
+    const response = await POST(req(body));
+    assert.equal(response.status, 200, JSON.stringify(body));
   }
 });

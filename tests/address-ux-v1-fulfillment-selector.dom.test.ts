@@ -444,3 +444,38 @@ test("[ADDRESS UX v1] une seule ville candidate (ou aucune) : le champ ville res
     container.remove();
   }
 });
+
+// ==================================================================
+// UX LOT 2026-10 (demande Emmanuel) -- « Livraison uniquement en France »
+// CENTRÉ. Preuve DOM sur l'élément réel, pour les deux rendus possibles
+// (message proéminent ; rappel discret quand le périmètre n'est pas
+// fourni par l'appelant). Texte et logique inchangés.
+// ==================================================================
+
+test("[UX LOT 2026-10] message proéminent « Livraison disponible uniquement en France » : centré (text-center), texte inchangé", async () => {
+  const { container, root } = render({ country: FIXTURE_FR, options: [], scope: [FIXTURE_FR] });
+  await flush();
+  try {
+    const prominent = q(container, '[data-testid="delivery-country-scope-prominent"]')!;
+    assert.ok(prominent, "message proéminent rendu");
+    assert.ok(prominent.className.split(/\s+/).includes("text-center"), "doit être centré");
+    assert.equal(prominent.textContent, "Livraison disponible uniquement en France");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});
+
+test("[UX LOT 2026-10] rappel discret « Livraison en France uniquement » (sans périmètre fourni) : centré lui aussi", async () => {
+  const { container, root } = render({ country: FIXTURE_FR, options: [], scope: [] });
+  await flush();
+  try {
+    assert.equal(q(container, '[data-testid="delivery-country-scope-prominent"]'), null, "pas de message proéminent sans périmètre");
+    const ctx = q(container, '[data-testid="delivery-country-context"]')!;
+    assert.ok(ctx, "rappel discret rendu");
+    assert.ok(ctx.className.split(/\s+/).includes("text-center"), "doit être centré");
+  } finally {
+    root.unmount();
+    container.remove();
+  }
+});

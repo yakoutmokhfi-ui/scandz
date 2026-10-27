@@ -67,6 +67,14 @@ export interface RestaurantConfig {
    *  `unknown` volontairement : la valeur est TOUJOURS repassée par
    *  sanitizeThemeTokens avant usage, jamais lue telle quelle. */
   theme_tokens?: unknown;
+  /** UX LOT 2026-10 (demande Emmanuel) — champ « Note pour le
+   *  restaurant » du checkout, PAR ÉTABLISSEMENT. `false` = champ non
+   *  rendu et note jamais transmise ; `true`/`null`/absent = champ
+   *  affiché (comportement historique, inchangé tant que la migration
+   *  supabase/DRAFT-lot-order-note-toggle-v1.sql n'est pas jouée).
+   *  Configuration marchande (colonne restaurant_configs), jamais un
+   *  nom d'établissement codé en dur. */
+  order_note_enabled?: boolean | null;
   /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
    *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
    *  NULL = icône non affichée sur la carte publique. */
@@ -284,6 +292,13 @@ export interface MenuItem {
    *  update_product). Strictement indépendant de tout attribut de
    *  droit de rétractation -- aucun couplage, aucune inférence. */
   allowed_sale_modes?: string[] | null;
+  /** UX LOT 2026-10 (demande Emmanuel) -- boisson ALCOOLISÉE, déclarée
+   *  par le commerçant (colonne menu_items.contains_alcohol, voir
+   *  supabase/DRAFT-lot-menu-item-contains-alcohol-v1.sql). `true` =
+   *  le checkout exige une confirmation d'âge (case décochée par
+   *  défaut, bloquante). `false`/`null`/absent = rien. JAMAIS déduit du
+   *  nom, de la description ou des tags du produit. */
+  contains_alcohol?: boolean | null;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug
