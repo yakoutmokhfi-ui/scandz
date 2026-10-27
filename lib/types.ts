@@ -67,6 +67,13 @@ export interface RestaurantConfig {
    *  `unknown` volontairement : la valeur est TOUJOURS repassée par
    *  sanitizeThemeTokens avant usage, jamais lue telle quelle. */
   theme_tokens?: unknown;
+  /** STOREFRONT PHOTO OVERLAY v1 — voile sombre de la photo principale :
+   *  'none' | 'light' | 'standard'. Colonne additive ; absente (colonne
+   *  pas encore appliquée), inconnue ou invalide => traitée comme
+   *  'standard' (rendu historique), voir lib/storefront-photo-overlay.ts.
+   *  Typé `unknown` volontairement : toujours repassé par
+   *  normalizeStorefrontPhotoOverlay avant usage. */
+  storefront_photo_overlay?: unknown;
   /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
    *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
    *  NULL = icône non affichée sur la carte publique. */

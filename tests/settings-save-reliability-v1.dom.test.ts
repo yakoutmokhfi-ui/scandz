@@ -316,6 +316,19 @@ export async function updateRestaurantThemeTokens(restaurantId, tokens) {
   (globalThis).__themeTokensCallLog.push({ restaurantId, tokens });
   return mutationCall("themeTokens", restaurantId, undefined);
 }
+// STOREFRONT PHOTO OVERLAY v1 -- voile de la photo principale. Lecture :
+// fixture par établissement ("standard" par défaut) ou panne injectée ;
+// écriture : journalisée avec la valeur EXACTE soumise (kind "photoOverlay").
+export async function getRestaurantPhotoOverlay(restaurantId) {
+  const failure = (globalThis).__photoOverlayLoadFailure && (globalThis).__photoOverlayLoadFailure[restaurantId];
+  if (failure) return Promise.reject(failure);
+  const fallback = (globalThis).__photoOverlayFallback && (globalThis).__photoOverlayFallback[restaurantId];
+  return fallback ?? "standard";
+}
+export async function updateRestaurantPhotoOverlay(restaurantId, overlay) {
+  (globalThis).__photoOverlayCallLog.push({ restaurantId, overlay });
+  return mutationCall("photoOverlay", restaurantId, undefined);
+}
 export async function getSupportedLanguages() {
   return (globalThis).__supportedLanguages ?? [
     { code: "fr", label: "Français", dir: "ltr" },
@@ -619,6 +632,7 @@ const ALL_KINDS = [
   "languages",
   "trackingText",
   "themeTokens",
+  "photoOverlay",
 ] as const;
 
 /** Tous les kinds SAUF "receipt" -- utilisé abondamment pour prouver
@@ -672,6 +686,10 @@ function resetCommonFixtures() {
   (globalThis as any).__themeTokensFallback = {};
   (globalThis as any).__themeTokensLoadFailure = {};
   (globalThis as any).__themeTokensCallLog = [];
+  // STOREFRONT PHOTO OVERLAY v1 (PO-series) -- voir getRestaurantPhotoOverlay ci-dessus.
+  (globalThis as any).__photoOverlayFallback = {};
+  (globalThis as any).__photoOverlayLoadFailure = {};
+  (globalThis as any).__photoOverlayCallLog = [];
 }
 
 /** MERCHANT CUSTOMER COMMUNICATIONS v1 — le champ d'UN emplacement du
@@ -2310,6 +2328,168 @@ test("TH-8 — the three order-help texts appear in the EXISTING communication-t
   container.remove();
 });
 
+// ====================================================================
+// STOREFRONT PHOTO OVERLAY v1 -- groupe « Assombrissement de la photo de
+// couverture » (série PO). Mêmes garanties que les autres groupes : dirty
+// par comparaison au snapshot, tentative INDÉPENDANTE, issue sans
+// ambiguïté, garde de provenance, isolation entre établissements.
+// L'ajout du kind "photoOverlay" à ALL_KINDS fait aussi vérifier, par TOUS
+// les scénarios existants, qu'une édition étrangère n'appelle JAMAIS
+// updateRestaurantPhotoOverlay.
+// ====================================================================
+
+function overlayOption(container: HTMLElement, mode: string): HTMLInputElement {
+  const el = container.querySelector(`[data-photo-overlay-option="${mode}"]`) as HTMLInputElement | null;
+  assert.ok(el, `expected the photo overlay radio "${mode}"`);
+  return el!;
+}
+function overlayChecked(container: HTMLElement): string | null {
+  const el = container.querySelector("[data-photo-overlay-option]:checked") as HTMLInputElement | null;
+  return el ? el.value : null;
+}
+
+test("PO-1 — the stored value is loaded and shown; the three FR labels are exact; saving an UNRELATED edit never calls updateRestaurantPhotoOverlay (not dirty)", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__photoOverlayFallback["resto-a"] = "light";
+  const { container, root } = render();
+  await waitSettled(container);
+
+  assert.equal(overlayChecked(container), "light");
+  const text = container.textContent ?? "";
+  for (const label of ["Aucun assombrissement", "Assombrissement léger", "Assombrissement standard"]) {
+    assert.ok(text.includes(label), `libellé « ${label} » présent`);
+  }
+  assert.equal(overlayOption(container, "none").disabled, false);
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__photoOverlayCallLog, [], "groupe non modifié : aucune écriture");
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1);
+  root.unmount();
+  container.remove();
+});
+
+test("PO-2 — choosing « Aucun assombrissement » writes ONLY the overlay group, once, with the exact value for the CURRENT restaurant; a second save without change writes nothing", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(overlayChecked(container), "standard");
+
+  overlayOption(container, "none").click();
+  await flush(20);
+  assert.equal(overlayChecked(container), "none");
+  assert.equal(
+    (container.querySelector("[data-photo-overlay-preview]") as HTMLElement).getAttribute("data-photo-overlay-preview"),
+    "none",
+    "l'aperçu suit la sélection"
+  );
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+
+  assert.deepEqual((globalThis as any).__photoOverlayCallLog, [{ restaurantId: "resto-a", overlay: "none" }]);
+  assertZeroCalls(ALL_KINDS.filter((k) => k !== "photoOverlay"), "PO-2 (photo overlay only)");
+  assert.deepEqual((globalThis as any).__callOrder, ["photoOverlay"]);
+
+  (globalThis as any).__callOrder.length = 0;
+  submitForm(container);
+  await flush(40);
+  assert.equal((globalThis as any).__photoOverlayCallLog.length, 1, "pas de ré-écriture d'un état déjà enregistré");
+  root.unmount();
+  container.remove();
+});
+
+test("PO-3 — persistence across a page reload: after saving 'light', a fresh mount that reads back 'light' shows it and writes nothing", async () => {
+  setupSingleRestaurant();
+  const first = render();
+  await waitSettled(first.container);
+  overlayOption(first.container, "light").click();
+  await flush(20);
+  submitForm(first.container);
+  await waitFor(() => hasText(first.container, t("stSaved")));
+  const saved = (globalThis as any).__photoOverlayCallLog[0].overlay;
+  assert.equal(saved, "light");
+  first.root.unmount();
+  first.container.remove();
+
+  // « Rechargement » : le serveur renvoie ce qui a été écrit.
+  (globalThis as any).__photoOverlayFallback["resto-a"] = saved;
+  (globalThis as any).__photoOverlayCallLog.length = 0;
+  const second = render();
+  await waitSettled(second.container);
+  assert.equal(overlayChecked(second.container), "light");
+  setFieldValue(colorFieldByLabel(second.container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(second.container);
+  await waitFor(() => hasText(second.container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__photoOverlayCallLog, [], "aucune ré-écriture après rechargement");
+  second.root.unmount();
+  second.container.remove();
+});
+
+test("PO-4 — if the value cannot be READ (e.g. SQL not applied yet) the section is disabled, never written, and the rest of the page still saves", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__photoOverlayLoadFailure["resto-a"] = new Error('column "storefront_photo_overlay" does not exist');
+  const { container, root } = render();
+  await waitSettled(container);
+
+  for (const mode of ["none", "light", "standard"]) assert.equal(overlayOption(container, mode).disabled, true);
+  assert.ok(container.querySelector("[data-photo-overlay-disabled-note]"), "message d'indisponibilité affiché");
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1, "le reste de la page s'enregistre");
+  assert.deepEqual((globalThis as any).__photoOverlayCallLog, [], "valeur illisible : jamais écrite");
+  root.unmount();
+  container.remove();
+});
+
+test("PO-5 — an overlay write failure after another group succeeded is reported as an EXPLICIT mixed outcome naming the overlay group", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__mutationFailure.photoOverlay["resto-a"] = new Error("boom");
+  const { container, root } = render();
+  await waitSettled(container);
+
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  overlayOption(container, "none").click();
+  await flush(20);
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stPartialSaveError")));
+
+  assert.ok(hasText(container, t("stPhotoOverlaySaveError")));
+  assert.equal((globalThis as any).__mutationCallLog.colors.length, 1);
+  assert.equal((globalThis as any).__photoOverlayCallLog.length, 1);
+  root.unmount();
+  container.remove();
+});
+
+test("PO-6 — tenant isolation: A's value is replaced (not merged) by B's on switch, and a save after the switch targets B only", async () => {
+  resetCommonFixtures();
+  (globalThis as any).__mappings = [mappingRow("resto-a", "Restaurant A", "owner"), mappingRow("resto-b", "Restaurant B", "owner")];
+  (globalThis as any).__settingsFallback["resto-a"] = settingsRow({ display_name: "Resto A" });
+  (globalThis as any).__settingsFallback["resto-b"] = settingsRow({ display_name: "Resto B" });
+  (globalThis as any).__receiptFallback["resto-a"] = receiptRow("A");
+  (globalThis as any).__receiptFallback["resto-b"] = receiptRow("B");
+  (globalThis as any).__photoOverlayFallback["resto-a"] = "none";
+  (globalThis as any).__photoOverlayFallback["resto-b"] = "standard";
+
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(overlayChecked(container), "none");
+
+  switchTo(container, "resto-b");
+  await waitSettled(container);
+  assert.equal(overlayChecked(container), "standard", "rien de A ne subsiste chez B");
+
+  overlayOption(container, "light").click();
+  await flush(20);
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__photoOverlayCallLog, [{ restaurantId: "resto-b", overlay: "light" }]);
+  root.unmount();
+  container.remove();
+});
+
 // MERCHANT CUSTOMER COMMUNICATIONS v1 -- nettoyage des globales du lot.
 after(() => {
   delete (globalThis as any).__communicationTextCallLog;
@@ -2320,4 +2500,7 @@ after(() => {
   delete (globalThis as any).__themeTokensFallback;
   delete (globalThis as any).__themeTokensLoadFailure;
   delete (globalThis as any).__themeTokensCallLog;
+  delete (globalThis as any).__photoOverlayFallback;
+  delete (globalThis as any).__photoOverlayLoadFailure;
+  delete (globalThis as any).__photoOverlayCallLog;
 });

@@ -6,6 +6,7 @@ import { Ornament } from "@/components/Icons";
 import RestaurantInfoBar from "@/components/RestaurantInfoBar";
 import { InstagramBrandIcon, TikTokBrandIcon } from "@/components/SocialBrandIcons";
 import type { Lang } from "@/lib/i18n";
+import { headerBackgroundImage, normalizeStorefrontPhotoOverlay } from "@/lib/storefront-photo-overlay";
 
 export default function RestaurantHeader({
   restaurant,
@@ -13,6 +14,7 @@ export default function RestaurantHeader({
   onChangeLang,
   theme,
   banner,
+  veilInk,
 }: {
   restaurant: RestaurantFull;
   lang: Lang;
@@ -20,6 +22,9 @@ export default function RestaurantHeader({
   theme?: string;
   /** Nom de fichier dans /banners, sinon celui du slug */
   banner?: string;
+  /** Couleur « ink » effective du thème (#RRGGBB), pour teinter le voile
+   *  « léger ». Facultative : absente/invalide => teinte historique. */
+  veilInk?: string | null;
 }) {
   const { t, sourceLanguage } = useI18n();
   const { config } = restaurant;
@@ -34,6 +39,18 @@ export default function RestaurantHeader({
   // établissement n'ayant pas encore renseigné de cover : le rendu
   // reste alors exactement celui d'avant V68, sans placeholder cassé.
   const coverUrl = config.cover_url ?? null;
+
+  // STOREFRONT PHOTO OVERLAY v1 — voile sombre de la photo, réglé PAR
+  // établissement (restaurant_configs.storefront_photo_overlay).
+  // Absent/inconnu => "standard" : le dégradé historique, inchangé.
+  const photoOverlay = normalizeStorefrontPhotoOverlay(config.storefront_photo_overlay);
+  // Sans voile (ou voile léger), les icônes sociales — posées DIRECTEMENT
+  // sur la photo — reçoivent le même fond opaque que les autres commandes
+  // du header (sélecteur de langue, itinéraire) : leur lisibilité ne
+  // dépend jamais de la luminosité de la photo (V72-02). "standard" ne
+  // change pas : rendu historique à l'identique.
+  const socialBacking = photoOverlay === "standard" ? "" : " bg-espresso";
+  const roundSocialBacking = photoOverlay === "standard" ? "" : " rounded-full bg-espresso";
 
   // Corrige V70-06 (décision CTO) : plus aucun lien vers un
   // fournisseur de cartographie n'est fabriqué implicitement depuis
@@ -78,13 +95,18 @@ export default function RestaurantHeader({
   return (
     <header
       className="relative overflow-hidden text-center text-ink-text"
+      data-photo-overlay={photoOverlay}
       style={{
         // Photo propre à l'établissement, facultative :
         // /banners/<slug>.jpg. En son absence, le dégradé du thème
         // assure seul le fond — d'où une couleur de repli qui suit
         // l'identité de l'établissement et non celle d'un autre.
         backgroundColor: "var(--sc-ink, #221510)",
-        backgroundImage: `linear-gradient(var(--sc-veil-soft, rgba(23,13,9,0.2)), var(--sc-veil-strong, rgba(23,13,9,0.32))), url('${coverUrl ?? `/banners/${banner ?? restaurant.slug}.jpg`}')`,
+        backgroundImage: headerBackgroundImage(
+          photoOverlay,
+          coverUrl ?? `/banners/${banner ?? restaurant.slug}.jpg`,
+          veilInk
+        ),
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
@@ -186,9 +208,9 @@ export default function RestaurantHeader({
               rel="noopener noreferrer"
               aria-label="Instagram"
               data-social-brand="instagram"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current${socialBacking}`}
             >
-              <InstagramBrandIcon />
+              <InstagramBrandIcon backed={photoOverlay !== "standard"} />
             </a>
           )}
           {config.tiktok_url && (
@@ -198,15 +220,15 @@ export default function RestaurantHeader({
               rel="noopener noreferrer"
               aria-label="TikTok"
               data-social-brand="tiktok"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full text-ink-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current${socialBacking}`}
             >
-              <TikTokBrandIcon />
+              <TikTokBrandIcon backed={photoOverlay !== "standard"} />
             </a>
           )}
           {config.facebook_url && (
             // Facebook hors périmètre : lien et glyphe inchangés, seulement
             // posé dans un emplacement de même largeur pour aligner la ligne.
-            <span className="inline-flex h-10 w-10 items-center justify-center">
+            <span className={`inline-flex h-10 w-10 items-center justify-center${roundSocialBacking}`}>
             <a
               href={config.facebook_url}
               target="_blank"
