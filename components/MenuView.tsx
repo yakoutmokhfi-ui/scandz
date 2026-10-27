@@ -2103,6 +2103,7 @@ export default function MenuView({
         onChangeLang={setLang}
         theme={settings.theme}
         banner={variant?.banner ?? settings.banner}
+        veilInk={colorOverrides.secondary ?? getTheme(settings.theme).ink}
       />
       {fulfillmentRulesState.status === "loaded" && <DeliveryConditionsButton key={restaurant.id} rules={fulfillmentRulesState.rules} currency={restaurant.config.currency} />}
       <OrderHelpButton communicationTexts={communicationTexts} />

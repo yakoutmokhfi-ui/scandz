@@ -75,6 +75,13 @@ export interface RestaurantConfig {
    *  Configuration marchande (colonne restaurant_configs), jamais un
    *  nom d'établissement codé en dur. */
   order_note_enabled?: boolean | null;
+  /** STOREFRONT PHOTO OVERLAY v1 — voile sombre de la photo principale :
+   *  'none' | 'light' | 'standard'. Colonne additive ; absente (colonne
+   *  pas encore appliquée), inconnue ou invalide => traitée comme
+   *  'standard' (rendu historique), voir lib/storefront-photo-overlay.ts.
+   *  Typé `unknown` volontairement : toujours repassé par
+   *  normalizeStorefrontPhotoOverlay avant usage. */
+  storefront_photo_overlay?: unknown;
   /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
    *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
    *  NULL = icône non affichée sur la carte publique. */
