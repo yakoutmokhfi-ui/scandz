@@ -126,10 +126,10 @@ test("9. réponse OK ne contient jamais de champ de paiement/Stuart", async (t) 
 // format.
 // ==================================================================
 
-test("11. company sans siren (SIRET) -- 400 invalid_field 'siren', rejeté AVANT tout appel réseau", async (t) => {
+test("11. company sans siren (SIRET) -- 400 invalid_field 'siren', rejeté AVANT tout appel réseau (audit Maxwell P2 : blancs seuls = absent)", async (t) => {
   let called = false;
   t.mock.method(client, "rpc", async () => { called = true; throw new Error("jamais appelé"); });
-  for (const siren of [undefined, null, ""]) {
+  for (const siren of [undefined, null, "", " ", "   ", "\t\n ", "\u00a0"]) {
     const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren }));
     assert.equal(response.status, 400, `siren=${JSON.stringify(siren)}`);
     const data = await response.json();
@@ -149,4 +149,17 @@ test("12. company avec siren de forme quelconque (aucun contrôle de format) -- 
     const response = await POST(req(body));
     assert.equal(response.status, 200, JSON.stringify(body));
   }
+});
+
+test("13. audit Maxwell P2 -- la valeur SIRET est transmise à la RPC TELLE QUELLE (blancs de bordure et internes conservés, aucune normalisation)", async (t) => {
+  const seen: Array<Record<string, unknown>> = [];
+  t.mock.method(client, "rpc", async (_name: string, args: Record<string, unknown>) => {
+    seen.push(args);
+    return { data: [{ order_id: "o1", invoice_type: "company", updated_at: "2026-01-01T00:00:00Z" }], error: null };
+  });
+  const raw = "  123 456 789 00012  ";
+  const response = await POST(req({ ...VALID_BODY, invoiceType: "company", companyLegalName: "ACME", siren: raw }));
+  assert.equal(response.status, 200);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.p_siren, raw, "aucun trim, aucune réécriture de la valeur transmise");
 });

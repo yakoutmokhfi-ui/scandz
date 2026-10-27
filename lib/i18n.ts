@@ -162,10 +162,6 @@ const fr: Dict = {
   cgvAcceptancePrefix: "J'ai lu et j'accepte les",
   cgvAcceptanceLinkLabel: "conditions générales de vente",
   cgvAcceptanceObligation: "En validant, vous vous engagez à régler cette commande.",
-  // UX LOT 2026-10 (demande Emmanuel) -- confirmation d'âge, affichée
-  // UNIQUEMENT si le panier contient au moins une boisson alcoolisée
-  // (menu_items.contains_alcohol). Case décochée par défaut, bloquante.
-  ageConfirmationLabel: "Je confirme avoir 18 ans ou plus. Ce panier contient une boisson alcoolisée : la vente d'alcool est interdite aux mineurs.",
   cgvAcceptanceRequiredError: "Merci d'accepter les conditions générales de vente avant d'envoyer la commande.",
   legalCgvTitle: "Conditions générales de vente",
   legalCgvLoadFailed: "Impossible de charger le profil légal.",
@@ -1640,7 +1636,6 @@ const en: Dict = {
   cgvAcceptancePrefix: "I have read and accept the",
   cgvAcceptanceLinkLabel: "terms and conditions of sale",
   cgvAcceptanceObligation: "By confirming, you agree to pay for this order.",
-  ageConfirmationLabel: "I confirm that I am 18 or older. This basket contains an alcoholic drink: selling alcohol to minors is prohibited.",
   cgvAcceptanceRequiredError: "Please accept the terms and conditions of sale before sending the order.",
   legalCgvTitle: "Terms and conditions of sale",
   legalCgvLoadFailed: "Unable to load the legal profile.",
@@ -2959,7 +2954,6 @@ const ar: Dict = {
   cgvAcceptancePrefix: "لقد قرأت ووافقت على",
   cgvAcceptanceLinkLabel: "الشروط والأحكام العامة للبيع",
   cgvAcceptanceObligation: "بالتأكيد، فإنك تلتزم بدفع قيمة هذا الطلب.",
-  ageConfirmationLabel: "أؤكد أن عمري 18 عامًا أو أكثر. تحتوي هذه السلة على مشروب كحولي: يُمنع بيع الكحول للقاصرين.",
   cgvAcceptanceRequiredError: "يرجى الموافقة على الشروط والأحكام العامة للبيع قبل إرسال الطلب.",
   legalCgvTitle: "الشروط والأحكام العامة للبيع",
   legalCgvLoadFailed: "تعذر تحميل الملف القانوني.",

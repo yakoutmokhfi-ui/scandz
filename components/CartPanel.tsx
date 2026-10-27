@@ -78,9 +78,6 @@ export default function CartPanel({
   cgvEnforced,
   cgvAccepted,
   onChangeCgvAccepted,
-  ageConfirmationRequired,
-  ageConfirmed,
-  onChangeAgeConfirmed,
   cgvLegalHref,
   onSendOrder,
   onClose,
@@ -201,18 +198,6 @@ export default function CartPanel({
   cgvEnforced: boolean;
   cgvAccepted: boolean;
   onChangeCgvAccepted: (accepted: boolean) => void;
-  /**
-   * UX LOT 2026-10 (demande Emmanuel) -- confirmation d'âge. `required`
-   * est VRAI uniquement si le panier contient au moins une boisson
-   * alcoolisée (lib/cart.ts::cartContainsAlcohol, drapeau marchand
-   * `contains_alcohol`). Case décochée par défaut ; tant qu'elle n'est
-   * pas cochée, l'envoi est impossible. Ce n'est PAS une vérification
-   * d'identité ni une garantie de conformité : une déclaration du
-   * client, au même titre que l'acceptation des CGV.
-   */
-  ageConfirmationRequired: boolean;
-  ageConfirmed: boolean;
-  onChangeAgeConfirmed: (confirmed: boolean) => void;
   /** Lien vers la page légale publique du marchand (app/legal/[slug]),
    *  non-null uniquement quand `cgvEnforced` l'est aussi. */
   cgvLegalHref: string | null;
@@ -231,12 +216,7 @@ export default function CartPanel({
   const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
   const timingNoticeGuardRef = useRef(false);
 
-  // UX LOT 2026-10 -- l'envoi reste impossible tant que la confirmation
-  // d'âge requise n'est pas donnée (même garde que les CGV).
-  const ageGateBlocked = ageConfirmationRequired && !ageConfirmed;
-
   function requestOrderSubmission() {
-    if (ageGateBlocked) return;
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (deliveryCustomerNotice) {
       setTimingNoticeOpen(true);
@@ -246,7 +226,6 @@ export default function CartPanel({
   }
 
   async function confirmTimingNotice() {
-    if (ageGateBlocked) return;
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
     if (timingNoticeGuardRef.current || timingNoticeConfirming || isSubmitting) return;
     timingNoticeGuardRef.current = true;
@@ -387,7 +366,13 @@ export default function CartPanel({
   // Compteur et validation alignés sur le comptage serveur (voir
   // lib/order-note.ts) : ni note.length ni maxLength natif seuls, pour
   // rester cohérent avec des emojis / caractères arabes.
-  const noteState = normalizeOrderNote(note);
+  // UX LOT 2026-10 / audit Maxwell P2 (commit 34cc977) : champ note
+  // DÉSACTIVÉ par l'établissement -> sa validation est IGNORÉE. Une
+  // ancienne valeur en état (saisie avant la désactivation, ou trop
+  // longue) ne peut plus bloquer l'envoi, et MenuView ne la transmet de
+  // toute façon jamais (frozenNote = "" quand order_note_enabled =
+  // false). Champ actif : validation inchangée.
+  const noteState = normalizeOrderNote(orderNoteEnabled ? note : "");
 
   /**
    * PRODUCT SERVICE MODES v1 -- panier mixte (issue #11, décision CIO) :
@@ -908,24 +893,6 @@ export default function CartPanel({
 
             {canSubmit && noteState.isValid && !pricingUnavailable ? (
               <>
-                {/* UX LOT 2026-10 -- confirmation d'âge, rendue
-                    UNIQUEMENT si le panier contient une boisson
-                    alcoolisée. Décochée par défaut ; bloque l'envoi. */}
-                {ageConfirmationRequired && (
-                  <label
-                    data-age-confirmation=""
-                    className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted"
-                  >
-                    <input
-                      type="checkbox"
-                      data-age-confirmation-input=""
-                      checked={ageConfirmed}
-                      onChange={(e) => onChangeAgeConfirmed(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0"
-                    />
-                    <span>{t("ageConfirmationLabel")}</span>
-                  </label>
-                )}
                 {cgvEnforced && (
                   <label className="mb-3 flex items-start gap-2 text-sm text-ink-on-bg-muted">
                     <input
@@ -959,7 +926,7 @@ export default function CartPanel({
                 </p>
                 <button
                   onClick={requestOrderSubmission}
-                  disabled={isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked}
+                  disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
                   aria-busy={isSubmitting}
                   className={
                     "block w-full rounded-xl py-3.5 text-center font-bold " +
@@ -982,7 +949,7 @@ export default function CartPanel({
                     // simple opacité réduite de la couleur active) pour
                     // un état "clairement inactif" sans ambiguïté --
                     // les deux paires vérifiées WCAG (5,02:1 et 6,90:1).
-                    (isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked
+                    (isSubmitting || (cgvEnforced && !cgvAccepted)
                       ? "cursor-not-allowed bg-stone-300 text-stone-700"
                       : "bg-green-700 text-white")
                   }

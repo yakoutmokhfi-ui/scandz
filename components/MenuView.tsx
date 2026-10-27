@@ -119,7 +119,6 @@ import {
 import {
   addToCart,
   cartLines,
-  cartContainsAlcohol,
   changeLineQuantity,
   decrementItem,
   optionCountsForItem,
@@ -810,11 +809,6 @@ export default function MenuView({
    */
   const [cgvInfo, setCgvInfo] = useState<PublicCgv | null>(null);
   const [cgvAccepted, setCgvAccepted] = useState(false);
-  // UX LOT 2026-10 (demande Emmanuel) -- confirmation d'âge : décochée
-  // par défaut, requise UNIQUEMENT si le panier contient une boisson
-  // alcoolisée (drapeau marchand `contains_alcohol`, jamais une
-  // inférence). Remise à zéro à chaque nouvelle commande.
-  const [ageConfirmed, setAgeConfirmed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1096,7 +1090,6 @@ export default function MenuView({
   }
 
   const lines = useMemo(() => cartLines(cart), [cart]);
-  const ageConfirmationRequired = useMemo(() => cartContainsAlcohol(cart), [cart]);
 
   const totalCount = lines.reduce((sum, l) => sum + l.quantity, 0);
   const totalPrice = lines.reduce(
@@ -1717,8 +1710,6 @@ export default function MenuView({
     // Garde défensif, cohérent avec le bouton désactivé de
     // CartPanel : ne dépend jamais uniquement du disabled côté UI.
     if (cgvInfo?.enforced && !cgvAccepted) return;
-    // UX LOT 2026-10 -- même garde défensive pour la confirmation d'âge.
-    if (ageConfirmationRequired && !ageConfirmed) return;
 
     submitInFlightRef.current = true;
     setIsSubmitting(true);
@@ -1994,9 +1985,6 @@ export default function MenuView({
 
   function closeConfirmation() {
     setIsConfirmationOpen(false);
-    // UX LOT 2026-10 -- la confirmation d'âge ne survit jamais à une
-    // commande : la suivante la redemandera si son panier l'exige.
-    setAgeConfirmed(false);
     setPendingPayment(null);
     setPaymentError(null);
     changeActiveCategory(restaurant.categories[0]?.id ?? "");
@@ -2353,9 +2341,6 @@ export default function MenuView({
           cgvEnforced={!!cgvInfo?.enforced}
           cgvAccepted={cgvAccepted}
           onChangeCgvAccepted={setCgvAccepted}
-          ageConfirmationRequired={ageConfirmationRequired}
-          ageConfirmed={ageConfirmed}
-          onChangeAgeConfirmed={setAgeConfirmed}
           cgvLegalHref={cgvInfo?.enforced ? `/legal/${restaurant.slug}` : null}
           onSendOrder={handleSendOrder}
           onClose={() => setIsCartOpen(false)}

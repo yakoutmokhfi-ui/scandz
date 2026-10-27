@@ -324,16 +324,16 @@ function submitButtonWindow(): string {
   return cartPanelSrc.slice(start, end);
 }
 
-test("CartPanel.tsx : le bouton 'Valider la commande' devient vert (green-700) uniquement quand isSubmitting est faux ET (CGV non exigées OU acceptées) ET (confirmation d'âge non requise OU donnée -- UX LOT 2026-10)", () => {
+test("CartPanel.tsx : le bouton 'Valider la commande' devient vert (green-700) uniquement quand isSubmitting est faux ET (CGV non exigées OU acceptées)", () => {
   const win = submitButtonWindow();
-  assert.ok(win.includes("disabled={isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked}"), "condition disabled (CGV + soumission en cours + confirmation d'âge)");
+  assert.ok(win.includes("disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}"), "condition disabled inchangée (CGV + soumission en cours)");
   assert.ok(win.includes("bg-green-700"), "vert attendu à l'état validable");
   assert.ok(win.includes("bg-stone-300"), "gris net attendu à l'état non validable");
   // Vérifie précisément que c'est la branche "non validable" (même
   // condition que `disabled`) qui produit le gris, et la branche
   // opposée qui produit le vert -- pas l'inverse.
   assert.ok(
-    win.includes('(isSubmitting || (cgvEnforced && !cgvAccepted) || ageGateBlocked\n                      ? "cursor-not-allowed bg-stone-300 text-stone-700"\n                      : "bg-green-700 text-white")'),
+    win.includes('(isSubmitting || (cgvEnforced && !cgvAccepted)\n                      ? "cursor-not-allowed bg-stone-300 text-stone-700"\n                      : "bg-green-700 text-white")'),
     "la condition non-validable doit produire le gris, la condition validable le vert"
   );
 });

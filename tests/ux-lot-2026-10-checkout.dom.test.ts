@@ -28,6 +28,7 @@ Object.defineProperty(globalThis, "navigator", {
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { supabase } = await import("../lib/supabase.ts");
+const { ORDER_NOTE_MAX_LENGTH } = await import("../lib/order-note.ts");
 
 const REPO_ROOT = process.cwd();
 
@@ -120,7 +121,7 @@ function selectServiceMode(container: Element, label: string) {
 }
 
 /** Même fixture que tests/v101-fulfillment-routing-lot-c-menuview.dom.test.ts. */
-function sanaaCookiesRestaurant(opts: { alcohol?: boolean; configOverride?: Record<string, unknown> } = {}) {
+function sanaaCookiesRestaurant(opts: { configOverride?: Record<string, unknown> } = {}) {
   return {
     id: "r-sanaa-test",
     name: "Sanaa Cookies (test)",
@@ -159,8 +160,6 @@ function sanaaCookiesRestaurant(opts: { alcohol?: boolean; configOverride?: Reco
             image_url: null,
             display_order: 1,
             is_available: true,
-            // UX LOT 2026-10 : drapeau marchand (jamais déduit du nom).
-            ...(opts.alcohol ? { contains_alcohol: true } : {}),
           },
         ],
       },
@@ -235,7 +234,7 @@ function mockRpc(
   });
 }
 
-async function renderFillPickupAndReachSubmit(opts: { alcohol?: boolean; configOverride?: Record<string, unknown> } = {}) {
+async function renderFillPickupAndReachSubmit(opts: { configOverride?: Record<string, unknown> } = {}) {
   const restaurant = sanaaCookiesRestaurant(opts);
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
@@ -275,18 +274,16 @@ async function renderFillPickupAndReachSubmit(opts: { alcohol?: boolean; configO
 //
 // Monte RÉELLEMENT MenuView (esbuild + jsdom), create_order intercepté
 // au niveau supabase.rpc. Ce fichier prouve :
-//   A. confirmation d'âge : rendue UNIQUEMENT si le panier contient un
-//      produit `contains_alcohol = true` ; décochée par défaut ; tant
-//      qu'elle n'est pas cochée, l'envoi est impossible (bouton
-//      désactivé ET aucune create_order même en forçant le clic) ;
-//      cochée -> la commande part. Panier sans alcool : aucune case,
-//      parcours inchangé. Rien n'est déduit du NOM du produit.
 //   B. note pour le restaurant : masquée quand
 //      restaurant_configs.order_note_enabled = false (aucun champ
-//      #order-note, p_note null) ; rendue sinon (défaut inchangé).
+//      #order-note, p_note null) ; rendue sinon (défaut inchangé) ;
+//      audit Maxwell P2 : une valeur de note déjà en état (trop longue)
+//      ne bloque JAMAIS l'envoi une fois le champ désactivé.
 //   C. aide « comment commander » : à l'ouverture, le défilement est en
 //      haut et le focus est sur le TITRE (jamais sur le bouton Fermer en
 //      bas) -- la partie haute du texte est visible en premier.
+// (La confirmation d'âge, présente au commit 34cc977, est RETIRÉE :
+//  décision de périmètre du 27/10/2026.)
 // ====================================================================
 
 const CREATE_ORDER_OK = {
@@ -310,113 +307,6 @@ function installFetchNotNeeded() {
 const rpcCalls = () => ((supabase.rpc as any).mock.calls as Array<{ arguments: unknown[] }>);
 const createOrderCalls = () => rpcCalls().filter((c) => String(c.arguments[0]) === "create_order");
 const confirmationShown = (container: Element) => container.textContent?.includes("Commande envoyée avec succès") ?? false;
-const ageBox = (container: Element) => container.querySelector("[data-age-confirmation-input]") as HTMLInputElement | null;
-
-function setChecked(input: HTMLInputElement, checked: boolean) {
-  // React écoute `click` sur les cases à cocher ; `.click()` natif
-  // bascule `checked` et déclenche l'événement.
-  if (input.checked !== checked) input.click();
-}
-
-// -------------------------------------------------------------------
-// A. CONFIRMATION D'ÂGE
-// -------------------------------------------------------------------
-
-test("[AGE-1] panier AVEC alcool : case rendue, DÉCOCHÉE par défaut, bouton désactivé, aucune create_order même en forçant le clic", async (t) => {
-  mockRpc(t, CREATE_ORDER_OK);
-  (window as any).open = () => ({});
-  installFetchNotNeeded();
-  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit({ alcohol: true });
-  try {
-    const box = ageBox(container);
-    assert.ok(box, "la case de confirmation d'âge doit être rendue");
-    assert.equal(box!.checked, false, "décochée par défaut");
-    assert.match(container.querySelector("[data-age-confirmation]")!.textContent ?? "", /18 ans ou plus/);
-    assert.equal(submitBtn.disabled, true, "bouton d'envoi désactivé tant que la case n'est pas cochée");
-    // Clic forcé (le DOM ne protège pas un bouton disabled contre un
-    // dispatch programmatique) : la garde logique doit tenir seule.
-    click(submitBtn);
-    await flush(80);
-    assert.equal(createOrderCalls().length, 0, "aucune commande envoyée sans confirmation d'âge");
-    assert.equal(confirmationShown(container), false);
-  } finally { root.unmount(); container.remove(); }
-});
-
-test("[AGE-2] panier AVEC alcool : case cochée -> bouton actif -> create_order appelée UNE fois -> confirmation", async (t) => {
-  mockRpc(t, CREATE_ORDER_OK);
-  (window as any).open = () => ({});
-  installFetchNotNeeded();
-  const { container, root } = await renderFillPickupAndReachSubmit({ alcohol: true });
-  try {
-    setChecked(ageBox(container)!, true);
-    await flush();
-    assert.equal(ageBox(container)!.checked, true);
-    const btn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp")!;
-    assert.equal(btn.disabled, false, "bouton actif une fois la case cochée");
-    click(btn);
-    await waitFor(() => confirmationShown(container), "confirmation attendue");
-    assert.equal(createOrderCalls().length, 1);
-  } finally { root.unmount(); container.remove(); }
-});
-
-test("[AGE-3] panier AVEC alcool : décocher à nouveau re-bloque l'envoi (la case est une condition, pas un événement)", async (t) => {
-  mockRpc(t, CREATE_ORDER_OK);
-  (window as any).open = () => ({});
-  installFetchNotNeeded();
-  const { container, root } = await renderFillPickupAndReachSubmit({ alcohol: true });
-  try {
-    setChecked(ageBox(container)!, true);
-    await flush();
-    setChecked(ageBox(container)!, false);
-    await flush();
-    const btn = buttonWithText(container, "Enregistrer et continuer sur WhatsApp")!;
-    assert.equal(btn.disabled, true);
-    click(btn);
-    await flush(80);
-    assert.equal(createOrderCalls().length, 0);
-  } finally { root.unmount(); container.remove(); }
-});
-
-test("[AGE-4] panier SANS alcool : AUCUNE case, bouton actif, commande envoyée comme avant", async (t) => {
-  mockRpc(t, CREATE_ORDER_OK);
-  (window as any).open = () => ({});
-  installFetchNotNeeded();
-  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit({ alcohol: false });
-  try {
-    assert.equal(ageBox(container), null, "aucune case pour un panier sans alcool");
-    assert.equal(container.querySelector("[data-age-confirmation]"), null);
-    assert.equal(submitBtn.disabled, false);
-    click(submitBtn);
-    await waitFor(() => confirmationShown(container), "confirmation attendue");
-    assert.equal(createOrderCalls().length, 1);
-  } finally { root.unmount(); container.remove(); }
-});
-
-test("[AGE-5] un produit dont le NOM évoque l'alcool mais sans drapeau marchand n'exige RIEN (jamais d'inférence)", async (t) => {
-  mockRpc(t, CREATE_ORDER_OK);
-  (window as any).open = () => ({});
-  installFetchNotNeeded();
-  const restaurant = sanaaCookiesRestaurant({ alcohol: false });
-  restaurant.categories[0]!.menu_items[0]!.name = "Bière blonde 33cl";
-  const container = window.document.createElement("div");
-  window.document.body.appendChild(container);
-  const root = createRoot(container);
-  root.render(React.createElement(MenuView, { restaurant }));
-  await flush();
-  try {
-    click(buttonWithText(container, "Ajouter")!);
-    await flush();
-    const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
-    if (cartBar) { click(cartBar); await flush(); }
-    selectServiceMode(container, "À emporter");
-    await waitFor(() => inputById(container, "customer_name") !== null, "champs pickup rendus");
-    setNativeValue(inputById(container, "customer_name")!, "Yakout");
-    setNativeValue(inputById(container, "phone")!, "0612345678");
-    await flush(50);
-    assert.ok(buttonWithText(container, "Enregistrer et continuer sur WhatsApp"));
-    assert.equal(ageBox(container), null, "le nom du produit n'est jamais une source");
-  } finally { root.unmount(); container.remove(); }
-});
 
 // -------------------------------------------------------------------
 // B. NOTE POUR LE RESTAURANT (réglage par établissement)
@@ -449,6 +339,52 @@ test("[NOTE-2] order_note_enabled absent (défaut) ou true : champ note rendu, c
       assert.ok(container.querySelector("[data-order-note-block]"));
     } finally { root.unmount(); container.remove(); }
   }
+});
+
+test("[NOTE-3] audit Maxwell P2 : une note TROP LONGUE déjà saisie, puis champ désactivé par l'établissement -> l'envoi n'est plus bloqué, p_note null", async (t) => {
+  mockRpc(t, CREATE_ORDER_OK);
+  (window as any).open = () => ({});
+  installFetchNotNeeded();
+  // 1. Champ note ACTIF : le client saisit une note au-delà de la limite.
+  const enabled = sanaaCookiesRestaurant({ configOverride: { order_note_enabled: true } });
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(React.createElement(MenuView, { restaurant: enabled }));
+  await flush();
+  try {
+    click(buttonWithText(container, "Ajouter")!);
+    await flush();
+    const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+    if (cartBar) { click(cartBar); await flush(); }
+    selectServiceMode(container, "À emporter");
+    await waitFor(() => inputById(container, "customer_name") !== null, "champs pickup rendus");
+    setNativeValue(inputById(container, "customer_name")!, "Yakout");
+    setNativeValue(inputById(container, "phone")!, "0612345678");
+    await flush(50);
+    const noteEl = container.querySelector("#order-note") as HTMLTextAreaElement;
+    assert.ok(noteEl, "champ note rendu quand actif");
+    const tooLong = "x".repeat(ORDER_NOTE_MAX_LENGTH + 1);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(noteEl, tooLong);
+    noteEl.dispatchEvent(new window.Event("input", { bubbles: true }));
+    await flush(50);
+    assert.equal(buttonWithText(container, "Enregistrer et continuer sur WhatsApp") ?? null, null, "note trop longue : envoi bloqué tant que le champ est actif (règle v65 inchangée)");
+
+    // 2. L'établissement DÉSACTIVE la note (nouvelle configuration reçue,
+    //    même instance de MenuView : l'état de saisie subsiste).
+    const disabled = sanaaCookiesRestaurant({ configOverride: { order_note_enabled: false } });
+    root.render(React.createElement(MenuView, { restaurant: disabled }));
+    await flush(50);
+    assert.equal(container.querySelector("#order-note"), null, "champ note retiré");
+    const submit = buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+    assert.ok(submit, "l'ancienne note trop longue ne bloque plus l'envoi");
+    assert.ok(!/dépasse 500 caractères/.test(container.textContent ?? ""), "aucun message « note trop longue » résiduel");
+    click(submit!);
+    await waitFor(() => confirmationShown(container), "confirmation attendue");
+    const args = createOrderCalls()[0]!.arguments[1] as { p_note: unknown };
+    assert.equal(args.p_note, null, "la note résiduelle n'est jamais transmise");
+  } finally { root.unmount(); container.remove(); }
 });
 
 // -------------------------------------------------------------------
@@ -494,6 +430,115 @@ test("[HELP-1] à l'ouverture, le focus est sur le TITRE (pas sur « Fermer »),
     assert.notEqual(window.document.activeElement, close, "jamais le focus initial sur Fermer");
     assert.equal(close.hasAttribute("autofocus"), false);
     assert.equal(dlg.querySelector("[data-order-help-body]")!.textContent, longBody, "texte intégral, inchangé");
+  } finally { root.unmount(); container.remove(); }
+});
+
+// -------------------------------------------------------------------
+// D. TEXTES PROPRES AU MODE (constat PR #166, commentaire du 27/10 11:08)
+//
+// Constat Production (Au Lait Cru, lecture seule) : en « Livraison —
+// 75017 » le texte affiché commence par « Pour le retrait en boutique ».
+// SOURCE : ce texte est le `customer_text` de la RÈGLE de livraison qui
+// couvre 75008/75009/75010/75017/75019/93400/93000
+// (restaurant_sale_mode_fulfillments, id 1d222236-…, fulfillment_code
+// « Paris et banlieues desservies : 8ème, 9ème, 10ème, 17ème, 1 ») --
+// le commerçant y a saisi des consignes de RETRAIT. Les textes sont des
+// RÉGLAGES SÉPARÉS : livraison = customer_text de la règle résolue par
+// le code postal (FulfillmentSelector, `status.zone.label`) ; retrait =
+// emplacement MCC `pickup_explanation` (ou le défaut plateforme). La
+// correction du constat de Production est une correction de DONNÉES
+// (texte de la règle, écran Tarifs de livraison du back-office).
+// Ce test a toutefois révélé un défaut de CODE voisin, corrigé dans
+// FulfillmentSelector : le bandeau d'état de livraison (texte de la
+// règle appariée) restait affiché en mode RETRAIT après une bascule
+// Livraison -> Retrait. Il est désormais réservé au mode livraison.
+// -------------------------------------------------------------------
+
+const DELIVERY_COPY = "LIVRAISON-COPY-75017 : livraison à vélo, créneau proposé à la commande.";
+const PICKUP_COPY = "RETRAIT-COPY : pour le retrait en boutique, du mardi au samedi.";
+
+function mockRpcModeCopy(t: { mock: { method: Function } }) {
+  t.mock.method(supabase, "from", (table: string) => {
+    if (table === "sale_mode_catalog") {
+      return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
+    }
+    throw new Error(`table inattendue dans ce test : ${table}`);
+  });
+  t.mock.method(supabase, "rpc", async (name: string, args: any) => {
+    if (name === "get_restaurant_public_sale_modes") return { data: PICKUP_SALE_MODE_ROWS, error: null };
+    if (name === "get_restaurant_public_field_requirements") {
+      if (args.p_mode_code === "pickup") return { data: PICKUP_REQS, error: null };
+      if (args.p_mode_code === "delivery") return { data: [...PICKUP_REQS, { field: "delivery_address", requirement: "required", one_of_group: null }], error: null };
+      return { data: [], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
+    if (name === "get_restaurant_public_delivery_fulfillments") {
+      return { data: [{
+        fulfillment_code: "Paris et banlieues desservies : 8ème, 9ème, 10ème, 17ème, 1",
+        zone_prefixes: ["75008", "75009", "75010", "75017", "75019"],
+        is_fallback: false,
+        min_items: null,
+        customer_text: DELIVERY_COPY,
+        display_order: 20,
+        pricing_mode: "fixed",
+        fixed_fee: 10.9,
+        free_threshold: null,
+      }], error: null };
+    }
+    if (name === "get_restaurant_public_delivery_countries") {
+      return { data: [{ country_code: "FR", country_name: "France", postal_code_pattern: "^[0-9]{5}$", phone_pattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$", address_provider: "ban_ign", address_line_order: "number_first" }], error: null };
+    }
+    if (name === "get_checkout_fulfillment_schedule") return { data: [{ schedule_status: "absent" }], error: null };
+    if (name === "get_restaurant_public_communication_texts") {
+      return { data: [{ text_key: "pickup_explanation", body: PICKUP_COPY }], error: null };
+    }
+    if (name === "create_order") return CREATE_ORDER_OK;
+    if (name === "mark_whatsapp_opened") return { data: null, error: null };
+    throw new Error(`RPC inattendue dans ce test : ${name}`);
+  });
+}
+
+/** Texte VISIBLE : exclut le contenu des <dialog> fermés (ex. la fenêtre
+ *  « Zones et tarifs de livraison » de l'en-tête, qui liste TOUTES les
+ *  règles mais n'est pas affichée tant qu'on ne l'ouvre pas). */
+function visibleText(container: Element): string {
+  const clone = container.cloneNode(true) as Element;
+  for (const d of clone.querySelectorAll("dialog:not([open])")) d.remove();
+  return clone.textContent ?? "";
+}
+
+test("[MODE-COPY-1] Livraison 75017 -> seul le texte de la RÈGLE de livraison ; bascule Retrait -> seul le texte retrait ; retour Livraison -> seul le texte livraison", async (t) => {
+  mockRpcModeCopy(t);
+  installFetchNotNeeded();
+  const restaurant = sanaaCookiesRestaurant();
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(React.createElement(MenuView, { restaurant }));
+  await flush();
+  try {
+    click(buttonWithText(container, "Ajouter")!);
+    await flush();
+    const cartBar = [...container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+    if (cartBar) { click(cartBar); await flush(); }
+
+    // 1. Livraison + 75017 : le texte de la règle apparaît, jamais celui du retrait.
+    selectServiceMode(container, "Livraison");
+    await waitFor(() => inputById(container, "postalCode") !== null, "champ code postal rendu");
+    setNativeValue(inputById(container, "postalCode")!, "75017");
+    await waitFor(() => visibleText(container).includes(DELIVERY_COPY), "texte de la règle de livraison attendu");
+    assert.ok(!visibleText(container).includes(PICKUP_COPY), "en Livraison, AUCUN texte de retrait");
+
+    // 2. Bascule Retrait : le texte retrait apparaît, celui de la règle disparaît.
+    selectServiceMode(container, "À emporter");
+    await waitFor(() => visibleText(container).includes(PICKUP_COPY), "texte retrait attendu");
+    assert.ok(!visibleText(container).includes(DELIVERY_COPY), "en Retrait, AUCUN texte de règle de livraison");
+    assert.equal(container.querySelector('[role="status"]'), null, "en Retrait, aucun bandeau d'état de livraison");
+
+    // 3. Retour Livraison : le code postal saisi est conservé, le texte de la règle revient seul.
+    selectServiceMode(container, "Livraison");
+    await waitFor(() => visibleText(container).includes(DELIVERY_COPY), "texte de la règle à nouveau attendu");
+    assert.ok(!visibleText(container).includes(PICKUP_COPY));
   } finally { root.unmount(); container.remove(); }
 });
 

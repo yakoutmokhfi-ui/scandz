@@ -292,13 +292,6 @@ export interface MenuItem {
    *  update_product). Strictement indépendant de tout attribut de
    *  droit de rétractation -- aucun couplage, aucune inférence. */
   allowed_sale_modes?: string[] | null;
-  /** UX LOT 2026-10 (demande Emmanuel) -- boisson ALCOOLISÉE, déclarée
-   *  par le commerçant (colonne menu_items.contains_alcohol, voir
-   *  supabase/DRAFT-lot-menu-item-contains-alcohol-v1.sql). `true` =
-   *  le checkout exige une confirmation d'âge (case décochée par
-   *  défaut, bloquante). `false`/`null`/absent = rien. JAMAIS déduit du
-   *  nom, de la description ou des tags du produit. */
-  contains_alcohol?: boolean | null;
 }
 
 // Objet complet renvoyé par getRestaurantBySlug

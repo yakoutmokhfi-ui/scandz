@@ -860,7 +860,15 @@ export default function FulfillmentSelector({
         {t(type === "delivery" ? "deliveryDetails" : "yourDetails")}
       </h3>
 
-      {deliveryModeAvailable && message && (
+      {/* UX LOT 2026-10 (PR #166, constat « textes propres au mode ») :
+          ce bandeau est l'état de LIVRAISON (texte de la règle appariée
+          par le code postal, hors zone, minimum, code postal manquant).
+          `status` est calculé depuis le code postal quel que soit le
+          mode : sans la garde `type === "delivery"`, le bandeau (et donc
+          le texte de la règle de livraison) restait affiché en mode
+          RETRAIT après une bascule, sous « Vos coordonnées ». En retrait,
+          seul `pickupExplanation` (plus bas) décrit le mode. */}
+      {type === "delivery" && deliveryModeAvailable && message && (
         <div
           role="status"
           aria-live="polite"

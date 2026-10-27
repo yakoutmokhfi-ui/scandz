@@ -130,16 +130,3 @@ export function totalCount(cart: Cart): number {
 export function totalPrice(cart: Cart): number {
   return cartLines(cart).reduce((sum, l) => sum + l.item.price * l.quantity, 0);
 }
-
-/**
- * UX LOT 2026-10 (demande Emmanuel) -- le panier contient-il au moins
- * une boisson alcoolisée ? Source UNIQUE : le drapeau marchand
- * `contains_alcohol` du produit (ou de son option, qui est elle aussi un
- * MenuItem). Jamais une inférence depuis le nom/la description/les tags.
- * Absent ou `false` partout => `false` (aucune case affichée).
- */
-export function cartContainsAlcohol(cart: Cart): boolean {
-  return cartLines(cart).some(
-    (l) => l.item.contains_alcohol === true || l.option?.contains_alcohol === true
-  );
-}
