@@ -77,6 +77,7 @@ import {
   scheduleAllowsSubmit,
   scheduleRequirement,
   toSchedulePayload,
+  type SchedulePayload,
   type ScheduleSelection,
 } from "@/lib/checkout-schedule/model";
 // DELIVERY COUNTRY SCOPE v1 -- pays de livraison autorisés pour CET
@@ -787,6 +788,11 @@ export default function MenuView({
   // `isSubmitting` ne change qu'au rendu suivant, un second clic dans le
   // même instant verrait encore `false`. Le ref, lui, est visible tout de suite.
   const submitInFlightRef = useRef(false);
+  // Issue #170 -- jour/créneau ENVOYÉS à create_order, retenus par id de
+  // commande pour que le message au commerçant (completeOrderFlow, aussi
+  // après une reprise de demande de facture) reprenne EXACTEMENT ce que
+  // le serveur a reçu -- jamais l'état courant, modifiable.
+  const sentScheduleByOrderRef = useRef<Map<string, SchedulePayload | null>>(new Map());
   const [submitError, setSubmitError] = useState<string | null>(null);
   // CSDJ-2 / #158 -- date et créneau choisis PARMI les offres du serveur,
   // et message d'une relecture déclenchée par un refus typé du serveur.
@@ -1614,7 +1620,8 @@ export default function MenuView({
         settings.staffLanguage ??
         "fr",
       order.orderNumber,
-      frozenNote
+      frozenNote,
+      sentScheduleByOrderRef.current.get(order.orderId) ?? null
     );
 
     // Ouverture en onglet si possible ; si le navigateur la bloque,
@@ -1756,6 +1763,7 @@ export default function MenuView({
         deliveryCountryCode: deliveryCountry?.countryCode ?? null,
         schedule: frozenSchedule,
       });
+      sentScheduleByOrderRef.current.set(order.orderId, frozenSchedule);
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
       // (FERME "SILENT INVOICE LOSS", HIGH, RELEASE-BLOCKING).

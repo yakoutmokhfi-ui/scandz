@@ -130,6 +130,37 @@ function contextLines(ctx: OrderContext, lang: Lang): string[] {
 }
 
 /**
+ * Jour et créneau choisis par le client (issue #170) -- ligne du message
+ * destiné au commerçant. Valeurs STRICTEMENT celles de
+ * `p_customer.schedule` envoyées à create_order (offres du serveur) :
+ * rien n'est calculé, déduit ni complété ici. `null` => aucune ligne
+ * (parcours historique : message strictement inchangé).
+ */
+export interface WhatsAppSchedule {
+  date: string;
+  slot_key: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+}
+
+const SCHEDULE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function scheduleLine(schedule: WhatsAppSchedule | null | undefined, lang: Lang): string[] {
+  if (!schedule || !SCHEDULE_DATE_RE.test(schedule.date)) return [];
+  const [y, m, d] = schedule.date.split("-").map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  // Date impossible (31 février) : jamais normalisée en une autre date.
+  if (utc.getUTCFullYear() !== y || utc.getUTCMonth() !== m - 1 || utc.getUTCDate() !== d) return [];
+  const locale = lang === "ar" ? "ar" : lang === "en" ? "en-GB" : "fr-FR";
+  const day = new Intl.DateTimeFormat(locale, {
+    weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+  }).format(utc);
+  const slot =
+    schedule.starts_at && schedule.ends_at ? ` · ${schedule.starts_at}–${schedule.ends_at}` : "";
+  return [translate(lang, "waSchedule", { when: `${day}${slot}` })];
+}
+
+/**
  * Construit le lien wa.me contenant le message de commande.
  *
  * Le message reste TOUJOURS en français, quelle que soit la langue
@@ -146,7 +177,8 @@ export function buildWhatsAppUrl(
   totals: AuthoritativeOrderTotals,
   staffLang: Lang = "fr",
   orderNumber?: number,
-  note?: string | null
+  note?: string | null,
+  schedule?: WhatsAppSchedule | null
 ): string {
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(staffLang, k, p);
@@ -198,6 +230,7 @@ export function buildWhatsAppUrl(
       ? t("waHeaderNumbered", { n: orderNumber, name: restaurant.name })
       : t("waHeader", { name: restaurant.name }),
     ...contextLines(ctx, staffLang),
+    ...scheduleLine(schedule, staffLang),
     "",
     orderLines,
     ...(noteEmpty ? [] : ["", t("waNote", { note: noteValue })]),
