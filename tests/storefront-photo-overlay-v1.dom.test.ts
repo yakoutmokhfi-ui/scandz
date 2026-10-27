@@ -188,7 +188,10 @@ test("OVD-9 pas de fuite entre marchands: rendus successifs de A(none) puis B(st
 });
 
 test("OVD-10 aucun autre réglage de personnalisation n'est modifié: titre/logo/annonce rendus identiques quel que soit le mode", () => {
-  const strip = (html: string) => html.replace(/ data-photo-overlay="[^"]*"/, "").replace(/style="[^"]*"/, "").replace(/ bg-espresso(?=[" ])/g, "").replace(/ rounded-full(?=[" ])/g, "");
+  const strip = (html: string) => html.replace(/ data-photo-overlay="[^"]*"/, "").replace(/style="[^"]*"/, "").replace(/ bg-espresso(?=[" ])/g, "").replace(/ rounded-full(?=[" ])/g, "")
+    // Remédiation audit (contraste TikTok/Instagram): hors 'standard', la note TikTok et l'anneau Instagram suivent --sc-ink-text.
+    // Ce sont, avec le fond, les SEULES différences attendues sur les icônes sociales (couvertes par SOC-1..5).
+    .replace(/ stroke="var\(--sc-ink-text, #FFFFFF\)" stroke-width="1" data-icon-ring=""/, "").replace(/ style="fill:var\(--sc-ink-text, #FFFFFF\)" data-note-adaptive=""/, "");
   const base = strip(render(restaurant("m1", { logo_url: "https://cdn.example/logo.png", announcement_text: "Fermé lundi", announcement_active: true, storefront_photo_overlay: "standard" })));
   for (const mode of ["none", "light"]) {
     const other = strip(render(restaurant("m1", { logo_url: "https://cdn.example/logo.png", announcement_text: "Fermé lundi", announcement_active: true, storefront_photo_overlay: mode })));
