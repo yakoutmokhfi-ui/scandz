@@ -389,6 +389,39 @@ export default function CartPanel({
   );
 
   /**
+   * Issue #155 -- VISIBILITÉ du message « {mode} indisponible avec ce
+   * panier : … ». La RÈGLE (quels modes sont bloqués, par quels produits,
+   * `blockedModes` ci-dessus) ne change pas ; seule la visibilité de son
+   * explication est ciblée sur le mode concerné :
+   *   - aucun mode encore choisi (`serviceMode === null`, y compris après
+   *     la désélection automatique d'un mode devenu bloqué) : tous les
+   *     messages de blocage restent visibles -- le client doit comprendre
+   *     ce qu'il peut choisir ;
+   *   - un mode choisi : seul le message de CE mode (s'il est bloqué)
+   *     reste visible ; le message d'un autre mode bloqué (ex. Livraison
+   *     quand le client a choisi À emporter) disparaît ;
+   *   - tentative explicite de sélection d'un mode bloqué (clic sur son
+   *     bouton) : son message réapparaît, jusqu'à ce qu'un mode soit
+   *     choisi ou que le panier ne le bloque plus.
+   * Le bouton d'un mode bloqué n'est plus `disabled` (un bouton désactivé
+   * ne reçoit aucun clic, donc aucune « tentative » ne pourrait être
+   * expliquée) mais `aria-disabled` : focusable, cliquable, jamais
+   * sélectionnable -- `onSelectFulfillment` n'est jamais appelé pour lui.
+   */
+  const [attemptedBlockedMode, setAttemptedBlockedMode] = useState<ServiceMode | null>(null);
+  useEffect(() => {
+    if (attemptedBlockedMode !== null && !blockedModes[attemptedBlockedMode]) {
+      setAttemptedBlockedMode(null);
+    }
+  }, [attemptedBlockedMode, blockedModes]);
+  useEffect(() => {
+    if (serviceMode !== null) setAttemptedBlockedMode(null);
+  }, [serviceMode]);
+  const blockedMessageVisible = (mode: ServiceMode): boolean =>
+    Boolean(blockedModes[mode]) &&
+    (serviceMode === null || serviceMode === mode || attemptedBlockedMode === mode);
+
+  /**
    * SERVER-AUTHORITATIVE DELIVERY FULFILLMENT & PRICING FOUNDATION —
    * frais de livraison ESTIMÉ (voir lib/delivery.ts,
    * computeDeliveryFee) : jamais appliqué au retrait/sur place (§16 :
@@ -711,13 +744,24 @@ export default function CartPanel({
                           // aucun retrait d'article : le client doit
                           // d'abord ajuster son panier (message dédié
                           // ci-dessous) ou choisir un autre mode.
-                          if (blockedByCart) return;
+                          // Issue #155 : la TENTATIVE est retenue pour
+                          // (ré)afficher l'explication du refus.
+                          if (blockedByCart) {
+                            setAttemptedBlockedMode(mode);
+                            return;
+                          }
+                          // Tout choix EXPLICITE d'un mode utilisable
+                          // (même déjà sélectionné) clôt la tentative :
+                          // l'effet sur `serviceMode` ne suffirait pas
+                          // quand le mode ne change pas.
+                          setAttemptedBlockedMode(null);
                           onSelectFulfillment(mode);
                         }}
-                        disabled={Boolean(blockedByCart)}
+                        aria-disabled={blockedByCart ? true : undefined}
+                        data-mode-blocked={blockedByCart ? "true" : undefined}
                         aria-pressed={selected}
                         aria-invalid={deliveryIncomplete || Boolean(blockedByCart) || undefined}
-                        aria-describedby={blockedByCart ? `mode-blocked-${mode}` : undefined}
+                        aria-describedby={blockedMessageVisible(mode) ? `mode-blocked-${mode}` : undefined}
                         className={
                           "min-w-0 flex-1 rounded-xl border px-2 py-2.5 text-sm font-semibold " +
                           (blockedByCart
@@ -762,7 +806,8 @@ export default function CartPanel({
                     de `availableServiceModes` est bloqué ici. */}
                 {availableServiceModes.map((mode) => {
                   const blockers = blockedModes[mode];
-                  if (!blockers) return null;
+                  // Issue #155 : visibilité ciblée (voir blockedMessageVisible).
+                  if (!blockers || !blockedMessageVisible(mode)) return null;
                   return (
                     <p
                       key={`blocked-${mode}`}
