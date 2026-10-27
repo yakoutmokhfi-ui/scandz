@@ -230,7 +230,8 @@ export function buildWhatsAppUrl(
       ? t("waHeaderNumbered", { n: orderNumber, name: restaurant.name })
       : t("waHeader", { name: restaurant.name }),
     ...contextLines(ctx, staffLang),
-    ...scheduleLine(schedule, staffLang),
+    // Issue #170 : LIVRAISON planifiée uniquement. Retrait et table : message strictement inchangé.
+    ...(ctx.mode === "delivery" ? scheduleLine(schedule, staffLang) : []),
     "",
     orderLines,
     ...(noteEmpty ? [] : ["", t("waNote", { note: noteValue })]),

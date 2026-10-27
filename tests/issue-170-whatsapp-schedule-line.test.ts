@@ -11,8 +11,9 @@ const ctx: any = {
   customer: { name: "Yakout", phone: "0612345678", email: "", street: "10 rue de Rivoli", postalCode: "75001", city: "Paris" },
 };
 const totals = { subtotal: 3.5, deliveryFee: 0, total: 3.5 };
-const text = (schedule?: any, lang: any = "fr") =>
-  decodeURIComponent(new URL(buildWhatsAppUrl(restaurant, [], ctx, totals, lang, 42, null, schedule)).searchParams.get("text") ?? "");
+const textFor = (c: any, schedule?: any, lang: any = "fr") =>
+  decodeURIComponent(new URL(buildWhatsAppUrl(restaurant, [], c, totals, lang, 42, null, schedule)).searchParams.get("text") ?? "");
+const text = (schedule?: any, lang: any = "fr") => textFor(ctx, schedule, lang);
 
 test("[170-W1] sans schedule : message STRICTEMENT inchangé (absent, null, undefined identiques)", () => {
   assert.equal(text(null), text(undefined));
@@ -54,4 +55,15 @@ test("[170-W7] la ligne s'insère sans modifier le reste du message : message av
   const withLine = text(s).split("\n");
   assert.equal(withLine.length, without.length + 1);
   assert.deepEqual(withLine.filter((l) => !l.includes("📅")), without);
+});
+
+test("[170-W8] RETRAIT et TABLE : message strictement inchangé, même si un schedule est fourni (périmètre : livraison planifiée)", () => {
+  const s = { date: "2026-10-30", slot_key: "a", starts_at: "11:00", ends_at: "14:00" };
+  const pickup: any = { mode: "pickup", customer: { name: "Yakout", phone: "0612345678", email: "" } };
+  const table: any = { mode: "table", tableNumber: 4 };
+  for (const c of [pickup, table]) {
+    assert.equal(textFor(c, s), textFor(c, null), `${c.mode}: identique avec ou sans schedule`);
+    assert.equal(textFor(c, s), textFor(c), `${c.mode}: identique au message sans paramètre`);
+    assert.ok(!textFor(c, s).includes("📅"));
+  }
 });

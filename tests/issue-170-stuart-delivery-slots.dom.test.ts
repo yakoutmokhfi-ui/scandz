@@ -592,6 +592,38 @@ test("[170-P1] le serveur refuse un créneau périmé (SCANYM_SCHEDULE_SLOT_INVA
   });
 });
 
+test("[170-R1] RETRAIT sans créneau : message au commerçant inchangé (aucune ligne de jour/créneau), commande sans schedule", async (t) => {
+  const srv = installServer(t, { reader: () => row({}), refuse: () => null });
+  await withWhatsAppCapture(async (urls) => {
+    const { container, root } = await reach("pickup");
+    try {
+      await waitFor(() => srv.readerCalls.length > 0, "lecture");
+      await flush(80);
+      await waitFor(() => sendButton(container) !== undefined, "envoi ouvert");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "commande confirmée");
+      assert.equal("schedule" in srv.createCalls[0].p_customer, false);
+      assert.equal(urls.length, 1);
+      assert.ok(!waText(urls[0]).includes("📅"), "aucune ligne ajoutée au message de retrait");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
+test("[170-R2] RETRAIT avec créneau (#158) : périmètre #170 = livraison planifiée seulement, message de retrait inchangé", async (t) => {
+  const srv = installServer(t, { reader: () => FIXED, refuse: requireSchedule(true) });
+  await withWhatsAppCapture(async (urls) => {
+    const { container, root } = await reach("pickup");
+    try {
+      await pickFixed(container, "2026-10-20", "morning");
+      await waitFor(() => sendButton(container) !== undefined, "envoi ouvert");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "commande confirmée");
+      assert.equal(srv.createCalls[0].p_customer.schedule.slot_key, "morning", "le schedule de retrait reste transmis au serveur");
+      assert.ok(!waText(urls[0]).includes("📅"), "le message de retrait n'est pas modifié par ce lot");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
 after(async () => {
   window.close();
   await esbuild.stop();
