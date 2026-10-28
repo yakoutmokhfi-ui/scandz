@@ -572,7 +572,7 @@ export default function CartPanel({
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">{t("checkoutReviewItems")}</h4>
                 <ul className="space-y-2">
                   {lines.map(({ key, item, quantity, option, optionKind }) => (
-                    <li key={key} className="flex justify-between gap-3 rounded-xl bg-crema p-3 text-sm">
+                    <li key={key} className="flex justify-between gap-3 rounded-xl p-3 bg-crema text-sm">
                       <span className="min-w-0">
                         <span className="font-semibold">{quantity} × {tName(item, lang, sourceLanguage)}</span>
                         {option && <span className="block text-xs text-ink-on-bg-muted">{t(optionKind === "flavor" ? "optFlavor" : "optPastry")}: {tName(option, lang, sourceLanguage)}</span>}
