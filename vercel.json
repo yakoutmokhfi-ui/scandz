@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "integrate/issue-170-p2-audited-main-6b996f4": false
+    }
+  },
   "crons": [
     {
       "path": "/api/internal/payments/monetico/recover",
