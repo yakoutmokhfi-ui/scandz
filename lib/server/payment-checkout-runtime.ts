@@ -10,6 +10,7 @@ import {
   getPaymentProviderCredential,
   initiatePaymentAttempt,
   requireOrderPayment,
+  finalizeOrderPaymentModeNone,
   type PaymentProviderRuntimeMode,
 } from "@/lib/server/payment-service";
 import { parseMoneticoCredential } from "@/lib/server/payment-providers/monetico/credentials";
@@ -253,6 +254,9 @@ export async function initiateCheckout(
       providerCode: PROVIDER_CODE,
     });
     if (!gate.isEnabled || gate.configurationStatus !== "verified") {
+      // ISSUE #172 : décision définitive « sans paiement en ligne » -- c'est
+      // elle (et non un délai) qui rend l'e-mail de confirmation éligible.
+      await finalizeOrderPaymentModeNone({ orderId: input.orderId, publicToken: input.publicToken });
       return { outcome: "checkout_not_needed", reason: "not_required" };
     }
     const required = await requireOrderPayment({
@@ -261,6 +265,7 @@ export async function initiateCheckout(
       providerCode: PROVIDER_CODE,
     });
     if (required === null || required.paymentStatus !== "required") {
+      await finalizeOrderPaymentModeNone({ orderId: input.orderId, publicToken: input.publicToken });
       return { outcome: "checkout_not_needed", reason: "not_required" };
     }
   }

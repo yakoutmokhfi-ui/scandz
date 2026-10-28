@@ -70,4 +70,10 @@ grant execute on function public.claim_pending_notifications(integer, integer) t
 
 drop function public.notification_send_gate_open(uuid, text);
 
+drop trigger if exists orders_payment_mode_final_guard_trg on public.orders;
+drop function if exists public.orders_payment_mode_final_guard();
+drop function if exists public.finalize_order_payment_mode_none(uuid, uuid);
+alter table public.orders drop constraint if exists orders_payment_mode_final_check;
+alter table public.orders drop column if exists payment_mode_final;
+
 commit;

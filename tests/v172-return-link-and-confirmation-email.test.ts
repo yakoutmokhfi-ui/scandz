@@ -85,7 +85,6 @@ test("[172-RET-1] paid : lien de suivi RÉUTILISABLE (#c1.), jamais le jeton leg
   installReturnRpc(t, "paid");
   const r = await resolvePaymentReturnStatus({ orderId: ORDER_ID, token: relay() });
   assert.equal(r.kind, "paid");
-  assert.ok(r.kind !== "unavailable");
   const path = (r as { trackingPath: string }).trackingPath;
   assert.equal(path, `/track/${ORDER_ID}#c1.${CAP_ID}.${CAP_SECRET}`);
   assert.equal(path.includes(LEGACY_TOKEN), false, "le jeton legacy (à usage unique) n'est plus exposé");

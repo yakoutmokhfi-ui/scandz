@@ -605,6 +605,35 @@ export async function requireOrderPayment(
 }
 
 /**
+ * ORDER_RECEIVED PAYMENT GATE v1 (issue #172) -- rend DÉFINITIF le mode
+ * « sans paiement en ligne » d'une commande encore `not_required`, via
+ * `public.finalize_order_payment_mode_none` (SQL DRAFT
+ * supabase/DRAFT-lot-order-received-payment-gate-v1.sql). Tant que ce mode
+ * n'est pas final, l'e-mail de confirmation n'est pas éligible ; une fois
+ * final, un passage à `required` est refusé côté base. FAIL-SOFT : toute
+ * erreur (SQL non appliqué, panne) renvoie `false` -- la porte reste
+ * fermée, donc jamais d'e-mail prématuré, et le parcours client n'est pas
+ * affecté.
+ */
+export async function finalizeOrderPaymentModeNone(input: {
+  orderId: string;
+  publicToken: string;
+}): Promise<boolean> {
+  try {
+    const client = getServiceRoleSupabaseClient();
+    const { data, error } = await client.rpc("finalize_order_payment_mode_none", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    });
+    if (error) return false;
+    const row = Array.isArray(data) ? data[0] : data;
+    return row?.payment_mode_final === "none";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Vérifie la possession client anonyme (`order_id` + `public_token`,
  * modèle EXACT déjà établi par `mark_whatsapp_opened`/
  * `get_order_payment_status`) et renvoie le couple minimal
