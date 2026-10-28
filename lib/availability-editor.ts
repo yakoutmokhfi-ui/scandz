@@ -320,3 +320,73 @@ export function readErrorKey(error: unknown): string {
   if (message.includes("CSDJ1_FORBIDDEN")) return "avForbidden";
   return "avLoadFailed";
 }
+
+// ====================================================================
+// #170 — PLANNING D'UNE RÈGLE DE LIVRAISON (portée sans ligne en base)
+// ====================================================================
+
+/** Code du mode de vente « livraison » (catalogue `sale_mode_catalog`). */
+export const DELIVERY_MODE_CODE = "delivery";
+
+/** Le strict nécessaire d'une règle de livraison pour nommer sa portée. */
+export interface DeliveryRuleRef {
+  ruleId: string;
+  /** Libellé marchand de la règle (zone, transporteur…). */
+  label: string;
+}
+
+/**
+ * Règles de livraison qui n'ont AUCUNE portée de planification. Aujourd'hui
+ * l'écran ne liste que les portées déjà en base : une règle sans ligne n'y
+ * figurait jamais, donc le commerçant ne pouvait pas lui donner de créneaux.
+ * Pure : ni lecture ni écriture. L'ordre des règles est conservé.
+ */
+export function unconfiguredDeliveryRules(
+  rules: readonly DeliveryRuleRef[],
+  schedules: readonly Pick<MerchantFulfillmentSchedule, "modeCode" | "fulfillmentRuleId">[]
+): DeliveryRuleRef[] {
+  const configured = new Set(
+    schedules
+      .filter((s) => s.modeCode === DELIVERY_MODE_CODE && s.fulfillmentRuleId)
+      .map((s) => s.fulfillmentRuleId as string)
+  );
+  const seen = new Set<string>();
+  return rules.filter((r) => {
+    if (configured.has(r.ruleId) || seen.has(r.ruleId)) return false;
+    seen.add(r.ruleId);
+    return true;
+  });
+}
+
+/**
+ * Valeurs de DÉPART proposées à la création d'un planning de livraison
+ * (réglables ensuite champ par champ, rien n'est figé) : le client choisit
+ * sa date parmi des créneaux nommés, commande close à 16:00 la veille.
+ * Le brouillon reste DÉSACTIVÉ : rien n'est proposé au client tant que le
+ * commerçant n'a pas choisi ses jours et activé.
+ */
+export const DELIVERY_SCHEDULE_STARTER = {
+  dateSelectionMode: DATE_MODE_CUSTOMER,
+  slotSelectionMode: SLOT_MODE_FIXED_SLOTS,
+  cutoffTime: "16:00",
+  cutoffOffsetDays: "1",
+} as const;
+
+/** Les trois créneaux de 3 heures proposés d'un clic, jour par jour. */
+export const STANDARD_DELIVERY_SLOTS = [
+  { slotKey: "11h-14h", startsAt: "11:00", endsAt: "14:00" },
+  { slotKey: "14h-17h", startsAt: "14:00", endsAt: "17:00" },
+  { slotKey: "17h-20h", startsAt: "17:00", endsAt: "20:00" },
+] as const;
+
+/**
+ * Créneaux standard à AJOUTER pour un jour : ceux dont la clé n'existe pas
+ * déjà ce jour-là (jamais de doublon, jamais d'écrasement d'une saisie).
+ */
+export function missingStandardSlots(
+  existing: readonly { weekday: number; slotKey: string }[],
+  weekday: number
+): typeof STANDARD_DELIVERY_SLOTS[number][] {
+  const have = new Set(existing.filter((s) => s.weekday === weekday).map((s) => s.slotKey));
+  return STANDARD_DELIVERY_SLOTS.filter((s) => !have.has(s.slotKey));
+}
