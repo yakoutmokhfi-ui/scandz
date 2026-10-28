@@ -172,7 +172,7 @@ async function render(panelProps: ReturnType<typeof baseProps>) {
 
 function sendButton(container: Element): HTMLButtonElement {
   const button = [...container.querySelectorAll("button")].find((candidate) =>
-    candidate.textContent?.includes("Enregistrer et continuer")
+    candidate.textContent?.includes("Vérifier ma commande")
   ) as HTMLButtonElement | undefined;
   assert.ok(button, "bouton d'envoi attendu");
   return button!;
@@ -310,6 +310,67 @@ test("InvoiceRequestFields : le message d'erreur, rendu dans le panneau transluc
 
   root.unmount();
   container.remove();
+});
+
+
+function reviewConfirmButton(container: Element): HTMLButtonElement {
+  const button = container.querySelector('button[data-checkout-review-confirm]') as HTMLButtonElement | null;
+  assert.ok(button, "bouton de confirmation du récapitulatif attendu");
+  return button!;
+}
+
+test("récapitulatif avant commande : aucun envoi avant confirmation, mode/adresse/créneau visibles et retour éditable", async () => {
+  let submissions = 0;
+  const view = await render(baseProps({
+    serviceMode: "delivery",
+    deliveryStatus: { eligible: true, deliveryFee: 4.9, pricingUnavailable: false },
+    customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "10 rue Exemple", postalCode: "75018", city: "Paris" },
+    scheduleSummary: { date: "2026-10-30", slot_key: "11-14", starts_at: "11:00", ends_at: "14:00" },
+    onSendOrder: async () => { submissions += 1; },
+  }));
+
+  sendButton(view.container).click();
+  await flush();
+  assert.equal(submissions, 0, "ouvrir le récapitulatif ne crée pas la commande et ne lance pas le paiement");
+  let summary = view.container.querySelector("[data-checkout-review]");
+  assert.ok(summary, "écran de récapitulatif affiché");
+  const text = summary!.textContent ?? "";
+  assert.ok(text.includes("Produit"), "article présent");
+  assert.ok(text.includes("Livraison"), "mode présent");
+  assert.ok(text.includes("10 rue Exemple") && text.includes("75018") && text.includes("Paris"), "adresse de livraison présente");
+  assert.ok(text.includes("11:00–14:00"), "créneau choisi présent");
+
+  const back = [...view.container.querySelectorAll("button")].find((button) => button.textContent?.includes("Modifier ma commande"));
+  assert.ok(back, "bouton de retour à la saisie présent");
+  (back as HTMLButtonElement).click();
+  await flush();
+  assert.equal(view.container.querySelector("[data-checkout-review]"), null, "retour à la saisie");
+  assert.equal(submissions, 0, "retour arrière sans créer de commande");
+
+  sendButton(view.container).click();
+  await flush();
+  reviewConfirmButton(view.container).click();
+  await flush();
+  assert.equal(submissions, 1, "la commande ne part qu'après la confirmation explicite");
+  view.root.unmount();
+  view.container.remove();
+});
+
+test("récapitulatif Chronofresh date seule : aucun horaire inventé", async () => {
+  const view = await render(baseProps({
+    serviceMode: "delivery",
+    deliveryStatus: { eligible: true, deliveryFee: 18.9, pricingUnavailable: false },
+    customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "2 rue Bordeaux", postalCode: "33000", city: "Bordeaux" },
+    scheduleSummary: { date: "2026-10-30", slot_key: null, starts_at: null, ends_at: null },
+  }));
+  sendButton(view.container).click();
+  await flush();
+  const schedule = view.container.querySelector("[data-checkout-review-schedule]");
+  assert.ok(schedule, "date de livraison présente");
+  assert.match(schedule!.textContent ?? "", /30/);
+  assert.doesNotMatch(schedule!.textContent ?? "", /\b\d{2}:\d{2}\b/, "aucun horaire n'est affiché");
+  view.root.unmount();
+  view.container.remove();
 });
 
 after(() => dom.window.close());
