@@ -438,6 +438,9 @@ const fr: Dict = {
   // marchande -- jamais d'un second texte spécifique à l'e-mail.
   emailOrderReceivedMerchantLabel: "Commerçant :",
   emailOrderReceivedDeliveryAddressLabel: "Adresse de livraison :",
+  // ISSUE #172 — créneau, rendu UNIQUEMENT si le snapshot le porte.
+  emailOrderReceivedSlotLabelPickup: "Créneau de retrait :",
+  emailOrderReceivedSlotLabelDelivery: "Créneau de livraison :",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — textes de BASE PLATEFORME,
   // génériques et identiques pour tous les commerçants. Ils sont le
@@ -1850,6 +1853,9 @@ const en: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "Merchant:",
   emailOrderReceivedDeliveryAddressLabel: "Delivery address:",
+  // ISSUE #172 — time slot, rendered ONLY when the snapshot carries it.
+  emailOrderReceivedSlotLabelPickup: "Pickup time slot:",
+  emailOrderReceivedSlotLabelDelivery: "Delivery time slot:",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — platform BASE texts.
   commCarrierPreparedDefault:
@@ -3173,6 +3179,9 @@ const ar: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "التاجر:",
   emailOrderReceivedDeliveryAddressLabel: "عنوان التوصيل:",
+  // ISSUE #172 — الفترة الزمنية، تُعرض فقط إذا كانت اللقطة تحملها.
+  emailOrderReceivedSlotLabelPickup: "موعد الاستلام:",
+  emailOrderReceivedSlotLabelDelivery: "موعد التوصيل:",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — نصوص المنصة الأساسية.
   commCarrierPreparedDefault:

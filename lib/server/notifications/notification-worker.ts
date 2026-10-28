@@ -357,6 +357,14 @@ export async function processPendingNotifications(
         trackingSecret: trackingCapability.secret,
         merchantSubject,
         merchantBody,
+        // ISSUE #172 — valeurs FIGÉES dans le snapshot, jamais relues ni
+        // recalculées : `fulfillment_*` n'existe pas encore dans le snapshot
+        // tant que la commande ne stocke pas de créneau (la ligne est alors
+        // absente) ; `withdrawal_eligible` est l'éligibilité déjà arrêtée
+        // à la commande.
+        fulfillmentDate: templateField("fulfillment_date"),
+        fulfillmentSlot: templateField("fulfillment_slot"),
+        withdrawalEligible: payload.withdrawal_eligible === true,
       });
     } else {
       // INATTEIGNABLE : la branche order_received a déjà échoué plus
