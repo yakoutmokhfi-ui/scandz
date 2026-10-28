@@ -2,6 +2,7 @@ import type { DashboardOrder, ReceiptSettings } from "@/lib/dashboard-types";
 import { formatPrice } from "@/lib/whatsapp";
 import { translate, type Lang } from "@/lib/i18n";
 import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
+import { formatOrderSchedule, orderScheduleLabelKey } from "@/lib/order-schedule-display";
 
 function esc(value: string): string {
   return value
@@ -191,6 +192,13 @@ export function buildReceiptHtml(params: {
     <div class="total-row grand-total"><span>Total TTC</span><span>${esc(formatPrice(presentation.finalGrossTtc, order.currency))}</span></div>`
     : "";
 
+  // ISSUE #170 -- jour/créneau figés avec la commande (snapshot hébergé),
+  // imprimés sur le ticket du commerçant, indépendamment de WhatsApp.
+  const schedule = formatOrderSchedule(order.order_fulfillment_schedule_snapshot, lang);
+  const scheduleLine = schedule
+    ? `<div><strong>${esc(t(orderScheduleLabelKey(order.order_fulfillment_schedule_snapshot!.mode_code)))} : ${esc(schedule.dateLabel)}${schedule.timeLabel ? ` · ${esc(schedule.timeLabel)}` : ""}</strong></div>`
+    : "";
+
   const customer = [
     order.customer_name,
     order.customer_phone,
@@ -245,6 +253,7 @@ export function buildReceiptHtml(params: {
   <div><strong>${esc(t("rcOrder", { n: order.order_number }))}</strong></div>
   <div>${esc(new Date(order.created_at).toLocaleString("fr-FR"))}</div>
   <div><strong>${esc(serviceLabel(order, lang))}</strong></div>
+  ${scheduleLine}
   ${customer}
   ${order.customer_note ? `<div>Note: ${esc(order.customer_note)}</div>` : ""}
   <div class="rule"></div>
