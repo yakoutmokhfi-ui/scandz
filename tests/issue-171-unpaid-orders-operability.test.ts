@@ -70,6 +70,15 @@ test("ISSUE #171 scope: the lot touches neither the payment state machine nor cr
   const ret = draft.match(/get_operator_restaurant_orders_page\([\s\S]*?returns table \(([\s\S]*?)\)\s*language/)![1];
   assert.deepEqual(ret.split(",").map((l) => l.trim().split(/\s+/)[0]).filter(Boolean), ["id", "order_number", "status", "service_mode", "created_at", "updated_at", "total", "currency", "item_count", "has_invoice_request"]);
   // No TS file of the payment pipeline changed.
+  // The rollback's restored FUNCTION BODIES never mention payment_status
+  // (its post-check legitimately searches for that word).
   const rb = readFileSync("supabase/DRAFT-lot-issue-171-unpaid-orders-not-operational-v1-rollback.sql", "utf8");
-  assert.doesNotMatch(rb, /payment_status/);
+  const rbBodies = [...rb.matchAll(/create or replace function public\.[a-z_]+\([\s\S]*?\n(?:end )?\$\$;/g)].map((m) => m[0]);
+  assert.equal(rbBodies.length, 2);
+  for (const body of rbBodies) assert.doesNotMatch(body, /payment_status/);
+  // AUD179-04: both scripts are explicit transactions ending with COMMIT.
+  for (const f of [draft, rb]) {
+    assert.match(f, /^begin;$/m);
+    assert.match(f.trimEnd(), /\ncommit;$/);
+  }
 });

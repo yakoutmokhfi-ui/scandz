@@ -5,10 +5,38 @@
 -- update_order_status (V29). Signatures, grants et attributs de sécurité
 -- inchangés. Aucune donnée touchée.
 -- ============================================================================
+-- ATOMICITÉ (AUD179-04) : tout le lot -- préconditions, remplacements,
+-- post-contrôles -- s'exécute dans UNE transaction explicite terminée par
+-- COMMIT en dernière instruction. Quel que soit le mode d'exécution du
+-- fichier (requête unique, instructions successives en autocommit), un
+-- échec à n'importe quelle étape laisse la base dans son état antérieur :
+-- aucun corps ni ACL partiellement remplacé, et une nouvelle exécution
+-- reste possible après correction de la cause.
+begin;
+
 do $$
 begin
   if not pg_get_functiondef(to_regprocedure('public.update_order_status(uuid,text)')) ilike '%ORDER_PAYMENT_NOT_OPERATIONAL%' then
     raise exception 'SCANYM_SCHEMA_DRIFT: ISSUE #171 non appliqué (garde absente) -- rien à annuler.';
+  end if;
+  -- AUD179-04 : sécurité et ACL vérifiées AVANT tout remplacement -- une
+  -- base en dérive est refusée sans qu'aucun corps ne soit touché.
+  if not exists (select 1 from pg_proc where oid = to_regprocedure('public.update_order_status(uuid,text)')
+                 and prosecdef and proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: update_order_status security drift -- rollback annulé, rien modifié.';
+  end if;
+  if has_function_privilege('anon', 'public.update_order_status(uuid,text)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.update_order_status(uuid,text)', 'EXECUTE') then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: update_order_status grants drift -- rollback annulé, rien modifié.';
+  end if;
+  if not exists (select 1 from pg_proc where oid = to_regprocedure('public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)')
+                 and prosecdef and provolatile = 's' and proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: operator page security drift -- rollback annulé, rien modifié.';
+  end if;
+  if has_function_privilege('anon', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE') then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: operator page grants drift -- rollback annulé, rien modifié.';
   end if;
 end $$;
 
@@ -155,3 +183,25 @@ end $$;
 
 comment on function public.update_order_status(uuid, text) is
   'V29 merchant dashboard: authenticated member of the order''s restaurant only; kitchen transitions new->accepted/rejected/cancelled, accepted->preparing/cancelled, preparing->ready/cancelled, ready->completed.';
+
+-- post-contrôles : sécurité et ACL inchangées après restauration
+do $$
+declare
+  v_page regprocedure := 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)'::regprocedure;
+  v_upd regprocedure := 'public.update_order_status(uuid,text)'::regprocedure;
+begin
+  if pg_get_functiondef(v_upd) ilike '%payment_status%' or pg_get_functiondef(v_page) ilike '%payment_status%' then
+    raise exception 'SCANYM_POST_CHECK_FAILED: corps ISSUE #171 encore présents après rollback';
+  end if;
+  if not exists (select 1 from pg_proc where oid = v_upd and prosecdef and proconfig = array['search_path=""'])
+     or not exists (select 1 from pg_proc where oid = v_page and prosecdef and provolatile = 's' and proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_POST_CHECK_FAILED: security drift after rollback';
+  end if;
+  if has_function_privilege('anon', v_upd, 'EXECUTE') or not has_function_privilege('authenticated', v_upd, 'EXECUTE')
+     or has_function_privilege('anon', v_page, 'EXECUTE') or has_function_privilege('service_role', v_page, 'EXECUTE')
+     or not has_function_privilege('authenticated', v_page, 'EXECUTE') then
+    raise exception 'SCANYM_POST_CHECK_FAILED: grants drift after rollback';
+  end if;
+end $$;
+
+commit;

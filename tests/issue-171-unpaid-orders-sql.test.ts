@@ -44,6 +44,7 @@ test("ISSUE #171 SQL: the draft applies on top of PAGINATION v1 + V29, refuses d
   const db = await makeDb();
   await db.exec(readSql("DRAFT-lot-issue-171-unpaid-orders-not-operational-v1.sql"));
   await assert.rejects(db.exec(readSql("DRAFT-lot-issue-171-unpaid-orders-not-operational-v1.sql")), /double application/);
+  await db.exec("rollback"); // AUD179-04: the lot is one explicit transaction -- close the aborted one.
   const def = await db.query<{ d: string }>("select pg_get_functiondef(to_regprocedure('public.update_order_status(uuid,text)')) as d");
   assert.match(def.rows[0].d, /ORDER_PAYMENT_NOT_OPERATIONAL/);
   await db.exec(readSql("DRAFT-lot-issue-171-unpaid-orders-not-operational-v1-rollback.sql"));
@@ -51,6 +52,7 @@ test("ISSUE #171 SQL: the draft applies on top of PAGINATION v1 + V29, refuses d
   assert.doesNotMatch(after.rows[0].d, /payment_status/);
   assert.doesNotMatch(after.rows[0].p, /payment_status/);
   await assert.rejects(db.exec(readSql("DRAFT-lot-issue-171-unpaid-orders-not-operational-v1-rollback.sql")), /rien à annuler/);
+  await db.exec("rollback");
 });
 
 test("ISSUE #171 SQL: operator OPERATIONAL view returns only not_required+paid `new` orders; HISTORY returns all six; projection (ten approved fields) unchanged; tenant isolation kept", async () => {
@@ -139,4 +141,110 @@ test("ISSUE #171 SQL: a merchant WITHOUT online payment (all orders not_required
     const op = await q("select * from public.get_operator_restaurant_orders_page($1::uuid,true,null,null)", [TENANT_A]);
     assert.equal(op.rows.length, 1);
   });
+});
+
+
+// --------------------------------------------------------------------
+// AUD179-04 -- atomicity of the lot and of its rollback
+// --------------------------------------------------------------------
+
+const LOT = "DRAFT-lot-issue-171-unpaid-orders-not-operational-v1.sql";
+const ROLLBACK = "DRAFT-lot-issue-171-unpaid-orders-not-operational-v1-rollback.sql";
+
+/** Snapshot of everything the lot may change: both bodies + ACL + security attributes. */
+async function snapshot(db: Awaited<ReturnType<typeof makeDb>>) {
+  const r = await db.query<Record<string, unknown>>(`select
+    pg_get_functiondef('public.update_order_status(uuid,text)'::regprocedure) as upd,
+    pg_get_functiondef('public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)'::regprocedure) as page,
+    (select proacl::text from pg_proc where oid = 'public.update_order_status(uuid,text)'::regprocedure) as upd_acl,
+    (select proacl::text from pg_proc where oid = 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)'::regprocedure) as page_acl,
+    (select prosecdef::text || provolatile::text || coalesce(proconfig::text,'') from pg_proc where oid = 'public.update_order_status(uuid,text)'::regprocedure) as upd_sec,
+    (select prosecdef::text || provolatile::text || coalesce(proconfig::text,'') from pg_proc where oid = 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)'::regprocedure) as page_sec`);
+  return r.rows[0];
+}
+
+/**
+ * Splits a SQL file into top-level statements (outside '...' and $$...$$,
+ * full-line `--` comments removed) -- the way a line-oriented runner in
+ * autocommit mode would send them one by one.
+ */
+function splitStatements(sql: string): string[] {
+  const text = sql.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+  const out: string[] = [];
+  let cur = "", inDollar = false, inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (!inQuote && text.startsWith("$$", i)) { inDollar = !inDollar; cur += "$$"; i++; continue; }
+    if (!inDollar && c === "'") inQuote = !inQuote;
+    if (!inDollar && !inQuote && c === ";") { if (cur.trim()) out.push(cur.trim() + ";"); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** Runs statements one at a time; stops at the first error (as a runner would), then ends the session's transaction. */
+async function runStatementByStatement(db: Awaited<ReturnType<typeof makeDb>>, sql: string): Promise<Error | null> {
+  for (const stmt of splitStatements(sql)) {
+    try {
+      await db.exec(stmt);
+    } catch (err) {
+      await db.exec("rollback"); // session ends -> open transaction rolled back by PostgreSQL
+      return err as Error;
+    }
+  }
+  return null;
+}
+
+test("AUD179-04 (auditor's reproduction): EXECUTE revoked from authenticated, lot run STATEMENT BY STATEMENT in autocommit -> refused by the PRE-check, nothing replaced, and a re-run after fixing the grant succeeds (no 'double application' lock-out)", async () => {
+  const db = await makeDb();
+  await db.exec("revoke execute on function public.update_order_status(uuid, text) from authenticated;");
+  const before = await snapshot(db);
+  const err = await runStatementByStatement(db, readSql(LOT));
+  assert.ok(err, "the lot must fail");
+  assert.match(err!.message, /SCANYM_PRE_CHECK_FAILED: update_order_status grants drift/);
+  assert.deepEqual(await snapshot(db), before, "no body, ACL or security attribute changed");
+  await db.exec("grant execute on function public.update_order_status(uuid, text) to authenticated;");
+  assert.equal(await runStatementByStatement(db, readSql(LOT)), null, "re-run after correction succeeds");
+  assert.match(String((await snapshot(db)).upd), /ORDER_PAYMENT_NOT_OPERATIONAL/);
+});
+
+test("AUD179-04: a failure forced just before COMMIT (post-check stage) rolls EVERYTHING back -- both modes (single request and statement by statement)", async () => {
+  const forced = readSql(LOT).replace(/\ncommit;\s*$/, () => "\ndo $$ begin raise exception 'FORCED_POSTCHECK_FAILURE'; end $$;\ncommit;\n");
+  assert.notEqual(forced, readSql(LOT), "injection point found");
+  for (const mode of ["single", "statements"] as const) {
+    const db = await makeDb();
+    const before = await snapshot(db);
+    if (mode === "single") {
+      await assert.rejects(db.exec(forced), /FORCED_POSTCHECK_FAILURE/);
+      await db.exec("rollback");
+    } else {
+      const err = await runStatementByStatement(db, forced);
+      assert.match(err!.message, /FORCED_POSTCHECK_FAILURE/);
+    }
+    assert.deepEqual(await snapshot(db), before, `${mode}: nothing changed`);
+    // The real lot still applies afterwards.
+    await db.exec(readSql(LOT));
+    assert.match(String((await snapshot(db)).upd), /ORDER_PAYMENT_NOT_OPERATIONAL/);
+  }
+});
+
+test("AUD179-04: the ROLLBACK script is atomic too -- forced failure before its COMMIT leaves the applied lot intact; its normal run restores bodies, ACL and security exactly", async () => {
+  const db = await makeDb();
+  const original = await snapshot(db);
+  await db.exec(readSql(LOT));
+  const applied = await snapshot(db);
+  const forced = readSql(ROLLBACK).replace(/\ncommit;\s*$/, () => "\ndo $$ begin raise exception 'FORCED_ROLLBACK_FAILURE'; end $$;\ncommit;\n");
+  assert.notEqual(forced, readSql(ROLLBACK));
+  await assert.rejects(db.exec(forced), /FORCED_ROLLBACK_FAILURE/);
+  await db.exec("rollback");
+  assert.deepEqual(await snapshot(db), applied, "applied state intact after a failed rollback");
+  await db.exec(readSql(ROLLBACK));
+  const restored = await snapshot(db);
+  assert.equal(restored.upd_acl, original.upd_acl);
+  assert.equal(restored.page_acl, original.page_acl);
+  assert.equal(restored.upd_sec, original.upd_sec);
+  assert.equal(restored.page_sec, original.page_sec);
+  assert.doesNotMatch(String(restored.upd), /payment_status/);
+  assert.doesNotMatch(String(restored.page), /payment_status/);
 });

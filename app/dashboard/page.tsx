@@ -20,6 +20,7 @@ import type {
   ReceiptSettings,
 } from "@/lib/dashboard-types";
 import OrderCard from "@/components/dashboard/OrderCard";
+import { isOrderPaymentOperational } from "@/lib/order-payment-operability";
 import OperatorOrderList from "@/components/dashboard/OperatorOrderList";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
@@ -249,8 +250,16 @@ export default function DashboardPage() {
       // quoi les commandes d'un AUTRE établissement réapparaîtraient.
       if (!isStillCurrent()) return;
 
+      // ISSUE #171 (AUD179-01) : l'alerte « nouvelle commande » ne porte
+      // que sur des commandes OPÉRATIONNELLES (paiement `not_required` ou
+      // `paid`). En Historique, la lecture renvoie volontairement tous les
+      // états de paiement : sans ce prédicat, une commande `pending`
+      // (paiement refusé/en cours) faisait sonner.
       const newOrders = next.filter(
-        (order) => order.status === "new" && !knownOrderIds.current.has(order.id)
+        (order) =>
+          order.status === "new" &&
+          isOrderPaymentOperational(order.payment_status) &&
+          !knownOrderIds.current.has(order.id)
       );
       // Commit ATOMIQUE (même passe de rendu) : `orders` et sa
       // provenance sont posés ensemble -- ils ne peuvent jamais se
@@ -262,7 +271,12 @@ export default function DashboardPage() {
       throughRef.current = next.at(-1) ?? throughRef.current;
       setHasMore(page.nextCursor !== null);
       setOrdersLoadedForRestaurantId(requestedRestaurantId);
-      next.forEach((order) => knownOrderIds.current.add(order.id));
+      // Seules les commandes opérationnelles sont mémorisées comme
+      // « connues » : une commande aperçue non payée (Historique) doit
+      // encore pouvoir alerter UNE fois, au moment où elle devient `paid`.
+      next.forEach((order) => {
+        if (isOrderPaymentOperational(order.payment_status)) knownOrderIds.current.add(order.id);
+      });
       if (notify && newOrders.length > 0) playSound();
     } catch (loadError) {
       // Une erreur périmée ne doit pas non plus s'afficher : elle

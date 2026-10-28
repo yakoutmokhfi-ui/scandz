@@ -33,7 +33,16 @@
 --    est reproduit À L'IDENTIQUE.
 -- ============================================================================
 
--- §0 -- gardes
+-- ATOMICITÉ (AUD179-04) : tout le lot -- préconditions, remplacements,
+-- post-contrôles -- s'exécute dans UNE transaction explicite terminée par
+-- COMMIT en dernière instruction. Quel que soit le mode d'exécution du
+-- fichier (requête unique, instructions successives en autocommit), un
+-- échec à n'importe quelle étape laisse la base dans son état antérieur :
+-- aucun corps ni ACL partiellement remplacé, et une nouvelle exécution
+-- reste possible après correction de la cause.
+begin;
+
+-- §0 -- gardes (schéma, double application, sécurité, ACL)
 do $$
 begin
   if to_regclass('public.orders') is null then
@@ -53,6 +62,25 @@ begin
   end if;
   if pg_get_functiondef(to_regprocedure('public.update_order_status(uuid,text)')) ilike '%ORDER_PAYMENT_NOT_OPERATIONAL%' then
     raise exception 'SCANYM_SCHEMA_DRIFT: ISSUE #171 déjà appliqué (garde présente) -- double application refusée.';
+  end if;
+  -- AUD179-04 : sécurité et ACL vérifiées AVANT tout remplacement -- une
+  -- base en dérive est refusée sans qu'aucun corps ne soit touché.
+  if not exists (select 1 from pg_proc where oid = to_regprocedure('public.update_order_status(uuid,text)')
+                 and prosecdef and proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: update_order_status security drift -- migration annulée, rien modifié.';
+  end if;
+  if has_function_privilege('anon', 'public.update_order_status(uuid,text)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.update_order_status(uuid,text)', 'EXECUTE') then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: update_order_status grants drift -- migration annulée, rien modifié.';
+  end if;
+  if not exists (select 1 from pg_proc where oid = to_regprocedure('public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)')
+                 and prosecdef and provolatile = 's' and proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: operator page security drift -- migration annulée, rien modifié.';
+  end if;
+  if has_function_privilege('anon', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.get_operator_restaurant_orders_page(uuid,boolean,timestamptz,uuid)', 'EXECUTE') then
+    raise exception 'SCANYM_PRE_CHECK_FAILED: operator page grants drift -- migration annulée, rien modifié.';
   end if;
 end $$;
 
@@ -239,3 +267,5 @@ begin
     raise exception 'SCANYM_POST_CHECK_FAILED: operator page grants drift';
   end if;
 end $$;
+
+commit;

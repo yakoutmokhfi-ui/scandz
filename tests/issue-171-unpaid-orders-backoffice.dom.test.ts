@@ -23,6 +23,25 @@ import * as esbuild from "esbuild";
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/dashboard?r=a", pretendToBeVisual: true });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement });
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+
+/**
+ * AUD179-01 -- REAL sound path: a fake AudioContext that counts every
+ * `oscillator.start()` issued by the page's own playSound(). Nothing in
+ * the page is stubbed; only the browser audio API is replaced.
+ */
+const audio = { starts: 0 };
+class FakeAudioContext {
+  currentTime = 0;
+  destination = {};
+  createOscillator() {
+    return { frequency: { value: 0 }, connect() {}, start() { audio.starts += 1; }, stop() {}, addEventListener() {} };
+  }
+  createGain() {
+    return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect() {} };
+  }
+  close() { return Promise.resolve(); }
+}
+(dom.window as any).AudioContext = FakeAudioContext;
 const React = await import("react");
 const { createRoot } = await import("react-dom/client");
 
@@ -225,6 +244,84 @@ test("ISSUE #171 dashboard page: a realtime refresh that brings a `pending` (ref
     state.onChange();
     await tick(); await tick(); await tick();
     assert.equal(hasCard(container, 41), 1, "a replayed refresh does not duplicate it");
+  } finally {
+    dispose();
+  }
+});
+
+// --------------------------------------------------------------------
+// AUD179-01 -- sound alert, measured on the real AudioContext path
+// --------------------------------------------------------------------
+
+function clickByText(container: HTMLElement, text: string) {
+  const b = [...container.querySelectorAll("button")].find((x) => x.textContent === text);
+  assert.ok(b, `button "${text}" present`);
+  b!.click();
+}
+
+test("AUD179-01 (auditor's reproduction): paid order loaded, sound enabled, History opened, a new `pending` row arrives via realtime -> NO sound; the card offers no action", async () => {
+  const { container, dispose } = renderPage([order(50, "paid")]);
+  try {
+    await waitFor(() => container.querySelectorAll("article").length === 1);
+    clickByText(container, "Activer le son");
+    await tick();
+    clickByText(container, "Voir l'historique");
+    await waitFor(() => state.history === true && container.querySelectorAll("article").length === 1);
+    const before = audio.starts;
+    state.rows = [...state.rows, order(51, "pending")];
+    state.onChange();
+    await waitFor(() => hasCard(container, 51) === 1);
+    assert.equal(audio.starts, before, "a pending order must not trigger the sound, even in History");
+    const card = [...container.querySelectorAll("article")].find((a) => a.textContent?.includes("SC-51")) as HTMLElement;
+    assert.deepEqual(actionButtons(card), []);
+  } finally {
+    dispose();
+  }
+});
+
+test("AUD179-01: in History, a `pending` order seen first and later confirmed `paid` triggers the sound exactly ONCE (not when seen unpaid, not again on replayed refreshes)", async () => {
+  const { container, dispose } = renderPage([order(60, "paid")]);
+  try {
+    await waitFor(() => container.querySelectorAll("article").length === 1);
+    clickByText(container, "Activer le son");
+    await tick();
+    clickByText(container, "Voir l'historique");
+    await waitFor(() => state.history === true);
+    const before = audio.starts;
+    for (const ps of ["required", "pending", "failed", "cancelled"]) {
+      state.rows = [...state.rows.filter((r) => r.order_number !== 61), order(61, ps)];
+      state.onChange();
+      await waitFor(() => hasCard(container, 61) === 1);
+      assert.equal(audio.starts, before, `${ps}: no sound`);
+    }
+    state.rows = state.rows.map((r) => (r.order_number === 61 ? { ...r, payment_status: "paid" } : r));
+    state.onChange();
+    await waitFor(() => audio.starts === before + 1);
+    state.onChange();
+    await tick(); await tick(); await tick();
+    assert.equal(audio.starts, before + 1, "replayed refresh: no second alert");
+  } finally {
+    dispose();
+  }
+});
+
+test("AUD179-01: operational view -- a `pending` new order never sounds; when it becomes `paid` it sounds once; a new `not_required` order (merchant without online payment) still sounds", async () => {
+  const { container, dispose } = renderPage([order(70, "not_required")]);
+  try {
+    await waitFor(() => container.querySelectorAll("article").length === 1);
+    clickByText(container, "Activer le son");
+    await tick();
+    const before = audio.starts;
+    state.rows = [...state.rows, order(71, "pending")];
+    state.onChange();
+    await tick(); await tick(); await tick();
+    assert.equal(audio.starts, before);
+    state.rows = state.rows.map((r) => (r.order_number === 71 ? { ...r, payment_status: "paid" } : r));
+    state.onChange();
+    await waitFor(() => audio.starts === before + 1);
+    state.rows = [...state.rows, order(72, "not_required")];
+    state.onChange();
+    await waitFor(() => audio.starts === before + 2);
   } finally {
     dispose();
   }
