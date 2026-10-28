@@ -246,6 +246,19 @@ export default function CartPanel({
       setTimingNoticeOpen(true);
       return;
     }
+    openReviewOrSend();
+  }
+
+  /**
+   * Table (QR) : ni adresse, ni créneau, ni paiement -- le parcours
+   * historique est conservé tel quel (envoi direct). Retrait et
+   * livraison passent par le récapitulatif.
+   */
+  function openReviewOrSend() {
+    if (serviceMode === "table") {
+      void onSendOrder();
+      return;
+    }
     setReviewingOrder(true);
   }
 
@@ -256,15 +269,21 @@ export default function CartPanel({
     setTimingNoticeConfirming(true);
     setTimingNoticeOpen(false);
     try {
-      setReviewingOrder(true);
+      openReviewOrSend();
     } finally {
       timingNoticeGuardRef.current = false;
       setTimingNoticeConfirming(false);
     }
   }
 
+  const reviewCgvBlocked = cgvEnforced && !cgvAccepted;
+
   async function confirmOrderReview() {
     if (isSubmitting || !canSubmit || !noteState.isValid || pricingUnavailable) return;
+    // CGV exigées et non acceptées : on RESTE dans le récapitulatif (le
+    // message explicite est affiché) -- jamais de retour silencieux à la
+    // saisie, jamais d'envoi.
+    if (reviewCgvBlocked) return;
     setReviewingOrder(false);
     await onSendOrder();
   }
@@ -591,7 +610,11 @@ export default function CartPanel({
                     <dt className="text-ink-on-bg-muted">{t("checkoutReviewSchedule")}</dt>
                     <dd data-checkout-review-schedule="" className="text-right font-medium">
                       {formatCheckoutReviewDate(scheduleSummary.date, lang)}
-                      {scheduleSummary.starts_at && scheduleSummary.ends_at ? ` · ${scheduleSummary.starts_at}–${scheduleSummary.ends_at}` : ""}
+                      {scheduleSummary.slot_key !== null && scheduleSummary.starts_at && scheduleSummary.ends_at
+                        ? ` · ${scheduleSummary.starts_at}–${scheduleSummary.ends_at}`
+                        : scheduleSummary.starts_at
+                          ? ` · ${scheduleSummary.starts_at}`
+                          : ""}
                     </dd>
                   </div>
                 )}
@@ -649,8 +672,12 @@ export default function CartPanel({
             </ul>
           )}
 
-          {lines.length > 0 && !reviewingOrder && (
-            <>
+          {lines.length > 0 && (
+            // #181 -- masqué, JAMAIS démonté, pendant le récapitulatif : le retour
+            // sur « Modifier ma commande » retrouve la saisie, les fenêtres déjà
+            // fermées (résultat du code postal) et le sélecteur de créneau tels
+            // quels. `hidden` retire aussi ces contrôles de l'ordre de tabulation.
+            <div hidden={reviewingOrder} aria-hidden={reviewingOrder || undefined} data-checkout-edit="">
               <FulfillmentChoiceModal
                 open={requiresFulfillmentChoice}
                 modes={unblockedServiceModes}
@@ -665,7 +692,7 @@ export default function CartPanel({
                 communicationTexts={communicationTexts}
               />
               <DeliveryPostcodeResult key={restaurant.id}
-                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen}
+                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen && !reviewingOrder}
                 contextKey={`${restaurant.id}:${deliveryCountry?.countryCode ?? ""}`}
                 postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency} />
 
@@ -774,7 +801,7 @@ export default function CartPanel({
                 </p>
               </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
@@ -1059,16 +1086,24 @@ export default function CartPanel({
                 {reviewingOrder ? (
                   <>
                     <p className="mb-3 text-center text-sm text-ink-on-bg-muted">{t("checkoutReviewPaymentHint")}</p>
+                    {reviewCgvBlocked && (
+                      <p id="checkout-review-cgv-required" data-checkout-review-cgv-required="" role="status" className="mb-3 rounded-xl bg-red-50 p-3 text-center text-sm text-red-800">{t("checkoutReviewCgvRequired")}</p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <button type="button" onClick={() => setReviewingOrder(false)} className="rounded-xl border border-espresso/20 py-3 font-semibold">{t("checkoutReviewBack")}</button>
-                      <button type="button" data-checkout-review-confirm="" onClick={() => void confirmOrderReview()} disabled={isSubmitting || !canSubmit || !noteState.isValid || pricingUnavailable} aria-busy={isSubmitting} className="rounded-xl bg-green-700 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-700">{isSubmitting ? t("sending") : t("checkoutReviewConfirm")}</button>
+                      <button type="button" data-checkout-review-confirm="" onClick={() => void confirmOrderReview()} disabled={isSubmitting || !canSubmit || !noteState.isValid || pricingUnavailable || reviewCgvBlocked} aria-describedby={reviewCgvBlocked ? "checkout-review-cgv-required" : undefined} aria-busy={isSubmitting} className="rounded-xl bg-green-700 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-700">{isSubmitting ? t("sending") : t("checkoutReviewConfirm")}</button>
                     </div>
                   </>
                 ) : (
                   <>
                 <p className="mb-2 text-center text-sm text-ink-on-bg-muted">
-                  {t("checkoutReviewBeforeConfirmHint")}
+                  {whatsappEnabled ? t("whatsappNotice") : t("orderNoticeNoWhatsapp")}
                 </p>
+                {serviceMode !== "table" && (
+                  <p className="mb-2 text-center text-xs text-ink-on-bg-muted">
+                    {t("checkoutReviewBeforeConfirmHint")}
+                  </p>
+                )}
                 <button
                   ref={reviewOpenButtonRef}
                   onClick={requestOrderSubmission}
@@ -1102,7 +1137,9 @@ export default function CartPanel({
                 >
                   {isSubmitting
                     ? t("sending")
-                    : t("checkoutReviewOpenButton")}
+                    : whatsappEnabled
+                      ? t("sendOrder")
+                      : t("sendOrderNoWhatsapp")}
                 </button>
                   </>
                 )}

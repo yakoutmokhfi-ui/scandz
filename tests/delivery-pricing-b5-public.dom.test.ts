@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
 import * as esbuild from 'esbuild';
 import { makeBaseline, readSql, migrationFile } from '../supabase/tests/b5/bootstrap.mjs';
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 const db=await makeBaseline();await db.exec(readSql(migrationFile));
 const A='b5d00000-0000-4000-8000-000000000001', U='b5d00000-0000-4000-8000-000000000002', I='b5d00000-0000-4000-8000-000000000003', C='b5d00000-0000-4000-8000-000000000004';
 await db.exec(`insert into auth.users(id,email) values ('${U}','public@example.test');
@@ -26,7 +27,7 @@ async function save(discountEnabled=false,discountThreshold:number|null=null,dis
 }
 await save();
 (globalThis as any).__b5PublicTransport={async rpc(name:string,args:any){assert.equal(name,'get_restaurant_public_delivery_fulfillments');return {data:(await anon('select * from get_restaurant_public_delivery_fulfillments($1)',[args.p_restaurant_id])).rows,error:null};}};
-const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'http://localhost/menu/b5-dom',pretendToBeVisual:true});const {window}=dom;
+const dom=new JSDOM('<!doctype html><html><body></body></html>',{url:'http://localhost/menu/b5-dom',pretendToBeVisual:true});const {window}=dom;autoConfirmCheckoutReview(window);
 (globalThis as any).window=window;(globalThis as any).document=window.document;Object.defineProperty(globalThis,'navigator',{value:window.navigator,configurable:true});
 (globalThis as any).HTMLElement=window.HTMLElement;(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 window.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};
