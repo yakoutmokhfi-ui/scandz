@@ -72,12 +72,15 @@ import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
 import { useCheckoutSchedule } from "@/lib/checkout-schedule/use-checkout-schedule";
 import { scheduleHintKey, scheduleNoticeKey } from "@/lib/checkout-schedule/messages";
 import {
-  EMPTY_SCHEDULE_SELECTION,
-  reconcileSelection,
+  EMPTY_SCOPED_SCHEDULE_SELECTION,
+  reconcileScopedSelection,
   scheduleAllowsSubmit,
   scheduleRequirement,
+  selectionInScope,
   toSchedulePayload,
+  type SchedulePayload,
   type ScheduleSelection,
+  type ScopedScheduleSelection,
 } from "@/lib/checkout-schedule/model";
 // DELIVERY COUNTRY SCOPE v1 -- pays de livraison autorisés pour CET
 // établissement (L2), projetés avec leurs capacités (L1). Rien ici ne
@@ -787,11 +790,19 @@ export default function MenuView({
   // `isSubmitting` ne change qu'au rendu suivant, un second clic dans le
   // même instant verrait encore `false`. Le ref, lui, est visible tout de suite.
   const submitInFlightRef = useRef(false);
+  // Issue #170 -- jour/créneau ENVOYÉS à create_order, retenus par id de
+  // commande pour que le message au commerçant (completeOrderFlow, aussi
+  // après une reprise de demande de facture) reprenne EXACTEMENT ce que
+  // le serveur a reçu -- jamais l'état courant, modifiable.
+  const sentScheduleByOrderRef = useRef<Map<string, SchedulePayload | null>>(new Map());
   const [submitError, setSubmitError] = useState<string | null>(null);
   // CSDJ-2 / #158 -- date et créneau choisis PARMI les offres du serveur,
   // et message d'une relecture déclenchée par un refus typé du serveur.
-  const [scheduleSelection, setScheduleSelection] = useState<ScheduleSelection>(
-    EMPTY_SCHEDULE_SELECTION
+  // Issue #170 (P2) -- la sélection est rattachée à la PORTÉE pour laquelle le
+  // client l'a faite (voir `checkoutScheduleScope`) : `scheduleSelection`
+  // (dérivée plus bas) n'est jamais celle d'une autre adresse / règle / panier.
+  const [scheduleChoice, setScheduleChoice] = useState<ScopedScheduleSelection>(
+    EMPTY_SCOPED_SCHEDULE_SELECTION
   );
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
 
@@ -1472,7 +1483,11 @@ export default function MenuView({
           isValidPostalCodeFor(deliveryCountry, customer.postalCode)
         ? "delivery"
         : null;
-  const { state: scheduleState, refetch: refetchSchedule } = useCheckoutSchedule({
+  const {
+    state: scheduleState,
+    scope: scheduleScope,
+    refetch: refetchSchedule,
+  } = useCheckoutSchedule({
     restaurantId: lines.length > 0 ? restaurant.id : null,
     modeCode: scheduleModeCode,
     postalCode: customer.postalCode,
@@ -1480,16 +1495,29 @@ export default function MenuView({
     subtotal: totalPrice,
   });
 
-  // Jamais de sélection fantôme : elle est gardée si le serveur la propose
-  // encore, vidée sinon (changement de mode, de panier, relecture).
+  // Jamais de sélection fantôme. Issue #170 (P2) : un choix n'est conservé que
+  // pour la portée STRICTEMENT identique à celle où il a été fait (même mode,
+  // même code postal, même panier de livraison) ET si le serveur le propose
+  // encore ; toute autre portée le VIDE (date comprise) -- même si la nouvelle
+  // règle propose la même date ou réutilise la même clé de créneau.
   useEffect(() => {
     if (scheduleState.status === "ready") {
-      setScheduleSelection((prev) => reconcileSelection(scheduleState.view, prev));
+      setScheduleChoice((prev) =>
+        reconcileScopedSelection(scheduleState.view, prev, scheduleState.scope)
+      );
     } else if (scheduleState.status === "idle") {
-      setScheduleSelection(EMPTY_SCHEDULE_SELECTION);
+      setScheduleChoice(EMPTY_SCOPED_SCHEDULE_SELECTION);
       setScheduleNotice(null);
+    } else {
+      // lecture en cours / en échec : on garde le choix seulement si la
+      // portée n'a pas changé (relecture), sinon il est abandonné tout de suite.
+      setScheduleChoice((prev) =>
+        prev.scope === scheduleState.scope ? prev : EMPTY_SCOPED_SCHEDULE_SELECTION
+      );
     }
   }, [scheduleState]);
+  // Sélection VALABLE À CE RENDU (dérivée : aucun rendu ne voit le choix d'une autre portée).
+  const scheduleSelection: ScheduleSelection = selectionInScope(scheduleChoice, scheduleScope);
 
   /**
    * Le calendrier laisse-t-il partir la commande ? FAIL-CLOSED (audit de la
@@ -1614,7 +1642,8 @@ export default function MenuView({
         settings.staffLanguage ??
         "fr",
       order.orderNumber,
-      frozenNote
+      frozenNote,
+      sentScheduleByOrderRef.current.get(order.orderId) ?? null
     );
 
     // Ouverture en onglet si possible ; si le navigateur la bloque,
@@ -1759,6 +1788,7 @@ export default function MenuView({
         deliveryCountryCode: deliveryCountry?.countryCode ?? null,
         schedule: frozenSchedule,
       });
+      sentScheduleByOrderRef.current.set(order.orderId, frozenSchedule);
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
       // (FERME "SILENT INVOICE LOSS", HIGH, RELEASE-BLOCKING).
@@ -1807,7 +1837,7 @@ export default function MenuView({
       // compréhensible (générique, sans motif ni capacité) est affiché. Le
       // panier est conservé ; aucune confirmation.
       if (err instanceof ScheduleSelectionError) {
-        setScheduleSelection(EMPTY_SCHEDULE_SELECTION);
+        setScheduleChoice(EMPTY_SCOPED_SCHEDULE_SELECTION);
         setScheduleNotice(translate(lang, scheduleNoticeKey(err.kind)));
         void refetchSchedule();
         return;
@@ -2304,7 +2334,7 @@ export default function MenuView({
                 notice={scheduleNotice}
                 onChange={(next) => {
                   setScheduleNotice(null);
-                  setScheduleSelection(next);
+                  setScheduleChoice({ scope: scheduleScope, selection: next });
                 }}
                 onRetry={() => {
                   setScheduleNotice(null);
