@@ -81,6 +81,12 @@ export interface DashboardOrder {
   restaurant_id: string;
   order_number: number;
   status: OrderStatus;
+  /** ISSUE #171 -- orders.payment_status (P1 machine à états paiement,
+   *  indépendante de `status`). Lue pour décider si la commande est
+   *  OPÉRATIONNELLE (voir lib/order-payment-operability.ts). Optionnelle
+   *  pour les appelants/fixtures historiques : absent => NON opérationnel
+   *  (fail-closed). */
+  payment_status?: string | null;
   service_mode: ServiceMode;
   table_number: number | null;
   customer_name: string | null;

@@ -194,7 +194,12 @@ test("B1-T-22 — getDashboardOrders : liste de colonnes inchangée, aucune requ
   // Cet invariant est vérifié juste en dessous, et il est INCHANGÉ.
   assert.equal(
     createHash("sha256").update(columns).digest("hex"),
-    "4f6ae141f17622ba900b4a03349f1da40ed17b52b1e7b2ed9b02c4198e9989f0",
+    // ISSUE #171 (commandes non payées non opérationnelles) : ajout
+    // DÉLIBÉRÉ et unique de la colonne `payment_status` (après `status`),
+    // nécessaire au filtre opérationnel et à OrderCard. Aucune autre
+    // colonne, aucune requête ajoutée. Ancienne empreinte (avant #171) :
+    // 4f6ae141f17622ba900b4a03349f1da40ed17b52b1e7b2ed9b02c4198e9989f0.
+    "2e75dbc7ac9d80f58933ba4058ca7068f0948b6aebb4e9c1b29eb866cdbf5b92",
     `liste de colonnes modifiée : ${columns}`
   );
   assert.doesNotMatch(columns, /order_delivery_fulfillment_snapshot/);
