@@ -20,6 +20,8 @@ test("[#170-Q] getDashboardOrders() embarque la relation 1:1 order_fulfillment_s
   const chain: any = {
     select(arg: string) { captured = arg; return chain; },
     eq() { return chain; }, order() { return chain; }, limit() { return chain; }, not() { return chain; }, or() { return chain; },
+    // ISSUE #171 : filtre opérationnel `.in("payment_status", [...])` ajouté à getDashboardOrders.
+    in() { return chain; },
     then(resolve: (v: { data: unknown[]; error: null }) => void) { resolve({ data: [], error: null }); },
   };
   t.mock.method(supabase, "from", (table: string) => { assert.equal(table, "orders"); return chain; });
