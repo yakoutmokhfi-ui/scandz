@@ -222,6 +222,8 @@ export default function CartPanel({
   // Absent/NULL/true : rendu historique inchangé.
   const orderNoteEnabled = restaurant.config.order_note_enabled !== false;
   const [reviewingOrder, setReviewingOrder] = useState(false);
+  // ISSUE #183 -- la fenêtre du code postal est-elle ouverte ? (masque le doublon inline)
+  const [postcodeResultOpen, setPostcodeResultOpen] = useState(false);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
   const reviewOpenButtonRef = useRef<HTMLButtonElement>(null);
   const wasReviewingRef = useRef(false);
@@ -668,7 +670,8 @@ export default function CartPanel({
               <DeliveryPostcodeResult key={restaurant.id}
                 active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !reviewingOrder}
                 contextKey={`${restaurant.id}:${deliveryCountry?.countryCode ?? ""}`}
-                postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency} />
+                postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency}
+                onOpenChange={setPostcodeResultOpen} />
 
               {serviceMode === "table" && (
                 <TableSelector
@@ -690,6 +693,7 @@ export default function CartPanel({
                 <div ref={fulfillmentSectionRef}>
                   <FulfillmentSelector
                     status={deliveryStatus}
+                    ruleTextShownInDialog={postcodeResultOpen}
                     type={serviceMode}
                     customer={customer}
                     errors={customerErrors}

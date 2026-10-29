@@ -212,6 +212,7 @@ export default function FulfillmentSelector({
   cityOptions = null,
   onSelectDeliveryCountry,
   communicationTexts = null,
+  ruleTextShownInDialog = false,
 }: {
   status: DeliveryStatus;
   type: ServiceMode | null;
@@ -260,6 +261,13 @@ export default function FulfillmentSelector({
    * les formulations restent celles d'avant ce lot.
    */
   communicationTexts?: CommunicationTextOverrides | null;
+  /**
+   * ISSUE #183 -- `true` tant que la fenêtre « Livraison — <code postal> »
+   * est OUVERTE : elle porte alors le texte client de la règle, qui n'est pas
+   * répété en ligne derrière elle. Fenêtre fermée, le texte reste visible en
+   * ligne : les consignes ne disparaissent jamais avant le choix du client.
+   */
+  ruleTextShownInDialog?: boolean;
 }) {
   const { t, lang } = useI18n();
 
@@ -347,11 +355,13 @@ export default function FulfillmentSelector({
       // ISSUE #183 -- le texte client de la règle (`zone.label`) est
       // EXACTEMENT celui que la fenêtre « Livraison — <code postal> »
       // (DeliveryPostcodeResult) présente, avec le tarif, dans la langue du
-      // visiteur : le répéter ici, en vert derrière la fenêtre, en faisait un
-      // doublon non contrôlé. Il n'est donc plus rendu en ligne. Les messages
-      // de repli (explication transporteur, texte neutre) ne sont PAS portés
-      // par la fenêtre : ils restent affichés.
-      if (typeof status.zone?.label === "string" && status.zone.label.trim() !== "") return null;
+      // visiteur : tant que cette fenêtre est OUVERTE, le répéter ici, en vert
+      // derrière elle, est un doublon. On ne le masque donc que pendant ce temps ;
+      // fenêtre fermée, il reste visible (précision du 29/10, commentaire
+      // 6500061423 : les consignes ne disparaissent pas avant le choix). Les
+      // messages de repli (explication transporteur, texte neutre) ne sont PAS
+      // portés par la fenêtre : ils restent toujours affichés.
+      if (ruleTextShownInDialog && typeof status.zone?.label === "string" && status.zone.label.trim() !== "") return null;
       return {
         tone: "good",
         // MERCHANT CUSTOMER COMMUNICATIONS v1 — précédence INCHANGÉE

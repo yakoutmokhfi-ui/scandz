@@ -215,6 +215,26 @@ test("[#183-1] code postal saisi : le texte de la règle n'apparaît qu'une fois
   view.container.remove();
 });
 
+test("[#183-4] fenêtre du code postal FERMÉE : le texte de délai reste visible avant le choix (une seule fois)", async () => {
+  const view = await render(props(NOTICE, async () => {}));
+  const dialog = () => view.container.querySelector('[data-delivery-dialog="postcode"]')!;
+  await waitFor(() => !!dialog() && dialog().hasAttribute("open"), "fenêtre code postal ouverte");
+  // Fenêtre ouverte : le texte n'est que dans la fenêtre (cf. #183-1).
+  assert.equal(occurrences(view.container.textContent ?? "", RULE_TEXT), 1);
+  // Le client ferme la fenêtre (bouton « Fermer », dernier bouton du dialogue).
+  click([...dialog().querySelectorAll("button")].at(-1)!);
+  await waitFor(() => !dialog().hasAttribute("open"), "fenêtre fermée");
+  await waitFor(
+    () => [...view.container.querySelectorAll('[role="status"]')].some((el) => !el.closest("dialog") && !!el.textContent?.includes(RULE_TEXT)),
+    "le texte de la règle reste visible en ligne après fermeture"
+  );
+  // Une seule présentation à la fois : en ligne, plus dans la fenêtre fermée.
+  const visibleInline = [...view.container.querySelectorAll('[role="status"]')].filter((el) => !el.closest("dialog") && el.textContent?.includes(RULE_TEXT));
+  assert.equal(visibleInline.length, 1);
+  view.root.unmount();
+  view.container.remove();
+});
+
 test("[#183-2] après le choix du créneau : aucune fenêtre de délai, récapitulatif sans répétition", async () => {
   let submissions = 0;
   const view = await render(props(NOTICE, async () => { submissions += 1; }));
