@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PublicDeliveryFulfillmentRule } from "@/lib/sale-modes-types";
 import type { DeliveryStatus } from "@/lib/delivery";
 import { useI18n } from "@/lib/i18n-context";
@@ -110,7 +110,9 @@ export function DeliveryPostcodeResult({ active, contextKey, postcode, status, s
     return () => clearTimeout(timer);
   }, [key]);
   const effectiveOpen = open && active;
-  useEffect(() => { onOpenChange?.(effectiveOpen); }, [effectiveOpen, onOpenChange]);
+  // Layout effect : le parent masque le doublon inline AVANT l'affichage de la fenêtre
+  // (showModal est appelé dans un effet passif, après) -- pas d'image où les deux coexistent.
+  useLayoutEffect(() => { onOpenChange?.(effectiveOpen); }, [effectiveOpen, onOpenChange]);
   return <DeliveryDialog open={open && active} title={t("deliveryPostcodeResultTitle", { postcode: postcode.trim() })} marker="postcode" onDismiss={() => setOpen(false)}>
     {/* STOREFRONT UX POLISH v1 -- une seule ligne « Disponible — frais »
         (plus de « Livraison disponible » + « Frais de livraison : »). Un

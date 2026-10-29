@@ -81,11 +81,11 @@ test("DeliveryPostcodeResult (availability, real fee, discount applied, missing 
   const src = readFileSync("components/DeliveryConditions.tsx", "utf8");
   const slice = src.slice(src.indexOf("/** One popup per meaningful resolved result"));
   // Issue #183 -- RE-PIN DIVULGUÉ : DeliveryPostcodeResult gagne UNE prop optionnelle
-  // `onOpenChange` et un `useEffect` qui relaie son état d'ouverture EFFECTIF
+  // `onOpenChange` et un `useLayoutEffect` (relais AVANT l'affichage de la fenêtre) qui relaie son état d'ouverture EFFECTIF
   // (ouverte ET active) à CartPanel, pour que le doublon inline du texte de règle ne
   // soit masqué que pendant que la fenêtre est ouverte. AUCUNE ligne du contenu
   // rendu (disponibilité, frais réels, remise, articles manquants, texte de règle)
-  // ni du calcul n'est touchée : seuls la signature et `effectiveOpen` changent.
+  // ni du calcul n'est touchée : seuls la signature, `effectiveOpen` et ce relais changent.
   // SHA-256 précédent : ef6a193f34c1a81cd31fba02fb92f4726ef63da2efd809f01ae0c68679a0decb
-  assert.equal(createHash("sha256").update(slice).digest("hex"), "305551ccf75807c48c05f8c1d52181c24eb5e6a05d41f1d8ade36895aa41e896");
+  assert.equal(createHash("sha256").update(slice).digest("hex"), "7c0bf8f39dd647a7566394512a784f9d0c80d9b800c9b90959b6ad0a14cf4ffa");
 });
