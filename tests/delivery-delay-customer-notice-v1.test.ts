@@ -130,7 +130,17 @@ test("le popup reste une confirmation UX avant createOrder, jamais une frontièr
   const dialog = readFileSync("components/DeliveryTimingNoticeDialog.tsx", "utf8");
   assert.ok(cart.includes("requestOrderSubmission"));
   assert.ok(cart.includes("await onSendOrder()"));
-  assert.ok(cart.includes("timingNoticeGuardRef.current"));
+  // ISSUE #183 -- ASSERTION MODIFIÉE (décision produit, commentaire 6499817662) :
+  // AVANT : `cart.includes("timingNoticeGuardRef.current")` imposait le garde de
+  // double confirmation de la fenêtre « Délai et informations de livraison »
+  // ouverte après le choix du créneau. Cette fenêtre n'est plus ouverte par
+  // CartPanel : le garde, l'état et le rendu ont disparu. APRÈS : on exige leur
+  // ABSENCE, et que l'envoi ne passe plus que par le récapitulatif (#181).
+  // Le composant de la fenêtre n'est pas supprimé et reste sans createOrder ni
+  // supabase (assertions inchangées ci-dessous).
+  assert.equal(cart.includes("timingNoticeGuardRef"), false);
+  assert.equal(cart.includes("DeliveryTimingNoticeDialog"), false);
+  assert.ok(/function requestOrderSubmission\(\) \{[\s\S]*?openReviewOrSend\(\);/.test(cart));
   assert.equal(dialog.includes("createOrder"), false);
   assert.equal(dialog.includes("supabase"), false);
 });
