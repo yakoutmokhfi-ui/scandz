@@ -1,4 +1,5 @@
 import { test, after } from "node:test";
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -25,6 +26,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });

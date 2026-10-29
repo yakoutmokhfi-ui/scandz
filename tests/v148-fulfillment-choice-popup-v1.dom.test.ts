@@ -1,4 +1,5 @@
 import { test, after } from "node:test";
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { existsSync, mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -30,6 +31,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 Object.defineProperty(globalThis, "navigator", {

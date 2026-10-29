@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
 
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
@@ -31,6 +32,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 Object.defineProperty(window, "innerWidth", { value: 375, configurable: true });
 Object.defineProperty(window, "innerHeight", { value: 740, configurable: true });
 (globalThis as any).window = window;

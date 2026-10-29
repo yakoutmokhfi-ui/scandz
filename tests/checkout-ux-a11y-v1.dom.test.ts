@@ -312,4 +312,202 @@ test("InvoiceRequestFields : le message d'erreur, rendu dans le panneau transluc
   container.remove();
 });
 
+
+function reviewConfirmButton(container: Element): HTMLButtonElement {
+  const button = container.querySelector('button[data-checkout-review-confirm]') as HTMLButtonElement | null;
+  assert.ok(button, "bouton de confirmation du récapitulatif attendu");
+  return button!;
+}
+
+test("récapitulatif avant commande : aucun envoi avant confirmation, mode/adresse/créneau visibles et retour éditable", async () => {
+  let submissions = 0;
+  const view = await render(baseProps({
+    serviceMode: "delivery",
+    deliveryStatus: { eligible: true, deliveryFee: 4.9, pricingUnavailable: false },
+    customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "10 rue Exemple", postalCode: "75018", city: "Paris" },
+    scheduleSummary: { date: "2026-10-30", slot_key: "11-14", starts_at: "11:00", ends_at: "14:00" },
+    onSendOrder: async () => { submissions += 1; },
+  }));
+
+  sendButton(view.container).click();
+  await flush();
+  assert.equal(submissions, 0, "ouvrir le récapitulatif ne crée pas la commande et ne lance pas le paiement");
+  let summary = view.container.querySelector("[data-checkout-review]");
+  assert.ok(summary, "écran de récapitulatif affiché");
+  const text = summary!.textContent ?? "";
+  assert.ok(text.includes("Produit"), "article présent");
+  assert.ok(text.includes("Livraison"), "mode présent");
+  assert.ok(text.includes("10 rue Exemple") && text.includes("75018") && text.includes("Paris"), "adresse de livraison présente");
+  assert.ok(text.includes("11:00–14:00"), "créneau choisi présent");
+
+  const back = [...view.container.querySelectorAll("button")].find((button) => !button.closest("[data-checkout-edit]") && button.textContent?.includes("Modifier ma commande"));
+  assert.ok(back, "bouton de retour à la saisie présent");
+  (back as HTMLButtonElement).click();
+  await flush();
+  assert.ok(view.container.querySelector("[data-checkout-review]") === null, "retour à la saisie");
+  assert.equal(submissions, 0, "retour arrière sans créer de commande");
+
+  sendButton(view.container).click();
+  await flush();
+  reviewConfirmButton(view.container).click();
+  await flush();
+  assert.equal(submissions, 1, "la commande ne part qu'après la confirmation explicite");
+  view.root.unmount();
+  view.container.remove();
+});
+
+test("récapitulatif Chronofresh date seule : aucun horaire inventé", async () => {
+  const view = await render(baseProps({
+    serviceMode: "delivery",
+    deliveryStatus: { eligible: true, deliveryFee: 18.9, pricingUnavailable: false },
+    customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "2 rue Bordeaux", postalCode: "33000", city: "Bordeaux" },
+    scheduleSummary: { date: "2026-10-30", slot_key: null, starts_at: null, ends_at: null },
+  }));
+  sendButton(view.container).click();
+  await flush();
+  const schedule = view.container.querySelector("[data-checkout-review-schedule]");
+  assert.ok(schedule, "date de livraison présente");
+  assert.match(schedule!.textContent ?? "", /30/);
+  assert.doesNotMatch(schedule!.textContent ?? "", /\b\d{2}:\d{2}\b/, "aucun horaire n'est affiché");
+  view.root.unmount();
+  view.container.remove();
+});
+
+// ---- #181 -- correctifs de supervision ------------------------------------
+
+async function rerender(view: { root: any }, props: ReturnType<typeof baseProps>) {
+  view.root.render(
+    React.createElement(I18nProvider, {
+      lang: "fr",
+      sourceLanguage: "fr",
+      activeLanguages: [{ code: "fr", dir: "ltr" }],
+      children: React.createElement(CartPanel, props),
+    })
+  );
+  await flush();
+}
+
+test("#181 libellés et avertissements d'origine conservés hors récapitulatif (WhatsApp actif / inactif)", async () => {
+  const on = await render(baseProps());
+  assert.ok(on.container.textContent?.includes("Enregistrer et continuer sur WhatsApp"));
+  assert.ok(on.container.textContent?.includes("WhatsApp s'ouvrira"), "avertissement WhatsApp conservé");
+  on.root.unmount(); on.container.remove();
+
+  const off = await render(baseProps({ restaurant: { ...restaurant, config: { ...restaurant.config, whatsapp_enabled: false } } }));
+  assert.ok(off.container.textContent?.includes("Valider la commande"));
+  assert.ok(off.container.textContent?.includes("Votre commande sera enregistrée et transmise au commerçant"));
+  assert.ok(!/whatsapp/i.test(off.container.textContent ?? ""), "aucune mention WhatsApp quand il est désactivé");
+  off.root.unmount(); off.container.remove();
+});
+
+test("#181 mode table : parcours historique, envoi direct sans récapitulatif", async () => {
+  let submissions = 0;
+  const view = await render(baseProps({
+    serviceMode: "table",
+    tableNumber: 4,
+    availableServiceModes: ["table"],
+    onSendOrder: async () => { submissions += 1; },
+  }));
+  sendButton(view.container).click();
+  await flush();
+  assert.equal(submissions, 1, "table : la commande part comme avant");
+  assert.ok(view.container.querySelector("[data-checkout-review]") === null, "pas de récapitulatif en mode table");
+  view.root.unmount(); view.container.remove();
+});
+
+test("#181 CGV dans le récapitulatif : confirmation désactivée + message, puis acceptée", async () => {
+  let submissions = 0;
+  const props = (accepted: boolean) => baseProps({
+    cgvEnforced: true,
+    cgvAccepted: accepted,
+    onSendOrder: async () => { submissions += 1; },
+  });
+  const view = await render(props(true));
+  sendButton(view.container).click();
+  await flush();
+  assert.ok(view.container.querySelector("[data-checkout-review]"), "récapitulatif ouvert");
+
+  // Le client décoche les CGV pendant le récapitulatif.
+  await rerender(view, props(false));
+  const confirm = reviewConfirmButton(view.container);
+  assert.equal(confirm.disabled, true, "confirmation désactivée sans CGV");
+  const message = view.container.querySelector("#checkout-review-cgv-required");
+  assert.ok(message, "message explicite affiché");
+  assert.equal(message!.getAttribute("role"), "status");
+  assert.equal(confirm.getAttribute("aria-describedby"), "checkout-review-cgv-required", "le bouton désactivé renvoie à son motif");
+  assert.ok(view.container.querySelector("[data-checkout-review]"), "on reste dans le récapitulatif : pas de retour silencieux à la saisie");
+  confirm.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await flush();
+  assert.equal(submissions, 0, "aucun envoi sans CGV");
+  assert.ok(view.container.querySelector("[data-checkout-review]"), "toujours dans le récapitulatif après la tentative");
+
+  // Acceptation : le message disparaît, la confirmation redevient possible.
+  await rerender(view, props(true));
+  assert.equal(view.container.querySelector("#checkout-review-cgv-required"), null);
+  const ok = reviewConfirmButton(view.container);
+  assert.equal(ok.disabled, false);
+  assert.equal(ok.hasAttribute("aria-describedby"), false);
+  ok.click();
+  await flush();
+  assert.equal(submissions, 1);
+  view.root.unmount(); view.container.remove();
+});
+
+test("#181 CGV : clavier -- la case reste atteignable avant la confirmation désactivée, nom accessible", async () => {
+  const view = await render(baseProps({ cgvEnforced: true, cgvAccepted: true }));
+  sendButton(view.container).click();
+  await flush();
+  await rerender(view, baseProps({ cgvEnforced: true, cgvAccepted: false }));
+  const focusables = [...view.container.querySelectorAll("button, input, a[href], select, textarea")].filter(
+    (el) => !(el as HTMLButtonElement).disabled
+  );
+  const checkbox = view.container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+  assert.ok(checkbox, "case CGV visible dans le récapitulatif");
+  assert.ok(checkbox.closest("label")?.textContent?.trim(), "la case a un libellé (nom accessible)");
+  assert.ok(focusables.includes(checkbox), "la case est focalisable au clavier");
+  const confirm = reviewConfirmButton(view.container);
+  assert.ok(!focusables.includes(confirm), "la confirmation désactivée n'est pas dans l'ordre de tabulation");
+  const back = [...view.container.querySelectorAll("button")].find((b) => !b.closest("[data-checkout-edit]") && b.textContent?.includes("Modifier ma commande"));
+  assert.ok(back && focusables.includes(back), "« Modifier ma commande » reste atteignable");
+  view.root.unmount(); view.container.remove();
+});
+
+test("#181 heure libre : l'heure CHOISIE est affichée, pas une plage jusqu'à la fin de la fenêtre ; créneau nommé inchangé", async () => {
+  const free = await render(baseProps({
+    scheduleSummary: { date: "2026-10-30", slot_key: null, starts_at: "14:30", ends_at: "18:00" },
+  }));
+  sendButton(free.container).click();
+  await flush();
+  const text = free.container.querySelector("[data-checkout-review-schedule]")!.textContent ?? "";
+  assert.ok(text.includes("14:30"), "heure choisie affichée");
+  assert.ok(!text.includes("18:00"), "fin de fenêtre non affichée");
+  free.root.unmount(); free.container.remove();
+
+  const slot = await render(baseProps({
+    scheduleSummary: { date: "2026-10-30", slot_key: "11-14", starts_at: "11:00", ends_at: "14:00" },
+  }));
+  sendButton(slot.container).click();
+  await flush();
+  assert.ok((slot.container.querySelector("[data-checkout-review-schedule]")!.textContent ?? "").includes("11:00–14:00"));
+  slot.root.unmount(); slot.container.remove();
+});
+
+test("#181 le bloc de saisie est MASQUÉ (jamais démonté) pendant le récapitulatif : retour sans perte d'état", async () => {
+  const view = await render(baseProps());
+  const edit = () => view.container.querySelector("[data-checkout-edit]") as HTMLElement | null;
+  assert.ok(edit() !== null && edit()!.hidden === false, "saisie visible avant");
+  sendButton(view.container).click();
+  await flush();
+  const hidden = edit();
+  assert.ok(hidden !== null, "bloc de saisie toujours monté pendant le récapitulatif");
+  assert.equal(hidden!.hidden, true, "mais masqué (retiré de l'ordre de tabulation)");
+  assert.equal(hidden!.getAttribute("aria-hidden"), "true");
+  const back = [...view.container.querySelectorAll("button")].find((b) => !b.closest("[data-checkout-edit]") && b.textContent?.includes("Modifier ma commande")) as HTMLButtonElement;
+  back.click();
+  await flush();
+  assert.ok(edit() === hidden, "même nœud : rien n'a été remonté");
+  assert.equal(edit()!.hidden, false, "saisie de nouveau visible");
+  view.root.unmount(); view.container.remove();
+});
+
 after(() => dom.window.close());

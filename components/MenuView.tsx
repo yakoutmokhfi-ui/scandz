@@ -2316,6 +2316,15 @@ export default function MenuView({
               />
             ) : null
           }
+          scheduleSummary={
+            scheduleState.status === "ready"
+              ? toSchedulePayload(
+                  scheduleState.view,
+                  scheduleRequirement(scheduleState.view),
+                  scheduleSelection
+                )
+              : null
+          }
           isSubmitting={isSubmitting}
           submitError={submitError}
           invoiceRequestError={invoiceRequestError}
