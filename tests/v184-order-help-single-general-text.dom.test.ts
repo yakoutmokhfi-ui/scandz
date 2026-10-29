@@ -332,7 +332,7 @@ function ruleRow(i: number, prefixes: string[], text: string, fallback = false) 
   };
 }
 
-function mockRpcHelp(t: { mock: { method: Function } }, rules: ReturnType<typeof ruleRow>[]) {
+function mockRpcHelp(t: { mock: { method: Function } }, rules: ReturnType<typeof ruleRow>[], helpBody: string = HELP_BODY) {
   t.mock.method(supabase, "from", (table: string) => {
     if (table === "sale_mode_catalog") return { select: async () => ({ data: SALE_MODE_CATALOG_ROWS, error: null }) };
     throw new Error(`table inattendue : ${table}`);
@@ -353,7 +353,7 @@ function mockRpcHelp(t: { mock: { method: Function } }, rules: ReturnType<typeof
     if (name === "get_restaurant_public_communication_texts") {
       return { data: [
         { text_key: "order_help_button_label", body: HELP_LABEL },
-        { text_key: "order_help_body", body: HELP_BODY },
+        { text_key: "order_help_body", body: helpBody },
       ], error: null };
     }
     throw new Error(`RPC inattendue : ${name}`);
@@ -387,6 +387,35 @@ test("[184-HELP-1] plusieurs règles au texte identique : UNE seule entrée d'ai
     await flush();
     assert.equal(count(allText(container), HELP_BODY), 1, "texte général rendu une fois");
     assert.equal(count(allText(container), SHARED_RULE_TEXT), 0, "aucune copie du texte de règle dans l'aide");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[184-HELP-4] un seul bouton, libellé CENTRÉ ; à l'ouverture titre + corps COMPLETS, une seule fois, sans texte de règle", async (t) => {
+  const LONG_BODY = HELP_BODY + "\n" + Array.from({ length: 6 }, (_, i) => `Ligne ${i + 1} de l'aide générale, affichée en entier.`).join("\n");
+  mockRpcHelp(t, [0, 1, 2].map((i) => ruleRow(i, [`7500${i}`], SHARED_RULE_TEXT, i === 2)), LONG_BODY);
+  installFetchNotNeeded();
+  const { container, root } = await mountMenu();
+  try {
+    const triggers = [...container.querySelectorAll("button")].filter((b) => b.textContent === HELP_LABEL);
+    assert.equal(triggers.length, 1, "un seul bouton portant ce libellé");
+    assert.ok(LONG_BODY.length <= 500, "dans la limite du catalogue (500)");
+    const cls = triggers[0]!.className.split(/\s+/);
+    assert.ok(cls.includes("text-center"), "libellé centré");
+    assert.ok(!cls.includes("text-start") && !cls.includes("text-left"), "plus d'alignement à gauche");
+    assert.ok(cls.includes("w-full"), "bouton pleine largeur : le centrage est visible");
+
+    click(triggers[0]!);
+    await flush();
+    const dlg = container.querySelector("[data-order-help-dialog]") as HTMLDialogElement;
+    assert.ok(dlg.hasAttribute("open") || dlg.open, "fenêtre ouverte");
+    const title = dlg.querySelector("[data-order-help-title]")!;
+    const body = dlg.querySelector("[data-order-help-body]")!;
+    assert.equal(title.textContent, HELP_LABEL, "titre affiché (repli sur le libellé)");
+    assert.equal(body.textContent, LONG_BODY, "corps affiché INTÉGRALEMENT");
+    assert.equal(count(allText(container), LONG_BODY), 1, "corps présent une seule fois");
+    assert.equal(count(allText(container), SHARED_RULE_TEXT), 0, "aucun texte de règle réinjecté");
+    const bodyCls = body.className;
+    assert.ok(!/truncate|line-clamp|text-ellipsis|overflow-hidden/.test(bodyCls), "aucune troncature CSS");
   } finally { root.unmount(); container.remove(); }
 });
 
