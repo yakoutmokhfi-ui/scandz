@@ -261,8 +261,19 @@ export default function OrderCard({
               {t("dsInvoiceRequested")}
             </span>
           )}
+          {order.vacuum_packing_requested === true && (
+            <span data-order-vacuum-badge="" className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-900">
+              {t("dsVacuumPackingBadge")}
+            </span>
+          )}
         </div>
       </header>
+
+      {order.vacuum_packing_requested === true && (
+        <div data-order-vacuum-detail="" role="note" className="mt-3 rounded-xl border border-sky-300 bg-sky-50 p-3 text-sm font-semibold text-sky-900">
+          {t("dsVacuumPackingDetail")}
+        </div>
+      )}
 
       <div className="mt-4 space-y-3 border-y border-dashed border-stone-200 py-4">
         {order.order_items.map((item) => (

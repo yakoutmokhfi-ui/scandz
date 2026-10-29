@@ -1480,6 +1480,12 @@ const fr: Dict = {
 
   // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
   invNeedInvoice: "Besoin d'une facture ?",
+  vacuumPackingLabel: "Mettre mes fromages et charcuteries sous vide",
+  vacuumPackingInfoButton: "Plus d'informations sur la mise sous vide",
+  vacuumPackingInfo: "La mise sous vide aide à protéger les fromages et les charcuteries et à préserver leur qualité pendant le transport.",
+  vacuumPackingInfoClose: "Fermer",
+  vacuumPackingReviewTitle: "Mise sous vide",
+  vacuumPackingReviewValue: "Demandée pour les fromages et charcuteries",
   invTypeIndividual: "Particulier",
   invTypeCompany: "Société",
   invAddressLine1: "Adresse de facturation",
@@ -1526,6 +1532,10 @@ const fr: Dict = {
   // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
   invBillingAddressDiffers: "Adresse de facturation différente de l'adresse de livraison ?",
   dsInvoiceRequested: "Facture demandée",
+  dsVacuumPackingBadge: "Mise sous vide demandée",
+  mcCategoryVacuumPackable: "Les articles de cette catégorie peuvent être mis sous vide",
+  mcCategoryVacuumPackableHint: "Si cochée, les clients voient l'option « Mettre mes fromages et charcuteries sous vide » dès qu'un article de cette catégorie est dans leur panier.",
+  dsVacuumPackingDetail: "Le client demande la mise sous vide des fromages et des charcuteries de cette commande.",
   dsInvoiceVatNumber: "N° TVA",
   dsInvoiceSiren: "SIRET",
 
@@ -2833,6 +2843,12 @@ const en: Dict = {
 
   // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
   invNeedInvoice: "Need an invoice?",
+  vacuumPackingLabel: "Vacuum-pack my cheeses and deli meats",
+  vacuumPackingInfoButton: "More information about vacuum packing",
+  vacuumPackingInfo: "Vacuum packing helps protect the cheeses and deli meats and preserve their quality during transport.",
+  vacuumPackingInfoClose: "Close",
+  vacuumPackingReviewTitle: "Vacuum packing",
+  vacuumPackingReviewValue: "Requested for cheeses and deli meats",
   invTypeIndividual: "Individual",
   invTypeCompany: "Company",
   invAddressLine1: "Billing address",
@@ -2872,6 +2888,10 @@ const en: Dict = {
   // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
   invBillingAddressDiffers: "Billing address different from delivery address?",
   dsInvoiceRequested: "Invoice requested",
+  dsVacuumPackingBadge: "Vacuum packing requested",
+  mcCategoryVacuumPackable: "Items in this category can be vacuum-packed",
+  mcCategoryVacuumPackableHint: "When ticked, customers see the \"Vacuum-pack my cheeses and deli meats\" option as soon as an item from this category is in their cart.",
+  dsVacuumPackingDetail: "The customer asked for the cheeses and deli meats in this order to be vacuum-packed.",
   dsInvoiceVatNumber: "VAT number",
   dsInvoiceSiren: "SIRET",
 
@@ -4169,6 +4189,12 @@ const ar: Dict = {
 
   // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.1.
   invNeedInvoice: "هل تحتاج إلى فاتورة؟",
+  vacuumPackingLabel: "تغليف الأجبان واللحوم الباردة بالتفريغ",
+  vacuumPackingInfoButton: "مزيد من المعلومات حول التغليف بالتفريغ",
+  vacuumPackingInfo: "يساعد التغليف بالتفريغ على حماية الأجبان واللحوم الباردة والحفاظ على جودتها أثناء النقل.",
+  vacuumPackingInfoClose: "إغلاق",
+  vacuumPackingReviewTitle: "التغليف بالتفريغ",
+  vacuumPackingReviewValue: "مطلوب للأجبان واللحوم الباردة",
   invTypeIndividual: "فرد",
   invTypeCompany: "شركة",
   invAddressLine1: "عنوان الفوترة",
@@ -4208,6 +4234,10 @@ const ar: Dict = {
   // INVOICE BACKOFFICE VISIBILITY + BILLING ADDRESS v1 (Claude Monet).
   invBillingAddressDiffers: "هل عنوان الفوترة مختلف عن عنوان التوصيل؟",
   dsInvoiceRequested: "طلب فاتورة",
+  dsVacuumPackingBadge: "مطلوب التغليف بالتفريغ",
+  mcCategoryVacuumPackable: "يمكن تغليف منتجات هذه الفئة بالتفريغ",
+  mcCategoryVacuumPackableHint: "عند التحديد، يرى العملاء خيار تغليف الأجبان واللحوم الباردة بالتفريغ بمجرد وجود منتج من هذه الفئة في سلتهم.",
+  dsVacuumPackingDetail: "طلب العميل تغليف الأجبان واللحوم الباردة في هذا الطلب بالتفريغ.",
   dsInvoiceVatNumber: "رقم التعريف الضريبي",
   dsInvoiceSiren: "رقم SIRET",
 
@@ -4282,6 +4312,12 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  vacuumPackingLabel: "Mijn kazen en vleeswaren vacuümverpakken",
+  vacuumPackingInfoButton: "Meer informatie over vacuümverpakken",
+  vacuumPackingInfo: "Vacuümverpakken helpt de kazen en vleeswaren te beschermen en hun kwaliteit tijdens het transport te bewaren.",
+  vacuumPackingInfoClose: "Sluiten",
+  vacuumPackingReviewTitle: "Vacuümverpakken",
+  vacuumPackingReviewValue: "Gevraagd voor kazen en vleeswaren",
   checkoutReviewTitle: "Controleer je bestelling",
   checkoutReviewIntro: "Controleer de artikelen en de ontvangstgegevens voordat je verdergaat.",
   checkoutReviewBeforeConfirmHint: "Je kunt de gegevens bekijken voordat je bevestigt.",

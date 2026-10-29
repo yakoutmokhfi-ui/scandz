@@ -13,7 +13,7 @@ export interface CreateOrderPayload {
   /** Coordonnées client, ou objet vide en mode "table". Reste un
    *  simple objet JSON transmis tel quel à la RPC : la validation de
    *  forme est faite côté serveur (create_order), pas ici. */
-  p_customer: Record<string, string | SchedulePayload | null | undefined>;
+  p_customer: Record<string, string | boolean | SchedulePayload | null | undefined>;
   p_note: string | null;
   p_language: Lang;
   /**
@@ -66,8 +66,16 @@ export function buildCreateOrderPayload(params: {
    * déclaration du client, jamais une autorisation.
    */
   schedule?: SchedulePayload | null;
+  /**
+   * OPTION « MISE SOUS VIDE » -- choix du client, transmis DANS la création de la
+   * commande (`p_customer.vacuum_packing`), donc persisté atomiquement avec elle :
+   * aucune fenêtre entre création et enregistrement. N'est envoyé que s'il vaut
+   * `true` (absent = comportement historique, octet pour octet) et jamais en mode
+   * « table ». Le serveur revérifie l'éligibilité du panier.
+   */
+  vacuumPacking?: boolean;
 }): CreateOrderPayload {
-  const { slug, context, lines, lang, note, cgvAccepted, deliveryCountryCode, schedule } = params;
+  const { slug, context, lines, lang, note, cgvAccepted, deliveryCountryCode, schedule, vacuumPacking } = params;
 
   const items = lines.map((l) => ({
     menu_item_id: l.item.id,
@@ -146,12 +154,17 @@ export function buildCreateOrderPayload(params: {
       ? { ...customer, schedule }
       : customer;
 
+  const customerFinal =
+    context.mode !== "table" && vacuumPacking === true
+      ? { ...customerWithSchedule, vacuum_packing: true }
+      : customerWithSchedule;
+
   return {
     p_slug: slug,
     p_service_mode: context.mode,
     p_items: items,
     p_table_number: context.mode === "table" ? context.tableNumber : null,
-    p_customer: customerWithSchedule,
+    p_customer: customerFinal,
     p_note: orderNotePayload(note),
     p_language: lang,
     p_cgv_accepted: cgvAccepted === true,

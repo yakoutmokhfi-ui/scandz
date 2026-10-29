@@ -7,6 +7,7 @@ import type { DeliveryStatus } from "@/lib/delivery";
 import type { CustomerInfo } from "@/lib/customer";
 import type { InvoiceRequestInfo, InvoiceRequestErrors } from "@/lib/invoice-request";
 import InvoiceRequestFields from "@/components/InvoiceRequestFields";
+import VacuumPackingOption from "@/components/VacuumPackingOption";
 import type { FieldRequirementDisplayItem } from "@/lib/sale-modes-public";
 import type { PublicSaleModesState } from "@/lib/use-public-sale-modes";
 import QuantityControl from "@/components/QuantityControl";
@@ -58,6 +59,9 @@ export default function CartPanel({
   invoiceRequest,
   invoiceRequestErrors,
   onChangeInvoiceRequest,
+  vacuumPackingAvailable = false,
+  vacuumPacking = false,
+  onChangeVacuumPacking,
   note,
   canSubmit,
   scheduleHint,
@@ -141,6 +145,11 @@ export default function CartPanel({
   invoiceRequest: InvoiceRequestInfo;
   invoiceRequestErrors: InvoiceRequestErrors;
   onChangeInvoiceRequest: (next: InvoiceRequestInfo) => void;
+  /** OPTION « MISE SOUS VIDE » -- le panier contient au moins un article d'une
+   *  catégorie éligible. Faux (défaut) : aucune case, comportement historique. */
+  vacuumPackingAvailable?: boolean;
+  vacuumPacking?: boolean;
+  onChangeVacuumPacking?: (next: boolean) => void;
   /** Note générale de commande (V65), unique, facultative — pas de note par ligne. */
   note: string;
   canSubmit: boolean;
@@ -602,6 +611,12 @@ export default function CartPanel({
                     </dd>
                   </div>
                 )}
+                {vacuumPackingAvailable && vacuumPacking && serviceMode !== "table" && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-on-bg-muted">{t("vacuumPackingReviewTitle")}</dt>
+                    <dd data-checkout-review-vacuum="" className="text-right font-medium">{t("vacuumPackingReviewValue")}</dd>
+                  </div>
+                )}
                 {orderNoteEnabled && note.trim() && (
                   <div>
                     <dt className="text-ink-on-bg-muted">{t("noteLabel")}</dt>
@@ -733,6 +748,12 @@ export default function CartPanel({
                   communicationTexts={communicationTexts}
                 />
               </div>
+
+              {/* OPTION « MISE SOUS VIDE » -- après la demande de facture, avant le
+                  récapitulatif ; jamais en mode table (service sur place). */}
+              {vacuumPackingAvailable && serviceMode !== "table" && onChangeVacuumPacking && (
+                <VacuumPackingOption checked={vacuumPacking} onChange={onChangeVacuumPacking} />
+              )}
 
               {orderNoteEnabled && (
               <div className="mt-4" data-order-note-block="">

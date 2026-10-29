@@ -136,7 +136,35 @@ export async function getDashboardOrders(
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as DashboardOrder[];
+  const orders = (data ?? []) as unknown as DashboardOrder[];
+  return attachVacuumPackingFlags(orders);
+}
+
+/**
+ * OPTION « MISE SOUS VIDE » -- lit `orders.vacuum_packing_requested` par une requête
+ * SÉPARÉE plutôt que dans la liste de colonnes ci-dessus : tant que la colonne
+ * additive n'existe pas (lot SQL non appliqué), la liste des commandes continue de
+ * s'afficher telle quelle au lieu de tomber en erreur. Aucun client ne peut avoir
+ * demandé de mise sous vide avant ce lot (aucune catégorie n'est éligible), donc
+ * l'indisponibilité n'est jamais une perte : la valeur reste `undefined` (rien
+ * d'affiché, jamais « non demandé » fabriqué).
+ */
+async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<DashboardOrder[]> {
+  if (orders.length === 0) return orders;
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("id, vacuum_packing_requested")
+      .in("id", orders.map((o) => o.id));
+    if (error || !Array.isArray(data)) return orders;
+    const flags = new Map<string, boolean>();
+    for (const row of data as { id: string; vacuum_packing_requested: boolean | null }[]) {
+      flags.set(row.id, row.vacuum_packing_requested === true);
+    }
+    return orders.map((o) => (flags.has(o.id) ? { ...o, vacuum_packing_requested: flags.get(o.id) } : o));
+  } catch {
+    return orders;
+  }
 }
 
 /**
@@ -426,6 +454,10 @@ export interface CatalogueCategory {
    *  produits. Tableau vide pour un commerçant qui n'utilise aucune
    *  sous-catégorie (comportement historique préservé). */
   subcategories: CatalogueSubcategory[];
+  /** OPTION « MISE SOUS VIDE » -- indicateur de la catégorie. `undefined` =
+   *  indisponible (lot SQL non appliqué ou lecture en échec) : l'éditeur masque
+   *  alors la case au lieu d'afficher un état faux. */
+  category_vacuum_packable?: boolean;
 }
 
 export interface CatalogueProduct {
@@ -662,6 +694,20 @@ export async function getMerchantCatalogue(
       allowed_sale_modes: r.allowed_sale_modes ?? null,
     });
   }
+  // OPTION « MISE SOUS VIDE » -- lecture à part (RLS membre), tolérante aux pannes :
+  // get_merchant_catalogue n'est pas modifiée, et une colonne absente ne casse rien.
+  try {
+    const { data: flagRows, error: flagError } = await supabase
+      .from("menu_categories")
+      .select("id, vacuum_packable")
+      .eq("restaurant_id", restaurantId);
+    if (!flagError && Array.isArray(flagRows)) {
+      const flags = new Map((flagRows as { id: string; vacuum_packable: boolean | null }[]).map((r) => [r.id, r.vacuum_packable === true]));
+      for (const c of categories) if (flags.has(c.category_id)) c.category_vacuum_packable = flags.get(c.category_id);
+    }
+  } catch {
+    /* indicateur indisponible : voir category_vacuum_packable */
+  }
   return categories;
 }
 
@@ -835,6 +881,18 @@ export async function createCategory(
     throw new Error(error.message);
   }
   return data as string;
+}
+
+/** OPTION « MISE SOUS VIDE » -- RPC SECURITY DEFINER (propriétaire/gérant). */
+export async function setCategoryVacuumPackable(
+  categoryId: string,
+  vacuumPackable: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("set_category_vacuum_packable", {
+    p_category_id: categoryId,
+    p_vacuum_packable: vacuumPackable,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /**

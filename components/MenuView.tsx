@@ -58,6 +58,7 @@ import {
   type InvoiceRequestInfo,
 } from "@/lib/invoice-request";
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
+import { cartHasVacuumPackable, effectiveVacuumPacking } from "@/lib/vacuum-packing";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
@@ -516,6 +517,7 @@ export default function MenuView({
       setServiceMode(availableServiceModes.length === 1 ? availableServiceModes[0] : null);
       setTableNumber(null);
       setCustomer(EMPTY_CUSTOMER);
+      setVacuumPacking(false);
       setShowErrors(false);
       // La note générale n'est pas structurellement "dépendante du
       // mode", mais reste rattachée à CETTE tentative de commande --
@@ -540,6 +542,10 @@ export default function MenuView({
 
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
   const [invoiceRequest, setInvoiceRequest] = useState<InvoiceRequestInfo>(EMPTY_INVOICE_REQUEST);
+  // OPTION « MISE SOUS VIDE » -- facultative, décochée par défaut. Le choix n'est
+  // transmis que si le panier contient toujours un article éligible
+  // (effectiveVacuumPacking) : retirer le fromage annule le choix, sans état caché.
+  const [vacuumPacking, setVacuumPacking] = useState(false);
 
   /**
    * LOT 2B.4a.2 — BASCULE RUNTIME RÉELLE : les exigences client sont
@@ -1694,6 +1700,7 @@ export default function MenuView({
     );
     setCustomer(EMPTY_CUSTOMER);
     setInvoiceRequest(EMPTY_INVOICE_REQUEST);
+    setVacuumPacking(false);
     setPendingInvoiceCompletion(null);
     setInvoiceRequestError(null);
     setShowErrors(false);
@@ -1757,6 +1764,14 @@ export default function MenuView({
         // configuration du marchand, jamais une constante.
         deliveryCountryCode: deliveryCountry?.countryCode ?? null,
         schedule: frozenSchedule,
+        // OPTION « MISE SOUS VIDE » -- évalué sur le panier GELÉ de cette
+        // tentative, transmis dans la création elle-même (atomique).
+        vacuumPacking:
+          frozenOrderContext.mode !== "table" &&
+          effectiveVacuumPacking(
+            vacuumPacking,
+            cartHasVacuumPackable(frozenLines, restaurant.categories)
+          ),
       });
 
       // CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -2260,6 +2275,9 @@ export default function MenuView({
       {isCartOpen && (
         <CartPanel
           restaurant={restaurant}
+          vacuumPackingAvailable={cartHasVacuumPackable(lines, restaurant.categories)}
+          vacuumPacking={vacuumPacking}
+          onChangeVacuumPacking={setVacuumPacking}
           deliveryCountry={deliveryCountry}
           deliveryCountryOptions={deliveryCountryChoices}
           onSelectDeliveryCountry={setSelectedCountryCode}

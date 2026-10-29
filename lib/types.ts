@@ -211,6 +211,10 @@ export interface MenuCategory {
    *  qu'un commerçant ne l'a pas renseignée explicitement — jamais
    *  déduite ou migrée automatiquement depuis une autre donnée. */
   description?: string | null;
+  /** OPTION « MISE SOUS VIDE » -- le commerçant a marqué cette catégorie comme
+   *  pouvant être mise sous vide (fromages, charcuteries...). Colonne additive,
+   *  `false` par défaut : absente/false = aucune proposition au client. */
+  vacuum_packable?: boolean;
   /** Colonne optionnelle : absente tant que la migration n'est pas jouée */
   translations?: Translations;
   /** LOT 1B — hash canonique de name/description, colonnes GÉNÉRÉES
