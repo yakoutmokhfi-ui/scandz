@@ -91,7 +91,7 @@ function OrderHelpPanel({ label, title, body }: { label: string; title: string; 
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-start text-sm font-semibold text-ink-on-bg"
+        className="min-h-11 w-full rounded-xl border border-espresso/15 bg-espresso/5 px-4 py-2.5 text-center text-sm font-semibold text-ink-on-bg"
       >
         {label}
       </button>
