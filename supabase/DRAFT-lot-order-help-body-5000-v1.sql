@@ -24,21 +24,34 @@
 
 begin;
 
--- PRÉ-VOL — état prédécesseur EXACT, échec fermé AVANT toute écriture.
--- Le lot remplace la fonction ENTIÈRE et le CHECK : toute valeur différente de
--- l'état attendu (ex. une borne d'e-mail à 80 au lieu de 160) serait écrasée
--- sans trace. On vérifie donc : (1) une seule surcharge ; (2) corps EXACT
--- (comparé sans blancs ni casse) = THEME & CONTENT SETTINGS v1 ; (3) langage,
--- volatilité, search_path et droits d'exécution inchangés ; (4) CHECK de table
--- EXACT = MCC v1 (<= 500). On ne « rétablit » jamais une valeur attendue.
+-- PRÉ-VOL — état prédécesseur vérifié SÉMANTIQUEMENT, échec fermé AVANT toute
+-- écriture. Le lot remplace la fonction ENTIÈRE et le CHECK : toute valeur
+-- inattendue (ex. une borne d'e-mail à 80) serait écrasée sans trace. On
+-- vérifie donc, sans jamais « rétablir » une valeur attendue :
+--   (1) littéraux de la source : EXACTS (casse/espaces conservés) ;
+--   (2) nombres hors littéraux : exactement {60,120,160,500} ;
+--   (3) comportement : valeur retournée pour chaque emplacement du catalogue
+--       et pour une clé inconnue ;
+--   (4) langage, volatilité, search_path, droits d'exécution ;
+--   (5) CHECK de table : définition entière (seuls blancs/casse/préfixe
+--       pg_catalog ignorés ; aucun opérateur ni signe effacé).
+-- La mise en forme du texte (blancs, retours à la ligne, casse des mots-clés)
+-- n'est PAS une dérive ; une borne ou un littéral différent l'est.
 do $$
 declare
-  v_def   text;
-  v_body  text;
+  -- Jetons d'une source SQL : littéral '...' (avec '' échappé) OU texte hors littéral.
+  c_pat   constant text := $re$'(?:[^']|'')*'|[^']+$re$;
+  v_src   text;
+  v_lits  text[];
+  v_nums  integer[];
   v_check text;
+  v_key   text;
+  v_exp   integer;
+  v_got   integer;
 begin
   if to_regprocedure('public.communication_text_max_length(text)') is null
-     or to_regclass('public.merchant_communication_text') is null then
+     or to_regclass('public.merchant_communication_text') is null
+     or to_regprocedure('public.communication_text_keys()') is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: lots MCC / THEME & CONTENT SETTINGS absents. Annulé.';
   end if;
 
@@ -47,20 +60,46 @@ begin
     raise exception 'SCANYM_SCHEMA_DRIFT: communication_text_max_length doit exister en UNE seule surcharge. Annulé.';
   end if;
 
-  select pg_get_functiondef('public.communication_text_max_length(text)'::regprocedure) into v_def;
-  if v_def like '%order_help_body%' then
+  select p.prosrc into v_src from pg_proc p where p.oid = 'public.communication_text_max_length(text)'::regprocedure;
+  if v_src like '%order_help_body%' then
     raise exception 'SCANYM_ALREADY_APPLIED: communication_text_max_length() traite déjà order_help_body. Annulé.';
   end if;
-
-  select pg_catalog.regexp_replace(pg_catalog.lower(p.prosrc), '\s+', '', 'g')
-    into v_body
-  from pg_proc p
-  where p.oid = 'public.communication_text_max_length(text)'::regprocedure;
-  if v_body is distinct from
-     'selectcasewhenp_text_key=''email_confirmation_subject''then160whenp_text_key=''order_help_button_label''then60whenp_text_key=''order_help_title''then120else500end' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: le corps de communication_text_max_length() n''est pas EXACTEMENT celui de THEME & CONTENT SETTINGS v1 (une borne hors périmètre a dérivé) -- le remplacer l''écraserait. Annulé, rien n''est modifié.';
+  -- (1) Littéraux : EXACTS (casse, espaces et guillemets conservés). Un littéral
+  --     en majuscules, avec une espace insérée, ou supplémentaire = dérive.
+  select coalesce(pg_catalog.array_agg(t.m[1] order by t.m[1] collate "C"), '{}')
+    into v_lits
+  from pg_catalog.regexp_matches(v_src, c_pat, 'g') as t(m)
+  where t.m[1] like '''%';
+  if v_lits is distinct from (select pg_catalog.array_agg(x order by x collate "C") from pg_catalog.unnest(array['''email_confirmation_subject''','''order_help_button_label''','''order_help_title''']::text[]) as x) then
+    raise exception 'SCANYM_SCHEMA_DRIFT: littéraux de communication_text_max_length() inattendus (%) -- état attendu : THEME & CONTENT SETTINGS v1. Annulé, rien n''est modifié.', v_lits;
   end if;
 
+  -- (2) Nombres HORS littéraux : exactement les bornes attendues.
+  select coalesce(pg_catalog.array_agg(n.g[1]::integer order by n.g[1]::integer), '{}')
+    into v_nums
+  from pg_catalog.regexp_matches(v_src, c_pat, 'g') as t(m),
+       lateral pg_catalog.regexp_matches(t.m[1], '[0-9]+', 'g') as n(g)
+  where t.m[1] not like '''%';
+  if v_nums is distinct from array[60,120,160,500]::integer[] then
+    raise exception 'SCANYM_SCHEMA_DRIFT: bornes numériques de communication_text_max_length() inattendues (%) -- état attendu : THEME & CONTENT SETTINGS v1. Annulé, rien n''est modifié.', v_nums;
+  end if;
+
+  -- (3) COMPORTEMENT : valeur retournée pour CHAQUE emplacement du catalogue
+  --     et pour une clé inconnue. Tolère la mise en forme, jamais une borne.
+  foreach v_key in array (public.communication_text_keys() || array['zz_probe_unknown']::text[]) loop
+    v_exp := case v_key
+      when 'email_confirmation_subject' then 160
+      when 'order_help_button_label' then 60
+      when 'order_help_title' then 120
+      when 'order_help_body' then 500
+      else 500 end;
+    v_got := public.communication_text_max_length(v_key);
+    if v_got is distinct from v_exp then
+      raise exception 'SCANYM_SCHEMA_DRIFT: communication_text_max_length(%) = % au lieu de % (borne hors périmètre dérivée ?). Annulé, rien n''est modifié.', v_key, v_got, v_exp;
+    end if;
+  end loop;
+
+  -- (4) Attributs et droits inchangés.
   if not exists (
     select 1 from pg_proc p
     where p.oid = 'public.communication_text_max_length(text)'::regprocedure
@@ -78,13 +117,18 @@ begin
     raise exception 'SCANYM_SCHEMA_DRIFT: droits d''exécution de communication_text_max_length() inattendus. Annulé, rien n''est modifié.';
   end if;
 
-  select pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.replace(pg_get_constraintdef(c.oid), 'pg_catalog.', '')), '[^a-z0-9_<=>]', '', 'g')
+  -- (5) CHECK de table : définition ENTIÈRE, seuls blancs, casse et préfixe
+  --     pg_catalog sont ignorés (aucun opérateur, signe ni parenthèse effacé).
+  select pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.replace(pg_get_constraintdef(c.oid), 'pg_catalog.', '')), '\s+', '', 'g')
     into v_check
   from pg_constraint c
   where c.conrelid = 'public.merchant_communication_text'::regclass
-    and c.conname = 'merchant_communication_text_body_length';
-  if v_check is distinct from 'checkbodyisnullorlengthbtrimbody<=500' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: le CHECK merchant_communication_text_body_length n''est pas EXACTEMENT « body is null or length(btrim(body)) <= 500 ». Annulé, rien n''est modifié.';
+    and c.conname = 'merchant_communication_text_body_length'
+    and c.contype = 'c' and c.convalidated;
+  if v_check is distinct from 'check(((bodyisnull)or(length(btrim(body))<=500)))' then
+    raise exception 'SCANYM_SCHEMA_DRIFT: CHECK merchant_communication_text_body_length inattendu (%) -- état attendu : THEME & CONTENT SETTINGS v1. Annulé, rien n''est modifié.',
+      (select pg_get_constraintdef(c.oid) from pg_constraint c
+        where c.conrelid = 'public.merchant_communication_text'::regclass and c.conname = 'merchant_communication_text_body_length');
   end if;
 end $$;
 

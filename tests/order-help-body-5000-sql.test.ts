@@ -17,6 +17,8 @@ const MCC = sql("DRAFT-lot-merchant-customer-communications-v1.sql");
 // Fonction de bornes TELLE QUE posée par THEME & CONTENT SETTINGS v1 (version courante).
 const FN = THEME.match(/create or replace function public\.communication_text_max_length[\s\S]*?\$\$;/)![0];
 // CHECK de table tel que posé par MCC v1.
+// Catalogue de clés tel que posé par THEME & CONTENT SETTINGS v1 (version courante).
+const KEYS = THEME.match(/create or replace function public\.communication_text_keys\(\)[\s\S]*?\$\$;/)![0];
 const CHECK = MCC.match(/constraint merchant_communication_text_body_length\s+check \([^\n]+\)/)![0];
 
 async function makeDb(apply = true) {
@@ -29,6 +31,7 @@ async function makeDb(apply = true) {
       primary key (restaurant_id, text_key),
       ${CHECK}
     );
+    ${KEYS}
     ${FN}
     revoke all on function public.communication_text_max_length(text) from public, anon, authenticated, service_role;
   `);
@@ -123,15 +126,19 @@ const PREDECESSOR_BODY = (subject: number, label = 60, title = 120, other = 500)
 const DRIFTS: Array<{ name: string; setup: string; expect: RegExp }> = [
   { name: "borne d'e-mail hors périmètre à 80 (cas du contre-audit)",
     setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(80)}$$;`,
-    expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
-  { name: "libellé du bouton à 40", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 40)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
-  { name: "titre à 200", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 200)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
-  { name: "défaut ailleurs à 400", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 120, 400)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
-  { name: "branche ajoutée par un autre lot", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_subject' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'billing_profile_explanation' then 900 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
-  { name: "volatilité modifiée (stable)", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql stable set search_path = '' as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*attributs/ },
-  { name: "search_path modifié", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*attributs/ },
-  { name: "droit d'exécution accordé à anon", setup: `grant execute on function public.communication_text_max_length(text) to anon;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*droits/ },
-  { name: "CHECK de table dérivé (300)", setup: `alter table public.merchant_communication_text drop constraint merchant_communication_text_body_length; alter table public.merchant_communication_text add constraint merchant_communication_text_body_length check (body is null or pg_catalog.length(pg_catalog.btrim(body)) <= 300);`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*CHECK/ },
+    expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "libellé du bouton à 40", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 40)}$$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "titre à 200", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 200)}$$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "défaut ailleurs à 400", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 120, 400)}$$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "branche ajoutée par un autre lot", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_subject' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'billing_profile_explanation' then 900 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "volatilité modifiée (stable)", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql stable set search_path = '' as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "search_path modifié", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "droit d'exécution accordé à anon", setup: `grant execute on function public.communication_text_max_length(text) to anon;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "littéral en MAJUSCULES (contre-exemple Maxwell)", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'EMAIL_CONFIRMATION_SUBJECT' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "espace insérée dans un littéral (contre-exemple Maxwell)", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_ subject' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "littéral supplémentaire dans une branche morte, sans effet sur les valeurs", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_subject' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'zz_inconnu' then 500 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "CHECK avec un signe unaire -length(...) (contre-exemple Maxwell)", setup: `alter table public.merchant_communication_text drop constraint merchant_communication_text_body_length; alter table public.merchant_communication_text add constraint merchant_communication_text_body_length check (body is null or -pg_catalog.length(pg_catalog.btrim(body)) <= 500);`, expect: /SCANYM_SCHEMA_DRIFT/ },
+  { name: "CHECK de table dérivé (300)", setup: `alter table public.merchant_communication_text drop constraint merchant_communication_text_body_length; alter table public.merchant_communication_text add constraint merchant_communication_text_body_length check (body is null or pg_catalog.length(pg_catalog.btrim(body)) <= 300);`, expect: /SCANYM_SCHEMA_DRIFT/ },
 ];
 
 for (const d of DRIFTS) {
@@ -155,4 +162,49 @@ test("[OH5000-7] retour arrière : état posé par le lot dérivé -> arrêt ava
   await assert.rejects(() => db.exec(sql(ROLLBACK)), /SCANYM_SCHEMA_DRIFT/);
   await db.exec("rollback");
   assert.equal(await snapshot(db), before);
+});
+
+test("[OH5000-8] retour arrière : CHECK avec signe unaire « - » (contre-exemple Maxwell) -> arrêt avant mutation, définitions, droits et données inchangés", async () => {
+  const db = await makeDb();
+  await db.exec(`alter table public.merchant_communication_text drop constraint merchant_communication_text_body_length;
+    alter table public.merchant_communication_text add constraint merchant_communication_text_body_length
+    check (body is null or -pg_catalog.length(pg_catalog.btrim(body)) <= 5000);`);
+  await db.query("insert into public.merchant_communication_text (text_key, body) values ('checkout_info', 'donnée existante')");
+  const before = await snapshot(db);
+  await assert.rejects(() => db.exec(sql(ROLLBACK)), /SCANYM_SCHEMA_DRIFT/);
+  await db.exec("rollback");
+  assert.equal(await snapshot(db), before);
+});
+
+test("[OH5000-9] retour arrière : littéral en MAJUSCULES / espace dans un littéral dans l'état posé -> arrêt avant mutation", async () => {
+  for (const lit of ["'EMAIL_CONFIRMATION_SUBJECT'", "'email_confirmation_ subject'"]) {
+    const db = await makeDb();
+    await db.exec(`create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$
+      select case when p_text_key = ${lit} then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'order_help_body' then 5000 else 500 end $$;`);
+    const before = await snapshot(db);
+    await assert.rejects(() => db.exec(sql(ROLLBACK)), /SCANYM_SCHEMA_DRIFT/, lit);
+    await db.exec("rollback");
+    assert.equal(await snapshot(db), before, lit);
+  }
+});
+
+test("[OH5000-10] la MISE EN FORME du prédécesseur n'est pas une dérive (blancs, retours, casse des mots-clés) : le lot s'applique", async () => {
+  const db = await makeDb(false);
+  await db.exec(`create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$SELECT CASE WHEN p_text_key='email_confirmation_subject' THEN 160
+ WHEN p_text_key  =  'order_help_button_label'   THEN   60
+
+ WHEN p_text_key = 'order_help_title' THEN 120 ELSE 500 END$$;`);
+  await db.exec(sql(LOT));
+  assert.equal(await max(db, "order_help_body"), 5000);
+  assert.equal(await max(db, "email_confirmation_subject"), 160);
+  await insert(db, "order_help_body", 5000);
+  await assert.rejects(() => insert(db, "order_help_body", 5001), /merchant_communication_text_body_length/);
+});
+
+test("[OH5000-11] le CHECK nominal (rendu réel par PostgreSQL) est reconnu ; cycle nominal lot -> retour arrière -> lot", async () => {
+  const db = await makeDb();
+  await db.exec(sql(ROLLBACK));
+  assert.equal(await max(db, "order_help_body"), 500);
+  await db.exec(sql(LOT));
+  assert.equal(await max(db, "order_help_body"), 5000);
 });
