@@ -124,6 +124,10 @@ export default function MenuItemCard({
             <img
               src={item.image_url!}
               alt={item.name}
+              width={96}
+              height={96}
+              loading="lazy"
+              decoding="async"
               onError={() => setPhotoFailed(true)}
               className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
             />
@@ -182,6 +186,10 @@ export default function MenuItemCard({
         <img
           src={item.image_url!}
           alt={item.name}
+          width={112}
+          height={112}
+          loading="lazy"
+          decoding="async"
           onError={() => setPhotoFailed(true)}
           className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
         />

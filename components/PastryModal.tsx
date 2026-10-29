@@ -46,6 +46,8 @@ export default function PastryModal({
                     <img
                       src={pastry.image_url}
                       alt={pastry.name}
+                      loading="lazy"
+                      decoding="async"
                       className="h-24 w-full object-cover"
                     />
                   )}
