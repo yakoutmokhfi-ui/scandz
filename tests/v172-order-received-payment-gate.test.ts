@@ -382,6 +382,15 @@ async function snapshot(db: PGlite) {
     claim: await q(`select pg_get_functiondef('${CLAIM_FN}'::regprocedure) as d, p.proacl::text as acl, p.prosecdef, p.proconfig::text as cfg,
                            md5(replace(p.prosrc, E'\r', '')) as body_md5
                       from pg_proc p where p.oid = '${CLAIM_FN}'::regprocedure`),
+    // Ligne pg_proc COMPLÈTE du claim (propriétaire, ACL, STRICT, volatilité, LEAKPROOF, PARALLEL, COST, ROWS, SET…) :
+    // toute modification d'attribut ou de droit, même hors de ce que le pré-vol compare, apparaît ici.
+    claimRow: await q(`select to_jsonb(p)::text as r from pg_proc p where p.oid = '${CLAIM_FN}'::regprocedure`),
+    claimAcl: await q(`select coalesce(a.grantee::regrole::text, 'PUBLIC') as grantee, a.grantor::regrole::text as grantor, a.privilege_type, a.is_grantable
+                         from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                        where p.oid = '${CLAIM_FN}'::regprocedure order by 1, 2, 3, 4`),
+    allFunctionAcl: await q(`select p.proname, p.proowner::regrole::text as owner, p.proacl::text as acl from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' order by 1`),
+    roles: await q(`select rolname from pg_roles where rolname !~ '^pg_' order by 1`),
+    ordersFull: await q(`select to_jsonb(o)::text as r from public.orders o order by id`),
     functions: await q(`select proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' order by 1`),
     ordersColumns: await q(`select column_name from information_schema.columns where table_schema='public' and table_name='orders' order by 1`),
     orders: await q(`select id, payment_status from public.orders order by id`),
@@ -398,6 +407,19 @@ const DRIFTS: Array<{ label: string; claim: (c: string) => string; extra?: strin
   { label: "valeur par défaut d'argument différente", claim: (c) => c.replace("p_batch_size    integer default 10", "p_batch_size    integer default 20") , check: /attributs de claim_pending_notifications différents de N1-A/ },
   { label: "colonne retournée renommée", claim: (c) => c.replace(/reply_to\s+text\n\)/, "reply_to_addr text\n)") , check: /attributs de claim_pending_notifications différents de N1-A/ },
   { label: "droit d'exécution élargi à authenticated", claim: (c) => c, extra: `grant execute on function ${CLAIM_FN} to authenticated;` , check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
+  // --- T180-02 / constat R3 : attributs (STRICT etc.) et ENSEMBLE COMPLET des droits ---
+  { label: "STRICT (RETURNS NULL ON NULL INPUT) -- contre-exemple de Turing", claim: (c) => c, extra: `alter function ${CLAIM_FN} returns null on null input;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "volatilité STABLE", claim: (c) => c, extra: `alter function ${CLAIM_FN} stable;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "LEAKPROOF", claim: (c) => c, extra: `alter function ${CLAIM_FN} leakproof;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "PARALLEL SAFE", claim: (c) => c, extra: `alter function ${CLAIM_FN} parallel safe;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "COST différent", claim: (c) => c, extra: `alter function ${CLAIM_FN} cost 500;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "ROWS différent", claim: (c) => c, extra: `alter function ${CLAIM_FN} rows 7;`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "réglage SET supplémentaire (statement_timeout)", claim: (c) => c, extra: `alter function ${CLAIM_FN} set statement_timeout = '5s';`, check: /attributs de claim_pending_notifications différents de N1-A/ },
+  { label: "rôle supplémentaire avec EXECUTE -- contre-exemple de Turing", claim: (c) => c, extra: `create role audit_extra nologin; grant execute on function ${CLAIM_FN} to audit_extra;`, check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
+  { label: "droit d'exécution accordé à anon", claim: (c) => c, extra: `grant execute on function ${CLAIM_FN} to anon;`, check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
+  { label: "droit d'exécution accordé à PUBLIC", claim: (c) => c, extra: `grant execute on function ${CLAIM_FN} to public;`, check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
+  { label: "service_role avec option de transmission (WITH GRANT OPTION)", claim: (c) => c, extra: `grant execute on function ${CLAIM_FN} to service_role with grant option;`, check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
+  { label: "propriétaire différent du rôle qui applique le lot", claim: (c) => c, extra: `create role audit_other_owner; alter function ${CLAIM_FN} owner to audit_other_owner;`, check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
   { label: "droit d'exécution de service_role retiré", claim: (c) => c, extra: `revoke execute on function ${CLAIM_FN} from service_role;` , check: /droits d'exécution de claim_pending_notifications différents de N1-A/ },
 ];
 
@@ -498,4 +520,80 @@ test("[172-PRE-4] rollback : refusé si le claim a été modifié depuis le lot 
   assert.equal(restored.claim[0]!.cfg, original.claim[0]!.cfg);
   assert.equal(restored.claim[0]!.prosecdef, original.claim[0]!.prosecdef);
   assert.deepEqual(restored.ordersColumns, original.ordersColumns);
+});
+
+// ====================================================================
+// T180-02 / constat R3 (contre-audit de Turing sur 5d3c3f0) : le rollback
+// applique la MÊME politique que le lot -- tous les attributs de pg_proc que
+// CREATE OR REPLACE réécrirait (STRICT compris) et l'ENSEMBLE COMPLET des
+// droits EXECUTE. Chaque variante est introduite APRÈS l'application du lot ;
+// le rollback doit être refusé avant toute écriture, et les décisions
+// payment_mode_final déjà prises doivent rester intactes.
+// ====================================================================
+const ROLLBACK_ATTR = /attributs de claim_pending_notifications différents de ceux posés par ce lot/;
+const ROLLBACK_ACL = /droits d'exécution de claim_pending_notifications différents de ceux posés par ce lot/;
+const ROLLBACK_DRIFTS: Array<{ label: string; mutate: string; check: RegExp }> = [
+  { label: "STRICT (RETURNS NULL ON NULL INPUT) -- contre-exemple de Turing", mutate: `alter function ${CLAIM_FN} returns null on null input;`, check: ROLLBACK_ATTR },
+  { label: "volatilité STABLE", mutate: `alter function ${CLAIM_FN} stable;`, check: ROLLBACK_ATTR },
+  { label: "LEAKPROOF", mutate: `alter function ${CLAIM_FN} leakproof;`, check: ROLLBACK_ATTR },
+  { label: "PARALLEL SAFE", mutate: `alter function ${CLAIM_FN} parallel safe;`, check: ROLLBACK_ATTR },
+  { label: "COST différent", mutate: `alter function ${CLAIM_FN} cost 500;`, check: ROLLBACK_ATTR },
+  { label: "ROWS différent", mutate: `alter function ${CLAIM_FN} rows 7;`, check: ROLLBACK_ATTR },
+  { label: "réglage SET supplémentaire (statement_timeout)", mutate: `alter function ${CLAIM_FN} set statement_timeout = '5s';`, check: ROLLBACK_ATTR },
+  { label: "SECURITY INVOKER", mutate: `alter function ${CLAIM_FN} security invoker;`, check: ROLLBACK_ATTR },
+  { label: "rôle supplémentaire avec EXECUTE -- contre-exemple de Turing", mutate: `create role audit_extra nologin; grant execute on function ${CLAIM_FN} to audit_extra;`, check: ROLLBACK_ACL },
+  { label: "droit d'exécution accordé à anon", mutate: `grant execute on function ${CLAIM_FN} to anon;`, check: ROLLBACK_ACL },
+  { label: "droit d'exécution accordé à PUBLIC", mutate: `grant execute on function ${CLAIM_FN} to public;`, check: ROLLBACK_ACL },
+  { label: "service_role avec option de transmission (WITH GRANT OPTION)", mutate: `grant execute on function ${CLAIM_FN} to service_role with grant option;`, check: ROLLBACK_ACL },
+  { label: "propriétaire différent du rôle qui applique le rollback", mutate: `create role audit_other_owner; alter function ${CLAIM_FN} owner to audit_other_owner;`, check: ROLLBACK_ACL },
+  { label: "droit d'exécution de service_role retiré", mutate: `revoke execute on function ${CLAIM_FN} from service_role;`, check: ROLLBACK_ACL },
+];
+
+for (const drift of ROLLBACK_DRIFTS) {
+  test(`[172-PRE-5] rollback -- claim du lot puis ${drift.label} : REFUSÉ (SCANYM_PREDECESSOR_DRIFT) avant toute écriture ; définitions, droits, attributs et décisions inchangés`, async () => {
+    const db = await makeDb(true);
+    await addOrder(db, "not_required", 0, "order_received", true); // décision « sans paiement » à conserver
+    await db.exec(drift.mutate);
+    const before = await snapshot(db);
+    const decisions = async () =>
+      (await db.query<{ id: string; payment_status: string; payment_mode_final: string | null }>("select id, payment_status, payment_mode_final from public.orders order by id")).rows;
+    const decisionsBefore = await decisions();
+    assert.equal(decisionsBefore[0]!.payment_mode_final, "none", "précondition : une décision définitive existe");
+
+    // Mode 1 : script soumis d'un bloc.
+    await assert.rejects(() => db.exec(sql(ROLLBACK)), (e: Error) => /SCANYM_PREDECESSOR_DRIFT/.test(e.message) && drift.check.test(e.message));
+    await db.exec("rollback");
+    assert.deepEqual(await snapshot(db), before, "bloc unique : aucune mutation (fonction, droits, attributs, rôles, commandes)");
+
+    // Mode 2 : pire cas opérateur -- instruction par instruction, erreurs ignorées.
+    const errors = await runIgnoringErrors(db, sql(ROLLBACK));
+    assert.ok(errors.some((e) => /SCANYM_PREDECESSOR_DRIFT/.test(e) && drift.check.test(e)), "le refus explicite, par le bon contrôle, est bien levé");
+    assert.deepEqual(await snapshot(db), before, "instruction par instruction : aucune mutation");
+
+    // La porte et la colonne de décision sont toujours là ; aucune décision perdue.
+    const snap = await snapshot(db);
+    const names = snap.functions.map((f: any) => f.proname);
+    assert.ok(["notification_send_gate_open", "finalize_order_payment_mode_none", "orders_payment_mode_final_guard"].every((n) => names.includes(n)));
+    assert.ok(snap.ordersColumns.some((c: any) => c.column_name === "payment_mode_final"));
+    assert.deepEqual(await decisions(), decisionsBefore);
+  });
+}
+
+test("[172-PRE-6] c_expected_attrs (lot ET rollback) = attributs que PostgreSQL stocke pour N1-A et pour le claim du lot ; la même expression est dans les deux scripts", async () => {
+  const FORMAT = "format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s'";
+  const lotSql = sql(LOT);
+  const rbSql = sql(ROLLBACK);
+  assert.ok(lotSql.includes(FORMAT) && rbSql.includes(FORMAT), "même expression de signature dans le lot et le rollback");
+  const cLot = lotSql.match(/c_expected_attrs constant text := '([^']+)'/)![1]!;
+  const cRb = rbSql.match(/c_expected_attrs constant text := '([^']+)'/)![1]!;
+  assert.equal(cLot, cRb, "mêmes attributs attendus : le claim du lot est déclaré comme celui de N1-A");
+  const signature = async (db: PGlite) =>
+    (await db.query<{ a: string }>(
+      `select ${FORMAT},
+                p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')) as a
+         from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = '${CLAIM_FN}'::regprocedure`)).rows[0]!.a;
+  assert.equal(await signature(await makeDb(false)), cLot, "N1-A stocké par PostgreSQL");
+  assert.equal(await signature(await makeDb(true)), cRb, "claim du lot stocké par PostgreSQL");
 });
