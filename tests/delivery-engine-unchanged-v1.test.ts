@@ -80,5 +80,12 @@ for (const [file, sha] of Object.entries(PINNED)) {
 test("DeliveryPostcodeResult (availability, real fee, discount applied, missing items, matched rule text) is byte-identical to base", () => {
   const src = readFileSync("components/DeliveryConditions.tsx", "utf8");
   const slice = src.slice(src.indexOf("/** One popup per meaningful resolved result"));
-  assert.equal(createHash("sha256").update(slice).digest("hex"), "ef6a193f34c1a81cd31fba02fb92f4726ef63da2efd809f01ae0c68679a0decb");
+  // Issue #183 -- RE-PIN DIVULGUÉ : DeliveryPostcodeResult gagne UNE prop optionnelle
+  // `onOpenChange` et un `useEffect` qui relaie son état d'ouverture EFFECTIF
+  // (ouverte ET active) à CartPanel, pour que le doublon inline du texte de règle ne
+  // soit masqué que pendant que la fenêtre est ouverte. AUCUNE ligne du contenu
+  // rendu (disponibilité, frais réels, remise, articles manquants, texte de règle)
+  // ni du calcul n'est touchée : seuls la signature et `effectiveOpen` changent.
+  // SHA-256 précédent : ef6a193f34c1a81cd31fba02fb92f4726ef63da2efd809f01ae0c68679a0decb
+  assert.equal(createHash("sha256").update(slice).digest("hex"), "305551ccf75807c48c05f8c1d52181c24eb5e6a05d41f1d8ade36895aa41e896");
 });
