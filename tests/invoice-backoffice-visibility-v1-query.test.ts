@@ -52,6 +52,10 @@ test("16. getDashboardOrders() -- la requête .select() embarque désormais orde
     not() {
       return chain;
     },
+    // ISSUE #171 : filtre opérationnel `.in("payment_status", [...])`.
+    in() {
+      return chain;
+    },
     then(resolve: (v: { data: unknown[]; error: null }) => void) {
       resolve({ data: [], error: null });
     },

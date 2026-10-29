@@ -2,6 +2,7 @@ import { sanitizeThemeTokens, type ThemeTokens } from "@/lib/theme-tokens";
 import { isStorefrontPhotoOverlay, type StorefrontPhotoOverlay } from "@/lib/storefront-photo-overlay";
 import { supabase } from "@/lib/supabase";
 import { ORDER_PAGE_SIZE, validateOrderCursor, type OrderCursor } from "@/lib/dashboard-pagination";
+import { OPERATIONAL_PAYMENT_STATUSES } from "@/lib/order-payment-operability";
 import type {
   DashboardOrder,
   MerchantDeliveryFulfillmentPricingRule,
@@ -85,7 +86,7 @@ export async function getDashboardOrders(
     .from("orders")
     .select(
       `
-      id, restaurant_id, order_number, status, service_mode, table_number,
+      id, restaurant_id, order_number, status, payment_status, service_mode, table_number,
       customer_name, customer_phone, customer_email,
       delivery_address, delivery_zone, customer_note, customer_language,
       subtotal, total, currency, created_at, updated_at,
@@ -121,6 +122,16 @@ export async function getDashboardOrders(
 
   if (!includeCompleted) {
     query = query.not("status", "in", '(completed,rejected,cancelled)');
+    // ISSUE #171 -- liste OPÉRATIONNELLE : seules les commandes dont le
+    // paiement n'est pas en travers (`not_required` historique, `paid`
+    // confirmé) sont présentées comme traitables. `required`/`pending`
+    // (paiement attendu / tentative en cours, y compris après un refus
+    // Monetico qui laisse la tentative pending) et `failed`/`cancelled`
+    // (terminal négatif, audit) en sont EXCLUES. L'historique
+    // (`includeCompleted`) conserve tout pour l'audit -- les cartes y
+    // sont alors non actionnables (OrderCard) et la RPC
+    // update_order_status refuse de toute façon côté serveur.
+    query = query.in("payment_status", [...OPERATIONAL_PAYMENT_STATUSES]);
   }
 
   const { data, error } = await query;
