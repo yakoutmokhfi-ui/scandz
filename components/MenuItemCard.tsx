@@ -9,6 +9,7 @@ import Ltr from "@/components/Bidi";
 import ProductInfoButton from "@/components/ProductInfoButton";
 import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import ProductTags from "@/components/ProductTags";
+import { productPhotoThumbnailUrl } from "@/lib/product-photo-thumbnail";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 import { frontendRestrictedModes, serviceModeNameKey } from "@/lib/service-mode-restrictions";
@@ -58,6 +59,18 @@ export default function MenuItemCard({
   // rendu "sans photo" dès le premier échec de chargement.
   const [photoFailed, setPhotoFailed] = useState(false);
   const hasPhoto = Boolean(item.image_url) && !photoFailed;
+  // Vignette (issue #188) ; si elle échoue (transformations indisponibles),
+  // on retombe d'abord sur l'original avant de déclarer la photo cassée.
+  const [useOriginal, setUseOriginal] = useState(false);
+  const photoSrc = item.image_url
+    ? useOriginal
+      ? item.image_url
+      : productPhotoThumbnailUrl(item.image_url)
+    : "";
+  const onPhotoError = () => {
+    if (!useOriginal && photoSrc !== item.image_url) setUseOriginal(true);
+    else setPhotoFailed(true);
+  };
   const isInline = Boolean(inlineChoices && onChangeChoice);
   // CUSTOMER TAGS DISPLAY (LOT 01) -- nom accessible de la liste des
   // tags publiés du produit (rendu nul pour un produit sans tag).
@@ -122,9 +135,13 @@ export default function MenuItemCard({
         <div className="flex gap-3">
           {hasPhoto ? (
             <img
-              src={item.image_url!}
+              src={photoSrc}
               alt={item.name}
-              onError={() => setPhotoFailed(true)}
+              width={96}
+              height={96}
+              loading="lazy"
+              decoding="async"
+              onError={onPhotoError}
               className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
             />
           ) : (
@@ -180,9 +197,13 @@ export default function MenuItemCard({
     <article className={`flex gap-3 ${cardClasses}`}>
       {hasPhoto ? (
         <img
-          src={item.image_url!}
+          src={photoSrc}
           alt={item.name}
-          onError={() => setPhotoFailed(true)}
+          width={112}
+          height={112}
+          loading="lazy"
+          decoding="async"
+          onError={onPhotoError}
           className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
         />
       ) : (
