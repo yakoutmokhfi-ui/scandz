@@ -369,6 +369,9 @@ test("[MIR-4] bornes SQL = bornes TypeScript (libellé, titre, corps, sujet)", (
       key === "email_confirmation_subject" ? COMMUNICATION_SUBJECT_MAX_LENGTH
       : key === "order_help_button_label" ? COMMUNICATION_ORDER_HELP_LABEL_MAX_LENGTH
       : key === "order_help_title" ? COMMUNICATION_ORDER_HELP_TITLE_MAX_LENGTH
+      // Ce lot THEME pose 500 ; le lot additif ORDER HELP BODY 5000 le relève
+      // (miroir SQL/TS prouvé par tests/order-help-body-5000-sql.test.ts).
+      : key === "order_help_body" ? 5000
       : COMMUNICATION_TEXT_MAX_LENGTH;
     assert.equal(COMMUNICATION_TEXT_SPEC[key].maxLength, expected, key);
   }
@@ -428,7 +431,7 @@ test("[MCC-1] catalogue étendu : 3 emplacements d'aide, publics, SANS texte pla
   }
   assert.equal(COMMUNICATION_TEXT_SPEC.order_help_button_label.maxLength, 60);
   assert.equal(COMMUNICATION_TEXT_SPEC.order_help_title.maxLength, 120);
-  assert.equal(COMMUNICATION_TEXT_SPEC.order_help_body.maxLength, 500);
+  assert.equal(COMMUNICATION_TEXT_SPEC.order_help_body.maxLength, 5000);
 });
 
 test("[MCC-2] sans surcharge => `absent` (le bouton n'existe pas) ; avec surcharge => texte du commerçant", () => {
@@ -446,8 +449,10 @@ test("[MCC-3] un libellé/titre trop long est traité comme ABSENT (jamais tronq
   assert.equal(normalizeCommunicationText("order_help_button_label", "x".repeat(61)), undefined);
   assert.equal(normalizeCommunicationText("order_help_title", "x".repeat(120)), "x".repeat(120));
   assert.equal(normalizeCommunicationText("order_help_title", "x".repeat(121)), undefined);
-  assert.equal(normalizeCommunicationText("order_help_body", "x".repeat(500)), "x".repeat(500));
-  assert.equal(normalizeCommunicationText("order_help_body", "x".repeat(501)), undefined);
+  assert.equal(normalizeCommunicationText("order_help_body", "x".repeat(5000)), "x".repeat(5000));
+  assert.equal(normalizeCommunicationText("order_help_body", "x".repeat(5001)), undefined);
+  // Les autres emplacements gardent 500.
+  assert.equal(normalizeCommunicationText("checkout_info", "x".repeat(501)), undefined);
 });
 
 test("[MCC-4] la projection publique n'expose que des emplacements publics ; un gabarit d'e-mail reste exclu", () => {

@@ -99,6 +99,11 @@ export const COMMUNICATION_SUBJECT_MAX_LENGTH = 160;
  */
 export const COMMUNICATION_ORDER_HELP_LABEL_MAX_LENGTH = 60;
 export const COMMUNICATION_ORDER_HELP_TITLE_MAX_LENGTH = 120;
+/** Corps de la fenêtre « Comment passer commande » : 5000 caractères
+ *  (décision Yakout, 29/10/2026). Miroir de
+ *  communication_text_max_length('order_help_body') côté SQL
+ *  (DRAFT-lot-order-help-body-5000-v1.sql). */
+export const COMMUNICATION_ORDER_HELP_BODY_MAX_LENGTH = 5000;
 
 export interface CommunicationTextSpec {
   /** Longueur maximale propre à cet emplacement (<= MAX_LENGTH). */
@@ -163,7 +168,7 @@ export const COMMUNICATION_TEXT_SPEC: Record<
     defaultI18nKey: null,
   },
   order_help_body: {
-    maxLength: COMMUNICATION_TEXT_MAX_LENGTH,
+    maxLength: COMMUNICATION_ORDER_HELP_BODY_MAX_LENGTH,
     publicProjection: true,
     defaultI18nKey: null,
   },
