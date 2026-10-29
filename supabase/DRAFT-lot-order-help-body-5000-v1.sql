@@ -24,30 +24,67 @@
 
 begin;
 
+-- PRÉ-VOL — état prédécesseur EXACT, échec fermé AVANT toute écriture.
+-- Le lot remplace la fonction ENTIÈRE et le CHECK : toute valeur différente de
+-- l'état attendu (ex. une borne d'e-mail à 80 au lieu de 160) serait écrasée
+-- sans trace. On vérifie donc : (1) une seule surcharge ; (2) corps EXACT
+-- (comparé sans blancs ni casse) = THEME & CONTENT SETTINGS v1 ; (3) langage,
+-- volatilité, search_path et droits d'exécution inchangés ; (4) CHECK de table
+-- EXACT = MCC v1 (<= 500). On ne « rétablit » jamais une valeur attendue.
 do $$
 declare
-  v_def text;
+  v_def   text;
+  v_body  text;
+  v_check text;
 begin
   if to_regprocedure('public.communication_text_max_length(text)') is null
      or to_regclass('public.merchant_communication_text') is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: lots MCC / THEME & CONTENT SETTINGS absents. Annulé.';
   end if;
 
+  if (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'communication_text_max_length') <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: communication_text_max_length doit exister en UNE seule surcharge. Annulé.';
+  end if;
+
   select pg_get_functiondef('public.communication_text_max_length(text)'::regprocedure) into v_def;
   if v_def like '%order_help_body%' then
     raise exception 'SCANYM_ALREADY_APPLIED: communication_text_max_length() traite déjà order_help_body. Annulé.';
   end if;
-  if v_def not like '%order_help_button_label%60%' or v_def not like '%order_help_title%120%' or v_def not like '%else 500%' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: communication_text_max_length() n''est pas la version THEME & CONTENT SETTINGS v1 attendue -- la remplacer perdrait un ajout inconnu. Annulé.';
+
+  select pg_catalog.regexp_replace(pg_catalog.lower(p.prosrc), '\s+', '', 'g')
+    into v_body
+  from pg_proc p
+  where p.oid = 'public.communication_text_max_length(text)'::regprocedure;
+  if v_body is distinct from
+     'selectcasewhenp_text_key=''email_confirmation_subject''then160whenp_text_key=''order_help_button_label''then60whenp_text_key=''order_help_title''then120else500end' then
+    raise exception 'SCANYM_SCHEMA_DRIFT: le corps de communication_text_max_length() n''est pas EXACTEMENT celui de THEME & CONTENT SETTINGS v1 (une borne hors périmètre a dérivé) -- le remplacer l''écraserait. Annulé, rien n''est modifié.';
   end if;
 
   if not exists (
-    select 1 from pg_constraint
-    where conrelid = 'public.merchant_communication_text'::regclass
-      and conname = 'merchant_communication_text_body_length'
-      and pg_get_constraintdef(oid) like '%<= 500%'
+    select 1 from pg_proc p
+    where p.oid = 'public.communication_text_max_length(text)'::regprocedure
+      and p.prolang = (select oid from pg_language where lanname = 'sql')
+      and p.provolatile = 'i'
+      and not p.prosecdef
+      and p.proconfig = array['search_path=""']
   ) then
-    raise exception 'SCANYM_SCHEMA_DRIFT: contrainte merchant_communication_text_body_length (<= 500) introuvable. Annulé.';
+    raise exception 'SCANYM_SCHEMA_DRIFT: attributs de communication_text_max_length() (langage, volatilité, search_path) inattendus. Annulé, rien n''est modifié.';
+  end if;
+
+  if has_function_privilege('anon', 'public.communication_text_max_length(text)', 'execute')
+     or has_function_privilege('authenticated', 'public.communication_text_max_length(text)', 'execute')
+     or has_function_privilege('service_role', 'public.communication_text_max_length(text)', 'execute') then
+    raise exception 'SCANYM_SCHEMA_DRIFT: droits d''exécution de communication_text_max_length() inattendus. Annulé, rien n''est modifié.';
+  end if;
+
+  select pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.replace(pg_get_constraintdef(c.oid), 'pg_catalog.', '')), '[^a-z0-9_<=>]', '', 'g')
+    into v_check
+  from pg_constraint c
+  where c.conrelid = 'public.merchant_communication_text'::regclass
+    and c.conname = 'merchant_communication_text_body_length';
+  if v_check is distinct from 'checkbodyisnullorlengthbtrimbody<=500' then
+    raise exception 'SCANYM_SCHEMA_DRIFT: le CHECK merchant_communication_text_body_length n''est pas EXACTEMENT « body is null or length(btrim(body)) <= 500 ». Annulé, rien n''est modifié.';
   end if;
 end $$;
 

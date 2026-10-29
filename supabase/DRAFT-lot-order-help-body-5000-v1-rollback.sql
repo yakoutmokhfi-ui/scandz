@@ -4,7 +4,24 @@
 begin;
 
 do $$
+declare
+  v_body  text;
+  v_check text;
 begin
+  -- État attendu = celui posé par le lot (échec fermé sur toute autre dérive).
+  select pg_catalog.regexp_replace(pg_catalog.lower(p.prosrc), '\s+', '', 'g') into v_body
+  from pg_proc p where p.oid = 'public.communication_text_max_length(text)'::regprocedure;
+  if v_body is distinct from
+     'selectcasewhenp_text_key=''email_confirmation_subject''then160whenp_text_key=''order_help_button_label''then60whenp_text_key=''order_help_title''then120whenp_text_key=''order_help_body''then5000else500end' then
+    raise exception 'SCANYM_SCHEMA_DRIFT: communication_text_max_length() n''est pas l''état posé par ORDER HELP BODY 5000 v1. Annulé, rien n''est modifié.';
+  end if;
+  select pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.replace(pg_get_constraintdef(c.oid), 'pg_catalog.', '')), '[^a-z0-9_<=>]', '', 'g') into v_check
+  from pg_constraint c
+  where c.conrelid = 'public.merchant_communication_text'::regclass and c.conname = 'merchant_communication_text_body_length';
+  if v_check is distinct from 'checkbodyisnullorlengthbtrimbody<=5000' then
+    raise exception 'SCANYM_SCHEMA_DRIFT: CHECK merchant_communication_text_body_length n''est pas l''état posé par le lot. Annulé, rien n''est modifié.';
+  end if;
+
   if exists (
     select 1 from public.merchant_communication_text
     where text_key = 'order_help_body' and pg_catalog.length(pg_catalog.btrim(body)) > 500

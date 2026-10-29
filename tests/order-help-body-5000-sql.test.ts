@@ -22,6 +22,7 @@ const CHECK = MCC.match(/constraint merchant_communication_text_body_length\s+ch
 async function makeDb(apply = true) {
   const db = new PGlite();
   await db.exec(`
+    create role anon; create role authenticated; create role service_role;
     create table public.merchant_communication_text (
       restaurant_id uuid not null default gen_random_uuid(),
       text_key text not null, body text,
@@ -29,6 +30,7 @@ async function makeDb(apply = true) {
       ${CHECK}
     );
     ${FN}
+    revoke all on function public.communication_text_max_length(text) from public, anon, authenticated, service_role;
   `);
   if (apply) await db.exec(sql(LOT));
   return db;
@@ -88,4 +90,69 @@ test("[OH5000-5] retour arrière : refusé si un texte dépasse 500, sinon état
   assert.equal((await original(db)).split("COMMENT")[0], base.split("COMMENT")[0]);
   assert.equal(await max(db, "order_help_body"), 500);
   await assert.rejects(() => insert(db, "order_help_body", 501), /merchant_communication_text_body_length/);
+});
+
+// ====================================================================
+// CONTRE-AUDIT PR #186 (SHA b932aed) : le pré-vol laissait passer une borne
+// hors périmètre dérivée (ex. 80 au lieu de 160) et l'écrasait en silence.
+// Chaque dérive doit arrêter le lot EXPLICITEMENT, avant toute mutation, et
+// laisser définitions ET données strictement inchangées.
+// ====================================================================
+
+async function snapshot(db: PGlite) {
+  const fn = (await db.query<{ d: string }>(
+    "select pg_get_functiondef('public.communication_text_max_length(text)'::regprocedure) as d")).rows[0]!.d;
+  const ck = (await db.query<{ d: string }>(
+    "select pg_get_constraintdef(oid) as d from pg_constraint where conname = 'merchant_communication_text_body_length'")).rows[0]!.d;
+  const rows = (await db.query("select restaurant_id, text_key, body from public.merchant_communication_text order by text_key")).rows;
+  const priv = (await db.query<{ a: boolean; b: boolean; c: boolean }>(
+    `select has_function_privilege('anon','public.communication_text_max_length(text)','execute') a,
+            has_function_privilege('authenticated','public.communication_text_max_length(text)','execute') b,
+            has_function_privilege('service_role','public.communication_text_max_length(text)','execute') c`)).rows[0]!;
+  return JSON.stringify({ fn, ck, rows, priv });
+}
+
+const PREDECESSOR_BODY = (subject: number, label = 60, title = 120, other = 500) => `
+  select case
+    when p_text_key = 'email_confirmation_subject' then ${subject}
+    when p_text_key = 'order_help_button_label' then ${label}
+    when p_text_key = 'order_help_title' then ${title}
+    else ${other}
+  end`;
+
+const DRIFTS: Array<{ name: string; setup: string; expect: RegExp }> = [
+  { name: "borne d'e-mail hors périmètre à 80 (cas du contre-audit)",
+    setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(80)}$$;`,
+    expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
+  { name: "libellé du bouton à 40", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 40)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
+  { name: "titre à 200", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 200)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
+  { name: "défaut ailleurs à 400", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$${PREDECESSOR_BODY(160, 60, 120, 400)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
+  { name: "branche ajoutée par un autre lot", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_subject' then 160 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'billing_profile_explanation' then 900 else 500 end $$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*corps/ },
+  { name: "volatilité modifiée (stable)", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql stable set search_path = '' as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*attributs/ },
+  { name: "search_path modifié", setup: `create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable as $$${PREDECESSOR_BODY(160)}$$;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*attributs/ },
+  { name: "droit d'exécution accordé à anon", setup: `grant execute on function public.communication_text_max_length(text) to anon;`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*droits/ },
+  { name: "CHECK de table dérivé (300)", setup: `alter table public.merchant_communication_text drop constraint merchant_communication_text_body_length; alter table public.merchant_communication_text add constraint merchant_communication_text_body_length check (body is null or pg_catalog.length(pg_catalog.btrim(body)) <= 300);`, expect: /SCANYM_SCHEMA_DRIFT[\s\S]*CHECK/ },
+];
+
+for (const d of DRIFTS) {
+  test(`[OH5000-6] pré-vol : ${d.name} -> arrêt explicite AVANT mutation, rien n'est modifié`, async () => {
+    const db = await makeDb(false);
+    await db.exec(d.setup);
+    await db.query("insert into public.merchant_communication_text (text_key, body) values ('checkout_info', 'donnée existante')");
+    const before = await snapshot(db);
+    await assert.rejects(() => db.exec(sql(LOT)), d.expect);
+    await db.exec("rollback");
+    assert.equal(await snapshot(db), before, "définitions, droits et données strictement inchangés");
+    // Le lot n'a rien écrit : order_help_body reste à la borne par défaut du prédécesseur.
+    assert.notEqual(await max(db, "order_help_body"), 5000);
+  });
+}
+
+test("[OH5000-7] retour arrière : état posé par le lot dérivé -> arrêt avant mutation", async () => {
+  const db = await makeDb();
+  await db.exec(`create or replace function public.communication_text_max_length(p_text_key text) returns integer language sql immutable set search_path = '' as $$ select case when p_text_key = 'email_confirmation_subject' then 80 when p_text_key = 'order_help_button_label' then 60 when p_text_key = 'order_help_title' then 120 when p_text_key = 'order_help_body' then 5000 else 500 end $$;`);
+  const before = await snapshot(db);
+  await assert.rejects(() => db.exec(sql(ROLLBACK)), /SCANYM_SCHEMA_DRIFT/);
+  await db.exec("rollback");
+  assert.equal(await snapshot(db), before);
 });
