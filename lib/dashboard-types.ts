@@ -153,6 +153,36 @@ export interface DashboardOrder {
    * saisie au checkout.
    */
   order_invoice_request?: DashboardOrderInvoiceRequest | null;
+  /**
+   * ISSUE #170 -- jour et créneau choisis au checkout (retrait ou
+   * livraison), tels que VALIDÉS et FIGÉS par `create_order` hébergé
+   * (bloc CSDJ-3, table public.order_fulfillment_schedule_snapshot,
+   * relation 1:1 avec `orders`, RLS `order_fulfillment_schedule_
+   * snapshot_select_staff` : authenticated + restaurant_users, déjà en
+   * place côté hébergé). `undefined`/`null` = aucune planification pour
+   * cette commande (établissement sans calendrier, commande antérieure,
+   * mode table) -- aucun bloc rendu. Le dépôt ne porte PAS le SQL de
+   * cette table : lecture seule d'une structure hébergée existante.
+   */
+  order_fulfillment_schedule_snapshot?: DashboardOrderScheduleSnapshot | null;
+}
+
+/**
+ * ISSUE #170 -- miroir des colonnes de public.order_fulfillment_schedule_
+ * snapshot lues par lib/services/dashboard.ts. Les heures sont des
+ * chaînes « HH:MM » (contrainte CHECK hébergée), la date un « YYYY-MM-DD »
+ * (type date) dans le fuseau `timezone` de l'établissement : jamais
+ * reconverties via un Date local (voir lib/order-schedule-display.ts).
+ */
+export interface DashboardOrderScheduleSnapshot {
+  mode_code: string;
+  scheduled_date: string;
+  slot_key: string | null;
+  selected_time: string | null;
+  window_starts_at: string | null;
+  window_ends_at: string | null;
+  timezone: string;
+  origin: "customer" | "server_derived";
 }
 
 /**

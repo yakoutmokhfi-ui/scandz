@@ -7,6 +7,7 @@ import { formatElapsedMinutesFr } from "@/lib/format-elapsed-time";
 import { formatPrice } from "@/lib/whatsapp";
 import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
 import { isOrderPaymentOperational, orderPaymentBadge } from "@/lib/order-payment-operability";
+import { formatOrderSchedule, orderScheduleLabelKey } from "@/lib/order-schedule-display";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
 export const STATUS_KEY: Record<OrderStatus, string> = {
@@ -221,6 +222,8 @@ export default function OrderCard({
     }
   }
 
+  const schedule = formatOrderSchedule(order.order_fulfillment_schedule_snapshot, lang);
+
   return (
     <article
       dir={lang === "ar" ? "rtl" : "ltr"}
@@ -234,6 +237,20 @@ export default function OrderCard({
           <p className="text-sm font-semibold text-amber-700">
             {service(order, lang)} · {ageDisplay}
           </p>
+          {/* ISSUE #170 -- jour et créneau FIGÉS avec la commande par
+              create_order hébergé (order_fulfillment_schedule_snapshot),
+              tels que validés côté serveur -- jamais recalculés ici,
+              indépendants de WhatsApp. Absent => rien. */}
+          {schedule && (
+            <p
+              data-order-schedule=""
+              data-order-schedule-mode={order.order_fulfillment_schedule_snapshot?.mode_code}
+              className="mt-1 text-sm font-semibold text-stone-900"
+            >
+              {t(orderScheduleLabelKey(order.order_fulfillment_schedule_snapshot!.mode_code))} : {schedule.dateLabel}
+              {schedule.timeLabel ? ` · ${schedule.timeLabel}` : ""}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">

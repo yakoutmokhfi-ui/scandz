@@ -104,6 +104,10 @@ export async function getDashboardOrders(
         invoice_type, company_legal_name, vat_number, siren, contact_name,
         contact_email, address_line_1, address_line_2, city, postal_code,
         country, updated_at
+      ),
+      order_fulfillment_schedule_snapshot (
+        mode_code, scheduled_date, slot_key, selected_time,
+        window_starts_at, window_ends_at, timezone, origin
       )
     `
     )

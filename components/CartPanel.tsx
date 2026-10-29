@@ -31,6 +31,14 @@ interface CartEntry extends CartLine {
   key: string;
 }
 
+function formatCheckoutReviewDate(value: string, lang: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  const locale = lang === "en" ? "en-GB" : lang === "ar" ? "ar" : lang === "nl" ? "nl-NL" : "fr-FR";
+  return new Intl.DateTimeFormat(locale, { dateStyle: "full", timeZone: "UTC" }).format(date);
+}
+
 export default function CartPanel({
   restaurant,
   lines,
@@ -56,6 +64,7 @@ export default function CartPanel({
   canSubmit,
   scheduleHint,
   scheduleSection,
+  scheduleSummary = null,
   isSubmitting,
   submitError,
   invoiceRequestError,
@@ -141,6 +150,8 @@ export default function CartPanel({
   scheduleHint?: string | null;
   /** CSDJ-2 / #158 -- sélecteur de date/créneau (rendu par MenuView). */
   scheduleSection?: React.ReactNode;
+  /** Server-authoritative date/slot selected for this checkout. */
+  scheduleSummary?: { date: string; slot_key: string | null; starts_at: string | null; ends_at: string | null } | null;
   isSubmitting: boolean;
   submitError: string | null;
   /** CUSTOMER CHECKOUT — CLIENT / COMPANY INVOICE REQUEST v1.2
@@ -214,7 +225,20 @@ export default function CartPanel({
   const orderNoteEnabled = restaurant.config.order_note_enabled !== false;
   const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
   const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
+  const [reviewingOrder, setReviewingOrder] = useState(false);
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const reviewOpenButtonRef = useRef<HTMLButtonElement>(null);
+  const wasReviewingRef = useRef(false);
   const timingNoticeGuardRef = useRef(false);
+
+  useEffect(() => {
+    if (reviewingOrder) {
+      reviewHeadingRef.current?.focus();
+    } else if (wasReviewingRef.current && !isSubmitting) {
+      reviewOpenButtonRef.current?.focus();
+    }
+    wasReviewingRef.current = reviewingOrder;
+  }, [reviewingOrder, isSubmitting]);
 
   function requestOrderSubmission() {
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
@@ -222,7 +246,20 @@ export default function CartPanel({
       setTimingNoticeOpen(true);
       return;
     }
-    void onSendOrder();
+    openReviewOrSend();
+  }
+
+  /**
+   * Table (QR) : ni adresse, ni créneau, ni paiement -- le parcours
+   * historique est conservé tel quel (envoi direct). Retrait et
+   * livraison passent par le récapitulatif.
+   */
+  function openReviewOrSend() {
+    if (serviceMode === "table") {
+      void onSendOrder();
+      return;
+    }
+    setReviewingOrder(true);
   }
 
   async function confirmTimingNotice() {
@@ -232,11 +269,23 @@ export default function CartPanel({
     setTimingNoticeConfirming(true);
     setTimingNoticeOpen(false);
     try {
-      await onSendOrder();
+      openReviewOrSend();
     } finally {
       timingNoticeGuardRef.current = false;
       setTimingNoticeConfirming(false);
     }
+  }
+
+  const reviewCgvBlocked = cgvEnforced && !cgvAccepted;
+
+  async function confirmOrderReview() {
+    if (isSubmitting || !canSubmit || !noteState.isValid || pricingUnavailable) return;
+    // CGV exigées et non acceptées : on RESTE dans le récapitulatif (le
+    // message explicite est affiché) -- jamais de retour silencieux à la
+    // saisie, jamais d'envoi.
+    if (reviewCgvBlocked) return;
+    setReviewingOrder(false);
+    await onSendOrder();
   }
 
   /**
@@ -502,7 +551,7 @@ export default function CartPanel({
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-espresso/50">
       <div className="flex h-[100dvh] w-full min-w-0 max-w-full flex-col overflow-x-hidden bg-crema sm:h-auto sm:max-h-[90dvh] sm:max-w-lg sm:rounded-t-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-espresso/10 px-4 py-3">
-          <h2 className="text-lg font-bold">{t("cartTitle")}</h2>
+          <h2 className="text-lg font-bold">{reviewingOrder ? t("checkoutReviewTitle") : t("cartTitle")}</h2>
           <button
             onClick={onClose}
             aria-label={t("ariaCloseCart")}
@@ -513,7 +562,71 @@ export default function CartPanel({
         </div>
 
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-3 pb-6">
-          {lines.length === 0 ? (
+          {reviewingOrder && lines.length > 0 ? (
+            <section data-checkout-review="" aria-labelledby="checkout-review-heading" className="space-y-4">
+              <div>
+                <h3 id="checkout-review-heading" ref={reviewHeadingRef} tabIndex={-1} className="text-base font-bold">{t("checkoutReviewTitle")}</h3>
+                <p className="mt-1 text-sm text-ink-on-bg-muted">{t("checkoutReviewIntro")}</p>
+              </div>
+              <div>
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-on-bg-muted">{t("checkoutReviewItems")}</h4>
+                <ul className="space-y-2">
+                  {lines.map(({ key, item, quantity, option, optionKind }) => (
+                    <li key={key} className="flex justify-between gap-3 rounded-xl p-3 bg-crema text-sm">
+                      <span className="min-w-0">
+                        <span className="font-semibold">{quantity} × {tName(item, lang, sourceLanguage)}</span>
+                        {option && <span className="block text-xs text-ink-on-bg-muted">{t(optionKind === "flavor" ? "optFlavor" : "optPastry")}: {tName(option, lang, sourceLanguage)}</span>}
+                      </span>
+                      <Ltr>{formatPrice(item.price * quantity, currency)}</Ltr>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <dl className="space-y-2 rounded-xl border border-espresso/10 p-3 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-on-bg-muted">{t("checkoutReviewMode")}</dt>
+                  <dd className="text-right font-medium">{serviceMode ? t(serviceModeNameKey(serviceMode)) : "—"}</dd>
+                </div>
+                {serviceMode === "delivery" && (
+                  <div>
+                    <dt className="text-ink-on-bg-muted">{t("checkoutReviewAddress")}</dt>
+                    <dd className="mt-0.5 font-medium">{[customer.street, customer.postalCode, customer.city].filter((part) => part.trim()).join(", ") || "—"}</dd>
+                  </div>
+                )}
+                {serviceMode === "pickup" && typeof restaurant.config.address === "string" && restaurant.config.address.trim() && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-on-bg-muted">{t("checkoutReviewPickupLocation")}</dt>
+                    <dd className="text-right font-medium">{restaurant.config.address}</dd>
+                  </div>
+                )}
+                {serviceMode === "table" && tableNumber !== null && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-on-bg-muted">{t("checkoutReviewTable")}</dt>
+                    <dd className="font-medium">{tableNumber}</dd>
+                  </div>
+                )}
+                {scheduleSummary && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-ink-on-bg-muted">{t("checkoutReviewSchedule")}</dt>
+                    <dd data-checkout-review-schedule="" className="text-right font-medium">
+                      {formatCheckoutReviewDate(scheduleSummary.date, lang)}
+                      {scheduleSummary.slot_key !== null && scheduleSummary.starts_at && scheduleSummary.ends_at
+                        ? ` · ${scheduleSummary.starts_at}–${scheduleSummary.ends_at}`
+                        : scheduleSummary.starts_at
+                          ? ` · ${scheduleSummary.starts_at}`
+                          : ""}
+                    </dd>
+                  </div>
+                )}
+                {orderNoteEnabled && note.trim() && (
+                  <div>
+                    <dt className="text-ink-on-bg-muted">{t("noteLabel")}</dt>
+                    <dd className="mt-0.5 whitespace-pre-wrap font-medium">{note}</dd>
+                  </div>
+                )}
+              </dl>
+            </section>
+          ) : lines.length === 0 ? (
             <p className="py-8 text-center text-sm text-ink-on-bg-muted">
               {t("cartEmpty")}
             </p>
@@ -560,7 +673,11 @@ export default function CartPanel({
           )}
 
           {lines.length > 0 && (
-            <>
+            // #181 -- masqué, JAMAIS démonté, pendant le récapitulatif : le retour
+            // sur « Modifier ma commande » retrouve la saisie, les fenêtres déjà
+            // fermées (résultat du code postal) et le sélecteur de créneau tels
+            // quels. `hidden` retire aussi ces contrôles de l'ordre de tabulation.
+            <div hidden={reviewingOrder} aria-hidden={reviewingOrder || undefined} data-checkout-edit="">
               <FulfillmentChoiceModal
                 open={requiresFulfillmentChoice}
                 modes={unblockedServiceModes}
@@ -575,7 +692,7 @@ export default function CartPanel({
                 communicationTexts={communicationTexts}
               />
               <DeliveryPostcodeResult key={restaurant.id}
-                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen}
+                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen && !reviewingOrder}
                 contextKey={`${restaurant.id}:${deliveryCountry?.countryCode ?? ""}`}
                 postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency} />
 
@@ -684,7 +801,7 @@ export default function CartPanel({
                 </p>
               </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
@@ -705,7 +822,7 @@ export default function CartPanel({
                 message de blocage, lui, DOIT rester visible dès qu'un
                 mode (seul ou parmi plusieurs) est bloqué par le
                 panier. */}
-            {(availableServiceModes.length > 1 ||
+            {!reviewingOrder && (availableServiceModes.length > 1 ||
               (availableServiceModes.length === 1 &&
                 Boolean(blockedModes[availableServiceModes[0]]))) && (
               <div className="mb-3">
@@ -966,10 +1083,29 @@ export default function CartPanel({
                 )}
                 {/* CUSTOMER CONTACT v1 -- WhatsApp optionnel : désactivé,
                     AUCUNE mention WhatsApp (texte, couleur, libellé). */}
+                {reviewingOrder ? (
+                  <>
+                    <p className="mb-3 text-center text-sm text-ink-on-bg-muted">{t("checkoutReviewPaymentHint")}</p>
+                    {reviewCgvBlocked && (
+                      <p id="checkout-review-cgv-required" data-checkout-review-cgv-required="" role="status" className="mb-3 rounded-xl bg-red-50 p-3 text-center text-sm text-red-800">{t("checkoutReviewCgvRequired")}</p>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setReviewingOrder(false)} className="rounded-xl border border-espresso/20 py-3 font-semibold">{t("checkoutReviewBack")}</button>
+                      <button type="button" data-checkout-review-confirm="" onClick={() => void confirmOrderReview()} disabled={isSubmitting || !canSubmit || !noteState.isValid || pricingUnavailable || reviewCgvBlocked} aria-describedby={reviewCgvBlocked ? "checkout-review-cgv-required" : undefined} aria-busy={isSubmitting} className="rounded-xl bg-green-700 py-3 font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-700">{isSubmitting ? t("sending") : t("checkoutReviewConfirm")}</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
                 <p className="mb-2 text-center text-sm text-ink-on-bg-muted">
                   {whatsappEnabled ? t("whatsappNotice") : t("orderNoticeNoWhatsapp")}
                 </p>
+                {serviceMode !== "table" && (
+                  <p className="mb-2 text-center text-xs text-ink-on-bg-muted">
+                    {t("checkoutReviewBeforeConfirmHint")}
+                  </p>
+                )}
                 <button
+                  ref={reviewOpenButtonRef}
                   onClick={requestOrderSubmission}
                   disabled={isSubmitting || (cgvEnforced && !cgvAccepted)}
                   aria-busy={isSubmitting}
@@ -1005,6 +1141,8 @@ export default function CartPanel({
                       ? t("sendOrder")
                       : t("sendOrderNoWhatsapp")}
                 </button>
+                  </>
+                )}
               </>
             ) : (
               <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">

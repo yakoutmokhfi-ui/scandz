@@ -133,7 +133,9 @@ test("[CAT-1] le catalogue est FERMÉ, distinct, entièrement spécifié, et cha
     const spec = COMMUNICATION_TEXT_SPEC[key];
     assert.ok(spec, `spec manquante pour ${key}`);
     assert.equal(typeof spec.publicProjection, "boolean");
-    assert.ok(spec.maxLength > 0 && spec.maxLength <= COMMUNICATION_TEXT_MAX_LENGTH);
+    // order_help_body : 5000 (DRAFT-lot-order-help-body-5000-v1.sql) ; tout le reste <= 500.
+    const ceiling = key === "order_help_body" ? 5000 : COMMUNICATION_TEXT_MAX_LENGTH;
+    assert.ok(spec.maxLength > 0 && spec.maxLength <= ceiling, key);
   }
 });
 

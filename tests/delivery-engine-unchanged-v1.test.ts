@@ -50,7 +50,12 @@ const PINNED: Record<string, string> = {
   // réaffiché à la tentative) ; bouton bloqué en aria-disabled. Règles de
   // livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
   // SHA-256 précédent : 2c2b47a6456eef5bcd27cafb87b3570589137b18e5307c47ee697967beea0939
-  "components/CartPanel.tsx": "1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914",
+  // #181 -- RÉCAPITULATIF AVANT PAIEMENT (re-pin DIVULGUÉ) : CartPanel gagne une étape
+  // « récapitulatif » entre le bouton d'envoi et onSendOrder (articles, mode, adresse,
+  // créneau, note ; confirmation désactivée sans CGV ; bloc de saisie masqué, jamais
+  // démonté). Règles de livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
+  // SHA-256 précédent : 1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914
+  "components/CartPanel.tsx": "dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

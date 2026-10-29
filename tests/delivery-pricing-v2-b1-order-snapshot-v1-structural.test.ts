@@ -192,17 +192,28 @@ test("B1-T-22 — getDashboardOrders : liste de colonnes inchangée, aucune requ
   // elle-même : c'est que le lot B1 (et tout lot ultérieur) n'y
   // glisse pas l'instantané de livraison, ni une seconde requête.
   // Cet invariant est vérifié juste en dessous, et il est INCHANGÉ.
+  //
+  // Empreinte REPOSÉE une seconde fois par ISSUE #170 (créneau de
+  // retrait/livraison visible par le commerçant) : ajout de la relation
+  // 1:1 `order_fulfillment_schedule_snapshot` (jour/créneau FIGÉS par
+  // create_order hébergé, bloc CSDJ-3 ; RLS staff hébergée) -- toujours
+  // PAS l'instantané de livraison (order_delivery_fulfillment_snapshot),
+  // toujours une seule requête. Empreinte précédente :
+  // 4f6ae141f17622ba900b4a03349f1da40ed17b52b1e7b2ed9b02c4198e9989f0.
   assert.equal(
     createHash("sha256").update(columns).digest("hex"),
     // ISSUE #171 (commandes non payées non opérationnelles) : ajout
     // DÉLIBÉRÉ et unique de la colonne `payment_status` (après `status`),
-    // nécessaire au filtre opérationnel et à OrderCard. Aucune autre
-    // colonne, aucune requête ajoutée. Ancienne empreinte (avant #171) :
-    // 4f6ae141f17622ba900b4a03349f1da40ed17b52b1e7b2ed9b02c4198e9989f0.
-    "2e75dbc7ac9d80f58933ba4058ca7068f0948b6aebb4e9c1b29eb866cdbf5b92",
+    // nécessaire au filtre opérationnel et à OrderCard, SUR la liste de
+    // main incluant la relation créneau #170. Aucune autre colonne,
+    // aucune requête ajoutée. Preuve : retirer `payment_status` redonne
+    // exactement l'empreinte de main
+    // 3f340f37ab54cc029f795970e8a23d9a7c58f1f5399558402fd406dc139725fb.
+    "12f296726b783239320f9121b3d7e5b788b692302c585b821c336f469d0d06d5",
     `liste de colonnes modifiée : ${columns}`
   );
   assert.doesNotMatch(columns, /order_delivery_fulfillment_snapshot/);
+  assert.match(columns, /order_fulfillment_schedule_snapshot \( mode_code, scheduled_date, slot_key, selected_time, window_starts_at, window_ends_at, timezone, origin \)/);
   // Et la seule différence admise par rapport à l'empreinte d'origine
   // est nommée explicitement ici.
   assert.match(columns, /order_invoice_request \( invoice_type, company_legal_name, vat_number, siren,/);
