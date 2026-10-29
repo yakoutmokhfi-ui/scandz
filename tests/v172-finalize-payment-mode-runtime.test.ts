@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 // ISSUE #172 — initiateCheckout rend le mode « sans paiement en ligne »
 // DÉFINITIF (finalize_order_payment_mode_none) avant que l'e-mail de
 // confirmation puisse devenir éligible. Jamais sur le chemin paiement en
-// ligne. Fail-soft : une panne de la RPC ne change pas le parcours client.
+// ligne. T180-01 : le RÉSULTAT de la finalisation décide de la sortie -- une
+// panne, un ensemble vide ou une commande déjà sortie de `not_required` ne
+// produit JAMAIS `checkout_not_needed` (voir [172-FIN-4] et [172-FIN-5]).
 // Client Supabase mocké : aucun réseau, aucune base.
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
@@ -98,17 +100,70 @@ test("[172-FIN-3] paiement requis (flip réussi) ou déjà payé : finalize JAMA
     assert.ok(!calls2.some((c) => c.name === "finalize_order_payment_mode_none"));
   }));
 
-test("[172-FIN-4] fail-soft : RPC finalize en erreur / exception -> même résultat client, aucune exception", async (t) =>
+test("[172-FIN-4] T180-01 : RPC finalize en erreur / exception / ensemble vide / forme inattendue -> `payment_decision_unavailable`, JAMAIS `checkout_not_needed`", async (t) =>
   enabled(async () => {
-    for (const h of [() => ({ data: null, error: { code: "42883", message: "x" } }), () => { throw new Error("réseau"); }]) {
+    const failures: Array<[string, Handler]> = [
+      ["erreur PostgREST", () => ({ data: null, error: { code: "42883", message: "x" } })],
+      ["statement timeout", () => ({ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } })],
+      ["exception réseau", () => { throw new Error("réseau"); }],
+      ["ensemble vide", () => ({ data: [], error: null })],
+      ["data null sans erreur", () => ({ data: null, error: null })],
+      ["not_required mais mode non final (NULL)", () => ok({ payment_status: "not_required", payment_mode_final: null })],
+      ["not_required mais mode online (incohérent)", () => ok({ payment_status: "not_required", payment_mode_final: "online" })],
+      ["statut inconnu", () => ok({ payment_status: "mystery", payment_mode_final: "none" })],
+      ["ligne sans champs", () => ok({})],
+    ];
+    for (const [label, h] of failures) {
+      for (const providerEnv of [
+        env({ is_enabled: false, configuration_status: "not_configured" }),
+        env({ is_enabled: true, configuration_status: "verified" }),
+      ]) {
+        const calls = route(t, {
+          get_order_payment_context: ctx,
+          get_payment_runtime_provider_environment: providerEnv,
+          // Chemin « prestataire vérifié » : la base refuse le passage à required (statut/total) -> décision « sans paiement » tentée.
+          require_order_payment: () => ok({ payment_status: "not_required", changed: false }),
+          finalize_order_payment_mode_none: h,
+        });
+        const r = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+        assert.deepEqual(r, { outcome: "payment_decision_unavailable" }, label);
+        assert.equal(calls.filter((c) => c.name === "finalize_order_payment_mode_none").length, 1, label);
+        assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"), `${label} : aucune tentative de paiement ouverte`);
+        t.mock.restoreAll();
+      }
+    }
+  }));
+
+test("[172-FIN-5] T180-01 : table de décision -- final_none -> not_required ; paid -> already_paid ; required/pending/failed/cancelled -> `payment_decision_unavailable` (jamais confirmé à tort)", async (t) =>
+  enabled(async () => {
+    const cases: Array<[Record<string, unknown>, unknown]> = [
+      [{ payment_status: "not_required", payment_mode_final: "none" }, { outcome: "checkout_not_needed", reason: "not_required" }],
+      [{ payment_status: "paid", payment_mode_final: "online" }, { outcome: "checkout_not_needed", reason: "already_paid" }],
+      [{ payment_status: "required", payment_mode_final: "online" }, { outcome: "payment_decision_unavailable" }],
+      [{ payment_status: "pending", payment_mode_final: "online" }, { outcome: "payment_decision_unavailable" }],
+      [{ payment_status: "failed", payment_mode_final: "online" }, { outcome: "payment_decision_unavailable" }],
+      [{ payment_status: "cancelled", payment_mode_final: "online" }, { outcome: "payment_decision_unavailable" }],
+    ];
+    for (const [row, expected] of cases) {
       route(t, {
         get_order_payment_context: ctx,
         get_payment_runtime_provider_environment: env({ is_enabled: false, configuration_status: "not_configured" }),
-        finalize_order_payment_mode_none: h,
+        finalize_order_payment_mode_none: () => ok(row),
       });
-      assert.deepEqual(await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" }), {
-        outcome: "checkout_not_needed", reason: "not_required",
-      });
+      assert.deepEqual(await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" }), expected, JSON.stringify(row));
       t.mock.restoreAll();
     }
+  }));
+
+test("[172-FIN-6] T180-01 : le résultat de finalisation ne laisse fuiter ni code d'erreur, ni message, ni jeton (corps de réponse minimal)", async (t) =>
+  enabled(async () => {
+    route(t, {
+      get_order_payment_context: ctx,
+      get_payment_runtime_provider_environment: env({ is_enabled: false, configuration_status: "not_configured" }),
+      finalize_order_payment_mode_none: () => ({ data: null, error: { code: "XX000", message: "secret tok-1 order-1 détail interne" } }),
+    });
+    const r = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
+    const text = JSON.stringify(r);
+    assert.equal(text, '{"outcome":"payment_decision_unavailable"}');
+    assert.ok(!/XX000|secret|tok-1|order-1/.test(text));
   }));

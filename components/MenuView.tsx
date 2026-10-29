@@ -1906,6 +1906,15 @@ export default function MenuView({
         setBillingError(t("paymentBillingInvalid"));
         setBillingPromptOpen(true);
         return;
+      case "decision_unavailable":
+        // ISSUE #172 / T180-01 : la décision « sans paiement en ligne »
+        // n'est pas acquise -> ni confirmation, ni WhatsApp, ni panier
+        // vidé. La commande est conservée ; la reprise rejoue le checkout
+        // sur la MÊME commande (create_order n'est jamais rappelée).
+        setPendingPayment(pending);
+        setBillingPromptOpen(false);
+        setPaymentError(t("paymentDecisionUnavailable"));
+        return;
       case "unavailable":
       default:
         setPendingPayment(pending);

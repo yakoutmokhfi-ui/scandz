@@ -32,7 +32,8 @@
 --
 -- Forme : la porte est une fonction à part (notification_send_gate_open) ;
 -- claim_pending_notifications n'y ajoute qu'UN prédicat. Son corps est repris
--- À L'IDENTIQUE du lot N1-A (seule définition de la fonction dans le dépôt) :
+-- À L'IDENTIQUE du lot N1-A (seule définition de la fonction dans le dépôt ; le
+-- pré-vol §0b REFUSE d'écraser toute variante déployée) :
 -- le piège documenté par DRAFT-lot-order-received-enqueue-recovery-v1.sql
 -- (une redéfinition qui perd silencieusement du comportement) est couvert par
 -- tests/v172-order-received-payment-gate.test.ts, qui exécute le SQL réel.
@@ -76,6 +77,69 @@ begin
 
   if to_regprocedure('public.notification_send_gate_open(uuid, text)') is not null then
     raise exception 'SCANYM_SCHEMA_DRIFT: notification_send_gate_open existe déjà -- lot déjà appliqué (double application refusée).';
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 0b. PRÉ-VOL DU PRÉDÉCESSEUR (T180-02) — refus de toute définition inattendue.
+--     CREATE OR REPLACE écraserait SANS DISCUTER une variante du claim (par
+--     exemple une restriction supplémentaire ajoutée en base). Ce bloc compare
+--     donc, AVANT toute écriture, la définition RÉELLEMENT déployée à celle du
+--     lot N1-A attendu :
+--       * empreinte exacte du corps (md5 de pg_proc.prosrc, retours chariot
+--         retirés) = c_expected_body_md5 ;
+--       * SECURITY DEFINER, search_path vide, arguments (avec valeurs par
+--         défaut) et colonnes retournées identiques ;
+--       * droits : service_role seul peut exécuter.
+--     Toute dérive => exception SCANYM_PREDECESSOR_DRIFT, transaction annulée,
+--     RIEN modifié. Les constantes sont recoupées avec le fichier N1-A par
+--     tests/v172-order-received-payment-gate.test.ts. Pour rapprocher une base
+--     dont la définition diffère : lire l'empreinte observée dans le message
+--     d'erreur, comparer au lot N1-A, puis soit rétablir N1-A, soit produire un
+--     lot dédié pour cette variante -- JAMAIS écraser à l'aveugle.
+-- -----------------------------------------------------------------------------
+do $$
+declare
+  c_expected_body_md5 constant text := 'a29cc6b88ccd77782ea4c5db299c6a70';
+  c_expected_args     constant text := 'p_batch_size integer DEFAULT 10, p_lease_seconds integer DEFAULT 60';
+  c_expected_result   constant text := 'TABLE(outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text, recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer, claim_token uuid, sender_name text, sender_email text, reply_to text)';
+  v_oid    oid;
+  v_secdef boolean;
+  v_config text[];
+  v_args   text;
+  v_result text;
+  v_md5    text;
+begin
+  select p.oid,
+         p.prosecdef,
+         p.proconfig,
+         pg_get_function_arguments(p.oid),
+         pg_get_function_result(p.oid),
+         md5(replace(p.prosrc, E'\r', ''))
+    into v_oid, v_secdef, v_config, v_args, v_result, v_md5
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'claim_pending_notifications';
+
+  if v_oid is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: claim_pending_notifications est introuvable. Migration annulée, rien modifié.';
+  end if;
+
+  if v_md5 is distinct from c_expected_body_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de claim_pending_notifications (md5 %) n''est pas celui du lot N1-A attendu (md5 %). Migration annulée, rien modifié.', v_md5, c_expected_body_md5;
+  end if;
+
+  if v_secdef is distinct from true
+     or v_config is distinct from array['search_path=""']::text[]
+     or v_args is distinct from c_expected_args
+     or v_result is distinct from c_expected_result then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de claim_pending_notifications différents de N1-A (SECURITY DEFINER, search_path, arguments, colonnes retournées). Migration annulée, rien modifié.';
+  end if;
+
+  if has_function_privilege('public', v_oid, 'execute')
+     or has_function_privilege('anon', v_oid, 'execute')
+     or has_function_privilege('authenticated', v_oid, 'execute')
+     or not has_function_privilege('service_role', v_oid, 'execute') then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution de claim_pending_notifications différents de N1-A (service_role seul). Migration annulée, rien modifié.';
   end if;
 end $$;
 
