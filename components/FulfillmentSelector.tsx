@@ -344,6 +344,14 @@ export default function FulfillmentSelector({
       // affiché séparément dans le récapitulatif du panier (voir
       // CartPanel.tsx, "Produits / Livraison / Total"), jamais dupliqué
       // ici.
+      // ISSUE #183 -- le texte client de la règle (`zone.label`) est
+      // EXACTEMENT celui que la fenêtre « Livraison — <code postal> »
+      // (DeliveryPostcodeResult) présente, avec le tarif, dans la langue du
+      // visiteur : le répéter ici, en vert derrière la fenêtre, en faisait un
+      // doublon non contrôlé. Il n'est donc plus rendu en ligne. Les messages
+      // de repli (explication transporteur, texte neutre) ne sont PAS portés
+      // par la fenêtre : ils restent affichés.
+      if (typeof status.zone?.label === "string" && status.zone.label.trim() !== "") return null;
       return {
         tone: "good",
         // MERCHANT CUSTOMER COMMUNICATIONS v1 — précédence INCHANGÉE

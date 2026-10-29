@@ -55,7 +55,14 @@ const PINNED: Record<string, string> = {
   // créneau, note ; confirmation désactivée sans CGV ; bloc de saisie masqué, jamais
   // démonté). Règles de livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
   // SHA-256 précédent : 1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914
-  "components/CartPanel.tsx": "dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15",
+  // Issue #183 -- RE-PIN DIVULGUÉ : CartPanel n'ouvre plus la fenêtre « Délai et
+  // informations de livraison » après le choix du créneau (décision produit) :
+  // retrait de l'import, de l'état/garde de confirmation, de confirmTimingNotice et
+  // du rendu de DeliveryTimingNoticeDialog ; `requestOrderSubmission` va droit à
+  // openReviewOrSend. Règles de livraison, tarifs, éligibilité, périmètre pays,
+  // minimum, frais : AUCUNE ligne touchée.
+  // SHA-256 précédent : dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15
+  "components/CartPanel.tsx": "3ba335456b2f11ba9c8f65309ec6cd06e92a64b3a297666fe1984d47dc4b8796",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

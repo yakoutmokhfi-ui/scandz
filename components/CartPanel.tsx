@@ -18,7 +18,6 @@ import { tName } from "@/lib/menu-i18n";
 import FulfillmentSelector from "@/components/FulfillmentSelector";
 import type { DeliveryCountryOption } from "@/lib/delivery-country";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
-import DeliveryTimingNoticeDialog from "@/components/DeliveryTimingNoticeDialog";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 import { DeliveryPostcodeResult } from "@/components/DeliveryConditions";
 import { isValidPostalCodeFor } from "@/lib/delivery-country";
@@ -49,7 +48,6 @@ export default function CartPanel({
   fulfillmentSelectionSeq,
   deliveryStatus,
   deliveryPricingReady = true,
-  deliveryCustomerNotice,
   displayItems,
   fieldRequirementsReady,
   availableServiceModes,
@@ -191,7 +189,7 @@ export default function CartPanel({
   cityOptions?: { code: string; name: string }[] | null;
   onSelectDeliveryCountry?: (countryCode: string) => void;
   /** MERCHANT CUSTOMER COMMUNICATIONS v1 -- passe-plat vers
-   *  FulfillmentSelector et DeliveryTimingNoticeDialog, jamais
+   *  FulfillmentSelector (la fenêtre de délai n'est plus ouverte depuis #183), jamais
    *  réinterprété ici (même discipline que `deliveryCountry`).
    *  `null`/absent : toutes les formulations restent celles d'avant. */
   communicationTexts?: CommunicationTextOverrides | null;
@@ -223,13 +221,10 @@ export default function CartPanel({
   // PAR ÉTABLISSEMENT (restaurant_configs.order_note_enabled = false).
   // Absent/NULL/true : rendu historique inchangé.
   const orderNoteEnabled = restaurant.config.order_note_enabled !== false;
-  const [timingNoticeOpen, setTimingNoticeOpen] = useState(false);
-  const [timingNoticeConfirming, setTimingNoticeConfirming] = useState(false);
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
   const reviewOpenButtonRef = useRef<HTMLButtonElement>(null);
   const wasReviewingRef = useRef(false);
-  const timingNoticeGuardRef = useRef(false);
 
   useEffect(() => {
     if (reviewingOrder) {
@@ -242,10 +237,11 @@ export default function CartPanel({
 
   function requestOrderSubmission() {
     if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
-    if (deliveryCustomerNotice) {
-      setTimingNoticeOpen(true);
-      return;
-    }
+    // ISSUE #183 -- DÉCISION PRODUIT : la fenêtre « Délai et informations de
+    // livraison » ne s'ouvre PLUS après le choix du créneau. Le texte de délai
+    // configuré reste présenté à la saisie du code postal
+    // (DeliveryPostcodeResult), là où il aide à choisir la livraison, et n'est
+    // pas répété dans le récapitulatif avant paiement.
     openReviewOrSend();
   }
 
@@ -260,20 +256,6 @@ export default function CartPanel({
       return;
     }
     setReviewingOrder(true);
-  }
-
-  async function confirmTimingNotice() {
-    if (serviceMode === "delivery" && deliveryStatus.pricingUnavailable) return;
-    if (timingNoticeGuardRef.current || timingNoticeConfirming || isSubmitting) return;
-    timingNoticeGuardRef.current = true;
-    setTimingNoticeConfirming(true);
-    setTimingNoticeOpen(false);
-    try {
-      openReviewOrSend();
-    } finally {
-      timingNoticeGuardRef.current = false;
-      setTimingNoticeConfirming(false);
-    }
   }
 
   const reviewCgvBlocked = cgvEnforced && !cgvAccepted;
@@ -683,16 +665,8 @@ export default function CartPanel({
                 modes={unblockedServiceModes}
                 onSelect={onSelectFulfillment}
               />
-              <DeliveryTimingNoticeDialog
-                open={timingNoticeOpen}
-                notice={deliveryCustomerNotice}
-                confirming={timingNoticeConfirming || isSubmitting}
-                onConfirm={() => void confirmTimingNotice()}
-                onDismiss={() => setTimingNoticeOpen(false)}
-                communicationTexts={communicationTexts}
-              />
               <DeliveryPostcodeResult key={restaurant.id}
-                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !timingNoticeOpen && !reviewingOrder}
+                active={serviceMode === "delivery" && deliveryPricingReady && isValidPostalCodeFor(deliveryCountry, customer.postalCode) && !reviewingOrder}
                 contextKey={`${restaurant.id}:${deliveryCountry?.countryCode ?? ""}`}
                 postcode={customer.postalCode} status={deliveryStatus} subtotal={totalPrice} currency={currency} />
 
