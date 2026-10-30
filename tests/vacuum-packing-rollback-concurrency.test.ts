@@ -57,6 +57,7 @@ const ME: Endpoint = { sock: SOCK, port: PORT, nonce: NONCE, data: DATA };
 
 /** Environnement EXPLICITE : aucune variable héritée (y compris PG*). */
 function cleanEnv(): NodeJS.ProcessEnv {
+  // Next ajoute NODE_ENV (requis) au type ProcessEnv : l'environnement ENFANT est volontairement minimal.
   return {
     PATH: `${binDir ?? ""}:/usr/bin:/bin:/usr/sbin:/sbin`,
     HOME: path.join(SOCK, "home"),
@@ -64,7 +65,7 @@ function cleanEnv(): NodeJS.ProcessEnv {
     LANG: "C", LC_ALL: "C",
     // Les corps de fonction référencent des tables hors périmètre (restaurants...) : validation désactivée.
     PGOPTIONS: "-c check_function_bodies=off",
-  };
+  } as unknown as NodeJS.ProcessEnv;
 }
 const asPg = (cmd: string, args: string[]) =>
   execFileSync("/usr/sbin/runuser", ["-u", "postgres", "--", cmd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: cleanEnv() });
@@ -228,7 +229,7 @@ async function withDecoy<T>(fn: (count: () => number) => Promise<T> | T): Promis
   writeFileSync(counter, "");
   const script = `const net=require("net"),fs=require("fs");
     net.createServer((s)=>{fs.appendFileSync(${JSON.stringify(counter)},"x\\n");s.destroy();}).listen(${PORT},"127.0.0.1",()=>console.log("READY"));`;
-  const child = spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "pipe"], env: { PATH: cleanEnv().PATH } });
+  const child = spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "pipe"], env: { PATH: cleanEnv().PATH } as unknown as NodeJS.ProcessEnv });
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("leurre non démarré")), 10000);
     child.stdout.on("data", (d) => { if (String(d).includes("READY")) { clearTimeout(t); resolve(); } });
