@@ -11,12 +11,43 @@
 --     en ligne » comprises). Le nombre de décisions concernées est signalé en
 --     NOTICE (SCANYM_ROLLBACK_NOTICE) ; aucune n'est restaurable ensuite.
 --
--- PRÉ-VOL (T180-02) : le rollback ne remplace le claim QUE s'il est encore tel
--- que ce lot l'a posé (empreinte exacte du corps + TOUS les attributs de pg_proc,
--- STRICT compris + ensemble COMPLET des droits EXECUTE = {propriétaire,
--- service_role}, sans option de transmission ; mêmes règles que le lot). Une
--- variante introduite depuis lors n'est jamais écrasée à l'aveugle :
--- SCANYM_PREDECESSOR_DRIFT, transaction annulée, rien modifié.
+-- PRÉ-VOL (T180-02, étendu par T180-R4-01) : AUCUNE écriture n'a lieu tant que
+-- TOUS les objets que ce script remplace ou supprime ne sont pas encore tels que ce
+-- lot les a posés. Sinon : SCANYM_PREDECESSOR_DRIFT, transaction annulée, rien
+-- supprimé, rien modifié, aucune décision payment_mode_final perdue.
+--   * claim_pending_notifications (remplacée) : empreinte exacte du corps + TOUS les
+--     attributs de pg_proc (STRICT compris) + ensemble COMPLET des droits EXECUTE =
+--     {propriétaire, service_role}, sans option de transmission ; mêmes règles que le lot.
+--   * notification_send_gate_open, orders_payment_mode_final_guard,
+--     finalize_order_payment_mode_none (supprimées) : présence, empreinte du corps,
+--     arguments, type de retour, TOUS les attributs de pg_proc, propriétaire = rôle
+--     qui applique le script, droits EXECUTE sans option de transmission :
+--       - finalize : exactement {propriétaire, service_role} ;
+--       - porte et garde : {propriétaire} ou {propriétaire, service_role} (le second cas
+--         est ce que donnent des privilèges par défaut de plateforme) ; tout autre
+--         bénéficiaire (PUBLIC, anon, authenticated, rôle supplémentaire) est refusé.
+--   * déclencheur orders_payment_mode_final_guard_trg : empreinte de pg_trigger
+--     (moment, évènements, colonnes, clause WHEN, état d'activation, fonction appelée…).
+--   * contrainte orders_payment_mode_final_check : type, validée, différable, définition.
+--   * colonne orders.payment_mode_final : type, NOT NULL, défaut, génération, identité ;
+--     aucun objet inconnu (index, déclencheur de colonne, vue, politique, statistique…)
+--     ne dépend d'elle en dehors de la contrainte ci-dessus.
+-- Le retour arrière reste ce qu'il était : il SUPPRIME la colonne
+-- payment_mode_final ; les décisions « sans paiement en ligne » ne sont pas conservées
+-- (signalées en NOTICE, une fois seulement que tous les contrôles ont réussi).
+--
+-- LIMITES ASSUMÉES (contrat borné, à ne pas présenter comme une garantie totale) :
+--   * Les commentaires (COMMENT ON) des fonctions et de la colonne ne sont pas comparés.
+--   * Les droits au niveau de la colonne et les dépendances non enregistrées dans
+--     pg_depend (un corps plpgsql qui appellerait la porte par son nom) ne sont pas
+--     détectables ; un objet dépendant ENREGISTRÉ fait échouer les DROP sans CASCADE
+--     (transaction annulée).
+--   * La définition de la contrainte est comparée sans espaces ni parenthèses,
+--     en minuscules (robustesse entre versions de PostgreSQL).
+--   * Les contrôles sont faits dans la même transaction que les suppressions, workers
+--     arrêtés (prérequis ci-dessus) : une modification concurrente exactement entre
+--     le contrôle et la suppression n'est pas verrouillée.
+--   * Privilèges par défaut hébergés : non vérifiés sur la base hébergée (INCONCLUSIF).
 -- =============================================================================
 
 begin;
@@ -37,7 +68,6 @@ declare
   v_attrs    text;
   v_acl      text[];
   v_expected_acl text[];
-  v_lost   bigint;
 begin
   if to_regprocedure('public.notification_send_gate_open(uuid, text)') is null then
     raise exception 'SCANYM_ROLLBACK_PREFLIGHT_FAILED: notification_send_gate_open est absente -- lot non appliqué ou déjà annulé. Rollback annulé, rien modifié.';
@@ -96,14 +126,153 @@ begin
      or v_acl is distinct from v_expected_acl then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution de claim_pending_notifications différents de ceux posés par ce lot (propriétaire = rôle appliquant le script ET service_role, rien d''autre, sans option de transmission). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié ni révoqué silencieusement.', v_owner::regrole::text, v_acl, v_expected_acl;
   end if;
+end $$;
 
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'orders' and column_name = 'payment_mode_final'
-  ) then
-    execute 'select count(*) from public.orders where payment_mode_final is not null' into v_lost;
-    raise notice 'SCANYM_ROLLBACK_NOTICE: % décision(s) payment_mode_final seront définitivement perdues par ce retour arrière.', v_lost;
+-- T180-R4-01 : pré-vol des objets AUXILIAIRES du lot, avant toute écriture (cf. en-tête).
+do $$
+declare
+  -- Constantes = ce que PostgreSQL stocke après l'installation du lot (vérifié par
+  -- les tests [172-PRE-11], PGlite et PostgreSQL réel).
+  c_trigger_fp    constant text := 'tgtype=19;enabled=O;function_is_guard=t;columns=payment_status;has_when=f;nargs=0;internal=f;deferrable=f;initdeferred=f;constraint=0;oldtable=;newtable=';
+  c_constraint_fp constant text := 'type=c;validated=t;deferrable=f;initdeferred=f;def=checkpayment_mode_finalisnullorpayment_mode_final=anyarray[''online''::text,''none''::text]';
+  c_column_fp     constant text := 'type=text;notnull=f;hasdef=f;generated=;identity=;dims=0';
+  r              record;
+  v_owner        oid;
+  v_args         text;
+  v_result       text;
+  v_md5          text;
+  v_attrs        text;
+  v_acl          text[];
+  v_owner_entry  text;
+  v_service_entry text;
+  v_expected_acl text[];
+  v_acl_ok       boolean;
+  v_fp           text;
+  v_oid          oid;
+  v_attnum       smallint;
+  v_deps         text;
+  v_lost         bigint;
+begin
+  for r in
+    select * from (values
+      ('public.notification_send_gate_open(uuid, text)', 'af45d47018ebf6e1b1ac379c9036eb23', 'p_order_id uuid, p_notification_type text', 'boolean', 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=s;parallel=u;retset=f;cost=100;rows=0;support=0;variadic=0;nargs=2;ndefaults=0;config=search_path=""', false),
+      ('public.orders_payment_mode_final_guard()', 'b09144732b553043b69b0f6dbbceafb5', '', 'trigger', 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=v;parallel=u;retset=f;cost=100;rows=0;support=0;variadic=0;nargs=0;ndefaults=0;config=search_path=""', false),
+      ('public.finalize_order_payment_mode_none(uuid, uuid)', 'ba2b1dab8544d364aec5b90b561c15f3', 'p_order_id uuid, p_public_token uuid', 'TABLE(payment_status text, payment_mode_final text)', 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=v;parallel=u;retset=t;cost=100;rows=1000;support=0;variadic=0;nargs=2;ndefaults=0;config=search_path=""', true)
+    ) as t(sig, body_md5, args, result, attrs, service_role_required)
+  loop
+    select p.proowner,
+           pg_get_function_arguments(p.oid),
+           pg_get_function_result(p.oid),
+           md5(replace(p.prosrc, E'\r', '')),
+           format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
+                  p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                  p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                  p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')),
+           (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+              from (select format('%s=%s/%s%s',
+                                  case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                  a.privilege_type, a.grantor::regrole::text,
+                                  case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                      from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+      into v_owner, v_args, v_result, v_md5, v_attrs, v_acl
+    from pg_proc p
+    join pg_language l on l.oid = p.prolang
+    where p.oid = to_regprocedure(r.sig)::oid;
+
+    if not found then
+      raise exception 'SCANYM_PREDECESSOR_DRIFT: % est absent -- supprimé depuis l''installation du lot. Rollback annulé, rien supprimé ni modifié.', r.sig;
+    end if;
+
+    if v_md5 is distinct from r.body_md5 then
+      raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de % (md5 %) n''est plus celui posé par ce lot (md5 %) -- modifié depuis. Rollback annulé, rien supprimé ni modifié.', r.sig, v_md5, r.body_md5;
+    end if;
+
+    if v_attrs is distinct from r.attrs
+       or v_args is distinct from r.args
+       or v_result is distinct from r.result then
+      raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de % différents de ceux posés par ce lot (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, type de retour). Observé : % / % / % ; attendu : % / % / %. Rollback annulé, rien supprimé ni modifié.',
+        r.sig, v_attrs, v_args, v_result, r.attrs, r.args, r.result;
+    end if;
+
+    -- Droits : propriétaire = rôle qui applique le script ; aucun bénéficiaire inconnu,
+    -- aucune option de transmission. service_role est OBLIGATOIRE pour finalize (le lot
+    -- le lui accorde) et TOLÉRÉ pour la porte et la garde (privilège par défaut possible).
+    v_owner_entry   := format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text);
+    v_service_entry := format('%s=EXECUTE/%s', to_regrole('service_role')::text, v_owner::regrole::text);
+    v_expected_acl  := (select array_agg(x order by x) from unnest(array[v_owner_entry, v_service_entry]) as x);
+    v_acl_ok := v_acl is not distinct from v_expected_acl
+                or (not r.service_role_required and v_acl is not distinct from array[v_owner_entry]);
+    if v_owner is distinct from (select ro.oid from pg_roles ro where ro.rolname = current_user)
+       or not v_acl_ok then
+      raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution de % différents de ceux posés par ce lot (propriétaire = rôle appliquant le script, % service_role, rien d''autre, sans option de transmission). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié ni révoqué silencieusement. Rollback annulé, rien supprimé ni modifié.',
+        r.sig,
+        case when r.service_role_required then 'plus' else 'éventuellement plus' end,
+        v_owner::regrole::text, v_acl, v_expected_acl;
+    end if;
+  end loop;
+
+  -- Déclencheur : empreinte de pg_trigger (et non pg_get_triggerdef, qui dépend du search_path).
+  -- La clause WHEN n'est pas déparsée (pg_get_expr échoue sur OLD/NEW) : sa seule présence est un écart.
+  select format('tgtype=%s;enabled=%s;function_is_guard=%s;columns=%s;has_when=%s;nargs=%s;internal=%s;deferrable=%s;initdeferred=%s;constraint=%s;oldtable=%s;newtable=%s',
+                t.tgtype, t.tgenabled, t.tgfoid = to_regprocedure('public.orders_payment_mode_final_guard()'),
+                (select string_agg(a.attname, ',' order by a.attnum) from pg_attribute a where a.attrelid = t.tgrelid and a.attnum = any(t.tgattr)),
+                t.tgqual is not null, t.tgnargs, t.tgisinternal, t.tgdeferrable, t.tginitdeferred,
+                t.tgconstraint, coalesce(t.tgoldtable, ''), coalesce(t.tgnewtable, ''))
+    into v_fp
+  from pg_trigger t
+  where t.tgrelid = 'public.orders'::regclass and t.tgname = 'orders_payment_mode_final_guard_trg';
+  if v_fp is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: déclencheur orders_payment_mode_final_guard_trg est absent de public.orders -- supprimé depuis l''installation du lot. Rollback annulé, rien supprimé ni modifié.';
   end if;
+  if v_fp is distinct from c_trigger_fp then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: déclencheur orders_payment_mode_final_guard_trg différent de celui posé par ce lot (moment, colonnes, clause WHEN, activation, fonction). Observé : % ; attendu : %. Rollback annulé, rien supprimé ni modifié.', v_fp, c_trigger_fp;
+  end if;
+
+  -- Contrainte.
+  select c.oid,
+         format('type=%s;validated=%s;deferrable=%s;initdeferred=%s;def=%s',
+                c.contype, c.convalidated, c.condeferrable, c.condeferred,
+                regexp_replace(lower(pg_get_constraintdef(c.oid)), '[\s()]', '', 'g'))
+    into v_oid, v_fp
+  from pg_constraint c
+  where c.conrelid = 'public.orders'::regclass and c.conname = 'orders_payment_mode_final_check';
+  if v_fp is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: contrainte orders_payment_mode_final_check est absente de public.orders -- supprimée depuis l''installation du lot. Rollback annulé, rien supprimé ni modifié.';
+  end if;
+  if v_fp is distinct from c_constraint_fp then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: contrainte orders_payment_mode_final_check différente de celle posée par ce lot. Observé : % ; attendu : %. Rollback annulé, rien supprimé ni modifié.', v_fp, c_constraint_fp;
+  end if;
+
+  -- Colonne.
+  select a.attnum,
+         format('type=%s;notnull=%s;hasdef=%s;generated=%s;identity=%s;dims=%s',
+                format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef, a.attgenerated, a.attidentity, a.attndims)
+    into v_attnum, v_fp
+  from pg_attribute a
+  where a.attrelid = 'public.orders'::regclass and a.attname = 'payment_mode_final' and not a.attisdropped;
+  if v_fp is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: colonne orders.payment_mode_final est absente -- supprimée depuis l''installation du lot. Rollback annulé, rien supprimé ni modifié.';
+  end if;
+  if v_fp is distinct from c_column_fp then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: colonne orders.payment_mode_final différente de celle posée par ce lot. Observé : % ; attendu : %. Rollback annulé, rien supprimé ni modifié.', v_fp, c_column_fp;
+  end if;
+
+  -- Aucun objet INCONNU ne doit dépendre de la colonne (index, déclencheur de colonne,
+  -- vue, politique, statistique…) : la suppression de la colonne l'emporterait ou échouerait.
+  select string_agg(distinct pg_describe_object(d.classid, d.objid, d.objsubid), ', ')
+    into v_deps
+  from pg_depend d
+  where d.refclassid = 'pg_class'::regclass
+    and d.refobjid = 'public.orders'::regclass
+    and d.refobjsubid = v_attnum
+    and not (d.classid = 'pg_constraint'::regclass and d.objid = v_oid);
+  if v_deps is not null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: des objets inconnus dépendent de orders.payment_mode_final : %. Rollback annulé, rien supprimé ni modifié.', v_deps;
+  end if;
+
+  -- Tous les contrôles ont réussi : seulement maintenant, l'avertissement sur les décisions perdues.
+  execute 'select count(*) from public.orders where payment_mode_final is not null' into v_lost;
+  raise notice 'SCANYM_ROLLBACK_NOTICE: % décision(s) payment_mode_final seront définitivement perdues par ce retour arrière.', v_lost;
 end $$;
 
 create or replace function public.claim_pending_notifications(

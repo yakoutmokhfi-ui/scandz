@@ -396,6 +396,18 @@ async function snapshot(db: PGlite) {
     orders: await q(`select id, payment_status from public.orders order by id`),
     outbox: await q(`select id, status, attempt_count, claim_token from public.notification_outbox order by id`),
     txOpen: await q(`select (select count(*) from pg_stat_activity) >= 0 as ok`),
+    // T180-R4-01 : TOUS les objets du lot que le rollback supprime -- lignes catalogue complètes,
+    // pour que toute suppression ou réécriture silencieuse apparaisse dans la comparaison.
+    auxProcs: await q(`select p.proname, to_jsonb(p)::text as r from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                        where n.nspname = 'public' and p.proname in ('notification_send_gate_open', 'orders_payment_mode_final_guard', 'finalize_order_payment_mode_none') order by 1`),
+    auxDefs: await q(`select p.proname, pg_get_functiondef(p.oid) as d from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname = 'public' and p.proname in ('notification_send_gate_open', 'orders_payment_mode_final_guard', 'finalize_order_payment_mode_none') order by 1`),
+    triggers: await q(`select t.tgname, to_jsonb(t)::text as r from pg_trigger t where t.tgrelid = 'public.orders'::regclass order by 1`),
+    constraints: await q(`select c.conname, to_jsonb(c)::text as r from pg_constraint c where c.conrelid = 'public.orders'::regclass order by 1`),
+    orderAttrs: await q(`select a.attname, to_jsonb(a)::text as r from pg_attribute a where a.attrelid = 'public.orders'::regclass and a.attnum > 0 order by a.attnum`),
+    orderIndexes: await q(`select indexname, indexdef from pg_indexes where schemaname = 'public' and tablename = 'orders' order by 1`),
+    orderPolicies: await q(`select policyname, qual from pg_policies where schemaname = 'public' and tablename = 'orders' order by 1`),
+    publicViews: await q(`select viewname, definition from pg_views where schemaname = 'public' order by 1`),
   };
 }
 
@@ -596,4 +608,254 @@ test("[172-PRE-6] c_expected_attrs (lot ET rollback) = attributs que PostgreSQL 
          from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = '${CLAIM_FN}'::regprocedure`)).rows[0]!.a;
   assert.equal(await signature(await makeDb(false)), cLot, "N1-A stocké par PostgreSQL");
   assert.equal(await signature(await makeDb(true)), cRb, "claim du lot stocké par PostgreSQL");
+});
+
+// ====================================================================
+// T180-R4-01 (contre-audit R4 de Turing sur 9e2fc35, P2) : le rollback ne
+// vérifiait QUE le claim. Il supprimait sans regarder les autres objets du lot
+// -- notification_send_gate_open, orders_payment_mode_final_guard (+ son
+// déclencheur), finalize_order_payment_mode_none, la contrainte et la colonne
+// payment_mode_final. Un correctif opérationnel posé depuis l'installation
+// (ex. la branche `paid` de la porte) était donc effacé, rollback « réussi ».
+//
+// Contrat : AVANT toute écriture, chaque objet que le rollback va supprimer est
+// comparé à ce que CE lot a posé (corps, attributs, droits, propriétaire pour les
+// fonctions ; définition et état pour le déclencheur, la contrainte, la colonne ;
+// aucune dépendance inconnue sur la colonne). Écart ou objet absent :
+// SCANYM_PREDECESSOR_DRIFT, transaction annulée, rien supprimé, rien modifié,
+// aucune décision payment_mode_final perdue.
+// ====================================================================
+/** Chaque instance PGlite occupe ~250 Mo : on la ferme toujours (sinon la matrice ci-dessous épuise la mémoire). */
+async function withDb(applyLot: boolean, fn: (db: PGlite) => Promise<void>): Promise<void> {
+  const db = await makeDb(applyLot);
+  try { await fn(db); } finally { await db.close(); }
+}
+const GATE_FN = "public.notification_send_gate_open(uuid, text)";
+const GUARD_FN = "public.orders_payment_mode_final_guard()";
+const FINALIZE_FN = "public.finalize_order_payment_mode_none(uuid, uuid)";
+
+/** Redéfinit une fonction à partir de sa définition réelle (CREATE OR REPLACE conserve propriétaire et droits). */
+async function redefine(db: PGlite, fn: string, edit: (def: string) => string): Promise<void> {
+  const def = (await db.query<{ d: string }>(`select pg_get_functiondef('${fn}'::regprocedure) as d`)).rows[0]!.d;
+  const next = edit(def);
+  assert.notEqual(next, def, "la mutation de corps doit réellement changer la définition");
+  await db.exec(next);
+}
+const commentOnly = (d: string) => d.replace("\nbegin\n", "\nbegin\n  -- correctif local\n");
+
+async function decisionsOf(db: PGlite) {
+  return (await db.query<{ id: string; payment_status: string; payment_mode_final: string | null }>(
+    "select id, payment_status, payment_mode_final from public.orders order by id")).rows;
+}
+
+/** Le rollback doit être refusé (bloc ET instruction par instruction), sans aucune mutation ni décision perdue. */
+async function expectRollbackRefused(db: PGlite, check: RegExp): Promise<void> {
+  const before = await snapshot(db);
+  const decisionsBefore = await decisionsOf(db);
+  assert.equal(decisionsBefore[0]!.payment_mode_final, "none", "précondition : une décision définitive existe");
+
+  await assert.rejects(() => db.exec(sql(ROLLBACK)), (e: Error) => /SCANYM_PREDECESSOR_DRIFT/.test(e.message) && check.test(e.message));
+  await db.exec("rollback");
+  assert.deepEqual(await snapshot(db), before, "bloc unique : rien n'est supprimé ni modifié (fonctions, déclencheur, contrainte, colonne, droits, données)");
+
+  const errors = await runIgnoringErrors(db, sql(ROLLBACK));
+  assert.ok(errors.some((e) => /SCANYM_PREDECESSOR_DRIFT/.test(e) && check.test(e)), "le refus explicite, par le bon contrôle, est bien levé");
+  assert.deepEqual(await snapshot(db), before, "instruction par instruction (psql sans ON_ERROR_STOP) : rien n'est supprimé ni modifié");
+  assert.deepEqual(await decisionsOf(db), decisionsBefore, "aucune décision payment_mode_final perdue");
+}
+
+type AuxDrift = { label: string; mutate: (db: PGlite) => Promise<void>; check: RegExp };
+const AUX_FUNCTIONS = [
+  {
+    fn: GATE_FN, short: "notification_send_gate_open", rx: "public\\.notification_send_gate_open\\(uuid, text\\)", flip: "volatile", isSet: false, serviceGrant: false,
+    bodies: [
+      { label: "branche `paid` changée en false (contre-exemple exact de Turing)", edit: (d: string) => d.replace("when 'paid' then true", "when 'paid' then false") },
+      { label: "corps modifié par un simple commentaire", edit: commentOnly },
+    ],
+  },
+  {
+    fn: GUARD_FN, short: "orders_payment_mode_final_guard", rx: "public\\.orders_payment_mode_final_guard\\(\\)", flip: "stable", isSet: false, serviceGrant: false,
+    bodies: [
+      { label: "mode posé à 'none' au lieu de 'online'", edit: (d: string) => d.replace("new.payment_mode_final := 'online';", "new.payment_mode_final := 'none';") },
+      { label: "corps modifié par un simple commentaire", edit: commentOnly },
+    ],
+  },
+  {
+    fn: FINALIZE_FN, short: "finalize_order_payment_mode_none", rx: "public\\.finalize_order_payment_mode_none\\(uuid, uuid\\)", flip: "stable", isSet: true, serviceGrant: true,
+    bodies: [
+      { label: "mode finalisé à 'online' au lieu de 'none'", edit: (d: string) => d.replace("set payment_mode_final = 'none'", "set payment_mode_final = 'online'") },
+      { label: "corps modifié par un simple commentaire", edit: commentOnly },
+    ],
+  },
+];
+
+const AUX_DRIFTS: AuxDrift[] = [];
+for (const f of AUX_FUNCTIONS) {
+  const BODY = new RegExp(`le corps de ${f.rx} \\(md5 [0-9a-f]{32}\\) n'est plus celui posé par ce lot`);
+  const ATTR = new RegExp(`attributs de ${f.rx} différents de ceux posés par ce lot`);
+  const ACL = new RegExp(`droits d'exécution de ${f.rx} différents de ceux posés par ce lot`);
+  for (const b of f.bodies) AUX_DRIFTS.push({ label: `${f.short} -- ${b.label}`, mutate: (db) => redefine(db, f.fn, b.edit), check: BODY });
+  const attrs: Array<[string, string]> = [
+    ["STRICT (RETURNS NULL ON NULL INPUT)", "returns null on null input"],
+    ["SECURITY INVOKER", "security invoker"],
+    ["search_path différent", "set search_path = public"],
+    ["réglage SET supplémentaire (statement_timeout)", "set statement_timeout = '5s'"],
+    ["COST différent", "cost 500"],
+    ["PARALLEL SAFE", "parallel safe"],
+    ["LEAKPROOF", "leakproof"],
+    [`volatilité ${f.flip.toUpperCase()}`, f.flip],
+  ];
+  if (f.isSet) attrs.push(["ROWS différent", "rows 7"]);
+  for (const [label, stmt] of attrs) AUX_DRIFTS.push({ label: `${f.short} -- ${label}`, mutate: (db) => db.exec(`alter function ${f.fn} ${stmt};`).then(() => undefined), check: ATTR });
+  const acls: Array<[string, string]> = [
+    ["rôle supplémentaire avec EXECUTE", `create role audit_extra nologin; grant execute on function ${f.fn} to audit_extra;`],
+    ["droit d'exécution accordé à anon", `grant execute on function ${f.fn} to anon;`],
+    ["droit d'exécution accordé à authenticated", `grant execute on function ${f.fn} to authenticated;`],
+    ["droit d'exécution accordé à PUBLIC", `grant execute on function ${f.fn} to public;`],
+    ["service_role avec option de transmission (WITH GRANT OPTION)", `grant execute on function ${f.fn} to service_role with grant option;`],
+    ["propriétaire différent du rôle qui applique le rollback", `create role audit_other_owner; alter function ${f.fn} owner to audit_other_owner;`],
+  ];
+  if (f.serviceGrant) acls.push(["droit d'exécution de service_role retiré", `revoke execute on function ${f.fn} from service_role;`]);
+  for (const [label, stmt] of acls) AUX_DRIFTS.push({ label: `${f.short} -- ${label}`, mutate: (db) => db.exec(stmt).then(() => undefined), check: ACL });
+}
+
+const TRG = /déclencheur orders_payment_mode_final_guard_trg (est absent|différent de celui posé par ce lot)/;
+const TRG_DDL = (timing: string, cols: string, extra = "", fn = "public.orders_payment_mode_final_guard()") =>
+  `drop trigger orders_payment_mode_final_guard_trg on public.orders;
+   create trigger orders_payment_mode_final_guard_trg ${timing} update ${cols} on public.orders for each row ${extra} execute function ${fn};`;
+for (const [label, stmt] of [
+  ["déclencheur désactivé (DISABLE TRIGGER)", "alter table public.orders disable trigger orders_payment_mode_final_guard_trg;"],
+  ["déclencheur ENABLE ALWAYS (réplica)", "alter table public.orders enable always trigger orders_payment_mode_final_guard_trg;"],
+  ["déclencheur recréé AFTER au lieu de BEFORE", TRG_DDL("after", "of payment_status")],
+  ["déclencheur recréé sur toutes les colonnes", TRG_DDL("before", "")],
+  ["déclencheur recréé avec une clause WHEN", TRG_DDL("before", "of payment_status", "when (old.payment_status is distinct from new.payment_status)")],
+  ["déclencheur recréé vers une autre fonction", `create function public.hotfix_guard() returns trigger language plpgsql as $f$ begin return new; end $f$; ${TRG_DDL("before", "of payment_status", "", "public.hotfix_guard()")}`],
+  ["déclencheur supprimé", "drop trigger orders_payment_mode_final_guard_trg on public.orders;"],
+] as Array<[string, string]>) {
+  AUX_DRIFTS.push({ label, mutate: (db) => db.exec(stmt).then(() => undefined), check: TRG });
+}
+
+const CHK = /contrainte orders_payment_mode_final_check (est absente|différente de celle posée par ce lot)/;
+for (const [label, stmt] of [
+  ["contrainte élargie (valeur 'manual' autorisée)", `alter table public.orders drop constraint orders_payment_mode_final_check;
+     alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none', 'manual'));`],
+  ["contrainte recréée NOT VALID", `alter table public.orders drop constraint orders_payment_mode_final_check;
+     alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none')) not valid;`],
+  ["contrainte supprimée", "alter table public.orders drop constraint orders_payment_mode_final_check;"],
+] as Array<[string, string]>) {
+  AUX_DRIFTS.push({ label, mutate: (db) => db.exec(stmt).then(() => undefined), check: CHK });
+}
+
+const COL = /colonne orders\.payment_mode_final (est absente|différente de celle posée par ce lot)|objets inconnus dépendent de orders\.payment_mode_final|contrainte orders_payment_mode_final_check différente/;
+for (const [label, stmt] of [
+  ["index ajouté sur la colonne", "create index orders_pmf_idx on public.orders (payment_mode_final);"],
+  ["vue qui dépend de la colonne", "create view public.v_pmf as select id, payment_mode_final from public.orders;"],
+  ["politique RLS qui référence la colonne", "alter table public.orders enable row level security; create policy hotfix_pmf on public.orders for select using (payment_mode_final is null);"],
+  ["déclencheur ajouté sur la colonne", `create function public.hotfix_col() returns trigger language plpgsql as $f$ begin return new; end $f$;
+     create trigger hotfix_col_trg before update of payment_mode_final on public.orders for each row execute function public.hotfix_col();`],
+  ["valeur par défaut ajoutée sur la colonne", "alter table public.orders alter column payment_mode_final set default 'online';"],
+  ["type de la colonne changé (varchar)", "alter table public.orders alter column payment_mode_final type varchar(10);"],
+  ["colonne passée NOT NULL", "alter table public.orders alter column payment_mode_final set not null;"],
+] as Array<[string, string]>) {
+  AUX_DRIFTS.push({ label, mutate: (db) => db.exec(stmt).then(() => undefined), check: COL });
+}
+
+AUX_DRIFTS.push({ label: "finalize_order_payment_mode_none supprimée", mutate: (db) => db.exec(`drop function ${FINALIZE_FN};`).then(() => undefined), check: /public\.finalize_order_payment_mode_none\(uuid, uuid\) est absent/ });
+AUX_DRIFTS.push({ label: "orders_payment_mode_final_guard supprimée (avec son déclencheur)", mutate: (db) => db.exec(`drop trigger orders_payment_mode_final_guard_trg on public.orders; drop function ${GUARD_FN};`).then(() => undefined), check: /public\.orders_payment_mode_final_guard\(\) est absent/ });
+
+for (const drift of AUX_DRIFTS) {
+  test(`[172-PRE-7] rollback -- objet auxiliaire du lot modifié depuis l'installation : ${drift.label} : REFUSÉ (SCANYM_PREDECESSOR_DRIFT) avant toute suppression ; tout est conservé`, async () => {
+    await withDb(true, async (db) => {
+      await addOrder(db, "not_required", 0, "order_received", true); // décision « sans paiement » à conserver
+      await drift.mutate(db);
+      await expectRollbackRefused(db, drift.check);
+    });
+  });
+}
+
+test("[172-PRE-8] contre-exemple EXACT de Turing (T180-R4-01) : branche `paid` de la porte changée après l'installation -> rollback refusé, définition modifiée conservée, porte et colonne présentes, décision intacte", async () => {
+  await withDb(true, async (db) => {
+    await addOrder(db, "not_required", 0, "order_received", true);
+    const def = (await db.query<{ d: string }>(`select pg_get_functiondef('${GATE_FN}'::regprocedure) as d`)).rows[0]!.d;
+    assert.ok(def.includes("when 'paid' then true"));
+    await db.exec(def.replace("when 'paid' then true", "when 'paid' then false"));
+    await assert.rejects(() => db.exec(sql(ROLLBACK)), /SCANYM_PREDECESSOR_DRIFT: le corps de public\.notification_send_gate_open\(uuid, text\)/);
+    await db.exec("rollback");
+    const after = (await db.query<{ d: string; present: boolean; col: string }>(
+      `select pg_get_functiondef('${GATE_FN}'::regprocedure) as d,
+              to_regprocedure('public.notification_send_gate_open(uuid, text)') is not null as present,
+              (select count(*)::text from information_schema.columns where table_schema = 'public' and table_name = 'orders' and column_name = 'payment_mode_final') as col`)).rows[0]!;
+    assert.equal(after.present, true, "la porte n'a PAS été supprimée");
+    assert.ok(after.d.includes("when 'paid' then false"), "la définition modifiée est toujours en place");
+    assert.equal(after.col, "1", "la colonne de décision n'a PAS été supprimée");
+    assert.deepEqual((await decisionsOf(db)).map((d) => d.payment_mode_final), ["none"]);
+  });
+});
+
+test("[172-PRE-9] nominal : lot puis rollback restaure TOUS les objets d'avant (aucune fonction, déclencheur, contrainte ni colonne du lot ne subsiste), même avec une décision 'none'", async () => {
+  await withDb(false, async (db) => {
+    const original = await snapshot(db);
+    await db.exec(sql(LOT));
+    await addOrder(db, "not_required", 0, "order_received", true);
+    assert.deepEqual((await decisionsOf(db)).map((d) => d.payment_mode_final), ["none"], "précondition : une décision 'none' existe");
+    await db.exec(sql(ROLLBACK));
+    const restored = await snapshot(db);
+    assert.deepEqual(restored.auxProcs, [], "aucune fonction auxiliaire ne subsiste");
+    assert.deepEqual(restored.triggers, original.triggers);
+    assert.deepEqual(restored.constraints.map((c: any) => c.conname), original.constraints.map((c: any) => c.conname));
+    assert.deepEqual(restored.ordersColumns, original.ordersColumns);
+    assert.equal(restored.claim[0]!.body_md5, md5(bodyOf(N1A_CLAIM)));
+    assert.deepEqual(restored.allFunctionAcl, original.allFunctionAcl, "droits de toutes les fonctions publiques identiques à l'état d'avant le lot");
+  });
+});
+
+test("[172-PRE-10] nominal avec privilèges par défaut de la plateforme (service_role reçoit EXECUTE sur les fonctions créées) : le rollback n'est PAS refusé à tort ; mais tout AUTRE bénéficiaire l'est", async () => {
+  const hostedLike = async () => {
+    const db = await makeDb(false);
+    await db.exec("alter default privileges in schema public grant execute on functions to service_role;");
+    await db.exec(sql(LOT));
+    return db;
+  };
+  const acl = async (db: PGlite) => (await db.query<{ acl: string }>(`select p.proacl::text as acl from pg_proc p where p.oid = '${GATE_FN}'::regprocedure`)).rows[0]!.acl;
+  const nominal = await hostedLike();
+  try {
+    assert.match(await acl(nominal), /service_role=X\//, "précondition : service_role a reçu EXECUTE par privilège par défaut");
+    await nominal.exec(sql(ROLLBACK));
+    assert.equal((await snapshot(nominal)).auxProcs.length, 0, "rollback accepté et complet");
+  } finally { await nominal.close(); }
+
+  const withExtra = await hostedLike();
+  try {
+    await addOrder(withExtra, "not_required", 0, "order_received", true);
+    await withExtra.exec(`create role audit_extra nologin; grant execute on function ${GATE_FN} to audit_extra;`);
+    await expectRollbackRefused(withExtra, new RegExp("droits d'exécution de public\\.notification_send_gate_open\\(uuid, text\\) différents"));
+  } finally { await withExtra.close(); }
+});
+
+test("[172-PRE-11] les empreintes auxiliaires du rollback (corps, attributs, droits, déclencheur, contrainte, colonne) sont celles que PostgreSQL stocke après l'installation RÉELLE du lot", async () => {
+  const rb = sql(ROLLBACK);
+  const FORMAT = "format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s'";
+  assert.ok(rb.includes(FORMAT), "même expression de signature d'attributs que le lot et le claim");
+  const rows = [...rb.matchAll(/\('(public\.[^']+)',\s*'([0-9a-f]{32})',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(true|false)\)/g)];
+  assert.equal(rows.length, 3, "trois fonctions auxiliaires déclarées");
+  const db = await makeDb(true);
+  try {
+  for (const [, sig, md5c, args, result, attrs] of rows) {
+    const got = (await db.query<{ m: string; a: string; r: string; t: string }>(
+      `select md5(replace(p.prosrc, E'\r', '')) as m, pg_get_function_arguments(p.oid) as a, pg_get_function_result(p.oid) as r,
+              ${FORMAT}, p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile, p.proparallel, p.proretset, p.procost, p.prorows,
+              p.prosupport::oid, p.provariadic, p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')) as t
+         from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = '${sig}'::regprocedure`)).rows[0]!;
+    assert.equal(got.m, md5c, `${sig} : md5 du corps`);
+    assert.equal(got.a, args, `${sig} : arguments`);
+    assert.equal(got.r, result, `${sig} : type de retour`);
+    assert.equal(got.t, attrs, `${sig} : attributs`);
+  }
+  const unq = (s: string) => s.replaceAll("''", "'");
+  const constant = (name: string) => unq(rb.match(new RegExp(`${name}\\s+constant text := '((?:[^']|'')*)'`))![1]!);
+  const one = async (text: string) => (await db.query<{ fp: string }>(text)).rows[0]!.fp;
+  assert.equal(await one(`select format('tgtype=%s;enabled=%s;function_is_guard=%s;columns=%s;has_when=%s;nargs=%s;internal=%s;deferrable=%s;initdeferred=%s;constraint=%s;oldtable=%s;newtable=%s', t.tgtype, t.tgenabled, t.tgfoid = to_regprocedure('public.orders_payment_mode_final_guard()'), (select string_agg(a.attname, ',' order by a.attnum) from pg_attribute a where a.attrelid = t.tgrelid and a.attnum = any(t.tgattr)), t.tgqual is not null, t.tgnargs, t.tgisinternal, t.tgdeferrable, t.tginitdeferred, t.tgconstraint, coalesce(t.tgoldtable, ''), coalesce(t.tgnewtable, '')) as fp from pg_trigger t where t.tgrelid = 'public.orders'::regclass and t.tgname = 'orders_payment_mode_final_guard_trg'`), constant("c_trigger_fp"));
+  assert.equal(await one(`select format('type=%s;validated=%s;deferrable=%s;initdeferred=%s;def=%s', c.contype, c.convalidated, c.condeferrable, c.condeferred, regexp_replace(lower(pg_get_constraintdef(c.oid)), '[\\s()]', '', 'g')) as fp from pg_constraint c where c.conrelid = 'public.orders'::regclass and c.conname = 'orders_payment_mode_final_check'`), constant("c_constraint_fp"));
+  assert.equal(await one(`select format('type=%s;notnull=%s;hasdef=%s;generated=%s;identity=%s;dims=%s', format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef, a.attgenerated, a.attidentity, a.attndims) as fp from pg_attribute a where a.attrelid = 'public.orders'::regclass and a.attname = 'payment_mode_final' and not a.attisdropped`), constant("c_column_fp"));
+  } finally { await db.close(); }
 });

@@ -18,6 +18,14 @@ import path from "node:path";
 // ON_ERROR_STOP=1 (le script s'arrête) et ON_ERROR_STOP=0 (psql continue après
 // l'erreur -- la transaction avortée doit empêcher toute DDL suivante).
 //
+// T180-R4-01 (contre-audit R4, P2) : le rollback ne vérifiait QUE le claim et
+// supprimait sans regarder la porte, la garde, finalize, le déclencheur, la contrainte
+// et la colonne. [172-PGPRE-F..J] rejouent, sur un VRAI PostgreSQL et avec le VRAI psql,
+// le contre-exemple de Turing (branche `paid` de la porte modifiée après installation),
+// d'autres écarts d'objets auxiliaires, et le chemin nominal (avec privilèges par défaut
+// de plateforme). Le nominal sur PostgreSQL réel prouve aussi que les empreintes
+// codées dans le rollback sont celles que cette version de PostgreSQL stocke.
+//
 // EXÉCUTION -- opt-in, comme tests/v172-order-received-payment-gate-
 // concurrency-pg.test.ts : sans SCANYM_TEST_PG_ADMIN_URL, chaque test est
 // SAUTÉ avec sa raison (aucune preuve sur PostgreSQL réel n'est alors
@@ -120,7 +128,18 @@ function snapshot(url: string): string {
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'),
       (select string_agg(rolname, ',' order by rolname) from pg_roles where rolname !~ '^pg_'),
       (select string_agg(column_name, ',' order by column_name) from information_schema.columns where table_schema = 'public' and table_name = 'orders'),
-      (select coalesce(string_agg(to_jsonb(o)::text, ',' order by o.id), '') from public.orders o)
+      (select coalesce(string_agg(to_jsonb(o)::text, ',' order by o.id), '') from public.orders o),
+      -- T180-R4-01 : tous les objets auxiliaires du lot (lignes catalogue COMPLÈTES) et leurs dépendances.
+      (select coalesce(string_agg(to_jsonb(p)::text, ',' order by p.proname), '') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname in ('notification_send_gate_open', 'orders_payment_mode_final_guard', 'finalize_order_payment_mode_none')),
+      (select coalesce(string_agg(pg_get_functiondef(p.oid), ',' order by p.proname), '') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname in ('notification_send_gate_open', 'orders_payment_mode_final_guard', 'finalize_order_payment_mode_none')),
+      (select coalesce(string_agg(to_jsonb(t)::text, ',' order by t.tgname), '') from pg_trigger t where t.tgrelid = 'public.orders'::regclass),
+      (select coalesce(string_agg(to_jsonb(c)::text, ',' order by c.conname), '') from pg_constraint c where c.conrelid = 'public.orders'::regclass),
+      (select coalesce(string_agg(to_jsonb(a)::text, ',' order by a.attnum), '') from pg_attribute a where a.attrelid = 'public.orders'::regclass and a.attnum > 0),
+      (select coalesce(string_agg(indexdef, ',' order by indexname), '') from pg_indexes where schemaname = 'public' and tablename = 'orders'),
+      (select coalesce(string_agg(viewname || definition, ',' order by viewname), '') from pg_views where schemaname = 'public'),
+      (select coalesce(string_agg(policyname || coalesce(qual, ''), ',' order by policyname), '') from pg_policies where schemaname = 'public' and tablename = 'orders')
     );`);
 }
 
@@ -205,6 +224,105 @@ test("[172-PGPRE-E] PostgreSQL réel -- nominal : N1-A exact -> le lot s'appliqu
     "a29cc6b88ccd77782ea4c5db299c6a70",
     "corps N1-A restauré à l'empreinte exacte"
   );
+});
+
+const GATE_FN = "public.notification_send_gate_open(uuid, text)";
+const GUARD_FN = "public.orders_payment_mode_final_guard()";
+const FINALIZE_FN = "public.finalize_order_payment_mode_none(uuid, uuid)";
+
+/** Base avec le lot installé et une commande dont la décision définitive « sans paiement » (none) est posée. */
+function lotWithDecision(extraSql = ""): string {
+  const url = newDb(extraSql, true);
+  psqlQuery(url, `insert into public.orders (restaurant_id) values (gen_random_uuid());`);
+  psqlQuery(url, `select 1 from public.finalize_order_payment_mode_none((select id from public.orders limit 1), (select public_token from public.orders limit 1));`);
+  assert.equal(psqlQuery(url, `select payment_mode_final from public.orders;`), "none", "précondition : décision « sans paiement » posée");
+  return url;
+}
+const decisions = (url: string) => psqlQuery(url, `select coalesce(string_agg(id::text || ':' || coalesce(payment_mode_final, '-'), ',' order by id), '') from public.orders;`);
+const functionDef = (url: string, fn: string) => psqlQuery(url, `select pg_get_functiondef('${fn}'::regprocedure);`);
+const gateExists = (url: string) => psqlQuery(url, `select to_regprocedure('${GATE_FN}') is not null;`);
+
+test("[172-PGPRE-F] PostgreSQL réel -- T180-R4-01, contre-exemple EXACT de Turing : branche `paid` de la porte modifiée après l'installation -> rollback REFUSÉ (ON_ERROR_STOP 1 et 0), définition modifiée conservée, porte et colonne présentes, décision intacte", OPTS, () => {
+  const url = lotWithDecision();
+  const original = functionDef(url, GATE_FN);
+  assert.ok(original.includes("when 'paid' then true"));
+  const tampered = psqlFile(url, "tamper-gate.sql", `${original.replace("when 'paid' then true", "when 'paid' then false")};\n`, true);
+  assert.equal(tampered.status, 0, tampered.out);
+  const decisionsBefore = decisions(url);
+  assertRefused(url, ROLLBACK, "rb-gate-paid", /le corps de public\.notification_send_gate_open\(uuid, text\) \(md5 [0-9a-f]{32}\) n'est plus celui posé par ce lot/);
+  assert.equal(gateExists(url), "t", "la porte n'a PAS été supprimée");
+  assert.ok(functionDef(url, GATE_FN).includes("when 'paid' then false"), "la définition modifiée est toujours en place");
+  assert.equal(psqlQuery(url, `select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'orders' and column_name = 'payment_mode_final';`), "1", "la colonne de décision n'a PAS été supprimée");
+  assert.equal(decisions(url), decisionsBefore, "décision payment_mode_final strictement inchangée");
+});
+
+const ATTR_GATE = /attributs de public\.notification_send_gate_open\(uuid, text\) différents de ceux posés par ce lot/;
+const ACL_GATE = /droits d'exécution de public\.notification_send_gate_open\(uuid, text\) différents de ceux posés par ce lot/;
+const TRG_DIFF = /déclencheur orders_payment_mode_final_guard_trg différent de celui posé par ce lot/;
+const CHK_DIFF = /contrainte orders_payment_mode_final_check différente de celle posée par ce lot/;
+const PG_DRIFTS: Array<{ label: string; ddl: string; check: RegExp }> = [
+  { label: "porte : STRICT", ddl: `alter function ${GATE_FN} returns null on null input;`, check: ATTR_GATE },
+  { label: "porte : search_path différent", ddl: `alter function ${GATE_FN} set search_path = public;`, check: ATTR_GATE },
+  { label: "porte : droit d'exécution accordé à anon", ddl: `grant execute on function ${GATE_FN} to anon;`, check: ACL_GATE },
+  { label: "porte : rôle supplémentaire avec EXECUTE", ddl: `grant execute on function ${GATE_FN} to audit_extra;`, check: ACL_GATE },
+  { label: "garde : propriétaire différent", ddl: `alter function ${GUARD_FN} owner to audit_other_owner;`, check: /droits d'exécution de public\.orders_payment_mode_final_guard\(\) différents de ceux posés par ce lot/ },
+  {
+    label: "finalize : mode finalisé à 'online' au lieu de 'none'",
+    ddl: `do $$ begin execute replace(pg_get_functiondef('${FINALIZE_FN}'::regprocedure), 'set payment_mode_final = ''none''', 'set payment_mode_final = ''online'''); end $$;`,
+    check: /le corps de public\.finalize_order_payment_mode_none\(uuid, uuid\) \(md5 [0-9a-f]{32}\) n'est plus celui posé par ce lot/,
+  },
+  { label: "finalize : droit de service_role retiré", ddl: `revoke execute on function ${FINALIZE_FN} from service_role;`, check: /droits d'exécution de public\.finalize_order_payment_mode_none\(uuid, uuid\) différents de ceux posés par ce lot/ },
+  { label: "finalize : supprimée", ddl: `drop function ${FINALIZE_FN};`, check: /public\.finalize_order_payment_mode_none\(uuid, uuid\) est absent/ },
+  { label: "déclencheur : désactivé", ddl: `alter table public.orders disable trigger orders_payment_mode_final_guard_trg;`, check: TRG_DIFF },
+  { label: "déclencheur : recréé AFTER", ddl: `drop trigger orders_payment_mode_final_guard_trg on public.orders; create trigger orders_payment_mode_final_guard_trg after update of payment_status on public.orders for each row execute function ${GUARD_FN};`, check: TRG_DIFF },
+  { label: "déclencheur : supprimé", ddl: `drop trigger orders_payment_mode_final_guard_trg on public.orders;`, check: /déclencheur orders_payment_mode_final_guard_trg est absent/ },
+  { label: "contrainte : élargie", ddl: `alter table public.orders drop constraint orders_payment_mode_final_check; alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none', 'manual'));`, check: CHK_DIFF },
+  { label: "contrainte : NOT VALID", ddl: `alter table public.orders drop constraint orders_payment_mode_final_check; alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none')) not valid;`, check: CHK_DIFF },
+  { label: "colonne : index ajouté", ddl: `create index orders_pmf_idx on public.orders (payment_mode_final);`, check: /objets inconnus dépendent de orders\.payment_mode_final/ },
+  { label: "colonne : passée NOT NULL", ddl: `alter table public.orders alter column payment_mode_final set not null;`, check: /colonne orders\.payment_mode_final différente de celle posée par ce lot|objets inconnus dépendent de orders\.payment_mode_final/ },
+  { label: "colonne : valeur par défaut ajoutée", ddl: `alter table public.orders alter column payment_mode_final set default 'online';`, check: /colonne orders\.payment_mode_final différente de celle posée par ce lot/ },
+];
+for (const drift of PG_DRIFTS) {
+  test(`[172-PGPRE-G] PostgreSQL réel -- T180-R4-01, rollback : ${drift.label} -> REFUSÉ (ON_ERROR_STOP 1 et 0), tout est conservé, décision intacte`, OPTS, () => {
+    const url = lotWithDecision();
+    psqlQuery(url, drift.ddl);
+    const decisionsBefore = decisions(url);
+    assertRefused(url, ROLLBACK, "rb-aux", drift.check);
+    assert.equal(decisions(url), decisionsBefore);
+  });
+}
+
+test("[172-PGPRE-H] PostgreSQL réel -- privilèges par défaut de plateforme (service_role/anon/authenticated reçoivent EXECUTE sur les fonctions créées) : le rollback nominal N'EST PAS refusé à tort ; un bénéficiaire en plus l'est", OPTS, () => {
+  const hostedLike = `alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;`;
+  const url = lotWithDecision(hostedLike);
+  assert.match(psqlQuery(url, `select proacl::text from pg_proc where oid = '${GATE_FN}'::regprocedure;`), /service_role=X\//, "précondition : service_role a reçu EXECUTE par privilège par défaut");
+  const rb = psqlFile(url, "hosted-like-rollback.sql", ROLLBACK, true);
+  assert.equal(rb.status, 0, rb.out);
+  assert.equal(psqlQuery(url, `select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('notification_send_gate_open', 'orders_payment_mode_final_guard', 'finalize_order_payment_mode_none');`), "0");
+
+  const refused = lotWithDecision(hostedLike);
+  psqlQuery(refused, `grant execute on function ${GATE_FN} to audit_extra;`);
+  assertRefused(refused, ROLLBACK, "rb-hosted-like-extra", ACL_GATE);
+});
+
+test("[172-PGPRE-I] PostgreSQL réel -- nominal avec décision : le rollback réussit, signale UNE fois la perte des décisions (NOTICE) APRÈS tous les contrôles, supprime tous les objets du lot (comportement inchangé), et restaure le claim N1-A", OPTS, () => {
+  const url = lotWithDecision();
+  const rb = psqlFile(url, "nominal-decision-rollback.sql", ROLLBACK, true);
+  assert.equal(rb.status, 0, rb.out);
+  assert.equal(rb.out.match(/SCANYM_ROLLBACK_NOTICE: 1 décision\(s\) payment_mode_final seront définitivement perdues/g)?.length, 1, rb.out);
+  assert.equal(psqlQuery(url, `select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'orders' and column_name = 'payment_mode_final';`), "0", "colonne supprimée (comportement du rollback inchangé)");
+  assert.equal(psqlQuery(url, `select count(*) from pg_trigger where tgrelid = 'public.orders'::regclass and not tgisinternal;`), "0");
+  assert.equal(psqlQuery(url, `select count(*) from pg_constraint where conrelid = 'public.orders'::regclass and conname = 'orders_payment_mode_final_check';`), "0");
+  assert.equal(psqlQuery(url, `select md5(replace(prosrc, E'\\r', '')) from pg_proc where oid = '${CLAIM_FN}'::regprocedure;`), "a29cc6b88ccd77782ea4c5db299c6a70");
+});
+
+test("[172-PGPRE-J] PostgreSQL réel -- le NOTICE de perte de décisions n'est PAS émis quand un contrôle refuse le rollback", OPTS, () => {
+  const url = lotWithDecision();
+  psqlQuery(url, `alter function ${GATE_FN} volatile;`);
+  const rb = psqlFile(url, "refused-no-notice.sql", ROLLBACK, true);
+  assert.notEqual(rb.status, 0);
+  assert.match(rb.out, /SCANYM_PREDECESSOR_DRIFT/);
+  assert.doesNotMatch(rb.out, /SCANYM_ROLLBACK_NOTICE/, rb.out);
 });
 
 after(() => {
