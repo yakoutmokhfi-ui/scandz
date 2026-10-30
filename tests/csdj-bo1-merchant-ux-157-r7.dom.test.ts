@@ -62,6 +62,7 @@ export async function signOut() {}
 const MOCK_DASHBOARD = `
 export async function getMerchantRestaurants() { return (globalThis).__mappings; }
 export async function getRestaurantSettings() { return { staff_receipt_language: (globalThis).__uiLang ?? "fr" }; }
+export async function getMerchantDeliveryFulfillmentPricing() { return (globalThis).__deliveryRules ?? []; }
 `;
 
 const MOCK_ESTABLISHMENTS = `

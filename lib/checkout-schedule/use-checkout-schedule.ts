@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchCheckoutSchedule } from "@/lib/services/checkout-schedule";
-import type { CheckoutScheduleView } from "@/lib/checkout-schedule/model";
+import { checkoutScheduleScope, type CheckoutScheduleView } from "@/lib/checkout-schedule/model";
 
 /**
  * CSDJ-2 / issue #158 -- lecture des disponibilités du checkout.
@@ -18,12 +18,21 @@ import type { CheckoutScheduleView } from "@/lib/checkout-schedule/model";
  *
  * Une réponse en retard (autre mode, autre code postal, relecture plus
  * récente) est IGNORÉE : seule la dernière demande peut écrire l'état.
+ *
+ * Issue #170 (P2) -- chaque état porte la PORTÉE (`scope`, voir
+ * `checkoutScheduleScope`) de la demande qui l'a produit, et l'état RENDU à
+ * l'écran n'est jamais celui d'une autre portée que la portée courante : dès
+ * que le code postal, le mode ou le panier de livraison change, l'état est
+ * `loading` DANS LE MÊME rendu (pas de rendu intermédiaire qui montrerait le
+ * calendrier -- ou laisserait partir une commande -- de l'ancienne règle).
  */
 export type CheckoutScheduleState =
   | { status: "idle"; view: null }
-  | { status: "loading"; view: null }
-  | { status: "ready"; view: CheckoutScheduleView }
-  | { status: "error"; view: null };
+  | { status: "loading"; view: null; scope: string }
+  | { status: "ready"; view: CheckoutScheduleView; scope: string }
+  | { status: "error"; view: null; scope: string };
+
+const IDLE_STATE: CheckoutScheduleState = { status: "idle", view: null };
 
 export interface UseCheckoutScheduleParams {
   restaurantId: string | null;
@@ -35,11 +44,14 @@ export interface UseCheckoutScheduleParams {
 
 export function useCheckoutSchedule(params: UseCheckoutScheduleParams): {
   state: CheckoutScheduleState;
+  /** Portée COURANTE (calculée à ce rendu), `null` si rien à lire. */
+  scope: string | null;
   refetch: () => Promise<void>;
 } {
   const { restaurantId, modeCode, postalCode, totalCount, subtotal } = params;
   const enabled = restaurantId !== null && modeCode !== null;
-  const [state, setState] = useState<CheckoutScheduleState>({ status: "idle", view: null });
+  const [state, setState] = useState<CheckoutScheduleState>(IDLE_STATE);
+  const scope = checkoutScheduleScope(params);
   const seqRef = useRef(0);
   const paramsRef = useRef(params);
   paramsRef.current = params;
@@ -47,11 +59,12 @@ export function useCheckoutSchedule(params: UseCheckoutScheduleParams): {
   const run = useCallback(async () => {
     const p = paramsRef.current;
     const seq = ++seqRef.current;
-    if (p.restaurantId === null || p.modeCode === null) {
-      setState({ status: "idle", view: null });
+    const reqScope = checkoutScheduleScope(p);
+    if (reqScope === null || p.restaurantId === null || p.modeCode === null) {
+      setState(IDLE_STATE);
       return;
     }
-    setState({ status: "loading", view: null });
+    setState({ status: "loading", view: null, scope: reqScope });
     try {
       const view = await fetchCheckoutSchedule({
         restaurantId: p.restaurantId,
@@ -61,17 +74,17 @@ export function useCheckoutSchedule(params: UseCheckoutScheduleParams): {
         subtotal: p.modeCode === "delivery" ? (p.subtotal ?? null) : null,
       });
       if (seq !== seqRef.current) return;
-      setState({ status: "ready", view });
+      setState({ status: "ready", view, scope: reqScope });
     } catch {
       if (seq !== seqRef.current) return;
-      setState({ status: "error", view: null });
+      setState({ status: "error", view: null, scope: reqScope });
     }
   }, []);
 
   useEffect(() => {
     if (!enabled) {
       seqRef.current += 1;
-      setState({ status: "idle", view: null });
+      setState(IDLE_STATE);
       return;
     }
     void run();
@@ -87,5 +100,13 @@ export function useCheckoutSchedule(params: UseCheckoutScheduleParams): {
     run,
   ]);
 
-  return { state, refetch: run };
+  // L'état RENDU : jamais celui d'une autre portée (ni un `idle` initial alors
+  // qu'une lecture est due). Identité stable tant que (état, portée) ne changent pas.
+  const visible = useMemo<CheckoutScheduleState>(() => {
+    if (scope === null) return IDLE_STATE;
+    if (state.status === "idle" || state.scope !== scope) return { status: "loading", view: null, scope };
+    return state;
+  }, [state, scope]);
+
+  return { state: visible, scope, refetch: run };
 }
