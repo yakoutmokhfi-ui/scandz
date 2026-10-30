@@ -50,7 +50,21 @@ const PINNED: Record<string, string> = {
   // réaffiché à la tentative) ; bouton bloqué en aria-disabled. Règles de
   // livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
   // SHA-256 précédent : 2c2b47a6456eef5bcd27cafb87b3570589137b18e5307c47ee697967beea0939
-  "components/CartPanel.tsx": "1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914",
+  // #181 -- RÉCAPITULATIF AVANT PAIEMENT (re-pin DIVULGUÉ) : CartPanel gagne une étape
+  // « récapitulatif » entre le bouton d'envoi et onSendOrder (articles, mode, adresse,
+  // créneau, note ; confirmation désactivée sans CGV ; bloc de saisie masqué, jamais
+  // démonté). Règles de livraison, tarifs, éligibilité, périmètre pays : AUCUNE ligne touchée.
+  // SHA-256 précédent : 1775879094580b640c2296327a609d15389b9338e35e8dd9e775ac967d0f9914
+  // Issue #183 -- RE-PIN DIVULGUÉ : CartPanel n'ouvre plus la fenêtre « Délai et
+  // informations de livraison » après le choix du créneau (décision produit) :
+  // retrait de l'import, de l'état/garde de confirmation, de confirmTimingNotice et
+  // du rendu de DeliveryTimingNoticeDialog ; `requestOrderSubmission` va droit à
+  // openReviewOrSend ; CartPanel relaie l'état d'ouverture de la fenêtre du code
+  // postal (`onOpenChange` -> `ruleTextShownInDialog`) pour ne masquer le doublon
+  // inline que pendant qu'elle est ouverte. Règles de livraison, tarifs, éligibilité, périmètre pays,
+  // minimum, frais : AUCUNE ligne touchée.
+  // SHA-256 précédent : dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15
+  "components/CartPanel.tsx": "e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",
@@ -66,5 +80,12 @@ for (const [file, sha] of Object.entries(PINNED)) {
 test("DeliveryPostcodeResult (availability, real fee, discount applied, missing items, matched rule text) is byte-identical to base", () => {
   const src = readFileSync("components/DeliveryConditions.tsx", "utf8");
   const slice = src.slice(src.indexOf("/** One popup per meaningful resolved result"));
-  assert.equal(createHash("sha256").update(slice).digest("hex"), "ef6a193f34c1a81cd31fba02fb92f4726ef63da2efd809f01ae0c68679a0decb");
+  // Issue #183 -- RE-PIN DIVULGUÉ : DeliveryPostcodeResult gagne UNE prop optionnelle
+  // `onOpenChange` et un `useLayoutEffect` (relais AVANT l'affichage de la fenêtre) qui relaie son état d'ouverture EFFECTIF
+  // (ouverte ET active) à CartPanel, pour que le doublon inline du texte de règle ne
+  // soit masqué que pendant que la fenêtre est ouverte. AUCUNE ligne du contenu
+  // rendu (disponibilité, frais réels, remise, articles manquants, texte de règle)
+  // ni du calcul n'est touchée : seuls la signature, `effectiveOpen` et ce relais changent.
+  // SHA-256 précédent : ef6a193f34c1a81cd31fba02fb92f4726ef63da2efd809f01ae0c68679a0decb
+  assert.equal(createHash("sha256").update(slice).digest("hex"), "7c0bf8f39dd647a7566394512a784f9d0c80d9b800c9b90959b6ad0a14cf4ffa");
 });

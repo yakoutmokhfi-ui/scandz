@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { productPhotoThumbnailUrl, THUMBNAIL_WIDTH_WIDE } from "@/lib/product-photo-thumbnail";
 import type { MenuItem } from "@/lib/types";
 
 export default function PastryModal({
@@ -44,8 +45,10 @@ export default function PastryModal({
                 >
                   {pastry.image_url && (
                     <img
-                      src={pastry.image_url}
+                      src={productPhotoThumbnailUrl(pastry.image_url, THUMBNAIL_WIDTH_WIDE)}
                       alt={pastry.name}
+                      loading="lazy"
+                      decoding="async"
                       className="h-24 w-full object-cover"
                     />
                   )}

@@ -2268,7 +2268,7 @@ export default function SettingsPage() {
                   setCommunicationTexts((prev) => ({ ...prev, [key]: e.target.value }))
                 }
                 disabled={!canEdit}
-                rows={2}
+                rows={key === "order_help_body" ? 8 : 2}
                 maxLength={communicationTextMaxLength(key)}
                 className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
               />

@@ -6,6 +6,8 @@ import { translate, type Lang } from "@/lib/i18n";
 import { formatElapsedMinutesFr } from "@/lib/format-elapsed-time";
 import { formatPrice } from "@/lib/whatsapp";
 import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
+import { isOrderPaymentOperational, orderPaymentBadge } from "@/lib/order-payment-operability";
+import { formatOrderSchedule, orderScheduleLabelKey } from "@/lib/order-schedule-display";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
 export const STATUS_KEY: Record<OrderStatus, string> = {
@@ -130,6 +132,8 @@ export default function OrderCard({
   const lang = (staffLanguage ?? "fr") as Lang;
   const t = (k: string, p?: Record<string, string | number>) =>
     translate(lang, k, p);
+  const paymentOperational = isOrderPaymentOperational(order.payment_status);
+  const paymentBadge = orderPaymentBadge(order.payment_status);
   const ageMinutes = Math.max(0, Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000));
   /**
    * CORRECTIF (BACKOFFICE TICKET AGE / ELAPSED TIME DISPLAY v1) :
@@ -218,6 +222,8 @@ export default function OrderCard({
     }
   }
 
+  const schedule = formatOrderSchedule(order.order_fulfillment_schedule_snapshot, lang);
+
   return (
     <article
       dir={lang === "ar" ? "rtl" : "ltr"}
@@ -231,6 +237,20 @@ export default function OrderCard({
           <p className="text-sm font-semibold text-amber-700">
             {service(order, lang)} · {ageDisplay}
           </p>
+          {/* ISSUE #170 -- jour et créneau FIGÉS avec la commande par
+              create_order hébergé (order_fulfillment_schedule_snapshot),
+              tels que validés côté serveur -- jamais recalculés ici,
+              indépendants de WhatsApp. Absent => rien. */}
+          {schedule && (
+            <p
+              data-order-schedule=""
+              data-order-schedule-mode={order.order_fulfillment_schedule_snapshot?.mode_code}
+              className="mt-1 text-sm font-semibold text-stone-900"
+            >
+              {t(orderScheduleLabelKey(order.order_fulfillment_schedule_snapshot!.mode_code))} : {schedule.dateLabel}
+              {schedule.timeLabel ? ` · ${schedule.timeLabel}` : ""}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-700">
@@ -455,7 +475,25 @@ export default function OrderCard({
         </button>
       </div>
 
-      {(nextActions[order.status]?.length ?? 0) > 0 && (
+      {/* ISSUE #171 -- une commande dont le paiement n'est ni `paid` ni
+          `not_required` n'est JAMAIS actionnable depuis le back-office :
+          aucun bouton Accepter/Refuser/… n'est rendu, un badge explique
+          pourquoi. Miroir UI de la garde serveur (update_order_status) --
+          jamais l'autorité. Fail-closed : payment_status absent => badge
+          « non confirmé », aucune action. */}
+      {paymentBadge !== null && (
+        <p
+          data-testid="order-payment-badge"
+          data-payment-status={order.payment_status ?? "unknown"}
+          className={`mt-3 rounded-xl px-3 py-2 text-sm font-bold ${
+            paymentBadge === "payment_failed" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
+          }`}
+        >
+          {t(paymentBadge === "payment_failed" ? "dsPaymentFailed" : "dsPaymentAwaiting")}
+        </p>
+      )}
+
+      {paymentOperational && (nextActions[order.status]?.length ?? 0) > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           {nextActions[order.status]?.map((action) => (
             <button

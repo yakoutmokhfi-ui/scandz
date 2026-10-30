@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
 
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
@@ -25,6 +26,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 Object.defineProperty(globalThis, "navigator", {
@@ -646,14 +648,16 @@ test("[158-D11] EN / NL / AR : textes traduits, bloc rendu, schedule transmis (R
         assert.ok(container.textContent!.includes(translate(lang, "chkScheduleChooseHint")), `${lang}: indication`);
         assert.notEqual(translate(lang, "chkScheduleTitlePickup"), translate("fr", "chkScheduleTitlePickup"));
         await pickFixed(container, "2026-10-20", "morning");
-        click(sendButton(container, lang)!);
-        await waitFor(() => srv.createCalls.length === 1, `${lang}: create_order appelé`);
-        assert.equal(srv.createCalls[0].p_customer.schedule.slot_key, "morning");
         // Mobile : contrôles pleine largeur et cibles tactiles >= 44px (classes), sans largeur fixe.
+        // (Mesuré AVANT l'envoi : #181 -- le récapitulatif franchi, la commande
+        // aboutit aussitôt et le panier est remplacé par la confirmation.)
         const sel = q(container, "checkout-schedule-date") as HTMLElement;
         assert.ok(sel.className.includes("w-full"), `${lang}: sélecteur pleine largeur`);
         const slot = q(container, "checkout-schedule-slot-morning") as HTMLElement;
         assert.ok(slot.className.includes("min-h-[44px]"), `${lang}: cible tactile`);
+        click(sendButton(container, lang)!);
+        await waitFor(() => srv.createCalls.length === 1, `${lang}: create_order appelé`);
+        assert.equal(srv.createCalls[0].p_customer.schedule.slot_key, "morning");
       } finally { root.unmount(); container.remove(); }
     });
     t.mock.restoreAll();

@@ -1,4 +1,5 @@
 import { test, after } from "node:test";
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -11,6 +12,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 (globalThis as any).HTMLElement = window.HTMLElement;
@@ -182,27 +184,36 @@ function sendButton(container: Element): HTMLButtonElement {
   return button!;
 }
 
+// ISSUE #183 -- DÉCISION PRODUIT (commentaire 6499817662) : la fenêtre
+// « Délai et informations de livraison » ne s'ouvre PLUS après le choix du
+// créneau ; le texte de délai reste présenté à la saisie du code postal
+// (voir tests/issue-183-delivery-notice-duplicates.dom.test.ts). Chaque test
+// ci-dessous est ADAPTÉ, jamais supprimé ; ancienne assertion rappelée.
 for (const configured of [
   { modeCode: "pickup" as const, modeLabel: "Click & Collect", message: "Retrait disponible sous 2 heures." },
   { modeCode: "delivery" as const, modeLabel: "Stuart", message: "Livraison locale après préparation." },
   { modeCode: "delivery" as const, modeLabel: "Chronofresh", message: "Expédition réfrigérée sous 48 heures." },
 ]) {
-  test(`${configured.modeLabel}: le message configuré est montré avant toute soumission`, async () => {
+  test(`${configured.modeLabel}: le message configuré n'ouvre plus de fenêtre avant la soumission (#183)`, async () => {
     let submissions = 0;
     const view = await render(props(configured, async () => { submissions += 1; }));
     click(sendButton(view.container));
-    const dialog = view.container.querySelector("[data-delivery-timing-notice]")!;
-    await waitFor(() => dialog.hasAttribute("open"), `${configured.modeLabel} notice open`);
-    assert.equal(submissions, 0, "create-order callback ne doit pas partir avant confirmation");
-    assert.ok(dialog.textContent?.includes(configured.modeLabel));
-    assert.ok(dialog.textContent?.includes(configured.message));
+    // AVANT : la fenêtre `[data-delivery-timing-notice]` devait s'ouvrir, contenir
+    // le libellé du mode et le message, et `submissions` rester à 0 avant sa
+    // confirmation. APRÈS : aucune fenêtre n'existe ; le parcours continue vers le
+    // récapitulatif (franchi par l'auto-confirmation du helper) puis l'envoi, UNE fois.
+    await waitFor(() => submissions >= 1, `${configured.modeLabel} : commande envoyée après le récapitulatif`);
+    await flush(50);
+    assert.equal(submissions, 1);
+    assert.equal(view.container.querySelector("[data-delivery-timing-notice]") === null, true, "plus de fenêtre de délai dans le parcours");
+    assert.equal(view.container.querySelectorAll("dialog[open]").length, 0, "aucun dialogue ouvert");
     assert.ok(view.container.querySelector("#order-note"), "le champ de notes reste disponible");
     view.root.unmount();
     view.container.remove();
   });
 }
 
-test("confirmation rapide répétée : une seule soumission", async () => {
+test("clic répété sur le bouton d'envoi : une seule soumission", async () => {
   let submissions = 0;
   let release!: () => void;
   const pending = new Promise<void>((resolve) => { release = resolve; });
@@ -210,12 +221,14 @@ test("confirmation rapide répétée : une seule soumission", async () => {
     { modeCode: "pickup", modeLabel: "Click & Collect", message: "Prêt bientôt." },
     async () => { submissions += 1; await pending; }
   ));
-  click(sendButton(view.container));
-  const dialog = view.container.querySelector("[data-delivery-timing-notice]")!;
-  await waitFor(() => dialog.hasAttribute("open"), "notice open");
-  const confirm = [...dialog.querySelectorAll("button")].at(-1)!;
-  click(confirm);
-  click(confirm);
+  // AVANT : double clic sur le bouton de CONFIRMATION de la fenêtre de délai.
+  // APRÈS (#183) : cette fenêtre n'existe plus ; le double clic porte sur le
+  // bouton d'envoi, et la commande ne part qu'UNE fois (récapitulatif #181).
+  const send = sendButton(view.container);
+  click(send);
+  click(send);
+  await waitFor(() => submissions >= 1, "commande envoyée après le récapitulatif");
+  await flush(50);
   assert.equal(submissions, 1);
   release();
   await flush();
@@ -229,7 +242,9 @@ test("message absent : soumission directe sûre, aucun popup", async () => {
   click(sendButton(view.container));
   await flush();
   assert.equal(submissions, 1);
-  assert.equal(view.container.querySelector("[data-delivery-timing-notice]")!.hasAttribute("open"), false);
+  // AVANT : `querySelector("[data-delivery-timing-notice]")!.hasAttribute("open") === false`
+  // (l'élément existait, fermé). APRÈS (#183) : l'élément n'existe plus du tout.
+  assert.equal(view.container.querySelector("[data-delivery-timing-notice]") === null, true);
   view.root.unmount();
   view.container.remove();
 });

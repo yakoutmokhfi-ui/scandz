@@ -59,7 +59,6 @@ import {
 } from "@/lib/invoice-request";
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import RestaurantHeader from "@/components/RestaurantHeader";
-import { DeliveryConditionsButton } from "@/components/DeliveryConditions";
 import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
 import CategoryNav from "@/components/CategoryNav";
@@ -2114,7 +2113,11 @@ export default function MenuView({
         banner={variant?.banner ?? settings.banner}
         veilInk={colorOverrides.secondary ?? getTheme(settings.theme).ink}
       />
-      {fulfillmentRulesState.status === "loaded" && <DeliveryConditionsButton key={restaurant.id} rules={fulfillmentRulesState.rules} currency={restaurant.config.currency} />}
+      {/* ISSUE #184 : UNE SEULE entrée d'aide « Comment passer commande » --
+          le texte général et indépendant du commerçant (order_help_body).
+          Les textes par règle de livraison ne sont plus agrégés ici : ils
+          restent dans le résultat du code postal saisi
+          (DeliveryPostcodeResult). */}
       <OrderHelpButton communicationTexts={communicationTexts} />
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
@@ -2321,6 +2324,15 @@ export default function MenuView({
                 }}
               />
             ) : null
+          }
+          scheduleSummary={
+            scheduleState.status === "ready"
+              ? toSchedulePayload(
+                  scheduleState.view,
+                  scheduleRequirement(scheduleState.view),
+                  scheduleSelection
+                )
+              : null
           }
           isSubmitting={isSubmitting}
           submitError={submitError}

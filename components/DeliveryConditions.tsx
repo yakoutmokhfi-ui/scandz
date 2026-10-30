@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { PublicDeliveryFulfillmentRule } from "@/lib/sale-modes-types";
 import type { DeliveryStatus } from "@/lib/delivery";
 import { useI18n } from "@/lib/i18n-context";
@@ -86,8 +86,10 @@ export function DeliveryConditionsButton({ rules }: { rules: PublicDeliveryFulfi
 }
 
 /** One popup per meaningful resolved result, not per React render or keystroke. */
-export function DeliveryPostcodeResult({ active, contextKey, postcode, status, subtotal, currency }: {
+export function DeliveryPostcodeResult({ active, contextKey, postcode, status, subtotal, currency, onOpenChange }: {
   active: boolean; contextKey: string; postcode: string; status: DeliveryStatus; subtotal: number; currency: string;
+  /** ISSUE #183 -- état d'ouverture EFFECTIF de la fenêtre (ouverte ET active). */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { t, lang, sourceLanguage } = useI18n();
   const [open, setOpen] = useState(false);
@@ -107,6 +109,10 @@ export function DeliveryPostcodeResult({ active, contextKey, postcode, status, s
     const timer = setTimeout(() => { last.current = key; setOpen(true); }, 350);
     return () => clearTimeout(timer);
   }, [key]);
+  const effectiveOpen = open && active;
+  // Layout effect : le parent masque le doublon inline AVANT l'affichage de la fenêtre
+  // (showModal est appelé dans un effet passif, après) -- pas d'image où les deux coexistent.
+  useLayoutEffect(() => { onOpenChange?.(effectiveOpen); }, [effectiveOpen, onOpenChange]);
   return <DeliveryDialog open={open && active} title={t("deliveryPostcodeResultTitle", { postcode: postcode.trim() })} marker="postcode" onDismiss={() => setOpen(false)}>
     {/* STOREFRONT UX POLISH v1 -- une seule ligne « Disponible — frais »
         (plus de « Livraison disponible » + « Frais de livraison : »). Un
