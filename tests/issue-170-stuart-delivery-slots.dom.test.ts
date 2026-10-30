@@ -546,6 +546,34 @@ test("[170-C2] AUCUNE FUITE d'une adresse à l'autre : créneau Stuart choisi pu
   });
 });
 
+test("[170-C3] règle CHRONOFRESH enregistrée « informative » depuis Disponibilités (serveur : informational_only) : aucun sélecteur de date ni de créneau, envoi ouvert, aucune clé schedule", async (t) => {
+  // C'est exactement ce que l'écran Disponibilités enregistre pour Chronofresh :
+  // mode de date informatif, aucun créneau. Le serveur rend alors
+  // `informational_only` : rien à choisir, rien à envoyer (le commerçant
+  // expédie lorsque la commande est prête).
+  const informative = row({
+    delivery_applicable: true, delivery_eligible: true,
+    schedule_status: "informational_only", date_selection_mode: "informational_only", slot_selection_mode: "none",
+  });
+  const reader = (a: any) => (a.p_postal_code === CHRONOFRESH_POSTAL ? informative : byPostal(a));
+  const srv = installServer(t, { reader, refuse: refuseOnlyStuart });
+  await withWhatsAppCapture(async (urls) => {
+    const { container, root } = await reachDelivery(CHRONOFRESH_POSTAL);
+    try {
+      await waitFor(() => srv.readerCalls.some((c) => c.p_postal_code === CHRONOFRESH_POSTAL), "lecture du calendrier de cette adresse");
+      await flush(80);
+      assert.equal(q(container, "checkout-schedule-date"), null, "aucun sélecteur de date");
+      assert.equal(container.querySelectorAll('[data-testid^="checkout-schedule-slot-"]').length, 0, "aucun créneau");
+      await waitFor(() => sendButton(container) !== undefined, "envoi ouvert");
+      click(sendButton(container)!);
+      await waitFor(() => container.textContent!.includes(CONFIRMED), "commande confirmée");
+      assert.equal(srv.createCalls.length, 1);
+      assert.equal("schedule" in srv.createCalls[0].p_customer, false, "aucune clé schedule");
+      assert.ok(!waText(urls[0]).includes("📅"), "aucune ligne de jour/créneau dans le message");
+    } finally { root.unmount(); container.remove(); }
+  });
+});
+
 test("[170-N1] adresse NON éligible (refusée en amont) : aucun créneau proposé, aucun schedule envoyé", async (t) => {
   const srv = installServer(t, { reader: byPostal, refuse: refuseOnlyStuart });
   await withWhatsAppCapture(async () => {
