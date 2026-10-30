@@ -9,7 +9,7 @@
 // 100 images d'origine incluses/cycle, puis 5 $ / 1000).
 
 export const THUMBNAIL_WIDTH_CARD = 256; // cartes affichées à 96-112 px (x2 écrans denses)
-export const THUMBNAIL_WIDTH_WIDE = 480; // bandeau de la fenêtre pâtisserie (pleine largeur)
+export const THUMBNAIL_WIDTH_WIDE = 384; // bandeau de la fenêtre pâtisserie (pleine largeur)
 export const THUMBNAIL_QUALITY = 70;
 
 const OBJECT_MARKER = "/storage/v1/object/public/";
@@ -34,5 +34,9 @@ export function productPhotoThumbnailUrl(
   if (idx === -1) return url;
   const base = url.slice(0, idx) + RENDER_MARKER + url.slice(idx + OBJECT_MARKER.length);
   if (base.includes("?")) return url;
-  return `${base}?width=${width}&quality=${THUMBNAIL_QUALITY}&resize=cover`;
+  // Carré explicite : avec `width` seul, Supabase conserve la hauteur
+  // d'origine et découpe une lamelle (constaté sur une vraie photo,
+  // issue #188). Les cases d'affichage recadrent déjà le centre
+  // (object-cover) : un carré centré donne le même rendu.
+  return `${base}?width=${width}&height=${width}&quality=${THUMBNAIL_QUALITY}&resize=cover`;
 }
