@@ -64,7 +64,13 @@ const PINNED: Record<string, string> = {
   // inline que pendant qu'elle est ouverte. Règles de livraison, tarifs, éligibilité, périmètre pays,
   // minimum, frais : AUCUNE ligne touchée.
   // SHA-256 précédent : dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15
-  "components/CartPanel.tsx": "e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f",
+    // Issue #191 -- RE-PIN DIVULGUÉ : CartPanel gagne le bouton « Voir les champs à
+  // corriger » (affiche les erreurs de champ puis met le focus sur le premier champ
+  // invalide), l'annonce `role="alert"` de l'erreur serveur générale et la prop
+  // optionnelle `onRevealErrors`. Règles de livraison, tarifs, éligibilité, périmètre
+  // pays, minimum, frais, validations : AUCUNE ligne touchée.
+  // SHA-256 précédent : e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f
+  "components/CartPanel.tsx": "bbc9a16dc2544bceeb7048c6af9eed924e13204d24b109b027b9e8ce24d0d9fe",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",
