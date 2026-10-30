@@ -579,7 +579,11 @@ export type AvailabilityIssueCode =
   | "holiday_policy_needs_calendar"
   | "capacity_invalid"
   | "capacity_needs_date"
-  | "offer_missing";
+  | "offer_missing"
+  // #170 -- fournisseur : jamais de créneau horaire Chronofresh, et jamais
+  // d'horaire enregistré pour une règle dont le fournisseur n'a pu être lu.
+  | "provider_no_hourly"
+  | "provider_unverified";
 
 export interface AvailabilityIssue {
   code: AvailabilityIssueCode;
@@ -892,6 +896,8 @@ const ISSUE_KEYS: Record<AvailabilityIssueCode, string> = {
   capacity_invalid: "avIssueCapacityInvalid",
   capacity_needs_date: "avIssueCapacityNeedsDate",
   offer_missing: "avIssueOfferMissing",
+  provider_no_hourly: "avIssueProviderNoHourly",
+  provider_unverified: "avIssueProviderUnverified",
 };
 
 export function issueKey(code: AvailabilityIssueCode): string {

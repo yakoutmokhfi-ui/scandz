@@ -55,7 +55,10 @@ export async function signOut() {}
 const MOCK_DASHBOARD = `
 export async function getMerchantRestaurants() { return (globalThis).__mappings; }
 export async function getRestaurantSettings() { return { staff_receipt_language: "fr" }; }
-export async function getMerchantDeliveryFulfillmentPricing() { return (globalThis).__deliveryRules ?? []; }
+export async function getMerchantDeliveryFulfillmentPricing() {
+  if ((globalThis).__deliveryRulesThrow) throw new Error("rules read down");
+  return (globalThis).__deliveryRules ?? [];
+}
 `;
 
 const MOCK_ESTABLISHMENTS = `
@@ -220,7 +223,9 @@ export function mount(options: {
   v12?: unknown;
   schedulesThrow?: string | null;
   /** #170 : règles de livraison de l'établissement (lecture d'aide). */
-  deliveryRules?: Array<{ ruleId: string; fulfillmentLabel: string }>;
+  deliveryRules?: Array<{ ruleId: string; fulfillmentLabel: string; provider?: string | null }>;
+  /** #170 : la lecture d'aide des règles ÉCHOUE (fournisseur inconnu). */
+  deliveryRulesThrow?: boolean;
   previewResult?: unknown;
   /** AUD-01 : aperçu scripté par mode de vente, éventuellement différé. */
   previewByMode?: Record<string, { result: unknown; defer?: boolean }>;
@@ -241,6 +246,7 @@ export function mount(options: {
   (globalThis as any).__v12 = options.v12 ?? { status: "absent" };
   (globalThis as any).__schedulesThrow = options.schedulesThrow ?? null;
   (globalThis as any).__deliveryRules = options.deliveryRules ?? [];
+  (globalThis as any).__deliveryRulesThrow = options.deliveryRulesThrow === true;
   (globalThis as any).__previewResult = options.previewResult ?? null;
   (globalThis as any).__previewByMode = options.previewByMode ?? null;
   (globalThis as any).__previewPending = [] as Array<() => void>;

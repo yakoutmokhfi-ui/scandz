@@ -48,8 +48,10 @@ import {
   DATE_MODE_DERIVED,
   DATE_MODE_INFORMATIONAL,
   DELIVERY_MODE_CODE,
-  DELIVERY_SCHEDULE_STARTER,
+  isChronofreshRule,
   missingStandardSlots,
+  providerScheduleIssues,
+  scheduleStarterFor,
   unconfiguredDeliveryRules,
   type DeliveryRuleRef,
   SLOT_MODE_NONE,
@@ -208,6 +210,10 @@ export default function AvailabilityPage() {
   // #170 — règles de livraison de l'établissement (lecture seule), pour
   // proposer un planning à celles qui n'en ont pas encore.
   const [deliveryRules, setDeliveryRules] = useState<DeliveryRuleRef[]>([]);
+  // #170 -- la lecture des règles a ÉCHOUÉ (et non « rendu une liste sans
+  // cette règle ») : le fournisseur est alors inconnu, on n'enregistre pas
+  // d'horaire à l'aveugle.
+  const [deliveryRulesReadFailed, setDeliveryRulesReadFailed] = useState(false);
   const [v12, setV12] = useState<MerchantFulfillmentV12Read>({ status: "absent" });
   const [loading, setLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState(true);
@@ -455,6 +461,7 @@ export default function AvailabilityPage() {
     setReloadAbandoned(false);
     setSchedules([]);
     setDeliveryRules([]);
+    setDeliveryRulesReadFailed(false);
     setV12({ status: "absent" });
     setPageError(null);
     setLoadedRestaurantId(null);
@@ -478,17 +485,30 @@ export default function AvailabilityPage() {
       // La lecture v1.2 ne jette jamais : son absence est un statut,
       // pas une erreur. Les deux lectures partent ensemble et sont
       // commitées ensemble.
+      let rulesReadFailed = false;
       const [next, nextV12, rules] = await Promise.all([
         getMerchantFulfillmentSchedules(id),
         getMerchantFulfillmentSchedulesV12(id),
         // Lecture d'aide : son échec ne bloque jamais la page.
         getMerchantDeliveryFulfillmentPricing(id)
-          .then((r) => r.map((x) => ({ ruleId: x.ruleId, label: x.fulfillmentLabel })))
-          .catch(() => [] as DeliveryRuleRef[]),
+          .then((r) =>
+            r.map((x) => ({
+              ruleId: x.ruleId,
+              label: x.fulfillmentLabel,
+              // #170 -- le fournisseur NE SE PERD PAS ici : c'est lui qui
+              // interdit les créneaux horaires Chronofresh.
+              provider: x.provider ?? null,
+            }))
+          )
+          .catch(() => {
+            rulesReadFailed = true;
+            return [] as DeliveryRuleRef[];
+          }),
       ]);
       if (seq !== requestSeqRef.current) return;
       setSchedules(next);
       setDeliveryRules(rules);
+      setDeliveryRulesReadFailed(rulesReadFailed);
       setV12(nextV12);
       setLoadedRestaurantId(id);
       const firstPlaceholder = unconfiguredDeliveryRules(rules, next)[0];
@@ -522,6 +542,7 @@ export default function AvailabilityPage() {
     setReloadAbandoned(false);
     setSchedules([]);
     setDeliveryRules([]);
+    setDeliveryRulesReadFailed(false);
     setV12({ status: "absent" });
     setPageError(null);
     setLoadedRestaurantId(null);
@@ -644,6 +665,11 @@ export default function AvailabilityPage() {
       ),
     [scopeRows, selectedScopeKey]
   );
+  // #170 -- fournisseur de la règle ouverte : Chronofresh n'a aucun créneau horaire.
+  const selectedRule = selected?.fulfillmentRuleId
+    ? deliveryRules.find((r) => r.ruleId === selected.fulfillmentRuleId)
+    : undefined;
+  const chronofreshScope = isChronofreshRule(selectedRule);
   const selectedV12 = selectedScopeKey ? v12ByScope.get(selectedScopeKey) : undefined;
   const method = draft?.method ?? scheduleMethodOf(selectedV12);
   const blockers = publishBlockersOf(selected, selectedV12);
@@ -821,8 +847,8 @@ export default function AvailabilityPage() {
    * `schedules` (après un enregistrement, par exemple) ne reconstruit
    * rien et n'efface aucune saisie.
    */
-  const listsRef = useRef({ schedules, v12ByScope, deliveryRules });
-  listsRef.current = { schedules, v12ByScope, deliveryRules };
+  const listsRef = useRef({ schedules, v12ByScope, deliveryRules, deliveryRulesReadFailed });
+  listsRef.current = { schedules, v12ByScope, deliveryRules, deliveryRulesReadFailed };
   const selectedScopeKeyRef = useRef<string | null>(null);
   selectedScopeKeyRef.current = selectedScopeKey;
 
@@ -871,7 +897,10 @@ export default function AvailabilityPage() {
               updatedAt: null,
               revision: null,
             });
-            created = { ...base, ...DELIVERY_SCHEDULE_STARTER };
+            // Départ selon le FOURNISSEUR : Stuart = créneaux nommés ;
+            // Chronofresh = informatif, aucun créneau horaire.
+            const startRule = listsRef.current.deliveryRules.find((r) => r.ruleId === ruleId);
+            created = { ...base, ...scheduleStarterFor(startRule) };
           }
         } catch {
           // Autorité injoignable : on n'invente rien, la portée reste en
@@ -931,8 +960,14 @@ export default function AvailabilityPage() {
     writeState.enabled && !saving && snapshotAuthoritative && conflictInScope === null;
 
   const issues: AvailabilityIssue[] = useMemo(
-    () => (draft ? validateDraft(draft) : []),
-    [draft]
+    () =>
+      draft
+        ? [
+            ...validateDraft(draft),
+            ...providerScheduleIssues(draft, deliveryRules, deliveryRulesReadFailed),
+          ]
+        : [],
+    [draft, deliveryRules, deliveryRulesReadFailed]
   );
   /**
    * Le repli en brouillon est-il PROPOSÉ ? Deux chemins, un seul geste :
@@ -944,7 +979,10 @@ export default function AvailabilityPage() {
    * refusées » (contrat §4).
    */
   const draftFallbackOffered =
-    draft !== null && (draftOfferPending || canFallBackToDraft(draft));
+    draft !== null &&
+    // #170 -- jamais de repli « brouillon » pour un horaire que le fournisseur interdit.
+    providerScheduleIssues(draft, deliveryRules, deliveryRulesReadFailed).length === 0 &&
+    (draftOfferPending || canFallBackToDraft(draft));
 
   const dirty = draft !== null && baseline !== null && isDraftDirty(draft, baseline);
   dirtyRef.current = dirty;
@@ -1059,6 +1097,13 @@ export default function AvailabilityPage() {
   const addStandardSlots = useCallback((weekday: number) => {
     setDraft((prev) => {
       if (!prev) return prev;
+      if (
+        isChronofreshRule(
+          listsRef.current.deliveryRules.find((r) => r.ruleId === prev.fulfillmentRuleId)
+        )
+      ) {
+        return prev;
+      }
       const toAdd = missingStandardSlots(prev.slots, weekday);
       if (toAdd.length === 0) return prev;
       return {
@@ -1231,6 +1276,19 @@ export default function AvailabilityPage() {
     // Jamais un second chemin d'écriture, jamais une charge partielle.
     const intended = options.asDraft ? draftAsInactive(draft) : draft;
     if (validateDraft(intended).length > 0) return;
+    // #170 -- refus de fournisseur AVANT tout réseau, sur le même chemin pour
+    // « Enregistrer » et « Enregistrer en brouillon » : jamais de planning
+    // horaire pour une règle Chronofresh (ni pour une règle au fournisseur
+    // illisible).
+    if (
+      providerScheduleIssues(
+        intended,
+        listsRef.current.deliveryRules,
+        listsRef.current.deliveryRulesReadFailed
+      ).length > 0
+    ) {
+      return;
+    }
     const seq = requestSeqRef.current;
     // R5-SCOPE-STALE : la portée pour laquelle cette sauvegarde part, et
     // le rang de portée à cet instant. Au retour, les deux doivent être
@@ -2147,16 +2205,21 @@ export default function AvailabilityPage() {
                         id="av-date-mode"
                         value={draft?.dateSelectionMode ?? DATE_MODE_INFORMATIONAL}
                         onChange={(e) => patchDraft({ dateSelectionMode: e.target.value })}
-                        disabled={!canEditDraft}
+                        disabled={!canEditDraft || chronofreshScope}
+                        data-provider-restricted={chronofreshScope ? "chronofresh" : undefined}
                         className="min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm"
                       >
-                        {CHECKOUT_DATE_SELECTION_MODES.map((mode) => (
+                        {(chronofreshScope
+                          ? CHECKOUT_DATE_SELECTION_MODES.filter((m) => m === DATE_MODE_INFORMATIONAL)
+                          : CHECKOUT_DATE_SELECTION_MODES
+                        ).map((mode) => (
                           <option key={mode} value={mode}>
                             {t(dateModeKey(mode))}
                           </option>
                         ))}
                       </select>
                     </div>
+                    {!chronofreshScope && (
                     <div>
                       <label
                         className="mb-1.5 block text-xs font-bold text-stone-700"
@@ -2181,8 +2244,9 @@ export default function AvailabilityPage() {
                         {t("avSlotModeHint")}
                       </p>
                     </div>
+                    )}
 
-                    {draft?.slotSelectionMode === SLOT_MODE_FREE_TIME && (
+                    {!chronofreshScope && draft?.slotSelectionMode === SLOT_MODE_FREE_TIME && (
                       <div>
                         <label
                           className="mb-1.5 block text-xs font-bold text-stone-700"
@@ -2229,13 +2293,24 @@ export default function AvailabilityPage() {
                     </div>
                   </div>
 
-                  <p className="mx-4 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800">
-                    {draft?.slotSelectionMode === SLOT_MODE_FIXED_SLOTS
-                      ? t("avAuthorityNoteFixedSlots")
-                      : t("avAuthorityNoteWindows")}
-                  </p>
+                  {chronofreshScope ? (
+                    <p
+                      data-chronofresh-no-hourly="true"
+                      className="mx-4 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800"
+                    >
+                      {t("avChronofreshNoHourlyNote")}
+                    </p>
+                  ) : (
+                    <p className="mx-4 rounded-xl border-l-4 border-amber-600 bg-amber-50 p-3 text-sm leading-relaxed text-stone-800">
+                      {draft?.slotSelectionMode === SLOT_MODE_FIXED_SLOTS
+                        ? t("avAuthorityNoteFixedSlots")
+                        : t("avAuthorityNoteWindows")}
+                    </p>
+                  )}
 
                   <div className="p-4">
+                    {!chronofreshScope && (
+                    <>
                     <h4 className="text-sm font-extrabold text-stone-900">
                       {draft?.slotSelectionMode === SLOT_MODE_FIXED_SLOTS
                         ? t("avSlotsTitle")
@@ -2412,6 +2487,8 @@ export default function AvailabilityPage() {
                         );
                       })}
                     </div>
+                    </>
+                    )}
 
                     {/* Refus de la section, nommés et placés ici : le
                         commerçant lit le motif à côté du réglage fautif,

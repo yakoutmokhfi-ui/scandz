@@ -2,6 +2,7 @@ import type {
   MerchantFulfillmentSchedule,
   MerchantFulfillmentV12Extension,
 } from "@/lib/dashboard-types";
+import type { AvailabilityDraft, AvailabilityIssue } from "@/lib/availability-payload";
 // Miroirs de validation SQL, sans horloge ni autorité : ce module est
 // explicitement importable depuis une page ou un composant
 // (contrairement à l'oracle d'éligibilité, réservé aux tests). Les
@@ -328,11 +329,21 @@ export function readErrorKey(error: unknown): string {
 /** Code du mode de vente « livraison » (catalogue `sale_mode_catalog`). */
 export const DELIVERY_MODE_CODE = "delivery";
 
+/** Fournisseur d'une règle de livraison (même énumération que la lecture marchand). */
+export type DeliveryRuleProvider = "internal" | "stuart" | "chronofresh" | "other_external";
+
 /** Le strict nécessaire d'une règle de livraison pour nommer sa portée. */
 export interface DeliveryRuleRef {
   ruleId: string;
   /** Libellé marchand de la règle (zone, transporteur…). */
   label: string;
+  /**
+   * Fournisseur de la règle, tel que la lecture marchand le rend. Il DOIT
+   * rester attaché à la règle jusqu'au brouillon : c'est lui qui interdit
+   * les créneaux horaires Chronofresh. Absent = lecture ancienne, pas un
+   * fournisseur « sans contrainte » inventé par l'interface.
+   */
+  provider?: DeliveryRuleProvider | null;
 }
 
 /**
@@ -389,4 +400,81 @@ export function missingStandardSlots(
 ): typeof STANDARD_DELIVERY_SLOTS[number][] {
   const have = new Set(existing.filter((s) => s.weekday === weekday).map((s) => s.slotKey));
   return STANDARD_DELIVERY_SLOTS.filter((s) => !have.has(s.slotKey));
+}
+
+// ====================================================================
+// #170 — FOURNISSEUR : AUCUN CRÉNEAU HORAIRE CHRONOFRESH
+// ====================================================================
+//
+// Règle produit : une livraison Chronofresh n'a ni jour ni créneau choisi
+// par le client ; le commerçant expédie lorsque la commande est prête. Au
+// checkout, c'est le mode de date « informatif » sans créneau (le serveur
+// rend `informational_only`, rien à choisir, rien à envoyer). Les autres
+// modes de date exigent des horaires pour être publiés (publishBlockersOf).
+// Pures : ni lecture ni écriture.
+
+/** Le fournisseur qui n'accepte AUCUN créneau horaire. */
+export const NO_HOURLY_PROVIDER = "chronofresh" as const;
+
+export function isChronofreshRule(
+  rule: Pick<DeliveryRuleRef, "provider"> | null | undefined
+): boolean {
+  return rule?.provider === NO_HOURLY_PROVIDER;
+}
+
+/**
+ * Ce brouillon demanderait-il au client de choisir une date, un créneau ou
+ * une heure ? Vrai dès que le mode de date n'est pas informatif, que le mode
+ * de créneau n'est pas « aucun », ou qu'une ligne horaire existe.
+ */
+export function draftOffersCustomerSchedule(
+  draft: Pick<AvailabilityDraft, "dateSelectionMode" | "slotSelectionMode" | "slots" | "windows">
+): boolean {
+  return (
+    draft.dateSelectionMode !== DATE_MODE_INFORMATIONAL ||
+    draft.slotSelectionMode !== SLOT_MODE_NONE ||
+    draft.slots.length > 0 ||
+    draft.windows.length > 0
+  );
+}
+
+/**
+ * Valeurs de DÉPART d'une règle sans planning, selon son fournisseur.
+ * Chronofresh : informatif, aucun créneau (jamais le départ Stuart).
+ */
+export function scheduleStarterFor(rule: Pick<DeliveryRuleRef, "provider"> | null | undefined): {
+  dateSelectionMode: string;
+  slotSelectionMode: string;
+  cutoffTime?: string;
+  cutoffOffsetDays?: string;
+} {
+  if (isChronofreshRule(rule)) {
+    return { dateSelectionMode: DATE_MODE_INFORMATIONAL, slotSelectionMode: SLOT_MODE_NONE };
+  }
+  return { ...DELIVERY_SCHEDULE_STARTER };
+}
+
+/**
+ * Refus de fournisseur pour un brouillon, sur TOUS les chemins d'écriture
+ * (enregistrer, enregistrer en brouillon) :
+ *   - règle Chronofresh + planning horaire => `provider_no_hourly` ;
+ *   - règle inconnue alors que la lecture des règles a ÉCHOUÉ + planning
+ *     horaire => `provider_unverified` (on n'enregistre pas à l'aveugle) ;
+ *   - portée sans règle (retrait…), ou brouillon sans horaire : aucun refus.
+ * Stuart et les autres fournisseurs gardent leurs créneaux configurables.
+ */
+export function providerScheduleIssues(
+  draft: Pick<
+    AvailabilityDraft,
+    "fulfillmentRuleId" | "dateSelectionMode" | "slotSelectionMode" | "slots" | "windows"
+  >,
+  rules: readonly DeliveryRuleRef[],
+  rulesReadFailed: boolean
+): AvailabilityIssue[] {
+  if (draft.fulfillmentRuleId === null) return [];
+  if (!draftOffersCustomerSchedule(draft)) return [];
+  const rule = rules.find((r) => r.ruleId === draft.fulfillmentRuleId);
+  if (isChronofreshRule(rule)) return [{ code: "provider_no_hourly", section: "offers" }];
+  if (!rule && rulesReadFailed) return [{ code: "provider_unverified", section: "offers" }];
+  return [];
 }
