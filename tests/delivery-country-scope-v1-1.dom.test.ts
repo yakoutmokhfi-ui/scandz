@@ -114,8 +114,14 @@ function selectCountry(container: Element, code: string) {
 }
 
 const click = (el: Element) => el.dispatchEvent(new window.Event("click", { bubbles: true }));
+// Issue #191 : le bouton d'envoi GRISÉ (aria-disabled="true", il n'envoie rien)
+// n'est pas « le bouton d'envoi » : seuls les boutons d'envoi ACTIFS comptent ici.
 const buttonWithText = (c: Element, text: string) =>
-  [...c.querySelectorAll("button")].find((b) => b.textContent === text);
+  [...c.querySelectorAll("button")].find(
+    (b) =>
+      b.textContent === text &&
+      !(text === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") === "true")
+  );
 const inputById = (c: Element, id: string) => c.querySelector(`#${id}`) as HTMLInputElement | null;
 
 const SEND_LABEL = "Enregistrer et continuer sur WhatsApp";
