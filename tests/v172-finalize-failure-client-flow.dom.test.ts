@@ -6,6 +6,13 @@ import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
 
+// #181 : le récapitulatif avant paiement ajoute UNE étape entre le bouton
+// d'envoi et `create_order`. Ce parcours vérifie ce qui se passe APRÈS
+// l'envoi (échec de finalisation, reprise sûre) : il franchit donc l'étape
+// comme un client, avec le même garde-fou que les autres parcours de bout
+// en bout (tests/helpers/checkout-review-autoconfirm.ts).
+import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
+
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "v172-fin-synthetic-service-role-key-DO-NOT-USE";
@@ -16,6 +23,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 Object.defineProperty(globalThis, "navigator", {
