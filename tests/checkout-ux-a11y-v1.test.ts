@@ -233,24 +233,24 @@ for (const [label, src] of [
 // composité, voir lib/themes.ts). Les deux fichiers divergent donc
 // désormais volontairement sur ce point précis.
 test("FulfillmentSelector.tsx : message d'erreur en text-error (adaptatif, rendu directement sur --sc-bg)", () => {
-  assert.ok(/text-error">\{error\}/.test(fulfillmentSelectorSrc), "text-error attendu sur le message d'erreur");
+  assert.ok(/text-error">\s*\{error\}/.test(fulfillmentSelectorSrc), "text-error attendu sur le message d'erreur");
   assert.ok(!fulfillmentSelectorSrc.includes("text-error-on-invoice-panel"), "FulfillmentSelector ne rend pas dans le panneau translucide -- ne doit pas utiliser ce token");
 });
 
 test("InvoiceRequestFields.tsx : message d'erreur en text-error-on-invoice-panel (calculé contre le fond RÉELLEMENT composité du panneau bg-white/50, pas contre --sc-bg brut)", () => {
   assert.ok(
-    /text-error-on-invoice-panel">\{error\}/.test(invoiceRequestFieldsSrc),
+    /text-error-on-invoice-panel">\s*\{error\}/.test(invoiceRequestFieldsSrc),
     "text-error-on-invoice-panel attendu sur le message d'erreur du panneau translucide"
   );
   // Ne doit plus utiliser text-error nu (calculé contre le mauvais
   // fond) pour ce message -- seule la classe la plus spécifique doit
   // matcher, jamais les deux au même endroit.
-  assert.ok(!/[^-]text-error">\{error\}/.test(invoiceRequestFieldsSrc), "text-error nu ne doit plus être utilisé sur ce message");
+  assert.ok(!/[^-]text-error">\s*\{error\}/.test(invoiceRequestFieldsSrc), "text-error nu ne doit plus être utilisé sur ce message");
 });
 
 test("FulfillmentSelector.tsx : sélecteur de ville (cas one-off, hors composant Field) aligné lui aussi", () => {
   assert.ok(fulfillmentSelectorSrc.includes('err("city") ? "border-red-600"'));
-  assert.ok(fulfillmentSelectorSrc.includes('text-error">{err("city")}'));
+  assert.ok(/text-error">\s*\{err\("city"\)\}/.test(fulfillmentSelectorSrc));
 });
 
 test("FulfillmentSelector.tsx : message du groupe one_of (fieldOneOfRequired) en text-error", () => {

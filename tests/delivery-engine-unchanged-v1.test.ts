@@ -64,6 +64,12 @@ const PINNED: Record<string, string> = {
   // inline que pendant qu'elle est ouverte. Règles de livraison, tarifs, éligibilité, périmètre pays,
   // minimum, frais : AUCUNE ligne touchée.
   // SHA-256 précédent : dd4bb3cc471c1bedd6a76d8c743cb36e3fcf66212a7e033ae185332debf81a15
+  // Issue #191 -- RE-PIN DIVULGUÉ : CartPanel garde visible, grisé (aria-disabled), le
+  // bouton d'envoi habituel quand un champ bloque : au clic il affiche les erreurs puis
+  // met le focus sur le premier champ invalide ; annonce `role="alert"` de l'erreur serveur générale et la prop
+  // optionnelle `onRevealErrors`. Règles de livraison, tarifs, éligibilité, périmètre
+  // pays, minimum, frais, validations : AUCUNE ligne touchée.
+  // SHA-256 précédent : e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f
   // OPTION « MISE SOUS VIDE » -- RE-PIN DIVULGUÉ, dans son propre commit : CartPanel gagne
   // trois props optionnelles (`vacuumPackingAvailable`, `vacuumPacking`,
   // `onChangeVacuumPacking`), le rendu de la case (composant VacuumPackingOption) après la
@@ -71,7 +77,11 @@ const PINNED: Record<string, string> = {
   // l'éligibilité par code postal, du périmètre pays, du minimum d'articles ni des frais
   // n'est touchée : voir le diff de ce commit.
   // Ancien SHA-256 : e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f
-  "components/CartPanel.tsx": "92d249f7fe82685bdc1c1b28927381ca3e6c892a6af53828b8cd72560a8ee487",
+  // INTÉGRATION de la PR #190 (mise sous vide) sur main 384a10b -- RE-PIN DIVULGUÉ : CartPanel cumule
+  // les changements de #191 (ci-dessus) et ceux de #190 (props de la case de mise sous vide).
+  // Fusion automatique, sans conflit dans CartPanel. AUCUNE ligne du moteur de livraison touchée.
+  // SHA-256 précédent (main 384a10b) : de5c3858d56be60e13f63572a22b8c6ba72cd10d95c9ff24f14a162a699474c4
+  "components/CartPanel.tsx": "7381ca480fc724f8272ef5564c6f6b93129803a4d19721b5e4199ca0046b0308",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",
