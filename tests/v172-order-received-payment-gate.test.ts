@@ -408,6 +408,7 @@ async function snapshot(db: PGlite) {
     orderIndexes: await q(`select indexname, indexdef from pg_indexes where schemaname = 'public' and tablename = 'orders' order by 1`),
     orderPolicies: await q(`select policyname, qual from pg_policies where schemaname = 'public' and tablename = 'orders' order by 1`),
     publicViews: await q(`select viewname, definition from pg_views where schemaname = 'public' order by 1`),
+    archive: await q(`select to_regclass('public.orders_payment_mode_final_rollback_archive')::text as t`),
   };
 }
 
@@ -649,17 +650,17 @@ async function decisionsOf(db: PGlite) {
 }
 
 /** Le rollback doit être refusé (bloc ET instruction par instruction), sans aucune mutation ni décision perdue. */
-async function expectRollbackRefused(db: PGlite, check: RegExp): Promise<void> {
+async function expectRollbackRefused(db: PGlite, check: RegExp, code = "SCANYM_PREDECESSOR_DRIFT"): Promise<void> {
   const before = await snapshot(db);
   const decisionsBefore = await decisionsOf(db);
   assert.equal(decisionsBefore[0]!.payment_mode_final, "none", "précondition : une décision définitive existe");
 
-  await assert.rejects(() => db.exec(sql(ROLLBACK)), (e: Error) => /SCANYM_PREDECESSOR_DRIFT/.test(e.message) && check.test(e.message));
+  await assert.rejects(() => db.exec(sql(ROLLBACK)), (e: Error) => e.message.includes(code) && check.test(e.message));
   await db.exec("rollback");
   assert.deepEqual(await snapshot(db), before, "bloc unique : rien n'est supprimé ni modifié (fonctions, déclencheur, contrainte, colonne, droits, données)");
 
   const errors = await runIgnoringErrors(db, sql(ROLLBACK));
-  assert.ok(errors.some((e) => /SCANYM_PREDECESSOR_DRIFT/.test(e) && check.test(e)), "le refus explicite, par le bon contrôle, est bien levé");
+  assert.ok(errors.some((e) => e.includes(code) && check.test(e)), "le refus explicite, par le bon contrôle, est bien levé");
   assert.deepEqual(await snapshot(db), before, "instruction par instruction (psql sans ON_ERROR_STOP) : rien n'est supprimé ni modifié");
   assert.deepEqual(await decisionsOf(db), decisionsBefore, "aucune décision payment_mode_final perdue");
 }
@@ -736,12 +737,24 @@ for (const [label, stmt] of [
 }
 
 const CHK = /contrainte orders_payment_mode_final_check (est absente|différente de celle posée par ce lot)/;
+/** T180-R5-01 : littéraux qu'une normalisation par lower() / suppression d'espaces et de parenthèses confondait avec 'online'. */
+const LITERAL_VARIANTS: Record<string, string> = {
+  "'ONLINE'": "'ONLINE', 'none'",
+  "'on line'": "'on line', 'none'",
+  "'on(line)'": "'on(line)', 'none'",
+  "'online ' (espace final)": "'online ', 'none'",
+  "ordre inversé ('none', 'online')": "'none', 'online'",
+};
+const constraintWith = (list: string) =>
+  `alter table public.orders drop constraint orders_payment_mode_final_check;
+   alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in (${list}));`;
 for (const [label, stmt] of [
   ["contrainte élargie (valeur 'manual' autorisée)", `alter table public.orders drop constraint orders_payment_mode_final_check;
      alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none', 'manual'));`],
   ["contrainte recréée NOT VALID", `alter table public.orders drop constraint orders_payment_mode_final_check;
      alter table public.orders add constraint orders_payment_mode_final_check check (payment_mode_final is null or payment_mode_final in ('online', 'none')) not valid;`],
   ["contrainte supprimée", "alter table public.orders drop constraint orders_payment_mode_final_check;"],
+  ...Object.entries(LITERAL_VARIANTS).map(([name, list]) => [`contrainte recréée avec le littéral ${name} (T180-R5-01)`, constraintWith(list)] as [string, string]),
 ] as Array<[string, string]>) {
   AUX_DRIFTS.push({ label, mutate: (db) => db.exec(stmt).then(() => undefined), check: CHK });
 }
@@ -792,20 +805,116 @@ test("[172-PRE-8] contre-exemple EXACT de Turing (T180-R4-01) : branche `paid` d
   });
 });
 
-test("[172-PRE-9] nominal : lot puis rollback restaure TOUS les objets d'avant (aucune fonction, déclencheur, contrainte ni colonne du lot ne subsiste), même avec une décision 'none'", async () => {
+const ARCHIVE = "public.orders_payment_mode_final_rollback_archive";
+/** SQL de restauration DOCUMENTÉ dans l'en-tête du rollback, extrait du fichier (jamais recopié ici). */
+function documentedRestoreSql(): string {
+  const lines = sql(ROLLBACK).split("\n").filter((l) => /^--\s{3,}(update public\.orders o|set payment_mode_final = a\.|from public\.orders_payment_mode_final_rollback_archive a|where a\.order_id = o\.id)/.test(l));
+  assert.equal(lines.length, 4, "les quatre lignes de la requête de restauration sont dans l'en-tête");
+  return lines.map((l) => l.replace(/^--\s+/, "")).join("\n") + ";";
+}
+async function seedDecisions(db: PGlite) {
+  const none = await addOrder(db, "not_required", 0, "order_received", true);          // décision « sans paiement » (none)
+  const online = await addOrder(db, "not_required", 0, "order_received");               // décision online posée par la garde...
+  await db.query("update public.orders set payment_status = 'paid' where id = $1::uuid", [online.orderId]);
+  const undecided = await addOrder(db, "pending", 0, "order_received");                 // aucune décision (porte fermée)
+  const dec = await decisionsOf(db);
+  const by = (id: string) => dec.find((d) => d.id === id)!;
+  assert.equal(by(none.orderId).payment_mode_final, "none");
+  assert.equal(by(online.orderId).payment_mode_final, "online");
+  assert.equal(by(undecided.orderId).payment_mode_final, null);
+  return { none, online, undecided };
+}
+
+test("[172-PRE-9] nominal : lot puis rollback restaure TOUS les objets d'avant (aucune fonction, déclencheur, contrainte ni colonne du lot ne subsiste) ; les décisions payment_mode_final sont ARCHIVÉES (T180-R5), pas perdues", async () => {
   await withDb(false, async (db) => {
     const original = await snapshot(db);
     await db.exec(sql(LOT));
-    await addOrder(db, "not_required", 0, "order_received", true);
-    assert.deepEqual((await decisionsOf(db)).map((d) => d.payment_mode_final), ["none"], "précondition : une décision 'none' existe");
+    const { none, online, undecided } = await seedDecisions(db);
     await db.exec(sql(ROLLBACK));
     const restored = await snapshot(db);
     assert.deepEqual(restored.auxProcs, [], "aucune fonction auxiliaire ne subsiste");
     assert.deepEqual(restored.triggers, original.triggers);
     assert.deepEqual(restored.constraints.map((c: any) => c.conname), original.constraints.map((c: any) => c.conname));
-    assert.deepEqual(restored.ordersColumns, original.ordersColumns);
+    assert.deepEqual(restored.ordersColumns, original.ordersColumns, "la colonne payment_mode_final est supprimée : schéma d'avant le lot");
     assert.equal(restored.claim[0]!.body_md5, md5(bodyOf(N1A_CLAIM)));
     assert.deepEqual(restored.allFunctionAcl, original.allFunctionAcl, "droits de toutes les fonctions publiques identiques à l'état d'avant le lot");
+    assert.deepEqual(original.archive, [{ t: null }]);
+    const rows = (await db.query<{ order_id: string; payment_mode_final: string; payment_status: string; archived_at: string | null }>(`select * from ${ARCHIVE} order by payment_mode_final`)).rows;
+    assert.deepEqual(rows.map((r) => [r.order_id, r.payment_mode_final, r.payment_status]).sort(),
+      [[online.orderId, "online", "paid"], [none.orderId, "none", "not_required"]].sort(), "les deux décisions sont archivées avec le statut de paiement du moment");
+    assert.ok(rows.every((r) => r.archived_at), "date d'archivage renseignée");
+    assert.ok(!rows.some((r) => r.order_id === undecided.orderId), "une commande sans décision n'est pas archivée");
+  });
+});
+
+test("[172-PRE-9b] l'archive des décisions n'est lisible que par son propriétaire : RLS activée, aucun droit pour PUBLIC, anon, authenticated ni service_role, MÊME avec des privilèges par défaut de plateforme sur les tables", async () => {
+  await withDb(false, async (db) => {
+    await db.exec("alter default privileges in schema public grant all on tables to anon, authenticated, service_role;");
+    await db.exec(sql(LOT));
+    await seedDecisions(db);
+    await db.exec(sql(ROLLBACK));
+    const info = (await db.query<{ acl: string | null; rls: boolean }>(`select c.relacl::text as acl, c.relrowsecurity as rls from pg_class c where c.oid = '${ARCHIVE}'::regclass`)).rows[0]!;
+    assert.equal(info.rls, true, "RLS activée (sans politique)");
+    assert.match(String(info.acl), /^\{[^,]+=[a-zA-Z]+\/[^,]+\}$/, `une seule entrée de droits (le propriétaire) : ${info.acl}`);
+    for (const role of ["anon", "authenticated", "service_role"]) {
+      for (const priv of ["select", "insert", "update", "delete"]) {
+        const r = await db.query<{ ok: boolean }>(`select has_table_privilege('${role}', '${ARCHIVE}', '${priv}') as ok`);
+        assert.equal(r.rows[0]!.ok, false, `${role} n'a pas ${priv}`);
+      }
+    }
+    assert.equal((await db.query(`select 1 from pg_policies where schemaname = 'public' and tablename = 'orders_payment_mode_final_rollback_archive'`)).rows.length, 0, "aucune politique");
+  });
+});
+
+test("[172-PRE-9c] les décisions archivées se RESTAURENT après réinstallation du lot avec la requête documentée dans l'en-tête : mêmes décisions, payment_status inchangé, commande sans décision toujours sans décision", async () => {
+  await withDb(false, async (db) => {
+    await db.exec(sql(LOT));
+    const { none, online, undecided } = await seedDecisions(db);
+    const before = await decisionsOf(db);
+    await db.exec(sql(ROLLBACK));
+    await db.exec(sql(LOT));                         // réinstallation : toutes les décisions repartent à NULL
+    assert.ok((await decisionsOf(db)).every((d) => d.payment_mode_final === null), "précondition : après réinstallation, plus aucune décision");
+    await db.exec(documentedRestoreSql());
+    const after = await decisionsOf(db);
+    assert.deepEqual(after, before, "décisions ET payment_status strictement identiques à ceux d'avant le rollback");
+    assert.equal(after.find((d) => d.id === none.orderId)!.payment_mode_final, "none");
+    assert.equal(after.find((d) => d.id === online.orderId)!.payment_mode_final, "online");
+    assert.equal(after.find((d) => d.id === undecided.orderId)!.payment_mode_final, null);
+  });
+});
+
+test("[172-PRE-9d] une archive qui existe déjà (rollback précédent) n'est JAMAIS écrasée : rollback refusé (SCANYM_ROLLBACK_PREFLIGHT_FAILED), tout est conservé", async () => {
+  await withDb(true, async (db) => {
+    await addOrder(db, "not_required", 0, "order_received", true);
+    await db.exec(`create table ${ARCHIVE} (order_id uuid primary key, payment_mode_final text not null, payment_status text, archived_at timestamptz not null default now());
+                   insert into ${ARCHIVE} (order_id, payment_mode_final) values (gen_random_uuid(), 'none');`);
+    const keep = (await db.query(`select * from ${ARCHIVE}`)).rows;
+    await expectRollbackRefused(db, /orders_payment_mode_final_rollback_archive existe déjà/, "SCANYM_ROLLBACK_PREFLIGHT_FAILED");
+    assert.deepEqual((await db.query(`select * from ${ARCHIVE}`)).rows, keep, "l'archive existante est intacte");
+  });
+});
+
+test("[172-PRE-9e] T180-R5-01 : les littéraux 'ONLINE', 'on line', 'on(line)' sont de VRAIES contraintes différentes (la contrainte nominale accepte 'online', chaque variante la refuse) ; le rollback les refuse toutes, sans rien changer", async () => {
+  for (const name of ["'ONLINE'", "'on line'", "'on(line)'"]) {
+    await withDb(true, async (db) => {
+      await addOrder(db, "not_required", 0, "order_received", true);
+      await db.exec("begin; update public.orders set payment_mode_final = 'online'; rollback;");   // contrainte nominale : acceptée
+      await db.exec(constraintWith(LITERAL_VARIANTS[name]!));
+      await assert.rejects(() => db.exec("update public.orders set payment_mode_final = 'online'"), /orders_payment_mode_final_check/, `${name} : la variante REFUSE 'online' (différence sémantique)`);
+      await db.exec("rollback");
+      await expectRollbackRefused(db, CHK);
+    });
+  }
+});
+
+test("[172-PRE-9f] une recréation de la contrainte qui ne diffère que par la PRÉSENTATION (espaces, casse des mots-clés, parenthèses, forme = ANY (ARRAY[...])) donne la même définition PostgreSQL : le rollback est ACCEPTÉ", async () => {
+  await withDb(true, async (db) => {
+    await addOrder(db, "not_required", 0, "order_received", true);
+    await db.exec(`alter table public.orders drop constraint orders_payment_mode_final_check;
+      alter table public.orders add constraint orders_payment_mode_final_check
+        CHECK ((PAYMENT_MODE_FINAL   IS NULL) OR ((payment_mode_final) = ANY (ARRAY [ 'online' ,'none' ])));`);
+    await db.exec(sql(ROLLBACK));
+    assert.deepEqual((await snapshot(db)).auxProcs, [], "rollback complet");
   });
 });
 
@@ -855,7 +964,7 @@ test("[172-PRE-11] les empreintes auxiliaires du rollback (corps, attributs, dro
   const constant = (name: string) => unq(rb.match(new RegExp(`${name}\\s+constant text := '((?:[^']|'')*)'`))![1]!);
   const one = async (text: string) => (await db.query<{ fp: string }>(text)).rows[0]!.fp;
   assert.equal(await one(`select format('tgtype=%s;enabled=%s;function_is_guard=%s;columns=%s;has_when=%s;nargs=%s;internal=%s;deferrable=%s;initdeferred=%s;constraint=%s;oldtable=%s;newtable=%s', t.tgtype, t.tgenabled, t.tgfoid = to_regprocedure('public.orders_payment_mode_final_guard()'), (select string_agg(a.attname, ',' order by a.attnum) from pg_attribute a where a.attrelid = t.tgrelid and a.attnum = any(t.tgattr)), t.tgqual is not null, t.tgnargs, t.tgisinternal, t.tgdeferrable, t.tginitdeferred, t.tgconstraint, coalesce(t.tgoldtable, ''), coalesce(t.tgnewtable, '')) as fp from pg_trigger t where t.tgrelid = 'public.orders'::regclass and t.tgname = 'orders_payment_mode_final_guard_trg'`), constant("c_trigger_fp"));
-  assert.equal(await one(`select format('type=%s;validated=%s;deferrable=%s;initdeferred=%s;def=%s', c.contype, c.convalidated, c.condeferrable, c.condeferred, regexp_replace(lower(pg_get_constraintdef(c.oid)), '[\\s()]', '', 'g')) as fp from pg_constraint c where c.conrelid = 'public.orders'::regclass and c.conname = 'orders_payment_mode_final_check'`), constant("c_constraint_fp"));
+  assert.equal(await one(`select format('type=%s;validated=%s;deferrable=%s;initdeferred=%s;def=%s', c.contype, c.convalidated, c.condeferrable, c.condeferred, pg_get_constraintdef(c.oid)) as fp from pg_constraint c where c.conrelid = 'public.orders'::regclass and c.conname = 'orders_payment_mode_final_check'`), constant("c_constraint_fp"));
   assert.equal(await one(`select format('type=%s;notnull=%s;hasdef=%s;generated=%s;identity=%s;dims=%s', format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef, a.attgenerated, a.attidentity, a.attndims) as fp from pg_attribute a where a.attrelid = 'public.orders'::regclass and a.attname = 'payment_mode_final' and not a.attisdropped`), constant("c_column_fp"));
   } finally { await db.close(); }
 });

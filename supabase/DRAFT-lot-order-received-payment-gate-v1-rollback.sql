@@ -6,10 +6,25 @@
 -- PRÉREQUIS (hors SQL, à confirmer AVANT exécution) :
 --   * les workers de notification sont ARRÊTÉS : sans porte, un worker réclame
 --     et enverrait n'importe quel order_received (paiement non confirmé inclus) ;
---   * stratégie explicite pour les décisions perdues : le retour arrière
---     supprime la colonne orders.payment_mode_final (décisions « sans paiement
---     en ligne » comprises). Le nombre de décisions concernées est signalé en
---     NOTICE (SCANYM_ROLLBACK_NOTICE) ; aucune n'est restaurable ensuite.
+--   * DÉCISIONS payment_mode_final (T180-R5) : le retour arrière supprime la colonne
+--     orders.payment_mode_final pour restaurer le schéma d'avant le lot, mais il
+--     ARCHIVE d'abord, dans la même transaction, chaque décision non nulle
+--     (« online » et « none ») dans public.orders_payment_mode_final_rollback_archive
+--     (order_id, payment_mode_final, payment_status, archived_at). Le rollback est
+--     refusé si cette table existe déjà (jamais écrasée). L'archive n'est lisible que
+--     par son propriétaire (RLS activée sans politique, aucun droit pour PUBLIC, anon,
+--     authenticated ni service_role). Le nombre archivé est signalé en NOTICE
+--     (SCANYM_ROLLBACK_NOTICE).
+--     RESTAURATION APRÈS RÉINSTALLATION DU LOT (non exécutée par ce script) :
+--       update public.orders o
+--          set payment_mode_final = a.payment_mode_final
+--         from public.orders_payment_mode_final_rollback_archive a
+--        where a.order_id = o.id and o.payment_mode_final is null;
+--     (ne touche pas payment_status ; la garde ne se déclenche que sur payment_status).
+--     Un rollback refusé ne crée pas l'archive et ne modifie aucune décision.
+--     public.orders est verrouillée (ACCESS EXCLUSIVE) dès le début du script : une écriture
+--     en cours est attendue, donc archivée si elle est validée ; aucune décision ne peut être
+--     posée entre l'archivage et la suppression de la colonne.
 --
 -- PRÉ-VOL (T180-02, étendu par T180-R4-01) : AUCUNE écriture n'a lieu tant que
 -- TOUS les objets que ce script remplace ou supprime ne sont pas encore tels que ce
@@ -28,13 +43,16 @@
 --         bénéficiaire (PUBLIC, anon, authenticated, rôle supplémentaire) est refusé.
 --   * déclencheur orders_payment_mode_final_guard_trg : empreinte de pg_trigger
 --     (moment, évènements, colonnes, clause WHEN, état d'activation, fonction appelée…).
---   * contrainte orders_payment_mode_final_check : type, validée, différable, définition.
+--   * contrainte orders_payment_mode_final_check : type, validée, différable et
+--     définition EXACTE (pg_get_constraintdef, sensible à la casse et aux littéraux ;
+--     aucune normalisation : 'ONLINE', 'on line' ou 'on(line)' sont des contraintes
+--     différentes et sont refusées). Forme vérifiée identique sur PostgreSQL 15.9,
+--     16.15, 17.11 et 18.3.
 --   * colonne orders.payment_mode_final : type, NOT NULL, défaut, génération, identité ;
 --     aucun objet inconnu (index, déclencheur de colonne, vue, politique, statistique…)
 --     ne dépend d'elle en dehors de la contrainte ci-dessus.
--- Le retour arrière reste ce qu'il était : il SUPPRIME la colonne
--- payment_mode_final ; les décisions « sans paiement en ligne » ne sont pas conservées
--- (signalées en NOTICE, une fois seulement que tous les contrôles ont réussi).
+-- Sans dérive, le retour arrière supprime la colonne payment_mode_final (schéma d'avant
+-- le lot) après avoir archivé les décisions, voir ci-dessus.
 --
 -- LIMITES ASSUMÉES (contrat borné, à ne pas présenter comme une garantie totale) :
 --   * Les commentaires (COMMENT ON) des fonctions et de la colonne ne sont pas comparés.
@@ -42,15 +60,24 @@
 --     pg_depend (un corps plpgsql qui appellerait la porte par son nom) ne sont pas
 --     détectables ; un objet dépendant ENREGISTRÉ fait échouer les DROP sans CASCADE
 --     (transaction annulée).
---   * La définition de la contrainte est comparée sans espaces ni parenthèses,
---     en minuscules (robustesse entre versions de PostgreSQL).
---   * Les contrôles sont faits dans la même transaction que les suppressions, workers
---     arrêtés (prérequis ci-dessus) : une modification concurrente exactement entre
---     le contrôle et la suppression n'est pas verrouillée.
+--   * La forme exacte de pg_get_constraintdef est celle de PostgreSQL 15 à 18 ; une
+--     version qui la déparserait autrement ferait refuser le rollback (refus sûr).
+--   * L'archive est une table ordinaire sans clé étrangère : elle n'est pas purgée par
+--     ce script et doit être vérifiée puis supprimée par un opérateur.
+--   * Seule la table orders est verrouillée. Les contrôles des fonctions sont faits dans la
+--     même transaction que les suppressions, workers arrêtés (prérequis ci-dessus) : une
+--     redéfinition concurrente d'une fonction exactement entre le contrôle et la
+--     suppression n'est pas verrouillée.
 --   * Privilèges par défaut hébergés : non vérifiés sur la base hébergée (INCONCLUSIF).
 -- =============================================================================
 
 begin;
+
+-- Verrou de la table orders DÈS LE DÉBUT (T180-R5) : le script attend les écritures en cours et
+-- plus aucune décision payment_mode_final ne peut être posée ou modifiée entre les contrôles,
+-- l'archivage et la suppression de la colonne (la même table est de toute façon verrouillée
+-- ainsi par ALTER TABLE plus bas ; on ne fait que l'avancer).
+lock table public.orders in access exclusive mode;
 
 do $$
 declare
@@ -134,7 +161,7 @@ declare
   -- Constantes = ce que PostgreSQL stocke après l'installation du lot (vérifié par
   -- les tests [172-PRE-11], PGlite et PostgreSQL réel).
   c_trigger_fp    constant text := 'tgtype=19;enabled=O;function_is_guard=t;columns=payment_status;has_when=f;nargs=0;internal=f;deferrable=f;initdeferred=f;constraint=0;oldtable=;newtable=';
-  c_constraint_fp constant text := 'type=c;validated=t;deferrable=f;initdeferred=f;def=checkpayment_mode_finalisnullorpayment_mode_final=anyarray[''online''::text,''none''::text]';
+  c_constraint_fp constant text := 'type=c;validated=t;deferrable=f;initdeferred=f;def=CHECK (((payment_mode_final IS NULL) OR (payment_mode_final = ANY (ARRAY[''online''::text, ''none''::text]))))';
   c_column_fp     constant text := 'type=text;notnull=f;hasdef=f;generated=;identity=;dims=0';
   r              record;
   v_owner        oid;
@@ -151,7 +178,6 @@ declare
   v_oid          oid;
   v_attnum       smallint;
   v_deps         text;
-  v_lost         bigint;
 begin
   for r in
     select * from (values
@@ -232,7 +258,7 @@ begin
   select c.oid,
          format('type=%s;validated=%s;deferrable=%s;initdeferred=%s;def=%s',
                 c.contype, c.convalidated, c.condeferrable, c.condeferred,
-                regexp_replace(lower(pg_get_constraintdef(c.oid)), '[\s()]', '', 'g'))
+                pg_get_constraintdef(c.oid))
     into v_oid, v_fp
   from pg_constraint c
   where c.conrelid = 'public.orders'::regclass and c.conname = 'orders_payment_mode_final_check';
@@ -270,9 +296,40 @@ begin
     raise exception 'SCANYM_PREDECESSOR_DRIFT: des objets inconnus dépendent de orders.payment_mode_final : %. Rollback annulé, rien supprimé ni modifié.', v_deps;
   end if;
 
-  -- Tous les contrôles ont réussi : seulement maintenant, l'avertissement sur les décisions perdues.
-  execute 'select count(*) from public.orders where payment_mode_final is not null' into v_lost;
-  raise notice 'SCANYM_ROLLBACK_NOTICE: % décision(s) payment_mode_final seront définitivement perdues par ce retour arrière.', v_lost;
+  -- L'archive des décisions ne doit pas exister : elle n'est jamais écrasée ni complétée.
+  if to_regclass('public.orders_payment_mode_final_rollback_archive') is not null then
+    raise exception 'SCANYM_ROLLBACK_PREFLIGHT_FAILED: public.orders_payment_mode_final_rollback_archive existe déjà -- archive d''un rollback précédent, jamais écrasée. Vérifier puis renommer ou supprimer cette table avant de relancer. Rollback annulé, rien supprimé ni modifié.';
+  end if;
+end $$;
+
+-- Archivage des décisions (même transaction, avant toute suppression) : les décisions
+-- payment_mode_final ne sont plus perdues par le retour arrière.
+create table public.orders_payment_mode_final_rollback_archive (
+  order_id           uuid primary key,
+  payment_mode_final text not null check (payment_mode_final in ('online', 'none')),
+  payment_status     text,
+  archived_at        timestamptz not null default now()
+);
+alter table public.orders_payment_mode_final_rollback_archive enable row level security;
+revoke all on table public.orders_payment_mode_final_rollback_archive from public, anon, authenticated, service_role;
+comment on table public.orders_payment_mode_final_rollback_archive is
+  'Archive des décisions orders.payment_mode_final au moment du rollback de ORDER_RECEIVED PAYMENT GATE v1. Restauration : voir l''en-tête de DRAFT-lot-order-received-payment-gate-v1-rollback.sql. À vérifier puis supprimer par un opérateur.';
+insert into public.orders_payment_mode_final_rollback_archive (order_id, payment_mode_final, payment_status)
+  select o.id, o.payment_mode_final, o.payment_status
+    from public.orders o
+   where o.payment_mode_final is not null;
+
+do $$
+declare
+  v_expected bigint;
+  v_archived bigint;
+begin
+  execute 'select count(*) from public.orders where payment_mode_final is not null' into v_expected;
+  select count(*) into v_archived from public.orders_payment_mode_final_rollback_archive;
+  if v_archived is distinct from v_expected then
+    raise exception 'SCANYM_ROLLBACK_PREFLIGHT_FAILED: archive incomplète (% ligne(s) archivée(s) pour % décision(s)). Rollback annulé, rien supprimé ni modifié.', v_archived, v_expected;
+  end if;
+  raise notice 'SCANYM_ROLLBACK_NOTICE: % décision(s) payment_mode_final archivée(s) dans public.orders_payment_mode_final_rollback_archive avant suppression de la colonne (restauration : voir l''en-tête).', v_archived;
 end $$;
 
 create or replace function public.claim_pending_notifications(
