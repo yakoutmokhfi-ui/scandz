@@ -148,9 +148,10 @@ test("[VP-LOGIC-8] lecture : SEULE la colonne absente (lot non appliqué) est to
   behaviour.flagThrows = false;
   // Colonne absente, sous ses trois formes : la liste s'affiche, valeur INCONNUE.
   for (const err of [
-    { code: "42703", message: "x" },
+    { code: "42703", message: 'column "vacuum_packing_requested" does not exist' },
+    { code: "42703", message: "column orders.vacuum_packing_requested does not exist" },
     { message: 'column "vacuum_packing_requested" does not exist' },
-    { message: "Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache" },
   ]) {
     behaviour.flagRows = null as any; behaviour.flagError = err;
     const out = await getDashboardOrders("r", false);
@@ -163,9 +164,19 @@ test("[VP-LOGIC-8] lecture : SEULE la colonne absente (lot non appliqué) est to
     { code: "42501", message: "permission denied for table orders" },
     { message: "FetchError: network down" },
     { message: 'column "other" does not exist' },
+    // PLANCK190-03 : un 42703 visant UNE AUTRE colonne ne doit JAMAIS être pris pour l'absence de la nôtre.
+    { code: "42703", message: "column orders.other_column does not exist" },
+    { code: "42703", message: "x" },
+    { code: "42703", message: 'column "vacuum_packing_requested_backup" does not exist' },
+    { message: "column orders.vacuum_packing_requested_backup does not exist" },
+    { message: "column orders.xvacuum_packing_requested does not exist" },
+    { code: "42703", message: "column menu_categories.vacuum_packing_requested does not exist" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested_backup' column of 'orders' in the schema cache" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'menu_categories' in the schema cache" },
+    { code: "42703" },
   ]) {
     behaviour.flagRows = null as any; behaviour.flagError = err;
-    await assert.rejects(getDashboardOrders("r", false), (e: Error) => e.message === err.message, `propagée : ${err.message}`);
+    await assert.rejects(getDashboardOrders("r", false), (e: Error) => e.message === (err.message ?? ""), `propagée : ${err.code ?? ""} ${err.message}`);
   }
   behaviour.flagError = null; behaviour.flagThrows = true;
   await assert.rejects(getDashboardOrders("r", false), /boom/, "exception propagée");

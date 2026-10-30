@@ -147,15 +147,25 @@ export async function getDashboardOrders(
  * s'afficher telle quelle au lieu de tomber en erreur. Aucun client ne peut avoir
  * demandé de mise sous vide avant ce lot (aucune catégorie n'est éligible).
  *
- * SEUL le cas « colonne inexistante » (SQLSTATE 42703 / message PostgREST) est toléré.
+ * SEUL le cas « la colonne vacuum_packing_requested de orders n'existe pas » est toléré,
+ * reconnu à son MESSAGE exact (un code 42703 visant une autre colonne remonte en erreur).
  * TOUTE autre erreur (réseau, droits, délai...) est PROPAGÉE, comme celle de la requête
  * principale : une consigne de mise sous vide ne doit jamais disparaître en silence d'une
  * commande qui reste actionnable (PLANCK190-03).
  */
 function isMissingVacuumColumnError(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
-  if (error.code === "42703") return true;
-  return /column .*vacuum_packing_requested.* does not exist|could not find the 'vacuum_packing_requested' column/i.test(error.message ?? "");
+  const message = error.message ?? "";
+  // Le MESSAGE doit nommer EXACTEMENT la colonne (et la table `orders`) : un code 42703 seul
+  // ne suffit pas -- il peut viser n'importe quelle autre colonne (PLANCK190-03). Aucune
+  // correspondance de sous-chaîne : `vacuum_packing_requested_backup` n'est pas notre colonne.
+  //   PostgreSQL : column "vacuum_packing_requested" does not exist
+  //                column orders.vacuum_packing_requested does not exist
+  const pg = /\bcolumn\s+(?:"?([A-Za-z0-9_]+)"?\.)?"?vacuum_packing_requested"?\s+does not exist/i.exec(message);
+  if (pg) return pg[1] === undefined || pg[1].toLowerCase() === "orders";
+  //   PostgREST (PGRST204) : Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache
+  const rest = /could not find the 'vacuum_packing_requested' column of '([A-Za-z0-9_]+)' in the schema cache/i.exec(message);
+  return rest !== null && rest[1].toLowerCase() === "orders";
 }
 
 async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<DashboardOrder[]> {
