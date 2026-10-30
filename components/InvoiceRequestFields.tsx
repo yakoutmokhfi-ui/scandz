@@ -120,6 +120,7 @@ function Field({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
         className={
           "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
           // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- même raisonnement
@@ -139,7 +140,11 @@ function Field({
           (~1,30:1 mesuré sur le fond sombre TRACKING_SURFACE_COLORS) ;
           text-error-on-invoice-panel (var(--sc-error-on-invoice-panel),
           lib/themes.ts) est calculée contre ce fond composité réel. */}
-      {error && <p className="mt-1 text-xs text-error-on-invoice-panel">{error}</p>}
+      {error && (
+        <p id={`${id}-error`} className="mt-1 text-xs text-error-on-invoice-panel">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

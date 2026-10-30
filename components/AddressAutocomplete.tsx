@@ -103,6 +103,15 @@ export interface AddressAutocompleteProps {
   onQueryChange?: (text: string) => void;
   labels?: Partial<AddressAutocompleteLabels>;
   id?: string;
+  /**
+   * ISSUE #191 -- message d'erreur de la RUE (déjà traduit, ou
+   * `undefined`). Rendu sous la saisie et RELIÉ à celle-ci
+   * (`aria-invalid` + `aria-describedby`), en mode recherche comme en
+   * mode manuel, pour que le focus du premier champ invalide puisse
+   * atteindre la saisie d'adresse. Aucune règle de validation ici : le
+   * parent décide (FulfillmentSelector, via `errors.street`).
+   */
+  error?: string;
 }
 
 export default function AddressAutocomplete({
@@ -115,12 +124,20 @@ export default function AddressAutocomplete({
   onQueryChange,
   labels: labelsOverride,
   id,
+  error,
 }: AddressAutocompleteProps) {
   const labels = { ...DEFAULT_LABELS, ...labelsOverride };
   const generatedId = useId();
   const baseId = id ?? generatedId;
   const inputId = `${baseId}-address-input`;
   const listboxId = `${baseId}-address-listbox`;
+  const errorId = `${baseId}-error`;
+  const errorBorder = error ? "border-red-600" : "border-espresso/15";
+  const errorMessage = error ? (
+    <p id={errorId} className="mt-1 text-xs text-error">
+      {error}
+    </p>
+  ) : null;
 
   const [mode, setMode] = useState<"search" | "manual">("search");
   const [query, setQuery] = useState(value?.label ?? value?.addressLine ?? "");
@@ -292,8 +309,11 @@ export default function AddressAutocomplete({
             type="text"
             value={manualDraft.addressLine}
             onChange={(e) => updateManual({ addressLine: e.target.value })}
-            className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            className={`mt-1 w-full rounded-xl border ${errorBorder} bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm`}
           />
+          {errorMessage}
         </div>
         <div className="grid grid-cols-[7rem_1fr] gap-3">
           <div>
@@ -375,7 +395,9 @@ export default function AddressAutocomplete({
             onQueryChange?.(next);
           }}
           onKeyDown={handleKeyDown}
-          className="mt-1 w-full rounded-xl border border-espresso/15 bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          className={`mt-1 w-full rounded-xl border ${errorBorder} bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm`}
         />
         {(query !== "" || value) && (
           <button type="button" onClick={clearSelection} className="mt-1 shrink-0 text-xs font-semibold text-ink-on-bg-muted underline">
@@ -383,6 +405,7 @@ export default function AddressAutocomplete({
           </button>
         )}
       </div>
+      {errorMessage}
 
       {state.kind === "loading" && (
         <p role="status" aria-live="polite" className="text-xs text-ink-on-bg-muted">

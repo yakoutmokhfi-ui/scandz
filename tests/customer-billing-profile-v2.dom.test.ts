@@ -112,7 +112,14 @@ function toggleCheckbox(el: HTMLInputElement) {
   el.click();
 }
 function buttonWithText(container: Element, text: string): HTMLButtonElement | undefined {
-  return [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+  // Issue #191 : le bouton d'envoi GRISÉ (aria-disabled="true", il n'envoie
+  // rien, il ne sert qu'à afficher les erreurs de champ) n'est pas « le
+  // bouton d'envoi » : seuls les boutons d'envoi ACTIFS comptent ici.
+  return [...container.querySelectorAll("button")].find(
+    (b) =>
+      b.textContent === text &&
+      !(text === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") === "true")
+  );
 }
 function inputById(container: Element, id: string): HTMLInputElement | null {
   return container.querySelector(`#${id}`);

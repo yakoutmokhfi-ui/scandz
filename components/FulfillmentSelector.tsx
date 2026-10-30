@@ -63,6 +63,7 @@ function Field({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
         className={
           "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 placeholder:text-stone-500 outline-none focus:border-caramel sm:text-sm " +
           // CHECKOUT UX/A11Y MICRO-LOT (issue #11) -- bordure rouge FIXE
@@ -80,7 +81,11 @@ function Field({
           (--sc-bg), potentiellement personnalisé et sombre (LOT 1A) --
           text-error (var(--sc-error)) est donc bien la couleur
           adaptée ici, contrairement à la bordure ci-dessus. */}
-      {error && <p className="mt-1 text-xs text-error">{error}</p>}
+      {error && (
+        <p id={`${id}-error`} className="mt-1 text-xs text-error">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -767,6 +772,7 @@ export default function FulfillmentSelector({
                 }
                 onChange={(e) => handleStageAFieldChange({ city: e.target.value })}
                 aria-invalid={err("city") ? true : undefined}
+                aria-describedby={err("city") ? "city-error" : undefined}
                 className={
                   "mt-1 w-full max-w-full rounded-xl border bg-white p-3 text-base text-stone-900 outline-none focus:border-caramel sm:text-sm " +
                   // Voir le commentaire du composant Field ci-dessus :
@@ -782,7 +788,11 @@ export default function FulfillmentSelector({
                   </option>
                 ))}
               </select>
-              {err("city") && <p className="mt-1 text-xs text-error">{err("city")}</p>}
+              {err("city") && (
+                <p id="city-error" className="mt-1 text-xs text-error">
+                  {err("city")}
+                </p>
+              )}
             </div>
           ) : (
             <Field
@@ -810,6 +820,7 @@ export default function FulfillmentSelector({
             onQueryChange={handleQueryChange}
             postcodeContext={postalCode.trim()}
             id="delivery-street"
+            error={err("street")}
             labels={{
               inputLabel: t("fieldStreet"),
               placeholder: t("phStreet"),
