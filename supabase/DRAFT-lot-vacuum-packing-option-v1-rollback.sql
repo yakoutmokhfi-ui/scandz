@@ -11,9 +11,21 @@
 -- lignes, puis décider explicitement.
 --
 -- Une seule transaction : un échec à n'importe quelle étape laisse la base intacte.
+-- Les deux tables sont verrouillées EN PREMIER (voir plus bas) : aucune écriture concurrente
+-- ne peut échapper au contrôle anti-perte.
 -- ============================================================================
 
 begin;
+
+-- PLANCK190-04 : VERROU AVANT TOUT CONTRÔLE. Sans lui, le contrôle anti-perte pouvait ne pas
+-- voir une écriture pas encore validée (vacuum_packing_requested = true), attendre son commit
+-- au moment du DROP COLUMN, puis supprimer ce choix. ACCESS EXCLUSIVE attend la fin des
+-- transactions en cours sur ces deux tables et bloque les nouvelles : les contrôles ci-dessous
+-- voient alors un état stable et définitif jusqu'au commit. lock_timeout : si le verrou ne
+-- peut pas être pris (transaction longue), le retour arrière échoue proprement, base intacte.
+-- Ordre orders puis menu_categories = ordre d'accès de create_order.
+set local lock_timeout = '10s';
+lock table public.orders, public.menu_categories in access exclusive mode;
 
 do $rb$
 declare

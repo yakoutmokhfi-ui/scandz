@@ -36,6 +36,13 @@ beforeEach(async (t) => {
           return r.rows.map(r => r.row);
         }
         assert.equal(url.pathname, "/rest/v1/orders");
+        // OPTION « MISE SOUS VIDE » -- lecture SECONDAIRE de la colonne additive. Ce schéma de
+        // test ne l'a pas (lot SQL non appliqué) : on répond comme PostgREST le ferait, par
+        // l'erreur « colonne inexistante » que le service tolère explicitement. Aucune
+        // assertion de pagination n'est modifiée ni affaiblie.
+        if ((url.searchParams.get("select") ?? "").includes("vacuum_packing_requested")) {
+          throw Object.assign(new Error("column orders.vacuum_packing_requested does not exist"), { code: "42703" });
+        }
         assert.equal(url.searchParams.get("order"), "created_at.desc,id.desc");
         assert.equal(url.searchParams.get("limit"), "51");
         const tenant = url.searchParams.get("restaurant_id")!.replace(/^eq\./, "");

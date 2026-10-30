@@ -143,17 +143,36 @@ test("[VP-LOGIC-7] lecture : la colonne est lue à part ; true/false posés ; ab
   assert.deepEqual(flags.ids, ["o1", "o2", "o3"]);
 });
 
-test("[VP-LOGIC-8] lecture : colonne absente (lot non appliqué) ou erreur => la liste s'affiche, valeur INCONNUE (jamais « non demandé » fabriqué)", async () => {
+test("[VP-LOGIC-8] lecture : SEULE la colonne absente (lot non appliqué) est tolérée ; toute autre erreur est PROPAGÉE (PLANCK190-03)", async () => {
   behaviour.mainRows = [row("o1")];
-  behaviour.flagRows = null as any; behaviour.flagError = { message: 'column "vacuum_packing_requested" does not exist' };
-  let out = await getDashboardOrders("r", false);
-  assert.equal(out.length, 1);
-  assert.equal("vacuum_packing_requested" in out[0], false);
-  behaviour.flagError = null; behaviour.flagThrows = true;
-  out = await getDashboardOrders("r", false);
-  assert.equal(out.length, 1);
-  assert.equal("vacuum_packing_requested" in out[0], false);
   behaviour.flagThrows = false;
+  // Colonne absente, sous ses trois formes : la liste s'affiche, valeur INCONNUE.
+  for (const err of [
+    { code: "42703", message: "x" },
+    { message: 'column "vacuum_packing_requested" does not exist' },
+    { message: "Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache" },
+  ]) {
+    behaviour.flagRows = null as any; behaviour.flagError = err;
+    const out = await getDashboardOrders("r", false);
+    assert.equal(out.length, 1);
+    assert.equal("vacuum_packing_requested" in out[0], false, "jamais « non demandé » fabriqué");
+  }
+  // Toute autre erreur : la consigne ne disparaît JAMAIS en silence -- l'appelant voit l'échec.
+  for (const err of [
+    { code: "57014", message: "canceling statement due to statement timeout" },
+    { code: "42501", message: "permission denied for table orders" },
+    { message: "FetchError: network down" },
+    { message: 'column "other" does not exist' },
+  ]) {
+    behaviour.flagRows = null as any; behaviour.flagError = err;
+    await assert.rejects(getDashboardOrders("r", false), (e: Error) => e.message === err.message, `propagée : ${err.message}`);
+  }
+  behaviour.flagError = null; behaviour.flagThrows = true;
+  await assert.rejects(getDashboardOrders("r", false), /boom/, "exception propagée");
+  behaviour.flagThrows = false;
+  behaviour.flagError = null; behaviour.flagRows = "illisible" as any;
+  await assert.rejects(getDashboardOrders("r", false), /illisible/);
+  behaviour.flagRows = [];
 });
 
 test("[VP-LOGIC-9] liste vide : aucune requête supplémentaire", async () => {

@@ -145,26 +145,35 @@ export async function getDashboardOrders(
  * SÉPARÉE plutôt que dans la liste de colonnes ci-dessus : tant que la colonne
  * additive n'existe pas (lot SQL non appliqué), la liste des commandes continue de
  * s'afficher telle quelle au lieu de tomber en erreur. Aucun client ne peut avoir
- * demandé de mise sous vide avant ce lot (aucune catégorie n'est éligible), donc
- * l'indisponibilité n'est jamais une perte : la valeur reste `undefined` (rien
- * d'affiché, jamais « non demandé » fabriqué).
+ * demandé de mise sous vide avant ce lot (aucune catégorie n'est éligible).
+ *
+ * SEUL le cas « colonne inexistante » (SQLSTATE 42703 / message PostgREST) est toléré.
+ * TOUTE autre erreur (réseau, droits, délai...) est PROPAGÉE, comme celle de la requête
+ * principale : une consigne de mise sous vide ne doit jamais disparaître en silence d'une
+ * commande qui reste actionnable (PLANCK190-03).
  */
+function isMissingVacuumColumnError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  return /column .*vacuum_packing_requested.* does not exist|could not find the 'vacuum_packing_requested' column/i.test(error.message ?? "");
+}
+
 async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<DashboardOrder[]> {
   if (orders.length === 0) return orders;
-  try {
-    const { data, error } = await supabase
-      .from("orders")
-      .select("id, vacuum_packing_requested")
-      .in("id", orders.map((o) => o.id));
-    if (error || !Array.isArray(data)) return orders;
-    const flags = new Map<string, boolean>();
-    for (const row of data as { id: string; vacuum_packing_requested: boolean | null }[]) {
-      flags.set(row.id, row.vacuum_packing_requested === true);
-    }
-    return orders.map((o) => (flags.has(o.id) ? { ...o, vacuum_packing_requested: flags.get(o.id) } : o));
-  } catch {
-    return orders;
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, vacuum_packing_requested")
+    .in("id", orders.map((o) => o.id));
+  if (error) {
+    if (isMissingVacuumColumnError(error)) return orders;
+    throw new Error(error.message);
   }
+  if (!Array.isArray(data)) throw new Error("vacuum_packing_requested: réponse illisible");
+  const flags = new Map<string, boolean>();
+  for (const row of data as { id: string; vacuum_packing_requested: boolean | null }[]) {
+    flags.set(row.id, row.vacuum_packing_requested === true);
+  }
+  return orders.map((o) => (flags.has(o.id) ? { ...o, vacuum_packing_requested: flags.get(o.id) } : o));
 }
 
 /**
