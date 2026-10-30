@@ -1147,7 +1147,7 @@ export default function CartPanel({
               </>
             ) : (
               <>
-                <p role="status" className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
+                <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
                   {!noteState.isValid ? t("noteTooLong") : missing}
                 </p>
                 {/* ISSUE #191 -- aucun bouton ajouté : le bouton d'envoi

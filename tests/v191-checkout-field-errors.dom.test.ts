@@ -167,8 +167,13 @@ const FULL_INVOICE = {
 // Parent minimal : détient `showErrors`, comme MenuView.
 function Harness({ initial }: { initial: Record<string, unknown> }) {
   const [showErrors, setShowErrors] = React.useState(false);
+  // Permet à un test de « corriger » la saisie après la tentative (props
+  // réémises par le parent), comme le fait MenuView.
+  const [override, setOverride] = React.useState<Record<string, unknown>>({});
+  (globalThis as any).__v191Override = setOverride;
   const props = baseProps({
     ...initial,
+    ...override,
     showErrors,
     onRevealErrors: () => setShowErrors(true),
   });
@@ -301,6 +306,158 @@ test("[191-7] aucun mouvement de focus sans demande : le focus ne bouge pas tant
   try {
     assert.notEqual(window.document.activeElement?.id, "first_name");
     assert.notEqual(window.document.activeElement?.id, "email");
+  } finally { root.unmount(); container.remove(); }
+});
+
+
+
+// ====================================================================
+// Contre-audit Briant (#194, HEAD 5be788c) : livraison avec
+// autocomplétion d'adresse -- la rue invalide n'était ni reliée à la
+// saisie ni atteignable par le focus.
+// ====================================================================
+const FR = {
+  countryCode: "FR", countryName: "France", postalCodePattern: "^[0-9]{5}$",
+  phonePattern: "^(?:0[0-9]{9}|\\+33[0-9]{9})$", addressProvider: "ban_ign", addressLineOrder: "number_first",
+};
+const IT: Record<string, unknown> = {
+  countryCode: "IT", countryName: "Italie", postalCodePattern: "^[0-9]{5}$",
+  phonePattern: null, addressProvider: "manual", addressLineOrder: "number_first",
+};
+const DELIVERY_ITEMS = [
+  { kind: "field", requirement: { field: "delivery_address", requirement: "required", oneOfGroup: null } },
+];
+const deliveryBase = (street: string, country: Record<string, unknown> = FR) => ({
+  serviceMode: "delivery",
+  availableServiceModes: ["delivery"],
+  displayItems: DELIVERY_ITEMS,
+  deliveryCountry: country,
+  deliveryCountryOptions: [],
+  deliveryCountryScope: [country],
+  canSubmit: false,
+  customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street, postalCode: "75001", city: "Paris" },
+  customerErrors: { street: "errStreet" },
+});
+
+test("[191-8] livraison + autocomplétion, rue trop courte, autres champs valides : saisie d'adresse en erreur, reliée au message, focus dessus, rien d'envoyé, valeurs conservées", async () => {
+  let sent = 0;
+  const { container, root } = await mount({ ...deliveryBase("12 r"), onSendOrder: async () => { sent++; } });
+  try {
+    const auto = container.querySelector<HTMLInputElement>("input#delivery-street-address-input");
+    assert.ok(auto, "la saisie d'autocomplétion doit être rendue (code postal valide)");
+    assert.equal(auto!.getAttribute("aria-invalid"), null, "pas d'erreur avant la tentative");
+    const btn = revealButton(container);
+    assert.ok(btn, "bouton d'envoi grisé attendu");
+    btn!.click();
+    await flush();
+    assert.equal(auto!.getAttribute("aria-invalid"), "true", "la saisie porte aria-invalid");
+    const id = auto!.getAttribute("aria-describedby");
+    assert.ok(id, "aria-describedby attendu sur la saisie d'adresse");
+    const msg = container.querySelector("#" + id);
+    assert.ok(msg && (msg.textContent ?? "").trim().length > 0, "message de rue visible et relié");
+    assert.equal(window.document.activeElement, auto, "focus sur la saisie d'adresse");
+    assert.equal(auto!.value, "12 r", "la saisie est conservée");
+    assert.equal(sent, 0, "aucune commande envoyée");
+    assert.equal(container.querySelector<HTMLInputElement>("input#postalCode")?.value ?? "75001", "75001");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-9] rue vide + autocomplétion : même comportement (erreur reliée, focus)", async () => {
+  const { container, root } = await mount({ ...deliveryBase("") });
+  try {
+    revealButton(container)!.click();
+    await flush();
+    const auto = container.querySelector<HTMLInputElement>("input#delivery-street-address-input")!;
+    assert.equal(auto.getAttribute("aria-invalid"), "true");
+    assert.equal(window.document.activeElement, auto);
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-10] après correction de la rue : plus d'erreur, la saisie n'est plus invalide, le bouton d'envoi redevient actif", async () => {
+  const { container, root } = await mount({ ...deliveryBase("12 r") });
+  try {
+    revealButton(container)!.click();
+    await flush();
+    (globalThis as any).__v191Override({
+      customer: { name: "Client", firstName: "", lastName: "", phone: "", email: "", street: "12 rue de Rivoli", postalCode: "75001", city: "Paris" },
+      customerErrors: {},
+      canSubmit: true,
+    });
+    await flush();
+    const auto = container.querySelector<HTMLInputElement>("input#delivery-street-address-input");
+    assert.ok(auto);
+    assert.equal(auto!.getAttribute("aria-invalid"), null);
+    assert.equal(auto!.getAttribute("aria-describedby"), null);
+    assert.equal(container.querySelector("#delivery-street-error"), null, "le message disparaît");
+    assert.equal(revealButton(container), null, "plus de bouton grisé");
+    const send = [...container.querySelectorAll("button")].find((b) => /Valider|Enregistrer|Envoyer|commande/i.test(b.textContent ?? "") && b.getAttribute("aria-disabled") !== "true");
+    assert.ok(send, "le bouton d'envoi habituel est de nouveau actif");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-11] saisie manuelle de l'adresse (repli de l'autocomplétion) : la rue manuelle porte l'erreur et reçoit le focus", async () => {
+  const { container, root } = await mount({ ...deliveryBase("12 r") });
+  try {
+    const switchBtn = [...container.querySelectorAll("button")].find((b) => /manuellement/i.test(b.textContent ?? ""));
+    assert.ok(switchBtn, "bouton « Saisir l'adresse manuellement » attendu");
+    switchBtn!.click();
+    await flush();
+    revealButton(container)!.click();
+    await flush();
+    const manual = container.querySelector<HTMLInputElement>("input#delivery-street-manual-street");
+    assert.ok(manual, "rue manuelle rendue");
+    assert.equal(manual!.getAttribute("aria-invalid"), "true");
+    const id = manual!.getAttribute("aria-describedby");
+    assert.ok(id && container.querySelector("#" + id));
+    assert.equal(window.document.activeElement, manual);
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-12] champ de rue de repli (pays sans autocomplétion) : erreur reliée, focus", async () => {
+  const { container, root } = await mount({ ...deliveryBase("12 r", IT) });
+  try {
+    assert.equal(container.querySelector("input#delivery-street-address-input"), null, "pas d'autocomplétion pour ce pays");
+    revealButton(container)!.click();
+    await flush();
+    const street = container.querySelector<HTMLInputElement>("input#street")!;
+    assert.equal(street.getAttribute("aria-invalid"), "true");
+    assert.ok(container.querySelector("#" + street.getAttribute("aria-describedby")));
+    assert.equal(window.document.activeElement, street);
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-13] clavier : le bouton d'envoi grisé est un vrai <button type=button>, atteignable (non disabled, tabindex >= 0), focusable ; son activation déclenche le même geste", async () => {
+  const { container, root } = await mount({ ...deliveryBase("12 r") });
+  try {
+    const btn = revealButton(container)!;
+    assert.equal(btn.tagName, "BUTTON");
+    assert.equal(btn.getAttribute("type"), "button");
+    assert.equal(btn.disabled, false);
+    assert.ok(btn.tabIndex >= 0, "dans l'ordre de tabulation");
+    btn.focus();
+    assert.equal(window.document.activeElement, btn, "focusable au clavier");
+    // Entrée/Espace sur un <button> natif produisent un `click` : c'est ce
+    // que déclenche un lecteur d'écran / le clavier.
+    btn.click();
+    await flush();
+    assert.equal(
+      window.document.activeElement,
+      container.querySelector("input#delivery-street-address-input"),
+      "l'activation amène au premier champ invalide"
+    );
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("[191-14] blocage sans champ invalide et erreur serveur générale : le focus ne bouge pas", async () => {
+  const { container, root } = await mount({
+    ...deliveryBase("12 rue de Rivoli"),
+    customerErrors: {}, canSubmit: true, submitError: "Impossible d'enregistrer la commande.",
+  });
+  try {
+    const before = window.document.activeElement;
+    assert.ok(container.querySelector('[role="alert"]'));
+    assert.equal(revealButton(container), null);
+    assert.equal(window.document.activeElement, before);
   } finally { root.unmount(); container.remove(); }
 });
 

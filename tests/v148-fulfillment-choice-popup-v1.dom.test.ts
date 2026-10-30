@@ -339,7 +339,12 @@ async function renderAndAddOneItemToCart(restaurant: ReturnType<typeof testResta
 }
 
 function sendButton(container: Element) {
-  return buttonWithText(container, "Enregistrer et continuer sur WhatsApp");
+  // Issue #191 : quand un champ bloque, le bouton d'envoi habituel reste
+  // visible mais GRISÉ (`aria-disabled="true"`) et n'envoie jamais rien --
+  // il sert à afficher les erreurs. « Bouton d'envoi » = bouton ACTIF.
+  return allButtonsWithText(container, "Enregistrer et continuer sur WhatsApp").find(
+    (b) => b.getAttribute("aria-disabled") !== "true"
+  );
 }
 
 // --------------------------------------------------------------------

@@ -820,6 +820,7 @@ export default function FulfillmentSelector({
             onQueryChange={handleQueryChange}
             postcodeContext={postalCode.trim()}
             id="delivery-street"
+            error={err("street")}
             labels={{
               inputLabel: t("fieldStreet"),
               placeholder: t("phStreet"),

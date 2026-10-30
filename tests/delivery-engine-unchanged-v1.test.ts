@@ -70,7 +70,7 @@ const PINNED: Record<string, string> = {
   // optionnelle `onRevealErrors`. Règles de livraison, tarifs, éligibilité, périmètre
   // pays, minimum, frais, validations : AUCUNE ligne touchée.
   // SHA-256 précédent : e6901b1091b2dd79383df0cddc6c6e6018569c778eaa7f9966d0ff96e28c268f
-  "components/CartPanel.tsx": "9a74115a34a2ef6f6c33a151528ceb480c7b47fc9f6202c6314a1ba8bd805fdd",
+  "components/CartPanel.tsx": "de5c3858d56be60e13f63572a22b8c6ba72cd10d95c9ff24f14a162a699474c4",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",
