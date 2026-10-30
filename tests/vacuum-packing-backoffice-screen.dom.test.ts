@@ -138,6 +138,8 @@ for (const err of [
   { code: "42703", message: 'column "vacuum_packing_requested_backup" does not exist' },
   { code: "42703", message: "x" },
   { code: "57014", message: "canceling statement due to statement timeout" },
+  { code: "42703", message: 'column "VACUUM_PACKING_REQUESTED" does not exist' },
+  { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'ORDERS' in the schema cache" },
 ]) {
   test(`[VP-SCREEN-3] erreur « ${err.code} ${err.message} » : erreur VISIBLE, aucune commande actionnable sans sa consigne`, async () => {
     const s = await screen([], err);

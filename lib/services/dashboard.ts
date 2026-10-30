@@ -155,17 +155,19 @@ export async function getDashboardOrders(
  */
 function isMissingVacuumColumnError(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
-  const message = error.message ?? "";
-  // Le MESSAGE doit nommer EXACTEMENT la colonne (et la table `orders`) : un code 42703 seul
-  // ne suffit pas -- il peut viser n'importe quelle autre colonne (PLANCK190-03). Aucune
-  // correspondance de sous-chaîne : `vacuum_packing_requested_backup` n'est pas notre colonne.
+  const message = (error.message ?? "").trim();
+  // Le MESSAGE doit désigner EXACTEMENT `orders.vacuum_packing_requested`, SANS normaliser la
+  // casse : en PostgreSQL un identifiant entre guillemets est sensible à la casse, donc
+  // "VACUUM_PACKING_REQUESTED" ou "Orders" sont d'AUTRES objets (PLANCK190-03). Expressions
+  // ancrées et sensibles à la casse; un code 42703 seul ne suffit pas; aucune sous-chaîne
+  // (`vacuum_packing_requested_backup` n'est pas notre colonne).
   //   PostgreSQL : column "vacuum_packing_requested" does not exist
   //                column orders.vacuum_packing_requested does not exist
-  const pg = /\bcolumn\s+(?:"?([A-Za-z0-9_]+)"?\.)?"?vacuum_packing_requested"?\s+does not exist/i.exec(message);
-  if (pg) return pg[1] === undefined || pg[1].toLowerCase() === "orders";
+  const pg = /^column\s+(?:"?([A-Za-z0-9_]+)"?\.)?"?vacuum_packing_requested"?\s+does not exist$/.exec(message);
+  if (pg) return pg[1] === undefined || pg[1] === "orders";
   //   PostgREST (PGRST204) : Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache
-  const rest = /could not find the 'vacuum_packing_requested' column of '([A-Za-z0-9_]+)' in the schema cache/i.exec(message);
-  return rest !== null && rest[1].toLowerCase() === "orders";
+  const rest = /^Could not find the 'vacuum_packing_requested' column of '([A-Za-z0-9_]+)' in the schema cache$/.exec(message);
+  return rest !== null && rest[1] === "orders";
 }
 
 async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<DashboardOrder[]> {

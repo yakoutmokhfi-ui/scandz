@@ -174,6 +174,23 @@ test("[VP-LOGIC-8] lecture : SEULE la colonne absente (lot non appliqué) est to
     { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested_backup' column of 'orders' in the schema cache" },
     { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'menu_categories' in the schema cache" },
     { code: "42703" },
+    // PLANCK190-03 (casse) : un identifiant entre guillemets est sensible à la casse en PostgreSQL.
+    { code: "42703", message: 'column "VACUUM_PACKING_REQUESTED" does not exist' },
+    { code: "42703", message: 'column orders."VACUUM_PACKING_REQUESTED" does not exist' },
+    { code: "42703", message: 'column "Vacuum_Packing_Requested" does not exist' },
+    { code: "42703", message: 'column "Orders".vacuum_packing_requested does not exist' },
+    { code: "42703", message: "column ORDERS.vacuum_packing_requested does not exist" },
+    { code: "42703", message: 'column "ORDERS"."vacuum_packing_requested" does not exist' },
+    // PostgREST : variantes de colonne et de table
+    { code: "PGRST204", message: "Could not find the 'VACUUM_PACKING_REQUESTED' column of 'orders' in the schema cache" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'ORDERS' in the schema cache" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'Orders' in the schema cache" },
+    { code: "PGRST204", message: "Could not find the 'vacuum_packing_requested' column of 'order_items' in the schema cache" },
+    { code: "PGRST204", message: "could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache" },
+    // texte parasite autour : ce n'est plus l'absence exacte
+    { code: "42703", message: "error: column orders.vacuum_packing_requested does not exist" },
+    { code: "42703", message: "column orders.vacuum_packing_requested does not exist (and more)" },
+    { code: "42703", message: "column foo.orders.vacuum_packing_requested does not exist" },
   ]) {
     behaviour.flagRows = null as any; behaviour.flagError = err;
     await assert.rejects(getDashboardOrders("r", false), (e: Error) => e.message === (err.message ?? ""), `propagée : ${err.code ?? ""} ${err.message}`);
