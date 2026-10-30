@@ -1,4 +1,5 @@
 import { useI18n } from "@/lib/i18n-context";
+import { coverThumbnailUrl } from "@/lib/product-photo-thumbnail";
 import { resolveTranslatedField } from "@/lib/translation-resolver";
 import type { RestaurantFull } from "@/lib/types";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -104,7 +105,7 @@ export default function RestaurantHeader({
         backgroundColor: "var(--sc-ink, #221510)",
         backgroundImage: headerBackgroundImage(
           photoOverlay,
-          coverUrl ?? `/banners/${banner ?? restaurant.slug}.jpg`,
+          coverUrl ? coverThumbnailUrl(coverUrl) : `/banners/${banner ?? restaurant.slug}.jpg`,
           veilInk
         ),
         backgroundSize: "cover",

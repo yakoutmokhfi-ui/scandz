@@ -40,3 +40,28 @@ export function productPhotoThumbnailUrl(
   // (object-cover) : un carré centré donne le même rendu.
   return `${base}?width=${width}&height=${width}&quality=${THUMBNAIL_QUALITY}&resize=cover`;
 }
+
+// ── Couverture de la boutique (issue #188, couche 3) ────────────────
+// Interrupteur SÉPARÉ de celui des photos produit : on peut le tester
+// avant de l'activer. La couverture est un fond CSS (`cover`) dont le
+// format dépend de l'écran : on ne force donc PAS de rognage (pas de
+// `height`), on réduit seulement la largeur en gardant les proportions
+// (`resize=contain`). Original inchangé.
+export const COVER_THUMBNAIL_WIDTH = 1200;
+export const COVER_THUMBNAIL_QUALITY = 75;
+
+export function coverThumbnailsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_COVER_THUMBNAILS === "1";
+}
+
+export function coverThumbnailUrl(
+  url: string,
+  enabled: boolean = coverThumbnailsEnabled()
+): string {
+  if (!enabled) return url;
+  const idx = url.indexOf(OBJECT_MARKER);
+  if (idx === -1) return url;
+  const base = url.slice(0, idx) + RENDER_MARKER + url.slice(idx + OBJECT_MARKER.length);
+  if (base.includes("?")) return url;
+  return `${base}?width=${COVER_THUMBNAIL_WIDTH}&quality=${COVER_THUMBNAIL_QUALITY}&resize=contain`;
+}
