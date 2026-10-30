@@ -58,6 +58,7 @@ async function bundle(entry: string) {
 const { getDashboardOrders } = await bundle(`export { getDashboardOrders } from '@/lib/services/dashboard';`);
 const { default: OrderCard } = await bundle(`export { default } from '@/components/dashboard/OrderCard';`);
 const { buildCreateOrderPayload } = await bundle(`export { buildCreateOrderPayload } from '@/lib/services/order-payload';`);
+const { useVacuumPackingChoice } = await bundle(`export { useVacuumPackingChoice } from '@/lib/use-vacuum-packing-choice';`);
 const vp = await bundle(`export * from '@/lib/vacuum-packing';`);
 const { translate } = await bundle(`export { translate } from '@/lib/i18n';`);
 after(() => dom.window.close());
@@ -229,4 +230,33 @@ test("[VP-LOGIC-13] éditeur de catégorie : case réservée à l'édition, masq
   const svc = readFileSync("lib/services/dashboard.ts", "utf8");
   assert.match(svc, /rpc\("set_category_vacuum_packable"/);
   assert.doesNotMatch(svc, /\.from\("menu_categories"\)\s*\.(update|insert|upsert|delete)/, "aucune écriture directe : uniquement la RPC contrôlée");
+});
+
+test("[VP-LOGIC-14] AUD190-01 : cocher, retirer le dernier article éligible, le rajouter => case DÉCOCHÉE (état réellement réinitialisé)", async () => {
+  let api!: { available: (b: boolean) => void; value: () => boolean; set: (b: boolean) => void };
+  function Harness() {
+    const [available, setAvailable] = React.useState(true);
+    const [value, set] = useVacuumPackingChoice(available);
+    api = { available: setAvailable, value: () => value, set };
+    return React.createElement("span", { "data-v": String(value) });
+  }
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  const { act } = React as any;
+  const run = async (fn: () => void) => { fn(); await tick(); };
+  root.render(React.createElement(Harness)); await tick();
+  const shown = () => container.querySelector("[data-v]")!.getAttribute("data-v");
+  assert.equal(shown(), "false", "décochée au départ");
+  await run(() => api.set(true));
+  assert.equal(shown(), "true");
+  await run(() => api.available(false));
+  assert.equal(shown(), "false", "plus proposée => faux");
+  await run(() => api.available(true));
+  assert.equal(shown(), "false", "reproposée => DÉCOCHÉE, aucun choix fantôme");
+  await run(() => api.set(true));
+  assert.equal(shown(), "true", "un nouveau choix explicite fonctionne");
+  root.unmount(); container.remove(); void act;
+  const mv = readFileSync("components/MenuView.tsx", "utf8");
+  assert.match(mv, /useVacuumPackingChoice\(vacuumPackingAvailable\)/);
+  assert.match(mv, /serviceMode !== "table" && cartHasVacuumPackable\(lines, restaurant\.categories\)/);
 });

@@ -59,6 +59,7 @@ import {
 } from "@/lib/invoice-request";
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import { cartHasVacuumPackable, effectiveVacuumPacking } from "@/lib/vacuum-packing";
+import { useVacuumPackingChoice } from "@/lib/use-vacuum-packing-choice";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
@@ -542,10 +543,8 @@ export default function MenuView({
 
   const [customer, setCustomer] = useState<CustomerInfo>(EMPTY_CUSTOMER);
   const [invoiceRequest, setInvoiceRequest] = useState<InvoiceRequestInfo>(EMPTY_INVOICE_REQUEST);
-  // OPTION « MISE SOUS VIDE » -- facultative, décochée par défaut. Le choix n'est
-  // transmis que si le panier contient toujours un article éligible
-  // (effectiveVacuumPacking) : retirer le fromage annule le choix, sans état caché.
-  const [vacuumPacking, setVacuumPacking] = useState(false);
+  // OPTION « MISE SOUS VIDE » -- l'état du choix vit plus bas (useVacuumPackingChoice),
+  // après le calcul de `lines`, car il dépend de l'éligibilité du panier.
 
   /**
    * LOT 2B.4a.2 — BASCULE RUNTIME RÉELLE : les exigences client sont
@@ -1095,6 +1094,12 @@ export default function MenuView({
   }
 
   const lines = useMemo(() => cartLines(cart), [cart]);
+  // OPTION « MISE SOUS VIDE » (AUD190-01/02) -- proposée seulement si le panier contient un
+  // article éligible ET hors service sur place ; le choix est RÉINITIALISÉ dès qu'elle
+  // cesse d'être proposée (voir useVacuumPackingChoice), jamais seulement masqué.
+  const vacuumPackingAvailable =
+    serviceMode !== "table" && cartHasVacuumPackable(lines, restaurant.categories);
+  const [vacuumPacking, setVacuumPacking] = useVacuumPackingChoice(vacuumPackingAvailable);
 
   const totalCount = lines.reduce((sum, l) => sum + l.quantity, 0);
   const totalPrice = lines.reduce(
@@ -2275,7 +2280,7 @@ export default function MenuView({
       {isCartOpen && (
         <CartPanel
           restaurant={restaurant}
-          vacuumPackingAvailable={cartHasVacuumPackable(lines, restaurant.categories)}
+          vacuumPackingAvailable={vacuumPackingAvailable}
           vacuumPacking={vacuumPacking}
           onChangeVacuumPacking={setVacuumPacking}
           deliveryCountry={deliveryCountry}

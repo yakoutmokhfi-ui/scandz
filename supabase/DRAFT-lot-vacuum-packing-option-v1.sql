@@ -140,6 +140,12 @@ begin
     end if;
 
     if v_vp_requested then
+      -- Service sur place : la mise sous vide (transport) n'a pas de sens. Exclusion
+      -- appliquée ICI aussi, jamais seulement par l'écran (appel direct à la RPC).
+      if p_service_mode = 'table' then
+        raise exception using errcode = 'P0001', message = 'SCANYM_VACUUM_PACKING_NOT_APPLICABLE';
+      end if;
+
       if not exists (
         select 1
         from public.order_items oi

@@ -143,7 +143,7 @@ async function withBlock(db: PGlite) {
   const end = patched.indexOf(endMarker) + "  end;".length;
   assert.ok(start > 0 && end > start, "bloc retrouvé dans create_order");
   const block = patched.slice(start, end);
-  await db.exec(`create function public.t_vp(p_customer jsonb, v_order_id uuid) returns void language plpgsql as $t$\n${block}\n$t$;`);
+  await db.exec(`create function public.t_vp(p_customer jsonb, v_order_id uuid, p_service_mode text default 'click_collect') returns void language plpgsql as $t$\n${block}\n$t$;`);
 }
 
 async function newOrder(db: PGlite, n: number, items: string[]) {
@@ -190,6 +190,25 @@ test("[VP-SQL-3] le bloc : décoché/absent/null/false => faux ; coché + articl
     /SCANYM_VACUUM_PACKING_NOT_APPLICABLE/,
   );
   assert.equal(await flagOf(db, drinksOnly), false, "refus : rien n'est écrit");
+
+  // AUD190-02 : appel direct en mode table -> refus typé, rien n'est écrit.
+  for (const mode of ["table"]) {
+    const id = await newOrder(db, ++n, [ITEM_CHEESE]);
+    await assert.rejects(
+      db.query("select public.t_vp($1::jsonb,$2::uuid,$3)", [JSON.stringify({ vacuum_packing: true }), id, mode]),
+      /SCANYM_VACUUM_PACKING_NOT_APPLICABLE/,
+      `mode ${mode}`,
+    );
+    assert.equal(await flagOf(db, id), false);
+    // décoché en mode table : accepté (rien à enregistrer)
+    await db.query("select public.t_vp($1::jsonb,$2::uuid,$3)", [JSON.stringify({ vacuum_packing: false }), id, mode]);
+    assert.equal(await flagOf(db, id), false);
+  }
+  for (const mode of ["click_collect", "pickup", "delivery", "room_service"]) {
+    const id = await newOrder(db, ++n, [ITEM_CHEESE]);
+    await db.query("select public.t_vp($1::jsonb,$2::uuid,$3)", [JSON.stringify({ vacuum_packing: true }), id, mode]);
+    assert.equal(await flagOf(db, id), true, `mode ${mode} accepté`);
+  }
 
   for (const bad of ['"true"', "1", "0", '{"a":1}', "[]"]) {
     const id = await newOrder(db, ++n, [ITEM_CHEESE]);
