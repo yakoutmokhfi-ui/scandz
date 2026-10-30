@@ -191,8 +191,10 @@ async function mount(initial: Record<string, unknown>) {
   return { container, root };
 }
 
+// Aucun bouton ajouté : le déclencheur est le bouton d'envoi HABITUEL,
+// grisé (aria-disabled), qui n'envoie jamais la commande dans cet état.
 const revealButton = (c: Element) =>
-  c.querySelector<HTMLButtonElement>("button[data-checkout-show-field-errors]");
+  c.querySelector<HTMLButtonElement>("button[data-checkout-send-blocked]");
 
 const base191 = {
   displayItems: PICKUP_ITEMS,
@@ -201,19 +203,23 @@ const base191 = {
   customerErrors: { firstName: "errFirstName", email: "errEmail" },
 };
 
-test("[191-1] champs invalides : aucune erreur affichée avant action, bouton « Voir les champs à corriger », aucun envoi", async () => {
+test("[191-1] champs invalides : aucune erreur affichée avant action ; le bouton d'envoi habituel est grisé (aria-disabled), aucun bouton ajouté, aucun envoi", async () => {
   let sent = 0;
   const { container, root } = await mount({ ...base191, onSendOrder: async () => { sent++; } });
   try {
     assert.equal(container.querySelectorAll('[aria-invalid="true"]').length, 0);
     const btn = revealButton(container);
-    assert.ok(btn, "bouton attendu");
-    assert.equal(btn!.textContent, "Voir les champs à corriger");
+    assert.ok(btn, "bouton d'envoi grisé attendu");
+    assert.equal(btn!.getAttribute("aria-disabled"), "true");
+    assert.equal(btn!.disabled, false, "jamais `disabled` : reste atteignable au clavier");
+    assert.match(btn!.textContent ?? "", /commande|Envoyer|Valider|Enregistrer/i);
+    const labels = [...container.querySelectorAll("button")].map((b) => b.textContent ?? "");
+    assert.ok(!labels.some((l) => /champs à corriger/i.test(l)), "aucun bouton supplémentaire");
     assert.equal(sent, 0);
   } finally { root.unmount(); container.remove(); }
 });
 
-test("[191-2] clic : erreurs visibles, associées à leur champ (aria-describedby), focus sur le PREMIER champ en ordre visuel, saisies conservées", async () => {
+test("[191-2] clic sur le bouton d'envoi grisé : erreurs visibles, associées à leur champ (aria-describedby), focus sur le PREMIER champ en ordre visuel, saisies conservées", async () => {
   let sent = 0;
   const { container, root } = await mount({ ...base191, onSendOrder: async () => { sent++; } });
   try {
@@ -256,7 +262,7 @@ test("[191-4] demande de facture invalide : erreurs associées à leurs champs, 
   });
   try {
     const btn = revealButton(container);
-    assert.ok(btn, "le bouton existe aussi pour les erreurs de facture");
+    assert.ok(btn, "le bouton d'envoi grisé existe aussi pour les erreurs de facture");
     btn!.click();
     await flush();
     const invalid = [...container.querySelectorAll<HTMLElement>('[aria-invalid="true"]')];
@@ -283,7 +289,7 @@ test("[191-5] erreur serveur générale : message annoncé (role=alert), focus N
   } finally { root.unmount(); container.remove(); }
 });
 
-test("[191-6] aucune erreur de champ (ex. mode non choisi) : pas de bouton superflu", async () => {
+test("[191-6] aucune erreur de champ (ex. mode non choisi) : pas de bouton d'envoi grisé", async () => {
   const { container, root } = await mount({ canSubmit: false, customerErrors: {}, serviceMode: null });
   try {
     assert.equal(revealButton(container), null);

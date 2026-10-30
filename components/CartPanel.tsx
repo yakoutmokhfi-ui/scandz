@@ -246,6 +246,9 @@ export default function CartPanel({
   }
   const hasFieldErrors =
     Object.keys(customerErrors).length > 0 || Object.keys(invoiceRequestErrors).length > 0;
+  // Le geste n'a de sens que si un champ est réellement à corriger dans un
+  // mode qui en affiche (pas « mode non choisi », ni table).
+  const canRevealFieldErrors = hasFieldErrors && Boolean(serviceMode) && serviceMode !== "table";
   const wasReviewingRef = useRef(false);
 
   useEffect(() => {
@@ -1144,17 +1147,23 @@ export default function CartPanel({
               </>
             ) : (
               <>
-                <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
+                <p role="status" className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
                   {!noteState.isValid ? t("noteTooLong") : missing}
                 </p>
-                {noteState.isValid && hasFieldErrors && (
+                {/* ISSUE #191 -- aucun bouton ajouté : le bouton d'envoi
+                    HABITUEL reste visible, grisé (aria-disabled, jamais
+                    `disabled` : il doit rester atteignable au clavier).
+                    Au clic il n'envoie rien : il affiche les erreurs puis
+                    amène le client au premier champ invalide. */}
+                {noteState.isValid && canRevealFieldErrors && (
                   <button
                     type="button"
-                    data-checkout-show-field-errors=""
+                    data-checkout-send-blocked=""
+                    aria-disabled="true"
                     onClick={revealFieldErrors}
-                    className="mt-2 block w-full rounded-xl border border-espresso/20 py-3 text-center text-sm font-semibold"
+                    className="mt-2 block w-full cursor-not-allowed rounded-xl bg-stone-300 py-3.5 text-center font-bold text-stone-700"
                   >
-                    {t("checkoutShowFieldsToFix")}
+                    {whatsappEnabled ? t("sendOrder") : t("sendOrderNoWhatsapp")}
                   </button>
                 )}
               </>
