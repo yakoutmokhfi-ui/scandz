@@ -280,6 +280,7 @@ const fr: Dict = {
   missingFulfillment:
     "Choisissez le retrait ou la livraison pour envoyer la commande",
   missingCustomer: "Complétez vos coordonnées pour envoyer la commande",
+  checkoutShowFieldsToFix: "Voir les champs à corriger",
   // Corrige ALC-SM-02 (audit Work, MEDIUM, CASE 1) : distincts de
   // missingFulfillment ci-dessus -- celui-ci suppose qu'un choix
   // existe et attend seulement que le client le fasse, alors que ces
@@ -1780,6 +1781,7 @@ const en: Dict = {
   missingTable: "Select your table number to send the order",
   missingFulfillment: "Choose pickup or delivery to send the order",
   missingCustomer: "Complete your details to send the order",
+  checkoutShowFieldsToFix: "Show the fields to fix",
   saleModesError: "Unable to load order modes.",
   saleModesEmpty: "No order mode is available right now.",
 
@@ -3127,6 +3129,7 @@ const ar: Dict = {
   missingTable: "اختر رقم طاولتك لإرسال الطلب",
   missingFulfillment: "اختر الاستلام أو التوصيل لإرسال الطلب",
   missingCustomer: "أكمل بياناتك لإرسال الطلب",
+  checkoutShowFieldsToFix: "عرض الحقول التي يجب تصحيحها",
   saleModesError: "تعذّر تحميل طرق الطلب.",
   saleModesEmpty: "لا توجد طريقة طلب متاحة حاليًا.",
 

@@ -2356,6 +2356,7 @@ export default function MenuView({
           onChangeCgvAccepted={setCgvAccepted}
           cgvLegalHref={cgvInfo?.enforced ? `/legal/${restaurant.slug}` : null}
           onSendOrder={handleSendOrder}
+          onRevealErrors={() => setShowErrors(true)}
           onClose={() => setIsCartOpen(false)}
           communicationTexts={communicationTexts}
         />

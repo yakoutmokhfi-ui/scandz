@@ -20,6 +20,7 @@ import type { DeliveryCountryOption } from "@/lib/delivery-country";
 import FulfillmentChoiceModal from "@/components/FulfillmentChoiceModal";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 import { DeliveryPostcodeResult } from "@/components/DeliveryConditions";
+import { focusFirstInvalidField } from "@/lib/focus-first-invalid";
 import { isValidPostalCodeFor } from "@/lib/delivery-country";
 import type { ServiceMode } from "@/lib/restaurants-config";
 import type { DeliveryCustomerNotice } from "@/lib/delivery-customer-notice";
@@ -87,6 +88,7 @@ export default function CartPanel({
   onChangeCgvAccepted,
   cgvLegalHref,
   onSendOrder,
+  onRevealErrors,
   onClose,
 }: {
   restaurant: RestaurantFull;
@@ -211,6 +213,8 @@ export default function CartPanel({
    *  non-null uniquement quand `cgvEnforced` l'est aussi. */
   cgvLegalHref: string | null;
   onSendOrder: () => Promise<void>;
+  /** Issue #191 : demande au parent d'afficher les erreurs de champ. */
+  onRevealErrors?: () => void;
   onClose: () => void;
 }) {
   const { t, lang, sourceLanguage } = useI18n();
@@ -226,6 +230,22 @@ export default function CartPanel({
   const [postcodeResultOpen, setPostcodeResultOpen] = useState(false);
   const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
   const reviewOpenButtonRef = useRef<HTMLButtonElement>(null);
+  // ISSUE #191 -- « Voir les champs à corriger » : le parent affiche les
+  // erreurs (showErrors), puis, APRÈS ce rendu, on amène le client au
+  // premier champ invalide (ordre du document). Le compteur évite tout
+  // déplacement du focus hors d'une demande explicite du client.
+  const panelRootRef = useRef<HTMLDivElement>(null);
+  const [revealSeq, setRevealSeq] = useState(0);
+  useEffect(() => {
+    if (revealSeq === 0) return;
+    focusFirstInvalidField(panelRootRef.current);
+  }, [revealSeq]);
+  function revealFieldErrors() {
+    onRevealErrors?.();
+    setRevealSeq((n) => n + 1);
+  }
+  const hasFieldErrors =
+    Object.keys(customerErrors).length > 0 || Object.keys(invoiceRequestErrors).length > 0;
   const wasReviewingRef = useRef(false);
 
   useEffect(() => {
@@ -533,7 +553,7 @@ export default function CartPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-x-hidden bg-espresso/50">
-      <div className="flex h-[100dvh] w-full min-w-0 max-w-full flex-col overflow-x-hidden bg-crema sm:h-auto sm:max-h-[90dvh] sm:max-w-lg sm:rounded-t-2xl">
+      <div ref={panelRootRef} className="flex h-[100dvh] w-full min-w-0 max-w-full flex-col overflow-x-hidden bg-crema sm:h-auto sm:max-h-[90dvh] sm:max-w-lg sm:rounded-t-2xl">
         <div className="flex shrink-0 items-center justify-between border-b border-espresso/10 px-4 py-3">
           <h2 className="text-lg font-bold">{reviewingOrder ? t("checkoutReviewTitle") : t("cartTitle")}</h2>
           <button
@@ -955,7 +975,7 @@ export default function CartPanel({
               // opaque fixe (bg-red-50/text-red-800, 7,60:1 vérifié),
               // vraie couleur d'erreur (remplace amber-50/amber-900) ;
               // fond auto-suffisant, pas var(--sc-error) ici.
-              <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
+              <p role="alert" className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
                 {submitError}
               </p>
             )}
@@ -1123,9 +1143,21 @@ export default function CartPanel({
                 )}
               </>
             ) : (
-              <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
-                {!noteState.isValid ? t("noteTooLong") : missing}
-              </p>
+              <>
+                <p className="break-words rounded-xl bg-espresso/5 px-3 py-3.5 text-center text-sm font-medium text-ink-on-bg-muted">
+                  {!noteState.isValid ? t("noteTooLong") : missing}
+                </p>
+                {noteState.isValid && hasFieldErrors && (
+                  <button
+                    type="button"
+                    data-checkout-show-field-errors=""
+                    onClick={revealFieldErrors}
+                    className="mt-2 block w-full rounded-xl border border-espresso/20 py-3 text-center text-sm font-semibold"
+                  >
+                    {t("checkoutShowFieldsToFix")}
+                  </button>
+                )}
+              </>
             )}
               </>
             )}
