@@ -24,7 +24,7 @@ function raw(id: string, name: string, over: Record<string, unknown> = {}) {
   };
 }
 
-async function load(config: Record<string, unknown>, items: ReturnType<typeof raw>[], hidden: ReturnType<typeof raw>[] = []) {
+async function load(config: Record<string, unknown>, items: ReturnType<typeof raw>[], hidden: ReturnType<typeof raw>[] = [], collectionsRpc: unknown[] = []) {
   const response = {
     data: {
       id: "r1", name: "R", slug: "r", is_active: true, created_at: "2026-01-01T00:00:00.000Z",
@@ -42,7 +42,7 @@ async function load(config: Record<string, unknown>, items: ReturnType<typeof ra
   builder.maybeSingle = async () => response;
   const of = supabase.from, or = supabase.rpc;
   (supabase as unknown as { from: unknown }).from = () => builder;
-  (supabase as unknown as { rpc: unknown }).rpc = async () => ({ data: [], error: null });
+  (supabase as unknown as { rpc: unknown }).rpc = async (name: string) => ({ data: name === "get_restaurant_collections" ? collectionsRpc : [], error: null });
   try {
     return await getRestaurantBySlug("r");
   } finally {
@@ -204,4 +204,55 @@ test("[200-DASH] l'écriture passe par la seule RPC et la lecture est indépenda
   (supabase as unknown as { from: unknown }).from = () => mk({});
   await assert.rejects(() => getRestaurantShowUnavailable("r1"));
   (supabase as unknown as { from: unknown }).from = of;
+});
+
+// --- Correction #200 : un produit en rupture affiché garde ses tags et ses collections ---
+const COLLS = [
+  { id: "t-bretagne", label: "Bretagne", display_order: 1, menu_item_ids: ["a", "b"] },
+  { id: "t-truffe", label: "Truffe", display_order: 2, menu_item_ids: ["b"] },
+];
+
+test("[200-TAGS-1] réglage actif : le produit en rupture garde ses tags et reste dans ses collections", async () => {
+  const r = await load({ show_unavailable_products: true }, ITEMS(), [], COLLS);
+  const sold = r!.categories[0]!.menu_items.find((i) => i.name === "Épuisé") as unknown as { customer_tags?: string[] };
+  assert.deepEqual(sold.customer_tags, ["Bretagne", "Truffe"]);
+  assert.deepEqual(r!.collections!.map((c) => [c.label, c.menuItemIds]), [["Bretagne", ["a", "b"]], ["Truffe", ["b"]]]);
+});
+
+test("[200-TAGS-2] la collection dont le seul porteur est en rupture n'est pas vidée", async () => {
+  const r = await load({ show_unavailable_products: true }, ITEMS(), [], COLLS);
+  assert.ok(r!.collections!.some((c) => c.label === "Truffe" && c.menuItemIds.includes("b")));
+});
+
+test("[200-TAGS-3] réglage désactivé : la rupture n'est pas affichée, donc ni tag ni collection fantôme", async () => {
+  const r = await load({ show_unavailable_products: false }, ITEMS(), [], COLLS);
+  assert.deepEqual(r!.collections!.map((c) => [c.label, c.menuItemIds]), [["Bretagne", ["a"]]]);
+  assert.ok(!JSON.stringify(r!.categories).includes("Truffe"));
+});
+
+test("[200-TAGS-4] défense en profondeur : un identifiant archivé renvoyé par le serveur n'apparaît jamais", async () => {
+  const withArchived = [{ id: "t-x", label: "Archive", display_order: 1, menu_item_ids: ["c", "d"] }];
+  const r = await load({ show_unavailable_products: true }, ITEMS(), [], withArchived);
+  assert.deepEqual(r!.collections ?? [], []);
+  assert.ok(!JSON.stringify(r!.categories).includes("Archive"));
+});
+
+test("[200-TAGS-5] collection ouverte : l'article en rupture est rendu par renderMenuItem (donc sans ajout au panier)", () => {
+  const src = readFileSync("components/MenuView.tsx", "utf8");
+  assert.match(src, /\{activeCollectionItems\.map\(renderMenuItem\)\}/);
+  assert.match(src, /function handleAdd\(item: MenuItem\) \{\s*\/\/ Issue #200[^\n]*\n\s*if \(isSoldOut\(item\)\) return;/);
+});
+
+test("[200-SQL-COLL] le lot SQL des collections est DRAFT, ne change ni signature ni droits ni archivé, et est annulable", () => {
+  const sql = readFileSync("supabase/DRAFT-lot-storefront-sold-out-collections-v1.sql", "utf8");
+  const code = sql.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  assert.match(sql, /NOT APPLIED IN PRODUCTION/);
+  assert.match(code, /create or replace function public\.get_restaurant_collections\(p_restaurant_id uuid\)/);
+  assert.match(code, /and mi\.archived_at is null/);
+  assert.match(code, /rc\.restaurant_id = p_restaurant_id/);
+  assert.doesNotMatch(code, /grant |revoke |alter table|insert into|update public|delete from/i);
+  const rb = readFileSync("supabase/DRAFT-lot-storefront-sold-out-collections-v1-ROLLBACK.sql", "utf8");
+  const orig = readFileSync("supabase/DRAFT-lot-catalogue-collections-tags-foundation-v1.sql", "utf8");
+  const origFn = orig.slice(orig.indexOf("create or replace function public.get_restaurant_collections"), orig.indexOf("end $$;", orig.indexOf("create or replace function public.get_restaurant_collections")) + 7);
+  assert.ok(rb.includes(origFn), "le rollback restaure la définition d'origine à l'identique");
 });
