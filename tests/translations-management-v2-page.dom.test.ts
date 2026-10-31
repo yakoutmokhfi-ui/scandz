@@ -182,6 +182,7 @@ export async function signOut() {}`,
   }),
   "@/lib/services/dashboard": MOCK_DASHBOARD,
   "@/lib/services/catalogue-tags": buildServiceMock("lib/services/catalogue-tags.ts", {
+    getMerchantTagTranslations: `export async function getMerchantTagTranslations() { return (globalThis).__tagTranslations ?? []; }`,
     getRestaurantProductTags: `export async function getRestaurantProductTags() {
       return [{ menuItemId: "p-tomme", tagIds: ["t-bio"], tagNames: ["Bio"] }];
     }`,
@@ -221,6 +222,7 @@ const built = await esbuild.build({
   plugins: [mockPlugin],
   external: ["react", "react-dom", "react-dom/client"],
 });
+
 const tmpDir = mkdtempSync(path.join(REPO_ROOT, "tests", "tmp-tm2-"));
 const tmpFile = path.join(tmpDir, "page.mjs");
 writeFileSync(tmpFile, built.outputFiles[0].text);
@@ -470,4 +472,22 @@ test("E/v2.1 — COURSE aperçu -> confirmation : le serveur refuse la ligne, l'
     true,
     "l'écran doit dire POURQUOI la ligne a été refusée"
   );
+});
+
+test("traduire un tag transmet son identifiant et le hash du nom source", async (t) => {
+  (globalThis as any).__tagTranslations = [{ id: "tag-truffe", name: "Truffe", name_hash: "hash-truffe", translations: null }];
+  t.after(() => { delete (globalThis as any).__tagTranslations; });
+  const container = await mount(t);
+  const tag = container.querySelector('[data-translation-entity="tag"][data-translation-entity-id="tag-truffe"]');
+  assert.ok(tag);
+  const field = tag.querySelector("textarea");
+  assert.ok(field);
+  await (React as any).act(async () => { setValue(field, "Truffle"); });
+  const validate = [...tag.querySelectorAll("button")].find((b) => b.textContent === "Valider");
+  assert.ok(validate);
+  await (React as any).act(async () => { validate.click(); });
+  const write = ((globalThis as any).__writes as unknown[][]).find((args) => args[1] === "tag");
+  assert.ok(write);
+  assert.equal(write[2], "tag-truffe");
+  assert.equal(write[7], "hash-truffe");
 });

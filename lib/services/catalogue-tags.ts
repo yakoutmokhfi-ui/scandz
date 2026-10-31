@@ -14,6 +14,36 @@
  * taxonomies à synchroniser.
  */
 import { supabase } from "@/lib/supabase";
+import type { CustomerTagTranslations } from "@/lib/customer-tag-translations";
+import type { Translations } from "@/lib/types";
+
+export interface TagTranslationSource {
+  id: string;
+  name: string;
+  name_hash: string;
+  translations: Translations | null;
+}
+
+export async function getMerchantTagTranslations(restaurantId: string): Promise<TagTranslationSource[]> {
+  const { data, error } = await supabase.rpc("get_merchant_tag_translations", { p_restaurant_id: restaurantId });
+  // Staff may view the translation screen but cannot read internal tags.
+  if (error?.code === "42501") return [];
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TagTranslationSource[];
+}
+
+export async function getPublicTagTranslations(restaurantId: string): Promise<CustomerTagTranslations> {
+  const { data, error } = await supabase.rpc("get_public_tag_translations", { p_restaurant_id: restaurantId });
+  if (error) throw new Error(error.message);
+  const result: CustomerTagTranslations = {};
+  for (const row of (data ?? []) as Array<{ tag_id: unknown; language_code: unknown; value: unknown }>) {
+    if (typeof row.tag_id !== "string" || !/^[0-9a-f-]{36}$/i.test(row.tag_id) ||
+        typeof row.language_code !== "string" || !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(row.language_code) ||
+        typeof row.value !== "string") continue;
+    (result[row.tag_id] ??= {})[row.language_code] = row.value;
+  }
+  return result;
+}
 
 /** Levée quand un tag de même nom normalisé existe déjà et est actif
  *  pour ce restaurant (SQLSTATE 23505 / SCANYM_TAG_DUPLICATE_NAME).

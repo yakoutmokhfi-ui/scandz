@@ -15,7 +15,7 @@ import {
   type RestaurantTranslationSettingsRow,
   type TranslationEntityType,
 } from "@/lib/services/dashboard";
-import { getRestaurantProductTags, type ProductTags } from "@/lib/services/catalogue-tags";
+import { getRestaurantProductTags, getMerchantTagTranslations, type ProductTags, type TagTranslationSource } from "@/lib/services/catalogue-tags";
 import { isScanymOperator } from "@/lib/services/establishments";
 import type {
   MerchantRestaurant,
@@ -88,6 +88,7 @@ const ENTITY_LABEL: Record<TranslationEntityType, string> = {
   subcategory: "Sous-catégorie",
   item: "Produit",
   customer_notice: "Message client",
+  tag: "Tag",
 };
 
 /** TRANSLATIONS MANAGEMENT v2 (mandat §15) -- l'écran doit rester
@@ -111,6 +112,7 @@ export default function TranslationsPage() {
   const [activeLanguages, setActiveLanguages] = useState<ActiveLang[]>([]);
   const [catalogue, setCatalogue] = useState<CatalogueCategory[]>([]);
   const [productTags, setProductTags] = useState<ProductTags[]>([]);
+  const [tagTranslations, setTagTranslations] = useState<TagTranslationSource[]>([]);
   const [methodNotices, setMethodNotices] = useState<MerchantDeliveryMethodNotice[]>([]);
   const [fulfillmentNotices, setFulfillmentNotices] = useState<
     MerchantDeliveryFulfillmentPricingRule[]
@@ -169,6 +171,7 @@ export default function TranslationsPage() {
     // contexte PRÉCÉDENT resteraient en mémoire et pourraient être
     // peints sous le nouveau contexte pendant l'intervalle.
     setProductTags([]);
+    setTagTranslations([]);
     setMethodNotices([]);
     setFulfillmentNotices([]);
     try {
@@ -203,6 +206,14 @@ export default function TranslationsPage() {
         setMethodNotices(notices);
         setFulfillmentNotices(rules);
       })();
+      void getMerchantTagTranslations(id).then((tags) => {
+        if (token.isCurrent()) setTagTranslations(Array.isArray(tags) ? tags : []);
+      }).catch(() => {
+        if (token.isCurrent()) {
+          setTagTranslations([]);
+          setError("Impossible de charger les tags à traduire. Réessayez.");
+        }
+      });
       setTargetLang((prev) => {
         if (prev && langs.some((l) => l.code === prev) && prev !== s?.source_language) return prev;
         return langs.find((l) => l.code !== s?.source_language)?.code ?? "";
@@ -227,6 +238,7 @@ export default function TranslationsPage() {
       setActiveLanguages([]);
       setCatalogue([]);
       setProductTags([]);
+      setTagTranslations([]);
       setMethodNotices([]);
       setFulfillmentNotices([]);
       setContentLoadedRestaurantId(null);
@@ -333,6 +345,7 @@ export default function TranslationsPage() {
             : null,
         categories: catalogueInContext,
         tagsByProductId,
+        tagTranslations: contentInContext ? tagTranslations : [],
         methodNotices: methodNoticesInContext,
         fulfillmentNotices: fulfillmentNoticesInContext,
       }),
@@ -342,6 +355,8 @@ export default function TranslationsPage() {
       mapping,
       catalogueInContext,
       tagsByProductId,
+      tagTranslations,
+      contentInContext,
       methodNoticesInContext,
       fulfillmentNoticesInContext,
     ]
@@ -461,11 +476,16 @@ export default function TranslationsPage() {
     entityId: string,
     field: string,
     value: string,
-    status: "to_review" | "validated"
+    status: "to_review" | "validated",
+    sourceHash: string | null
   ) {
     if (!targetLang) return;
     try {
-      await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      if (entityType === "tag") {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status, sourceHash);
+      } else {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      }
       await load(restaurantId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enregistrement");
@@ -1117,7 +1137,7 @@ export default function TranslationsPage() {
                       lang={targetLang}
                       canEdit={canEdit}
                       onSave={(v, status) =>
-                        handleSave(row.entityType, row.entityId, row.field, v, status)
+                        handleSave(row.entityType, row.entityId, row.field, v, status, row.sourceHash)
                       }
                     />
                   ))}

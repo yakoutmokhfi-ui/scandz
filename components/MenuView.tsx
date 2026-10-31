@@ -68,6 +68,7 @@ import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
 import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
+import { translatedTagLabel } from "@/lib/customer-tag-translations";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
@@ -965,8 +966,11 @@ export default function MenuView({
       buildCustomerCollections(
         restaurant.collections ?? [],
         new Set(restaurant.categories.flatMap((c) => c.menu_items.map((i) => i.id)))
-      ),
-    [restaurant.collections, restaurant.categories]
+      ).map((collection) => ({
+        ...collection,
+        label: translatedTagLabel(collection.id, collection.label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations),
+      })),
+    [restaurant.collections, restaurant.categories, restaurant.config.source_language, restaurant.customerTagTranslations, lang]
   );
   const activeCollection =
     activeCollectionId === null
@@ -1212,10 +1216,16 @@ export default function MenuView({
   function renderMenuItem(item: MenuItem) {
     const group = getOptionGroup(restaurant.slug, item);
     const inline = isInlineOptions && group !== null;
+    const translatedTags = item.customer_tags?.map((label) => {
+      const tag = restaurant.collections?.find((collection) =>
+        collection.label === label && collection.menuItemIds.includes(item.id)
+      );
+      return tag ? translatedTagLabel(tag.id, label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations) : label;
+    });
     return (
       <MenuItemCard
         key={item.id}
-        item={item}
+        item={translatedTags ? { ...item, customer_tags: translatedTags } : item}
         currency={restaurant.config.currency}
         quantity={quantityFor(item)}
         requiresChoice={group !== null}

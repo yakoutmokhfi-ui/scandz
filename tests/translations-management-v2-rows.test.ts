@@ -260,14 +260,16 @@ test("STALE : le nom source renommé rend la traduction validée PÉRIMÉE (jama
   assert.equal(rowStatus(sub, "en"), "stale");
 });
 
-test("les champs traduisibles reflètent EXACTEMENT les 5 types acceptés par write_translation", () => {
+test("les champs traduisibles incluent les cinq types existants et le tag", () => {
   assert.deepEqual(Object.keys(TRANSLATABLE_FIELDS).sort(), [
     "category",
     "customer_notice",
     "item",
     "restaurant",
     "subcategory",
+    "tag",
   ]);
+  assert.deepEqual([...TRANSLATABLE_FIELDS.tag], ["name"]);
   assert.deepEqual([...TRANSLATABLE_FIELDS.customer_notice], ["customer_text"]);
   assert.deepEqual([...TRANSLATABLE_FIELDS.item], ["name", "short_description", "description"]);
   assert.equal(isTranslatableField("item", "price"), false);

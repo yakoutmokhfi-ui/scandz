@@ -38,7 +38,8 @@ export type TranslationEntityType =
   | "category"
   | "subcategory"
   | "item"
-  | "customer_notice";
+  | "customer_notice"
+  | "tag";
 
 /** Champs traduisibles, par type d'entité -- même table de vérité que
  *  la RPC. Toute valeur hors de cette table est REFUSÉE à l'import
@@ -50,6 +51,7 @@ export const TRANSLATABLE_FIELDS: Record<TranslationEntityType, readonly string[
   subcategory: ["name"],
   item: ["name", "short_description", "description"],
   customer_notice: ["customer_text"],
+  tag: ["name"],
 };
 
 export function isTranslatableField(entityType: string, field: string): boolean {
@@ -138,6 +140,7 @@ export interface BuildTranslationRowsInput {
    *  et règles de livraison. Jamais un libellé d'interface Scanym. */
   methodNotices?: ReadonlyArray<MerchantDeliveryMethodNotice>;
   fulfillmentNotices?: ReadonlyArray<MerchantDeliveryFulfillmentPricingRule>;
+  tagTranslations?: ReadonlyArray<{ id: string; name: string; name_hash: string; translations: Translations | null }>;
 }
 
 /**
@@ -180,6 +183,12 @@ export function buildTranslationRows(input: BuildTranslationRowsInput): Translat
         tagIds: [],
       });
     }
+  }
+
+  for (const tag of input.tagTranslations ?? []) {
+    rows.push({ ...noContext, entityType: "tag", entityId: tag.id, entityLabel: tag.name,
+      field: "name", fieldLabel: fieldLabel("name"), sourceText: tag.name, sourceHash: tag.name_hash,
+      translations: tag.translations, isAvailable: null, price: null, tagIds: [] });
   }
 
   for (const notice of input.methodNotices ?? []) {

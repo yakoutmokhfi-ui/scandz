@@ -2,6 +2,7 @@
 // Ne pas modifier sans validation Yakout + revue CTO.
 
 import type { CustomerCollection } from "@/lib/customer-collections";
+import type { CustomerTagTranslations } from "@/lib/customer-tag-translations";
 
 export interface Restaurant {
   id: string;
@@ -322,4 +323,5 @@ export interface RestaurantFull extends Restaurant {
    *  produits de `categories` (voir lib/customer-collections.ts).
    *  Optionnel : absent ou vide = aucune navigation « Collections ». */
   collections?: CustomerCollection[];
+  customerTagTranslations?: CustomerTagTranslations;
 }
