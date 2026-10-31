@@ -38,7 +38,8 @@ export type TranslationEntityType =
   | "category"
   | "subcategory"
   | "item"
-  | "customer_notice";
+  | "customer_notice"
+  | "order_help";
 
 /** Champs traduisibles, par type d'entité -- même table de vérité que
  *  la RPC. Toute valeur hors de cette table est REFUSÉE à l'import
@@ -50,6 +51,7 @@ export const TRANSLATABLE_FIELDS: Record<TranslationEntityType, readonly string[
   subcategory: ["name"],
   item: ["name", "short_description", "description"],
   customer_notice: ["customer_text"],
+  order_help: ["order_help_button_label", "order_help_title", "order_help_body"],
 };
 
 export function isTranslatableField(entityType: string, field: string): boolean {
@@ -100,6 +102,9 @@ export const FIELD_LABELS: Record<string, string> = {
   description: "Description longue",
   short_description: "Description courte",
   customer_text: "Message client",
+  order_help_button_label: "Bouton « Comment passer commande »",
+  order_help_title: "Titre de la fenêtre d’aide",
+  order_help_body: "Texte de la fenêtre d’aide",
 };
 
 function fieldLabel(field: string): string {
@@ -138,6 +143,14 @@ export interface BuildTranslationRowsInput {
    *  et règles de livraison. Jamais un libellé d'interface Scanym. */
   methodNotices?: ReadonlyArray<MerchantDeliveryMethodNotice>;
   fulfillmentNotices?: ReadonlyArray<MerchantDeliveryFulfillmentPricingRule>;
+  orderHelpTexts?: ReadonlyArray<{
+    restaurantId: string;
+    restaurantName: string;
+    textKey: "order_help_button_label" | "order_help_title" | "order_help_body";
+    body: string;
+    bodyHash: string | null;
+    translations: Translations | null;
+  }>;
 }
 
 /**
@@ -214,6 +227,23 @@ export function buildTranslationRows(input: BuildTranslationRowsInput): Translat
       sourceText: rule.customerText,
       sourceHash: rule.customerTextHash,
       translations: rule.translations,
+      isAvailable: null,
+      price: null,
+      tagIds: [],
+    });
+  }
+
+  for (const text of input.orderHelpTexts ?? []) {
+    rows.push({
+      ...noContext,
+      entityType: "order_help",
+      entityId: text.restaurantId,
+      entityLabel: text.restaurantName,
+      field: text.textKey,
+      fieldLabel: fieldLabel(text.textKey),
+      sourceText: text.body,
+      sourceHash: text.bodyHash,
+      translations: text.translations,
       isAvailable: null,
       price: null,
       tagIds: [],

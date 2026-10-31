@@ -419,6 +419,34 @@ test("[184-HELP-4] un seul bouton, libellé CENTRÉ ; à l'ouverture titre + cor
   } finally { root.unmount(); container.remove(); }
 });
 
+test("[TR-OH-1] le bouton, le titre et le texte d'aide utilisent la traduction validée de la langue affichée", async () => {
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  const communicationTexts = {
+    order_help_button_label: "Comment passer commande ?",
+    order_help_title: "Comment passer commande ?",
+    order_help_body: "Choisissez vos produits.",
+  };
+  const translatedTexts = [
+    { text_key: "order_help_button_label", body: communicationTexts.order_help_button_label, body_hash: "label-hash", translations: { en: { order_help_button_label: "How to order", order_help_button_label_status: "validated", order_help_button_label_source_hash: "label-hash" } } },
+    { text_key: "order_help_title", body: communicationTexts.order_help_title, body_hash: "title-hash", translations: { en: { order_help_title: "How to order", order_help_title_status: "validated", order_help_title_source_hash: "title-hash" } } },
+    { text_key: "order_help_body", body: communicationTexts.order_help_body, body_hash: "body-hash", translations: { en: { order_help_body: "Choose your products.", order_help_body_status: "validated", order_help_body_source_hash: "body-hash" } } },
+  ] as const;
+  root.render(React.createElement(I18nProvider, {
+    lang: "en", sourceLanguage: "fr", children: React.createElement(OrderHelpButton, { communicationTexts, translatedTexts }),
+  }));
+  await flush();
+  const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent === "How to order");
+  assert.ok(trigger, "the French source label is translated in English");
+  click(trigger);
+  await flush();
+  assert.equal(container.querySelector("[data-order-help-title]")?.textContent, "How to order");
+  assert.equal(container.querySelector("[data-order-help-body]")?.textContent, "Choose your products.");
+  root.unmount();
+  container.remove();
+});
+
 test("[184-HELP-2] l'aide générale ne varie pas avec le nombre de règles", async (t) => {
   const snap = async (n: number) => {
     mockRpcHelp(t, Array.from({ length: n }, (_, i) => ruleRow(i, [`7500${i}`], SHARED_RULE_TEXT, i === n - 1)));

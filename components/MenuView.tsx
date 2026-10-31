@@ -105,6 +105,8 @@ import { buildTrackingPath } from "@/lib/tracking/link";
 import {
   fetchWithdrawalEligibility,
   getPublicCommunicationTexts,
+  getPublicOrderHelpTexts,
+  type OrderHelpTranslationSource,
 } from "@/lib/services/merchant-communications";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 
@@ -731,6 +733,8 @@ export default function MenuView({
    */
   const [communicationTexts, setCommunicationTexts] =
     useState<CommunicationTextOverrides>({});
+  const [orderHelpTranslations, setOrderHelpTranslations] =
+    useState<OrderHelpTranslationSource[]>([]);
   /**
    * MERCHANT CUSTOMER COMMUNICATIONS v1.1 — PREUVE D'ÉLIGIBILITÉ LIÉE À
    * L'IDENTITÉ DE LA COMMANDE AFFICHÉE.
@@ -860,13 +864,21 @@ export default function MenuView({
   useEffect(() => {
     let cancelled = false;
     setCommunicationTexts({});
-    getPublicCommunicationTexts(restaurant.id)
-      .then((texts) => {
-        if (!cancelled) setCommunicationTexts(texts);
-      })
-      .catch(() => {
-        if (!cancelled) setCommunicationTexts({});
-      });
+    setOrderHelpTranslations([]);
+    Promise.all([
+      getPublicCommunicationTexts(restaurant.id),
+      getPublicOrderHelpTexts(restaurant.id),
+    ]).then(([texts, helpTranslations]) => {
+      if (!cancelled) {
+        setCommunicationTexts(texts);
+        setOrderHelpTranslations(helpTranslations);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setCommunicationTexts({});
+        setOrderHelpTranslations([]);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -2168,7 +2180,7 @@ export default function MenuView({
           Les textes par règle de livraison ne sont plus agrégés ici : ils
           restent dans le résultat du code postal saisi
           (DeliveryPostcodeResult). */}
-      <OrderHelpButton communicationTexts={communicationTexts} />
+      <OrderHelpButton communicationTexts={communicationTexts} translatedTexts={orderHelpTranslations} />
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
           issuecomment-5875680103) : Tags/Collections transversaux

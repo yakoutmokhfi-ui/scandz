@@ -16,6 +16,7 @@ import {
   type TranslationEntityType,
 } from "@/lib/services/dashboard";
 import { getRestaurantProductTags, type ProductTags } from "@/lib/services/catalogue-tags";
+import { getMerchantOrderHelpTexts, type OrderHelpTranslationSource } from "@/lib/services/merchant-communications";
 import { isScanymOperator } from "@/lib/services/establishments";
 import type {
   MerchantRestaurant,
@@ -88,6 +89,7 @@ const ENTITY_LABEL: Record<TranslationEntityType, string> = {
   subcategory: "Sous-catégorie",
   item: "Produit",
   customer_notice: "Message client",
+  order_help: "Aide à la commande",
 };
 
 /** TRANSLATIONS MANAGEMENT v2 (mandat §15) -- l'écran doit rester
@@ -115,6 +117,7 @@ export default function TranslationsPage() {
   const [fulfillmentNotices, setFulfillmentNotices] = useState<
     MerchantDeliveryFulfillmentPricingRule[]
   >([]);
+  const [orderHelpTexts, setOrderHelpTexts] = useState<OrderHelpTranslationSource[]>([]);
   const [targetLang, setTargetLang] = useState<string>("");
   const [filters, setFilters] = useState<TranslationFilters>(EMPTY_TRANSLATION_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -171,6 +174,7 @@ export default function TranslationsPage() {
     setProductTags([]);
     setMethodNotices([]);
     setFulfillmentNotices([]);
+    setOrderHelpTexts([]);
     try {
       // NOYAU (réglages, langues, catalogue) : ce sont les seules
       // lectures dont dépend l'affichage des traductions.
@@ -191,17 +195,19 @@ export default function TranslationsPage() {
       // traduction. Chaque réponse repasse par la MÊME garde de
       // contexte : une réponse périmée est abandonnée, jamais peinte.
       void (async () => {
-        const [tags, notices, rules] = await Promise.all([
+        const [tags, notices, rules, helpTexts] = await Promise.all([
           getRestaurantProductTags(id).catch(() => [] as ProductTags[]),
           getMerchantDeliveryMethodNotices(id).catch(() => [] as MerchantDeliveryMethodNotice[]),
           getMerchantDeliveryFulfillmentPricing(id).catch(
             () => [] as MerchantDeliveryFulfillmentPricingRule[]
           ),
+          getMerchantOrderHelpTexts(id).catch(() => [] as OrderHelpTranslationSource[]),
         ]);
         if (!token.isCurrent()) return;
         setProductTags(tags);
         setMethodNotices(notices);
         setFulfillmentNotices(rules);
+        setOrderHelpTexts(helpTexts);
       })();
       setTargetLang((prev) => {
         if (prev && langs.some((l) => l.code === prev) && prev !== s?.source_language) return prev;
@@ -229,6 +235,7 @@ export default function TranslationsPage() {
       setProductTags([]);
       setMethodNotices([]);
       setFulfillmentNotices([]);
+      setOrderHelpTexts([]);
       setContentLoadedRestaurantId(null);
       setFilters(EMPTY_TRANSLATION_FILTERS);
       setImportPreview(null);
@@ -255,6 +262,7 @@ export default function TranslationsPage() {
   const catalogueInContext = contentInContext ? catalogue : [];
   const methodNoticesInContext = contentInContext ? methodNotices : [];
   const fulfillmentNoticesInContext = contentInContext ? fulfillmentNotices : [];
+  const orderHelpTextsInContext = contentInContext ? orderHelpTexts : [];
 
   useEffect(() => {
     (async () => {
@@ -335,6 +343,14 @@ export default function TranslationsPage() {
         tagsByProductId,
         methodNotices: methodNoticesInContext,
         fulfillmentNotices: fulfillmentNoticesInContext,
+        orderHelpTexts: orderHelpTextsInContext.map((row) => ({
+          restaurantId,
+          restaurantName: mapping?.restaurants?.name ?? "",
+          textKey: row.text_key,
+          body: row.body,
+          bodyHash: row.body_hash,
+          translations: row.translations,
+        })),
       }),
     [
       settingsInContext,
@@ -344,6 +360,7 @@ export default function TranslationsPage() {
       tagsByProductId,
       methodNoticesInContext,
       fulfillmentNoticesInContext,
+      orderHelpTextsInContext,
     ]
   );
 
