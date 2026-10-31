@@ -71,6 +71,8 @@ export async function createOrder(params: {
    *  (voir buildCreateOrderPayload). Omis = rien envoyé (comportement
    *  historique, requis par tout commerçant sans calendrier). */
   schedule?: SchedulePayload | null;
+  /** OPTION « MISE SOUS VIDE » -- voir buildCreateOrderPayload. */
+  vacuumPacking?: boolean;
 }): Promise<CreatedOrder> {
   const payload = buildCreateOrderPayload(params);
 

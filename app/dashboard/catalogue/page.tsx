@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
+// Import d'espace de noms : les doublures de service des anciens tests de cet écran
+// n'exportent pas cette fonction ; elle n'est appelée qu'à l'enregistrement.
+import * as dashboardService from "@/lib/services/dashboard";
 import {
   archiveProduct,
   createCategory,
@@ -165,6 +168,8 @@ type CategoryDraft = {
   name: string;
   displayOrder: string;
   description: string;
+  /** OPTION « MISE SOUS VIDE » -- indicateur de la catégorie (édition seulement). */
+  vacuumPackable: boolean;
 };
 
 /** CATALOGUE / SUBCATEGORIES v1 -- même patron minimal que
@@ -349,6 +354,7 @@ export default function CataloguePage() {
     name: "",
     displayOrder: "",
     description: "",
+    vacuumPackable: false,
   });
   const [creatingCategory, setCreatingCategory] = useState(false);
 
@@ -862,7 +868,7 @@ export default function CataloguePage() {
     setEditingSubcategoryId(null);
     setCreatingSubcategoryIn(null);
     setDraft(EMPTY_PRODUCT_DRAFT);
-    setCategoryDraft({ name: "", displayOrder: "", description: "" });
+    setCategoryDraft({ name: "", displayOrder: "", description: "", vacuumPackable: false });
     setSubcategoryDraft(EMPTY_SUBCATEGORY_DRAFT);
     setError(null);
     // CATALOGUE PRODUCT REORDER v1 -- l'annonce et le focus en attente
@@ -1247,13 +1253,14 @@ export default function CataloguePage() {
       name: cat.category_name,
       displayOrder: String(cat.category_display_order),
       description: cat.category_description ?? "",
+      vacuumPackable: cat.category_vacuum_packable === true,
     });
   }
 
   function startCreateCategory() {
     setCreatingCategory(true);
     setEditingCategoryId(null);
-    setCategoryDraft({ name: "", displayOrder: "", description: "" });
+    setCategoryDraft({ name: "", displayOrder: "", description: "", vacuumPackable: false });
   }
 
   /** CATALOGUE / SUBCATEGORIES v1 -- même patron que
@@ -1976,6 +1983,7 @@ export default function CataloguePage() {
                   draft={categoryDraft}
                   setDraft={setCategoryDraft}
                   onCancel={() => setEditingCategoryId(null)}
+                  vacuumOptionAvailable={cat.category_vacuum_packable !== undefined}
                   onSubmit={() =>
                     run(cat.category_id, async () => {
                       await updateCategory(
@@ -1984,6 +1992,12 @@ export default function CataloguePage() {
                         Number(categoryDraft.displayOrder),
                         categoryDraft.description || null
                       );
+                      if (
+                        cat.category_vacuum_packable !== undefined &&
+                        categoryDraft.vacuumPackable !== cat.category_vacuum_packable
+                      ) {
+                        await dashboardService.setCategoryVacuumPackable(cat.category_id, categoryDraft.vacuumPackable);
+                      }
                       setEditingCategoryId(null);
                     })
                   }
@@ -2580,6 +2594,7 @@ function CategoryForm({
   setDraft,
   onSubmit,
   onCancel,
+  vacuumOptionAvailable = false,
   t,
 }: {
   mode: "create" | "edit";
@@ -2587,6 +2602,7 @@ function CategoryForm({
   setDraft: (d: CategoryDraft) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  vacuumOptionAvailable?: boolean;
   t: (k: string, p?: Record<string, string | number>) => string;
 }) {
   const nameState = normalizeText(draft.name, CATEGORY_NAME_MAX_LENGTH);
@@ -2651,6 +2667,24 @@ function CategoryForm({
           placeholder={t("mcCategoryOrder")}
           className="w-full rounded-xl border border-stone-300 p-2.5 text-sm"
         />
+      )}
+      {mode === "edit" && vacuumOptionAvailable && (
+        <div data-category-vacuum-option="">
+          <label className="flex items-start gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              data-category-vacuum-checkbox=""
+              checked={draft.vacuumPackable}
+              onChange={(e) => setDraft({ ...draft, vacuumPackable: e.target.checked })}
+              aria-describedby="category-vacuum-hint"
+              className="mt-0.5 h-5 w-5 shrink-0"
+            />
+            <span>{t("mcCategoryVacuumPackable")}</span>
+          </label>
+          <p id="category-vacuum-hint" className="mt-1 text-xs text-stone-500">
+            {t("mcCategoryVacuumPackableHint")}
+          </p>
+        </div>
       )}
       <div className="flex gap-2">
         <button

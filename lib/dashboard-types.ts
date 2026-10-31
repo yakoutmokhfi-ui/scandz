@@ -96,6 +96,11 @@ export interface DashboardOrder {
   delivery_zone: string | null;
   customer_note: string | null;
   customer_language: string | null;
+  /** OPTION « MISE SOUS VIDE » -- le client a demandé la mise sous vide des
+   *  fromages/charcuteries de cette commande (persisté à la création, jamais
+   *  modifié par le paiement). `undefined` = information indisponible (colonne
+   *  non lue) : rien n'est affiché, jamais présenté comme « non demandé ». */
+  vacuum_packing_requested?: boolean;
   subtotal: number;
   total: number;
   currency: string;

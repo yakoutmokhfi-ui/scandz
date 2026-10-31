@@ -136,7 +136,56 @@ export async function getDashboardOrders(
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as DashboardOrder[];
+  const orders = (data ?? []) as unknown as DashboardOrder[];
+  return attachVacuumPackingFlags(orders);
+}
+
+/**
+ * OPTION « MISE SOUS VIDE » -- lit `orders.vacuum_packing_requested` par une requête
+ * SÉPARÉE plutôt que dans la liste de colonnes ci-dessus : tant que la colonne
+ * additive n'existe pas (lot SQL non appliqué), la liste des commandes continue de
+ * s'afficher telle quelle au lieu de tomber en erreur. Aucun client ne peut avoir
+ * demandé de mise sous vide avant ce lot (aucune catégorie n'est éligible).
+ *
+ * SEUL le cas « la colonne vacuum_packing_requested de orders n'existe pas » est toléré,
+ * reconnu à son MESSAGE exact (un code 42703 visant une autre colonne remonte en erreur).
+ * TOUTE autre erreur (réseau, droits, délai...) est PROPAGÉE, comme celle de la requête
+ * principale : une consigne de mise sous vide ne doit jamais disparaître en silence d'une
+ * commande qui reste actionnable (PLANCK190-03).
+ */
+function isMissingVacuumColumnError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = (error.message ?? "").trim();
+  // Le MESSAGE doit désigner EXACTEMENT `orders.vacuum_packing_requested`, SANS normaliser la
+  // casse : en PostgreSQL un identifiant entre guillemets est sensible à la casse, donc
+  // "VACUUM_PACKING_REQUESTED" ou "Orders" sont d'AUTRES objets (PLANCK190-03). Expressions
+  // ancrées et sensibles à la casse; un code 42703 seul ne suffit pas; aucune sous-chaîne
+  // (`vacuum_packing_requested_backup` n'est pas notre colonne).
+  //   PostgreSQL : column "vacuum_packing_requested" does not exist
+  //                column orders.vacuum_packing_requested does not exist
+  const pg = /^column\s+(?:"?([A-Za-z0-9_]+)"?\.)?"?vacuum_packing_requested"?\s+does not exist$/.exec(message);
+  if (pg) return pg[1] === undefined || pg[1] === "orders";
+  //   PostgREST (PGRST204) : Could not find the 'vacuum_packing_requested' column of 'orders' in the schema cache
+  const rest = /^Could not find the 'vacuum_packing_requested' column of '([A-Za-z0-9_]+)' in the schema cache$/.exec(message);
+  return rest !== null && rest[1] === "orders";
+}
+
+async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<DashboardOrder[]> {
+  if (orders.length === 0) return orders;
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, vacuum_packing_requested")
+    .in("id", orders.map((o) => o.id));
+  if (error) {
+    if (isMissingVacuumColumnError(error)) return orders;
+    throw new Error(error.message);
+  }
+  if (!Array.isArray(data)) throw new Error("vacuum_packing_requested: réponse illisible");
+  const flags = new Map<string, boolean>();
+  for (const row of data as { id: string; vacuum_packing_requested: boolean | null }[]) {
+    flags.set(row.id, row.vacuum_packing_requested === true);
+  }
+  return orders.map((o) => (flags.has(o.id) ? { ...o, vacuum_packing_requested: flags.get(o.id) } : o));
 }
 
 /**
@@ -426,6 +475,10 @@ export interface CatalogueCategory {
    *  produits. Tableau vide pour un commerçant qui n'utilise aucune
    *  sous-catégorie (comportement historique préservé). */
   subcategories: CatalogueSubcategory[];
+  /** OPTION « MISE SOUS VIDE » -- indicateur de la catégorie. `undefined` =
+   *  indisponible (lot SQL non appliqué ou lecture en échec) : l'éditeur masque
+   *  alors la case au lieu d'afficher un état faux. */
+  category_vacuum_packable?: boolean;
 }
 
 export interface CatalogueProduct {
@@ -662,6 +715,20 @@ export async function getMerchantCatalogue(
       allowed_sale_modes: r.allowed_sale_modes ?? null,
     });
   }
+  // OPTION « MISE SOUS VIDE » -- lecture à part (RLS membre), tolérante aux pannes :
+  // get_merchant_catalogue n'est pas modifiée, et une colonne absente ne casse rien.
+  try {
+    const { data: flagRows, error: flagError } = await supabase
+      .from("menu_categories")
+      .select("id, vacuum_packable")
+      .eq("restaurant_id", restaurantId);
+    if (!flagError && Array.isArray(flagRows)) {
+      const flags = new Map((flagRows as { id: string; vacuum_packable: boolean | null }[]).map((r) => [r.id, r.vacuum_packable === true]));
+      for (const c of categories) if (flags.has(c.category_id)) c.category_vacuum_packable = flags.get(c.category_id);
+    }
+  } catch {
+    /* indicateur indisponible : voir category_vacuum_packable */
+  }
   return categories;
 }
 
@@ -835,6 +902,18 @@ export async function createCategory(
     throw new Error(error.message);
   }
   return data as string;
+}
+
+/** OPTION « MISE SOUS VIDE » -- RPC SECURITY DEFINER (propriétaire/gérant). */
+export async function setCategoryVacuumPackable(
+  categoryId: string,
+  vacuumPackable: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("set_category_vacuum_packable", {
+    p_category_id: categoryId,
+    p_vacuum_packable: vacuumPackable,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /**
