@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
@@ -226,6 +226,23 @@ export default function CartPanel({
   onRevealErrors?: () => void;
   onClose: () => void;
 }) {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const rootOverflow = root.style.overflow;
+    const bodyOverflow = body.style.overflow;
+    const rootGutter = root.style.getPropertyValue("scrollbar-gutter");
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    // Réserve la place de la barre de défilement : pas de saut de mise en page sur ordinateur.
+    root.style.setProperty("scrollbar-gutter", "stable");
+    return () => {
+      root.style.overflow = rootOverflow;
+      body.style.overflow = bodyOverflow;
+      if (rootGutter) root.style.setProperty("scrollbar-gutter", rootGutter);
+      else root.style.removeProperty("scrollbar-gutter");
+    };
+  }, []);
   const { t, lang, sourceLanguage } = useI18n();
   // CUSTOMER CONTACT + LIVE TRACKING v1 -- même autorité que MenuView.
   const whatsappEnabled = isWhatsappEnabled(restaurant.config);
