@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { RestaurantFull } from "@/lib/types";
 import { formatPrice, type CartLine } from "@/lib/whatsapp";
 import type { DeliveryStatus } from "@/lib/delivery";
@@ -226,6 +226,18 @@ export default function CartPanel({
   onRevealErrors?: () => void;
   onClose: () => void;
 }) {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const rootOverflow = root.style.overflow;
+    const bodyOverflow = body.style.overflow;
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = rootOverflow;
+      body.style.overflow = bodyOverflow;
+    };
+  }, []);
   const { t, lang, sourceLanguage } = useI18n();
   // CUSTOMER CONTACT + LIVE TRACKING v1 -- même autorité que MenuView.
   const whatsappEnabled = isWhatsappEnabled(restaurant.config);

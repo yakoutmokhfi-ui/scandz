@@ -510,4 +510,20 @@ test("#181 le bloc de saisie est MASQUÉ (jamais démonté) pendant le récapitu
   view.root.unmount(); view.container.remove();
 });
 
+test("le panier bloque le défilement de la page et le rétablit à la fermeture", async () => {
+  window.document.documentElement.style.overflow = "auto";
+  window.document.body.style.overflow = "scroll";
+  const view = await render(baseProps());
+  assert.equal(window.document.documentElement.style.overflow, "hidden");
+  assert.equal(window.document.body.style.overflow, "hidden");
+  const scrollArea = view.container.querySelector(".overflow-y-auto") as HTMLElement;
+  assert.ok(scrollArea, "le contenu du panier reste défilable");
+  view.root.unmount();
+  view.container.remove();
+  assert.equal(window.document.documentElement.style.overflow, "auto");
+  assert.equal(window.document.body.style.overflow, "scroll");
+  window.document.documentElement.style.overflow = "";
+  window.document.body.style.overflow = "";
+});
+
 after(() => dom.window.close());
