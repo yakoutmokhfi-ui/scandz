@@ -1,3 +1,4 @@
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -242,6 +243,7 @@ async function renderFillPickupAndReachSubmit(opts: { configOverride?: Record<st
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant }));
   await flush();
 
@@ -353,6 +355,7 @@ test("[NOTE-3] audit Maxwell P2 : une note TROP LONGUE déjà saisie, puis champ
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant: enabled }));
   await flush();
   try {
@@ -377,6 +380,7 @@ test("[NOTE-3] audit Maxwell P2 : une note TROP LONGUE déjà saisie, puis champ
     // 2. L'établissement DÉSACTIVE la note (nouvelle configuration reçue,
     //    même instance de MenuView : l'état de saisie subsiste).
     const disabled = sanaaCookiesRestaurant({ configOverride: { order_note_enabled: false } });
+    clearTestCartSession(window.sessionStorage);
     root.render(React.createElement(MenuView, { restaurant: disabled }));
     await flush(50);
     assert.equal(container.querySelector("#order-note"), null, "champ note retiré");
@@ -517,6 +521,7 @@ test("[MODE-COPY-1] Livraison 75017 -> seul le texte de la RÈGLE de livraison ;
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant }));
   await flush();
   try {

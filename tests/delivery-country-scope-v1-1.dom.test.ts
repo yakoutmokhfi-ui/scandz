@@ -1,3 +1,4 @@
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 import { test } from "node:test";
 import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
@@ -343,6 +344,7 @@ async function toDeliveryCheckout() {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant: restaurantProps() }));
   await flush();
   const card = [...container.querySelectorAll("article")].find(

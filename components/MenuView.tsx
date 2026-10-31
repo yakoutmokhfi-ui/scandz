@@ -60,6 +60,7 @@ import {
 import { submitInvoiceRequest } from "@/lib/services/invoice-request";
 import { cartHasVacuumPackable, effectiveVacuumPacking } from "@/lib/vacuum-packing";
 import { useVacuumPackingChoice } from "@/lib/use-vacuum-packing-choice";
+import { useSessionCart } from "@/lib/use-session-cart";
 import RestaurantHeader from "@/components/RestaurantHeader";
 import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
@@ -127,7 +128,6 @@ import {
   decrementItem,
   optionCountsForItem,
   quantityForItem,
-  type Cart,
   type CartEntry,
 } from "@/lib/cart";
 import { dirOf, translate, type Lang } from "@/lib/i18n";
@@ -377,7 +377,7 @@ export default function MenuView({
     }
     return activeLanguages[0]?.code ?? "fr";
   });
-  const [cart, setCart] = useState<Cart>({});
+  const { cart, setCart, suspendPersistence, resetPersistence, cartAdjusted, dismissCartAdjusted } = useSessionCart(restaurant);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string>(
     restaurant.categories[0]?.id ?? ""
@@ -1722,6 +1722,7 @@ export default function MenuView({
     // réinitialise l'état COURANT du formulaire pour la PROCHAINE
     // commande -- n'affecte jamais le résumé déjà construit ci-dessus
     // depuis l'instantané gelé.
+    resetPersistence();
     setCart({});
     setTableNumber(null);
     // Même règle qu'à l'initialisation (voir l'effet de
@@ -1784,6 +1785,7 @@ export default function MenuView({
             )
           : null;
 
+      suspendPersistence();
       const order = await createOrder({
         slug: restaurant.slug,
         context: frozenOrderContext,
@@ -2203,6 +2205,12 @@ export default function MenuView({
       </div>
 
       <main className="px-4">
+        {cartAdjusted && (
+          <div role="status" className="my-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+            {t("cartRestoreAdjusted")}{" "}
+            <button type="button" className="underline" onClick={dismissCartAdjusted}>{t("cartRestoreDismiss")}</button>
+          </div>
+        )}
         {!activeCollection && activeCategory && (
           <section className="mt-5">
             <div className="flex items-start gap-1.5">
