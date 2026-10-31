@@ -1,5 +1,6 @@
 import "server-only";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { lookup as dnsLookup } from "node:dns/promises";
 
 /**
  * SCANYM — GAP-01 — TRANSPORT SMTP RÉEL DE L'ACCUSÉ DE RÉCEPTION DE
@@ -202,23 +203,91 @@ export interface SmtpSendInput {
   config: SmtpConfig;
   to: string;
   cc: string | null;
+  fromName?: string | null;
   subject: string;
   text: string;
   html: string;
+  replyTo?: string | null;
+  messageId?: string | null;
+}
+
+/**
+ * Étape du dialogue SMTP où un échec est survenu. Sert UNIQUEMENT à classer
+ * l'échec (voir lib/server/notifications/smtp-failure-classification.ts) ;
+ * jamais renvoyée au navigateur ni persistée telle quelle.
+ */
+export type SmtpFailureStage =
+  | "dns"
+  | "host_not_public"
+  | "connect"
+  | "greeting"
+  | "ehlo"
+  | "auth"
+  | "mail_from"
+  | "rcpt_to"
+  | "data"
+  | "data_end"
+  | "timeout"
+  | "header";
+
+export interface SmtpFailureDetail {
+  stage?: SmtpFailureStage;
+  /** Code de réponse SMTP à 3 chiffres quand le serveur a répondu, sinon null. */
+  status?: number | null;
+  /** Code d'erreur Node (ECONNREFUSED, ERR_TLS_CERT_ALTNAME_INVALID...) quand disponible. */
+  nodeCode?: string | null;
 }
 
 export type SmtpSendResult =
   | { ok: true; messageId: string }
-  | { ok: false; error: string };
+  | ({ ok: false; error: string } & SmtpFailureDetail);
+
+export type SmtpConnectivityResult =
+  | { ok: true }
+  | ({ ok: false; error: string } & SmtpFailureDetail);
 
 export interface SmtpTransport {
   send(input: SmtpSendInput): Promise<SmtpSendResult>;
   /** Connexion + AUTH LOGIN uniquement, AUCUN message envoyé -- pour le health-check admin. */
-  checkConnectivity(config: SmtpConfig): Promise<{ ok: true } | { ok: false; error: string }>;
+  checkConnectivity(config: SmtpConfig): Promise<SmtpConnectivityResult>;
+}
+
+/** Erreur typée du dialogue SMTP : le message reste celui historique (aucun secret). */
+export class SmtpSessionError extends Error {
+  readonly stage: SmtpFailureStage;
+  readonly status: number | null;
+  readonly nodeCode: string | null;
+  constructor(message: string, stage: SmtpFailureStage, status: number | null = null, nodeCode: string | null = null) {
+    super(message);
+    this.name = "SmtpSessionError";
+    this.stage = stage;
+    this.status = status;
+    this.nodeCode = nodeCode;
+  }
+}
+
+/** Entrées/sorties réseau injectables (tests) ; les valeurs par défaut sont les vraies. */
+export interface SmtpIo {
+  lookup(host: string): Promise<Array<{ address: string; family: number }>>;
+  connect(options: { host: string; servername: string; port: number; timeout: number }, onConnect: () => void): TLSSocket;
+}
+
+export interface SmtpLimits {
+  /** Délai maximal d'attente d'UNE réponse du serveur. */
+  stepTimeoutMs: number;
+  /** Durée maximale d'une session complète (DNS + connexion + dialogue). */
+  totalTimeoutMs: number;
 }
 
 const CRLF = "\r\n";
 const SMTP_TIMEOUT_MS = 15_000;
+/** Borne dure d'une session : un hôte lent ne peut pas retenir le worker plus longtemps (A196-05). */
+export const SMTP_SESSION_TOTAL_TIMEOUT_MS = 60_000;
+const DEFAULT_LIMITS: SmtpLimits = { stepTimeoutMs: SMTP_TIMEOUT_MS, totalTimeoutMs: SMTP_SESSION_TOTAL_TIMEOUT_MS };
+const DEFAULT_IO: SmtpIo = {
+  lookup: (host) => dnsLookup(host, { all: true, verbatim: true }),
+  connect: (options, onConnect) => tlsConnect(options, onConnect),
+};
 
 function readLine(socket: TLSSocket, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -252,51 +321,143 @@ function readLine(socket: TLSSocket, timeoutMs: number): Promise<string> {
   });
 }
 
-function expectCode(response: string, code: string): void {
+function expectCode(response: string, code: string, stage: SmtpFailureStage): void {
   if (!response.startsWith(code)) {
     // Ne jamais inclure la commande envoyée (peut contenir le secret
     // AUTH LOGIN encodé) dans le message d'erreur -- uniquement la
     // réponse SERVEUR, jamais ce qui a été transmis.
-    throw new Error(`SMTP_UNEXPECTED_RESPONSE: attendu ${code}, reçu: ${response.trim().slice(0, 200)}`);
+    const status = /^\d{3}/.test(response) ? Number(response.slice(0, 3)) : null;
+    throw new SmtpSessionError(
+      `SMTP_UNEXPECTED_RESPONSE: attendu ${code}, reçu: ${response.trim().slice(0, 200)}`,
+      stage,
+      status
+    );
   }
 }
 
+/**
+ * Adresse IPv4 publique (routable) ? Refuse les plages privées, de
+ * boucle locale, de lien local, de partage opérateur, de documentation,
+ * de test et réservées/multicast. Exportée pour être testée seule.
+ */
+export function isPublicIpv4Address(address: string): boolean {
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b, c] = parts as [number, number, number, number];
+  return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113));
+}
+
+function nodeCodeOf(err: unknown): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
+}
+
+/** Convertit toute erreur de session en résultat typé, sans jamais exposer autre chose que le message historique. */
+function failureFrom(err: unknown): { ok: false; error: string } & SmtpFailureDetail {
+  if (err instanceof SmtpSessionError) {
+    return { ok: false, error: err.message, stage: err.stage, status: err.status, nodeCode: err.nodeCode };
+  }
+  const message = err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR";
+  if (message === "SMTP_TIMEOUT") return { ok: false, error: message, stage: "timeout" };
+  if (/^SMTP_INVALID_[A-Z-]+_HEADER$/.test(message)) return { ok: false, error: message, stage: "header" };
+  return { ok: false, error: message, nodeCode: nodeCodeOf(err) };
+}
+
 async function withSmtpSession<T>(
+  io: SmtpIo,
+  limits: SmtpLimits,
   config: SmtpConfig,
   body: (socket: TLSSocket) => Promise<T>
 ): Promise<T> {
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-    const s = tlsConnect({ host: config.host, port: config.port, timeout: SMTP_TIMEOUT_MS }, () => resolve(s));
-    s.once("error", reject);
+  const held: { socket: TLSSocket | null } = { socket: null };
+  // Posé dès que la session est terminée (succès, échec ou délai global) : une
+  // étape encore en vol (DNS, connexion) ne doit JAMAIS poursuivre le dialogue
+  // en arrière-plan -- sinon un message pourrait partir après qu'on a rendu
+  // « délai dépassé » à l'appelant, puis être renvoyé (doublon, A196-05).
+  const state = { aborted: false };
+  const abortedError = () => new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Borne dure sur TOUTE la session (DNS, connexion, dialogue) : un hôte qui
+  // répond lentement ne peut plus retenir le worker (A196-05).
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout")), limits.totalTimeoutMs);
   });
-  try {
-    const greeting = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(greeting, "220");
+  const run = (async (): Promise<T> => {
+    // Merchant-controlled SMTP hosts must not turn this server into an SSRF
+    // proxy. Resolve once, reject private/special-use addresses, then pin the
+    // socket to the validated public IPv4 while preserving hostname SNI.
+    let addresses: Array<{ address: string; family: number }>;
+    try {
+      addresses = await io.lookup(config.host);
+    } catch (err) {
+      throw new SmtpSessionError("SMTP_DNS_FAILED", "dns", null, nodeCodeOf(err));
+    }
+    if (state.aborted) throw abortedError();
+    const address = addresses.filter((entry) => entry.family === 4).find((entry) => isPublicIpv4Address(entry.address))?.address;
+    if (!address) {
+      throw new SmtpSessionError("SMTP_HOST_NOT_PUBLIC", "host_not_public");
+    }
+    const socket = await new Promise<TLSSocket>((resolve, reject) => {
+      const s = io.connect({ host: address, servername: config.host, port: config.port, timeout: limits.stepTimeoutMs }, () => {
+        s.off("timeout", onTimeout);
+        s.setTimeout(0);
+        resolve(s);
+      });
+      const onTimeout = () => {
+        s.destroy();
+        reject(new SmtpSessionError("SMTP_TIMEOUT", "timeout"));
+      };
+      s.once("timeout", onTimeout);
+      s.once("error", (err) => reject(new SmtpSessionError(err instanceof Error ? err.message : "SMTP_CONNECT_FAILED", "connect", null, nodeCodeOf(err))));
+    });
+    held.socket = socket;
+    if (state.aborted) {
+      socket.destroy();
+      throw abortedError();
+    }
+
+    const greeting = await readLine(socket, limits.stepTimeoutMs);
+    expectCode(greeting, "220", "greeting");
 
     socket.write(`EHLO scanym.com${CRLF}`);
-    const ehloResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(ehloResp, "250");
+    const ehloResp = await readLine(socket, limits.stepTimeoutMs);
+    expectCode(ehloResp, "250", "ehlo");
 
     socket.write(`AUTH LOGIN${CRLF}`);
-    const authResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(authResp, "334");
+    const authResp = await readLine(socket, limits.stepTimeoutMs);
+    expectCode(authResp, "334", "auth");
 
     socket.write(`${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
-    const userResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(userResp, "334");
+    const userResp = await readLine(socket, limits.stepTimeoutMs);
+    expectCode(userResp, "334", "auth");
 
     socket.write(`${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
-    const passResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(passResp, "235");
+    const passResp = await readLine(socket, limits.stepTimeoutMs);
+    expectCode(passResp, "235", "auth");
 
     return await body(socket);
+  })();
+  try {
+    return await Promise.race([run, deadline]);
   } finally {
-    try {
-      socket.write(`QUIT${CRLF}`);
-    } catch {
-      // best-effort
+    state.aborted = true;
+    clearTimeout(timer);
+    const socket = held.socket;
+    if (socket) {
+      try {
+        socket.write(`QUIT${CRLF}`);
+      } catch {
+        // best-effort
+      }
+      socket.destroy();
     }
-    socket.destroy();
   }
 }
 
@@ -309,13 +470,23 @@ function escapeDotStuffing(body: string): string {
     .join(CRLF);
 }
 
-function buildMimeMessage(input: SmtpSendInput): string {
+function smtpHeaderValue(value: string, field: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`SMTP_INVALID_${field.toUpperCase()}_HEADER`);
+  return value;
+}
+
+export function buildSmtpMimeMessage(input: SmtpSendInput): string {
   const boundary = `scanym-gap01-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const encodedSubject = Buffer.from(smtpHeaderValue(input.subject, "subject"), "utf8").toString("base64");
+  const fromName = smtpHeaderValue(input.fromName?.trim() || "Scanym", "from-name");
+  const encodedFromName = Buffer.from(fromName, "utf8").toString("base64");
   const headers = [
-    `From: Scanym <${input.config.from}>`,
-    `To: ${input.to}`,
-    ...(input.cc ? [`Cc: ${input.cc}`] : []),
-    `Subject: ${input.subject}`,
+    `From: =?UTF-8?B?${encodedFromName}?= <${smtpHeaderValue(input.config.from, "from")}>`,
+    `To: ${smtpHeaderValue(input.to, "to")}`,
+    ...(input.replyTo ? [`Reply-To: ${smtpHeaderValue(input.replyTo, "reply-to")}`] : []),
+    ...(input.cc ? [`Cc: ${smtpHeaderValue(input.cc, "cc")}`] : []),
+    ...(input.messageId ? [`Message-ID: ${smtpHeaderValue(input.messageId, "message-id")}`] : []),
+    `Subject: =?UTF-8?B?${encodedSubject}?=`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].join(CRLF);
@@ -339,52 +510,56 @@ function buildMimeMessage(input: SmtpSendInput): string {
  * tests unitaires -- injectée par défaut uniquement dans
  * `sendWithdrawalAcknowledgement`/le endpoint de health-check.
  */
-export const realSmtpTransport: SmtpTransport = {
-  async send(input) {
-    try {
-      const messageId = await withSmtpSession(input.config, async (socket) => {
-        socket.write(`MAIL FROM:<${input.config.from}>${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
+export function createSmtpTransport(io: SmtpIo = DEFAULT_IO, limits: SmtpLimits = DEFAULT_LIMITS): SmtpTransport {
+  return {
+    async send(input) {
+      try {
+        const messageId = await withSmtpSession(io, limits, input.config, async (socket) => {
+          socket.write(`MAIL FROM:<${input.config.from}>${CRLF}`);
+          expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "mail_from");
 
-        socket.write(`RCPT TO:<${input.to}>${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
+          socket.write(`RCPT TO:<${input.to}>${CRLF}`);
+          expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "rcpt_to");
 
-        if (input.cc) {
-          socket.write(`RCPT TO:<${input.cc}>${CRLF}`);
-          expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
-        }
+          if (input.cc) {
+            socket.write(`RCPT TO:<${input.cc}>${CRLF}`);
+            expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "rcpt_to");
+          }
 
-        socket.write(`DATA${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "354");
+          socket.write(`DATA${CRLF}`);
+          expectCode(await readLine(socket, limits.stepTimeoutMs), "354", "data");
 
-        const message = escapeDotStuffing(buildMimeMessage(input));
-        socket.write(`${message}${CRLF}.${CRLF}`);
-        const dataResp = await readLine(socket, SMTP_TIMEOUT_MS);
-        expectCode(dataResp, "250");
+          const message = escapeDotStuffing(buildSmtpMimeMessage(input));
+          socket.write(`${message}${CRLF}.${CRLF}`);
+          const dataResp = await readLine(socket, limits.stepTimeoutMs);
+          expectCode(dataResp, "250", "data_end");
 
-        // Le message id du prestataire, quand il en renvoie un, se
-        // trouve dans la réponse 250 (ex. "250 2.0.0 Ok: queued as
-        // <id>"). À défaut, un identifiant local est construit --
-        // toujours PRÉFIXÉ pour rester distinguable d'un id fourni
-        // par le serveur dans les preuves d'audit.
-        const match = dataResp.match(/queued as ([^\s]+)/i);
-        return match?.[1] ?? `scanym-local-${Date.now()}`;
-      });
-      return { ok: true, messageId };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR" };
-    }
-  },
+          // Le message id du prestataire, quand il en renvoie un, se
+          // trouve dans la réponse 250 (ex. "250 2.0.0 Ok: queued as
+          // <id>"). À défaut, un identifiant local est construit --
+          // toujours PRÉFIXÉ pour rester distinguable d'un id fourni
+          // par le serveur dans les preuves d'audit.
+          const match = dataResp.match(/queued as ([^\s]+)/i);
+          return match?.[1] ?? `scanym-local-${Date.now()}`;
+        });
+        return { ok: true, messageId };
+      } catch (err) {
+        return failureFrom(err);
+      }
+    },
 
-  async checkConnectivity(config) {
-    try {
-      await withSmtpSession(config, async () => undefined);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR" };
-    }
-  },
-};
+    async checkConnectivity(config) {
+      try {
+        await withSmtpSession(io, limits, config, async () => undefined);
+        return { ok: true };
+      } catch (err) {
+        return failureFrom(err);
+      }
+    },
+  };
+}
+
+export const realSmtpTransport: SmtpTransport = createSmtpTransport();
 
 // -----------------------------------------------------------------------------
 // D. ORCHESTRATION — appelée depuis la route API de soumission,

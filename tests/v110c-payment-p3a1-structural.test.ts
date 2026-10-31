@@ -210,6 +210,23 @@ const MCC_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
   "app/api/checkout/withdrawal-eligibility/route.ts":
     /^@\/lib\/server\/withdrawal-eligibility-service$/,
 };
+
+// PR #196 (SMTP par commerce) — DEUX routes de plus, chacune avec un motif
+// SCOPÉ à la liste exacte de ses modules serveur (jamais « sans restriction
+// de module ») :
+//   - app/api/dashboard/email-provider/route.ts : réglage du coffre SMTP par
+//     le propriétaire/gérant (client « en tant qu'utilisateur » pour
+//     l'autorisation, client service pour le coffre, chiffrement, transport
+//     SMTP du test de connexion, classification, suspension) ;
+//   - app/api/internal/notifications/send/route.ts : Cron du worker d'e-mails
+//     (secret Bearer dédié, porte d'activation, résolution du fournisseur,
+//     reprise des baux, worker, limites de temps).
+const MERCHANT_SMTP_ALLOWED_SERVER_IMPORTERS: Record<string, RegExp> = {
+  "app/api/dashboard/email-provider/route.ts":
+    /^@\/lib\/server\/(supabase-as-user|supabase-admin|merchant-email-provider|ack-mailer|notifications\/(smtp-failure-classification|merchant-smtp-provider))$/,
+  "app/api/internal/notifications/send/route.ts":
+    /^@\/lib\/server\/(merchant-email-provider|notifications\/(real-email-activation-gate|merchant-smtp-provider|notification-outbox-service|notification-worker|merchant-smtp-worker-limits))$/,
+};
 test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF les 2 points d'entrée de suivi client (CUSTOMER TRACKING EXPERIENCE v2.1, scopés à leurs modules tracking-*), les 4 fichiers PAYMENT P3-B MONETICO CHECKOUT RUNTIME v3/v4 (sans restriction de module), et les routes Stuart scopées (DELIVERY STREAM C) -- énumération BASÉE SUR L'AST du compilateur TypeScript (ferme STUART-V262-ALLOWLIST-SYNTAX-01 : détecte imports par défaut/nommés/espace de noms/effet de bord/dynamiques, require(), et ré-exports -- jamais seulement la forme régulière 'from \"...\"')", () => {
   const offenders: string[] = [];
   for (const file of APP_AND_COMPONENT_FILES) {
@@ -223,7 +240,8 @@ test("archi: AUCUN fichier sous app/ ou components/ n'importe lib/server/*, SAUF
       TRACKING_ALLOWED_SERVER_IMPORTERS[file] ??
       STUART_ALLOWED_SERVER_IMPORTERS[file] ??
       LEGAL_CGV_ALLOWED_SERVER_IMPORTERS[file] ??
-      MCC_ALLOWED_SERVER_IMPORTERS[file];
+      MCC_ALLOWED_SERVER_IMPORTERS[file] ??
+      MERCHANT_SMTP_ALLOWED_SERVER_IMPORTERS[file];
     if (!allowedPattern) {
       // Fichier NON allowlisté : AUCUNE référence lib/server/* n'est
       // tolérée, littérale OU non littérale (fail-closed explicite).
@@ -497,15 +515,24 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // cette classification OPÉRATIONNELLE INTERNE du commerçant ne
   // devienne pas interrogeable par `anon` : seul un AGRÉGAT booléen
   // traverse. Entrée EXACTE unique ajoutée à cette liste FERMÉE, jamais
-  // une correspondance large).
+  // une correspondance large)
+  // + 2 routes PR #196 -- SMTP PAR COMMERCE (également ULTÉRIEURES et SANS
+  // RAPPORT avec PAYMENT P3-A1 : réglage du coffre SMTP du commerçant
+  // (/api/dashboard/email-provider, propriétaire/gérant) et Cron du worker
+  // d'e-mails (/api/internal/notifications/send, secret Bearer dédié,
+  // porte d'activation fermée par défaut). Aucun paiement, aucun Stuart,
+  // aucun statut de commande touché. Deux entrées EXACTES ajoutées à cette
+  // liste FERMÉE, jamais une correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/admin/gap-01-ack-health-check/route.ts",
     "app/api/checkout/invoice-request/route.ts",
     "app/api/checkout/withdrawal-eligibility/route.ts",
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",
+    "app/api/dashboard/email-provider/route.ts",
     "app/api/dashboard/legal-cgv/activate/route.ts",
     "app/api/dashboard/legal-cgv/publish/route.ts",
+    "app/api/internal/notifications/send/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",
     "app/api/internal/stuart/sandbox-trigger/route.ts",

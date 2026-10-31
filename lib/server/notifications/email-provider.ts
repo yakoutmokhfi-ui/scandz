@@ -14,6 +14,8 @@ import "server-only";
 export interface EmailMessage {
   to: string;
   from: string;
+  /** Optional display name for providers that support merchant-specific sender identity. */
+  fromName?: string | null;
   replyTo?: string | null;
   subject: string;
   html: string;

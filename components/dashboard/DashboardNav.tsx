@@ -58,6 +58,7 @@ export default function DashboardNav({
   // onglets ci-dessus -- exclu explicitement du repli générique de
   // l'onglet "Commandes" pour ne pas reproduire L1B-02.
   const onAvailability = pathname?.startsWith("/dashboard/availability");
+  const onEmail = pathname?.startsWith("/dashboard/email");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
   const href = (base: string) =>
@@ -187,7 +188,7 @@ export default function DashboardNav({
           <a
             href={href("/dashboard")}
             className={tab(
-              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv && !onAvailability
+              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv && !onAvailability && !onEmail
             )}
           >
             {t("dsOrders")}
@@ -218,6 +219,9 @@ export default function DashboardNav({
           <a href={href("/dashboard/translations")} className={tab(!!onTranslations)}>
             <span className="sm:hidden">{t("dsTranslationsShort")}</span>
             <span className="hidden sm:inline">{t("dsTranslations")}</span>
+          </a>
+          <a href={href("/dashboard/email")} className={tab(!!onEmail)}>
+            {t("dsEmailProvider")}
           </a>
         </nav>
       </div>

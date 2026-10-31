@@ -11,6 +11,7 @@ import {
   claimPendingNotifications,
   completeNotificationAttempt,
   issueOrderEmailTrackingCapability,
+  type ClaimedNotification,
   type EmailTrackingCapability,
 } from "@/lib/server/notifications/notification-outbox-service";
 import { normalizeNotificationErrorCode } from "@/lib/server/notifications/notification-error-taxonomy";
@@ -38,11 +39,10 @@ import type { RenderedEmail } from "@/lib/server/notifications/order-received-te
  * d'une capacité de suivi e-mail liée à la commande
  * (`issueOrderEmailTrackingCapability`), lecture seule pour le client.
  *
- * Provider INJECTÉ (jamais résolu par ce module lui-même) -- ce lot
- * n'autorise que `FakeEmailProvider` (voir fake-email-provider.ts) ;
- * un futur lot pourrait résoudre un provider réel derrière
- * `real-email-activation-gate.ts`, mais ce choix reste À L'APPELANT,
- * jamais implicite ici.
+ * Provider INJECTÉ (jamais résolu par ce module lui-même). En recette,
+ * les tests utilisent `FakeEmailProvider`; la route cron résout un SMTP
+ * par restaurant après la porte plateforme. Le choix du compte reste à
+ * l'appelant et ne peut jamais être partagé entre deux commerces.
  */
 
 export interface ProcessPendingNotificationsResult {
@@ -87,7 +87,18 @@ function isOrderReceivedPayload(value: unknown): value is OrderReceivedPayloadSn
 
 export async function processPendingNotifications(
   provider: EmailProvider,
-  options: { batchSize?: number; leaseSeconds?: number } = {}
+  options: {
+    batchSize?: number;
+    leaseSeconds?: number;
+    providerForNotification?: (notification: ClaimedNotification) => Promise<EmailProvider | null>;
+    /**
+     * Instant (ms epoch) après lequel AUCUN nouvel envoi n'est démarré (A196-05).
+     * Les lignes réclamées mais non traitées restent `processing` jusqu'à
+     * l'expiration du bail, puis `reap_stale_notification_claims` les remet en
+     * attente sans consommer de tentative.
+     */
+    deadlineAt?: number;
+  } = {}
 ): Promise<ProcessPendingNotificationsResult> {
   const claimed = await claimPendingNotifications(options);
 
@@ -96,7 +107,23 @@ export async function processPendingNotifications(
   let failedTerminal = 0;
 
   for (const notification of claimed) {
+    if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) break;
     const attemptNumber = notification.attemptCount + 1;
+    const activeProvider = options.providerForNotification
+      ? await options.providerForNotification(notification)
+      : provider;
+    if (!activeProvider) {
+      await completeNotificationAttempt({
+        outboxId: notification.outboxId,
+        claimToken: notification.claimToken,
+        attemptNumber,
+        provider: "merchant_smtp",
+        result: "retryable_failure",
+        errorClass: normalizeNotificationErrorCode("PROVIDER_CONFIGURATION_ERROR"),
+      });
+      retriedRetryable += 1;
+      continue;
+    }
 
     // Identité d'expéditeur non résolue (profil supprimé/désactivé
     // entre la création et le traitement, ou payload corrompu) --
@@ -109,7 +136,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "terminal_failure",
         errorClass: normalizeNotificationErrorCode("SENDER_IDENTITY_UNRESOLVED"),
       });
@@ -126,7 +153,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "terminal_failure",
         errorClass: normalizeNotificationErrorCode("RECIPIENT_EMAIL_MISSING"),
       });
@@ -152,7 +179,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "terminal_failure",
         errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
       });
@@ -165,7 +192,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "terminal_failure",
         errorClass: normalizeNotificationErrorCode("PAYLOAD_SNAPSHOT_MALFORMED"),
       });
@@ -198,7 +225,7 @@ export async function processPendingNotifications(
           outboxId: notification.outboxId,
           claimToken: notification.claimToken,
           attemptNumber,
-          provider: provider.name,
+          provider: activeProvider.name,
           result: "retryable_failure",
           errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
         });
@@ -212,7 +239,7 @@ export async function processPendingNotifications(
           outboxId: notification.outboxId,
           claimToken: notification.claimToken,
           attemptNumber,
-          provider: provider.name,
+          provider: activeProvider.name,
           result: "terminal_failure",
           errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
         });
@@ -375,7 +402,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "terminal_failure",
         errorClass: normalizeNotificationErrorCode("TEMPLATE_RENDER_ERROR"),
       });
@@ -395,9 +422,10 @@ export async function processPendingNotifications(
     // fenêtre de crash résiduelle (mandat, §10 README-AUDIT.md).
     const idempotencyKey = buildNotificationIdempotencyKey(notification.outboxId);
 
-    const result = await provider.send({
+    const result = await activeProvider.send({
       to: notification.recipientEmail,
       from: notification.senderEmail,
+      fromName: notification.senderName,
       replyTo: notification.replyTo,
       subject: rendered.subject,
       html: rendered.html,
@@ -410,7 +438,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: "success",
         providerMessageId: result.providerMessageId,
       });
@@ -430,7 +458,7 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: provider.name,
+        provider: activeProvider.name,
         result: result.retryable ? "retryable_failure" : "terminal_failure",
         errorClass: normalizeNotificationErrorCode(result.errorClass),
       });
@@ -458,8 +486,17 @@ export type RunTransactionalEmailWorkerResult =
  */
 export async function runTransactionalEmailWorker(
   provider: EmailProvider | null,
-  options: { batchSize?: number; leaseSeconds?: number } = {}
+  options: {
+    batchSize?: number;
+    leaseSeconds?: number;
+    providerForNotification?: (notification: ClaimedNotification) => Promise<EmailProvider | null>;
+    deadlineAt?: number;
+  } = {}
 ): Promise<RunTransactionalEmailWorkerResult> {
-  if (!provider) return { status: "provider_disabled" };
-  return { status: "processed", ...(await processPendingNotifications(provider, options)) };
+  if (!provider && !options.providerForNotification) return { status: "provider_disabled" };
+  const fallbackProvider = provider ?? {
+    name: "smtp",
+    async send() { return { ok: false as const, retryable: true, errorClass: "PROVIDER_CONFIGURATION_ERROR" }; },
+  };
+  return { status: "processed", ...(await processPendingNotifications(fallbackProvider, options)) };
 }

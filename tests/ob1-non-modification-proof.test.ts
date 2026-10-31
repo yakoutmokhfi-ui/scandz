@@ -298,6 +298,11 @@ test("OB-1 v1.1 : aucune fausse appartenance restaurant_users n'est jamais cré�
 // des lignes `+`), et TOUTE ligne ajoutée doit concerner
 // EXCLUSIVEMENT cet onglet CGV (onLegalCgv/legal-cgv/dsLegalCgv) --
 // jamais un motif générique, jamais une exemption de fichier entier.
+// PR #196 (SMTP par commerce, neuvième onglet « E-mails ») : même méthode
+// NARROW que pour l'onglet CGV et l'onglet « Mise à disposition » -- une
+// forme d'élargissement de condition exacte (`&& !onEmail`) et trois jetons
+// NOMMÉS (onEmail, dashboard/email, dsEmailProvider), jamais un motif
+// générique ni une exemption de fichier entier.
 test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout additif, ligne par ligne prouvé, de l'onglet CGV (aucune ligne existante retirée, aucun ajout hors-sujet) ; lib/services/dashboard.ts (services marchand partagés) INCHANGÉ SAUF retrait du wrapper mort setProductPhoto (BULK PRODUCT PHOTOS v1.4, RPC sous-jacente supprimée par Cat Stevens Blocker 1 -- voir CAT-STEVENS-FINDINGS-REMEDIATION.md)", () => {
   const files = changedFiles();
   if (files.includes("components/dashboard/DashboardNav.tsx")) {
@@ -364,6 +369,10 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
         `+${removedContent} && !onLegalCgv`,
         `+${removedContent} && !onAvailability`,
         `+${removedContent} && !onLegalCgv && !onAvailability`,
+        // PR #196 (neuvième onglet « E-mails ») : même méthode, une forme
+        // exacte de plus -- l'onglet « Commandes » s'efface aussi sur
+        // /dashboard/email. Jamais un motif générique.
+        `+${removedContent} && !onLegalCgv && !onAvailability && !onEmail`,
       ];
       assert.ok(
         allowedExtensions.some((candidate) => addedLines.includes(candidate)),
@@ -394,6 +403,7 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
           `+${removed.slice(1)} && !onLegalCgv`,
           `+${removed.slice(1)} && !onAvailability`,
           `+${removed.slice(1)} && !onLegalCgv && !onAvailability`,
+          `+${removed.slice(1)} && !onLegalCgv && !onAvailability && !onEmail`,
         ].includes(added)
       );
       if (isConditionExtension) continue;
@@ -406,7 +416,7 @@ test("non-régression : DashboardNav.tsx (nav marchande) INCHANGÉ SAUF l'ajout 
         // générique : `basis-[calc` et le couple sm:hidden /
         // hidden sm:inline sont les deux seules formes de style
         // autorisées, et elles ne touchent que la barre d'onglets.
-        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|selectorModel|buildRestaurantSelectorModel|data-current-context|CONTEXT HARDENING|o[.]restaurantId|o[.]label|restaurantId,|mappings,|currentContextName|onAvailability|dashboard\/availability|dsAvailability|mcTitleShort|dsDeliveryPricingShort|dsTranslationsShort|CSDJ-BO-1|basis-\[calc|sm:hidden|hidden sm:inline|^\+\s*\/\/|^\+\s*\*|^\+\s*<\/a>\s*$|^\+\s*$/,
+        /CGV|onLegalCgv|legal-cgv|dsLegalCgv|selectorModel|buildRestaurantSelectorModel|data-current-context|CONTEXT HARDENING|o[.]restaurantId|o[.]label|restaurantId,|mappings,|currentContextName|onAvailability|dashboard\/availability|dsAvailability|onEmail|dashboard\/email|dsEmailProvider|mcTitleShort|dsDeliveryPricingShort|dsTranslationsShort|CSDJ-BO-1|basis-\[calc|sm:hidden|hidden sm:inline|^\+\s*\/\/|^\+\s*\*|^\+\s*<\/a>\s*$|^\+\s*$/,
         `DashboardNav.tsx : ligne ajoutée hors-sujet (ni onglet CGV, ni durcissement de contexte §17, ni onglet Mise à disposition CSDJ-BO-1) -- ligne interdite : ${added}`
       );
     }
