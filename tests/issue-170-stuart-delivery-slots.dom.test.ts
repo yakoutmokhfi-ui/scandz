@@ -1,3 +1,4 @@
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 import { test, after } from "node:test";
 import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
@@ -343,6 +344,7 @@ async function reach(mode: "pickup" | "delivery", lang = "fr") {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant }));
   await flush();
 
@@ -439,6 +441,7 @@ async function reachDelivery(postal: string) {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant }));
   await flush();
   const addBtn = [...container.querySelectorAll("button")].find((b) => b.textContent === translate("fr", "add"));

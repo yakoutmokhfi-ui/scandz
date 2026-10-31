@@ -43,6 +43,8 @@ export function dirOf(
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  cartRestoreAdjusted: "Certains articles ou options ne sont plus disponibles et ont été retirés de votre panier.",
+  cartRestoreDismiss: "Fermer",
   "dpDiscountTitle": "Remise sur la livraison",
   "dpDiscountEnabled": "Activer la remise",
   "dpDiscountThreshold": "Seuil du panier",
@@ -1573,6 +1575,8 @@ const fr: Dict = {
 };
 
 const en: Dict = {
+  cartRestoreAdjusted: "Some items or options are no longer available and have been removed from your cart.",
+  cartRestoreDismiss: "Dismiss",
   "dpDiscountTitle": "Delivery discount",
   "dpDiscountEnabled": "Enable discount",
   "dpDiscountThreshold": "Basket threshold",
@@ -2939,6 +2943,8 @@ const en: Dict = {
 
 // Arabe littéraire (arabe standard moderne).
 const ar: Dict = {
+  cartRestoreAdjusted: "بعض المنتجات أو الخيارات لم تعد متاحة وتمت إزالتها من سلتك.",
+  cartRestoreDismiss: "إغلاق",
   "dpDiscountTitle": "تخفيض رسوم التوصيل",
   "dpDiscountEnabled": "تفعيل التخفيض",
   "dpDiscountThreshold": "الحد الأدنى للسلة",
@@ -4339,6 +4345,8 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  cartRestoreAdjusted: "Sommige artikelen of opties zijn niet meer beschikbaar en zijn uit je winkelmand verwijderd.",
+  cartRestoreDismiss: "Sluiten",
   vacuumPackingLabel: "Mijn kazen en vleeswaren vacuümverpakken",
   vacuumPackingInfoButton: "Meer informatie over vacuümverpakken",
   vacuumPackingInfo: "Vacuümverpakken helpt de kazen en vleeswaren te beschermen en hun kwaliteit tijdens het transport te bewaren.",

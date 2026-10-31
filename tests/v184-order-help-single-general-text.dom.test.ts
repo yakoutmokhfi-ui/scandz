@@ -203,7 +203,8 @@ const TOKEN = "22222222-2222-4222-8222-222222222222";
  *  DOM, quel que soit son point d'origine. */
 function mockRpc(
   t: { mock: { method: Function } },
-  createOrderResult: { data: unknown; error: unknown }
+  createOrderResult: { data: unknown; error: unknown },
+  onCreate?: () => void
 ) {
   t.mock.method(supabase, "from", (table: string) => {
     if (table === "sale_mode_catalog") {
@@ -219,7 +220,7 @@ function mockRpc(
     }
     if (name === "get_restaurant_public_delivery_info") return { data: [], error: null };
     if (name === "get_restaurant_public_delivery_fulfillments") return { data: [], error: null };
-    if (name === "create_order") return createOrderResult;
+    if (name === "create_order") { onCreate?.(); return createOrderResult; }
     if (name === "mark_whatsapp_opened") return { data: null, error: null };
     // MERCHANT CUSTOMER COMMUNICATIONS v1 -- projection PUBLIQUE des
     // textes clients du commercant, lue par MenuView au montage.
@@ -254,6 +255,7 @@ async function renderFillPickupAndReachSubmit(opts: { configOverride?: Record<st
     await flush();
   }
 
+  await waitFor(() => buttonWithText(container, "À emporter") !== undefined, "mode à emporter");
   selectServiceMode(container, "À emporter");
   await waitFor(() => inputById(container, "customer_name") !== null, "champs pickup rendus");
 
@@ -360,11 +362,11 @@ function mockRpcHelp(t: { mock: { method: Function } }, rules: ReturnType<typeof
   });
 }
 
-async function mountMenu() {
+async function mountMenu(restaurant = sanaaCookiesRestaurant()) {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
-  root.render(React.createElement(MenuView, { restaurant: sanaaCookiesRestaurant() }));
+  root.render(React.createElement(MenuView, { restaurant }));
   // Les textes du commerçant et les règles sont lus au montage (RPC publiques).
   await waitFor(() => container.querySelector("[data-order-help-dialog]") !== null, "aide à la commande rendue");
   await flush(50);
@@ -455,6 +457,63 @@ test("[184-HELP-3] code postal saisi : le résultat garde UNIQUEMENT le texte de
     for (const other of [B, "TEXTE-ZONE-75003", "TEXTE-NEUILLY"]) assert.ok(!vis.includes(other), `pas de texte d'une autre zone : ${other}`);
     assert.ok(!vis.includes(HELP_BODY), "le texte général n'est pas mêlé au résultat (fenêtre d'aide fermée)");
   } finally { root.unmount(); container.remove(); }
+});
+
+test("le panier du vrai MenuView revient après remontage avec le prix courant", async (t) => {
+  window.sessionStorage.clear();
+  mockRpcHelp(t, []);
+  installFetchNotNeeded();
+  const first = await mountMenu();
+  try {
+    click(buttonWithText(first.container, "Ajouter")!);
+    await waitFor(() => window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test") !== null, "panier en session");
+    const saved = window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test")!;
+    assert.ok(!saved.includes("Cookie chocolat") && !saved.includes("price"));
+  } finally { first.root.unmount(); first.container.remove(); }
+  const changed = sanaaCookiesRestaurant();
+  changed.categories[0].menu_items[0].price = 9.99;
+  const second = await mountMenu(changed);
+  try {
+    const cartBar = [...second.container.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"));
+    assert.ok(cartBar, "panier retrouvé");
+    assert.match(cartBar!.textContent ?? "", /9,99/);
+  } finally { second.root.unmount(); second.container.remove(); window.sessionStorage.clear(); }
+});
+
+test("un produit devenu indisponible est retiré du panier restauré avec un message visible", async (t) => {
+  window.sessionStorage.clear();
+  window.sessionStorage.setItem("scanym:cart:v1:r-sanaa-test", JSON.stringify({
+    version: 1, lines: [{ itemId: "item-1", optionId: null, quantity: 1 }],
+  }));
+  mockRpcHelp(t, []);
+  installFetchNotNeeded();
+  const changed = sanaaCookiesRestaurant();
+  changed.categories[0].menu_items[0].is_available = false;
+  const view = await mountMenu(changed);
+  try {
+    assert.match(view.container.textContent ?? "", /Certains articles ou options ne sont plus disponibles/);
+    assert.ok(![...view.container.querySelectorAll("button")].some((button) => button.textContent?.includes("🛒")));
+    await waitFor(() => window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test") === null, "panier périmé effacé");
+  } finally { view.root.unmount(); view.container.remove(); window.sessionStorage.clear(); }
+});
+
+test("le panier sauvegardé est effacé avant create_order, même si l'appel échoue", async (t) => {
+  window.sessionStorage.clear();
+  let storedAtCreate: string | null | undefined;
+  mockRpc(t, { data: null, error: { message: "erreur simulée" } }, () => {
+    storedAtCreate = window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test");
+  });
+  installFetchNotNeeded();
+  const view = await renderFillPickupAndReachSubmit();
+  try {
+    await waitFor(() => window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test") !== null, "panier stocké");
+    click(view.submitBtn);
+    await waitFor(() => view.container.querySelector("[data-checkout-review-confirm]") !== null, "récapitulatif");
+    click(view.container.querySelector("[data-checkout-review-confirm]")!);
+    await waitFor(() => storedAtCreate !== undefined, "create_order appelé");
+    assert.equal(storedAtCreate, null);
+    assert.equal(window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test"), null);
+  } finally { view.root.unmount(); view.container.remove(); window.sessionStorage.clear(); }
 });
 
 function visibleText(container: Element): string {

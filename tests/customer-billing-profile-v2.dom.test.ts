@@ -1,3 +1,4 @@
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -249,6 +250,7 @@ async function reachBillingBlock() {
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant: restaurantFixture() }));
   await flush();
 

@@ -1,3 +1,4 @@
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 import { test, after } from "node:test";
 import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
 import assert from "node:assert/strict";
@@ -401,6 +402,7 @@ async function renderAndAddOneItemToCart(restaurant: ReturnType<typeof auLaitCru
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
   const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
   root.render(React.createElement(MenuView, { restaurant }));
   await flush();
 
@@ -561,6 +563,7 @@ test("AU LAIT CRU (bascule tenant, MenuView complet) : autre établissement (tab
     // 1. Monte avec l'autre établissement (3 modes) et sélectionne
     // "Livraison" (mode qui n'existe PAS pour Au Lait Cru).
     flushSync(() => {
+      clearTestCartSession(window.sessionStorage);
       root.render(React.createElement(MenuView, { restaurant: otherTenantRestaurant() }));
     });
     await flush();
@@ -574,7 +577,12 @@ test("AU LAIT CRU (bascule tenant, MenuView complet) : autre établissement (tab
     assert.ok(container.textContent, "l'autre établissement doit être correctement rendu avant bascule");
 
     // 2. Bascule IMMÉDIATE vers Au Lait Cru (pickup only) -- même
-    // racine que la fixture, nouveau restaurantId.
+    // racine que la fixture, nouveau restaurantId. Son propre panier
+    // permet de conserver le formulaire ouvert sans fuite entre tenants.
+    window.sessionStorage.setItem("scanym:cart:v1:r-aulaitcru-test", JSON.stringify({
+      version: 1,
+      lines: [{ itemId: "item-1", optionId: null, quantity: 1 }],
+    }));
     flushSync(() => {
       root.render(React.createElement(MenuView, { restaurant: auLaitCruRestaurant() }));
     });
@@ -584,8 +592,7 @@ test("AU LAIT CRU (bascule tenant, MenuView complet) : autre établissement (tab
     // depuis la prop `restaurant` à chaque rendu -- jamais mis en cache
     // dans un state) doit être celui d'Au Lait Cru. (Ne vérifie PAS
     // l'affichage de "Croissant" : l'onglet de catégorie ACTIF
-    // [activeCategoryId] est un state propre à MenuView qui, comme
-    // `cart` [voir note plus bas], n'est pas non plus réinitialisé par
+    // [activeCategoryId] est un state propre à MenuView qui n'est pas réinitialisé par
     // un changement de prop `restaurant` sans démontage -- observation
     // de la MÊME famille, également hors scope CASE 1A, également
     // documentée dans RAPPORT.md. Seul l'état sale-mode/fulfillment,
@@ -624,21 +631,7 @@ test("AU LAIT CRU (bascule tenant, MenuView complet) : autre établissement (tab
       "ALC-SM-01/section 3 : le formulaire Click & Collect (pickup, seul mode d'Au Lait Cru) doit être réaffiché après réinitialisation du serviceMode devenu invalide"
     );
 
-    // NOTE (observation hors scope CASE 1A, documentée dans RAPPORT.md) :
-    // au moins DEUX states propres à MenuView.tsx ne sont PAS
-    // réinitialisés par ce changement de prop `restaurant` sans
-    // démontage (aucune prop `key` au site d'appel app/r/[slug]/page.tsx) :
-    // le CONTENU du panier (`cart` useState -- ex. "Plat du jour" de
-    // l'autre établissement resterait affiché dans CartPanel) et
-    // l'onglet de catégorie actif (`activeCategoryId` -- peut ne
-    // référencer aucune catégorie existante chez le nouveau tenant, cf.
-    // note plus haut). Comportement PRÉEXISTANT, distinct de
-    // usePublicSaleModes/ALC-SM-01 et du reset de serviceMode (section 3),
-    // et explicitement HORS SCOPE de ce lot (mission CASE 1A :
-    // uniquement les modes de vente). Ce test ne fait donc AUCUNE
-    // assertion sur le contenu du panier ni sur la catégorie affichée --
-    // seulement sur l'état sale-mode/fulfillment, seul périmètre
-    // corrigé ici.
+    // L'onglet de catégorie actif reste hors du périmètre de ce test.
   } finally {
     root.unmount();
     container.remove();

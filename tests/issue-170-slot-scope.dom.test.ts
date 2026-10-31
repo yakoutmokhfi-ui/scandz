@@ -440,6 +440,8 @@ const refuseOnlyStuart = (customer: any): string | null =>
   customer?.postalCode === STUART_POSTAL ? requireSchedule(true)(customer) : null;
 
 async function reachDelivery(postal: string) {
+  // Chaque scénario de créneau commence dans une nouvelle session client.
+  window.sessionStorage.clear();
   const restaurant: any = sanaaCookiesRestaurant();
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
