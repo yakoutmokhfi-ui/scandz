@@ -3,6 +3,10 @@
     {
       "path": "/api/internal/payments/monetico/recover",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/internal/notifications/send",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

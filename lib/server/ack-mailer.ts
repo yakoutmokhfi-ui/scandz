@@ -1,5 +1,6 @@
 import "server-only";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { lookup as dnsLookup } from "node:dns/promises";
 
 /**
  * SCANYM — GAP-01 — TRANSPORT SMTP RÉEL DE L'ACCUSÉ DE RÉCEPTION DE
@@ -202,9 +203,12 @@ export interface SmtpSendInput {
   config: SmtpConfig;
   to: string;
   cc: string | null;
+  fromName?: string | null;
   subject: string;
   text: string;
   html: string;
+  replyTo?: string | null;
+  messageId?: string | null;
 }
 
 export type SmtpSendResult =
@@ -265,8 +269,30 @@ async function withSmtpSession<T>(
   config: SmtpConfig,
   body: (socket: TLSSocket) => Promise<T>
 ): Promise<T> {
+  // Merchant-controlled SMTP hosts must not turn this server into an SSRF
+  // proxy. Resolve once, reject private/special-use addresses, then pin the
+  // socket to the validated public IPv4 while preserving hostname SNI.
+  const addresses = await dnsLookup(config.host, { all: true, verbatim: true });
+  const ipv4 = addresses.filter((entry) => entry.family === 4);
+  const isPublicIpv4 = (address: string) => {
+    const parts = address.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    const [a, b, c] = parts;
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && (b === 0 || b === 168)) ||
+      (a === 192 && b === 88 && c === 99) ||
+      (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+      (a === 203 && b === 0 && c === 113));
+  };
+  const address = ipv4.find((entry) => isPublicIpv4(entry.address))?.address;
+  if (!address) {
+    throw new Error("SMTP_HOST_NOT_PUBLIC");
+  }
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
-    const s = tlsConnect({ host: config.host, port: config.port, timeout: SMTP_TIMEOUT_MS }, () => resolve(s));
+    const s = tlsConnect({ host: address, servername: config.host, port: config.port, timeout: SMTP_TIMEOUT_MS }, () => resolve(s));
     s.once("error", reject);
   });
   try {
@@ -309,13 +335,23 @@ function escapeDotStuffing(body: string): string {
     .join(CRLF);
 }
 
-function buildMimeMessage(input: SmtpSendInput): string {
+function smtpHeaderValue(value: string, field: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`SMTP_INVALID_${field.toUpperCase()}_HEADER`);
+  return value;
+}
+
+export function buildSmtpMimeMessage(input: SmtpSendInput): string {
   const boundary = `scanym-gap01-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const encodedSubject = Buffer.from(smtpHeaderValue(input.subject, "subject"), "utf8").toString("base64");
+  const fromName = smtpHeaderValue(input.fromName?.trim() || "Scanym", "from-name");
+  const encodedFromName = Buffer.from(fromName, "utf8").toString("base64");
   const headers = [
-    `From: Scanym <${input.config.from}>`,
-    `To: ${input.to}`,
-    ...(input.cc ? [`Cc: ${input.cc}`] : []),
-    `Subject: ${input.subject}`,
+    `From: =?UTF-8?B?${encodedFromName}?= <${smtpHeaderValue(input.config.from, "from")}>`,
+    `To: ${smtpHeaderValue(input.to, "to")}`,
+    ...(input.replyTo ? [`Reply-To: ${smtpHeaderValue(input.replyTo, "reply-to")}`] : []),
+    ...(input.cc ? [`Cc: ${smtpHeaderValue(input.cc, "cc")}`] : []),
+    ...(input.messageId ? [`Message-ID: ${smtpHeaderValue(input.messageId, "message-id")}`] : []),
+    `Subject: =?UTF-8?B?${encodedSubject}?=`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].join(CRLF);
@@ -357,7 +393,7 @@ export const realSmtpTransport: SmtpTransport = {
         socket.write(`DATA${CRLF}`);
         expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "354");
 
-        const message = escapeDotStuffing(buildMimeMessage(input));
+        const message = escapeDotStuffing(buildSmtpMimeMessage(input));
         socket.write(`${message}${CRLF}.${CRLF}`);
         const dataResp = await readLine(socket, SMTP_TIMEOUT_MS);
         expectCode(dataResp, "250");
