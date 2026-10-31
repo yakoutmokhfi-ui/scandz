@@ -329,6 +329,17 @@ export async function updateRestaurantPhotoOverlay(restaurantId, overlay) {
   (globalThis).__photoOverlayCallLog.push({ restaurantId, overlay });
   return mutationCall("photoOverlay", restaurantId, undefined);
 }
+// Issue #200 -- produits en rupture visibles : lecture (fixture / panne injectée),
+// écriture journalisée dans son propre journal (hors ALL_KINDS).
+export async function getRestaurantShowUnavailable(restaurantId) {
+  const failure = (globalThis).__showUnavailableLoadFailure && (globalThis).__showUnavailableLoadFailure[restaurantId];
+  if (failure) return Promise.reject(failure);
+  const v = (globalThis).__showUnavailableFallback && (globalThis).__showUnavailableFallback[restaurantId];
+  return v ?? false;
+}
+export async function updateRestaurantShowUnavailable(restaurantId, show) {
+  (globalThis).__showUnavailableCallLog.push({ restaurantId, show });
+}
 export async function getSupportedLanguages() {
   return (globalThis).__supportedLanguages ?? [
     { code: "fr", label: "Français", dir: "ltr" },
@@ -690,6 +701,9 @@ function resetCommonFixtures() {
   (globalThis as any).__photoOverlayFallback = {};
   (globalThis as any).__photoOverlayLoadFailure = {};
   (globalThis as any).__photoOverlayCallLog = [];
+  (globalThis as any).__showUnavailableCallLog = [];
+  (globalThis as any).__showUnavailableFallback = {};
+  (globalThis as any).__showUnavailableLoadFailure = {};
 }
 
 /** MERCHANT CUSTOMER COMMUNICATIONS v1 — le champ d'UN emplacement du
@@ -2503,4 +2517,60 @@ after(() => {
   delete (globalThis as any).__photoOverlayFallback;
   delete (globalThis as any).__photoOverlayLoadFailure;
   delete (globalThis as any).__photoOverlayCallLog;
+});
+
+// ====================================================================
+// Issue #200 -- réglage « Produits en rupture » (SO-series)
+// ====================================================================
+function soldOutBox(container: HTMLElement): HTMLInputElement {
+  const el = container.querySelector("[data-sold-out-option]") as HTMLInputElement | null;
+  assert.ok(el, "expected the sold-out checkbox");
+  return el!;
+}
+
+test("SO-1 — la valeur enregistrée est affichée ; une édition étrangère n'appelle jamais updateRestaurantShowUnavailable", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__showUnavailableFallback["resto-a"] = true;
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(soldOutBox(container).checked, true);
+  assert.equal(soldOutBox(container).disabled, false);
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__showUnavailableCallLog, []);
+  root.unmount();
+  container.remove();
+});
+
+test("SO-2 — cocher l'option écrit UNE fois la valeur exacte pour l'établissement courant ; un second envoi n'écrit rien", async () => {
+  setupSingleRestaurant();
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(soldOutBox(container).checked, false);
+  soldOutBox(container).click();
+  await flush(20);
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__showUnavailableCallLog, [{ restaurantId: "resto-a", show: true }]);
+  submitForm(container);
+  await flush(40);
+  assert.equal((globalThis as any).__showUnavailableCallLog.length, 1);
+  root.unmount();
+  container.remove();
+});
+
+test("SO-3 — lecture impossible (colonne non appliquée) : case désactivée, jamais écrite", async () => {
+  setupSingleRestaurant();
+  (globalThis as any).__showUnavailableLoadFailure["resto-a"] = new Error("column does not exist");
+  const { container, root } = render();
+  await waitSettled(container);
+  assert.equal(soldOutBox(container).disabled, true);
+  assert.ok(container.querySelector("[data-sold-out-disabled-note]"));
+  setFieldValue(colorFieldByLabel(container, t("stPrimaryColor")), "#a1b2c3");
+  submitForm(container);
+  await waitFor(() => hasText(container, t("stSaved")));
+  assert.deepEqual((globalThis as any).__showUnavailableCallLog, []);
+  root.unmount();
+  container.remove();
 });
