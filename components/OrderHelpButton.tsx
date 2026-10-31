@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n-context";
 import { resolveCommunicationText } from "@/lib/communications/resolve";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
+import { resolveTranslatedField } from "@/lib/translation-resolver";
+import type { OrderHelpTranslationSource } from "@/lib/services/merchant-communications";
 
 /**
  * THEME & CONTENT SETTINGS v1 — bouton + fenêtre d'aide « comment
@@ -29,13 +31,22 @@ import type { CommunicationTextOverrides } from "@/lib/communications/text-keys"
  */
 export default function OrderHelpButton({
   communicationTexts,
+  translatedTexts,
 }: {
   communicationTexts: CommunicationTextOverrides | null | undefined;
+  translatedTexts?: ReadonlyArray<OrderHelpTranslationSource>;
 }) {
+  const { lang, sourceLanguage } = useI18n();
   const identity = (k: string) => k;
-  const label = resolveCommunicationText("order_help_button_label", communicationTexts, identity).text;
-  const body = resolveCommunicationText("order_help_body", communicationTexts, identity).text;
-  const title = resolveCommunicationText("order_help_title", communicationTexts, identity).text ?? label;
+  const translateHelp = (key: OrderHelpTranslationSource["text_key"]) => {
+    const source = resolveCommunicationText(key, communicationTexts, identity).text;
+    const row = translatedTexts?.find((item) => item.text_key === key);
+    if (!source || !row) return source;
+    return resolveTranslatedField(source, row.body_hash, row.translations, lang, sourceLanguage, key) ?? source;
+  };
+  const label = translateHelp("order_help_button_label");
+  const body = translateHelp("order_help_body");
+  const title = translateHelp("order_help_title") ?? label;
 
   // Fermé au repos : sans libellé ET sans contenu, aucun élément -- et,
   // volontairement, AUCUN hook (donc aucun identifiant useId consommé :

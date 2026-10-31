@@ -243,6 +243,7 @@ export function buildTranslationImportPreview(
       "subcategory",
       "item",
       "customer_notice",
+      "order_help",
     ];
     if (verdict === "applicable" && !knownTypes.includes(entityType as TranslationEntityType)) {
       verdict = "unsupported_entity_type";

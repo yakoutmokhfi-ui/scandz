@@ -186,6 +186,7 @@ export async function signOut() {}`,
       return [{ menuItemId: "p-tomme", tagIds: ["t-bio"], tagNames: ["Bio"] }];
     }`,
   }),
+  "@/lib/services/merchant-communications": `export async function getMerchantOrderHelpTexts() { return []; }`,
 };
 
 const mockPlugin: esbuild.Plugin = {
