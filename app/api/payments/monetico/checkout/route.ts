@@ -175,6 +175,11 @@ export async function POST(request: NextRequest) {
         );
       case "provider_unavailable":
         return NextResponse.json({ outcome: "provider_unavailable" }, { status: 503 });
+      case "payment_decision_unavailable":
+        // ISSUE #172 / T180-01 : la décision « sans paiement en ligne »
+        // n'est pas acquise -> JAMAIS un 200 `checkout_not_needed`. 503 :
+        // la commande existe, la reprise est sûre (même commande).
+        return NextResponse.json({ outcome: "payment_decision_unavailable" }, { status: 503 });
       case "billing_required":
         // Signal DISTINCT et intentionnel (mandat v4 §8 : "FAIL
         // CHECKOUT CLEANLY") -- actionnable par un appelant légitime

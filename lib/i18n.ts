@@ -453,6 +453,9 @@ const fr: Dict = {
   // marchande -- jamais d'un second texte spécifique à l'e-mail.
   emailOrderReceivedMerchantLabel: "Commerçant :",
   emailOrderReceivedDeliveryAddressLabel: "Adresse de livraison :",
+  // ISSUE #172 — créneau, rendu UNIQUEMENT si le snapshot le porte.
+  emailOrderReceivedSlotLabelPickup: "Créneau de retrait :",
+  emailOrderReceivedSlotLabelDelivery: "Créneau de livraison :",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — textes de BASE PLATEFORME,
   // génériques et identiques pour tous les commerçants. Ils sont le
@@ -576,6 +579,7 @@ const fr: Dict = {
   paymentBillingCancel: "Annuler",
   paymentRedirecting: "Redirection vers la page de paiement sécurisée…",
   paymentUnavailable: "Votre commande est enregistrée mais le paiement en ligne n'a pas pu démarrer. Réessayez dans un instant.",
+  paymentDecisionUnavailable: "Votre commande est enregistrée mais nous n'avons pas pu la finaliser. Réessayez dans un instant.",
   paymentBillingInvalid: "Adresse de facturation refusée : vérifiez la rue, le code postal, la ville et le pays.",
   paymentRetry: "Réessayer le paiement",
   noteLabel: "Note pour le restaurant (facultatif)",
@@ -1901,6 +1905,9 @@ const en: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "Merchant:",
   emailOrderReceivedDeliveryAddressLabel: "Delivery address:",
+  // ISSUE #172 — time slot, rendered ONLY when the snapshot carries it.
+  emailOrderReceivedSlotLabelPickup: "Pickup time slot:",
+  emailOrderReceivedSlotLabelDelivery: "Delivery time slot:",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — platform BASE texts.
   commCarrierPreparedDefault:
@@ -2014,6 +2021,7 @@ const en: Dict = {
   paymentBillingCancel: "Cancel",
   paymentRedirecting: "Redirecting to the secure payment page…",
   paymentUnavailable: "Your order is recorded but the online payment could not start. Please try again in a moment.",
+  paymentDecisionUnavailable: "Your order is recorded but we could not finalize it. Please try again in a moment.",
   paymentBillingInvalid: "Billing address rejected: check the street, postcode, city and country.",
   paymentRetry: "Retry payment",
   noteLabel: "Note for the restaurant (optional)",
@@ -3259,6 +3267,9 @@ const ar: Dict = {
   // CUSTOMER FOLLOW-UP + TRACKING EMAIL v1.
   emailOrderReceivedMerchantLabel: "التاجر:",
   emailOrderReceivedDeliveryAddressLabel: "عنوان التوصيل:",
+  // ISSUE #172 — الفترة الزمنية، تُعرض فقط إذا كانت اللقطة تحملها.
+  emailOrderReceivedSlotLabelPickup: "موعد الاستلام:",
+  emailOrderReceivedSlotLabelDelivery: "موعد التوصيل:",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — نصوص المنصة الأساسية.
   commCarrierPreparedDefault:
@@ -3370,6 +3381,7 @@ const ar: Dict = {
   paymentBillingCancel: "إلغاء",
   paymentRedirecting: "جارٍ التحويل إلى صفحة الدفع الآمنة…",
   paymentUnavailable: "تم تسجيل طلبك لكن تعذّر بدء الدفع عبر الإنترنت. يرجى المحاولة بعد قليل.",
+  paymentDecisionUnavailable: "تم تسجيل طلبك لكن تعذّر إتمامه. يرجى المحاولة بعد قليل.",
   paymentBillingInvalid: "تم رفض عنوان الفوترة: تحقق من الشارع والرمز البريدي والمدينة والبلد.",
   paymentRetry: "إعادة محاولة الدفع",
   noteLabel: "ملاحظة للمطعم (اختياري)",

@@ -258,6 +258,10 @@ test("paymentStatus='not_required' SANS configuration activée+vérifiée -- 'ch
           ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
         get_payment_runtime_provider_environment: () =>
           ok({ provider_code: "monetico", mode: "test", ...env }),
+        // ISSUE #172 / T180-01 : `checkout_not_needed` n'est rendu QUE si la
+        // base confirme la décision définitive « sans paiement en ligne ».
+        finalize_order_payment_mode_none: () =>
+          ok({ payment_status: "not_required", payment_mode_final: "none" }),
       });
       const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
       assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
@@ -293,22 +297,33 @@ test("P4-A : la base REFUSE la transition (commande déjà acceptée / total 0 /
       get_order_payment_context: () =>
         ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
       require_order_payment: () => ok({ payment_status: "not_required", changed: false }),
+      // ISSUE #172 / T180-01 : décision définitive confirmée par la base.
+      finalize_order_payment_mode_none: () =>
+        ok({ payment_status: "not_required", payment_mode_final: "none" }),
     });
     const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
     assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
     assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
   }));
 
-test("P4-A : require_order_payment renvoie un ensemble VIDE (possession non prouvée) -- 'checkout_not_needed', initiate JAMAIS appelée", async (t) =>
+// ISSUE #172 / T180-01 (contre-audit PR #180) : AVANT, un ensemble vide de
+// require_order_payment (possession non prouvée) concluait à
+// `checkout_not_needed` -- un faux succès : la boutique confirmait une
+// commande dont la base n'avait rien décidé. La décision « sans paiement »
+// exige désormais la confirmation de finalize_order_payment_mode_none, qui
+// applique la MÊME preuve de possession (id + public_token) et renvoie donc
+// elle aussi un ensemble vide : la décision n'est pas acquise.
+test("P4-A : require_order_payment renvoie un ensemble VIDE (possession non prouvée) -- finalize vide aussi -> 'payment_decision_unavailable' (jamais 'checkout_not_needed'), initiate JAMAIS appelée", async (t) =>
   withEnabledKillSwitch(async () => {
     const calls = routeRpc(t, {
       ...freshReadyHandlers(),
       get_order_payment_context: () =>
         ok({ restaurant_id: "resto-1", payment_status: "not_required" }),
       require_order_payment: () => ({ data: [], error: null }),
+      finalize_order_payment_mode_none: () => ({ data: [], error: null }),
     });
     const result = await initiateCheckout({ orderId: "order-1", publicToken: "tok-1" });
-    assert.deepEqual(result, { outcome: "checkout_not_needed", reason: "not_required" });
+    assert.deepEqual(result, { outcome: "payment_decision_unavailable" });
     assert.ok(!calls.some((c) => c.name === "initiate_payment_attempt"));
   }));
 

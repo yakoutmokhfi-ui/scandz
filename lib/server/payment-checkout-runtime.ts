@@ -10,6 +10,8 @@ import {
   getPaymentProviderCredential,
   initiatePaymentAttempt,
   requireOrderPayment,
+  finalizeOrderPaymentModeNone,
+  type FinalizeOrderPaymentModeResult,
   type PaymentProviderRuntimeMode,
 } from "@/lib/server/payment-service";
 import { parseMoneticoCredential } from "@/lib/server/payment-providers/monetico/credentials";
@@ -130,6 +132,18 @@ export interface InitiateCheckoutInput {
 export type InitiateCheckoutResult =
   | { outcome: "checkout_not_needed"; reason: "already_paid" | "not_required" }
   | { outcome: "provider_unavailable" }
+  | {
+      /**
+       * ISSUE #172 / T180-01 -- la décision « sans paiement en ligne » n'a
+       * PAS pu être rendue définitive (erreur ou exception de la base,
+       * ensemble vide, ou commande déjà sortie de `not_required`). Le
+       * parcours client NE DOIT PAS confirmer la commande : la route
+       * répond en échec (503) et la boutique garde la commande en reprise
+       * (même commande, jamais un second create_order). Distinct de
+       * `provider_unavailable` (panne du prestataire de paiement).
+       */
+      outcome: "payment_decision_unavailable";
+    }
   | { outcome: "billing_required" }
   | {
       /**
@@ -187,6 +201,30 @@ export type InitiateCheckoutResult =
        *  gardé explicitement non bloquant). */
       resumed: boolean;
     };
+
+/**
+ * ISSUE #172 / T180-01 -- traduit la décision de finalisation en issue de
+ * checkout. Seules deux issues autorisent le parcours « sans paiement »
+ * (confirmation, WhatsApp, panier vidé) : la décision définitive acquise
+ * (`final_none`) et une commande déjà payée. Tout le reste -- échec,
+ * ensemble vide, commande devenue required/pending/failed/cancelled --
+ * est une décision NON acquise : `payment_decision_unavailable`. La reprise
+ * du client rejoue alors le checkout sur la même commande ; si la commande
+ * est entre-temps passée à required/pending, le chemin normal (reprise de
+ * la tentative) prend le relais -- jamais une confirmation à tort.
+ */
+function resolveNoOnlinePaymentDecision(decision: FinalizeOrderPaymentModeResult): InitiateCheckoutResult {
+  switch (decision.kind) {
+    case "final_none":
+      return { outcome: "checkout_not_needed", reason: "not_required" };
+    case "already_paid":
+      return { outcome: "checkout_not_needed", reason: "already_paid" };
+    case "payment_due":
+    case "unavailable":
+    default:
+      return { outcome: "payment_decision_unavailable" };
+  }
+}
 
 /**
  * Orchestration d'initiation de checkout. Idempotente par construction
@@ -253,7 +291,12 @@ export async function initiateCheckout(
       providerCode: PROVIDER_CODE,
     });
     if (!gate.isEnabled || gate.configurationStatus !== "verified") {
-      return { outcome: "checkout_not_needed", reason: "not_required" };
+      // ISSUE #172 : décision définitive « sans paiement en ligne » -- c'est
+      // elle (et non un délai) qui rend l'e-mail de confirmation éligible.
+      // T180-01 : le RÉSULTAT décide de la sortie ; il n'est jamais ignoré.
+      return resolveNoOnlinePaymentDecision(
+        await finalizeOrderPaymentModeNone({ orderId: input.orderId, publicToken: input.publicToken })
+      );
     }
     const required = await requireOrderPayment({
       orderId: input.orderId,
@@ -261,7 +304,9 @@ export async function initiateCheckout(
       providerCode: PROVIDER_CODE,
     });
     if (required === null || required.paymentStatus !== "required") {
-      return { outcome: "checkout_not_needed", reason: "not_required" };
+      return resolveNoOnlinePaymentDecision(
+        await finalizeOrderPaymentModeNone({ orderId: input.orderId, publicToken: input.publicToken })
+      );
     }
   }
 

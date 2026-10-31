@@ -101,6 +101,23 @@ export interface OrderReceivedTemplateInput {
    * lot refuse.
    */
   merchantBody?: string | null;
+  /**
+   * ISSUE #172 — date et créneau de retrait/livraison, tels que FIGÉS dans
+   * le snapshot (`fulfillment_date` / `fulfillment_slot`). Absents (`null`/
+   * vides) tant que la commande ne porte pas de créneau : la ligne est alors
+   * ABSENTE du message -- jamais rendue vide, jamais une date inventée.
+   */
+  fulfillmentDate?: string | null;
+  fulfillmentSlot?: string | null;
+  /**
+   * ISSUE #172 — éligibilité à la rétractation LUE dans le snapshot
+   * (`withdrawal_eligible`, instantané par ligne pris à la commande). Vrai :
+   * un second lien explicite, MÊME cible que le lien de suivi (la page de
+   * suivi porte l'écran de rétractation existant), avec le libellé déjà
+   * employé par cet écran. Aucune règle, délai ni condition n'est écrit dans
+   * l'e-mail.
+   */
+  withdrawalEligible?: boolean;
 }
 
 export interface RenderedEmail {
@@ -119,6 +136,46 @@ function fulfillmentKey(serviceMode: string): string {
     default:
       return "emailOrderReceivedFulfillmentPickup";
   }
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+function intlLocale(locale: string): string {
+  switch (locale) {
+    case "en":
+      return "en-GB";
+    case "ar":
+      return "ar";
+    default:
+      return "fr-FR";
+  }
+}
+
+/**
+ * ISSUE #172 — texte d'affichage « date, créneau » à partir de valeurs déjà
+ * FIGÉES sur la commande. Une date `YYYY-MM-DD` est mise en forme à midi UTC
+ * (jamais d'heure locale qui décalerait le jour) ; toute autre forme est
+ * rendue telle quelle plutôt que réinterprétée. Rien -> `null`.
+ */
+export function formatFulfillmentSchedule(
+  locale: string,
+  date: string | null | undefined,
+  slot: string | null | undefined
+): string | null {
+  const d = date?.trim() || "";
+  const s = slot?.trim() || "";
+  let datePart = d;
+  if (DATE_ONLY.test(d)) {
+    const parsed = new Date(`${d}T12:00:00Z`);
+    if (!Number.isNaN(parsed.getTime())) {
+      datePart = new Intl.DateTimeFormat(intlLocale(locale), {
+        dateStyle: "full",
+        timeZone: "UTC",
+      }).format(parsed);
+    }
+  }
+  const parts = [datePart, s].filter((part) => part !== "");
+  return parts.length > 0 ? parts.join(", ") : null;
 }
 
 export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): RenderedEmail {
@@ -163,6 +220,20 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   );
   const trackingUrl = `${resolveCanonicalPublicOrigin()}${trackingPath}`;
 
+  // ISSUE #172 — créneau (uniquement si figé sur la commande) et lien de
+  // rétractation explicite (uniquement si l'instantané l'autorise).
+  const scheduleText = formatFulfillmentSchedule(
+    input.locale,
+    input.fulfillmentDate,
+    input.fulfillmentSlot
+  );
+  const scheduleLabel = t(
+    input.serviceMode === "delivery"
+      ? "emailOrderReceivedSlotLabelDelivery"
+      : "emailOrderReceivedSlotLabelPickup"
+  );
+  const withdrawalLabel = t("withdrawalEntryAction");
+
   const html = [
     `<!doctype html>`,
     `<html lang="${escapeHtml(input.locale)}">`,
@@ -172,12 +243,16 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
     `<p>${escapeHtml(merchantLabel)} ${escapeHtml(input.merchantName)}</p>`,
     `<p>${escapeHtml(orderNumberLine)}</p>`,
     `<p>${escapeHtml(fulfillment)}</p>`,
+    ...(scheduleText ? [`<p>${escapeHtml(scheduleLabel)} ${escapeHtml(scheduleText)}</p>`] : []),
     ...(statusText ? [`<p>${escapeHtml(statusText)}</p>`] : []),
     `<p>${escapeHtml(totalLabel)} ${escapeHtml(totalFormatted)}</p>`,
     ...(deliveryAddress
       ? [`<p>${escapeHtml(deliveryAddressLabel)} ${escapeHtml(deliveryAddress)}</p>`]
       : []),
     `<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(cta)}</a></p>`,
+    ...(input.withdrawalEligible === true
+      ? [`<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(withdrawalLabel)}</a></p>`]
+      : []),
     `<p>${escapeHtml(thanks)}</p>`,
     `<p><small>${escapeHtml(footer)}</small></p>`,
     `</body>`,
@@ -190,10 +265,12 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
     `${merchantLabel} ${input.merchantName}`,
     orderNumberLine,
     fulfillment,
+    ...(scheduleText ? [`${scheduleLabel} ${scheduleText}`] : []),
     ...(statusText ? [statusText] : []),
     `${totalLabel} ${totalFormatted}`,
     ...(deliveryAddress ? [`${deliveryAddressLabel} ${deliveryAddress}`] : []),
     `${cta}: ${trackingUrl}`,
+    ...(input.withdrawalEligible === true ? [`${withdrawalLabel}: ${trackingUrl}`] : []),
     thanks,
     footer,
   ].join("\n");

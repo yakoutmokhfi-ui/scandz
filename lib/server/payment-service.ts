@@ -605,6 +605,60 @@ export async function requireOrderPayment(
 }
 
 /**
+ * ORDER_RECEIVED PAYMENT GATE v1 (issue #172) -- rend DÉFINITIF le mode
+ * « sans paiement en ligne » d'une commande encore `not_required`, via
+ * `public.finalize_order_payment_mode_none` (SQL DRAFT
+ * supabase/DRAFT-lot-order-received-payment-gate-v1.sql). Tant que ce mode
+ * n'est pas final, l'e-mail de confirmation n'est pas éligible ; une fois
+ * final, un passage à `required` est refusé côté base.
+ *
+ * RÉSULTAT EXPLOITÉ PAR L'APPELANT (T180-01) : cette fonction ne renvoie
+ * plus un booléen que l'on peut ignorer, mais la DÉCISION que la base a
+ * réellement prise. Un appelant ne peut sortir du parcours « sans paiement »
+ * que sur `final_none` (ou `already_paid`). Toute autre issue -- erreur,
+ * exception, ensemble vide, commande déjà passée à required/pending/failed/
+ * cancelled, forme inattendue -- est `unavailable` ou `payment_due` : la
+ * décision n'est PAS acquise, et le parcours client doit rester en échec
+ * explicite avec reprise sur la même commande. Aucun détail d'erreur
+ * (code, message, jeton) n'est renvoyé ni journalisé ici.
+ */
+export type FinalizeOrderPaymentModeResult =
+  /** `not_required` + `payment_mode_final = none` : décision définitive acquise. */
+  | { kind: "final_none" }
+  /** La commande est déjà payée : rien à finaliser, confirmation légitime. */
+  | { kind: "already_paid" }
+  /** La commande est sortie de `not_required` (required/pending/failed/cancelled) : le paiement est dû ou a eu lieu hors de ce chemin. */
+  | { kind: "payment_due"; paymentStatus: string }
+  /** Erreur, exception, ensemble vide ou forme inattendue : décision non acquise. */
+  | { kind: "unavailable" };
+
+export async function finalizeOrderPaymentModeNone(input: {
+  orderId: string;
+  publicToken: string;
+}): Promise<FinalizeOrderPaymentModeResult> {
+  try {
+    const client = getServiceRoleSupabaseClient();
+    const { data, error } = await client.rpc("finalize_order_payment_mode_none", {
+      p_order_id: input.orderId,
+      p_public_token: input.publicToken,
+    });
+    if (error) return { kind: "unavailable" };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row === null || typeof row !== "object") return { kind: "unavailable" };
+    const status = (row as { payment_status?: unknown }).payment_status;
+    const mode = (row as { payment_mode_final?: unknown }).payment_mode_final;
+    if (status === "not_required" && mode === "none") return { kind: "final_none" };
+    if (status === "paid") return { kind: "already_paid" };
+    if (status === "required" || status === "pending" || status === "failed" || status === "cancelled") {
+      return { kind: "payment_due", paymentStatus: status };
+    }
+    return { kind: "unavailable" };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
+/**
  * Vérifie la possession client anonyme (`order_id` + `public_token`,
  * modèle EXACT déjà établi par `mark_whatsapp_opened`/
  * `get_order_payment_status`) et renvoie le couple minimal

@@ -1,7 +1,8 @@
 import "server-only";
 import { getOrderPaymentStatusSnapshot } from "@/lib/server/payment-service";
 import { verifyReturnRelayToken } from "@/lib/server/payment-return-relay";
-import { buildTrackingPath } from "@/lib/tracking/link";
+import { buildCapabilityTrackingPath, buildTrackingPath } from "@/lib/tracking/link";
+import { issueOrderReturnTrackingCapability } from "@/lib/server/return-tracking-capability";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — PAGES DE RETOUR.
@@ -81,25 +82,44 @@ export async function resolvePaymentReturnStatus(
 
   // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : `publicToken` a déjà
   // été vérifié ci-dessus (issu du jeton de relais décodé, jamais du
-  // query string en clair) -- ce chemin, PAS de SQL supplémentaire.
-  const trackingPath = buildTrackingPath(orderId, publicToken);
+  // query string en clair).
+  //
+  // RETURN TRACKING CAPABILITY v1 (issue #172) : le lien legacy
+  // `/track/<id>#<public_token>` n'est échangeable qu'UNE FOIS
+  // (`upgrade_legacy_tracking_capability`). Pour qu'un client qui a déjà
+  // ouvert le suivi, ou qui revient de la banque dans un autre navigateur,
+  // ne tombe pas sur « lien invalide » -- et ne perde pas l'écran de
+  // rétractation --, on émet ici une capacité RÉUTILISABLE, comme pour
+  // l'e-mail de commande. Le lien legacy reste le repli : SQL non encore
+  // appliqué, panne ou plafond atteint => `buildTrackingPath`, comportement
+  // d'avant. Aucun lien réutilisable pour un paiement refusé/annulé.
+  const legacyTrackingPath = buildTrackingPath(orderId, publicToken);
 
   switch (snapshot.paymentStatus) {
     case "paid":
-      return { kind: "paid", trackingPath };
+      return { kind: "paid", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath) };
     case "pending":
     // PAYMENT P4-A : `required` = paiement exigé mais aucune tentative
     // encore initiée (retour navigateur avant/sans initiation) -- pas un
     // échec, pas un paiement : traité comme « en cours », jamais comme
     // refusé.
     case "required":
-      return { kind: "pending", trackingPath };
+      return { kind: "pending", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath) };
     case "not_required":
-      return { kind: "not_required", trackingPath };
+      return {
+        kind: "not_required",
+        trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath),
+      };
     default:
       // "failed"/"cancelled" -- gérée uniquement par robustesse
       // (état antérieur/legacy/ops), structurellement inatteignable via
       // un simple refus/abandon (INCHANGÉ, voir payment-callback-runtime.ts).
-      return { kind: "failed_or_cancelled", trackingPath };
+      return { kind: "failed_or_cancelled", trackingPath: legacyTrackingPath };
   }
+}
+
+async function reusableOrLegacyPath(orderId: string, legacyPath: string): Promise<string> {
+  const capability = await issueOrderReturnTrackingCapability(orderId);
+  if (!capability) return legacyPath;
+  return buildCapabilityTrackingPath(orderId, capability.capabilityId, capability.secret);
 }

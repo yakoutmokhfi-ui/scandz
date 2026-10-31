@@ -21,7 +21,11 @@
  *   - `billing_invalid`  : adresse refusée par le serveur ;
  *   - `unavailable`      : prestataire/serveur indisponible, ou module
  *                          désactivé -- la commande EXISTE mais n'a pas
- *                          pu être mise en paiement.
+ *                          pu être mise en paiement ;
+ *   - `decision_unavailable` : (issue #172) le serveur n'a pas pu rendre
+ *                          définitive la décision « sans paiement en
+ *                          ligne » -- la commande EXISTE, elle n'est PAS
+ *                          confirmée ; reprise sur la même commande.
  */
 
 export type CheckoutBillingInput =
@@ -50,6 +54,7 @@ export type StartCheckoutOutcome =
   | { kind: "ready"; submissionUrl: string; fields: Record<string, string> }
   | { kind: "billing_required" }
   | { kind: "billing_invalid" }
+  | { kind: "decision_unavailable" }
   | { kind: "unavailable" };
 
 function isRecordOfStrings(value: unknown): value is Record<string, string> {
@@ -89,6 +94,9 @@ export async function startOnlineCheckout(params: StartCheckoutParams): Promise<
       return { kind: "ready", submissionUrl: data.submissionUrl, fields: data.fields };
     }
     return { kind: "unavailable" };
+  }
+  if (response.status === 503 && data?.outcome === "payment_decision_unavailable") {
+    return { kind: "decision_unavailable" };
   }
   if (response.status === 409 && data?.outcome === "billing_required") {
     return { kind: "billing_required" };
