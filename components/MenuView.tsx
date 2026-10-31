@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isWhatsappEnabled } from "@/lib/customer-contact";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
 import {
@@ -66,6 +66,13 @@ import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
+import ProductSearch from "@/components/ProductSearch";
+import {
+  PRODUCT_SEARCH_MIN_ITEMS,
+  PRODUCT_SEARCH_PAGE_SIZE,
+  buildProductSearchIndex,
+  searchProducts,
+} from "@/lib/product-search";
 import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
 import MenuItemCard from "@/components/MenuItemCard";
@@ -975,6 +982,48 @@ export default function MenuView({
   const activeCollectionItems = useMemo(
     () => selectCollectionItems(restaurant.categories, activeCollection),
     [restaurant.categories, activeCollection]
+  );
+
+  // RECHERCHE DE PRODUITS (issue #169, PR #201).
+  // Portée : le catalogue de l'établissement AFFICHÉ (`restaurant.categories`),
+  // jamais autre chose. La requête est rattachée à l'identifiant de
+  // l'établissement : si MenuView est réutilisé pour un autre établissement
+  // sans démontage, la saisie de l'ancien ne s'applique pas au nouveau.
+  // Quand une recherche est active elle est GLOBALE (toutes les catégories) et
+  // prime sur catégorie, sous-catégorie et collection, dont les sélections ne sont
+  // ni lues ni réécrites : effacer la recherche ramène exactement la vue d'avant.
+  // Le panier est un état indépendant : il n'est jamais touché.
+  const [searchState, setSearchState] = useState({
+    restaurantId: restaurant.id,
+    query: "",
+    pages: 1,
+  });
+  const searchQuery = searchState.restaurantId === restaurant.id ? searchState.query : "";
+  const searchPages = searchState.restaurantId === restaurant.id ? searchState.pages : 1;
+  function setSearchQuery(query: string) {
+    setSearchState({ restaurantId: restaurant.id, query, pages: 1 });
+  }
+  function showMoreSearchResults() {
+    setSearchState({ restaurantId: restaurant.id, query: searchQuery, pages: searchPages + 1 });
+  }
+  const searchSourceLanguage = (restaurant.config.source_language ?? "fr") as Lang;
+  const searchIndex = useMemo(
+    () => buildProductSearchIndex(restaurant.categories, lang, searchSourceLanguage),
+    [restaurant.categories, lang, searchSourceLanguage]
+  );
+  const searchEnabled = searchIndex.length >= PRODUCT_SEARCH_MIN_ITEMS;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const searchResult = useMemo(
+    () =>
+      searchEnabled
+        ? searchProducts(
+            restaurant.categories,
+            searchIndex,
+            deferredSearchQuery,
+            searchPages * PRODUCT_SEARCH_PAGE_SIZE
+          )
+        : null,
+    [searchEnabled, restaurant.categories, searchIndex, deferredSearchQuery, searchPages]
   );
 
   // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
@@ -2184,12 +2233,21 @@ export default function MenuView({
           mt-3 -> mt-1, sections mt-7 -> mt-5) et wrapper des collections
           rendu UNIQUEMENT s'il existe des collections (CollectionNav
           renvoie null sinon) : plus de marge vide avant les catégories. */}
+      {searchEnabled && (
+        <div className="mt-3">
+          <ProductSearch value={searchQuery} onChange={setSearchQuery} />
+        </div>
+      )}
+
       {collections.length > 0 && (
       <div className="mt-3">
         <CollectionNav
           collections={collections}
-          activeId={activeCollection?.id ?? null}
-          onSelect={setActiveCollectionId}
+          activeId={searchResult ? null : (activeCollection?.id ?? null)}
+          onSelect={(id) => {
+            setSearchQuery("");
+            setActiveCollectionId(id);
+          }}
           navLabel={t("collectionsNavLabel")}
         />
       </div>
@@ -2198,8 +2256,11 @@ export default function MenuView({
       <div className={collections.length > 0 ? "mt-1" : "mt-3"}>
         <CategoryNav
           categories={restaurant.categories}
-          activeId={activeCollection ? "" : activeCategoryId}
-          onSelect={changeActiveCategory}
+          activeId={activeCollection || searchResult ? "" : activeCategoryId}
+          onSelect={(id) => {
+            setSearchQuery("");
+            changeActiveCategory(id);
+          }}
           variant={menuVariant}
         />
       </div>
@@ -2211,7 +2272,56 @@ export default function MenuView({
             <button type="button" className="underline" onClick={dismissCartAdjusted}>{t("cartRestoreDismiss")}</button>
           </div>
         )}
-        {!activeCollection && activeCategory && (
+        {searchResult && (
+          <section className="mt-5" data-product-search-results="true">
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-sm text-stone-700"
+              data-product-search-status="true"
+            >
+              {searchResult.total === 0
+                ? t("productSearchNoResults", { query: deferredSearchQuery.trim() })
+                : t(
+                    searchResult.total === 1 ? "productSearchResultsOne" : "productSearchResultsMany",
+                    { n: searchResult.total }
+                  )}
+            </p>
+            {searchResult.total === 0 && (
+              <button
+                type="button"
+                data-product-search-reset="true"
+                onClick={() => setSearchQuery("")}
+                className="mt-3 rounded-full border border-espresso/20 px-4 py-2 text-sm font-medium"
+              >
+                {t("productSearchClear")}
+              </button>
+            )}
+            {searchResult.groups.map(({ category, items }) => (
+              <div key={category.id} className="mt-5" data-product-search-category={category.id}>
+                <h2
+                  dir="auto"
+                  className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg"
+                >
+                  {tName(category, lang, searchSourceLanguage)}
+                </h2>
+                <div className="mt-1.5 h-px w-12 bg-gold" />
+                <div className="mt-4 space-y-4">{items.map(renderMenuItem)}</div>
+              </div>
+            ))}
+            {searchResult.shown < searchResult.total && (
+              <button
+                type="button"
+                data-product-search-more="true"
+                onClick={showMoreSearchResults}
+                className="mt-6 w-full rounded-full border border-espresso/20 px-4 py-3 text-sm font-medium"
+              >
+                {t("productSearchShowMore")}
+              </button>
+            )}
+          </section>
+        )}
+        {!searchResult && !activeCollection && activeCategory && (
           <section className="mt-5">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
@@ -2276,7 +2386,7 @@ export default function MenuView({
             </div>
           </section>
         )}
-        {activeCollection && (
+        {!searchResult && activeCollection && (
           <section className="mt-5" data-customer-collection-view="true">
             <h2
               dir="auto"
