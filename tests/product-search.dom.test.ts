@@ -510,6 +510,49 @@ test("[PS-14] combiné avec sous-catégorie et collection : la recherche prime, 
   } finally { done(view); }
 });
 
+test("[PS-15] A -> B -> A avec la MÊME instance de MenuView : la saisie et la pagination sont réellement réinitialisées, jamais ressorties", async (t) => {
+  mockRpc(t);
+  const many = Array.from({ length: 95 }, (_, i) => item(`i-many-${i}`, "c-fromages", `Tomme numéro ${i}`));
+  const a = () => fromagerie({ id: "r-a", slug: "a-test", extraItems: many });
+  const b = () => fromagerie({ id: "r-b", slug: "b-test" });
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  clearTestCartSession(window.sessionStorage);
+  root.render(React.createElement(MenuView, { restaurant: a() }));
+  await flush(60);
+  try {
+    await type(container, "tomme");
+    await waitFor(() => names(container).length === 40, "40 résultats chez A", 5000);
+    click(container.querySelector('[data-product-search-more="true"]')!);
+    await waitFor(() => names(container).length === 80, "80 résultats chez A", 5000);
+
+    // A -> B : rien de la recherche de A, ni à l'écran immédiat ni après stabilisation.
+    root.render(React.createElement(MenuView, { restaurant: b() }));
+    await flush(0);
+    assert.equal(searchInput(container)!.value, "");
+    assert.equal(resultsSection(container), null, "aucun résultat de A peint chez B");
+    await flush(80);
+    assert.equal(searchInput(container)!.value, "");
+    assert.equal(resultsSection(container), null);
+    assert.doesNotMatch(mainText(container), /Tomme numéro/);
+
+    // B -> A : la saisie de A n'est PAS ressortie.
+    root.render(React.createElement(MenuView, { restaurant: a() }));
+    await flush(0);
+    assert.equal(searchInput(container)!.value, "", "la saisie de A ne revient pas");
+    assert.equal(resultsSection(container), null);
+    await flush(80);
+    assert.equal(searchInput(container)!.value, "");
+    assert.equal(resultsSection(container), null);
+    assert.match(mainText(container), /Raclette fumée/, "vitrine normale de A");
+
+    // La pagination est repartie de zéro.
+    await type(container, "tomme");
+    await waitFor(() => names(container).length === 40, "retour à 40 résultats (pagination réinitialisée)", 5000);
+  } finally { root.unmount(); container.remove(); clearTestCartSession(window.sessionStorage); }
+});
+
 after(async () => {
   window.close();
   await esbuild.stop();

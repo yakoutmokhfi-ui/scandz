@@ -987,8 +987,15 @@ export default function MenuView({
   // RECHERCHE DE PRODUITS (issue #169, PR #201).
   // Portée : le catalogue de l'établissement AFFICHÉ (`restaurant.categories`),
   // jamais autre chose. La requête est rattachée à l'identifiant de
-  // l'établissement : si MenuView est réutilisé pour un autre établissement
-  // sans démontage, la saisie de l'ancien ne s'applique pas au nouveau.
+  // l'établissement ET RÉINITIALISÉE dès que celui-ci change : si MenuView est
+  // réutilisé pour un autre établissement sans démontage, la saisie de l'ancien
+  // ne s'applique pas au nouveau et ne revient pas non plus au retour sur
+  // l'ancien (séquence A -> B -> A). La réinitialisation est faite PENDANT le
+  // rendu (mise à jour d'état autorisée par React pour dériver un état d'une
+  // prop) : aucun rendu intermédiaire ne peint la saisie de l'autre
+  // établissement. La valeur différée est rattachée à l'établissement de la
+  // même façon, pour qu'un retard de rendu ne ressorte jamais la requête de
+  // l'ancien établissement sur le nouveau.
   // Quand une recherche est active elle est GLOBALE (toutes les catégories) et
   // prime sur catégorie, sous-catégorie et collection, dont les sélections ne sont
   // ni lues ni réécrites : effacer la recherche ramène exactement la vue d'avant.
@@ -998,13 +1005,15 @@ export default function MenuView({
     query: "",
     pages: 1,
   });
+  if (searchState.restaurantId !== restaurant.id) {
+    setSearchState({ restaurantId: restaurant.id, query: "", pages: 1 });
+  }
   const searchQuery = searchState.restaurantId === restaurant.id ? searchState.query : "";
-  const searchPages = searchState.restaurantId === restaurant.id ? searchState.pages : 1;
   function setSearchQuery(query: string) {
     setSearchState({ restaurantId: restaurant.id, query, pages: 1 });
   }
   function showMoreSearchResults() {
-    setSearchState({ restaurantId: restaurant.id, query: searchQuery, pages: searchPages + 1 });
+    setSearchState({ restaurantId: restaurant.id, query: searchQuery, pages: searchState.pages + 1 });
   }
   const searchSourceLanguage = (restaurant.config.source_language ?? "fr") as Lang;
   const searchIndex = useMemo(
@@ -1012,7 +1021,10 @@ export default function MenuView({
     [restaurant.categories, lang, searchSourceLanguage]
   );
   const searchEnabled = searchIndex.length >= PRODUCT_SEARCH_MIN_ITEMS;
-  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredSearch = useDeferredValue(searchState);
+  const deferredForThisRestaurant = deferredSearch.restaurantId === restaurant.id;
+  const deferredSearchQuery = deferredForThisRestaurant ? deferredSearch.query : "";
+  const searchPages = deferredForThisRestaurant ? deferredSearch.pages : 1;
   const searchResult = useMemo(
     () =>
       searchEnabled
