@@ -13,7 +13,7 @@ const CATEGORY = "44444444-4444-4444-8444-444444444444";
 const migration = readFileSync("supabase/DRAFT-lot-storefront-tag-translations-v1.sql", "utf8");
 const rollback = readFileSync("supabase/DRAFT-lot-storefront-tag-translations-v1-rollback.sql", "utf8");
 
-async function setup() {
+async function setup(sql = migration) {
   const pg = new PGlite();
   await pg.exec(`
     create role anon; create role authenticated;
@@ -40,7 +40,7 @@ async function setup() {
   const end=source.indexOf('end $$;',start);
   assert.ok(start>=0 && end>start, 'la fonction publique existante est présente');
   await pg.exec(source.slice(start,end+'end $$;'.length));
-  await pg.exec(migration);
+  await pg.exec(sql);
   return pg;
 }
 
@@ -103,5 +103,27 @@ test("rollback succeeds when empty and refuses modified functions", async () => 
   await pg.exec("alter function public.get_public_tag_translations(uuid) called on null input");
   await pg.exec(rollback);
   assert.equal((await pg.query<{t:string | null}>("select to_regclass('public.menu_tag_translations')::text as t")).rows[0]!.t,null);
+  await pg.close();
+});
+
+test("AUD202-01: an empty installation using CRLF can be rolled back", async () => {
+  const pg = await setup(migration.replace(/\r?\n/g, "\r\n"));
+  const functions = await pg.query<{name:string;has_crlf:boolean}>(`select proname as name, position(chr(13)||chr(10) in prosrc)>0 as has_crlf from pg_proc where oid in (
+    'public.get_merchant_tag_translations(uuid)'::regprocedure,
+    'public.get_public_tag_translations(uuid)'::regprocedure,
+    'public.write_tag_translation(uuid,uuid,text,text,text,text)'::regprocedure)`);
+  assert.equal(functions.rows.length, 3);
+  assert.ok(functions.rows.every((row) => row.has_crlf));
+  await pg.exec(rollback);
+  assert.equal((await pg.query<{t:string | null}>("select to_regclass('public.menu_tag_translations')::text as t")).rows[0]!.t,null);
+  await pg.close();
+});
+
+test("AUD202-01: mixed line endings and altered function bodies remain protected", async () => {
+  const mixed = migration.replace("perform public.assert_tag_admin(p_restaurant_id);\n", "perform public.assert_tag_admin(p_restaurant_id);\r\n");
+  const pg = await setup(mixed);
+  await assert.rejects(() => pg.exec(rollback), /SCANYM_PREDECESSOR_DRIFT/);
+  await pg.exec("rollback");
+  assert.ok((await pg.query<{t:string | null}>("select to_regclass('public.menu_tag_translations')::text as t")).rows[0]!.t);
   await pg.close();
 });

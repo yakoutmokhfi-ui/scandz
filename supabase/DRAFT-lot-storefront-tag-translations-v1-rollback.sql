@@ -7,17 +7,19 @@ declare
   v_oid oid;
   v_name text;
   v_expected_hash text;
+  v_expected_crlf_hash text;
   v_expected_volatility "char";
 begin
   -- Refuse to overwrite a later change to any of the functions we remove.
-  for v_name, v_expected_hash, v_expected_volatility in
-    values ('get_merchant_tag_translations','5c49c6acb670898c6cb472a230c942f5','s'::"char"),
-           ('get_public_tag_translations','102bb5baa67d29798056b17f91583939','s'::"char"),
-           ('write_tag_translation','fad342b18dd425a2e5e7f24e1b0b43ee','v'::"char")
+  -- Match exact LF or exact CRLF bodies; mixed endings are not normalised.
+  for v_name, v_expected_hash, v_expected_crlf_hash, v_expected_volatility in
+    values ('get_merchant_tag_translations','5c49c6acb670898c6cb472a230c942f5','6b1d01435a71e464e5c9d19b962970bb','s'::"char"),
+           ('get_public_tag_translations','102bb5baa67d29798056b17f91583939','4c205fe2f461b8b77855b571fe1ca6d2','s'::"char"),
+           ('write_tag_translation','fad342b18dd425a2e5e7f24e1b0b43ee','5af1446ba259b60b40c5aab47de4f758','v'::"char")
   loop
     select p.oid into v_oid from pg_proc p join pg_namespace n on n.oid=p.pronamespace
       where n.nspname='public' and p.proname=v_name
-        and md5(p.prosrc)=v_expected_hash and p.prosecdef and not p.proisstrict
+        and md5(p.prosrc) in (v_expected_hash, v_expected_crlf_hash) and p.prosecdef and not p.proisstrict
         and not p.proleakproof and p.provolatile=v_expected_volatility and p.proparallel='u'
         and p.proconfig=array['search_path=""']::text[] and pg_get_userbyid(p.proowner)=current_user;
     if v_oid is null or (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
