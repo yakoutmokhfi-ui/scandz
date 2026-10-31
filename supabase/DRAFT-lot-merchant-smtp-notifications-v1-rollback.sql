@@ -1,36 +1,132 @@
--- Roll back MERCHANT SMTP PROVIDER CONFIG v1 only when no merchant
--- configuration would be lost. Email processing returns to the prior
--- claim function; no notification attempts or tracking links are changed.
+-- Roll back MERCHANT SMTP PROVIDER CONFIG v1 (révision R1).
+--
+-- Refuse, AVANT toute écriture :
+--   * si le claim n'est plus EXACTEMENT celui posé par le lot SMTP (empreinte du
+--     corps, attributs, arguments, colonnes, propriétaire, ACL) ;
+--   * si le coffre contient des configurations (SCANYM_ROLLBACK_DATA_LOSS).
+-- Restaure ensuite le claim de #180 OCTET POUR OCTET (même empreinte md5, même
+-- commentaire) -- le rollback de #180 reste donc possible -- puis supprime le
+-- coffre. Aucune tentative de notification ni lien de suivi n'est modifié.
+-- Ordre : ce rollback d'abord, ensuite celui de #180.
 begin;
+
 do $$
 begin
   if to_regclass('public.merchant_email_provider_config') is null
      or to_regprocedure('public.claim_pending_notifications(integer,integer)') is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: SMTP migration is not installed';
   end if;
-  if pg_get_functiondef('public.claim_pending_notifications(integer,integer)'::regprocedure)
-       not like '%merchant_email_provider_config%' then
-    raise exception 'SCANYM_SCHEMA_DRIFT: claim_pending_notifications changed since SMTP migration';
+  if (
+    select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'claim_pending_notifications'
+  ) <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: claim_pending_notifications doit exister en UNE seule surcharge. Annulé.';
   end if;
+end $$;
+
+do $$
+declare
+  c_expected_body_md5 constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  c_expected_args     constant text := 'p_batch_size integer DEFAULT 10, p_lease_seconds integer DEFAULT 60';
+  c_expected_result   constant text := 'TABLE(outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text, recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer, claim_token uuid, sender_name text, sender_email text, reply_to text)';
+  -- Attributs de pg_proc que CREATE OR REPLACE réécrit (explicitement ou par valeur
+  -- par défaut) : un écart est une variante opérationnelle inconnue, jamais normalisée.
+  c_expected_attrs constant text := 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=v;parallel=u;retset=t;cost=100;rows=1000;support=0;variadic=0;nargs=2;ndefaults=2;config=search_path=""';
+  v_oid      oid;
+  v_owner    oid;
+  v_args     text;
+  v_result   text;
+  v_md5      text;
+  v_attrs    text;
+  v_acl      text[];
+  v_expected_acl text[];
+begin
+  select p.oid,
+         p.proowner,
+         pg_get_function_arguments(p.oid),
+         pg_get_function_result(p.oid),
+         md5(replace(p.prosrc, E'\r', '')),
+         format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
+                p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')),
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  join pg_language l on l.oid = p.prolang
+  where n.nspname = 'public' and p.proname = 'claim_pending_notifications';
+
+  if v_oid is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: claim_pending_notifications est introuvable. Rollback annulé, rien modifié.';
+  end if;
+
+  if v_md5 is distinct from c_expected_body_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de claim_pending_notifications (md5 %) n''est plus celui posé par le lot SMTP -- modifié depuis (md5 %). Rollback annulé, rien modifié.', v_md5, c_expected_body_md5;
+  end if;
+
+  if v_attrs is distinct from c_expected_attrs
+     or v_args is distinct from c_expected_args
+     or v_result is distinct from c_expected_result then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de claim_pending_notifications différents de ceux posés par le lot SMTP (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, colonnes retournées). Observé : % ; attendu : %.', v_attrs, c_expected_attrs;
+  end if;
+
+  -- Droits (politique explicite) : l'ENSEMBLE COMPLET des bénéficiaires EXECUTE doit
+  -- être exactement {propriétaire, service_role}, accordé par le propriétaire, sans
+  -- option de transmission, sans PUBLIC ni aucun autre rôle (anon, authenticated ou
+  -- tout rôle supplémentaire). Le propriétaire doit être le rôle qui applique ce
+  -- script. Aucun droit inconnu n'est révoqué ni accordé silencieusement : refus.
+  v_expected_acl := (
+    select array_agg(x order by x) from unnest(array[
+      format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+      format('%s=EXECUTE/%s', to_regrole('service_role')::text, v_owner::regrole::text)
+    ]) as x
+  );
+  if v_owner is distinct from (select r.oid from pg_roles r where r.rolname = current_user)
+     or v_acl is distinct from v_expected_acl then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution de claim_pending_notifications différents de ceux posés par le lot SMTP (propriétaire = rôle appliquant le script ET service_role, rien d''autre, sans option de transmission). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié ni révoqué silencieusement.', v_owner::regrole::text, v_acl, v_expected_acl;
+  end if;
+end $$;
+
+do $$
+begin
   if exists (select 1 from public.merchant_email_provider_config) then
     raise exception 'SCANYM_ROLLBACK_DATA_LOSS: SMTP configurations exist; export or remove them explicitly first';
   end if;
 end $$;
 
+-- Restauration VERBATIM du claim posé par #180 (extrait du lot #180 par génération,
+-- jamais retapé ; tests/merchant-smtp-notifications-sql.test.ts compare les empreintes).
 create or replace function public.claim_pending_notifications(
-  p_batch_size integer default 10,
+  p_batch_size    integer default 10,
   p_lease_seconds integer default 60
 )
 returns table (
-  outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text,
-  recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer,
-  claim_token uuid, sender_name text, sender_email text, reply_to text
+  outbox_id           uuid,
+  restaurant_id       uuid,
+  order_id            uuid,
+  notification_type   text,
+  recipient_email      text,
+  locale              text,
+  payload_snapshot    jsonb,
+  attempt_count       integer,
+  claim_token         uuid,
+  sender_name         text,
+  sender_email        text,
+  reply_to            text
 )
-language plpgsql security definer set search_path = ''
+language plpgsql
+security definer
+set search_path = ''
 as $$
 declare
   v_batch_size integer := greatest(1, least(coalesce(p_batch_size, 10), 100));
-  v_lease integer := greatest(1, least(coalesce(p_lease_seconds, 60), 3600));
+  v_lease      integer := greatest(1, least(coalesce(p_lease_seconds, 60), 3600));
 begin
   return query
   with eligible as (
@@ -38,6 +134,7 @@ begin
     from public.notification_outbox o
     where o.status in ('pending', 'failed_retryable')
       and (o.next_attempt_at is null or o.next_attempt_at <= now())
+      -- ORDER_RECEIVED PAYMENT GATE v1 : seul ajout par rapport à N1-A.
       and public.notification_send_gate_open(o.order_id, o.notification_type)
     order by o.created_at, o.id
     limit v_batch_size
@@ -45,21 +142,59 @@ begin
   ),
   claimed as (
     update public.notification_outbox o
-    set status = 'processing', claim_token = gen_random_uuid(), claimed_at = now(),
+    set status = 'processing',
+        claim_token = gen_random_uuid(),
+        claimed_at = now(),
         claim_expires_at = now() + make_interval(secs => v_lease)
-    from eligible where o.id = eligible.id
+    from eligible
+    where o.id = eligible.id
     returning o.id, o.restaurant_id, o.order_id, o.notification_type,
-      o.recipient_email, o.locale, o.payload_snapshot, o.attempt_count, o.claim_token
+              o.recipient_email, o.locale, o.payload_snapshot, o.attempt_count, o.claim_token
   )
-  select c.id, c.restaurant_id, c.order_id, c.notification_type,
+  select
+    c.id, c.restaurant_id, c.order_id, c.notification_type,
     c.recipient_email, c.locale, c.payload_snapshot, c.attempt_count, c.claim_token,
     p.sender_name, p.sender_email, p.reply_to
   from claimed c
   left join public.merchant_notification_profile p on p.restaurant_id = c.restaurant_id
   order by c.id;
 end $$;
-revoke all on function public.claim_pending_notifications(integer,integer) from public, anon, authenticated;
-grant execute on function public.claim_pending_notifications(integer,integer) to service_role;
+
+comment on function public.claim_pending_notifications(integer, integer) is
+  'N1-A + ORDER_RECEIVED PAYMENT GATE v1 — réclame un lot de notifications éligibles (FOR UPDATE SKIP LOCKED + bail). Résout l''identité d''expéditeur FRAÎCHE via jointure sur le restaurant_id de la ligne outbox elle-même. ORDER_RECEIVED n''est éligible que si notification_send_gate_open() est vraie (paid, ou not_required avec mode final none). Deux workers concurrents ne peuvent jamais réclamer la même ligne.';
+
+revoke all on function public.claim_pending_notifications(integer, integer) from public, anon, authenticated;
+grant execute on function public.claim_pending_notifications(integer, integer) to service_role;
 
 drop table public.merchant_email_provider_config;
+
+do $$
+declare
+  c_gated_body_md5 constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  v_owner oid;
+  v_acl   text[];
+begin
+  if to_regclass('public.merchant_email_provider_config') is not null then
+    raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault still exists after rollback';
+  end if;
+  if (select md5(replace(p.prosrc, E'\r', '')) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_gated_body_md5 then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications is not byte-identical to the #180 claim after rollback';
+  end if;
+  select p.proowner,
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+    into v_owner, v_acl
+  from pg_proc p where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure;
+  if v_acl is distinct from (select array_agg(x order by x) from unnest(array[
+       format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+       format('%s=EXECUTE/%s', to_regrole('service_role')::text, v_owner::regrole::text)]) as x) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim privileges differ from #180 after rollback (%)', v_acl;
+  end if;
+end $$;
+
 commit;

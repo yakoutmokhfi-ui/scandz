@@ -1,21 +1,33 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isMerchantSmtpEncryptionConfigured } from "@/lib/server/merchant-email-provider";
 import { isRealEmailSendActivated } from "@/lib/server/notifications/real-email-activation-gate";
 import { resolveMerchantSmtpProvider } from "@/lib/server/notifications/merchant-smtp-provider";
 import { reapStaleNotificationClaims } from "@/lib/server/notifications/notification-outbox-service";
 import { runTransactionalEmailWorker } from "@/lib/server/notifications/notification-worker";
+import {
+  WORKER_BATCH_SIZE,
+  WORKER_LEASE_SECONDS,
+  WORKER_RUN_BUDGET_MS,
+} from "@/lib/server/notifications/merchant-smtp-worker-limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Doit rester égal à WORKER_MAX_DURATION_SECONDS (vérifié par tests/merchant-smtp-cron-route.test.ts) :
+// un littéral est exigé par Next pour les options de segment de route.
+export const maxDuration = 300;
 
+const BEARER_PREFIX = "Bearer ";
+
+/** Schéma `Authorization: Bearer <CRON_SECRET>` STRICT (convention Vercel Cron), comparaison à temps constant. */
 function authorized(request: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  if (!expected || !supplied) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(supplied);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const header = request.headers.get("authorization") ?? "";
+  if (!expected || !header.startsWith(BEARER_PREFIX)) return false;
+  const supplied = header.slice(BEARER_PREFIX.length);
+  if (!supplied) return false;
+  const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
+  return timingSafeEqual(digest(expected), digest(supplied));
 }
 
 export async function GET(request: NextRequest) {
@@ -26,13 +38,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, status: "disabled" });
   }
   try {
+    const startedAt = Date.now();
     const reaped = await reapStaleNotificationClaims({ batchSize: 100 });
     const result = await runTransactionalEmailWorker(null, {
-      batchSize: 25,
-      leaseSeconds: 180,
+      batchSize: WORKER_BATCH_SIZE,
+      leaseSeconds: WORKER_LEASE_SECONDS,
+      deadlineAt: startedAt + WORKER_RUN_BUDGET_MS,
       providerForNotification: (notification) => resolveMerchantSmtpProvider(notification.restaurantId),
     });
-    return NextResponse.json({ ok: true, reaped, result });
+    const deferred = result.status === "processed"
+      ? Math.max(0, result.claimed - result.sent - result.retriedRetryable - result.failedTerminal)
+      : 0;
+    return NextResponse.json({ ok: true, reaped, result, deferred });
   } catch {
     return NextResponse.json({ ok: false, status: "worker_failed" }, { status: 503 });
   }

@@ -91,6 +91,13 @@ export async function processPendingNotifications(
     batchSize?: number;
     leaseSeconds?: number;
     providerForNotification?: (notification: ClaimedNotification) => Promise<EmailProvider | null>;
+    /**
+     * Instant (ms epoch) après lequel AUCUN nouvel envoi n'est démarré (A196-05).
+     * Les lignes réclamées mais non traitées restent `processing` jusqu'à
+     * l'expiration du bail, puis `reap_stale_notification_claims` les remet en
+     * attente sans consommer de tentative.
+     */
+    deadlineAt?: number;
   } = {}
 ): Promise<ProcessPendingNotificationsResult> {
   const claimed = await claimPendingNotifications(options);
@@ -100,6 +107,7 @@ export async function processPendingNotifications(
   let failedTerminal = 0;
 
   for (const notification of claimed) {
+    if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) break;
     const attemptNumber = notification.attemptCount + 1;
     const activeProvider = options.providerForNotification
       ? await options.providerForNotification(notification)
@@ -109,9 +117,9 @@ export async function processPendingNotifications(
         outboxId: notification.outboxId,
         claimToken: notification.claimToken,
         attemptNumber,
-        provider: "smtp",
+        provider: "merchant_smtp",
         result: "retryable_failure",
-        errorClass: normalizeNotificationErrorCode("SMTP_PROVIDER_UNAVAILABLE"),
+        errorClass: normalizeNotificationErrorCode("PROVIDER_CONFIGURATION_ERROR"),
       });
       retriedRetryable += 1;
       continue;
@@ -482,12 +490,13 @@ export async function runTransactionalEmailWorker(
     batchSize?: number;
     leaseSeconds?: number;
     providerForNotification?: (notification: ClaimedNotification) => Promise<EmailProvider | null>;
+    deadlineAt?: number;
   } = {}
 ): Promise<RunTransactionalEmailWorkerResult> {
   if (!provider && !options.providerForNotification) return { status: "provider_disabled" };
   const fallbackProvider = provider ?? {
     name: "smtp",
-    async send() { return { ok: false as const, retryable: true, errorClass: "SMTP_PROVIDER_UNAVAILABLE" }; },
+    async send() { return { ok: false as const, retryable: true, errorClass: "PROVIDER_CONFIGURATION_ERROR" }; },
   };
   return { status: "processed", ...(await processPendingNotifications(fallbackProvider, options)) };
 }

@@ -26,7 +26,10 @@ test("[BO1-MOB-1] barre d'onglets compactée : quatre par ligne sous « sm », c
   await flush();
 
   const tabs = Array.from(container.querySelectorAll("nav a")) as HTMLAnchorElement[];
-  assert.equal(tabs.length, 8, "la barre doit porter les huit onglets");
+  // R1 PR #196 (A196-11) : la PR ajoute un 9e onglet « E-mail » (vu par le propriétaire). Les huit onglets
+  // historiques gardent la compaction ci-dessous ; avec le 9e, la barre passe à TROIS lignes sur 390 px
+  // (4 + 4 + 1) -- compromis produit à confirmer (voir NOTE de livraison), pas une régression silencieuse.
+  assert.equal(tabs.length, 9, "la barre porte les huit onglets historiques + E-mail (PR #196)");
 
   for (const tab of tabs) {
     const cls = tab.className;
