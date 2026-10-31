@@ -391,3 +391,93 @@ test("R2 réponse lue une seule fois : un fragment tardif de la réponse précé
   const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
   assert.deepEqual(result, { ok: true, messageId: "ABC123" });
 });
+
+// --------------------------------------------------------------------
+// R3-04 (contre-audit de 9e38c88, P2) : « Faux succès SMTP, sans réception du corps du message ».
+// Le tampon persistant de R2 gardait ce qui suivait une réponse « pour la lecture suivante » : un serveur
+// qui répond AVANT d'avoir reçu la commande (« 354 … » + « 250 … queued as X » dans le même paquet) voyait
+// son 250 lu comme la réponse au CORPS, avant même que le corps ait été écrit. Le dialogue est synchrone :
+// tout octet non sollicité est une violation de protocole, détectée avant l'écriture suivante.
+// --------------------------------------------------------------------
+const bodyWritten = (written: string[]) => written.some((chunk) => chunk.includes("Content-Type: multipart/alternative") || chunk.endsWith("\r\n.\r\n"));
+const commandsSeen = (written: string[]) => written.map((chunk) => chunk.split("\r\n")[0]!).filter((line) => !line.startsWith("QUIT"));
+
+test("R3-04 REPRO : « 354 » + « 250 queued » dans le même paquet, serveur qui n'attend pas le corps => ÉCHEC (SMTP_UNSOLICITED_RESPONSE), corps JAMAIS écrit", async () => {
+  const h = harness({ script: { data: "354 go ahead\r\n250 2.0.0 Ok: queued as FAUX-SUCCES", dataEnd: null } });
+  const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  if (!result.ok) {
+    assert.equal(result.error, "SMTP_UNSOLICITED_RESPONSE");
+    assert.equal(result.stage, "data_end");
+    assert.equal(result.status ?? null, null);
+  }
+  assert.equal(bodyWritten(h.sockets[0]!.written), false, "le corps n'a pas été transmis à un serveur qui a déjà « acquitté »");
+  assert.equal(h.sockets[0]!.destroyed, true);
+});
+
+test("R3-04 : la même réponse anticipée à CHAQUE étape est refusée avant l'écriture suivante (aucune commande n'est envoyée à un serveur désynchronisé)", async () => {
+  const cases: Array<{ label: string; script: ServerScript; stage: string; lastCommandSent: string; notSent: RegExp }> = [
+    { label: "bannière + réponse en trop", script: { greeting: "220 smtp.merchant.example ESMTP\r\n250 trop tôt" }, stage: "ehlo", lastCommandSent: "", notSent: /^EHLO/ },
+    { label: "EHLO + réponse en trop", script: { ehlo: "250 smtp.merchant.example\r\n334 VXNlcm5hbWU6" }, stage: "auth", lastCommandSent: "EHLO scanym.com", notSent: /^AUTH LOGIN/ },
+    { label: "AUTH LOGIN + 235 anticipé (authentification annoncée avant l'envoi des identifiants)", script: { auth: "334 VXNlcm5hbWU6\r\n235 2.7.0 Authentication successful" }, stage: "auth", lastCommandSent: "AUTH LOGIN", notSent: new RegExp(`^${b64(CONFIG.user)}`) },
+    { label: "235 + réponse en trop", script: { authPass: "235 2.7.0 Authentication successful\r\n250 2.1.0 Ok" }, stage: "mail_from", lastCommandSent: b64(PASSWORD), notSent: /^MAIL FROM/ },
+    { label: "MAIL FROM + 250 anticipé pour RCPT", script: { mailFrom: "250 2.1.0 Ok\r\n250 2.1.5 Ok" }, stage: "rcpt_to", lastCommandSent: `MAIL FROM:<${CONFIG.from}>`, notSent: /^RCPT TO/ },
+    { label: "RCPT TO + 354 anticipé", script: { rcpt: "250 2.1.5 Ok\r\n354 go" }, stage: "data", lastCommandSent: "RCPT TO:<client@example.com>", notSent: /^DATA/ },
+  ];
+  for (const c of cases) {
+    const h = harness({ script: c.script });
+    const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+    assert.equal(result.ok, false, c.label);
+    if (!result.ok) { assert.equal(result.error, "SMTP_UNSOLICITED_RESPONSE", c.label); assert.equal(result.stage, c.stage, c.label); }
+    const sent = commandsSeen(h.sockets[0]!.written);
+    assert.equal(sent.some((line) => c.notSent.test(line)), false, `${c.label} : commande suivante envoyée à un serveur désynchronisé (${sent.join(" | ")})`);
+    if (c.lastCommandSent) assert.equal(sent.at(-1), c.lastCommandSent, c.label);
+    assert.equal(bodyWritten(h.sockets[0]!.written), false, c.label);
+  }
+});
+
+test("R3-04 : octets non sollicités INCOMPLETS (pas de fin de ligne) => refusés aussi ; sauts de ligne parasites seuls => toujours tolérés", async () => {
+  const partial = harness({ script: { data: "354 go ahead\r\n250 2.0.0 Ok: que", dataEnd: null } });
+  const refused = await createSmtpTransport(partial.io, FAST).send(MESSAGE);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.equal(refused.error, "SMTP_UNSOLICITED_RESPONSE");
+  assert.equal(bodyWritten(partial.sockets[0]!.written), false);
+
+  const blank = harness({ script: { data: "354 go ahead\r\n\r\n" } });
+  assert.deepEqual(await createSmtpTransport(blank.io, FAST).send(MESSAGE), { ok: true, messageId: "ABC123" }, "lignes vides parasites : ignorées comme avant");
+});
+
+test("R3-04 : une réponse finale qui ARRIVE APRÈS l'écriture du corps (même découpée, même tardive) reste acceptée -- aucune régression des réponses fragmentées", async () => {
+  for (const chunker of [IN_HALF, BYTE_BY_BYTE, BEFORE_CRLF, CODE_THEN_REST]) {
+    const h = harness({ script: { chunker, delayMs: 5 } });
+    assert.deepEqual(await createSmtpTransport(h.io, FAST).send(MESSAGE), { ok: true, messageId: "ABC123" });
+    assert.equal(bodyWritten(h.sockets[0]!.written), true);
+  }
+});
+
+test("R3-04 : le test de connexion applique la même règle (235 annoncé avant les identifiants => échec, jamais « connexion réussie »)", async () => {
+  const h = harness({ script: { auth: "334 VXNlcm5hbWU6\r\n235 2.7.0 Authentication successful" } });
+  const result = await createSmtpTransport(h.io, FAST).checkConnectivity(CONFIG);
+  assert.equal(result.ok, false);
+  if (!result.ok) { assert.equal(result.error, "SMTP_UNSOLICITED_RESPONSE"); assert.equal(result.stage, "auth"); }
+  assert.equal(commandsSeen(h.sockets[0]!.written).some((line) => line === b64(CONFIG.user)), false, "identifiants non transmis");
+});
+
+test("R3-04 : la violation de protocole est classée « temporaire / réessayable » (rien n'a été écrit après elle), sans suspendre le fournisseur ni exposer de texte serveur", async () => {
+  const { classifySmtpFailure } = await import("../lib/server/notifications/smtp-failure-classification.ts");
+  const h = harness({ script: { data: "354 go ahead\r\n250 2.0.0 Ok: queued as FAUX-SUCCES", dataEnd: null } });
+  const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.deepEqual(classifySmtpFailure(result), { errorClass: "PROVIDER_TEMPORARY_UNAVAILABLE", retryable: true, disableProvider: false });
+    assert.equal(JSON.stringify(result).includes("FAUX-SUCCES"), false, "le texte du serveur n'est pas repris");
+    assert.equal(JSON.stringify(result).includes(PASSWORD), false);
+  }
+});
+
+test("R3-04 : un seul chemin d'écriture dans le dialogue (exchange) -- aucune écriture directe sur le socket hors QUIT", async () => {
+  const src = (await import("node:fs")).readFileSync("lib/server/ack-mailer.ts", "utf8");
+  const writes = [...src.matchAll(/socket\.write\(([^)]*)\)/g)].map((m) => m[1]);
+  assert.deepEqual(writes, ["payload", "`QUIT${CRLF}`"], "toute commande et le corps passent par exchange() ; seule la fin de session écrit QUIT");
+  assert.equal((src.match(/assertNoUnsolicited\(/g) ?? []).length, 2, "définition + un seul appel, dans exchange()");
+});

@@ -189,6 +189,9 @@ comment on function public.claim_pending_notifications(integer, integer) is
 revoke all on function public.claim_pending_notifications(integer, integer) from public, anon, authenticated;
 grant execute on function public.claim_pending_notifications(integer, integer) to service_role;
 
+-- R3 : la fonction d'écriture du profil sous bail dépend du coffre (jeton) : elle part avec lui.
+drop function if exists public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text);
+
 drop table public.merchant_email_provider_config;
 
 do $$
@@ -201,6 +204,9 @@ declare
 begin
   if to_regclass('public.merchant_email_provider_config') is not null then
     raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault still exists after rollback';
+  end if;
+  if to_regprocedure('public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)') is not null then
+    raise exception 'SCANYM_POSTCHECK_FAILED: set_merchant_notification_profile_under_save_lease still exists after rollback';
   end if;
   if (select md5(p.prosrc) from pg_proc p
        where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) not in (c_gated_body_md5, c_gated_body_md5_crlf) then

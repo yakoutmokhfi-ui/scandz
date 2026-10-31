@@ -1,10 +1,10 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createPsqlRunner, parseLocalPgUrl } from "./helpers/pg-local-guard.ts";
 
 // ====================================================================
 // MERCHANT SMTP v1 R1 (A196-02 / A196-03) -- PRÉ-VOL ET ROLLBACK SUR UN VRAI
@@ -16,6 +16,10 @@ import path from "node:path";
 // Opt-in : sans SCANYM_TEST_PG_ADMIN_URL, chaque test est SAUTÉ avec sa raison
 // (la couverture PGlite reste exécutée par tests/merchant-smtp-notifications-sql.test.ts).
 // Boucle locale uniquement ; bases `scanym_smtp_*` jetables ; données synthétiques.
+// R3 (P1) : la cible est analysée strictement et passée à psql par DRAPEAUX, l'environnement
+// de chaque psql est CONSTRUIT (aucun PGHOSTADDR/PGHOST/PGSERVICE... hérité) et l'adresse réellement
+// jointe est vérifiée par le serveur avant toute création de base : voir
+// tests/helpers/pg-local-guard.ts (testé sans PostgreSQL par tests/merchant-smtp-pg-harness-guard.test.ts).
 //
 //   SCANYM_TEST_PG_ADMIN_URL  ex. postgresql://postgres@127.0.0.1:55432/postgres
 //   SCANYM_TEST_PSQL          (optionnel) chemin de psql ; défaut `psql`
@@ -27,10 +31,6 @@ const SKIP_REASON = ADMIN_URL
   ? false
   : "SCANYM_TEST_PG_ADMIN_URL absent : le pré-vol/rollback SMTP n'est PAS rejoué sur un PostgreSQL RÉEL ici";
 
-function loopbackOnly(url: string): void {
-  const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
-  if (!["127.0.0.1", "::1", "localhost"].includes(host)) throw new Error(`SCANYM_TEST_PG_ADMIN_URL doit désigner la boucle locale (reçu : ${host})`);
-}
 
 const sql = (name: string) => readFileSync(`supabase/${name}`, "utf8").replaceAll("\r\n", "\n");
 const N1A = sql("DRAFT-lot-n1a-customer-email-notification-foundation-v1.sql");
@@ -40,9 +40,19 @@ const SMTP = sql("DRAFT-lot-merchant-smtp-notifications-v1.sql");
 const RBSMTP = sql("DRAFT-lot-merchant-smtp-notifications-v1-rollback.sql");
 const N1A_TABLE = N1A.match(/create table public\.notification_outbox \([\s\S]*?\n\);/)![0];
 const N1A_CLAIM = N1A.match(/create function public\.claim_pending_notifications\([\s\S]*?end \$\$;/)![0];
+// R3 : voir tests/merchant-smtp-notifications-sql.test.ts -- fonction de profil N1-A réelle + doublures de rôle.
+const N1A_PROFILE_RPC = N1A.match(/create function public\.set_merchant_notification_profile\([\s\S]*?grant execute on function public\.set_merchant_notification_profile\([^)]*\) to authenticated;/)![0];
+const ROLE_STUBS = `
+  create function public.has_role_in(p_restaurant_id uuid, p_roles text[]) returns boolean language sql stable
+    as $f$ select coalesce(current_setting('test.role', true), '') = any(p_roles) $f$;
+  create function public.is_scanym_operator() returns boolean language sql stable
+    as $f$ select coalesce(current_setting('test.operator', true), '') = 'on' $f$;
+`;
 const CLAIM_FN = "public.claim_pending_notifications(integer, integer)";
 
 const workDir = mkdtempSync(path.join(tmpdir(), "scanym-smtp-"));
+const isolatedHome = mkdtempSync(path.join(tmpdir(), "scanym-smtp-home-"));
+const psqlRunner = createPsqlRunner({ bin: PSQL, baseEnv: process.env, isolatedHome });
 const databases: string[] = [];
 const ROLES = ["anon", "authenticated", "service_role", "audit_extra"];
 
@@ -51,22 +61,23 @@ const urlFor = (db: string) => { const u = new URL(ADMIN_URL!); u.pathname = `/$
 function psqlFile(dbUrl: string, name: string, content: string, onErrorStop: boolean) {
   const file = path.join(workDir, name);
   writeFileSync(file, content);
-  const r = spawnSync(PSQL, ["-X", "-q", "-v", `ON_ERROR_STOP=${onErrorStop ? 1 : 0}`, "-f", file, dbUrl], { encoding: "utf8" });
+  const r = psqlRunner.run(dbUrl, ["-v", `ON_ERROR_STOP=${onErrorStop ? 1 : 0}`, "-f", file]);
   return { status: r.status, out: `${r.stdout}\n${r.stderr}` };
 }
 function psqlQuery(dbUrl: string, query: string): string {
-  const r = spawnSync(PSQL, ["-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", dbUrl, "-c", query], { encoding: "utf8" });
+  const r = psqlRunner.run(dbUrl, ["-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", query]);
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 }
 
 function newDb(opts: { g180?: boolean; smtp?: boolean; extraSql?: string } = {}): string {
   const { g180 = true, smtp = true, extraSql = "" } = opts;
-  loopbackOnly(ADMIN_URL!);
+  parseLocalPgUrl(ADMIN_URL!); // refus net (cible non locale, paramètre de redirection...) avant toute connexion
   const db = `scanym_smtp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  databases.push(db);
-  const admin = spawnSync(PSQL, ["-X", "-q", "-v", "ON_ERROR_STOP=1", ADMIN_URL!, "-c", `create database ${db}`], { encoding: "utf8" });
+  // La première exécution vérifie l'adresse RÉELLE du serveur (lecture seule) AVANT le `create database`.
+  const admin = psqlRunner.run(ADMIN_URL!, ["-v", "ON_ERROR_STOP=1", "-c", `create database ${db}`]);
   assert.equal(admin.status, 0, admin.stderr);
+  databases.push(db);
   const url = urlFor(db);
   const roles = ROLES.map((r) => `do $$ begin create role ${r} nologin; exception when duplicate_object then null; end $$;`).join("\n");
   const setup = psqlFile(url, "setup.sql", `
@@ -81,6 +92,8 @@ function newDb(opts: { g180?: boolean; smtp?: boolean; extraSql?: string } = {})
     ${N1A_CLAIM}
     revoke all on function ${CLAIM_FN} from public, anon, authenticated;
     grant execute on function ${CLAIM_FN} to service_role;
+    ${ROLE_STUBS}
+    ${N1A_PROFILE_RPC}
     ${extraSql}
   `, true);
   assert.equal(setup.status, 0, setup.out);
@@ -122,9 +135,9 @@ function assertRefused(url: string, script: string, label: string, expectMessage
 }
 
 after(() => {
+  if (ADMIN_URL) for (const db of databases) psqlRunner.run(ADMIN_URL, ["-c", `drop database if exists ${db}`]);
   rmSync(workDir, { recursive: true, force: true });
-  if (!ADMIN_URL) return;
-  for (const db of databases) spawnSync(PSQL, ["-X", "-q", ADMIN_URL, "-c", `drop database if exists ${db}`], { encoding: "utf8" });
+  rmSync(isolatedHome, { recursive: true, force: true });
 });
 
 const OPTS = { skip: SKIP_REASON };
@@ -247,7 +260,7 @@ test("[SMTP-PG-H] PostgreSQL réel -- la forme CRLF intégrale (extraction Windo
 // --------------------------------------------------------------------
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 function psqlSession(url: string, extraArgs: string[] = []) {
-  const child = spawn(PSQL, ["-X", "-q", "-v", "ON_ERROR_STOP=1", ...extraArgs, url], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = psqlRunner.session(url, ["-v", "ON_ERROR_STOP=1", ...extraArgs]);
   let output = "";
   let finished = false;
   child.stdout.on("data", (chunk) => { output += String(chunk); });
@@ -299,4 +312,104 @@ test("[SMTP-PG-J] PostgreSQL réel, 2 connexions -- verrou tenu trop longtemps :
   await holder.done;
   assert.equal(snapshot(url), before, "aucune mutation");
   assert.equal(hasVault(url), "t");
+});
+
+// --------------------------------------------------------------------
+// R3 (P1) : environnement libpq HOSTILE -- le harnais ne doit viser que la cible désignée
+// --------------------------------------------------------------------
+test("[SMTP-PG-K] PostgreSQL réel -- PGHOSTADDR/PGHOST/PGSERVICE/PGPORT... hostiles : le harnais atteint QUAND MÊME le cluster désigné par l'URL (jamais l'adresse imposée par l'environnement)", OPTS, () => {
+  const hostile: Record<string, string> = {
+    PGHOSTADDR: "192.0.2.1", // TEST-NET-1 : injoignable ; avant R3 psql s'y connectait et le harnais échouait (ou pire : visait un serveur réel)
+    PGHOST: "192.0.2.1",
+    PGPORT: "1",
+    PGSERVICE: "scanym-absent",
+    PGSERVICEFILE: path.join(workDir, "absent-service.conf"),
+    PGUSER: "intrus",
+    PGDATABASE: "intrus",
+    PGOPTIONS: "-c search_path=intrus",
+    PGCONNECT_TIMEOUT: "2",
+  };
+  const saved = Object.fromEntries(Object.keys(hostile).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, hostile);
+  try {
+    const url = newDb();
+    assert.equal(bodyMd5(url), BODY_SMTP, "le lot a été appliqué sur le cluster désigné");
+    assert.equal(hasVault(url), "t");
+    const addr = psqlQuery(url, "select inet_server_addr()::text;");
+    assert.ok(/^(127\.|::1)/.test(addr), `adresse réellement jointe : ${addr}`);
+    assert.equal(psqlQuery(url, "select current_database() = '" + new URL(url).pathname.slice(1) + "';"), "t");
+  } finally {
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+});
+
+// --------------------------------------------------------------------
+// R3 (P2) : profil ancien -- l'écriture du profil sous bail est ATOMIQUE avec la vérification du jeton
+// --------------------------------------------------------------------
+const LEASE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const LEASE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const LEASE_RESTAURANT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const leasedCall = (token: string, name: string, email: string) =>
+  `set role authenticated; select public.set_merchant_notification_profile_under_save_lease('${LEASE_RESTAURANT}', '${token}', true, '${name}', '${email}', null, 'fr');`;
+function leaseWorld(): string {
+  const url = newDb();
+  psqlQuery(url, `
+    insert into public.restaurants(id) values ('${LEASE_RESTAURANT}');
+    insert into public.merchant_notification_profile(restaurant_id, email_enabled, sender_name, sender_email) values ('${LEASE_RESTAURANT}', true, 'Resto initial', 'init@resto.example');
+    insert into public.merchant_email_provider_config(restaurant_id, host, port, username, enabled, save_token, save_lease_until)
+      values ('${LEASE_RESTAURANT}', 'smtp.ionos.fr', 465, 'a@resto.example', false, '${LEASE_A}', now() - interval '1 second');`); // le bail d'A a EXPIRÉ (A est lent)
+  return url;
+}
+const senderOf = (url: string) => psqlQuery(url, `select sender_name from public.merchant_notification_profile where restaurant_id = '${LEASE_RESTAURANT}';`);
+const tokenOf = (url: string) => psqlQuery(url, `select save_token from public.merchant_email_provider_config where restaurant_id = '${LEASE_RESTAURANT}';`);
+const TAKEOVER = `update public.merchant_email_provider_config set save_token = '${LEASE_B}', save_lease_until = now() + interval '60 seconds'
+  where restaurant_id = '${LEASE_RESTAURANT}' and (save_token is null or save_lease_until < now());`;
+
+test("[SMTP-PG-L] PostgreSQL réel, 2 connexions -- la reprise du bail par B ATTEND la fin de l'écriture du profil d'A (vérification du jeton + écriture indivisibles)", OPTS, async () => {
+  const url = leaseWorld();
+  const a = psqlSession(url);
+  let b: ReturnType<typeof psqlSession> | undefined;
+  try {
+    a.child.stdin.write(`select set_config('test.role', 'owner', false); begin; ${leasedCall(LEASE_A, "Resto A", "a@resto.example")}\n`); // transaction OUVERTE : verrou de la ligne tenu
+    await sleep(1000);
+    b = psqlSession(url);
+    b.child.stdin.write(`${TAKEOVER}\n`);
+    await sleep(2000);
+    assert.equal(b.finished(), false, "B attend le verrou tenu par l'écriture d'A : il ne s'intercale PAS entre la vérification et l'écriture");
+    assert.equal(tokenOf(url), LEASE_A, "tant qu'A n'a pas validé, le jeton est toujours celui d'A");
+    a.child.stdin.end("commit;\n");
+    b.child.stdin.end();
+    const [aCode, bCode] = await Promise.all([a.done, b.done]);
+    assert.equal(aCode, 0, a.output());
+    assert.equal(bCode, 0, b.output());
+  } finally {
+    // Un échec d'assertion ne doit JAMAIS laisser une session ouverte (le test échouerait en se bloquant au lieu d'échouer).
+    for (const session of [a, b]) if (session && !session.finished()) session.child.kill();
+  }
+  assert.equal(senderOf(url), "Resto A", "le profil d'A a été écrit tant qu'A détenait le bail");
+  assert.equal(tokenOf(url), LEASE_B, "puis B a repris le bail");
+  // A, s'il retente avec son ancien jeton, ne peut plus rien écrire.
+  const late = psqlRunner.run(url, ["-A", "-t", "-c", `select set_config('test.role', 'owner', false); ${leasedCall(LEASE_A, "Resto A (en retard)", "retard@resto.example")}`]);
+  assert.notEqual(late.status, 0);
+  assert.match(late.stderr, /SCANYM_SAVE_LEASE_LOST/);
+  assert.equal(senderOf(url), "Resto A");
+});
+
+test("[SMTP-PG-M] PostgreSQL réel -- B a repris le bail et écrit son profil : l'appel tardif d'A est REFUSÉ ; la fonction non conditionnelle de 9e38c88 l'aurait écrasé (témoin du défaut)", OPTS, () => {
+  const url = leaseWorld();
+  psqlQuery(url, TAKEOVER);
+  assert.equal(tokenOf(url), LEASE_B);
+  const asB = psqlRunner.run(url, ["-A", "-t", "-c", `select set_config('test.role', 'manager', false); ${leasedCall(LEASE_B, "Resto B", "b@resto.example")}`]);
+  assert.equal(asB.status, 0, asB.stderr);
+  assert.equal(senderOf(url), "Resto B");
+
+  const lateA = psqlRunner.run(url, ["-A", "-t", "-c", `select set_config('test.role', 'owner', false); ${leasedCall(LEASE_A, "Resto A (ancien)", "ancien@resto.example")}`]);
+  assert.notEqual(lateA.status, 0, "l'appel d'A (bail repris) doit échouer");
+  assert.match(lateA.stderr, /SCANYM_SAVE_LEASE_LOST/);
+  assert.equal(senderOf(url), "Resto B", "le profil récent n'est pas remplacé");
+
+  // Témoin : ce que faisait le code de 9e38c88 (appel direct de la fonction N1-A, sans lien avec le bail).
+  const old = psqlRunner.run(url, ["-A", "-t", "-c", `select set_config('test.role', 'owner', false); set role authenticated; select public.set_merchant_notification_profile('${LEASE_RESTAURANT}', true, 'Resto A (ancien)', 'ancien@resto.example', null, 'fr');`]);
+  assert.equal(old.status, 0, old.stderr);
+  assert.equal(senderOf(url), "Resto A (ancien)", "témoin : sans le bail, le profil ancien REMPLACE le récent");
 });

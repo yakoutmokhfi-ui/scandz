@@ -312,8 +312,16 @@ type ReaderFailure = { kind: "error"; error: unknown } | { kind: "overflow" } | 
  *
  * Ici : UN seul abonnement par session, un tampon persistant, décodage UTF-8 avec état, et
  * une réponse n'est complète qu'à sa DERNIÈRE ligne COMPLÈTE (terminée par un saut de ligne ;
- * « 250-… » = ligne de continuation, « 250 … » ou « 250 » = dernière ligne). Ce qui suit la
- * réponse consommée reste dans le tampon pour la lecture suivante.
+ * « 250-… » = ligne de continuation, « 250 … » ou « 250 » = dernière ligne).
+ *
+ * R3 (contre-audit de 9e38c88, P2 « faux succès SMTP, sans réception du corps du message ») :
+ * l'ancienne règle « ce qui suit la réponse consommée reste dans le tampon pour la lecture suivante »
+ * laissait un serveur répondre AVANT d'avoir reçu la commande : « 354 … » suivi, dans le même paquet,
+ * d'un « 250 … queued as X » était lu comme la réponse au CORPS du message, avant même que le corps ait
+ * été écrit. Le dialogue SMTP est strictement synchrone (aucune extension de pipelining n'est utilisée) :
+ * tout octet arrivé que le client n'a pas sollicité est une violation de protocole. `assertNoUnsolicited`
+ * est appelé AVANT chaque écriture (commande ou corps) ; une réponse ne peut donc JAMAIS précéder ce
+ * qu'elle acquitte.
  */
 class SmtpReplyReader {
   private buffer = "";
@@ -360,6 +368,15 @@ class SmtpReplyReader {
       }, this.stepTimeoutMs);
       this.pending = { resolve, reject, timer, stage };
     });
+  }
+
+  /**
+   * À appeler avant d'écrire une commande ou le corps du message : le tampon ne doit contenir AUCUN octet
+   * (hors sauts de ligne parasites, toujours tolérés) -- la réponse précédente a été consommée en entier et
+   * le serveur n'a, à ce stade, rien à dire de plus.
+   */
+  assertNoUnsolicited(stage: SmtpFailureStage): void {
+    if (/[^\r\n]/.test(this.buffer)) throw new SmtpSessionError("SMTP_UNSOLICITED_RESPONSE", stage);
   }
 
   /** Fin de session : plus d'abonnement aux données, mais un écouteur d'erreur reste (jamais d'exception non interceptée). */
@@ -473,10 +490,13 @@ function failureFrom(err: unknown): { ok: false; error: string } & SmtpFailureDe
   return { ok: false, error: message, nodeCode: nodeCodeOf(err) };
 }
 
-/** Ce que le corps d'une session peut faire : écrire sur le socket, lire la prochaine réponse COMPLÈTE. */
+/**
+ * Ce que le corps d'une session peut faire : UN échange = écrire une commande (ou le corps du message), puis lire SA
+ * réponse complète. Un échange échoue (SMTP_UNSOLICITED_RESPONSE) si le serveur a envoyé quoi que ce soit que le
+ * client n'avait pas sollicité avant l'écriture (R3).
+ */
 interface SmtpDialogue {
-  socket: TLSSocket;
-  read(stage: SmtpFailureStage): Promise<string>;
+  exchange(stage: SmtpFailureStage, payload: string): Promise<string>;
 }
 
 async function withSmtpSession<T>(
@@ -536,26 +556,33 @@ async function withSmtpSession<T>(
       throw abortedError();
     }
 
+    // Un seul chemin d'écriture : vérification « rien de non sollicité », écriture, lecture de SA réponse.
+    const exchange = (stage: SmtpFailureStage, payload: string): Promise<string> => {
+      try {
+        reader.assertNoUnsolicited(stage);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      socket.write(payload);
+      return reader.read(stage);
+    };
+
     const greeting = await reader.read("greeting");
     expectCode(greeting, "220", "greeting");
 
-    socket.write(`EHLO scanym.com${CRLF}`);
-    const ehloResp = await reader.read("ehlo");
+    const ehloResp = await exchange("ehlo", `EHLO scanym.com${CRLF}`);
     expectCode(ehloResp, "250", "ehlo");
 
-    socket.write(`AUTH LOGIN${CRLF}`);
-    const authResp = await reader.read("auth");
+    const authResp = await exchange("auth", `AUTH LOGIN${CRLF}`);
     expectCode(authResp, "334", "auth");
 
-    socket.write(`${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
-    const userResp = await reader.read("auth");
+    const userResp = await exchange("auth", `${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
     expectCode(userResp, "334", "auth");
 
-    socket.write(`${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
-    const passResp = await reader.read("auth");
+    const passResp = await exchange("auth", `${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
     expectCode(passResp, "235", "auth");
 
-    return await body({ socket, read: (stage) => reader.read(stage) });
+    return await body({ exchange });
   })();
   try {
     return await Promise.race([run, deadline]);
@@ -628,24 +655,21 @@ export function createSmtpTransport(io: SmtpIo = DEFAULT_IO, limits: SmtpLimits 
   return {
     async send(input) {
       try {
-        const messageId = await withSmtpSession(io, limits, input.config, async ({ socket, read }) => {
-          socket.write(`MAIL FROM:<${input.config.from}>${CRLF}`);
-          expectCode(await read("mail_from"), "250", "mail_from");
+        const messageId = await withSmtpSession(io, limits, input.config, async ({ exchange }) => {
+          expectCode(await exchange("mail_from", `MAIL FROM:<${input.config.from}>${CRLF}`), "250", "mail_from");
 
-          socket.write(`RCPT TO:<${input.to}>${CRLF}`);
-          expectCode(await read("rcpt_to"), "250", "rcpt_to");
+          expectCode(await exchange("rcpt_to", `RCPT TO:<${input.to}>${CRLF}`), "250", "rcpt_to");
 
           if (input.cc) {
-            socket.write(`RCPT TO:<${input.cc}>${CRLF}`);
-            expectCode(await read("rcpt_to"), "250", "rcpt_to");
+            expectCode(await exchange("rcpt_to", `RCPT TO:<${input.cc}>${CRLF}`), "250", "rcpt_to");
           }
 
-          socket.write(`DATA${CRLF}`);
-          expectCode(await read("data"), "354", "data");
+          expectCode(await exchange("data", `DATA${CRLF}`), "354", "data");
 
+          // Le corps n'est écrit que si le serveur n'a rien dit de plus que « 354 » (assertNoUnsolicited), et la réponse
+          // finale lue est celle qui SUIT cette écriture : jamais une réponse arrivée avant le corps (R3).
           const message = escapeDotStuffing(buildSmtpMimeMessage(input));
-          socket.write(`${message}${CRLF}.${CRLF}`);
-          const dataResp = await read("data_end");
+          const dataResp = await exchange("data_end", `${message}${CRLF}.${CRLF}`);
           expectCode(dataResp, "250", "data_end");
 
           // Le message id du prestataire, quand il en renvoie un, se

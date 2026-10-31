@@ -26,9 +26,11 @@ const { getServiceRoleSupabaseClient } = await import("../lib/server/supabase-ad
 const { asUserSupabaseClientFactory } = await import("../lib/server/supabase-as-user.ts");
 const { realSmtpTransport } = await import("../lib/server/ack-mailer.ts");
 const { decryptMerchantSmtpPassword } = await import("../lib/server/merchant-email-provider.ts");
+const { recordMerchantSmtpVaultState } = await import("../lib/server/notifications/merchant-smtp-provider.ts");
 const route = await import("../app/api/dashboard/email-provider/route.ts");
 const admin = getServiceRoleSupabaseClient();
 
+const PROFILE_LEASE_RPC = "set_merchant_notification_profile_under_save_lease";
 const R1 = "11111111-1111-4111-8111-111111111111";
 const R2 = "22222222-2222-4222-8222-222222222222";
 const TOKENS: Record<string, Record<string, string>> = {
@@ -51,8 +53,12 @@ interface World {
   beforeInsert: (() => void) | null;
   /** Exécuté au début du RPC profil : une AUTRE requête qui s'intercale pendant l'enregistrement. */
   duringProfileRpc: (() => Promise<void>) | null;
+  /** Exécuté APRÈS l'écriture réussie du profil, avant le retour du RPC (R3) : fenêtre entre le RPC et l'activation. */
+  afterProfileRpc: (() => Promise<void>) | null;
   failProfileRpc: boolean;
   profileRpcCalls: number;
+  profileRpcNames: string[];
+  profileRpcArgs: Row[];
   failProfileRpcAtCall: number | null;
   /** Compte les écritures du coffre (hors réservation du test de connexion). */
   writeCalls: number;
@@ -66,8 +72,8 @@ interface World {
 function install(t: { mock: { method: (obj: object, name: string, impl: (...args: never[]) => unknown) => unknown } }): World {
   const world: World = {
     vault: new Map(), profile: new Map(), adminWrites: [], beforeConditionalUpdate: null,
-    beforeInsert: null, duringProfileRpc: null,
-    failProfileRpc: false, profileRpcCalls: 0, failProfileRpcAtCall: null,
+    beforeInsert: null, duringProfileRpc: null, afterProfileRpc: null,
+    failProfileRpc: false, profileRpcCalls: 0, profileRpcNames: [], profileRpcArgs: [], failProfileRpcAtCall: null,
     writeCalls: 0, failWriteAtCall: null, upsertCalls: 0, insertCalls: 0,
     transportCalls: [], transportResult: { ok: true },
   };
@@ -151,15 +157,27 @@ function install(t: { mock: { method: (obj: object, name: string, impl: (...args
     rpc: async (name: string, args: Row) => {
       const role = TOKENS[token]?.[String(args.p_restaurant_id)];
       if (name === "has_role_in") return { data: Boolean(role && (args.p_roles as string[]).includes(role)), error: null };
-      if (name === "set_merchant_notification_profile") {
+      // `set_merchant_notification_profile` : ancienne écriture, conservée pour REJOUER le code de 9e38c88.
+      // `..._under_save_lease` (R3) : même écriture, dans la MÊME transaction qu'une vérification du jeton de bail
+      // (verrou de la ligne du coffre) -- modélisée ici exactement comme le SQL : jeton différent => rien d'écrit.
+      if (name === "set_merchant_notification_profile" || name === PROFILE_LEASE_RPC) {
         world.profileRpcCalls += 1;
+        world.profileRpcNames.push(name);
+        world.profileRpcArgs.push({ ...args });
         const callNumber = world.profileRpcCalls;
         if (world.duringProfileRpc) { const hook = world.duringProfileRpc; world.duringProfileRpc = null; await hook(); }
         if (!role || world.failProfileRpc || world.failProfileRpcAtCall === callNumber) return { data: null, error: new Error("rpc refused") };
+        if (name === PROFILE_LEASE_RPC) {
+          const holder = world.vault.get(String(args.p_restaurant_id));
+          if (!holder || holder.save_token == null || holder.save_token !== args.p_save_token) {
+            return { data: null, error: new Error("SCANYM_SAVE_LEASE_LOST: le bail d'enregistrement n'est plus le nôtre") };
+          }
+        }
         world.profile.set(String(args.p_restaurant_id), {
           email_enabled: args.p_email_enabled, sender_name: args.p_sender_name, sender_email: args.p_sender_email,
           reply_to: args.p_reply_to, default_locale: args.p_default_locale,
         });
+        if (world.afterProfileRpc) { const hook = world.afterProfileRpc; world.afterProfileRpc = null; await hook(); }
         return { data: null, error: null };
       }
       throw new Error(`rpc inattendue ${name}`);
@@ -616,4 +634,209 @@ test("test de connexion : le chiffré d'un autre établissement ne se déchiffre
   assert.equal(res.status, 503);
   assert.equal((await res.json()).reason, "PROVIDER_CONFIGURATION_ERROR");
   assert.equal(w.transportCalls.length, 0);
+});
+
+// --------------------------------------------------------------------
+// R3-02 (contre-audit de 9e38c88, P2) : « Sauvegarde concurrente : un profil ancien peut remplacer celui d'une
+// configuration récemment enregistrée » -- le profil est écrit SOUS BAIL (même transaction que la vérification du jeton).
+// --------------------------------------------------------------------
+test("R3-02 REPRO : B, dont le bail a été repris par A (qui a réussi), n'écrase PAS le profil de A quand son propre RPC aboutit ; B reçoit 409", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  let aStatus = 0;
+  // B est lent : son bail expire, A s'intercale et réussit (coffre ET profil), puis le RPC de B arrive -- et aurait ABOUTI.
+  w.duringProfileRpc = async () => {
+    expireLease(w);
+    aStatus = (await post("tok-owner-r1", configOf("a"))).status;
+  };
+  const b = await post("tok-manager-r1", configOf("b"));
+  assert.equal(aStatus, 200, "A a réussi");
+  assert.equal(b.status, 409, "B n'a plus le bail : conflit, pas de succès ni d'échec de profil");
+  assert.equal((await b.json()).code, "EMAIL_PROVIDER_CONFLICT");
+  assert.equal(w.profile.get(R1)!.sender_name, "Resto a", "le profil de A (le plus récent) n'est PAS remplacé par celui de B");
+  assert.equal(w.profile.get(R1)!.sender_email, "a@resto.fr");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.host, "smtp.a.fr");
+  assert.equal(vaultPassword(row), "MOT-DE-PASSE-A");
+  assert.equal(row.enabled, true);
+  assert.equal(row.save_token, null, "aucun bail orphelin");
+});
+
+test("R3-02 : le profil n'est JAMAIS écrit hors bail -- RPC sous bail uniquement, avec le jeton posé sur la ligne du coffre à ce moment-là", async (t) => {
+  const w = install(t);
+  let tokenInVaultWhenCalled: unknown = null;
+  w.duringProfileRpc = async () => { tokenInVaultWhenCalled = w.vault.get(R1)?.save_token; };
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  assert.deepEqual(w.profileRpcNames, [PROFILE_LEASE_RPC], "un seul RPC de profil, et c'est celui sous bail");
+  assert.equal(w.profileRpcArgs[0]!.p_save_token, tokenInVaultWhenCalled, "le RPC reçoit le jeton du bail posé à la mise en préparation");
+  assert.ok(typeof tokenInVaultWhenCalled === "string" && tokenInVaultWhenCalled.length === 36);
+  // Aucune trace de l'ancien appel non conditionnel dans la route.
+  const src = (await import("node:fs")).readFileSync("app/api/dashboard/email-provider/route.ts", "utf8");
+  assert.equal(/\.rpc\(\s*["']set_merchant_notification_profile["']/.test(src), false, "la route n'appelle plus set_merchant_notification_profile directement");
+  assert.ok(src.includes('"set_merchant_notification_profile_under_save_lease"'));
+});
+
+test("R3-02 : bail perdu pendant le RPC => 409 SANS aucune écriture supplémentaire du coffre (l'état de celui qui a repris fait foi)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  let rowAfterA = "";
+  w.duringProfileRpc = async () => {
+    expireLease(w);
+    assert.equal((await post("tok-owner-r1", configOf("a"))).status, 200);
+    rowAfterA = JSON.stringify(w.vault.get(R1));
+    w.adminWrites.length = 0;
+  };
+  const b = await post("tok-manager-r1", configOf("b"));
+  assert.equal(b.status, 409);
+  assert.deepEqual(w.adminWrites, [], "ni restauration, ni activation, ni libération : B n'écrit plus rien");
+  assert.equal(JSON.stringify(w.vault.get(R1)), rowAfterA);
+});
+
+test("R3-02 : bail repris ENTRE le RPC de profil (réussi) et l'activation => l'activation reste conditionnelle au jeton : 409 et rien n'est modifié chez celui qui a repris le coffre", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  let aStatus = 0;
+  // Le RPC de B a ABOUTI (profil de B écrit sous bail) ; avant que B n'active, son bail expire et A prend le coffre.
+  w.afterProfileRpc = async () => {
+    expireLease(w);
+    aStatus = (await post("tok-owner-r1", configOf("a"))).status;
+  };
+  const b = await post("tok-manager-r1", configOf("b", { enabled: false })); // B demande la DÉSACTIVATION
+  assert.equal(aStatus, 200, "A a réussi (coffre actif)");
+  assert.equal(b.status, 409, "l'activation tardive de B ne trouve plus son jeton");
+  assert.equal((await b.json()).code, "EMAIL_PROVIDER_CONFLICT");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.host, "smtp.a.fr");
+  assert.equal(row.enabled, true, "la désactivation de B n'est pas appliquée à la configuration de A");
+  assert.equal(row.save_token, null);
+});
+
+// --------------------------------------------------------------------
+// R3-03 (contre-audit de 9e38c88, P2) : « Suspension annulée : une sauvegarde refusée peut réactiver le fournisseur
+// suspendu par le worker » -- la restauration et l'activation sont conditionnelles à l'état d'erreur.
+// --------------------------------------------------------------------
+const cronSuspends = (w: World, errorClass = "PROVIDER_AUTHENTICATION_FAILED") => {
+  const row = w.vault.get(R1)!;
+  return recordMerchantSmtpVaultState(admin, R1, { host: String(row.host), username: String(row.username), secret_ciphertext: String(row.secret_ciphertext) }, errorClass as never, true, new Date("2026-10-31T12:00:00.000Z"));
+};
+const SAME_SECRET = { ...SAVE, password: "", senderName: "Resto (modifié)" };
+
+test("R3-03 REPRO : le Cron suspend le fournisseur (authentification) PENDANT un enregistrement qui est ensuite refusé => la suspension subsiste (désactivé + erreur conservée)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  assert.equal(w.vault.get(R1)!.enabled, true);
+  w.failProfileRpc = true;
+  w.duringProfileRpc = async () => { await cronSuspends(w); };
+  const res = await post("tok-owner-r1", SAME_SECRET);
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.code, "EMAIL_PROFILE_SAVE_FAILED");
+  assert.equal(body.providerKeptClosed, true, "la réponse dit que le fournisseur est resté fermé");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.enabled, false, "le fournisseur suspendu par le Cron N'EST PAS réactivé par la restauration");
+  assert.equal(row.last_error_class, "PROVIDER_AUTHENTICATION_FAILED", "l'erreur écrite par le Cron n'est pas effacée");
+  assert.equal(row.last_error_at, "2026-10-31T12:00:00.000Z");
+  assert.equal(row.save_token, null, "le bail est libéré");
+  assert.equal(row.save_lease_until, null);
+  assert.equal(row.host, "smtp.ionos.fr");
+  assert.equal(vaultPassword(row), OWNER_PASSWORD, "cible et secret d'origine rendus");
+});
+
+test("R3-03 : un TEST DE CONNEXION qui conclut (échec) pendant l'enregistrement refusé a le même effet -- fournisseur laissé fermé, erreur conservée", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  w.failProfileRpc = true;
+  w.duringProfileRpc = async () => {
+    const row = w.vault.get(R1)!;
+    await recordMerchantSmtpVaultState(admin, R1, { host: String(row.host), username: String(row.username), secret_ciphertext: String(row.secret_ciphertext) }, "PROVIDER_CONNECTION_FAILED" as never, false, new Date("2026-10-31T12:30:00.000Z"));
+  };
+  const res = await post("tok-owner-r1", SAME_SECRET);
+  assert.equal(res.status, 400);
+  assert.equal(w.vault.get(R1)!.enabled, false);
+  assert.equal(w.vault.get(R1)!.last_error_class, "PROVIDER_CONNECTION_FAILED");
+  assert.equal(w.vault.get(R1)!.save_token, null);
+});
+
+test("R3-03 : sans événement concurrent, la restauration rétablit l'état d'origine À L'IDENTIQUE, état d'erreur compris (aucune régression)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  // Fournisseur déjà en erreur AVANT l'enregistrement (suspendu plus tôt) : l'état d'erreur d'origine doit revenir tel quel.
+  Object.assign(w.vault.get(R1)!, { enabled: false, last_error_class: "PROVIDER_AUTHENTICATION_FAILED", last_error_at: "2026-10-31T09:00:00.000Z" });
+  const before = JSON.stringify(w.vault.get(R1));
+  w.failProfileRpc = true;
+  for (const attempt of [SAME_SECRET, { ...SAVE, host: "smtp.autre-hote.fr", username: "autre@resto.fr", password: "NOUVEAU" }]) {
+    const res = await post("tok-owner-r1", attempt);
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).providerKeptClosed, undefined, "restauration complète : pas de mention « resté fermé »");
+    assert.equal(JSON.stringify(w.vault.get(R1)), before, "restauration à l'identique");
+  }
+  // Et avec un fournisseur ACTIVÉ en bonne santé.
+  const w2 = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  const healthy = JSON.stringify(w2.vault.get(R1));
+  w2.failProfileRpc = true;
+  assert.equal((await post("tok-owner-r1", SAME_SECRET)).status, 400);
+  assert.equal(JSON.stringify(w2.vault.get(R1)), healthy);
+  assert.equal(w2.vault.get(R1)!.enabled, true);
+});
+
+test("R3-03 : nouveaux identifiants => la suspension du Cron (qui vise l'ANCIEN secret) ne peut pas toucher la ligne en préparation ; la restauration rend l'ancien état", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  const before = JSON.stringify(w.vault.get(R1));
+  const oldRow = { ...w.vault.get(R1)! };
+  w.failProfileRpc = true;
+  w.duringProfileRpc = async () => {
+    // Le Cron avait chargé l'ancienne ligne : son écriture est épinglée sur hôte/identifiant/secret d'origine.
+    await recordMerchantSmtpVaultState(admin, R1, { host: String(oldRow.host), username: String(oldRow.username), secret_ciphertext: String(oldRow.secret_ciphertext) }, "PROVIDER_AUTHENTICATION_FAILED" as never, true, new Date("2026-10-31T12:00:00.000Z"));
+  };
+  const res = await post("tok-owner-r1", { ...SAVE, host: "smtp.autre-hote.fr", username: "autre@resto.fr", password: "NOUVEAU" });
+  assert.equal(res.status, 400);
+  assert.equal(JSON.stringify(w.vault.get(R1)), before, "l'écriture du Cron n'a rien trouvé à modifier : état d'origine intact");
+});
+
+test("R3-03 : ACTIVATION -- le Cron suspend entre la mise en préparation et l'activation => le fournisseur n'est PAS réactivé (409), erreur conservée, bail libéré", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  w.duringProfileRpc = async () => { await cronSuspends(w); }; // le profil, lui, est écrit normalement
+  const res = await post("tok-owner-r1", SAME_SECRET);
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).code, "EMAIL_PROVIDER_CONFLICT");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.enabled, false, "pas de réactivation d'un fournisseur suspendu pendant l'enregistrement");
+  assert.equal(row.last_error_class, "PROVIDER_AUTHENTICATION_FAILED");
+  assert.equal(row.save_token, null, "bail libéré");
+  assert.equal(w.profile.get(R1)!.sender_name, "Resto (modifié)", "le profil, écrit sous bail, est enregistré");
+});
+
+test("R3-03 : une DÉSACTIVATION demandée n'est jamais bloquée par un événement du Cron (rien à protéger)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  w.duringProfileRpc = async () => { await cronSuspends(w); };
+  const res = await post("tok-owner-r1", { ...SAME_SECRET, enabled: false });
+  assert.equal(res.status, 200);
+  assert.equal(w.vault.get(R1)!.enabled, false);
+  assert.equal(w.vault.get(R1)!.last_error_class, "PROVIDER_AUTHENTICATION_FAILED", "l'erreur du Cron reste visible");
+  assert.equal(w.vault.get(R1)!.save_token, null);
+});
+
+test("R3-03 : une erreur enregistrée ENTRE la lecture et la mise en préparation => 409, la ligne n'est pas modifiée (l'état d'erreur lu fait partie de l'état attendu)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  w.beforeConditionalUpdate = () => { Object.assign(w.vault.get(R1)!, { last_error_class: "PROVIDER_CONNECTION_FAILED", last_error_at: "2026-10-31T11:00:00.000Z" }); };
+  const res = await post("tok-owner-r1", SAME_SECRET);
+  assert.equal(res.status, 409);
+  const row = w.vault.get(R1)!;
+  assert.equal(row.enabled, true, "rien n'a été écrit");
+  assert.equal(row.save_token, null);
+  assert.equal(row.last_error_class, "PROVIDER_CONNECTION_FAILED");
+});
+
+test("R3-03 : première configuration refusée => coffre fermé et bail libéré (comportement conservé)", async (t) => {
+  const w = install(t);
+  w.failProfileRpc = true;
+  const res = await post("tok-owner-r1", SAVE);
+  assert.equal(res.status, 400);
+  assert.equal(w.vault.get(R1)!.enabled, false);
+  assert.equal(w.vault.get(R1)!.save_token, null);
 });

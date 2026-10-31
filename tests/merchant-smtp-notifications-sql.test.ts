@@ -31,6 +31,15 @@ const RBSMTP = sql("DRAFT-lot-merchant-smtp-notifications-v1-rollback.sql");
 
 const N1A_TABLE = N1A.match(/create table public\.notification_outbox \([\s\S]*?\n\);/)![0];
 const N1A_CLAIM = N1A.match(/create function public\.claim_pending_notifications\([\s\S]*?end \$\$;/)![0];
+// R3 : le lot SMTP délègue l'écriture du profil sous bail à la fonction N1-A (extraite TELLE QUELLE) et aux deux
+// fonctions de rôle, dont les corps réels vivent dans d'autres lots : doublures minimales pilotées par des réglages de session.
+const N1A_PROFILE_RPC = N1A.match(/create function public\.set_merchant_notification_profile\([\s\S]*?grant execute on function public\.set_merchant_notification_profile\([^)]*\) to authenticated;/)![0];
+const ROLE_STUBS = `
+  create function public.has_role_in(p_restaurant_id uuid, p_roles text[]) returns boolean language sql stable
+    as $f$ select coalesce(current_setting('test.role', true), '') = any(p_roles) $f$;
+  create function public.is_scanym_operator() returns boolean language sql stable
+    as $f$ select coalesce(current_setting('test.operator', true), '') = 'on' $f$;
+`;
 const CLAIM = "public.claim_pending_notifications(integer,integer)";
 const md5 = (text: string) => createHash("md5").update(text, "utf8").digest("hex");
 
@@ -69,6 +78,8 @@ async function makeDb(opts: { g180?: boolean; smtp?: boolean; afterPredecessor?:
     ${N1A_CLAIM}
     revoke all on function public.claim_pending_notifications(integer, integer) from public, anon, authenticated;
     grant execute on function public.claim_pending_notifications(integer, integer) to service_role;
+    ${ROLE_STUBS}
+    ${N1A_PROFILE_RPC}
   `);
   if (g180) await db.exec(G180);
   if (afterPredecessor) await db.exec(afterPredecessor);
@@ -402,5 +413,144 @@ test("cycle complet : #180 -> SMTP -> rollback -> SMTP de nouveau", async () => 
   await db.exec(RBSMTP);
   await db.exec(SMTP);
   assert.equal((await claimState(db)).md5, BODY_SMTP_MD5);
+  await db.close();
+});
+
+// ====================================================================
+// R3 (P2) -- « Sauvegarde concurrente : un profil ancien peut remplacer celui d'une configuration
+// récemment enregistrée » : écriture du profil SOUS BAIL, dans la même transaction que la vérification
+// du jeton (verrou de la ligne du coffre). Preuve de verrouillage entre DEUX connexions : voir
+// [SMTP-PG-L]/[SMTP-PG-M] dans tests/merchant-smtp-notifications-preflight-pg.test.ts (PGlite est mono-connexion).
+// ====================================================================
+const LEASED = "public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)";
+const TOKEN_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const TOKEN_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+async function leasedCall(db: PGlite, restaurant: string, token: string | null, role: "owner" | "manager" | "staff" | "", fields: { name?: string; email?: string; enabled?: boolean } = {}) {
+  await db.exec(`select set_config('test.role', '${role}', false); set role authenticated;`);
+  try {
+    await db.query(
+      "select public.set_merchant_notification_profile_under_save_lease($1::uuid, $2::uuid, $3, $4, $5, null, 'fr')",
+      [restaurant, token, fields.enabled ?? true, fields.name ?? "Resto B", fields.email ?? "b@resto.example"]);
+  } finally {
+    await db.exec("reset role");
+  }
+}
+const profileOf = async (db: PGlite, restaurant: string) =>
+  (await db.query<{ email_enabled: boolean; sender_name: string; sender_email: string }>(
+    "select email_enabled, sender_name, sender_email from public.merchant_notification_profile where restaurant_id = $1::uuid", [restaurant])).rows[0];
+const takeLease = (db: PGlite, restaurant: string, token: string) =>
+  db.query("update public.merchant_email_provider_config set save_token = $2::uuid, save_lease_until = now() + interval '60 seconds' where restaurant_id = $1::uuid", [restaurant, token]);
+const rejectsWith = (code: string, marker: RegExp) => (error: unknown) => {
+  const e = error as { code?: string; message?: string };
+  return e.code === code && marker.test(String(e.message));
+};
+
+test("R3-02 : la fonction de profil sous bail est SECURITY DEFINER, search_path vide, exécutable par authenticated SEULEMENT", async () => {
+  const db = await makeDb();
+  const r = await db.query<{ secdef: boolean; config: string; acl: string; can_auth: boolean; can_anon: boolean; can_service: boolean; can_public: boolean }>(`
+    select p.prosecdef as secdef, array_to_string(p.proconfig, ',') as config, p.proacl::text as acl,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') as can_auth,
+           has_function_privilege('anon', p.oid, 'EXECUTE') as can_anon,
+           has_function_privilege('service_role', p.oid, 'EXECUTE') as can_service,
+           has_function_privilege('public', p.oid, 'EXECUTE') as can_public
+    from pg_proc p where p.oid = '${LEASED}'::regprocedure`);
+  const row = r.rows[0]!;
+  assert.equal(row.secdef, true);
+  assert.equal(row.config, 'search_path=""');
+  assert.deepEqual([row.can_auth, row.can_anon, row.can_service, row.can_public], [true, false, false, false], row.acl);
+  await db.close();
+});
+
+test("R3-02 REPRO : jeton COURANT => profil écrit ; jeton repris par un autre enregistrement (ou absent, ou étranger) => SCANYM_SAVE_LEASE_LOST et profil INCHANGÉ", async () => {
+  const db = await makeDb();
+  const { restaurant } = await addRestaurant(db, {});
+  const other = await addRestaurant(db, {});
+  await takeLease(db, restaurant, TOKEN_A);
+  await takeLease(db, other.restaurant, TOKEN_B);
+
+  await leasedCall(db, restaurant, TOKEN_A, "owner", { name: "Resto A", email: "a@resto.example" });
+  assert.deepEqual(await profileOf(db, restaurant), { email_enabled: true, sender_name: "Resto A", sender_email: "a@resto.example" });
+
+  // B reprend le bail (celui d'A a expiré) et écrit SON profil ; A, en retard, arrive ensuite avec son ancien jeton.
+  await takeLease(db, restaurant, TOKEN_B);
+  await leasedCall(db, restaurant, TOKEN_B, "manager", { name: "Resto B", email: "b@resto.example" });
+  const afterB = await profileOf(db, restaurant);
+  assert.equal(afterB!.sender_name, "Resto B");
+  for (const stale of [TOKEN_A, null, TOKEN_B.replace(/^b/, "c"), other.restaurant]) {
+    await assert.rejects(() => leasedCall(db, restaurant, stale, "owner", { name: "Resto A (ancien)", email: "ancien@resto.example" }), rejectsWith("55000", /SCANYM_SAVE_LEASE_LOST/), String(stale));
+    assert.deepEqual(await profileOf(db, restaurant), afterB, `le profil récent n'est pas remplacé (jeton ${stale})`);
+  }
+  // Le jeton d'un AUTRE établissement ne vaut rien ici.
+  await assert.rejects(() => leasedCall(db, restaurant, TOKEN_B.replace(/^b/, "d"), "owner"), rejectsWith("55000", /SCANYM_SAVE_LEASE_LOST/));
+  // Bail libéré (enregistrement terminé) : plus de jeton valide.
+  await db.query("update public.merchant_email_provider_config set save_token = null, save_lease_until = null where restaurant_id = $1::uuid", [restaurant]);
+  await assert.rejects(() => leasedCall(db, restaurant, TOKEN_B, "owner"), rejectsWith("55000", /SCANYM_SAVE_LEASE_LOST/));
+  assert.deepEqual(await profileOf(db, restaurant), afterB);
+  await db.close();
+});
+
+test("R3-02 : l'autorisation précède le bail -- sans rôle owner/manager : 42501, même avec un faux jeton (l'état du bail n'est pas révélé) ; opérateur admis", async () => {
+  const db = await makeDb();
+  const { restaurant } = await addRestaurant(db, {});
+  await takeLease(db, restaurant, TOKEN_A);
+  const before = await profileOf(db, restaurant);
+  for (const role of ["staff", ""] as const) {
+    for (const token of [TOKEN_A, TOKEN_B]) {
+      await assert.rejects(() => leasedCall(db, restaurant, token, role), rejectsWith("42501", /SCANYM_NOTIFICATION_PROFILE_FORBIDDEN/), `${role || "(aucun)"} / ${token}`);
+    }
+  }
+  assert.deepEqual(await profileOf(db, restaurant), before);
+  await db.exec("select set_config('test.operator', 'on', false); select set_config('test.role', '', false); set role authenticated;");
+  await db.query("select public.set_merchant_notification_profile_under_save_lease($1::uuid, $2::uuid, true, 'Opérateur', 'op@resto.example', null, 'fr')", [restaurant, TOKEN_A]);
+  await db.exec("reset role; select set_config('test.operator', 'off', false);");
+  assert.equal((await profileOf(db, restaurant))!.sender_name, "Opérateur");
+  await db.close();
+});
+
+test("R3-02 : profil invalide avec le bon jeton => erreur de validation de la fonction N1-A, rien d'écrit, bail intact", async () => {
+  const db = await makeDb();
+  const { restaurant } = await addRestaurant(db, {});
+  await takeLease(db, restaurant, TOKEN_A);
+  const before = await profileOf(db, restaurant);
+  await assert.rejects(() => leasedCall(db, restaurant, TOKEN_A, "owner", { email: "pas-un-courriel" }), rejectsWith("22023", /sender_email invalide/));
+  assert.deepEqual(await profileOf(db, restaurant), before);
+  const lease = await db.query<{ save_token: string | null }>("select save_token from public.merchant_email_provider_config where restaurant_id = $1::uuid", [restaurant]);
+  assert.equal(lease.rows[0]!.save_token, TOKEN_A, "le bail est toujours à son titulaire (la fonction ne le modifie jamais)");
+  await db.close();
+});
+
+test("R3-02 : pré-vol -- profil N1-A, has_role_in ou is_scanym_operator absents, ou fonction déjà présente => lot REFUSÉ sans mutation", async () => {
+  for (const [label, drop] of [
+    ["profil N1-A absent", "drop function public.set_merchant_notification_profile(uuid, boolean, text, text, text, text);"],
+    ["has_role_in absent", "drop function public.has_role_in(uuid, text[]);"],
+    ["is_scanym_operator absent", "drop function public.is_scanym_operator();"],
+  ] as const) {
+    const db = await makeDb({ smtp: false });
+    await db.exec(drop);
+    await refused(db, SMTP, /SCANYM_SCHEMA_DRIFT/);
+    assert.equal((await claimState(db)).hasVault, false, label);
+    assert.equal((await claimState(db)).md5, BODY_180_MD5, label);
+    await db.close();
+  }
+  const db = await makeDb({ smtp: false });
+  await db.exec("create function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) returns void language sql as $f$ select 1 $f$;");
+  await refused(db, SMTP, /SCANYM_SCHEMA_DRIFT: set_merchant_notification_profile_under_save_lease already exists/);
+  assert.equal((await claimState(db)).hasVault, false);
+  await db.close();
+});
+
+test("R3-02 : le rollback supprime la fonction sous bail (et elle seule) ; le profil N1-A et le claim de #180 restent", async () => {
+  const db = await makeDb();
+  await db.exec(RBSMTP);
+  const r = await db.query<{ leased: boolean; base: boolean; vault: boolean }>(`
+    select to_regprocedure('${LEASED}') is not null as leased,
+           to_regprocedure('public.set_merchant_notification_profile(uuid,boolean,text,text,text,text)') is not null as base,
+           to_regclass('public.merchant_email_provider_config') is not null as vault`);
+  assert.deepEqual(r.rows[0], { leased: false, base: true, vault: false });
+  assert.equal((await claimState(db)).md5, BODY_180_MD5);
+  // Cycle complet : le lot se réapplique (la fonction est recréée).
+  await db.exec(SMTP);
+  assert.equal((await db.query<{ ok: boolean }>(`select to_regprocedure('${LEASED}') is not null as ok`)).rows[0]!.ok, true);
   await db.close();
 });

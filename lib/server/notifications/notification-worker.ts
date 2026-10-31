@@ -15,6 +15,7 @@ import {
   type EmailTrackingCapability,
 } from "@/lib/server/notifications/notification-outbox-service";
 import { normalizeNotificationErrorCode } from "@/lib/server/notifications/notification-error-taxonomy";
+import type { RunBudget } from "@/lib/server/notifications/run-budget";
 import { isCommunicationEventCode } from "@/lib/communications/events";
 import { renderCommunicationEventEmail } from "@/lib/server/notifications/communication-event-template";
 import { buildCommunicationTemplateValues } from "@/lib/server/notifications/communication-template-values";
@@ -96,8 +97,15 @@ export async function processPendingNotifications(
      * Les lignes réclamées mais non traitées restent `processing` jusqu'à
      * l'expiration du bail, puis `reap_stale_notification_claims` les remet en
      * attente sans consommer de tentative.
+     * Date MURALE : si l'horloge système recule, elle ne suffit pas (R3) -- c'est `budget` qui fait foi.
      */
     deadlineAt?: number;
+    /**
+     * R3 : budget de durée sur l'horloge MONOTONE (voir run-budget.ts), créé par l'appelant au moment où le
+     * travail commence. Insensible à tout ajustement de l'horloge système. Les deux bornes se cumulent :
+     * l'exécution s'arrête dès que l'une d'elles est atteinte.
+     */
+    budget?: RunBudget;
   } = {}
 ): Promise<ProcessPendingNotificationsResult> {
   const claimed = await claimPendingNotifications(options);
@@ -116,7 +124,11 @@ export async function processPendingNotifications(
   //      qu'aucun envoi ne démarre après la limite, quelle qu'ait été la lenteur des étapes précédentes.
   // Une ligne laissée en l'état reste `processing` : le bail expire, `reap_stale_notification_claims`
   // la remet en attente sans consommer de tentative.
-  const budgetExpired = () => options.deadlineAt !== undefined && Date.now() >= options.deadlineAt;
+  // R3 : le budget MONOTONE fait foi ; la date murale n'est qu'un garde-fou supplémentaire (elle ne peut que raccourcir
+  // l'exécution si l'horloge avance, jamais la prolonger si elle recule).
+  const budgetExpired = () =>
+    (options.budget !== undefined && options.budget.expired()) ||
+    (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt);
 
   for (const notification of claimed) {
     if (budgetExpired()) break;
@@ -505,6 +517,7 @@ export async function runTransactionalEmailWorker(
     leaseSeconds?: number;
     providerForNotification?: (notification: ClaimedNotification) => Promise<EmailProvider | null>;
     deadlineAt?: number;
+    budget?: RunBudget;
   } = {}
 ): Promise<RunTransactionalEmailWorkerResult> {
   if (!provider && !options.providerForNotification) return { status: "provider_disabled" };

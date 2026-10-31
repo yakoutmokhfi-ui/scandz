@@ -4,6 +4,7 @@ import { isMerchantSmtpEncryptionConfigured } from "@/lib/server/merchant-email-
 import { isRealEmailSendActivated } from "@/lib/server/notifications/real-email-activation-gate";
 import { resolveMerchantSmtpProvider } from "@/lib/server/notifications/merchant-smtp-provider";
 import { reapStaleNotificationClaims } from "@/lib/server/notifications/notification-outbox-service";
+import { createRunBudget } from "@/lib/server/notifications/run-budget";
 import { runTransactionalEmailWorker } from "@/lib/server/notifications/notification-worker";
 import {
   WORKER_BATCH_SIZE,
@@ -39,11 +40,15 @@ export async function GET(request: NextRequest) {
   }
   try {
     const startedAt = Date.now();
+    // R3 : le budget se mesure sur l'horloge MONOTONE, créée avant le reap comme `startedAt`. `deadlineAt` (date murale)
+    // reste un garde-fou supplémentaire, mais ne suffit pas seul : si l'horloge système recule, il ne se déclencherait pas.
+    const budget = createRunBudget(WORKER_RUN_BUDGET_MS);
     const reaped = await reapStaleNotificationClaims({ batchSize: 100 });
     const result = await runTransactionalEmailWorker(null, {
       batchSize: WORKER_BATCH_SIZE,
       leaseSeconds: WORKER_LEASE_SECONDS,
       deadlineAt: startedAt + WORKER_RUN_BUDGET_MS,
+      budget,
       providerForNotification: (notification) => resolveMerchantSmtpProvider(notification.restaurantId),
     });
     const deferred = result.status === "processed"

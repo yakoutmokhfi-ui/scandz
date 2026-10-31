@@ -13,6 +13,11 @@
 -- jointures (coffre activé avec secret ; opt-in marchand) et le verrou ciblé
 -- « for update of o ». Signature, colonnes, bail, droits et attributs inchangés.
 --
+-- R3 (contre-audit de 9e38c88, P2 « profil ancien ») : ajoute
+-- set_merchant_notification_profile_under_save_lease -- écriture du profil dans la MÊME transaction que la
+-- vérification du bail d'enregistrement (verrou de la ligne du coffre). Le front de cette PR l'appelle : ce lot
+-- doit donc être appliqué AVANT le déploiement du front (comme les colonnes save_token / save_lease_until).
+--
 -- Retour arrière : DRAFT-lot-merchant-smtp-notifications-v1-rollback.sql
 -- restaure le claim de #180 OCTET POUR OCTET (même empreinte, même
 -- commentaire) : le rollback de #180 reste ensuite possible (A196-02).
@@ -29,7 +34,10 @@ begin
      or to_regclass('public.restaurants') is null
      or to_regprocedure('public.touch_updated_at()') is null
      or to_regprocedure('public.notification_send_gate_open(uuid,text)') is null
-     or to_regprocedure('public.claim_pending_notifications(integer,integer)') is null then
+     or to_regprocedure('public.claim_pending_notifications(integer,integer)') is null
+     or to_regprocedure('public.set_merchant_notification_profile(uuid,boolean,text,text,text,text)') is null
+     or to_regprocedure('public.has_role_in(uuid,text[])') is null
+     or to_regprocedure('public.is_scanym_operator()') is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: email notification foundation/payment gate is missing';
   end if;
   if not exists (
@@ -40,6 +48,9 @@ begin
   end if;
   if to_regclass('public.merchant_email_provider_config') is not null then
     raise exception 'SCANYM_SCHEMA_DRIFT: merchant_email_provider_config already exists';
+  end if;
+  if to_regprocedure('public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)') is not null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: set_merchant_notification_profile_under_save_lease already exists';
   end if;
   if (
     select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -185,6 +196,60 @@ before update on public.merchant_email_provider_config
 for each row execute function public.touch_updated_at();
 
 -- -----------------------------------------------------------------------------
+-- 1b. Écriture du profil SOUS BAIL (R3, P2 « un profil ancien peut remplacer celui d'une configuration
+--     récemment enregistrée »).
+--
+--     Un enregistrement = coffre fermé (bail) -> profil -> coffre activé. Si le bail d'un enregistrement lent
+--     expire et qu'un second enregistrement le reprend et se termine, l'appel tardif du premier à
+--     set_merchant_notification_profile (non conditionnel) REMPLAÇAIT le profil du second. Cette fonction
+--     verrouille la ligne du coffre (FOR UPDATE) si et seulement si le jeton est TOUJOURS celui de l'appelant,
+--     puis écrit le profil dans la même transaction : une reprise du bail attend la fin de l'écriture, et un bail
+--     déjà repris ne laisse AUCUNE écriture (SCANYM_SAVE_LEASE_LOST). Aucune horloge n'intervient : « le jeton est
+--     encore le mien » est exact tant que le verrou est tenu. L'autorisation est celle de la fonction de profil
+--     (owner/manager ou opérateur), vérifiée AVANT de toucher ou de révéler quoi que ce soit.
+-- -----------------------------------------------------------------------------
+create function public.set_merchant_notification_profile_under_save_lease(
+  p_restaurant_id  uuid,
+  p_save_token     uuid,
+  p_email_enabled  boolean,
+  p_sender_name    text default null,
+  p_sender_email   text default null,
+  p_reply_to       text default null,
+  p_default_locale text default 'fr'
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not (public.has_role_in(p_restaurant_id, array['owner', 'manager']) or public.is_scanym_operator()) then
+    raise exception 'SCANYM_NOTIFICATION_PROFILE_FORBIDDEN: rôle owner/manager (ou opérateur) requis pour %', p_restaurant_id
+      using errcode = '42501';
+  end if;
+
+  perform 1
+    from public.merchant_email_provider_config c
+   where c.restaurant_id = p_restaurant_id
+     and c.save_token = p_save_token
+     for update of c;
+  if not found then
+    raise exception 'SCANYM_SAVE_LEASE_LOST: le bail d''enregistrement du coffre SMTP de % n''est plus celui de l''appelant. Profil non écrit.', p_restaurant_id
+      using errcode = '55000';
+  end if;
+
+  perform public.set_merchant_notification_profile(
+    p_restaurant_id, p_email_enabled, p_sender_name, p_sender_email, p_reply_to, p_default_locale
+  );
+end $$;
+
+comment on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) is
+  'MERCHANT SMTP v1 R3 — écrit le profil e-mail marchand (via set_merchant_notification_profile) seulement si save_token du coffre est encore celui de l''appelant, sous FOR UPDATE de la ligne du coffre, dans la même transaction. Sinon SCANYM_SAVE_LEASE_LOST et aucune écriture. Exige owner/manager (ou opérateur).';
+
+revoke all on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) from public, anon, authenticated, service_role;
+grant execute on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
 -- 2. claim_pending_notifications — corps de #180 + deux jointures + verrou ciblé.
 -- -----------------------------------------------------------------------------
 create or replace function public.claim_pending_notifications(
@@ -281,6 +346,29 @@ begin
   end if;
   if not (select c.relrowsecurity from pg_class c where c.oid = 'public.merchant_email_provider_config'::regclass) then
     raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault RLS is disabled';
+  end if;
+  -- R3 : la fonction d'écriture du profil sous bail existe, SECURITY DEFINER, search_path vide, exécutable par
+  -- authenticated SEULEMENT (ni PUBLIC, ni anon, ni service_role : son contrôle de rôle repose sur auth.uid()).
+  select p.proowner,
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+    into v_owner, v_acl
+  from pg_proc p
+  where p.oid = to_regprocedure('public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)');
+  if v_owner is null
+     or not exists (select 1 from pg_proc p
+                     where p.oid = 'public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)'::regprocedure
+                       and p.prosecdef and p.proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: set_merchant_notification_profile_under_save_lease is missing or not SECURITY DEFINER with an empty search_path';
+  end if;
+  if v_acl is distinct from (select array_agg(x order by x) from unnest(array[
+       format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+       format('%s=EXECUTE/%s', to_regrole('authenticated')::text, v_owner::regrole::text)]) as x) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: set_merchant_notification_profile_under_save_lease privileges are not {owner, authenticated} (%)', v_acl;
   end if;
   if (select md5(p.prosrc) from pg_proc p
        where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) not in (c_smtp_body_md5, c_smtp_body_md5_crlf) then
