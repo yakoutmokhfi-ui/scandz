@@ -1,6 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -100,7 +101,8 @@ function snapshot(url: string): string {
       (select coalesce(string_agg(to_jsonb(c)::text, ',' order by c.conname), '') from pg_constraint c where c.conrelid = to_regclass('public.merchant_email_provider_config')),
       (select count(*)::text from public.notification_outbox));`);
 }
-const bodyMd5 = (url: string) => psqlQuery(url, `select md5(replace(prosrc, E'\\r', '')) from pg_proc where oid = '${CLAIM_FN}'::regprocedure;`);
+// R2 (défaut 4) : empreinte sur les OCTETS EXACTS (aucune normalisation des fins de ligne).
+const bodyMd5 = (url: string) => psqlQuery(url, `select md5(prosrc) from pg_proc where oid = '${CLAIM_FN}'::regprocedure;`);
 const comment = (url: string) => psqlQuery(url, `select md5(obj_description('${CLAIM_FN}'::regprocedure, 'pg_proc'));`);
 const claimAcl = (url: string) => psqlQuery(url, `select proacl::text from pg_proc where oid = '${CLAIM_FN}'::regprocedure;`);
 const hasVault = (url: string) => psqlQuery(url, `select to_regclass('public.merchant_email_provider_config') is not null;`);
@@ -127,7 +129,15 @@ after(() => {
 
 const OPTS = { skip: SKIP_REASON };
 const BODY_180 = "16d75b38372fd5dfd0ca1a4e20dfa3a8";
-const BODY_SMTP = (SMTP.match(/'([0-9a-f]{32})'/g) ?? []).map((m) => m.slice(1, -1)).find((h) => h !== BODY_180)!;
+/** Corps ($$...$$) du `create [or replace] function public.claim_pending_notifications` d'un fichier SQL. */
+function claimBodyOf(file: string): string {
+  const m = file.match(/create (?:or replace )?function public\.claim_pending_notifications\([\s\S]*?as \$\$([\s\S]*?)\$\$;/);
+  assert.ok(m, "définition du claim introuvable");
+  return m![1]!;
+}
+const md5 = (text: string) => createHash("md5").update(text, "utf8").digest("hex");
+const BODY_SMTP = md5(claimBodyOf(SMTP));
+assert.equal(md5(claimBodyOf(G180)), BODY_180);
 
 test("[SMTP-PG-A] PostgreSQL réel -- chaîne nominale : #180 -> SMTP pose le corps épinglé ; rollback SMTP restaure #180 octet pour octet ; rollback #180 ensuite", OPTS, () => {
   const ref = newDb({ smtp: false });
@@ -179,5 +189,114 @@ test("[SMTP-PG-E] PostgreSQL réel -- rollback SMTP : claim dérivé (EXECUTE en
   assertRefused(url, RBSMTP, "rb-extra-role", /droits d'exécution de claim_pending_notifications/);
   psqlQuery(url, `revoke execute on function ${CLAIM_FN} from audit_extra; alter function ${CLAIM_FN} returns null on null input;`);
   assertRefused(url, RBSMTP, "rb-strict", /attributs de claim_pending_notifications/);
+  assert.equal(hasVault(url), "t");
+});
+
+// --------------------------------------------------------------------
+// R2 (défaut 4 du contre-audit de 7cb60a8) : pré-vols EXACTS, sur un PostgreSQL réel
+// --------------------------------------------------------------------
+/** Réécrit le claim courant en transformant son `pg_get_functiondef` ; vérifie que le corps a réellement changé. */
+function redefineClaim(url: string, transformSql: string): void {
+  const before = bodyMd5(url);
+  psqlQuery(url, `do $x$ declare s text; begin select pg_get_functiondef('${CLAIM_FN}'::regprocedure) into s; execute ${transformSql}; end $x$;`);
+  assert.notEqual(bodyMd5(url), before, "la variante doit réellement modifier le corps");
+}
+const TAMPERS: Array<{ name: string; apply: (url: string) => void }> = [
+  // Une seule fin de ligne CRLF au milieu d'un corps LF : une empreinte « CR retirés » l'aurait acceptée.
+  { name: "fins de ligne mixtes (un seul CRLF)", apply: (url) => redefineClaim(url, `replace(s, E'begin\\n  return query', E'begin\\r\\n  return query')`) },
+  // Un CR DANS un littéral de chaîne change la valeur comparée : l'ancienne empreinte (CR retirés) ne le voyait pas.
+  { name: "CR isolé dans un littéral", apply: (url) => redefineClaim(url, `replace(s, '''processing''', '''processing' || E'\\r' || '''')`) },
+  { name: "commentaire de fonction modifié", apply: (url) => psqlQuery(url, `comment on function ${CLAIM_FN} is 'commentaire altéré';`) },
+  { name: "commentaire SQL ajouté dans le corps", apply: (url) => redefineClaim(url, `replace(s, 'begin', 'begin -- x')`) },
+];
+
+test("[SMTP-PG-F] PostgreSQL réel -- lot SMTP : chaque variante du claim de #180 (fins de ligne mixtes, CR dans un littéral, commentaire) est REFUSÉE, sans mutation", OPTS, () => {
+  for (const tamper of TAMPERS) {
+    const url = newDb({ smtp: false });
+    tamper.apply(url);
+    assertRefused(url, SMTP, `fwd-${tamper.name.replace(/\W+/g, "-")}`, /./);
+    assert.equal(hasVault(url), "f", tamper.name);
+  }
+});
+
+test("[SMTP-PG-G] PostgreSQL réel -- rollback SMTP : chaque variante du claim SMTP est REFUSÉE, sans mutation (le coffre et le claim restent en place)", OPTS, () => {
+  for (const tamper of TAMPERS) {
+    const url = newDb();
+    tamper.apply(url);
+    assertRefused(url, RBSMTP, `rb-${tamper.name.replace(/\W+/g, "-")}`, /./);
+    assert.equal(hasVault(url), "t", tamper.name);
+  }
+});
+
+test("[SMTP-PG-H] PostgreSQL réel -- la forme CRLF intégrale (extraction Windows du dépôt) reste admise : lot appliqué, puis rollback qui restaure #180", OPTS, () => {
+  const url = newDb({ smtp: false });
+  redefineClaim(url, `replace(s, E'\\n', E'\\r\\n')`);
+  assert.equal(bodyMd5(url), md5(claimBodyOf(G180).replaceAll("\n", "\r\n")), "le claim #180 est bien en CRLF intégral");
+  const fwd = psqlFile(url, "fwd-crlf.sql", SMTP, true);
+  assert.equal(fwd.status, 0, fwd.out);
+  assert.equal(bodyMd5(url), BODY_SMTP);
+  redefineClaim(url, `replace(s, E'\\n', E'\\r\\n')`);
+  const rb = psqlFile(url, "rb-crlf.sql", RBSMTP, true);
+  assert.equal(rb.status, 0, rb.out);
+  assert.equal(bodyMd5(url), BODY_180);
+  assert.equal(hasVault(url), "f");
+});
+
+// --------------------------------------------------------------------
+// R2 : rollback face à une écriture concurrente (DEUX connexions réelles)
+// --------------------------------------------------------------------
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+function psqlSession(url: string, extraArgs: string[] = []) {
+  const child = spawn(PSQL, ["-X", "-q", "-v", "ON_ERROR_STOP=1", ...extraArgs, url], { stdio: ["pipe", "pipe", "pipe"] });
+  let output = "";
+  let finished = false;
+  child.stdout.on("data", (chunk) => { output += String(chunk); });
+  child.stderr.on("data", (chunk) => { output += String(chunk); });
+  const done = new Promise<number | null>((resolve) => child.on("close", (code) => { finished = true; resolve(code); }));
+  return { child, done, output: () => output, finished: () => finished };
+}
+const RACE_RESTAURANT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const raceInsert = `insert into public.merchant_email_provider_config(restaurant_id, host, port, username, enabled) values ('${RACE_RESTAURANT}', 'smtp.ionos.fr', 465, 'b@b.fr', false);`;
+
+test("[SMTP-PG-I] PostgreSQL réel, 2 connexions -- une écriture de configuration en cours pendant le rollback n'est JAMAIS perdue (le rollback attend, revoit le coffre, refuse)", OPTS, async () => {
+  const url = newDb();
+  psqlQuery(url, `insert into public.restaurants(id) values ('${RACE_RESTAURANT}');`);
+  const rbFile = path.join(workDir, "rb-race.sql");
+  writeFileSync(rbFile, RBSMTP);
+
+  const writer = psqlSession(url);
+  writer.child.stdin.write(`begin; ${raceInsert}\n`); // transaction OUVERTE, pas encore validée
+  await sleep(1000);
+  const rollback = psqlSession(url, ["-f", rbFile]);
+  await sleep(2000);
+  assert.equal(rollback.finished(), false, "le rollback attend le verrou : il ne passe PAS devant l'écriture en cours");
+  writer.child.stdin.end("commit;\n");
+  const [writerCode, rollbackCode] = await Promise.all([writer.done, rollback.done]);
+
+  assert.equal(writerCode, 0, writer.output());
+  assert.notEqual(rollbackCode, 0, "le rollback doit être refusé");
+  assert.match(rollback.output(), /SCANYM_ROLLBACK_DATA_LOSS/, rollback.output());
+  assert.equal(hasVault(url), "t", "la table n'a pas été supprimée");
+  assert.equal(psqlQuery(url, "select count(*)::text from public.merchant_email_provider_config;"), "1", "la configuration validée par l'écriture concurrente est intacte");
+  assert.equal(bodyMd5(url), BODY_SMTP, "le claim SMTP est resté en place (rollback annulé en bloc)");
+});
+
+test("[SMTP-PG-J] PostgreSQL réel, 2 connexions -- verrou tenu trop longtemps : le rollback expire (lock_timeout 10 s) sans rien modifier", OPTS, async () => {
+  const url = newDb();
+  psqlQuery(url, `insert into public.restaurants(id) values ('${RACE_RESTAURANT}');`);
+  const rbFile = path.join(workDir, "rb-timeout.sql");
+  writeFileSync(rbFile, RBSMTP);
+  const before = snapshot(url);
+
+  const holder = psqlSession(url);
+  holder.child.stdin.write(`begin; ${raceInsert}\n`);
+  await sleep(500);
+  const rollback = psqlSession(url, ["-f", rbFile]);
+  const rollbackCode = await rollback.done; // expire seul, sans attendre le commit
+  assert.notEqual(rollbackCode, 0);
+  assert.match(rollback.output(), /lock timeout|SCANYM_/i, rollback.output());
+  holder.child.stdin.end("rollback;\n");
+  await holder.done;
+  assert.equal(snapshot(url), before, "aucune mutation");
   assert.equal(hasVault(url), "t");
 });

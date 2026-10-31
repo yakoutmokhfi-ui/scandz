@@ -1,4 +1,5 @@
 import "server-only";
+import { StringDecoder } from "node:string_decoder";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
 import { lookup as dnsLookup } from "node:dns/promises";
 
@@ -289,36 +290,138 @@ const DEFAULT_IO: SmtpIo = {
   connect: (options, onConnect) => tlsConnect(options, onConnect),
 };
 
-function readLine(socket: TLSSocket, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buf = "";
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString("utf8");
-      // Une réponse multi-ligne SMTP a "250-..." sur les lignes
-      // intermédiaires et "250 ..." (espace) sur la dernière.
-      const lines = buf.split(CRLF).filter((l) => l.length > 0);
-      const last = lines[lines.length - 1];
-      if (last && /^\d{3} /.test(last)) {
-        cleanup();
-        resolve(buf);
+/** Taille maximale d'UNE réponse SMTP (un serveur hostile ne peut pas faire grossir le tampon sans fin). */
+const MAX_REPLY_CHARS = 64 * 1024;
+
+interface PendingRead {
+  resolve: (reply: string) => void;
+  reject: (err: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+  stage: SmtpFailureStage;
+}
+
+type ReaderFailure = { kind: "error"; error: unknown } | { kind: "overflow" } | { kind: "closed" };
+
+/**
+ * Lecteur de réponses SMTP (R2, contre-audit de 7cb60a8, défaut 1).
+ *
+ * TCP/TLS ne garantit aucun découpage : une réponse peut arriver en plusieurs morceaux, au
+ * milieu d'une ligne, d'un code ou d'un caractère UTF-8. L'ancien lecteur démarrait avec un
+ * tampon VIDE à chaque lecture (donc jetait le reste d'un fragment) et prenait une ligne
+ * incomplète commençant par « 250 » pour une réponse terminée.
+ *
+ * Ici : UN seul abonnement par session, un tampon persistant, décodage UTF-8 avec état, et
+ * une réponse n'est complète qu'à sa DERNIÈRE ligne COMPLÈTE (terminée par un saut de ligne ;
+ * « 250-… » = ligne de continuation, « 250 … » ou « 250 » = dernière ligne). Ce qui suit la
+ * réponse consommée reste dans le tampon pour la lecture suivante.
+ */
+class SmtpReplyReader {
+  private buffer = "";
+  private readonly decoder = new StringDecoder("utf8");
+  private pending: PendingRead | null = null;
+  private failure: ReaderFailure | null = null;
+  private readonly socket: TLSSocket;
+  private readonly stepTimeoutMs: number;
+  private readonly onData: (chunk: Buffer | string) => void;
+  private readonly onError: (err: unknown) => void;
+  private readonly onClose: () => void;
+
+  constructor(socket: TLSSocket, stepTimeoutMs: number) {
+    this.socket = socket;
+    this.stepTimeoutMs = stepTimeoutMs;
+    this.onData = (chunk) => {
+      this.buffer += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
+      if (this.pending && this.settleFromBuffer()) return;
+      if (this.buffer.length > MAX_REPLY_CHARS) this.fail({ kind: "overflow" });
+    };
+    this.onError = (err) => this.fail({ kind: "error", error: err });
+    this.onClose = () => this.fail({ kind: "closed" });
+    socket.on("data", this.onData);
+    socket.on("error", this.onError);
+    socket.on("close", this.onClose);
+    socket.on("end", this.onClose);
+  }
+
+  /** Lit la prochaine réponse COMPLÈTE, bornée par le délai d'étape. */
+  read(stage: SmtpFailureStage): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const ready = this.takeReply();
+      if (ready !== null) {
+        resolve(ready);
+        return;
       }
-    };
-    const onError = (err: Error) => {
-      cleanup();
-      reject(err);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("SMTP_TIMEOUT"));
-    }, timeoutMs);
-    function cleanup() {
-      clearTimeout(timer);
-      socket.off("data", onData);
-      socket.off("error", onError);
+      if (this.failure) {
+        reject(this.errorFor(this.failure, stage));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.pending = null;
+        reject(new Error("SMTP_TIMEOUT"));
+      }, this.stepTimeoutMs);
+      this.pending = { resolve, reject, timer, stage };
+    });
+  }
+
+  /** Fin de session : plus d'abonnement aux données, mais un écouteur d'erreur reste (jamais d'exception non interceptée). */
+  dispose(): void {
+    this.socket.off("data", this.onData);
+    this.socket.off("close", this.onClose);
+    this.socket.off("end", this.onClose);
+    this.socket.off("error", this.onError);
+    this.socket.on("error", () => undefined);
+    const pending = this.pending;
+    this.pending = null;
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.reject(new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout"));
     }
-    socket.on("data", onData);
-    socket.on("error", onError);
-  });
+  }
+
+  private settleFromBuffer(): boolean {
+    const pending = this.pending;
+    if (!pending) return false;
+    const reply = this.takeReply();
+    if (reply === null) return false;
+    clearTimeout(pending.timer);
+    this.pending = null;
+    pending.resolve(reply);
+    return true;
+  }
+
+  private fail(failure: ReaderFailure): void {
+    // Une réponse déjà COMPLÈTE dans le tampon reste lisible ; l'échec ne s'applique qu'à la suivante.
+    if (!this.failure) this.failure = failure;
+    const pending = this.pending;
+    if (!pending) return;
+    if (this.settleFromBuffer()) return;
+    clearTimeout(pending.timer);
+    this.pending = null;
+    pending.reject(this.errorFor(failure, pending.stage));
+  }
+
+  private errorFor(failure: ReaderFailure, stage: SmtpFailureStage): unknown {
+    if (failure.kind === "error") return failure.error;
+    if (failure.kind === "overflow") return new SmtpSessionError("SMTP_REPLY_TOO_LARGE", stage);
+    return new SmtpSessionError("SMTP_CONNECTION_CLOSED", "connect", null, "ECONNRESET");
+  }
+
+  /** Extrait du tampon la prochaine réponse complète, ou null s'il en manque la fin. */
+  private takeReply(): string | null {
+    let offset = 0;
+    const lines: string[] = [];
+    for (;;) {
+      const lf = this.buffer.indexOf("\n", offset);
+      if (lf === -1) return null;
+      const line = this.buffer.slice(offset, lf).replace(/\r$/, "");
+      offset = lf + 1;
+      if (line === "" && lines.length === 0) continue; // reste de saut de ligne : ignoré, jamais une réponse
+      lines.push(line);
+      if (!/^\d{3}-/.test(line)) {
+        this.buffer = this.buffer.slice(offset);
+        return lines.join(CRLF);
+      }
+    }
+  }
 }
 
 function expectCode(response: string, code: string, stage: SmtpFailureStage): void {
@@ -370,13 +473,19 @@ function failureFrom(err: unknown): { ok: false; error: string } & SmtpFailureDe
   return { ok: false, error: message, nodeCode: nodeCodeOf(err) };
 }
 
+/** Ce que le corps d'une session peut faire : écrire sur le socket, lire la prochaine réponse COMPLÈTE. */
+interface SmtpDialogue {
+  socket: TLSSocket;
+  read(stage: SmtpFailureStage): Promise<string>;
+}
+
 async function withSmtpSession<T>(
   io: SmtpIo,
   limits: SmtpLimits,
   config: SmtpConfig,
-  body: (socket: TLSSocket) => Promise<T>
+  body: (session: SmtpDialogue) => Promise<T>
 ): Promise<T> {
-  const held: { socket: TLSSocket | null } = { socket: null };
+  const held: { socket: TLSSocket | null; reader: SmtpReplyReader | null } = { socket: null, reader: null };
   // Posé dès que la session est terminée (succès, échec ou délai global) : une
   // étape encore en vol (DNS, connexion) ne doit JAMAIS poursuivre le dialogue
   // en arrière-plan -- sinon un message pourrait partir après qu'on a rendu
@@ -404,11 +513,12 @@ async function withSmtpSession<T>(
     if (!address) {
       throw new SmtpSessionError("SMTP_HOST_NOT_PUBLIC", "host_not_public");
     }
-    const socket = await new Promise<TLSSocket>((resolve, reject) => {
+    const connected = await new Promise<{ socket: TLSSocket; reader: SmtpReplyReader }>((resolve, reject) => {
       const s = io.connect({ host: address, servername: config.host, port: config.port, timeout: limits.stepTimeoutMs }, () => {
         s.off("timeout", onTimeout);
         s.setTimeout(0);
-        resolve(s);
+        // Le lecteur s'abonne DÈS la connexion : aucune octet de la bannière ne peut être perdu.
+        resolve({ socket: s, reader: new SmtpReplyReader(s, limits.stepTimeoutMs) });
       });
       const onTimeout = () => {
         s.destroy();
@@ -417,32 +527,35 @@ async function withSmtpSession<T>(
       s.once("timeout", onTimeout);
       s.once("error", (err) => reject(new SmtpSessionError(err instanceof Error ? err.message : "SMTP_CONNECT_FAILED", "connect", null, nodeCodeOf(err))));
     });
+    const { socket, reader } = connected;
     held.socket = socket;
+    held.reader = reader;
     if (state.aborted) {
+      reader.dispose();
       socket.destroy();
       throw abortedError();
     }
 
-    const greeting = await readLine(socket, limits.stepTimeoutMs);
+    const greeting = await reader.read("greeting");
     expectCode(greeting, "220", "greeting");
 
     socket.write(`EHLO scanym.com${CRLF}`);
-    const ehloResp = await readLine(socket, limits.stepTimeoutMs);
+    const ehloResp = await reader.read("ehlo");
     expectCode(ehloResp, "250", "ehlo");
 
     socket.write(`AUTH LOGIN${CRLF}`);
-    const authResp = await readLine(socket, limits.stepTimeoutMs);
+    const authResp = await reader.read("auth");
     expectCode(authResp, "334", "auth");
 
     socket.write(`${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
-    const userResp = await readLine(socket, limits.stepTimeoutMs);
+    const userResp = await reader.read("auth");
     expectCode(userResp, "334", "auth");
 
     socket.write(`${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
-    const passResp = await readLine(socket, limits.stepTimeoutMs);
+    const passResp = await reader.read("auth");
     expectCode(passResp, "235", "auth");
 
-    return await body(socket);
+    return await body({ socket, read: (stage) => reader.read(stage) });
   })();
   try {
     return await Promise.race([run, deadline]);
@@ -456,6 +569,7 @@ async function withSmtpSession<T>(
       } catch {
         // best-effort
       }
+      held.reader?.dispose();
       socket.destroy();
     }
   }
@@ -514,24 +628,24 @@ export function createSmtpTransport(io: SmtpIo = DEFAULT_IO, limits: SmtpLimits 
   return {
     async send(input) {
       try {
-        const messageId = await withSmtpSession(io, limits, input.config, async (socket) => {
+        const messageId = await withSmtpSession(io, limits, input.config, async ({ socket, read }) => {
           socket.write(`MAIL FROM:<${input.config.from}>${CRLF}`);
-          expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "mail_from");
+          expectCode(await read("mail_from"), "250", "mail_from");
 
           socket.write(`RCPT TO:<${input.to}>${CRLF}`);
-          expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "rcpt_to");
+          expectCode(await read("rcpt_to"), "250", "rcpt_to");
 
           if (input.cc) {
             socket.write(`RCPT TO:<${input.cc}>${CRLF}`);
-            expectCode(await readLine(socket, limits.stepTimeoutMs), "250", "rcpt_to");
+            expectCode(await read("rcpt_to"), "250", "rcpt_to");
           }
 
           socket.write(`DATA${CRLF}`);
-          expectCode(await readLine(socket, limits.stepTimeoutMs), "354", "data");
+          expectCode(await read("data"), "354", "data");
 
           const message = escapeDotStuffing(buildSmtpMimeMessage(input));
           socket.write(`${message}${CRLF}.${CRLF}`);
-          const dataResp = await readLine(socket, limits.stepTimeoutMs);
+          const dataResp = await read("data_end");
           expectCode(dataResp, "250", "data_end");
 
           // Le message id du prestataire, quand il en renvoie un, se

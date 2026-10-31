@@ -106,12 +106,25 @@ export async function processPendingNotifications(
   let retriedRetryable = 0;
   let failedTerminal = 0;
 
+  // A196-05 / R2 : la date limite ne se vérifie PAS une seule fois en tête de boucle. Entre ce contrôle
+  // et l'envoi, des opérations réseau de durée non bornée ici (lecture du coffre + déchiffrement,
+  // émission de la capacité de suivi) peuvent dépasser la limite. Trois contrôles :
+  //   1. en tête de boucle ;
+  //   2. après la résolution du fournisseur : on n'émet pas de capacité de suivi pour une ligne
+  //      qui ne partira pas ;
+  //   3. IMMÉDIATEMENT avant `provider.send` (aucun `await` entre les deux) : c'est lui qui garantit
+  //      qu'aucun envoi ne démarre après la limite, quelle qu'ait été la lenteur des étapes précédentes.
+  // Une ligne laissée en l'état reste `processing` : le bail expire, `reap_stale_notification_claims`
+  // la remet en attente sans consommer de tentative.
+  const budgetExpired = () => options.deadlineAt !== undefined && Date.now() >= options.deadlineAt;
+
   for (const notification of claimed) {
-    if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) break;
+    if (budgetExpired()) break;
     const attemptNumber = notification.attemptCount + 1;
     const activeProvider = options.providerForNotification
       ? await options.providerForNotification(notification)
       : provider;
+    if (budgetExpired()) break;
     if (!activeProvider) {
       await completeNotificationAttempt({
         outboxId: notification.outboxId,
@@ -422,6 +435,7 @@ export async function processPendingNotifications(
     // fenêtre de crash résiduelle (mandat, §10 README-AUDIT.md).
     const idempotencyKey = buildNotificationIdempotencyKey(notification.outboxId);
 
+    if (budgetExpired()) break;
     const result = await activeProvider.send({
       to: notification.recipientEmail,
       from: notification.senderEmail,

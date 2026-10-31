@@ -34,6 +34,8 @@ interface ServerScript {
   dataEnd?: string | null;
   /** Délai avant chaque réponse du serveur. */
   delayMs?: number;
+  /** R2 : découpe de chaque réponse (octets sur le fil, CRLF compris) en fragments livrés l'un après l'autre. */
+  chunker?: (wire: string) => Array<string | Buffer>;
 }
 
 class FakeSocket extends EventEmitter {
@@ -62,7 +64,12 @@ class FakeSocket extends EventEmitter {
     return true;
   }
   reply(line: string) {
-    setTimeout(() => { if (!this.destroyed) this.emit("data", Buffer.from(`${line}\r\n`)); }, this.script.delayMs ?? 0);
+    const wire = `${line}\r\n`;
+    const pieces = this.script.chunker ? this.script.chunker(wire) : [wire];
+    const base = this.script.delayMs ?? 0;
+    pieces.forEach((piece, index) => {
+      setTimeout(() => { if (!this.destroyed) this.emit("data", Buffer.from(piece)); }, base + index);
+    });
   }
 }
 
@@ -291,4 +298,96 @@ test("délai global pendant la connexion : le socket tardif est détruit et AUCU
   const socket = h.sockets[0]!;
   assert.equal(socket.destroyed, true);
   assert.deepEqual(socket.written.filter((chunk) => !chunk.startsWith("QUIT")), [], "dialogue poursuivi en arrière-plan");
+});
+
+// --------------------------------------------------------------------
+// R2 (contre-audit de 7cb60a8, défaut 1) : réponses SMTP reçues en plusieurs morceaux.
+// TCP/TLS ne garantit AUCUN découpage : une réponse peut arriver en fragments, y compris
+// au milieu d'une ligne, d'un code ou d'un caractère UTF-8. Une réponse n'est complète
+// qu'à sa dernière ligne COMPLÈTE (terminée par CRLF) et le reste du tampon appartient à
+// la réponse SUIVANTE.
+// --------------------------------------------------------------------
+const BYTE_BY_BYTE = (wire: string) => Array.from(Buffer.from(wire, "utf8")).map((byte) => Buffer.from([byte]));
+const IN_HALF = (wire: string) => [wire.slice(0, Math.ceil(wire.length / 2)), wire.slice(Math.ceil(wire.length / 2))];
+const BEFORE_CRLF = (wire: string) => [wire.slice(0, -2), wire.slice(-2)];
+const CODE_THEN_REST = (wire: string) => [wire.slice(0, 3), wire.slice(3)];
+
+for (const [label, chunker] of [
+  ["au milieu de chaque réponse", IN_HALF],
+  ["juste avant le CRLF final", BEFORE_CRLF],
+  ["entre le code et le texte", CODE_THEN_REST],
+  ["octet par octet", BYTE_BY_BYTE],
+] as const) {
+  test(`R2 réponses fragmentées (${label}) : l'envoi complet réussit et l'identifiant du serveur est lu`, async () => {
+    const h = harness({ script: { chunker } });
+    const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+    assert.deepEqual(result, { ok: true, messageId: "ABC123" });
+    const sent = h.sockets[0]!.written.map((line) => line.split("\r\n")[0]);
+    assert.deepEqual(sent.slice(0, 7), [
+      "EHLO scanym.com", "AUTH LOGIN", b64(CONFIG.user), b64(PASSWORD),
+      `MAIL FROM:<${CONFIG.from}>`, "RCPT TO:<client@example.com>", "DATA",
+    ]);
+  });
+
+  test(`R2 réponses fragmentées (${label}) : le test de connexion réussit`, async () => {
+    const h = harness({ script: { chunker } });
+    assert.deepEqual(await createSmtpTransport(h.io, FAST).checkConnectivity(CONFIG), { ok: true });
+  });
+}
+
+test("R2 réponse EHLO multi-ligne fragmentée à l'intérieur d'une ligne de continuation : réussite", async () => {
+  const ehlo = "250-smtp.merchant.example\r\n250-SIZE 35882577\r\n250-AUTH LOGIN PLAIN\r\n250 8BITMIME";
+  for (const chunker of [IN_HALF, BYTE_BY_BYTE, (wire: string) => [wire.slice(0, 30), wire.slice(30, 41), wire.slice(41)]]) {
+    const h = harness({ script: { ehlo, chunker } });
+    assert.deepEqual(await createSmtpTransport(h.io, FAST).checkConnectivity(CONFIG), { ok: true });
+  }
+});
+
+test("R2 refus fragmenté : le code et l'étape restent exacts (535 à l'AUTH, 550 au RCPT)", async () => {
+  const h1 = harness({ script: { authPass: "535 5.7.8 Authentication credentials invalid", chunker: BYTE_BY_BYTE } });
+  const r1 = await createSmtpTransport(h1.io, FAST).send(MESSAGE);
+  assert.deepEqual(r1.ok ? null : [r1.stage, r1.status], ["auth", 535]);
+  const h2 = harness({ script: { rcpt: "550 5.1.1 user unknown", chunker: IN_HALF } });
+  const r2 = await createSmtpTransport(h2.io, FAST).send(MESSAGE);
+  assert.deepEqual(r2.ok ? null : [r2.stage, r2.status], ["rcpt_to", 550]);
+});
+
+test("R2 caractère UTF-8 multi-octets coupé entre deux fragments : la réponse reste lisible", async () => {
+  const h = harness({ script: { dataEnd: "250 2.0.0 Ok: queued as ÉTÉ-123 ✓", chunker: BYTE_BY_BYTE } });
+  const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+  assert.deepEqual(result, { ok: true, messageId: "ÉTÉ-123" });
+});
+
+test("R2 connexion fermée par le serveur au milieu d'une réponse : échec IMMÉDIAT (pas d'attente du délai d'étape), étape connect", async () => {
+  const h = harness({ script: { greeting: null } });
+  const transport = createSmtpTransport(h.io, { stepTimeoutMs: 1_500, totalTimeoutMs: 3_000 });
+  const started = Date.now();
+  const pending = transport.checkConnectivity(CONFIG);
+  setTimeout(() => { h.sockets[0]!.emit("data", Buffer.from("220 smtp.mer")); h.sockets[0]!.emit("close"); }, 20);
+  const result = await pending;
+  assert.ok(Date.now() - started < 600, "attente du délai d'étape au lieu d'échouer à la fermeture");
+  assert.equal(result.ok, false);
+  if (!result.ok) { assert.equal(result.stage, "connect"); assert.equal(result.nodeCode, "ECONNRESET"); }
+  assert.equal(h.sockets[0]!.destroyed, true);
+});
+
+test("R2 réponse démesurée (serveur hostile qui diffuse sans fin) : coupée à la borne, sans mémoire non bornée", async () => {
+  const h = harness({ script: { greeting: null } });
+  const transport = createSmtpTransport(h.io, { stepTimeoutMs: 1_500, totalTimeoutMs: 3_000 });
+  const pending = transport.checkConnectivity(CONFIG);
+  setTimeout(() => {
+    const flood = Buffer.alloc(70 * 1024, "a"); // aucune fin de ligne
+    h.sockets[0]!.emit("data", flood);
+  }, 20);
+  const result = await pending;
+  assert.equal(result.ok, false);
+  if (!result.ok) { assert.equal(result.error, "SMTP_REPLY_TOO_LARGE"); assert.equal(result.stage, "greeting"); }
+  assert.equal(h.sockets[0]!.destroyed, true);
+});
+
+test("R2 réponse lue une seule fois : un fragment tardif de la réponse précédente ne pollue pas la suivante", async () => {
+  // Le serveur envoie "250 2.1.0 Ok" en deux fragments très espacés : la réponse n'est complète qu'au CRLF.
+  const h = harness({ script: { mailFrom: "250 2.1.0 Ok", chunker: (wire: string) => (wire.startsWith("250 2.1.0") ? [wire.slice(0, 9), wire.slice(9)] : [wire]) } });
+  const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+  assert.deepEqual(result, { ok: true, messageId: "ABC123" });
 });

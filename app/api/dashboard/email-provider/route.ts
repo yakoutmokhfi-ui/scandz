@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { asUserSupabaseClientFactory } from "@/lib/server/supabase-as-user";
 import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
@@ -18,6 +19,17 @@ export const dynamic = "force-dynamic";
 const TABLE = "merchant_email_provider_config";
 /** Intervalle minimal entre deux tests de connexion d'un même établissement (A196-09). */
 const TEST_MIN_INTERVAL_MS = 30_000;
+/**
+ * Bail d'enregistrement (R2, défaut 3 du contre-audit de 7cb60a8). Un enregistrement est une suite de
+ * trois écritures (coffre désactivé -> profil -> coffre activé). Il prend un bail (jeton + échéance) sur
+ * la ligne du coffre ; chacune de ses écritures suivantes (restauration comprise) est CONDITIONNELLE à ce
+ * jeton. Un enregistrement concurrent ne peut donc ni s'intercaler, ni être écrasé par la restauration
+ * d'un enregistrement qui échoue. Le bail expire seul (jamais de verrou orphelin après un plantage) ;
+ * il est très supérieur à la durée normale d'un enregistrement (quelques allers-retours).
+ */
+const SAVE_LEASE_MS = 60_000;
+/** Violation de contrainte d'unicité PostgreSQL : une première configuration concurrente a gagné. */
+const UNIQUE_VIOLATION = "23505";
 
 type VaultRow = {
   host: string;
@@ -188,40 +200,72 @@ export async function POST(request: NextRequest) {
     p_default_locale: ["fr", "en", "ar"].includes(String(body.locale)) ? body.locale : "fr",
   };
 
-  // 3. Écriture par étapes, toujours FERMÉE : le coffre est d'abord enregistré
-  //    désactivé ; l'activation n'intervient qu'après le profil. En cas d'échec
-  //    ultérieur, l'état précédent du coffre est RESTAURÉ (A196-06).
-  if (previous && hadSecret && newPassword === null) {
-    // Même cible, même secret : mise à jour conditionnelle à l'état lu (pas de course).
-    const { data: staged, error: stagedError } = await admin.from(TABLE)
-      .update({ port: valid.port, enabled: false })
+  // 3. Écriture par étapes, toujours FERMÉE : le coffre est d'abord enregistré désactivé, SOUS BAIL ;
+  //    l'activation n'intervient qu'après le profil. Toute écriture ultérieure (activation ou
+  //    restauration) n'a d'effet que si le bail est toujours le nôtre (R2, défaut 3).
+  const now = new Date();
+  const lease = { save_token: randomUUID(), save_lease_until: new Date(now.getTime() + SAVE_LEASE_MS).toISOString() };
+  const stagedClosed = {
+    host: valid.host,
+    port: valid.port,
+    username: valid.username,
+    enabled: false,
+    secret_ciphertext: secret?.ciphertext ?? null,
+    secret_iv: secret?.iv ?? null,
+    secret_auth_tag: secret?.authTag ?? null,
+    // Nouveaux identifiants : l'ancien état d'erreur ne s'applique plus.
+    last_error_class: null,
+    last_error_at: null,
+  };
+
+  if (!previous) {
+    // Première configuration : la clé primaire arbitre. Le perdant reçoit 409 ; rien n'est écrasé.
+    const { error: insertError } = await admin.from(TABLE).insert({ restaurant_id: restaurantId, ...stagedClosed, ...lease });
+    if (insertError) {
+      return (insertError as { code?: string }).code === UNIQUE_VIOLATION
+        ? response(409, "EMAIL_PROVIDER_CONFLICT")
+        : response(503, "EMAIL_PROVIDER_SAVE_FAILED");
+    }
+  } else {
+    // Mise en préparation = acquisition du bail, en UNE écriture atomique conditionnelle : la ligne doit
+    // être exactement dans l'état lu (cible, port, activation, secret) ET sans bail valide.
+    const patch = hadSecret && newPassword === null
+      ? { port: valid.port, enabled: false, ...lease } // même cible, même secret : seuls port/activation changent
+      : { ...stagedClosed, ...lease };
+    const unchanged = admin.from(TABLE).update(patch)
       .eq("restaurant_id", restaurantId)
       .eq("host", previous.host)
+      .eq("port", previous.port)
       .eq("username", previous.username)
-      .eq("secret_ciphertext", previous.secret_ciphertext)
+      .eq("enabled", previous.enabled);
+    const pinned = previous.secret_ciphertext === null
+      ? unchanged.is("secret_ciphertext", null)
+      : unchanged.eq("secret_ciphertext", previous.secret_ciphertext);
+    const { data: staged, error: stagedError } = await pinned
+      .or(`save_token.is.null,save_lease_until.lt.${now.toISOString()}`)
       .select("restaurant_id");
     if (stagedError) return response(503, "EMAIL_PROVIDER_SAVE_FAILED");
     if (!staged || staged.length === 0) return response(409, "EMAIL_PROVIDER_CONFLICT");
-  } else {
-    const { error: stagedError } = await admin.from(TABLE).upsert({
-      restaurant_id: restaurantId,
-      host: valid.host,
-      port: valid.port,
-      username: valid.username,
-      enabled: false,
-      secret_ciphertext: secret?.ciphertext ?? null,
-      secret_iv: secret?.iv ?? null,
-      secret_auth_tag: secret?.authTag ?? null,
-      // Nouveaux identifiants : l'ancien état d'erreur ne s'applique plus.
-      last_error_class: null,
-      last_error_at: null,
-    }, { onConflict: "restaurant_id" });
-    if (stagedError) return response(503, "EMAIL_PROVIDER_SAVE_FAILED");
   }
 
+  /**
+   * Restauration conditionnelle au bail. Elle n'écrit QUE si la ligne porte encore notre jeton : si un
+   * autre enregistrement a repris le coffre (bail expiré), son état fait foi et n'est jamais écrasé.
+   * Renvoie false seulement si l'écriture elle-même a échoué (le coffre reste alors fermé).
+   */
   const restorePrevious = async (): Promise<boolean> => {
-    if (!previous) return true; // première configuration : l'état « désactivé » est déjà fermé
-    const { error } = await admin.from(TABLE).upsert({ restaurant_id: restaurantId, ...previous }, { onConflict: "restaurant_id" });
+    const restoreFields = previous
+      ? {
+          host: previous.host, port: previous.port, username: previous.username, enabled: previous.enabled,
+          secret_ciphertext: previous.secret_ciphertext, secret_iv: previous.secret_iv, secret_auth_tag: previous.secret_auth_tag,
+          last_error_class: previous.last_error_class, last_error_at: previous.last_error_at,
+        }
+      : { enabled: false }; // première configuration : le coffre reste fermé, le bail est libéré
+    const { error } = await admin.from(TABLE)
+      .update({ ...restoreFields, save_token: null, save_lease_until: null })
+      .eq("restaurant_id", restaurantId)
+      .eq("save_token", lease.save_token)
+      .select("restaurant_id");
     return !error;
   };
 
@@ -231,8 +275,14 @@ export async function POST(request: NextRequest) {
     return restored ? response(400, "EMAIL_PROFILE_SAVE_FAILED") : response(503, "EMAIL_PROVIDER_SAVE_FAILED");
   }
 
-  const { error: activateError } = await admin.from(TABLE)
-    .update({ enabled }).eq("restaurant_id", restaurantId);
+  // Activation conditionnelle au bail : si un autre enregistrement a repris le coffre entre-temps,
+  // on ne touche à rien (409) plutôt que d'activer ou de désactiver SA configuration.
+  const { data: activated, error: activateError } = await admin.from(TABLE)
+    .update({ enabled, save_token: null, save_lease_until: null })
+    .eq("restaurant_id", restaurantId)
+    .eq("save_token", lease.save_token)
+    .select("restaurant_id");
   if (activateError) return response(503, "EMAIL_PROVIDER_SAVE_FAILED");
+  if (!activated || activated.length === 0) return response(409, "EMAIL_PROVIDER_CONFLICT");
   return NextResponse.json({ ok: true, code: "EMAIL_PROVIDER_SAVED", configured: Boolean(secret), enabled });
 }

@@ -8,7 +8,16 @@
 -- commentaire) -- le rollback de #180 reste donc possible -- puis supprime le
 -- coffre. Aucune tentative de notification ni lien de suivi n'est modifié.
 -- Ordre : ce rollback d'abord, ensuite celui de #180.
+--
+-- Course (contre-audit R2) : le contrôle « le coffre est vide » et le DROP TABLE ne forment pas une
+-- opération atomique face à une écriture concurrente (un commerçant qui enregistre pendant le retour
+-- arrière) : sans verrou, la ligne insérée entre les deux est supprimée avec la table, en silence.
+-- La table est donc verrouillée en ACCÈS EXCLUSIF avant tout contrôle et jusqu'au COMMIT : toute écriture
+-- en cours se termine AVANT le contrôle (et le fait alors refuser), toute écriture suivante attend, puis
+-- échoue proprement. Un verrou non obtenu en 10 s annule le retour arrière (rien n'est modifié).
+-- À lancer Cron arrêté (le claim lit aussi cette table) -- voir docs/merchant-email-provider-v1.md.
 begin;
+set local lock_timeout = '10s';
 
 do $$
 begin
@@ -24,9 +33,17 @@ begin
   end if;
 end $$;
 
+lock table public.merchant_email_provider_config in access exclusive mode;
+
 do $$
 declare
-  c_expected_body_md5 constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  -- Empreinte du corps sur les OCTETS EXACTS de prosrc (aucune normalisation : un CR isolé dans
+  -- un littéral changerait le comportement de la fonction sans changer une empreinte « sans CR »).
+  -- Deux formes admises, rien d'autre : fins de ligne LF (dépôt) ou TOUTES en CRLF (extraction Windows).
+  c_expected_body_md5      constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  c_expected_body_md5_crlf constant text := 'e8b88f88d8334fb6ca62c18992057d2a';
+  -- Le commentaire de la fonction fait partie de ce que le retour arrière restaure : il est épinglé.
+  c_expected_comment_md5   constant text := '2686f2b19c67dd1aac715fad99c91d3e';
   c_expected_args     constant text := 'p_batch_size integer DEFAULT 10, p_lease_seconds integer DEFAULT 60';
   c_expected_result   constant text := 'TABLE(outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text, recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer, claim_token uuid, sender_name text, sender_email text, reply_to text)';
   -- Attributs de pg_proc que CREATE OR REPLACE réécrit (explicitement ou par valeur
@@ -39,13 +56,14 @@ declare
   v_md5      text;
   v_attrs    text;
   v_acl      text[];
+  v_comment_md5 text;
   v_expected_acl text[];
 begin
   select p.oid,
          p.proowner,
          pg_get_function_arguments(p.oid),
          pg_get_function_result(p.oid),
-         md5(replace(p.prosrc, E'\r', '')),
+         md5(p.prosrc),
          format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
                 p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
                 p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
@@ -55,8 +73,9 @@ begin
                                 case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
                                 a.privilege_type, a.grantor::regrole::text,
                                 case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
-                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
-    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e),
+         md5(coalesce(obj_description(p.oid, 'pg_proc'), ''))
+    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl, v_comment_md5
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   join pg_language l on l.oid = p.prolang
@@ -66,7 +85,7 @@ begin
     raise exception 'SCANYM_PREDECESSOR_DRIFT: claim_pending_notifications est introuvable. Rollback annulé, rien modifié.';
   end if;
 
-  if v_md5 is distinct from c_expected_body_md5 then
+  if v_md5 not in (c_expected_body_md5, c_expected_body_md5_crlf) then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de claim_pending_notifications (md5 %) n''est plus celui posé par le lot SMTP -- modifié depuis (md5 %). Rollback annulé, rien modifié.', v_md5, c_expected_body_md5;
   end if;
 
@@ -74,6 +93,10 @@ begin
      or v_args is distinct from c_expected_args
      or v_result is distinct from c_expected_result then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de claim_pending_notifications différents de ceux posés par le lot SMTP (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, colonnes retournées). Observé : % ; attendu : %.', v_attrs, c_expected_attrs;
+  end if;
+
+  if v_comment_md5 is distinct from c_expected_comment_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le commentaire de claim_pending_notifications (md5 %) n''est pas celui posé par le lot SMTP (md5 %). Rollback annulé, rien modifié.', v_comment_md5, c_expected_comment_md5;
   end if;
 
   -- Droits (politique explicite) : l'ENSEMBLE COMPLET des bénéficiaires EXECUTE doit
@@ -170,16 +193,22 @@ drop table public.merchant_email_provider_config;
 
 do $$
 declare
-  c_gated_body_md5 constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  c_gated_body_md5      constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  c_gated_body_md5_crlf constant text := 'b72e191ff8ee6332bd4ed4a09409060b';
+  c_gated_comment_md5   constant text := 'dba8c60099d3bb7348201fe39b6fdae4';
   v_owner oid;
   v_acl   text[];
 begin
   if to_regclass('public.merchant_email_provider_config') is not null then
     raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault still exists after rollback';
   end if;
-  if (select md5(replace(p.prosrc, E'\r', '')) from pg_proc p
-       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_gated_body_md5 then
+  if (select md5(p.prosrc) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) not in (c_gated_body_md5, c_gated_body_md5_crlf) then
     raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications is not byte-identical to the #180 claim after rollback';
+  end if;
+  if (select md5(coalesce(obj_description(p.oid, 'pg_proc'), '')) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_gated_comment_md5 then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications comment is not the #180 comment after rollback';
   end if;
   select p.proowner,
          (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])

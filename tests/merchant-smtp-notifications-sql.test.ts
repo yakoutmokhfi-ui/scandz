@@ -42,6 +42,9 @@ function claimBodyOf(file: string): string {
 }
 const BODY_180_MD5 = md5(claimBodyOf(G180));
 const BODY_SMTP_MD5 = md5(claimBodyOf(SMTP));
+const toCrlf = (text: string) => text.replaceAll("\n", "\r\n");
+const BODY_180_CRLF_MD5 = md5(toCrlf(claimBodyOf(G180)));
+const BODY_SMTP_CRLF_MD5 = md5(toCrlf(claimBodyOf(SMTP)));
 
 async function makeDb(opts: { g180?: boolean; smtp?: boolean; afterPredecessor?: string } = {}) {
   const { g180 = true, smtp = true, afterPredecessor = "" } = opts;
@@ -117,10 +120,19 @@ async function refused(db: PGlite, script: string, expected: RegExp) {
 // --------------------------------------------------------------------
 test("empreintes : le lot SMTP épingle le corps du claim de #180 et pose le corps qu'il annonce", async () => {
   assert.equal(BODY_180_MD5, "16d75b38372fd5dfd0ca1a4e20dfa3a8");
-  assert.match(SMTP, new RegExp(`c_expected_body_md5 constant text := '${BODY_180_MD5}'`));
-  assert.match(RBSMTP, new RegExp(`'${BODY_180_MD5}'`), "le rollback restaure le corps de #180");
-  assert.match(SMTP, new RegExp(`'${BODY_SMTP_MD5}'`), "le post-contrôle épingle le corps du nouveau claim");
-  assert.match(RBSMTP, new RegExp(`'${BODY_SMTP_MD5}'`), "le rollback épingle le corps du claim SMTP");
+  // R2 (défaut 4) : empreinte sur les OCTETS EXACTS (md5(prosrc) brut), deux formes admises : LF et CRLF intégral.
+  assert.match(SMTP, new RegExp(`c_expected_body_md5\\s+constant text := '${BODY_180_MD5}'`));
+  assert.match(SMTP, new RegExp(`c_expected_body_md5_crlf\\s+constant text := '${BODY_180_CRLF_MD5}'`));
+  assert.match(RBSMTP, new RegExp(`c_gated_body_md5\\s+constant text := '${BODY_180_MD5}'`), "le rollback restaure le corps de #180");
+  assert.match(RBSMTP, new RegExp(`c_gated_body_md5_crlf\\s+constant text := '${BODY_180_CRLF_MD5}'`));
+  assert.match(SMTP, new RegExp(`c_smtp_body_md5\\s+constant text := '${BODY_SMTP_MD5}'`), "le post-contrôle épingle le corps du nouveau claim");
+  assert.match(SMTP, new RegExp(`c_smtp_body_md5_crlf\\s+constant text := '${BODY_SMTP_CRLF_MD5}'`));
+  assert.match(RBSMTP, new RegExp(`c_expected_body_md5\\s+constant text := '${BODY_SMTP_MD5}'`), "le rollback épingle le corps du claim SMTP");
+  assert.match(RBSMTP, new RegExp(`c_expected_body_md5_crlf\\s+constant text := '${BODY_SMTP_CRLF_MD5}'`));
+  // Le commentaire de la fonction est épinglé lui aussi (une dérive de commentaire fait échouer le contrôle).
+  for (const file of [SMTP, RBSMTP]) assert.match(file, /obj_description\(p\.oid, 'pg_proc'\)/);
+  assert.match(SMTP, /c_expected_comment_md5\s+constant text := '[0-9a-f]{32}'/);
+  assert.match(RBSMTP, /c_expected_comment_md5\s+constant text := '[0-9a-f]{32}'/);
 
   const base = await makeDb({ smtp: false });
   assert.equal((await claimState(base)).md5, BODY_180_MD5, "#180 pose bien le corps épinglé");
@@ -128,6 +140,36 @@ test("empreintes : le lot SMTP épingle le corps du claim de #180 et pose le cor
   const full = await makeDb();
   assert.equal((await claimState(full)).md5, BODY_SMTP_MD5, "le lot SMTP pose bien le corps épinglé");
   await full.close();
+});
+
+test("R2 (défaut 4) : aucun littéral de chaîne des corps de claim ne contient de saut de ligne (sinon LF et CRLF ne seraient pas sémantiquement équivalents)", () => {
+  // Justifie l'admission des DEUX seules formes d'octets (LF, CRLF intégral) par les pré-vols.
+  for (const [name, body] of [["#180", claimBodyOf(G180)], ["SMTP", claimBodyOf(SMTP)]] as const) {
+    let inLiteral = false;
+    for (let i = 0; i < body.length; i += 1) {
+      const c = body[i]!;
+      if (!inLiteral && c === "-" && body[i + 1] === "-") { while (i < body.length && body[i] !== "\n") i += 1; continue; }
+      if (c === "'") {
+        if (inLiteral && body[i + 1] === "'") { i += 1; continue; }
+        inLiteral = !inLiteral;
+        continue;
+      }
+      assert.ok(!(inLiteral && (c === "\n" || c === "\r")), `${name} : saut de ligne dans un littéral (offset ${i})`);
+    }
+    assert.equal(inLiteral, false, `${name} : littéral non fermé`);
+    assert.equal(body.includes("\r"), false, `${name} : le dépôt est normalisé en LF dans ce test`);
+    assert.equal(body.includes("$"), false, `${name} : aucun dollar-quoting imbriqué`);
+  }
+});
+
+test("R2 (rollback) : le verrou exclusif de la table et son délai précèdent le contrôle « coffre vide » (aucune écriture concurrente ne peut s'intercaler)", () => {
+  const timeout = RBSMTP.indexOf("set local lock_timeout = '10s';");
+  const lock = RBSMTP.indexOf("lock table public.merchant_email_provider_config in access exclusive mode;");
+  const check = RBSMTP.indexOf("raise exception 'SCANYM_ROLLBACK_DATA_LOSS");
+  const drop = RBSMTP.indexOf("\ndrop table public.merchant_email_provider_config");
+  assert.ok(timeout > 0 && lock > timeout, "lock_timeout avant le verrou");
+  assert.ok(check > lock, "le contrôle « coffre vide » vient APRÈS l'obtention du verrou");
+  assert.ok(drop > check, "la suppression vient après le contrôle");
 });
 
 test("claim : seuls les commerces avec coffre ACTIVÉ et opt-in marchand sont réclamés ; les autres restent intacts", async () => {
@@ -199,6 +241,36 @@ test("coffre : contraintes (port 465, hôte minuscule, activé => secret, état 
   await assert.rejects(() => update("last_error_class = 'boom: 535 bad password', last_error_at = now()"), /last_error_class_format/);
   await update("last_error_class = 'PROVIDER_AUTHENTICATION_FAILED', last_error_at = now()");
   await update("last_error_class = null, last_error_at = null");
+  // R2 (défaut 3) : le bail d'enregistrement est toujours « jeton ET échéance » ou « ni l'un ni l'autre ».
+  await assert.rejects(() => update("save_token = gen_random_uuid()"), /save_lease_consistent/);
+  await assert.rejects(() => update("save_lease_until = now()"), /save_lease_consistent/);
+  await update("save_token = gen_random_uuid(), save_lease_until = now() + interval '1 minute'");
+  await update("save_token = null, save_lease_until = null");
+  await db.close();
+});
+
+test("coffre R2 : bail d'enregistrement = acquisition atomique, restauration et activation conditionnelles au jeton (verrou ligne PostgreSQL réel du PGlite)", async () => {
+  const db = await makeDb();
+  const rest = (await db.query<{ id: string }>("insert into public.restaurants default values returning id")).rows[0]!.id;
+  const secret = "'c', 'i', 't'";
+  await db.query(`insert into public.merchant_email_provider_config(restaurant_id, host, port, username, enabled, secret_ciphertext, secret_iv, secret_auth_tag)
+                  values ('${rest}', 'smtp.ionos.fr', 465, 'a@b.fr', true, ${secret})`);
+  const tokenA = "11111111-1111-4111-8111-111111111111";
+  const tokenB = "22222222-2222-4222-8222-222222222222";
+  const acquire = (token: string, host: string) => db.query<{ restaurant_id: string }>(
+    `update public.merchant_email_provider_config
+        set host = '${host}', enabled = false, save_token = '${token}', save_lease_until = now() + interval '60 seconds'
+      where restaurant_id = '${rest}' and host = 'smtp.ionos.fr' and enabled = true
+        and (save_token is null or save_lease_until < now())
+      returning restaurant_id`);
+  assert.equal((await acquire(tokenA, "smtp.a.fr")).rows.length, 1, "A prend le bail");
+  assert.equal((await acquire(tokenB, "smtp.b.fr")).rows.length, 0, "B ne peut pas : l'état lu n'est plus le même ET le bail est tenu");
+  const restore = (token: string) => db.query(
+    `update public.merchant_email_provider_config set host = 'smtp.ionos.fr', enabled = true, save_token = null, save_lease_until = null
+      where restaurant_id = '${rest}' and save_token = '${token}' returning restaurant_id`);
+  assert.equal((await restore(tokenB)).rows.length, 0, "la restauration de B (jeton étranger) n'écrit rien");
+  assert.equal((await db.query<{ host: string }>(`select host from public.merchant_email_provider_config where restaurant_id = '${rest}'`)).rows[0]!.host, "smtp.a.fr");
+  assert.equal((await restore(tokenA)).rows.length, 1, "la restauration de A (son jeton) s'applique");
   await db.close();
 });
 

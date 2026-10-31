@@ -8,6 +8,9 @@ import assert from "node:assert/strict";
 //   A196-06 (P3) enregistrement non atomique : validation avant écriture + restauration ;
 //   A196-09 (P3) test de connexion limité (1 / 30 s / établissement) ;
 //   + isolation tenant, aucune fuite de secret ou de texte serveur.
+// R2 (contre-audit de 7cb60a8, défaut 3) : un enregistrement qui ÉCHOUE ne doit jamais
+// écraser un enregistrement concurrent déjà réussi -> bail d'enregistrement + écritures
+// conditionnelles au jeton (voir les tests « R2-03 »).
 // Aucun mock de module : `asUserSupabaseClientFactory.create` et le singleton
 // service_role sont mockés par instance (patron du dépôt) ; le transport SMTP est
 // mocké sur l'objet exporté `realSmtpTransport`. Données synthétiques, aucun réseau.
@@ -44,9 +47,18 @@ interface World {
   adminWrites: string[];
   /** Appelé juste avant chaque UPDATE conditionnel du coffre (simule une modification concurrente). */
   beforeConditionalUpdate: (() => void) | null;
+  /** Appelé juste avant l'INSERT du coffre (première configuration concurrente). */
+  beforeInsert: (() => void) | null;
+  /** Exécuté au début du RPC profil : une AUTRE requête qui s'intercale pendant l'enregistrement. */
+  duringProfileRpc: (() => Promise<void>) | null;
   failProfileRpc: boolean;
-  failUpsertAtCall: number | null;
+  profileRpcCalls: number;
+  failProfileRpcAtCall: number | null;
+  /** Compte les écritures du coffre (hors réservation du test de connexion). */
+  writeCalls: number;
+  failWriteAtCall: number | null;
   upsertCalls: number;
+  insertCalls: number;
   transportCalls: Array<Record<string, unknown>>;
   transportResult: Record<string, unknown>;
 }
@@ -54,18 +66,28 @@ interface World {
 function install(t: { mock: { method: (obj: object, name: string, impl: (...args: never[]) => unknown) => unknown } }): World {
   const world: World = {
     vault: new Map(), profile: new Map(), adminWrites: [], beforeConditionalUpdate: null,
-    failProfileRpc: false, failUpsertAtCall: null, upsertCalls: 0, transportCalls: [], transportResult: { ok: true },
+    beforeInsert: null, duringProfileRpc: null,
+    failProfileRpc: false, profileRpcCalls: 0, failProfileRpcAtCall: null,
+    writeCalls: 0, failWriteAtCall: null, upsertCalls: 0, insertCalls: 0,
+    transportCalls: [], transportResult: { ok: true },
   };
 
-  const matches = (row: Row, filters: Array<[string, unknown]>, orClause: string | null) => {
-    if (!filters.every(([c, v]) => row[c] === v)) return false;
+  type Filter = [column: string, op: "eq" | "is", value: unknown];
+  /** Sous-ensemble PostgREST utilisé par la route : `col.is.null` et `col.lt.<valeur>` séparés par des virgules. */
+  const matches = (row: Row, filters: Filter[], orClause: string | null) => {
+    for (const [column, op, value] of filters) {
+      if (op === "eq" && row[column] !== value) return false;
+      if (op === "is" && (row[column] ?? null) !== value) return false;
+    }
     if (!orClause) return true;
     return orClause.split(",").some((part) => {
-      if (part === "last_test_at.is.null") return row.last_test_at == null;
-      const m = /^last_test_at\.lt\.(.+)$/.exec(part);
-      return Boolean(m && row.last_test_at != null && String(row.last_test_at) < m[1]!);
+      const isNull = /^([a-z_]+)\.is\.null$/.exec(part);
+      if (isNull) return row[isNull[1]!] == null;
+      const lessThan = /^([a-z_]+)\.lt\.(.+)$/.exec(part);
+      return Boolean(lessThan && row[lessThan[1]!] != null && String(row[lessThan[1]!]) < lessThan[2]!);
     });
   };
+  const writeFails = () => world.failWriteAtCall !== null && world.writeCalls === world.failWriteAtCall;
 
   t.mock.method(admin, "from", ((table: string) => {
     assert.equal(table, "merchant_email_provider_config", "table inattendue");
@@ -73,29 +95,51 @@ function install(t: { mock: { method: (obj: object, name: string, impl: (...args
       select: () => ({
         eq: (_c: string, id: string) => ({ maybeSingle: async () => ({ data: world.vault.get(id) ? { ...world.vault.get(id) } : null, error: null }) }),
       }),
+      // Conservé pour pouvoir REJOUER l'ancien code (7cb60a8) ; le code corrigé ne doit plus l'appeler.
       upsert: async (row: Row) => {
         world.upsertCalls += 1;
+        world.writeCalls += 1;
         world.adminWrites.push("upsert");
-        if (world.failUpsertAtCall === world.upsertCalls) return { error: new Error("upsert failed") };
+        if (writeFails()) return { error: new Error("write failed") };
         const id = String(row.restaurant_id);
         world.vault.set(id, { ...(world.vault.get(id) ?? {}), ...row });
         return { error: null };
       },
+      insert: async (row: Row) => {
+        world.insertCalls += 1;
+        world.writeCalls += 1;
+        world.adminWrites.push("insert");
+        if (world.beforeInsert) { const hook = world.beforeInsert; world.beforeInsert = null; hook(); }
+        if (writeFails()) return { error: new Error("write failed") };
+        const id = String(row.restaurant_id);
+        if (world.vault.has(id)) {
+          return { error: Object.assign(new Error('duplicate key value violates unique constraint "merchant_email_provider_config_pkey"'), { code: "23505" }) };
+        }
+        world.vault.set(id, { last_error_class: null, last_error_at: null, last_test_at: null, save_token: null, save_lease_until: null, ...row });
+        return { error: null };
+      },
       update(patch: Row) {
-        const filters: Array<[string, unknown]> = [];
+        const filters: Filter[] = [];
         let orClause: string | null = null;
-        const run = () => {
+        const isReservation = "last_test_at" in patch;
+        const run = (): { hit: Row[]; error: Error | null } => {
           world.adminWrites.push("update");
+          if (!isReservation) world.writeCalls += 1;
           if (world.beforeConditionalUpdate) { const hook = world.beforeConditionalUpdate; world.beforeConditionalUpdate = null; hook(); }
+          if (!isReservation && writeFails()) return { hit: [], error: new Error("write failed") };
           const hit = [...world.vault.values()].filter((row) => matches(row, filters, orClause));
           for (const row of hit) Object.assign(row, patch);
-          return hit;
+          return { hit, error: null };
         };
         const builder = {
-          eq(column: string, value: unknown) { filters.push([column, value]); return builder; },
+          eq(column: string, value: unknown) { filters.push([column, "eq", value]); return builder; },
+          is(column: string, value: unknown) { filters.push([column, "is", value]); return builder; },
           or(clause: string) { orClause = clause; return builder; },
-          select: async () => ({ data: run().map((row) => ({ restaurant_id: row.restaurant_id })), error: null }),
-          then(resolve: (value: { error: null }) => void) { run(); resolve({ error: null }); },
+          select: async () => {
+            const { hit, error } = run();
+            return error ? { data: null, error } : { data: hit.map((row) => ({ restaurant_id: row.restaurant_id })), error: null };
+          },
+          then(resolve: (value: { error: Error | null }) => void) { resolve({ error: run().error }); },
         };
         return builder;
       },
@@ -108,7 +152,10 @@ function install(t: { mock: { method: (obj: object, name: string, impl: (...args
       const role = TOKENS[token]?.[String(args.p_restaurant_id)];
       if (name === "has_role_in") return { data: Boolean(role && (args.p_roles as string[]).includes(role)), error: null };
       if (name === "set_merchant_notification_profile") {
-        if (!role || world.failProfileRpc) return { data: null, error: new Error("rpc refused") };
+        world.profileRpcCalls += 1;
+        const callNumber = world.profileRpcCalls;
+        if (world.duringProfileRpc) { const hook = world.duringProfileRpc; world.duringProfileRpc = null; await hook(); }
+        if (!role || world.failProfileRpc || world.failProfileRpcAtCall === callNumber) return { data: null, error: new Error("rpc refused") };
         world.profile.set(String(args.p_restaurant_id), {
           email_enabled: args.p_email_enabled, sender_name: args.p_sender_name, sender_email: args.p_sender_email,
           reply_to: args.p_reply_to, default_locale: args.p_default_locale,
@@ -299,17 +346,19 @@ test("A196-06 : première configuration + rejet du RPC => le coffre reste DÉSAC
   const res = await post("tok-owner-r1", SAVE);
   assert.equal(res.status, 400);
   assert.equal(w.vault.get(R1)?.enabled, false);
+  assert.equal(w.vault.get(R1)?.save_token, null, "le bail d'enregistrement est libéré");
 });
 
 test("A196-06 : restauration impossible (écriture en échec) => 503, jamais un faux succès", async (t) => {
   const w = install(t);
   await post("tok-owner-r1", SAVE);
   w.failProfileRpc = true;
-  w.upsertCalls = 0;
-  w.failUpsertAtCall = 2; // 1 = mise en préparation (nouveau mot de passe), 2 = restauration
+  w.writeCalls = 0;
+  w.failWriteAtCall = 2; // 1 = mise en préparation (nouveau mot de passe), 2 = restauration
   const res = await post("tok-owner-r1", { ...SAVE, host: "smtp.autre-hote.fr", username: "autre@resto.fr", password: "NOUVEAU", enabled: true });
   assert.equal(res.status, 503);
   assert.equal((await res.json()).code, "EMAIL_PROVIDER_SAVE_FAILED");
+  assert.equal(w.vault.get(R1)!.enabled, false, "restauration impossible : le coffre reste FERMÉ (désactivé), jamais ouvert sur de nouveaux identifiants");
 });
 
 test("A196-06 : l'activation n'intervient qu'APRÈS le profil (ordre fermé : désactivé -> profil -> activé)", async (t) => {
@@ -331,6 +380,166 @@ test("A196-06 : l'activation n'intervient qu'APRÈS le profil (ordre fermé : d�
   assert.equal(res.status, 200);
   assert.equal(enabledWhenProfileWritten, false, "le coffre est désactivé pendant l'écriture du profil");
   assert.equal(w.vault.get(R1)!.enabled, true, "puis activé");
+});
+
+// --------------------------------------------------------------------
+// R2-03 (contre-audit de 7cb60a8, défaut 3) : enregistrements concurrents
+// « une sauvegarde qui échoue peut écraser une autre configuration déjà enregistrée avec succès »
+// --------------------------------------------------------------------
+const configOf = (label: string, extra: Record<string, unknown> = {}) => ({
+  ...SAVE, host: `smtp.${label}.fr`, username: `${label}@resto.fr`, senderEmail: `${label}@resto.fr`,
+  senderName: `Resto ${label}`, password: `MOT-DE-PASSE-${label.toUpperCase()}`, ...extra,
+});
+const vaultPassword = (row: Row) =>
+  decryptMerchantSmtpPassword({ ciphertext: String(row.secret_ciphertext), iv: String(row.secret_iv), authTag: String(row.secret_auth_tag) }, R1);
+const expireLease = (w: World) => { w.vault.get(R1)!.save_lease_until = new Date(Date.now() - 1_000).toISOString(); };
+
+test("R2-03 REPRO : B échoue (profil) pendant que A, concurrent, réussit => la restauration de B n'écrase PAS la configuration de A", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200); // état initial X
+  let aStatus = 0;
+  // B est en vol (coffre mis en préparation) : son bail expire (requête lente), A s'intercale et RÉUSSIT, puis le profil de B est refusé.
+  w.failProfileRpcAtCall = w.profileRpcCalls + 1;
+  w.duringProfileRpc = async () => {
+    expireLease(w);
+    aStatus = (await post("tok-owner-r1", configOf("a"))).status;
+  };
+  const b = await post("tok-manager-r1", configOf("b"));
+  assert.equal(aStatus, 200, "A a réussi");
+  assert.equal(b.status, 400);
+  assert.equal((await b.json()).code, "EMAIL_PROFILE_SAVE_FAILED");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.host, "smtp.a.fr", "la configuration de A subsiste : la restauration de B ne l'a pas écrasée");
+  assert.equal(row.username, "a@resto.fr");
+  assert.equal(vaultPassword(row), "MOT-DE-PASSE-A");
+  assert.equal(row.enabled, true);
+  assert.equal(w.profile.get(R1)!.sender_name, "Resto a");
+  assert.equal(row.save_token, null, "aucun bail orphelin");
+});
+
+test("R2-03 : l'activation de B (profil réussi) est conditionnelle au jeton : si A a repris le coffre, B reçoit 409 et ne désactive/active rien chez A", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  let aStatus = 0;
+  w.duringProfileRpc = async () => {
+    expireLease(w);
+    aStatus = (await post("tok-owner-r1", configOf("a"))).status;
+  };
+  const b = await post("tok-manager-r1", configOf("b", { enabled: false })); // B demande la DÉSACTIVATION
+  assert.equal(aStatus, 200);
+  assert.equal(b.status, 409);
+  assert.equal((await b.json()).code, "EMAIL_PROVIDER_CONFLICT");
+  const row = w.vault.get(R1)!;
+  assert.equal(row.host, "smtp.a.fr");
+  assert.equal(row.enabled, true, "l'activation de A n'est pas annulée par la désactivation tardive de B");
+  assert.equal(row.save_token, null);
+});
+
+test("R2-03 : pendant qu'un enregistrement est en cours (bail valide), un second est refusé en 409 et ne modifie rien", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  let rival: { status: number; code: string } | null = null;
+  let vaultSeenByRival = "";
+  w.duringProfileRpc = async () => {
+    vaultSeenByRival = JSON.stringify(w.vault.get(R1));
+    const res = await post("tok-owner-r1", configOf("a"));
+    rival = { status: res.status, code: (await res.json()).code };
+    assert.equal(JSON.stringify(w.vault.get(R1)), vaultSeenByRival, "le rival n'a rien écrit");
+  };
+  const b = await post("tok-manager-r1", configOf("b"));
+  assert.deepEqual(rival, { status: 409, code: "EMAIL_PROVIDER_CONFLICT" });
+  assert.equal(b.status, 200);
+  assert.equal(w.vault.get(R1)!.host, "smtp.b.fr");
+  assert.equal(w.profile.get(R1)!.sender_name, "Resto b");
+});
+
+test("R2-03 : bail libéré après un succès, après une restauration réussie ; un bail EXPIRÉ (plantage) ne bloque pas ; un bail VALIDE bloque", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  assert.equal(w.vault.get(R1)!.save_token, null);
+  assert.equal(w.vault.get(R1)!.save_lease_until, null);
+
+  w.failProfileRpc = true;
+  assert.equal((await post("tok-owner-r1", configOf("a"))).status, 400);
+  assert.equal(w.vault.get(R1)!.save_token, null, "restauration réussie => bail libéré");
+  w.failProfileRpc = false;
+
+  // Plantage simulé : un enregistrement a laissé son bail, expiré depuis.
+  Object.assign(w.vault.get(R1)!, { save_token: "00000000-0000-4000-8000-00000000dead", save_lease_until: new Date(Date.now() - 5_000).toISOString() });
+  assert.equal((await post("tok-owner-r1", configOf("a"))).status, 200, "un bail expiré est repris");
+  assert.equal(w.vault.get(R1)!.host, "smtp.a.fr");
+
+  // Bail encore valide : refus 409, aucune écriture.
+  Object.assign(w.vault.get(R1)!, { save_token: "00000000-0000-4000-8000-00000000beef", save_lease_until: new Date(Date.now() + 30_000).toISOString() });
+  const before = JSON.stringify(w.vault.get(R1));
+  const blocked = await post("tok-owner-r1", configOf("b"));
+  assert.equal(blocked.status, 409);
+  assert.equal((await blocked.json()).code, "EMAIL_PROVIDER_CONFLICT");
+  assert.equal(JSON.stringify(w.vault.get(R1)), before);
+  assert.equal(w.profile.get(R1)!.sender_name, "Resto a", "le profil n'a pas été touché par le refus");
+});
+
+test("R2-03 : deux PREMIÈRES configurations simultanées => un seul gagnant, l'autre 409 (contrainte d'unicité), coffre et profil cohérents", async (t) => {
+  const w = install(t);
+  const [a, b] = await Promise.all([post("tok-owner-r1", configOf("a")), post("tok-manager-r1", configOf("b"))]);
+  const statuses = [a.status, b.status].sort();
+  assert.deepEqual(statuses, [200, 409]);
+  const winner = a.status === 200 ? "a" : "b";
+  assert.equal(w.vault.get(R1)!.host, `smtp.${winner}.fr`);
+  assert.equal(vaultPassword(w.vault.get(R1)!), `MOT-DE-PASSE-${winner.toUpperCase()}`);
+  assert.equal(w.profile.get(R1)!.sender_name, `Resto ${winner}`);
+  assert.equal(w.vault.get(R1)!.enabled, true);
+  assert.equal(w.vault.get(R1)!.save_token, null);
+});
+
+test("R2-03 : 8 enregistrements simultanés sur un coffre existant => seuls des 200/409, coffre = profil = un même gagnant, aucun bail orphelin", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  const labels = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  const results = await Promise.all(labels.map((label, index) => post(index % 2 ? "tok-manager-r1" : "tok-owner-r1", configOf(label))));
+  const winners = labels.filter((_, index) => results[index]!.status === 200);
+  for (const result of results) assert.ok(result.status === 200 || result.status === 409, `statut inattendu ${result.status}`);
+  assert.ok(winners.length >= 1);
+  const last = winners[winners.length - 1]!;
+  const row = w.vault.get(R1)!;
+  assert.equal(row.host, `smtp.${last}.fr`, "le coffre est celui du dernier enregistrement RÉUSSI");
+  assert.equal(vaultPassword(row), `MOT-DE-PASSE-${last.toUpperCase()}`);
+  assert.equal(w.profile.get(R1)!.sender_name, `Resto ${last}`, "le profil est celui du même enregistrement");
+  assert.equal(row.enabled, true);
+  assert.equal(row.save_token, null);
+  assert.equal(row.save_lease_until, null);
+});
+
+for (const [label, change] of [
+  ["hôte", (row: Row) => { row.host = "smtp.autre.fr"; }],
+  ["port", (row: Row) => { row.port = 25; }],
+  ["identifiant", (row: Row) => { row.username = "autre@resto.fr"; }],
+  ["secret", (row: Row) => { row.secret_ciphertext = "AUTRE-CHIFFRE"; }],
+  ["activation (ex. suspension par le worker)", (row: Row) => { row.enabled = false; }],
+] as const) {
+  test(`R2-03 : ${label} modifié entre la lecture et la mise en préparation => 409, la ligne n'est pas réécrite (pas de résurrection d'un état périmé)`, async (t) => {
+    const w = install(t);
+    assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+    w.beforeConditionalUpdate = () => change(w.vault.get(R1)!);
+    const concurrentState = (): string => JSON.stringify(w.vault.get(R1));
+    let stateAfterChange = "";
+    const original = w.beforeConditionalUpdate;
+    w.beforeConditionalUpdate = () => { original(); stateAfterChange = concurrentState(); };
+    const res = await post("tok-manager-r1", { ...SAVE, password: "", enabled: true });
+    assert.equal(res.status, 409);
+    assert.equal((await res.json()).code, "EMAIL_PROVIDER_CONFLICT");
+    assert.equal(concurrentState(), stateAfterChange, "la ligne est exactement celle laissée par le concurrent");
+    assert.equal(w.profile.get(R1)!.sender_name, "Resto", "le profil n'a pas été écrit");
+  });
+}
+
+test("R2-03 : le flux d'enregistrement n'utilise plus aucun upsert inconditionnel (insert pour la 1re configuration, UPDATE conditionnels ensuite)", async (t) => {
+  const w = install(t);
+  assert.equal((await post("tok-owner-r1", SAVE)).status, 200);
+  w.failProfileRpc = true;
+  assert.equal((await post("tok-owner-r1", configOf("a"))).status, 400);
+  assert.equal(w.upsertCalls, 0);
+  assert.equal(w.insertCalls, 1);
 });
 
 // --------------------------------------------------------------------

@@ -57,7 +57,13 @@ end $$;
 -- -----------------------------------------------------------------------------
 do $$
 declare
-  c_expected_body_md5 constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  -- Empreinte du corps sur les OCTETS EXACTS de prosrc (aucune normalisation : un CR isolé dans
+  -- un littéral changerait le comportement de la fonction sans changer une empreinte « sans CR »).
+  -- Deux formes admises, rien d'autre : fins de ligne LF (dépôt) ou TOUTES en CRLF (extraction Windows).
+  c_expected_body_md5      constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  c_expected_body_md5_crlf constant text := 'b72e191ff8ee6332bd4ed4a09409060b';
+  -- Le commentaire de la fonction fait partie de ce que le retour arrière restaure : il est épinglé.
+  c_expected_comment_md5   constant text := 'dba8c60099d3bb7348201fe39b6fdae4';
   c_expected_args     constant text := 'p_batch_size integer DEFAULT 10, p_lease_seconds integer DEFAULT 60';
   c_expected_result   constant text := 'TABLE(outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text, recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer, claim_token uuid, sender_name text, sender_email text, reply_to text)';
   -- Attributs de pg_proc que CREATE OR REPLACE réécrit (explicitement ou par valeur
@@ -70,13 +76,14 @@ declare
   v_md5      text;
   v_attrs    text;
   v_acl      text[];
+  v_comment_md5 text;
   v_expected_acl text[];
 begin
   select p.oid,
          p.proowner,
          pg_get_function_arguments(p.oid),
          pg_get_function_result(p.oid),
-         md5(replace(p.prosrc, E'\r', '')),
+         md5(p.prosrc),
          format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
                 p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
                 p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
@@ -86,8 +93,9 @@ begin
                                 case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
                                 a.privilege_type, a.grantor::regrole::text,
                                 case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
-                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
-    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e),
+         md5(coalesce(obj_description(p.oid, 'pg_proc'), ''))
+    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl, v_comment_md5
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   join pg_language l on l.oid = p.prolang
@@ -97,7 +105,7 @@ begin
     raise exception 'SCANYM_PREDECESSOR_DRIFT: claim_pending_notifications est introuvable. Migration annulée, rien modifié.';
   end if;
 
-  if v_md5 is distinct from c_expected_body_md5 then
+  if v_md5 not in (c_expected_body_md5, c_expected_body_md5_crlf) then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de claim_pending_notifications (md5 %) n''est pas celui du lot ORDER_RECEIVED PAYMENT GATE v1 (#180) attendu (md5 %). Migration annulée, rien modifié.', v_md5, c_expected_body_md5;
   end if;
 
@@ -105,6 +113,10 @@ begin
      or v_args is distinct from c_expected_args
      or v_result is distinct from c_expected_result then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de claim_pending_notifications différents de #180 (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, colonnes retournées). Observé : % ; attendu : %.', v_attrs, c_expected_attrs;
+  end if;
+
+  if v_comment_md5 is distinct from c_expected_comment_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le commentaire de claim_pending_notifications (md5 %) n''est pas celui de #180 attendu (md5 %). Migration annulée, rien modifié.', v_comment_md5, c_expected_comment_md5;
   end if;
 
   -- Droits (politique explicite) : l'ENSEMBLE COMPLET des bénéficiaires EXECUTE doit
@@ -141,6 +153,12 @@ create table public.merchant_email_provider_config (
   last_test_at timestamptz,
   last_error_class text,
   last_error_at timestamptz,
+  -- Verrou d'enregistrement (R2, contre-audit de 7cb60a8) : un enregistrement est une suite de trois
+  -- écritures (coffre désactivé -> profil -> coffre activé). Chacune est CONDITIONNELLE à ce jeton, de
+  -- sorte qu'un enregistrement concurrent ne puisse ni s'intercaler ni être écrasé par la restauration
+  -- d'un enregistrement qui échoue. Le bail expire seul (jamais de verrou orphelin après un crash).
+  save_token uuid,
+  save_lease_until timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint merchant_email_provider_secret_complete check (
@@ -149,6 +167,7 @@ create table public.merchant_email_provider_config (
   ),
   constraint merchant_email_provider_enabled_requires_secret check (not enabled or secret_ciphertext is not null),
   constraint merchant_email_provider_last_error_consistent check ((last_error_class is null) = (last_error_at is null)),
+  constraint merchant_email_provider_save_lease_consistent check ((save_token is null) = (save_lease_until is null)),
   constraint merchant_email_provider_last_error_class_format check (
     last_error_class is null or last_error_class ~ '^[A-Z][A-Z_]{2,59}$'
   )
@@ -244,7 +263,9 @@ grant execute on function public.claim_pending_notifications(integer, integer) t
 -- -----------------------------------------------------------------------------
 do $$
 declare
-  c_smtp_body_md5 constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  c_smtp_body_md5      constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  c_smtp_body_md5_crlf constant text := 'e8b88f88d8334fb6ca62c18992057d2a';
+  c_smtp_comment_md5   constant text := '2686f2b19c67dd1aac715fad99c91d3e';
   v_owner oid;
   v_acl   text[];
 begin
@@ -261,9 +282,13 @@ begin
   if not (select c.relrowsecurity from pg_class c where c.oid = 'public.merchant_email_provider_config'::regclass) then
     raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault RLS is disabled';
   end if;
-  if (select md5(replace(p.prosrc, E'\r', '')) from pg_proc p
-       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_smtp_body_md5 then
+  if (select md5(p.prosrc) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) not in (c_smtp_body_md5, c_smtp_body_md5_crlf) then
     raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications is not the expected SMTP claim (body fingerprint)';
+  end if;
+  if (select md5(coalesce(obj_description(p.oid, 'pg_proc'), '')) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_smtp_comment_md5 then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications comment is not the expected SMTP comment';
   end if;
   select p.proowner,
          (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])

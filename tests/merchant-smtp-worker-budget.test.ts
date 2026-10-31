@@ -75,6 +75,73 @@ test("date limite atteinte PENDANT le lot : l'envoi en cours se termine, les sui
   assert.equal(result.sent, 1);
 });
 
+// R2 (contre-audit de 7cb60a8, défaut 2) : la date limite n'était vérifiée qu'en TÊTE de boucle. Une opération
+// plus lente que prévu ENTRE ce contrôle et l'envoi (résolution du fournisseur : lecture du coffre + déchiffrement ;
+// émission de la capacité de suivi : RPC) laissait donc démarrer un envoi APRÈS la limite -- et si le bail expire
+// pendant ce dernier envoi, `reap` remet la ligne en attente : doublon chez le client.
+test("R2 résolution du fournisseur plus lente que prévu : la date limite est revérifiée, aucun envoi ne démarre et aucune capacité de suivi n'est émise pour rien", async (t) => {
+  const completed: Array<Record<string, unknown>> = [];
+  let capabilityIssued = 0;
+  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
+    if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
+    if (name === "issue_order_email_tracking_capability") { capabilityIssued += 1; return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null }; }
+    if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
+    throw new Error(`RPC inattendue : ${name}`);
+  });
+  let sends = 0;
+  const provider = { name: "merchant_smtp", async send() { sends += 1; return { ok: true as const, providerMessageId: "x" }; } };
+  const result = await processPendingNotifications(provider, {
+    deadlineAt: Date.now() + 40,
+    providerForNotification: async () => { await new Promise((resolve) => setTimeout(resolve, 90)); return provider; },
+  });
+  assert.equal(sends, 0, "envoi démarré après la date limite");
+  assert.equal(capabilityIssued, 0, "capacité de suivi émise pour une ligne qui ne partira pas");
+  assert.equal(completed.length, 0, "ligne non traitée : le bail expire, reap la remet en attente sans consommer de tentative");
+  assert.equal(result.claimed, 2);
+  assert.equal(result.sent, 0);
+});
+
+test("R2 émission de la capacité de suivi plus lente que prévu : la date limite est revérifiée, aucun envoi ne démarre", async (t) => {
+  const completed: Array<Record<string, unknown>> = [];
+  t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
+    if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
+    if (name === "issue_order_email_tracking_capability") {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null };
+    }
+    if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
+    throw new Error(`RPC inattendue : ${name}`);
+  });
+  let sends = 0;
+  const provider = { name: "merchant_smtp", async send() { sends += 1; return { ok: true as const, providerMessageId: "x" }; } };
+  const result = await processPendingNotifications(provider, { deadlineAt: Date.now() + 40 });
+  assert.equal(sends, 0, "envoi démarré après la date limite");
+  assert.equal(completed.length, 0);
+  assert.equal(result.sent, 0);
+});
+
+test("R2 opérations plus lentes mais DANS le budget : l'envoi a bien lieu (la revérification ne bloque pas à tort)", async (t) => {
+  const completed = rpcWorld(t, [claimRow(1)]);
+  let sends = 0;
+  const provider = { name: "merchant_smtp", async send() { sends += 1; return { ok: true as const, providerMessageId: "x" }; } };
+  const result = await processPendingNotifications(provider, {
+    deadlineAt: Date.now() + 5_000,
+    providerForNotification: async () => { await new Promise((resolve) => setTimeout(resolve, 30)); return provider; },
+  });
+  assert.equal(sends, 1);
+  assert.equal(completed.length, 1);
+  assert.equal(result.sent, 1);
+});
+
+test("R2 le dernier contrôle précède IMMÉDIATEMENT l'envoi : aucun `await` entre la revérification et provider.send", () => {
+  const source = readFileSync(new URL("../lib/server/notifications/notification-worker.ts", import.meta.url), "utf8");
+  const sendAt = source.indexOf("await activeProvider.send(");
+  assert.ok(sendAt > 0);
+  const window = source.slice(source.lastIndexOf("budgetExpired()", sendAt), sendAt);
+  assert.ok(window.length > 0, "contrôle de la date limite absent avant l'envoi");
+  assert.equal(/\bawait\b/.test(window), false, "un await sépare le dernier contrôle de l'envoi");
+});
+
 test("sans date limite : comportement inchangé (tout le lot est traité)", async (t) => {
   const completed = rpcWorld(t, [claimRow(1), claimRow(2)]);
   const provider = { name: "merchant_smtp", async send() { return { ok: true as const, providerMessageId: "x" }; } };
