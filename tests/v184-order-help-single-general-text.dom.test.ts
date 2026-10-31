@@ -480,6 +480,23 @@ test("le panier du vrai MenuView revient après remontage avec le prix courant",
   } finally { second.root.unmount(); second.container.remove(); window.sessionStorage.clear(); }
 });
 
+test("un produit devenu indisponible est retiré du panier restauré avec un message visible", async (t) => {
+  window.sessionStorage.clear();
+  window.sessionStorage.setItem("scanym:cart:v1:r-sanaa-test", JSON.stringify({
+    version: 1, lines: [{ itemId: "item-1", optionId: null, quantity: 1 }],
+  }));
+  mockRpcHelp(t, []);
+  installFetchNotNeeded();
+  const changed = sanaaCookiesRestaurant();
+  changed.categories[0].menu_items[0].is_available = false;
+  const view = await mountMenu(changed);
+  try {
+    assert.match(view.container.textContent ?? "", /Certains articles ou options ne sont plus disponibles/);
+    assert.ok(![...view.container.querySelectorAll("button")].some((button) => button.textContent?.includes("🛒")));
+    await waitFor(() => window.sessionStorage.getItem("scanym:cart:v1:r-sanaa-test") === null, "panier périmé effacé");
+  } finally { view.root.unmount(); view.container.remove(); window.sessionStorage.clear(); }
+});
+
 test("le panier sauvegardé est effacé avant create_order, même si l'appel échoue", async (t) => {
   window.sessionStorage.clear();
   let storedAtCreate: string | null | undefined;
