@@ -516,12 +516,14 @@ test("le panier bloque le défilement de la page et le rétablit à la fermeture
   const view = await render(baseProps());
   assert.equal(window.document.documentElement.style.overflow, "hidden");
   assert.equal(window.document.body.style.overflow, "hidden");
+  assert.equal(window.document.documentElement.style.getPropertyValue("scrollbar-gutter"), "stable");
   const scrollArea = view.container.querySelector(".overflow-y-auto") as HTMLElement;
   assert.ok(scrollArea, "le contenu du panier reste défilable");
   view.root.unmount();
   view.container.remove();
   assert.equal(window.document.documentElement.style.overflow, "auto");
   assert.equal(window.document.body.style.overflow, "scroll");
+  assert.equal(window.document.documentElement.style.getPropertyValue("scrollbar-gutter"), "");
   window.document.documentElement.style.overflow = "";
   window.document.body.style.overflow = "";
 });

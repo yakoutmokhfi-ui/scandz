@@ -83,7 +83,8 @@ const PINNED: Record<string, string> = {
   // SHA-256 précédent (main 384a10b) : de5c3858d56be60e13f63572a22b8c6ba72cd10d95c9ff24f14a162a699474c4
   // Verrouillage du défilement de la page pendant l'ouverture du panier ;
   // aucune modification des règles de livraison. Ancienne empreinte : 7381ca480fc724f8272ef5564c6f6b93129803a4d19721b5e4199ca0046b0308.
-  "components/CartPanel.tsx": "f949f6eb1b5a961f9462d7158ba43dd27e66d5646a5a8a9e10b2cb767938a4eb",
+  // + scrollbar-gutter stable pendant l'ouverture (pas de saut de mise en page). Empreinte précédente : f949f6eb1b5a961f9462d7158ba43dd27e66d5646a5a8a9e10b2cb767938a4eb.
+  "components/CartPanel.tsx": "9040ab8431af827653ec0f5d6180ec0dda66e00248d4658bb0f67c2ebeee7065",
   "supabase/DRAFT-lot-delivery-pricing-v2-b1-order-snapshot-v1.sql": "b2cd875fe3be9eb3d415899179b3b2cb46901ea6770cfbed66b506bf30b54803",
   "supabase/DRAFT-lot-delivery-pricing-v2-b234.sql": "53cca852afd14563b1beeb6583bf22db9ab92a1f3d4bb1ec7efaf162fcde3664",
   "supabase/DRAFT-lot-delivery-pricing-v2-b5.sql": "dfd9292699b7e102bfcc35838c6d2b6180df5ef42f4c05764246253cb5aeaf2b",

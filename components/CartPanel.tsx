@@ -231,11 +231,16 @@ export default function CartPanel({
     const body = document.body;
     const rootOverflow = root.style.overflow;
     const bodyOverflow = body.style.overflow;
+    const rootGutter = root.style.getPropertyValue("scrollbar-gutter");
     root.style.overflow = "hidden";
     body.style.overflow = "hidden";
+    // Réserve la place de la barre de défilement : pas de saut de mise en page sur ordinateur.
+    root.style.setProperty("scrollbar-gutter", "stable");
     return () => {
       root.style.overflow = rootOverflow;
       body.style.overflow = bodyOverflow;
+      if (rootGutter) root.style.setProperty("scrollbar-gutter", rootGutter);
+      else root.style.removeProperty("scrollbar-gutter");
     };
   }, []);
   const { t, lang, sourceLanguage } = useI18n();
