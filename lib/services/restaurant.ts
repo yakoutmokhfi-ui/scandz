@@ -9,6 +9,7 @@ import {
   type CustomerTagSource,
 } from "@/lib/customer-product-tags";
 import { buildCustomerCollections } from "@/lib/customer-collections";
+import { normalizeShowUnavailableProducts } from "@/lib/storefront-sold-out";
 
 /**
  * CUSTOMER TAGS DISPLAY (LOT 01) -- les tags sont un enrichissement
@@ -96,6 +97,14 @@ export async function getRestaurantBySlug(
   // commerçant sans sous-catégorie, ce tri redevient exactement le tri
   // historique par display_order (voir tests/v139-catalogue-public-
   // grouping-order.test.ts).
+  // Issue #200 -- réglage propre à CET établissement (lu dans SA ligne
+  // restaurant_configs). Défaut/absent/invalide => false = historique.
+  const showUnavailable = normalizeShowUnavailableProducts(
+    (Array.isArray(data.restaurant_configs)
+      ? data.restaurant_configs[0]
+      : data.restaurant_configs
+    )?.show_unavailable_products
+  );
   const prepared: MenuCategory[] = (data.menu_categories ?? [])
     .sort((a: MenuCategory, b: MenuCategory) => a.display_order - b.display_order)
     .map((c: MenuCategory) => {
@@ -103,10 +112,17 @@ export async function getRestaurantBySlug(
         (c.menu_subcategories ?? []).map((s) => [s.id, s])
       );
       const menu_items = (c.menu_items ?? [])
-        // Un produit archivé quitte la carte publique ; un produit
-        // simplement indisponible aussi, mais il reste restaurable
-        // d'un geste par le commerçant.
-        .filter((i) => i.is_available && !i.archived_at)
+        // Un produit archivé quitte TOUJOURS la carte publique. Un produit
+        // simplement indisponible aussi, mais il reste restaurable d'un
+        // geste par le commerçant -- sauf si le commerçant a choisi de
+        // l'afficher « En rupture » (issue #200) : seulement dans une
+        // catégorie AFFICHÉE ; une catégorie masquée sert de réservoir de
+        // choix (goûts, pâtisseries) et ne propose jamais un choix épuisé.
+        .filter(
+          (i) =>
+            !i.archived_at &&
+            (i.is_available || (showUnavailable && c.is_active))
+        )
         .map((i) => {
           const sub = i.subcategory_id ? subcategoriesById.get(i.subcategory_id) : undefined;
           // ONLINE WITHDRAWAL v1 -- `withdrawal_eligible` est une

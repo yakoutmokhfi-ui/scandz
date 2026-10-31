@@ -132,3 +132,32 @@ export class ScheduleSelectionError extends Error {
     this.kind = SCHEDULE_ORDER_ERROR_CLASSES[code];
   }
 }
+
+/**
+ * Issue #200 -- article (ou option) devenu indisponible entre le chargement
+ * de la vitrine et l'envoi de la commande. `create_order` lève
+ * `RAISE EXCEPTION 'Article indisponible ou étranger à ce restaurant …'`
+ * (SQLSTATE P0001) ou `'Option invalide pour …'`. Même discipline : code ET
+ * début de message exigés ensemble. Le texte client est générique : aucun
+ * identifiant interne n'est jamais affiché.
+ */
+export const ITEM_UNAVAILABLE_MESSAGE_PREFIXES = [
+  "Article indisponible ou étranger à ce restaurant",
+  "Option invalide pour",
+] as const;
+
+export class ItemUnavailableError extends Error {
+  constructor() {
+    super("SCANYM_ITEM_UNAVAILABLE");
+    this.name = "ItemUnavailableError";
+  }
+}
+
+export function isItemUnavailableError(
+  error: RpcErrorLike | null | undefined
+): boolean {
+  if (!error || error.code !== "P0001") return false;
+  const message = error.message;
+  if (typeof message !== "string") return false;
+  return ITEM_UNAVAILABLE_MESSAGE_PREFIXES.some((p) => message.startsWith(p));
+}

@@ -13,6 +13,8 @@ import {
   CGV_ACCEPTANCE_REQUIRED_CODE,
   scheduleOrderErrorCode,
   ScheduleSelectionError,
+  isItemUnavailableError,
+  ItemUnavailableError,
 } from "@/lib/services/order-error";
 import type { SchedulePayload } from "@/lib/checkout-schedule/model";
 
@@ -26,6 +28,7 @@ export {
   CgvAcceptanceRequiredError,
   CGV_ACCEPTANCE_REQUIRED_CODE,
   ScheduleSelectionError,
+  ItemUnavailableError,
 };
 
 export interface CreatedOrder {
@@ -102,6 +105,10 @@ export async function createOrder(params: {
     const scheduleCode = scheduleOrderErrorCode(error);
     if (scheduleCode !== null) {
       throw new ScheduleSelectionError(scheduleCode);
+    }
+    // Issue #200 : article devenu indisponible -> erreur typée, message clair.
+    if (isItemUnavailableError(error)) {
+      throw new ItemUnavailableError();
     }
     throw new Error(error.message);
   }
