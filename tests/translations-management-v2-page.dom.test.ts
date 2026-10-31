@@ -187,6 +187,7 @@ export async function signOut() {}`,
       return [{ menuItemId: "p-tomme", tagIds: ["t-bio"], tagNames: ["Bio"] }];
     }`,
   }),
+  "@/lib/services/merchant-communications": `export async function getMerchantOrderHelpTexts() { return (globalThis).__helpTexts ?? []; }`,
 };
 
 const mockPlugin: esbuild.Plugin = {
@@ -490,4 +491,22 @@ test("traduire un tag transmet son identifiant et le hash du nom source", async 
   assert.ok(write);
   assert.equal(write[2], "tag-truffe");
   assert.equal(write[7], "hash-truffe");
+});
+
+test("aide à la commande : la validation manuelle transmet le hash source affiché", async (t) => {
+  (globalThis as any).__helpTexts = [{ text_key: "order_help_body", body: "Comment commander", body_hash: "help-source-v1", translations: null }];
+  t.after(() => { delete (globalThis as any).__helpTexts; });
+  const container = await mount(t);
+  const help = container.querySelector('[data-translation-entity="order_help"]');
+  assert.ok(help, "le texte d'aide apparaît dans les traductions");
+  const textarea = help.querySelector("textarea");
+  assert.ok(textarea);
+  await (React as any).act(async () => { setValue(textarea, "How to order"); });
+  const validate = [...help.querySelectorAll("button")].find((b) => b.textContent === "Valider");
+  assert.ok(validate);
+  await (React as any).act(async () => { validate.click(); });
+  const writes = (globalThis as any).__writes as unknown[][];
+  const write = writes.find((args) => args[1] === "order_help");
+  assert.ok(write, "la traduction est envoyée au service");
+  assert.equal(write[7], "help-source-v1", "la source affichée est la précondition de concurrence");
 });

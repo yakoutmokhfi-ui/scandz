@@ -1447,7 +1447,8 @@ export type TranslationEntityType =
   | "subcategory"
   | "item"
   | "customer_notice"
-  | "tag";
+  | "tag"
+  | "order_help";
 export type TranslationWriteStatus = "to_review" | "validated";
 
 /**
@@ -1480,6 +1481,18 @@ export async function writeTranslation(
     const { error } = await supabase.rpc("write_tag_translation", {
       p_restaurant_id: restaurantId, p_tag_id: entityId, p_lang: lang, p_value: value,
       p_status: status, p_expected_source_hash: expectedSourceHash,
+    });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  if (entityType === "order_help") {
+    const { error } = await supabase.rpc("write_order_help_translation", {
+      p_restaurant_id: restaurantId,
+      p_text_key: field,
+      p_lang: lang,
+      p_value: value,
+      p_status: status,
+      p_expected_source_hash: expectedSourceHash,
     });
     if (error) throw new Error(error.message);
     return;
