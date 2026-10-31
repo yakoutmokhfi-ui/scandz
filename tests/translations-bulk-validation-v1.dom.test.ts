@@ -210,6 +210,7 @@ const MOCK_DASHBOARD = buildServiceMock("lib/services/dashboard.ts", {
 });
 
 const mocks: Record<string, string> = {
+  "@/lib/services/merchant-communications": `export async function getMerchantOrderHelpTexts() { return []; }`,
   "next/navigation": `const r = { replace: () => {}, push: () => {} };
 export function useRouter() { return r; }
 export function usePathname() { return "/dashboard/translations"; }`,

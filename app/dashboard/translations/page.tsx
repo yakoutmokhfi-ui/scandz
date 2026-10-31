@@ -478,11 +478,12 @@ export default function TranslationsPage() {
     entityId: string,
     field: string,
     value: string,
-    status: "to_review" | "validated"
+    status: "to_review" | "validated",
+    sourceHash: string | null
   ) {
     if (!targetLang) return;
     try {
-      await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status, entityType === "order_help" ? sourceHash : null);
       await load(restaurantId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enregistrement");
@@ -1134,7 +1135,7 @@ export default function TranslationsPage() {
                       lang={targetLang}
                       canEdit={canEdit}
                       onSave={(v, status) =>
-                        handleSave(row.entityType, row.entityId, row.field, v, status)
+                        handleSave(row.entityType, row.entityId, row.field, v, status, row.sourceHash)
                       }
                     />
                   ))}
