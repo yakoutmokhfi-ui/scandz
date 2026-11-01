@@ -105,10 +105,29 @@ out="$(qf "$TMP_DIR/orig.sql")"; [ $? -eq 0 ] || fatal "fonction d'origine : $ou
 q "revoke all on function public.get_restaurant_collections(uuid) from public; grant execute on function public.get_restaurant_collections(uuid) to anon, authenticated;" >/dev/null
 ids() { q "select coalesce(string_agg(l || ':' || n, ',' order by l), '') from (select label l, cardinality(menu_item_ids) n from public.get_restaurant_collections('$1')) s"; }
 
+md5fn() { q "select md5(prosrc) from pg_proc where oid='public.get_restaurant_collections(uuid)'::regprocedure"; }
+lotfn() { awk '/^create or replace function public.get_restaurant_collections/{p=1} p{print} p&&/^end \$\$;/{exit}' "$LOT" > "$TMP_DIR/lotfn.sql"; }
+lotfn
+
 # --- 0. Prérequis : refus tant que la colonne n'existe pas -----------
 out="$(qf "$LOT")"
 echo "$out" | grep -q "SCANYM_SCHEMA_DRIFT" && pass "refusé sans la colonne show_unavailable_products (ordre des lots)" || fail "pas de refus sans colonne : $out"
 q "alter table public.restaurant_configs add column show_unavailable_products boolean not null default false;" >/dev/null
+
+# --- 0b. GARDE ANTI-ÉCRASEMENT (audit TURING P2) : fonction modifiée -> REFUS ---
+# Variante de l'originale portant une restriction de publication supplémentaire.
+sed 's/and mc.is_active = true/and mc.is_active = true and t.display_order > 99/' "$TMP_DIR/orig.sql" > "$TMP_DIR/restricted.sql"
+out="$(qf "$TMP_DIR/restricted.sql")"; [ $? -eq 0 ] || fatal "variante restreinte : $out"
+before="$(md5fn)"; rbefore="$(ids $A)"
+out="$(qf "$LOT")"
+echo "$out" | grep -q "SCANYM_FUNCTION_DRIFT" && pass "fonction modifiée (restriction de publication) : le lot REFUSE d'écraser" || fail "écrasement non refusé : $out"
+[ "$(md5fn)" = "$before" ] && [ "$(ids $A)" = "$rbefore" ] && pass "la fonction modifiée est INTACTE après le refus (même empreinte, même résultat)" || fail "fonction altérée malgré le refus"
+qf "$TMP_DIR/orig.sql" >/dev/null
+q "alter function public.get_restaurant_collections(uuid) security invoker" >/dev/null
+out="$(qf "$LOT")"; echo "$out" | grep -q "SCANYM_FUNCTION_DRIFT" && pass "attributs modifiés (security invoker) : le lot REFUSE" || fail "attributs non contrôlés : $out"
+qf "$TMP_DIR/orig.sql" >/dev/null
+q "revoke all on function public.get_restaurant_collections(uuid) from public; grant execute on function public.get_restaurant_collections(uuid) to anon, authenticated;" >/dev/null
+[ "$(md5fn)" = "62469954066d750857dc0153534be55d" ] && pass "empreinte de l'original = constante du lot (62469954…)" || fail "empreinte original : $(md5fn)"
 
 # --- 1. Avant correctif : rupture exclue (comportement actuel) -------
 r="$(ids $A)"
@@ -117,6 +136,8 @@ r="$(ids $A)"
 # --- 2. Application ----------------------------------------------------
 out="$(qf "$LOT")"; rc=$?
 [ $rc -eq 0 ] && pass "le lot s'applique (pré-vol et post-vol inclus)" || fail "le lot échoue : $out"
+
+[ "$(md5fn)" = "364c52f3d561593421b2e6deb034069d" ] && pass "empreinte de la définition posée = constante du rollback (364c52f3…)" || fail "empreinte posée : $(md5fn)"
 
 # --- 3. Réglage false : résultat IDENTIQUE à avant ------------------
 r="$(ids $A)"
@@ -149,6 +170,16 @@ q "insert into public.restaurant_configs (restaurant_id, show_unavailable_produc
 # --- 7. Droits ----------------------------------------------------------
 out="$(as_anon "select count(*) from public.get_restaurant_collections('$A')")"
 [ "$out" = "2" ] && pass "anon peut toujours lire le contrat client" || fail "anon : $out"
+
+# --- 7b. GARDE ANTI-ÉCRASEMENT du rollback : fonction modifiée depuis le lot -> REFUS ---
+sed 's/and mc.is_active = true/and mc.is_active = true and t.display_order > 99/' "$TMP_DIR/lotfn.sql" > "$TMP_DIR/restricted2.sql"
+out="$(qf "$TMP_DIR/restricted2.sql")"; [ $? -eq 0 ] || fatal "variante restreinte 2 : $out"
+before="$(md5fn)"; rbefore="$(ids $A)"
+out="$(qf "$ROLLBACK")"
+echo "$out" | grep -q "SCANYM_ROLLBACK_DRIFT" && pass "rollback : fonction modifiée depuis le lot -> REFUS d'écraser" || fail "rollback a écrasé : $out"
+[ "$(md5fn)" = "$before" ] && [ "$(ids $A)" = "$rbefore" ] && pass "rollback refusé : la fonction modifiée est INTACTE" || fail "fonction altérée malgré le refus du rollback"
+qf "$TMP_DIR/lotfn.sql" >/dev/null
+[ "$(md5fn)" = "364c52f3d561593421b2e6deb034069d" ] || fatal "restauration de la définition du lot impossible"
 
 # --- 8. Double application / rollback / réapplication ------------------
 out="$(qf "$LOT")"; echo "$out" | grep -q "SCANYM_ALREADY_APPLIED" && pass "second passage refusé" || fail "double application : $out"

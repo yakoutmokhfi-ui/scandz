@@ -28,7 +28,9 @@
 -- le serveur exige is_available = true).
 --
 -- PRÉREQUIS (pré-vol, sinon annulé) :
---   * get_restaurant_collections(uuid) existe (lot COLLECTIONS / TAGS) ;
+--   * get_restaurant_collections(uuid) existe ET sa définition est EXACTEMENT
+--     celle du lot COLLECTIONS / TAGS (empreinte md5 du corps et attributs) :
+--     une fonction modifiée depuis n'est JAMAIS écrasée (SCANYM_FUNCTION_DRIFT) ;
 --   * restaurant_configs.show_unavailable_products existe (lot STOREFRONT
 --     SOLD-OUT VISIBILITY v1).
 -- ORDRE : après ces deux lots. Appliqué avant eux, il est refusé.
@@ -37,8 +39,13 @@
 begin;
 
 do $$
+declare
+  v_oid  oid;
+  v_md5  text;
+  v_flags text;
 begin
-  if to_regprocedure('public.get_restaurant_collections(uuid)') is null then
+  v_oid := to_regprocedure('public.get_restaurant_collections(uuid)');
+  if v_oid is null then
     raise exception 'SCANYM_SCHEMA_DRIFT: get_restaurant_collections(uuid) absente (lot COLLECTIONS / TAGS requis) -- annulé.';
   end if;
   if not exists (
@@ -50,8 +57,24 @@ begin
   ) then
     raise exception 'SCANYM_SCHEMA_DRIFT: restaurant_configs.show_unavailable_products absente (lot SOLD-OUT VISIBILITY v1 requis) -- annulé.';
   end if;
-  if pg_get_functiondef('public.get_restaurant_collections(uuid)'::regprocedure) like '%show_unavailable_products%' then
+
+  select md5(p.prosrc),
+         p.prosecdef::text || p.provolatile::text || coalesce(p.proconfig::text, '')
+    into v_md5, v_flags
+  from pg_proc p where p.oid = v_oid;
+
+  if v_md5 = '364c52f3d561593421b2e6deb034069d' then
     raise exception 'SCANYM_ALREADY_APPLIED: STOREFRONT SOLD-OUT COLLECTIONS v1 déjà appliqué -- annulé.';
+  end if;
+
+  -- GARDE ANTI-ÉCRASEMENT (audit TURING, P2) : ce lot REMPLACE la fonction ;
+  -- il ne doit donc le faire que si la définition en place est EXACTEMENT
+  -- celle du lot COLLECTIONS / TAGS (empreinte md5 du corps + attributs).
+  -- Toute fonction modifiée depuis (restriction de publication, filtre
+  -- ajouté, autre version) est refusée : rien n'est écrasé, silencieusement
+  -- ou non. Il faut alors réconcilier à la main, jamais écraser.
+  if v_md5 is distinct from '62469954066d750857dc0153534be55d' or v_flags is distinct from 'trues{"search_path=\"\""}' then
+    raise exception 'SCANYM_FUNCTION_DRIFT: get_restaurant_collections(uuid) diffère de la définition attendue du lot COLLECTIONS / TAGS (md5 %, attributs %) -- annulé, rien n''est écrasé.', v_md5, v_flags;
   end if;
 end $$;
 
@@ -106,8 +129,8 @@ end $$;
 
 do $$
 begin
-  if pg_get_functiondef('public.get_restaurant_collections(uuid)'::regprocedure) not like '%show_unavailable_products%' then
-    raise exception 'SCANYM_POSTFLIGHT: définition non remplacée -- annulé.';
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from '364c52f3d561593421b2e6deb034069d' then
+    raise exception 'SCANYM_POSTFLIGHT: définition non remplacée comme attendu -- annulé.';
   end if;
   if not has_function_privilege('anon', 'public.get_restaurant_collections(uuid)', 'execute')
      or not has_function_privilege('authenticated', 'public.get_restaurant_collections(uuid)', 'execute') then

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
@@ -255,4 +256,42 @@ test("[200-SQL-COLL] le lot SQL des collections est DRAFT, ne change ni signatur
   const orig = readFileSync("supabase/DRAFT-lot-catalogue-collections-tags-foundation-v1.sql", "utf8");
   const origFn = orig.slice(orig.indexOf("create or replace function public.get_restaurant_collections"), orig.indexOf("end $$;", orig.indexOf("create or replace function public.get_restaurant_collections")) + 7);
   assert.ok(rb.includes(origFn), "le rollback restaure la définition d'origine à l'identique");
+});
+
+// --- Audit TURING (P2) : jamais d'écrasement silencieux d'une fonction modifiée ---
+const ORIG_MD5 = "62469954066d750857dc0153534be55d";
+const NEW_MD5 = "364c52f3d561593421b2e6deb034069d";
+const bodyMd5 = (sql: string, from: number): string => {
+  // prosrc = texte entre les délimiteurs $$ de la première fonction trouvée à partir de `from`.
+  const open = sql.indexOf("as $$", from) + "as $$".length;
+  const close = sql.indexOf("end $$;", open) + "end ".length;
+  return createHash("md5").update(sql.slice(open, close)).digest("hex");
+};
+
+test("[200-SQL-DRIFT-1] les empreintes codées dans le lot et le rollback sont celles des vrais corps de fonction", () => {
+  const fnStart = (sql: string) => sql.indexOf("create or replace function public.get_restaurant_collections");
+  const foundation = readFileSync("supabase/DRAFT-lot-catalogue-collections-tags-foundation-v1.sql", "utf8");
+  const lot = readFileSync("supabase/DRAFT-lot-storefront-sold-out-collections-v1.sql", "utf8");
+  const rb = readFileSync("supabase/DRAFT-lot-storefront-sold-out-collections-v1-ROLLBACK.sql", "utf8");
+  assert.equal(bodyMd5(foundation, fnStart(foundation)), ORIG_MD5, "original (lot Collections/Tags)");
+  assert.equal(bodyMd5(lot, fnStart(lot)), NEW_MD5, "définition posée par le lot");
+  assert.equal(bodyMd5(rb, fnStart(rb)), ORIG_MD5, "définition restaurée par le rollback");
+});
+
+test("[200-SQL-DRIFT-2] pré-vol du lot : refuse toute définition différente de l'original ; rollback : refuse toute définition différente de la nôtre", () => {
+  const exec = (f: string) => readFileSync(f, "utf8").split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  const lot = exec("supabase/DRAFT-lot-storefront-sold-out-collections-v1.sql");
+  const rb = exec("supabase/DRAFT-lot-storefront-sold-out-collections-v1-ROLLBACK.sql");
+  const createAt = lot.indexOf("create or replace function");
+  const pre = lot.slice(0, createAt);
+  assert.match(pre, new RegExp(`v_md5 is distinct from '${ORIG_MD5}'`));
+  assert.match(pre, /SCANYM_FUNCTION_DRIFT/);
+  assert.match(pre, /prosecdef/);
+  assert.match(pre, new RegExp(`v_md5 = '${NEW_MD5}'[\\s\\S]*SCANYM_ALREADY_APPLIED`));
+  const rbPre = rb.slice(0, rb.indexOf("create or replace function"));
+  assert.match(rbPre, new RegExp(`v_md5 is distinct from '${NEW_MD5}'`));
+  assert.match(rbPre, /SCANYM_ROLLBACK_DRIFT/);
+  const lotPost = lot.slice(createAt);
+  assert.match(lotPost, new RegExp(`is distinct from '${NEW_MD5}'`));
+  assert.match(rb.slice(rb.indexOf("create or replace function")), new RegExp(`is distinct from '${ORIG_MD5}'`));
 });

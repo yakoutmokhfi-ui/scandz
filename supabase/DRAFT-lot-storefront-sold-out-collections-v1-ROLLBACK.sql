@@ -2,7 +2,8 @@
 -- Scanym — STOREFRONT SOLD-OUT COLLECTIONS v1 — ROLLBACK (issue #200)
 -- (DRAFT — NOT APPLIED IN PRODUCTION — AUCUNE EXÉCUTION HÉBERGÉE)
 --
--- Restaure la définition ORIGINALE de get_restaurant_collections(uuid)
+-- Garde anti-écrasement : refuse si la fonction en place n'est pas EXACTEMENT celle de
+-- ce lot (SCANYM_ROLLBACK_DRIFT). Restaure la définition ORIGINALE de get_restaurant_collections(uuid)
 -- (lot COLLECTIONS / TAGS FOUNDATION v1, copie à l'identique) : les
 -- produits indisponibles sont de nouveau exclus des collections et des
 -- tags, quel que soit le réglage. Aucune donnée touchée ; droits inchangés.
@@ -11,10 +12,24 @@
 begin;
 
 do $$
+declare
+  v_oid  oid;
+  v_md5  text;
 begin
-  if to_regprocedure('public.get_restaurant_collections(uuid)') is null
-     or pg_get_functiondef('public.get_restaurant_collections(uuid)'::regprocedure) not like '%show_unavailable_products%' then
-    raise exception 'SCANYM_ROLLBACK_DRIFT: STOREFRONT SOLD-OUT COLLECTIONS v1 absent -- rien à annuler. Annulé.';
+  v_oid := to_regprocedure('public.get_restaurant_collections(uuid)');
+  if v_oid is null then
+    raise exception 'SCANYM_ROLLBACK_DRIFT: get_restaurant_collections(uuid) absente -- rien à annuler. Annulé.';
+  end if;
+  select md5(p.prosrc) into v_md5 from pg_proc p where p.oid = v_oid;
+  if v_md5 = '62469954066d750857dc0153534be55d' then
+    raise exception 'SCANYM_ROLLBACK_DRIFT: définition déjà celle d''origine -- rien à annuler. Annulé.';
+  end if;
+  -- GARDE ANTI-ÉCRASEMENT (audit TURING, P2) : on ne restaure l'original que
+  -- si la fonction en place est EXACTEMENT celle posée par ce lot. Toute
+  -- modification ultérieure (restriction de publication, autre version) est
+  -- refusée au lieu d'être écrasée silencieusement.
+  if v_md5 is distinct from '364c52f3d561593421b2e6deb034069d' then
+    raise exception 'SCANYM_ROLLBACK_DRIFT: get_restaurant_collections(uuid) a été modifiée depuis le lot (md5 %) -- annulé, rien n''est écrasé.', v_md5;
   end if;
 end $$;
 
@@ -62,8 +77,8 @@ end $$;
 
 do $$
 begin
-  if pg_get_functiondef('public.get_restaurant_collections(uuid)'::regprocedure) like '%show_unavailable_products%' then
-    raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: définition non restaurée -- annulé.';
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from '62469954066d750857dc0153534be55d' then
+    raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: définition d''origine non restaurée -- annulé.';
   end if;
   if not has_function_privilege('anon', 'public.get_restaurant_collections(uuid)', 'execute') then
     raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: droit anon perdu -- annulé.';
