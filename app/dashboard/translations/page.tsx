@@ -15,7 +15,8 @@ import {
   type RestaurantTranslationSettingsRow,
   type TranslationEntityType,
 } from "@/lib/services/dashboard";
-import { getRestaurantProductTags, type ProductTags } from "@/lib/services/catalogue-tags";
+import { getRestaurantProductTags, getMerchantTagTranslations, type ProductTags, type TagTranslationSource } from "@/lib/services/catalogue-tags";
+import { getMerchantOrderHelpTexts, type OrderHelpTranslationSource } from "@/lib/services/merchant-communications";
 import { isScanymOperator } from "@/lib/services/establishments";
 import type {
   MerchantRestaurant,
@@ -88,6 +89,8 @@ const ENTITY_LABEL: Record<TranslationEntityType, string> = {
   subcategory: "Sous-catégorie",
   item: "Produit",
   customer_notice: "Message client",
+  tag: "Tag",
+  order_help: "Aide à la commande",
 };
 
 /** TRANSLATIONS MANAGEMENT v2 (mandat §15) -- l'écran doit rester
@@ -111,10 +114,12 @@ export default function TranslationsPage() {
   const [activeLanguages, setActiveLanguages] = useState<ActiveLang[]>([]);
   const [catalogue, setCatalogue] = useState<CatalogueCategory[]>([]);
   const [productTags, setProductTags] = useState<ProductTags[]>([]);
+  const [tagTranslations, setTagTranslations] = useState<TagTranslationSource[]>([]);
   const [methodNotices, setMethodNotices] = useState<MerchantDeliveryMethodNotice[]>([]);
   const [fulfillmentNotices, setFulfillmentNotices] = useState<
     MerchantDeliveryFulfillmentPricingRule[]
   >([]);
+  const [orderHelpTexts, setOrderHelpTexts] = useState<OrderHelpTranslationSource[]>([]);
   const [targetLang, setTargetLang] = useState<string>("");
   const [filters, setFilters] = useState<TranslationFilters>(EMPTY_TRANSLATION_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -169,8 +174,10 @@ export default function TranslationsPage() {
     // contexte PRÉCÉDENT resteraient en mémoire et pourraient être
     // peints sous le nouveau contexte pendant l'intervalle.
     setProductTags([]);
+    setTagTranslations([]);
     setMethodNotices([]);
     setFulfillmentNotices([]);
+    setOrderHelpTexts([]);
     try {
       // NOYAU (réglages, langues, catalogue) : ce sont les seules
       // lectures dont dépend l'affichage des traductions.
@@ -191,18 +198,28 @@ export default function TranslationsPage() {
       // traduction. Chaque réponse repasse par la MÊME garde de
       // contexte : une réponse périmée est abandonnée, jamais peinte.
       void (async () => {
-        const [tags, notices, rules] = await Promise.all([
+        const [tags, notices, rules, helpTexts] = await Promise.all([
           getRestaurantProductTags(id).catch(() => [] as ProductTags[]),
           getMerchantDeliveryMethodNotices(id).catch(() => [] as MerchantDeliveryMethodNotice[]),
           getMerchantDeliveryFulfillmentPricing(id).catch(
             () => [] as MerchantDeliveryFulfillmentPricingRule[]
           ),
+          getMerchantOrderHelpTexts(id).catch(() => [] as OrderHelpTranslationSource[]),
         ]);
         if (!token.isCurrent()) return;
         setProductTags(tags);
         setMethodNotices(notices);
         setFulfillmentNotices(rules);
+        setOrderHelpTexts(helpTexts);
       })();
+      void getMerchantTagTranslations(id).then((tags) => {
+        if (token.isCurrent()) setTagTranslations(Array.isArray(tags) ? tags : []);
+      }).catch(() => {
+        if (token.isCurrent()) {
+          setTagTranslations([]);
+          setError("Impossible de charger les tags à traduire. Réessayez.");
+        }
+      });
       setTargetLang((prev) => {
         if (prev && langs.some((l) => l.code === prev) && prev !== s?.source_language) return prev;
         return langs.find((l) => l.code !== s?.source_language)?.code ?? "";
@@ -227,8 +244,10 @@ export default function TranslationsPage() {
       setActiveLanguages([]);
       setCatalogue([]);
       setProductTags([]);
+      setTagTranslations([]);
       setMethodNotices([]);
       setFulfillmentNotices([]);
+      setOrderHelpTexts([]);
       setContentLoadedRestaurantId(null);
       setFilters(EMPTY_TRANSLATION_FILTERS);
       setImportPreview(null);
@@ -255,6 +274,7 @@ export default function TranslationsPage() {
   const catalogueInContext = contentInContext ? catalogue : [];
   const methodNoticesInContext = contentInContext ? methodNotices : [];
   const fulfillmentNoticesInContext = contentInContext ? fulfillmentNotices : [];
+  const orderHelpTextsInContext = contentInContext ? orderHelpTexts : [];
 
   useEffect(() => {
     (async () => {
@@ -333,8 +353,17 @@ export default function TranslationsPage() {
             : null,
         categories: catalogueInContext,
         tagsByProductId,
+        tagTranslations: contentInContext ? tagTranslations : [],
         methodNotices: methodNoticesInContext,
         fulfillmentNotices: fulfillmentNoticesInContext,
+        orderHelpTexts: orderHelpTextsInContext.map((row) => ({
+          restaurantId,
+          restaurantName: mapping?.restaurants?.name ?? "",
+          textKey: row.text_key,
+          body: row.body,
+          bodyHash: row.body_hash,
+          translations: row.translations,
+        })),
       }),
     [
       settingsInContext,
@@ -342,8 +371,11 @@ export default function TranslationsPage() {
       mapping,
       catalogueInContext,
       tagsByProductId,
+      tagTranslations,
+      contentInContext,
       methodNoticesInContext,
       fulfillmentNoticesInContext,
+      orderHelpTextsInContext,
     ]
   );
 
@@ -461,11 +493,16 @@ export default function TranslationsPage() {
     entityId: string,
     field: string,
     value: string,
-    status: "to_review" | "validated"
+    status: "to_review" | "validated",
+    sourceHash: string | null
   ) {
     if (!targetLang) return;
     try {
-      await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      if (entityType === "tag" || entityType === "order_help") {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status, sourceHash);
+      } else {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      }
       await load(restaurantId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enregistrement");
@@ -1117,7 +1154,7 @@ export default function TranslationsPage() {
                       lang={targetLang}
                       canEdit={canEdit}
                       onSave={(v, status) =>
-                        handleSave(row.entityType, row.entityId, row.field, v, status)
+                        handleSave(row.entityType, row.entityId, row.field, v, status, row.sourceHash)
                       }
                     />
                   ))}

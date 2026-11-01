@@ -68,6 +68,7 @@ import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
 import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
+import { translatedTagLabel } from "@/lib/customer-tag-translations";
 import MenuItemCard from "@/components/MenuItemCard";
 import CartPanel from "@/components/CartPanel";
 import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
@@ -106,6 +107,8 @@ import { buildTrackingPath } from "@/lib/tracking/link";
 import {
   fetchWithdrawalEligibility,
   getPublicCommunicationTexts,
+  getPublicOrderHelpTexts,
+  type OrderHelpTranslationSource,
 } from "@/lib/services/merchant-communications";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 
@@ -731,6 +734,8 @@ export default function MenuView({
    */
   const [communicationTexts, setCommunicationTexts] =
     useState<CommunicationTextOverrides>({});
+  const [orderHelpTranslations, setOrderHelpTranslations] =
+    useState<OrderHelpTranslationSource[]>([]);
   /**
    * MERCHANT CUSTOMER COMMUNICATIONS v1.1 — PREUVE D'ÉLIGIBILITÉ LIÉE À
    * L'IDENTITÉ DE LA COMMANDE AFFICHÉE.
@@ -860,13 +865,21 @@ export default function MenuView({
   useEffect(() => {
     let cancelled = false;
     setCommunicationTexts({});
-    getPublicCommunicationTexts(restaurant.id)
-      .then((texts) => {
-        if (!cancelled) setCommunicationTexts(texts);
-      })
-      .catch(() => {
-        if (!cancelled) setCommunicationTexts({});
-      });
+    setOrderHelpTranslations([]);
+    Promise.all([
+      getPublicCommunicationTexts(restaurant.id),
+      getPublicOrderHelpTexts(restaurant.id),
+    ]).then(([texts, helpTranslations]) => {
+      if (!cancelled) {
+        setCommunicationTexts(texts);
+        setOrderHelpTranslations(helpTranslations);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setCommunicationTexts({});
+        setOrderHelpTranslations([]);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -965,8 +978,11 @@ export default function MenuView({
       buildCustomerCollections(
         restaurant.collections ?? [],
         new Set(restaurant.categories.flatMap((c) => c.menu_items.map((i) => i.id)))
-      ),
-    [restaurant.collections, restaurant.categories]
+      ).map((collection) => ({
+        ...collection,
+        label: translatedTagLabel(collection.id, collection.label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations),
+      })),
+    [restaurant.collections, restaurant.categories, restaurant.config.source_language, restaurant.customerTagTranslations, lang]
   );
   const activeCollection =
     activeCollectionId === null
@@ -1212,10 +1228,16 @@ export default function MenuView({
   function renderMenuItem(item: MenuItem) {
     const group = getOptionGroup(restaurant.slug, item);
     const inline = isInlineOptions && group !== null;
+    const translatedTags = item.customer_tags?.map((label) => {
+      const tag = restaurant.collections?.find((collection) =>
+        collection.label === label && collection.menuItemIds.includes(item.id)
+      );
+      return tag ? translatedTagLabel(tag.id, label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations) : label;
+    });
     return (
       <MenuItemCard
         key={item.id}
-        item={item}
+        item={translatedTags ? { ...item, customer_tags: translatedTags } : item}
         currency={restaurant.config.currency}
         quantity={quantityFor(item)}
         requiresChoice={group !== null}
@@ -2170,7 +2192,7 @@ export default function MenuView({
           Les textes par règle de livraison ne sont plus agrégés ici : ils
           restent dans le résultat du code postal saisi
           (DeliveryPostcodeResult). */}
-      <OrderHelpButton communicationTexts={communicationTexts} />
+      <OrderHelpButton communicationTexts={communicationTexts} translatedTexts={orderHelpTranslations} />
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
           issuecomment-5875680103) : Tags/Collections transversaux

@@ -146,8 +146,11 @@ test("[PUBLISHED][ORDER] RestaurantFull.collections conserve les collections pub
     { id: "t-selection", label: "Sélection du chef", displayOrder: 1, menuItemIds: [P_ROUGE, P_RACLETTE, P_COMTE] },
     { id: "t-bio", label: "Bio", displayOrder: 2, menuItemIds: [P_COMTE] },
   ]);
-  // UN seul appel, le contrat anon existant -- jamais les RPC backoffice.
-  assert.deepEqual(rpcCalls, [{ name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } }]);
+  // La traduction utilise une seconde RPC publique, jamais les RPC back-office.
+  assert.deepEqual(rpcCalls, [
+    { name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } },
+    { name: "get_public_tag_translations", args: { p_restaurant_id: RESTO_A } },
+  ]);
 });
 
 test("[CROSS-TENANT] un identifiant produit étranger/masqué ne fuit ni dans les collections ni dans le modèle public ; une collection sans produit public est supprimée", async (t) => {
@@ -266,12 +269,14 @@ test("[I18N] les libellés client et marchand existent dans les 3 dictionnaires 
   }
 });
 
-test("[SINGLE SOURCE] aucune nouvelle table/RPC/relation de collection : aucun SQL produit n'appelle ni ne définit d'autre modèle", () => {
+test("[SINGLE SOURCE] les collections restent sur le modèle existant avec deux lectures de traduction identifiées", () => {
   const svc = codeOnly(readFileSync("lib/services/catalogue-tags.ts", "utf8"));
   const rpcs = [...svc.matchAll(/supabase\.rpc\("([a-z_]+)"/g)].map((m) => m[1]).sort();
   assert.deepEqual(rpcs, [
     "add_product_tags",
     "create_tag",
+    "get_merchant_tag_translations",
+    "get_public_tag_translations",
     "get_restaurant_collections",
     "get_restaurant_product_tags",
     "get_restaurant_tags",

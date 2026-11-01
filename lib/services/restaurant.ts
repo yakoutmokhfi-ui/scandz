@@ -2,7 +2,7 @@ import { withoutUnusedWhatsapp } from "@/lib/customer-contact";
 import { supabase } from "@/lib/supabase";
 import type { RestaurantFull, MenuCategory, MenuSubcategory, RestaurantActiveLanguage } from "@/lib/types";
 import { compareMenuItemsForPublicDisplay } from "@/lib/catalogue-subcategory-grouping";
-import { getRestaurantCollections } from "@/lib/services/catalogue-tags";
+import { getRestaurantCollections, getPublicTagTranslations } from "@/lib/services/catalogue-tags";
 import {
   attachCustomerTags,
   buildCustomerProductTags,
@@ -165,6 +165,9 @@ export async function getRestaurantBySlug(
     displayedCategories.flatMap((c) => c.menu_items.map((i) => i.id))
   );
   const tagSources = await loadCustomerTagSources(data.id);
+  const customerTagTranslations = tagSources.length
+    ? await getPublicTagTranslations(data.id).catch(() => ({}))
+    : {};
   const tagsByItem = buildCustomerProductTags(tagSources, displayedItemIds);
   // P1 CUSTOMER COLLECTIONS BY TAGS -- la MÊME réponse, conservée dans
   // son ordre serveur pour la navigation « Collections » (aucun second
@@ -215,5 +218,6 @@ export async function getRestaurantBySlug(
     hiddenCategories,
     activeLanguages: activeLanguages.length > 0 ? activeLanguages : [{ code: "fr", label: "Français", dir: "ltr", display_order: 1 }],
     collections,
+    customerTagTranslations,
   };
 }
