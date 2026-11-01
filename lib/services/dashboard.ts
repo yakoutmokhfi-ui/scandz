@@ -1797,3 +1797,36 @@ export async function getMerchantDeliveryTestCountries(restaurantId: string): Pr
   if (error) throw new Error(error.message);
   return (data ?? []).map((r: { country_code: string; country_name: string }) => ({ code: r.country_code, name: r.country_name }));
 }
+
+/**
+ * Issue #200 — produits en rupture visibles en vitrine.
+ *
+ * LECTURE INDÉPENDANTE de getRestaurantSettings (même raison que le voile
+ * photo) : tant que la colonne n'est pas appliquée, une colonne manquante
+ * dans le SELECT principal ferait échouer TOUTE la page Réglages. Ici
+ * l'échec reste local. Une valeur qui n'est pas un booléen est REFUSÉE
+ * (erreur), jamais devinée.
+ */
+export async function getRestaurantShowUnavailable(restaurantId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("restaurant_configs")
+    .select("show_unavailable_products")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const value = (data as { show_unavailable_products?: unknown } | null)?.show_unavailable_products;
+  if (typeof value !== "boolean") throw new Error("show_unavailable_products unavailable");
+  return value;
+}
+
+/** Écriture par la SEULE voie RPC (rôle owner/manager du restaurant ou opérateur). */
+export async function updateRestaurantShowUnavailable(
+  restaurantId: string,
+  show: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_show_unavailable", {
+    p_restaurant_id: restaurantId,
+    p_show: show,
+  });
+  if (error) throw new Error(error.message);
+}

@@ -1,4 +1,5 @@
 import type { MenuItem, RestaurantFull } from "@/lib/types";
+import { isSoldOut } from "@/lib/storefront-sold-out";
 
 /**
  * Articles nécessitant le choix d'une pâtisserie avant ajout au
@@ -20,5 +21,5 @@ export function getPastryChoices(restaurant: RestaurantFull): MenuItem[] {
   const category = restaurant.categories.find((c) =>
     c.name.includes("Pâtisseries")
   );
-  return category?.menu_items ?? [];
+  return (category?.menu_items ?? []).filter((i) => !isSoldOut(i));
 }

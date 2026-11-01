@@ -154,6 +154,8 @@ function findTrackingAnchor(container: Element): HTMLAnchorElement | undefined {
 const SEND_LABEL = "Enregistrer et continuer sur WhatsApp";
 const CONFIRM_TITLE = "Commande envoyée avec succès !";
 const ORDER_FAILED = "L'envoi a échoué. Votre panier est conservé, vous pouvez réessayer.";
+// Issue #200 : un article devenu indisponible reçoit un message CLAIR (plus le générique).
+const ORDER_ITEM_UNAVAILABLE = "Un article de votre panier n'est plus disponible. Actualisez la page : votre panier sera mis à jour et vous pourrez réessayer.";
 const eur = (n: number) => formatPrice(n, "EUR");
 
 // --- Fixtures : deux tenants distincts --------------------------------
@@ -996,7 +998,7 @@ test("GP-DOM-05 validation : panier vide, coordonnées incomplètes, zone non de
   assertNoExternalEffects(backend);
 });
 
-test("GP-DOM-06 rejet serveur (article étranger au restaurant) : aucune confirmation, aucun lien de suivi, aucun WhatsApp, panier conservé, message générique", async (t) => {
+test("GP-DOM-06 rejet serveur (article étranger au restaurant) : aucune confirmation, aucun lien de suivi, aucun WhatsApp, panier conservé, message clair (#200)", async (t) => {
   const quietError = t.mock.method(console, "error", () => {});
   const backend = installBackend(t, {
     createOrder: () => ({
@@ -1011,9 +1013,10 @@ test("GP-DOM-06 rejet serveur (article étranger au restaurant) : aucune confirm
     const send = buttonWithText(container, SEND_LABEL);
     assert.ok(send);
     click(send!);
-    await waitFor(() => container.textContent?.includes(ORDER_FAILED) ?? false, "message d'échec générique");
+    await waitFor(() => container.textContent?.includes(ORDER_ITEM_UNAVAILABLE) ?? false, "message clair article indisponible");
 
     const text = container.textContent ?? "";
+    assert.equal(text.includes(ORDER_FAILED), false, "le message générique est remplacé par le message clair");
     assert.equal(text.includes(CONFIRM_TITLE), false, "aucune confirmation après un rejet");
     assert.equal(findTrackingAnchor(container), undefined, "aucun lien de suivi sans commande créée");
     assert.equal(text.includes("étranger à ce restaurant"), false, "le message SQL brut ne fuit jamais");

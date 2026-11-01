@@ -1,4 +1,5 @@
 import type { MenuItem } from "@/lib/types";
+import { isSoldOut } from "@/lib/storefront-sold-out";
 
 export type OptionKind = "flavor" | "pastry";
 
@@ -62,6 +63,12 @@ export function addToCart(
   }
 ): Cart {
   const { item, quantity, option, optionKind } = params;
+  // Issue #200 : un produit (ou une option) en rupture n'entre JAMAIS au
+  // panier, quel que soit le chemin d'appel. Seul un retrait (quantité < 0)
+  // reste permis pour vider une ligne déjà présente.
+  if (quantity > 0 && (isSoldOut(item) || (option !== undefined && isSoldOut(option)))) {
+    return cart;
+  }
   const key = lineKey(item.id, option?.name);
   const next = { ...cart };
   const current = next[key]?.quantity ?? 0;

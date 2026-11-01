@@ -70,6 +70,7 @@ import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
 import { translatedTagLabel } from "@/lib/customer-tag-translations";
 import MenuItemCard from "@/components/MenuItemCard";
+import { isSoldOut } from "@/lib/storefront-sold-out";
 import CartPanel from "@/components/CartPanel";
 import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
 import { useCheckoutSchedule } from "@/lib/checkout-schedule/use-checkout-schedule";
@@ -120,6 +121,7 @@ import {
   createOrder,
   markWhatsappOpened,
   OrderNoteTooLongError,
+  ItemUnavailableError,
   CgvAcceptanceRequiredError,
   ScheduleSelectionError,
   type CreatedOrder,
@@ -1109,6 +1111,7 @@ export default function MenuView({
 
   /** Ajout/retrait direct d'un goût depuis la carte produit. */
   function handleInlineChange(item: MenuItem, choice: MenuItem, delta: number) {
+    if (delta > 0 && (isSoldOut(item) || isSoldOut(choice))) return;
     const group = getOptionGroup(restaurant.slug, item);
     setCart((c) =>
       addToCart(c, {
@@ -1173,6 +1176,8 @@ export default function MenuView({
    * au panier avant confirmation.
    */
   function handleAdd(item: MenuItem) {
+    // Issue #200 : un produit en rupture n'entre jamais au panier.
+    if (isSoldOut(item)) return;
     const group = getOptionGroup(restaurant.slug, item);
     if (group) {
       setChoiceItem(item);
@@ -1195,7 +1200,7 @@ export default function MenuView({
   function handleChoiceConfirm(
     distribution: { choice: MenuItem; quantity: number }[]
   ) {
-    if (!choiceItem || !choiceGroup) return;
+    if (!choiceItem || !choiceGroup || isSoldOut(choiceItem)) return;
     const kind = choiceGroup.title.includes("goût") ? "flavor" : "pastry";
     setCart((c) => {
       let next = c;
@@ -1893,7 +1898,9 @@ export default function MenuView({
           ? t("noteTooLong")
           : err instanceof CgvAcceptanceRequiredError
             ? t("cgvAcceptanceRequiredError")
-            : t("orderFailed")
+            : err instanceof ItemUnavailableError
+              ? t("orderItemUnavailable")
+              : t("orderFailed")
       );
     } finally {
       submitInFlightRef.current = false;
