@@ -71,6 +71,7 @@ import {
   PRODUCT_SEARCH_MIN_ITEMS,
   PRODUCT_SEARCH_PAGE_SIZE,
   buildProductSearchIndex,
+  productSearchTokens,
   searchProducts,
 } from "@/lib/product-search";
 import CollectionNav from "@/components/CollectionNav";
@@ -1025,9 +1026,16 @@ export default function MenuView({
   const deferredForThisRestaurant = deferredSearch.restaurantId === restaurant.id;
   const deferredSearchQuery = deferredForThisRestaurant ? deferredSearch.query : "";
   const searchPages = deferredForThisRestaurant ? deferredSearch.pages : 1;
+  // La valeur différée garde la frappe fluide sur un grand catalogue, mais ne doit
+  // JAMAIS retarder le retour à la vue normale : dès que la saisie courante est vide
+  // (effacement, changement d'établissement, choix d'une catégorie), les résultats
+  // disparaissent au rendu même, sans attendre le rattrapage de la valeur différée.
+  // Tant que le rattrapage n'est pas fait, la section de résultats est marquée occupée.
+  const searchActive = productSearchTokens(searchQuery).length > 0;
+  const searchPending = searchQuery !== deferredSearchQuery;
   const searchResult = useMemo(
     () =>
-      searchEnabled
+      searchEnabled && searchActive
         ? searchProducts(
             restaurant.categories,
             searchIndex,
@@ -1035,7 +1043,7 @@ export default function MenuView({
             searchPages * PRODUCT_SEARCH_PAGE_SIZE
           )
         : null,
-    [searchEnabled, restaurant.categories, searchIndex, deferredSearchQuery, searchPages]
+    [searchEnabled, searchActive, restaurant.categories, searchIndex, deferredSearchQuery, searchPages]
   );
 
   // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
@@ -2285,7 +2293,11 @@ export default function MenuView({
           </div>
         )}
         {searchResult && (
-          <section className="mt-5" data-product-search-results="true">
+          <section
+            className="mt-5"
+            data-product-search-results="true"
+            aria-busy={searchPending ? "true" : undefined}
+          >
             <p
               role="status"
               aria-live="polite"

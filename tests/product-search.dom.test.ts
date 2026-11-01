@@ -246,7 +246,11 @@ async function type(c: Element, value: string) {
   const input = searchInput(c);
   assert.ok(input, "le champ de recherche doit être présent");
   setNativeValue(input!, value);
-  await flush(30);
+  await flush(0);
+  // La valeur différée rattrape la saisie en tâche de fond : on attend l'état stable
+  // (section absente pour une saisie vide, présente et non occupée sinon) au lieu d'un délai fixe.
+  if (value.trim() === "") await waitFor(() => resultsSection(c) === null, "retour à la vue normale", 5000);
+  else await waitFor(() => { const s = resultsSection(c); return s !== null && s.getAttribute("aria-busy") !== "true"; }, `résultats stables pour « ${value} »`, 5000);
 }
 const cartBarText = (c: Element) => [...c.querySelectorAll("button")].find((b) => b.textContent?.includes("🛒"))?.textContent ?? "";
 
