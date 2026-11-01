@@ -41,7 +41,9 @@ export default function OrderHelpButton({
   const translateHelp = (key: OrderHelpTranslationSource["text_key"]) => {
     const source = resolveCommunicationText(key, communicationTexts, identity).text;
     const row = translatedTexts?.find((item) => item.text_key === key);
-    if (!source || !row) return source;
+    // The two public reads can straddle a source edit. Never associate a
+    // translation with a different source, even if its own hash is valid.
+    if (!source || !row || row.body !== source) return source;
     return resolveTranslatedField(source, row.body_hash, row.translations, lang, sourceLanguage, key) ?? source;
   };
   const label = translateHelp("order_help_button_label");

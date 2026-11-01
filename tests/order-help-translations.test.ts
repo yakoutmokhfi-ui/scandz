@@ -63,8 +63,33 @@ test("source language, inactive language, unknown key and stale source are refus
   await assert.rejects(() => pg.query(call, [RID,args[1],"de",args[3],args[4],null]), /Language is not active/);
   await assert.rejects(() => pg.query(call, [RID,"email_confirmation_body",args[2],args[3],args[4],null]), /Invalid order-help translation field/);
   await assert.rejects(() => pg.query(call, [RID,args[1],args[2],args[3],args[4],"stale-hash"]), /SCANYM_TRANSLATION_SOURCE_CHANGED/);
+  await assert.rejects(() => pg.query(call, [RID,args[1],args[2],args[3],args[4],null]), /SCANYM_TRANSLATION_SOURCE_CHANGED/);
   const value = (await pg.query<{ translations: unknown }>(`select translations from public.merchant_communication_text where restaurant_id=$1 and text_key='order_help_body'`,[RID])).rows[0]!.translations;
   assert.equal(value, null);
+});
+
+test("effacer une traduction retire la langue vide et permet le rollback", async () => {
+  const pg = await db();
+  const hash = (await pg.query<{ body_hash: string }>(`select body_hash from public.merchant_communication_text where restaurant_id=$1 and text_key='order_help_body'`,[RID])).rows[0]!.body_hash;
+  await pg.query(`select public.write_order_help_translation($1,'order_help_body','en','Help','validated',$2)`,[RID,hash]);
+  await pg.query(`select public.write_order_help_translation($1,'order_help_body','en','','validated',$2)`,[RID,hash]);
+  const value=(await pg.query<{translations:unknown}>(`select translations from public.merchant_communication_text where restaurant_id=$1 and text_key='order_help_body'`,[RID])).rows[0]!.translations;
+  assert.deepEqual(value, {});
+  await pg.exec(ROLLBACK);
+  await pg.close();
+});
+
+test("effacer une traduction conserve les autres langues et clés", async () => {
+  const pg = await db();
+  const hash = (await pg.query<{ body_hash: string }>(`select body_hash from public.merchant_communication_text where restaurant_id=$1 and text_key='order_help_body'`,[RID])).rows[0]!.body_hash;
+  await pg.query(`select public.write_order_help_translation($1,'order_help_body','en','Help','validated',$2)`,[RID,hash]);
+  await pg.query(`select public.write_order_help_translation($1,'order_help_body','ar','مساعدة','validated',$2)`,[RID,hash]);
+  await pg.query(`update public.merchant_communication_text set translations=jsonb_set(translations,'{en,other_key}',to_jsonb('preserve'::text)) where restaurant_id=$1 and text_key='order_help_body'`,[RID]);
+  await pg.query(`select public.write_order_help_translation($1,'order_help_body','en','','validated',$2)`,[RID,hash]);
+  const value=(await pg.query<{translations:Record<string,unknown>}>(`select translations from public.merchant_communication_text where restaurant_id=$1 and text_key='order_help_body'`,[RID])).rows[0]!.translations;
+  assert.deepEqual(value.en, { other_key: "preserve" });
+  assert.ok(value.ar);
+  await pg.close();
 });
 
 test("public projection returns only order-help fields and never email templates", async () => {
