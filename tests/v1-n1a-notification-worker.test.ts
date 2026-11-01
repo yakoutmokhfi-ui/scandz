@@ -69,7 +69,7 @@ function claimRow(overrides: Record<string, unknown> = {}) {
 test("scénario 3 : une notification réclamée -> le provider Fake est appelé exactement une fois", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };
@@ -95,7 +95,7 @@ test("scénario 3 : une notification réclamée -> le provider Fake est appelé 
 // --------------------------------------------------------------
 test("scénario 12 : l'identité d'expéditeur du message envoyé correspond EXACTEMENT à celle résolue par claim_pending_notifications", async (t) => {
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return {
         data: [claimRow({ sender_name: "Sanaa Cookies", sender_email: "hello@sanaa.example", reply_to: null })],
         error: null,
@@ -122,7 +122,7 @@ test("scénario 12 : l'identité d'expéditeur du message envoyé correspond EXA
 test("scénario 4 : échec réessayable du provider -> complete_notification_attempt reçoit result=retryable_failure", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };
@@ -149,7 +149,7 @@ test("scénario 5 : échec terminal du provider -> result=terminal_failure, aucu
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
     calledRpcNames.push(name);
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };
@@ -164,7 +164,7 @@ test("scénario 5 : échec terminal du provider -> result=terminal_failure, aucu
   assert.equal((completeArgs as any).p_result, "terminal_failure");
   // issue_order_email_tracking_capability est routée par routeRpc (hors
   // `handler`) : seule écriture autorisée, une capacité de suivi.
-  assert.deepEqual(calledRpcNames.sort(), ["claim_pending_notifications", "complete_notification_attempt"]);
+  assert.deepEqual(calledRpcNames.sort(), ["claim_new_order_notifications", "complete_notification_attempt"]);
 });
 
 // --------------------------------------------------------------
@@ -175,7 +175,7 @@ test("scénario 5 : échec terminal du provider -> result=terminal_failure, aucu
 test("identité d'expéditeur non résolue -> échec terminal SENDER_IDENTITY_UNRESOLVED, provider jamais appelé", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return { data: [claimRow({ sender_email: null, sender_name: null })], error: null };
     }
     if (name === "complete_notification_attempt") {
@@ -204,7 +204,7 @@ test("identité d'expéditeur non résolue -> échec terminal SENDER_IDENTITY_UN
 test("no tracking secret leak : errorClass transmis ne contient jamais le jeton de possession de la commande", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };
@@ -232,7 +232,7 @@ test("no tracking secret leak : errorClass transmis ne contient jamais le jeton 
 test("v1.2 adversarial (pipeline complet) : un errorClass provider contenant un jeton de suivi devient UNKNOWN_PROVIDER_ERROR avant complete_notification_attempt", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };
@@ -251,7 +251,7 @@ test("v1.2 adversarial (pipeline complet) : un errorClass provider contenant un 
 test("v1.2 adversarial (pipeline complet) : un errorClass provider verbeux/multi-lignes contenant une clé API devient UNKNOWN_PROVIDER_ERROR", async (t) => {
   let completeArgs: Record<string, unknown> | null = null;
   routeRpc(t, (name, args) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") {
       completeArgs = args;
       return { data: null, error: null };

@@ -6,6 +6,7 @@ import { resolveMerchantSmtpProvider } from "@/lib/server/notifications/merchant
 import { reapStaleNotificationClaims } from "@/lib/server/notifications/notification-outbox-service";
 import { createRunBudget } from "@/lib/server/notifications/run-budget";
 import { runTransactionalEmailWorker } from "@/lib/server/notifications/notification-worker";
+import { recoverNewOrderNotifications } from "@/lib/server/notifications/recover-new-orders";
 import {
   WORKER_BATCH_SIZE,
   WORKER_LEASE_SECONDS,
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
     // R3 : le budget se mesure sur l'horloge MONOTONE, créée avant le reap comme `startedAt`. `deadlineAt` (date murale)
     // reste un garde-fou supplémentaire, mais ne suffit pas seul : si l'horloge système recule, il ne se déclencherait pas.
     const budget = createRunBudget(WORKER_RUN_BUDGET_MS);
+    const recovery = await recoverNewOrderNotifications();
     const reaped = await reapStaleNotificationClaims({ batchSize: 100 });
     const result = await runTransactionalEmailWorker(null, {
       batchSize: WORKER_BATCH_SIZE,
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
     const deferred = result.status === "processed"
       ? Math.max(0, result.claimed - result.sent - result.retriedRetryable - result.failedTerminal)
       : 0;
-    return NextResponse.json({ ok: true, reaped, result, deferred });
+    return NextResponse.json({ ok: true, recovery, reaped, result, deferred });
   } catch {
     return NextResponse.json({ ok: false, status: "worker_failed" }, { status: 503 });
   }
