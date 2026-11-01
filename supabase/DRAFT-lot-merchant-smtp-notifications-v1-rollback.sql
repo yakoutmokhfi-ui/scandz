@@ -3,6 +3,10 @@
 -- Refuse, AVANT toute écriture :
 --   * si le claim n'est plus EXACTEMENT celui posé par le lot SMTP (empreinte du
 --     corps, attributs, arguments, colonnes, propriétaire, ACL) ;
+--   * (R4) si la fonction d'écriture du profil sous bail n'est plus EXACTEMENT celle posée par le lot
+--     (corps sur les octets exacts, attributs dont STRICT / SECURITY DEFINER / search_path, signature,
+--     propriétaire, droits, commentaire, surcharge unique) : elle est supprimée par ce script, et un
+--     rollback ne supprime que ce que le lot a posé, à l'identique -- sinon refus, rien n'est modifié ;
 --   * si le coffre contient des configurations (SCANYM_ROLLBACK_DATA_LOSS).
 -- Restaure ensuite le claim de #180 OCTET POUR OCTET (même empreinte md5, même
 -- commentaire) -- le rollback de #180 reste donc possible -- puis supprime le
@@ -16,6 +20,12 @@
 -- en cours se termine AVANT le contrôle (et le fait alors refuser), toute écriture suivante attend, puis
 -- échoue proprement. Un verrou non obtenu en 10 s annule le retour arrière (rien n'est modifié).
 -- À lancer Cron arrêté (le claim lit aussi cette table) -- voir docs/merchant-email-provider-v1.md.
+--
+-- Limite connue (R4) : une fonction ne se verrouille pas en SQL. Le contrôle d'identité de la fonction sous bail
+-- et son DROP se suivent dans la même transaction, mais un ALTER/CREATE OR REPLACE FUNCTION exécuté par un autre
+-- administrateur ENTRE les deux ne serait pas vu. Le DROP est volontairement sans IF EXISTS (une fonction
+-- disparue entre-temps annule tout) ; aucune modification de schéma concurrente ne doit être lancée pendant le
+-- retour arrière (même consigne que « Cron arrêté »).
 begin;
 set local lock_timeout = '10s';
 
@@ -116,6 +126,92 @@ begin
   end if;
 end $$;
 
+-- R4 (contre-contre-audit de c8e023e) : la fonction d'écriture du profil sous bail est supprimée plus bas. Elle
+-- est donc vérifiée ICI, sous le même verrou et AVANT toute mutation, selon la même norme que le claim : identité
+-- exacte ou refus. Sans ce contrôle, `ALTER FUNCTION ... STRICT` (ou toute autre dérive) était supprimée en silence.
+do $$
+declare
+  c_lease_signature     constant text := 'public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)';
+  -- Empreinte du corps sur les OCTETS EXACTS de prosrc : LF (dépôt) ou TOUTES fins de ligne CRLF (extraction Windows).
+  c_lease_body_md5      constant text := '80c1a2d22298cde637c63a2b45b78d2a';
+  c_lease_body_md5_crlf constant text := '716bfcc304ea7ed2ac40408fc6a2e286';
+  c_lease_comment_md5   constant text := '3242a617c0f25c05ea5c00a8ddf4dc9b';
+  c_lease_args   constant text := 'p_restaurant_id uuid, p_save_token uuid, p_email_enabled boolean, p_sender_name text DEFAULT NULL::text, p_sender_email text DEFAULT NULL::text, p_reply_to text DEFAULT NULL::text, p_default_locale text DEFAULT ''fr''::text';
+  c_lease_result constant text := 'void';
+  -- Attributs de pg_proc : un écart (STRICT, SECURITY INVOKER, search_path, volatilité, LEAKPROOF, PARALLEL,
+  -- COST/ROWS, langage...) est une variante inconnue, jamais normalisée.
+  c_lease_attrs  constant text := 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=v;parallel=u;retset=f;cost=100;rows=0;support=0;variadic=0;nargs=7;ndefaults=4;config=search_path=""';
+  v_oid      oid;
+  v_owner    oid;
+  v_args     text;
+  v_result   text;
+  v_md5      text;
+  v_attrs    text;
+  v_acl      text[];
+  v_comment_md5 text;
+  v_expected_acl text[];
+begin
+  select p.oid,
+         p.proowner,
+         pg_get_function_arguments(p.oid),
+         pg_get_function_result(p.oid),
+         md5(p.prosrc),
+         format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
+                p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')),
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e),
+         md5(coalesce(obj_description(p.oid, 'pg_proc'), ''))
+    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl, v_comment_md5
+  from pg_proc p
+  join pg_language l on l.oid = p.prolang
+  where p.oid = to_regprocedure(c_lease_signature);
+
+  if v_oid is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: set_merchant_notification_profile_under_save_lease est introuvable alors que le coffre existe : l''état n''est plus celui posé par le lot SMTP. Rollback annulé, rien modifié.';
+  end if;
+
+  if (
+    select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'set_merchant_notification_profile_under_save_lease'
+  ) <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: set_merchant_notification_profile_under_save_lease doit exister en UNE seule surcharge. Rollback annulé, rien modifié.';
+  end if;
+
+  if v_md5 not in (c_lease_body_md5, c_lease_body_md5_crlf) then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de set_merchant_notification_profile_under_save_lease (md5 %) n''est plus celui posé par le lot SMTP (md5 %) -- modifié depuis. Rollback annulé, rien modifié.', v_md5, c_lease_body_md5;
+  end if;
+
+  if v_attrs is distinct from c_lease_attrs
+     or v_args is distinct from c_lease_args
+     or v_result is distinct from c_lease_result then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de set_merchant_notification_profile_under_save_lease différents de ceux posés par le lot SMTP (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, résultat). Observé : % ; attendu : %. Rollback annulé, rien modifié.', v_attrs, c_lease_attrs;
+  end if;
+
+  if v_comment_md5 is distinct from c_lease_comment_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le commentaire de set_merchant_notification_profile_under_save_lease (md5 %) n''est pas celui posé par le lot SMTP (md5 %). Rollback annulé, rien modifié.', v_comment_md5, c_lease_comment_md5;
+  end if;
+
+  -- Droits (politique explicite du lot) : EXACTEMENT {propriétaire, authenticated}, accordés par le propriétaire,
+  -- sans option de transmission, sans PUBLIC, anon, service_role ni aucun autre rôle. Le propriétaire doit être le
+  -- rôle qui applique ce script. Aucun droit inconnu n'est révoqué silencieusement : refus.
+  v_expected_acl := (
+    select array_agg(x order by x) from unnest(array[
+      format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+      format('%s=EXECUTE/%s', to_regrole('authenticated')::text, v_owner::regrole::text)
+    ]) as x
+  );
+  if v_owner is distinct from (select r.oid from pg_roles r where r.rolname = current_user)
+     or v_acl is distinct from v_expected_acl then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution ou propriétaire de set_merchant_notification_profile_under_save_lease différents de ceux posés par le lot SMTP (propriétaire = rôle appliquant le script ET authenticated, rien d''autre, sans option de transmission). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié ni révoqué silencieusement.', v_owner::regrole::text, v_acl, v_expected_acl;
+  end if;
+end $$;
+
 do $$
 begin
   if exists (select 1 from public.merchant_email_provider_config) then
@@ -190,7 +286,9 @@ revoke all on function public.claim_pending_notifications(integer, integer) from
 grant execute on function public.claim_pending_notifications(integer, integer) to service_role;
 
 -- R3 : la fonction d'écriture du profil sous bail dépend du coffre (jeton) : elle part avec lui.
-drop function if exists public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text);
+-- R4 : son identité vient d'être vérifiée (bloc ci-dessus) ; le DROP est volontairement SANS « if exists » :
+-- une fonction disparue entre le contrôle et ici annule tout le retour arrière.
+drop function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text);
 
 drop table public.merchant_email_provider_config;
 

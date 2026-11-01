@@ -554,3 +554,191 @@ test("R3-02 : le rollback supprime la fonction sous bail (et elle seule) ; le pr
   assert.equal((await db.query<{ ok: boolean }>(`select to_regprocedure('${LEASED}') is not null as ok`)).rows[0]!.ok, true);
   await db.close();
 });
+
+// ====================================================================
+// R4 -- contre-audit de c8e023e (« FAIL -- rollback à corriger »).
+//
+// Le rollback supprimait `set_merchant_notification_profile_under_save_lease` SANS vérifier qu'elle était
+// intacte. Reproduction de l'auditeur (PGlite) : N1-A -> #180 -> lot SMTP, `ALTER FUNCTION ... STRICT`,
+// rollback à vide => le rollback RÉUSSISSAIT et supprimait en silence la fonction modifiée. Même norme que
+// pour le claim : avant toute mutation, l'identité attendue (corps sur les octets exacts, attributs, signature,
+// propriétaire, droits, commentaire, surcharge unique) est vérifiée ; au moindre écart, refus explicite, aucun
+// objet ni aucune donnée modifié.
+// ====================================================================
+const LEASE_NAME = "set_merchant_notification_profile_under_save_lease";
+const LEASE_BODY = SMTP.match(/create function public\.set_merchant_notification_profile_under_save_lease\([\s\S]*?as \$\$([\s\S]*?)\$\$;/)![1]!;
+const LEASE_BODY_MD5 = md5(LEASE_BODY);
+const LEASE_BODY_CRLF_MD5 = md5(toCrlf(LEASE_BODY));
+const LEASE_COMMENT = SMTP.match(/comment on function public\.set_merchant_notification_profile_under_save_lease\([^)]*\) is\s*'((?:[^']|'')*)';/)![1]!.replaceAll("''", "'");
+const LEASE_COMMENT_MD5 = md5(LEASE_COMMENT);
+/** Création + commentaire + droits de la fonction sous bail, tels que posés par le lot. */
+const LEASE_FULL_DEFINITION = SMTP.match(/create function public\.set_merchant_notification_profile_under_save_lease\([\s\S]*?grant execute on function public\.set_merchant_notification_profile_under_save_lease\([^)]*\) to authenticated;/)![0];
+assert.ok(LEASE_FULL_DEFINITION.includes("p_default_locale text default 'fr'"));
+/** Définition `create or replace` de la fonction sous bail, extraite du lot, éventuellement transformée. */
+const leaseRedefinition = (transform: (def: string) => string) => {
+  const def = SMTP.match(/create function public\.set_merchant_notification_profile_under_save_lease\([\s\S]*?end \$\$;/)![0];
+  const out = transform(def.replace("create function", "create or replace function"));
+  assert.notEqual(out, def.replace("create function", "create or replace function"), "la variante doit réellement modifier la définition");
+  return out;
+};
+
+/** Tout ce qui décrit la fonction sous bail (ligne pg_proc complète + commentaire), toutes surcharges confondues. */
+async function leaseSnapshot(db: PGlite): Promise<string> {
+  const r = await db.query<{ s: string }>(`
+    select coalesce(string_agg(to_jsonb(p)::text || ' | ' || coalesce(obj_description(p.oid, 'pg_proc'), '-'), E'\\n' order by p.oid), 'absente') as s
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = '${LEASE_NAME}'`);
+  return r.rows[0]!.s;
+}
+/** Empreinte « rollback » de la fonction sous bail : mêmes expressions que le pré-vol du rollback. */
+async function leaseIdentity(db: PGlite) {
+  const r = await db.query<{ attrs: string; args: string; result: string; md5: string; comment_md5: string; acl: string[]; owner: string }>(`
+    select format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
+                  p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                  p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                  p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')) as attrs,
+           pg_get_function_arguments(p.oid) as args, pg_get_function_result(p.oid) as result,
+           md5(p.prosrc) as md5, md5(coalesce(obj_description(p.oid, 'pg_proc'), '')) as comment_md5,
+           (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+              from (select format('%s=%s/%s%s', case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                  a.privilege_type, a.grantor::regrole::text, case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                      from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e) as acl,
+           p.proowner::regrole::text as owner
+    from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = '${LEASED}'::regprocedure`);
+  return r.rows[0]!;
+}
+
+test("R4 : les empreintes de la fonction sous bail épinglées par le rollback sont celles que le lot pose réellement (PGlite)", async () => {
+  const db = await makeDb();
+  const id = await leaseIdentity(db);
+  assert.equal(id.md5, LEASE_BODY_MD5, "corps posé par le lot == empreinte du fichier");
+  assert.equal(id.comment_md5, LEASE_COMMENT_MD5, "commentaire posé par le lot == empreinte du fichier");
+  for (const [label, value] of [["empreinte LF", LEASE_BODY_MD5], ["empreinte CRLF", LEASE_BODY_CRLF_MD5], ["empreinte du commentaire", LEASE_COMMENT_MD5]] as const) {
+    assert.match(RBSMTP, new RegExp(`'${value}'`), `le rollback épingle : ${label}`);
+  }
+  assert.match(RBSMTP, new RegExp(`c_lease_body_md5\\s+constant text := '${LEASE_BODY_MD5}'`));
+  assert.match(RBSMTP, new RegExp(`c_lease_body_md5_crlf\\s+constant text := '${LEASE_BODY_CRLF_MD5}'`));
+  assert.match(RBSMTP, new RegExp(`c_lease_comment_md5\\s+constant text := '${LEASE_COMMENT_MD5}'`));
+  // Les chaînes d'attributs, d'arguments et de résultat figurent mot pour mot dans le rollback.
+  assert.ok(RBSMTP.includes(`'${id.attrs}'`), `attributs attendus absents du rollback : ${id.attrs}`);
+  assert.ok(RBSMTP.includes(`'${id.args.replaceAll("'", "''")}'`), `arguments attendus absents du rollback : ${id.args}`);
+  assert.ok(RBSMTP.includes(`'${id.result}'`));
+  assert.deepEqual(id.acl, [`authenticated=EXECUTE/${id.owner}`, `${id.owner}=EXECUTE/${id.owner}`].sort());
+  assert.equal(id.owner, "postgres");
+  await db.close();
+});
+
+test("R4 : le pré-vol de la fonction sous bail est placé APRÈS le verrou de la table et AVANT toute mutation du rollback", () => {
+  const at = (needle: string) => { const i = RBSMTP.indexOf(needle); assert.ok(i >= 0, `repère introuvable : ${needle}`); return i; };
+  const check = at("c_lease_body_md5");
+  assert.ok(at("lock table public.merchant_email_provider_config in access exclusive mode") < check, "le verrou précède le contrôle");
+  for (const mutation of ["create or replace function public.claim_pending_notifications", "drop table public.merchant_email_provider_config", "revoke all on function", "comment on function"]) {
+    assert.ok(check < at(mutation), `le contrôle précède « ${mutation} »`);
+  }
+  const dropLease = RBSMTP.search(/^drop function public\.set_merchant_notification_profile_under_save_lease\(/m);
+  assert.ok(dropLease > check, "le contrôle précède le DROP de la fonction sous bail");
+  assert.ok(check < at("raise exception 'SCANYM_ROLLBACK_DATA_LOSS"), "le contrôle d'identité précède aussi le contrôle « coffre vide »");
+  // Le DROP est « fail-closed » : une fonction disparue entre le contrôle et lui annule tout le retour arrière.
+  assert.doesNotMatch(RBSMTP, /drop function if exists/i);
+  assert.equal((RBSMTP.match(/^drop function /gm) ?? []).length, 1, "un seul DROP FUNCTION : celui de la fonction sous bail, juste vérifiée");
+});
+
+test("R4-01 REPRO du contre-audit : fonction sous bail devenue STRICT => rollback REFUSÉ, fonction/claim/coffre inchangés ; une fois remise en l'état, le rollback réussit", async () => {
+  const db = await makeDb();
+  await db.exec(`alter function ${LEASED} strict;`);
+  const fn = await leaseSnapshot(db);
+  const claim = await claimState(db);
+  assert.match(fn, /"proisstrict": true/, "précondition : la fonction est bien STRICT");
+  assert.equal(claim.hasVault, true);
+  assert.equal(claim.md5, BODY_SMTP_MD5);
+
+  await refused(db, RBSMTP, /SCANYM_PREDECESSOR_DRIFT: .*set_merchant_notification_profile_under_save_lease/);
+
+  assert.equal(await leaseSnapshot(db), fn, "la fonction modifiée est toujours là, telle quelle (non supprimée)");
+  assert.deepEqual(await claimState(db), claim, "le claim SMTP n'a pas été restauré, le coffre existe toujours");
+
+  // Le refus n'est pas définitif : on remet la fonction en l'état attendu, le rollback passe.
+  await db.exec(`alter function ${LEASED} called on null input;`);
+  await db.exec(RBSMTP);
+  const after = await db.query<{ leased: boolean; vault: boolean }>(`select to_regprocedure('${LEASED}') is not null as leased, to_regclass('public.merchant_email_provider_config') is not null as vault`);
+  assert.deepEqual(after.rows[0], { leased: false, vault: false });
+  assert.equal((await claimState(db)).md5, BODY_180_MD5);
+  await db.close();
+});
+
+const LEASE_DRIFTS: Array<{ name: string; apply: (db: PGlite) => Promise<unknown>; expect?: RegExp }> = [
+  // -- attributs (une seule différence à la fois)
+  { name: "STRICT", apply: (db) => db.exec(`alter function ${LEASED} strict`) },
+  { name: "SECURITY INVOKER", apply: (db) => db.exec(`alter function ${LEASED} security invoker`) },
+  { name: "search_path remplacé", apply: (db) => db.exec(`alter function ${LEASED} set search_path = public`) },
+  { name: "search_path retiré", apply: (db) => db.exec(`alter function ${LEASED} reset search_path`) },
+  { name: "STABLE", apply: (db) => db.exec(`alter function ${LEASED} stable`) },
+  { name: "LEAKPROOF", apply: (db) => db.exec(`alter function ${LEASED} leakproof`) },
+  { name: "PARALLEL SAFE", apply: (db) => db.exec(`alter function ${LEASED} parallel safe`) },
+  { name: "COST", apply: (db) => db.exec(`alter function ${LEASED} cost 7`) },
+  // -- corps (octets exacts)
+  { name: "corps modifié (FOR UPDATE -> FOR SHARE)", apply: (db) => db.exec(leaseRedefinition((def) => def.replace("for update of c", "for share of c"))) },
+  { name: "corps : contrôle d'autorisation retiré", apply: (db) => db.exec(leaseRedefinition((def) => def.replace("if not (public.has_role_in(p_restaurant_id, array['owner', 'manager']) or public.is_scanym_operator())", "if false"))) },
+  { name: "corps : une seule fin de ligne CRLF", apply: (db) => db.exec(`do $x$ declare s text; begin select pg_get_functiondef('${LEASED}'::regprocedure) into s; execute replace(s, E'begin\\n  if not', E'begin\\r\\n  if not'); end $x$;`) },
+  // -- signature / résultat
+  // Fonction recréée avec la MÊME définition, mêmes droits, même commentaire, sauf la valeur par défaut d'un argument.
+  { name: "valeur par défaut d'un argument modifiée", apply: (db) => db.exec(`drop function ${LEASED}; ${LEASE_FULL_DEFINITION.replace("p_default_locale text default 'fr'", "p_default_locale text default 'en'")}`) },
+  // Même corps, mêmes attributs, mêmes arguments, mêmes droits et commentaire : seul le type de retour change.
+  { name: "type de retour modifié (void -> boolean)", apply: (db) => db.exec(`drop function ${LEASED}; ${LEASE_FULL_DEFINITION.replace("returns void", "returns boolean")}`) },
+  // -- droits
+  { name: "EXECUTE accordé à un rôle en plus", apply: (db) => db.exec(`grant execute on function ${LEASED} to audit_extra`) },
+  { name: "EXECUTE accordé à anon", apply: (db) => db.exec(`grant execute on function ${LEASED} to anon`) },
+  { name: "EXECUTE accordé à PUBLIC", apply: (db) => db.exec(`grant execute on function ${LEASED} to public`) },
+  { name: "EXECUTE accordé à service_role", apply: (db) => db.exec(`grant execute on function ${LEASED} to service_role`) },
+  { name: "EXECUTE retiré à authenticated", apply: (db) => db.exec(`revoke execute on function ${LEASED} from authenticated`) },
+  { name: "EXECUTE d'authenticated avec option de transmission", apply: (db) => db.exec(`grant execute on function ${LEASED} to authenticated with grant option`) },
+  // -- propriétaire
+  { name: "propriétaire différent", apply: (db) => db.exec(`grant create on schema public to audit_extra; alter function ${LEASED} owner to audit_extra`) },
+  // -- commentaire
+  { name: "commentaire modifié", apply: (db) => db.exec(`comment on function ${LEASED} is 'commentaire altéré'`) },
+  { name: "commentaire supprimé", apply: (db) => db.exec(`comment on function ${LEASED} is null`) },
+  // -- existence / surcharges
+  { name: "fonction absente", expect: /SCANYM_PREDECESSOR_DRIFT: .*introuvable/, apply: (db) => db.exec(`drop function ${LEASED}`) },
+  { name: "surcharge supplémentaire", expect: /SCANYM_SCHEMA_DRIFT/, apply: (db) => db.exec(`create function public.${LEASE_NAME}(uuid) returns void language sql as $f$ select 1 $f$`) },
+];
+
+test("R4-02 : CHAQUE écart d'identité de la fonction sous bail (attributs, corps, signature, droits, propriétaire, commentaire, absence, surcharge) => rollback REFUSÉ avant toute mutation", async () => {
+  for (const drift of LEASE_DRIFTS) {
+    const db = await makeDb();
+    await drift.apply(db);
+    const fn = await leaseSnapshot(db);
+    const claim = await claimState(db);
+    assert.equal(claim.hasVault, true, drift.name);
+    try {
+      await refused(db, RBSMTP, drift.expect ?? /SCANYM_PREDECESSOR_DRIFT/);
+    } catch (error) {
+      throw new Error(`écart « ${drift.name} » : ${error instanceof Error ? error.message : String(error)}`);
+    }
+    assert.equal(await leaseSnapshot(db), fn, `${drift.name} : la fonction est restée exactement dans l'état observé (ni supprimée ni modifiée)`);
+    assert.deepEqual(await claimState(db), claim, `${drift.name} : claim et coffre inchangés`);
+    await db.close();
+  }
+});
+
+test("R4-03 : la forme CRLF intégrale du corps (extraction Windows) reste admise ; un seul CRLF ne l'est pas", async () => {
+  const db = await makeDb();
+  await db.exec(`do $x$ declare s text; begin select pg_get_functiondef('${LEASED}'::regprocedure) into s; execute replace(s, E'\\n', E'\\r\\n'); end $x$;`);
+  assert.equal((await leaseIdentity(db)).md5, LEASE_BODY_CRLF_MD5, "précondition : corps en CRLF intégral");
+  await db.exec(RBSMTP);
+  assert.equal((await db.query<{ leased: boolean }>(`select to_regprocedure('${LEASED}') is not null as leased`)).rows[0]!.leased, false);
+  assert.equal((await claimState(db)).md5, BODY_180_MD5);
+  await db.close();
+});
+
+test("R4-04 : écart de la fonction sous bail ET coffre non vide => refus d'identité d'abord (aucune des deux protections n'en masque une autre) ; rien ne bouge", async () => {
+  const db = await makeDb();
+  await addRestaurant(db, {});
+  await db.exec(`alter function ${LEASED} strict;`);
+  const fn = await leaseSnapshot(db);
+  await refused(db, RBSMTP, /SCANYM_PREDECESSOR_DRIFT/);
+  assert.equal(await leaseSnapshot(db), fn);
+  await db.exec(`alter function ${LEASED} called on null input;`);
+  await refused(db, RBSMTP, /SCANYM_ROLLBACK_DATA_LOSS/);
+  assert.equal((await db.query("select * from public.merchant_email_provider_config")).rows.length, 1);
+  await db.close();
+});

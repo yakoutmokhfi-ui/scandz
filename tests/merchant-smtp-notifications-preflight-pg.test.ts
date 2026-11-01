@@ -110,6 +110,10 @@ function snapshot(url: string): string {
       obj_description('${CLAIM_FN}'::regprocedure, 'pg_proc'),
       (select string_agg(p.proname || ':' || p.proowner::regrole::text || ':' || coalesce(p.proacl::text, '-'), ',' order by p.proname)
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'),
+      -- R4 : la fonction d'écriture du profil sous bail (ligne pg_proc complète : corps, attributs, propriétaire, droits + commentaire).
+      (select coalesce(string_agg(to_jsonb(p)::text || '|' || coalesce(obj_description(p.oid, 'pg_proc'), '-'), E'\n' order by p.oid), 'fonction-sous-bail-absente')
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'set_merchant_notification_profile_under_save_lease'),
       coalesce(to_regclass('public.merchant_email_provider_config')::text, 'coffre-absent'),
       (select coalesce(string_agg(to_jsonb(c)::text, ',' order by c.conname), '') from pg_constraint c where c.conrelid = to_regclass('public.merchant_email_provider_config')),
       (select count(*)::text from public.notification_outbox));`);
@@ -412,4 +416,51 @@ test("[SMTP-PG-M] PostgreSQL réel -- B a repris le bail et écrit son profil : 
   const old = psqlRunner.run(url, ["-A", "-t", "-c", `select set_config('test.role', 'owner', false); set role authenticated; select public.set_merchant_notification_profile('${LEASE_RESTAURANT}', true, 'Resto A (ancien)', 'ancien@resto.example', null, 'fr');`]);
   assert.equal(old.status, 0, old.stderr);
   assert.equal(senderOf(url), "Resto A (ancien)", "témoin : sans le bail, le profil ancien REMPLACE le récent");
+});
+
+// --------------------------------------------------------------------
+// R4 (contre-audit de c8e023e) : le rollback ne supprime la fonction sous bail QUE si elle est intacte
+// --------------------------------------------------------------------
+const LEASE_FN = "public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text)";
+const leasePresent = (url: string) => psqlQuery(url, `select to_regprocedure('${LEASE_FN}') is not null;`);
+const leaseBodyMd5 = (url: string) => psqlQuery(url, `select md5(prosrc) from pg_proc where oid = '${LEASE_FN}'::regprocedure;`);
+const leaseBodyEdit = (url: string, from: string, to: string) =>
+  psqlQuery(url, `do $x$ declare s text; begin select pg_get_functiondef('${LEASE_FN}'::regprocedure) into s; execute replace(s, '${from}', '${to}'); end $x$;`);
+
+test("[SMTP-PG-N] PostgreSQL réel -- rollback SMTP : fonction sous bail dérivée (STRICT = reproduction du contre-audit, puis corps, puis droits) : REFUSÉ dans les deux modes psql, sans mutation ; remise en l'état => rollback réussi", OPTS, () => {
+  const url = newDb();
+  const nominalBody = leaseBodyMd5(url);
+  const claimBefore = bodyMd5(url);
+
+  // 1. ALTER FUNCTION ... STRICT : avant R4, le rollback réussissait et supprimait cette fonction modifiée.
+  psqlQuery(url, `alter function ${LEASE_FN} strict;`);
+  assertRefused(url, RBSMTP, "rb-lease-strict", /set_merchant_notification_profile_under_save_lease/);
+  assert.equal(leasePresent(url), "t", "la fonction n'a pas été supprimée");
+  assert.equal(psqlQuery(url, `select proisstrict from pg_proc where oid = '${LEASE_FN}'::regprocedure;`), "t", "elle est restée STRICT, telle qu'observée");
+  psqlQuery(url, `alter function ${LEASE_FN} called on null input;`);
+
+  // 2. Corps modifié (FOR UPDATE -> FOR SHARE).
+  leaseBodyEdit(url, "for update of c", "for share of c");
+  assert.notEqual(leaseBodyMd5(url), nominalBody, "le corps a réellement changé");
+  assertRefused(url, RBSMTP, "rb-lease-body", /le corps de set_merchant_notification_profile_under_save_lease/);
+  assert.equal(leasePresent(url), "t");
+  leaseBodyEdit(url, "for share of c", "for update of c");
+  assert.equal(leaseBodyMd5(url), nominalBody, "corps remis à l'identique (octets exacts)");
+
+  // 3. Droit EXECUTE en plus.
+  psqlQuery(url, `grant execute on function ${LEASE_FN} to audit_extra;`);
+  assertRefused(url, RBSMTP, "rb-lease-acl", /droits d'exécution ou propriétaire de set_merchant_notification_profile_under_save_lease/);
+  assert.equal(leasePresent(url), "t");
+  psqlQuery(url, `revoke execute on function ${LEASE_FN} from audit_extra;`);
+
+  // Rien n'a bougé pendant les refus : le coffre et le claim SMTP sont en place.
+  assert.equal(hasVault(url), "t");
+  assert.equal(bodyMd5(url), claimBefore);
+
+  // 4. Remise en l'état => le rollback passe, la fonction part avec le coffre, #180 est restauré.
+  const rb = psqlFile(url, "rb-lease-ok.sql", RBSMTP, true);
+  assert.equal(rb.status, 0, rb.out);
+  assert.equal(leasePresent(url), "f");
+  assert.equal(hasVault(url), "f");
+  assert.equal(bodyMd5(url), BODY_180);
 });
