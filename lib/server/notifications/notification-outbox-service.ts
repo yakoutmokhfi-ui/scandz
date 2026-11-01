@@ -74,11 +74,12 @@ export interface ClaimedNotification {
 /**
  * Revendique un lot BORNÉ de notifications éligibles
  * (`pending`/`failed_retryable`, échéance atteinte) via
- * `claim_pending_notifications` -- `FOR UPDATE SKIP LOCKED` +  bail
+ * `claim_new_order_notifications` -- `FOR UPDATE SKIP LOCKED` + bail
  * côté SQL, sûr sous concurrence. L'identité d'expéditeur
  * (`senderName`/`senderEmail`/`replyTo`) est résolue FRAÎCHE par la
  * fonction SQL elle-même, à partir du `restaurant_id` de CHAQUE ligne
  * -- jamais un paramètre fourni ici.
+ * Les anciennes confirmations restent en file sans être réclamées.
  */
 export async function claimPendingNotifications(input: {
   batchSize?: number;
@@ -95,7 +96,7 @@ export async function claimPendingNotifications(input: {
     | null;
   let error: { code?: string; message: string } | null;
   try {
-    ({ data, error } = await client.rpc("claim_pending_notifications", {
+    ({ data, error } = await client.rpc("claim_new_order_notifications", {
       p_batch_size: input.batchSize ?? 10,
       p_lease_seconds: input.leaseSeconds ?? 60,
     }));
