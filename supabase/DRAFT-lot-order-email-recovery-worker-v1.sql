@@ -29,6 +29,11 @@ begin
     n.recipient_email, n.locale, n.payload_snapshot, n.attempt_count from public.notification_outbox n limit 0;
 end $$;
 
+-- Keep activation changes serialized with the initial snapshot and trigger
+-- installation: no on/off transition may fall into the migration gap.
+set local lock_timeout = '5s';
+lock table public.merchant_notification_profile in share row exclusive mode;
+
 create table public.order_email_recovery_boundary (
   singleton boolean primary key default true check (singleton),
   starts_at timestamptz not null
