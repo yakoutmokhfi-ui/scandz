@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   PgTargetRefused,
+  assertAsciiSqlArgv,
   assertLoopbackServerAddress,
   cleanPgEnv,
   createPsqlRunner,
@@ -169,4 +170,43 @@ test("[PG-GUARD-9] câblage : la sonde est faite une fois par serveur (host:port
   await new Promise<void>((resolve) => child.on("close", () => resolve()));
   const last = calls().at(-1)!;
   assert.deepEqual(last.pg, ["PGCONNECT_TIMEOUT", "PGSYSCONFDIR"]);
+});
+
+// ----- R5 : SQL non ASCII dans l'argv de `psql -c` (limite Windows signalée par le contre-audit de 2431eba) -----
+test("[PG-GUARD-10] R5 : un SQL non ASCII passé à `-c` est refusé AVANT tout lancement (aucun processus), run() comme session(), avec le caractère fautif nommé", () => {
+  reset("127.0.0.1");
+  const accentue = "comment on function f() is 'commentaire alt\u00e9r\u00e9'";
+  assert.throws(() => assertAsciiSqlArgv(["-A", "-c", accentue]), /SCANYM_HARNESS_SQL_NOT_ASCII.*U\+00E9.*position 43/);
+  assert.throws(() => runner().run("postgresql://postgres@127.0.0.1:55432/postgres", ["-A", "-t", "-c", accentue]), /SCANYM_HARNESS_SQL_NOT_ASCII/);
+  assert.throws(() => runner().session("postgresql://postgres@127.0.0.1:55432/postgres", ["-c", accentue]), /SCANYM_HARNESS_SQL_NOT_ASCII/);
+  // Un commentaire SQL accentué compte aussi : c'est ce qui avait fait échouer snapshot() sous Windows.
+  assert.throws(() => assertAsciiSqlArgv(["-c", "select 1; -- d\u00e9j\u00e0\nselect 2"]), /SCANYM_HARNESS_SQL_NOT_ASCII/);
+  // Caractère hors plan de base : la position et le point de code sont ceux du caractère, pas d'une moitié de paire de substitution.
+  assert.throws(() => assertAsciiSqlArgv(["-c", "select '\u{1F600}'"]), /U\+1F600/);
+  assert.deepEqual(calls(), [], "aucun processus psql lancé, pas même la sonde d'identité");
+});
+
+test("[PG-GUARD-11] R5 : le garde-fou ne vise QUE le SQL de `-c` -- ASCII, échappements ASCII (E'\\u00e9'), fichiers -f et chemins accentués restent admis", () => {
+  reset("127.0.0.1");
+  assertAsciiSqlArgv(["-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", "select E'alt\\u00e9r\\u00e9', 'tab\there';"]);
+  assertAsciiSqlArgv(["-v", "ON_ERROR_STOP=1", "-f", "C:\\Users\\Zo\u00e9\\scanym\\smtp.sql"]); // un CHEMIN n'est pas du SQL
+  assertAsciiSqlArgv(["-c"]); // « -c » en dernière position : rien à contrôler (psql refusera lui-même)
+  const r = runner().run("postgresql://postgres@127.0.0.1:55432/postgres", ["-A", "-t", "-c", "select E'alt\\u00e9r\\u00e9'"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(calls().filter((c) => !c.probe).length, 1, "la commande ASCII est bien transmise à psql");
+});
+
+test("[PG-GUARD-12] R5 : plus aucun SQL non ASCII dans les appels `-c` du test PostgreSQL SMTP (statique, sans PostgreSQL)", () => {
+  // Les gabarits SQL de ce fichier sont envoyés par psqlQuery / psqlRunner.run(..., "-c", ...). On vérifie, dans les
+  // littéraux gabarit qui contiennent du SQL, l'absence de caractère non ASCII HORS commentaires JS et messages d'assertion.
+  // Périmètre volontairement limité au fichier de CETTE PR : tests/v172-order-received-payment-gate-preflight-pg.test.ts
+  // (antérieur, non modifié par #196) a le même défaut latent (« COMPLÈTES » dans le SQL de snapshot()) -- signalé dans la PR.
+  for (const file of ["merchant-smtp-notifications-preflight-pg.test.ts"]) {
+    const source = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+    const calls: string[] = [];
+    // psqlQuery(url, `...`) et ["-A", "-t", "-c", `...`] : le SQL est le littéral gabarit de l'appel.
+    for (const m of source.matchAll(/(?:psqlQuery\(\s*\w+(?:\.\w+)*\s*,\s*|"-c"\s*,\s*)`((?:[^`\\]|\\[\s\S])*)`/g)) calls.push(m[1]!);
+    assert.ok(calls.length >= 5, `${file} : appels -c retrouvés (${calls.length})`);
+    for (const sql of calls) assert.doesNotThrow(() => assertAsciiSqlArgv(["-c", sql]), `${file} : SQL non ASCII dans « ${sql.slice(0, 60).replace(/\s+/g, " ")}… »`);
+  }
 });

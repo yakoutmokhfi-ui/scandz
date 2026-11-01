@@ -102,7 +102,12 @@ function newDb(opts: { g180?: boolean; smtp?: boolean; extraSql?: string } = {})
   return url;
 }
 
-/** Tout ce qu'un refus ne doit pas toucher. */
+/**
+ * Tout ce qu'un refus ne doit pas toucher.
+ * R4 : y figure la fonction d'écriture du profil sous bail (ligne pg_proc complète : corps, attributs, propriétaire,
+ * droits + commentaire). R5 : ce SQL est transmis par `psql -c` donc en ASCII PUR (limite Windows, voir
+ * assertAsciiSqlArgv) -- tout commentaire en français se met ici, en dehors du gabarit.
+ */
 function snapshot(url: string): string {
   return psqlQuery(url, `
     select concat_ws(E'\\n',
@@ -110,7 +115,6 @@ function snapshot(url: string): string {
       obj_description('${CLAIM_FN}'::regprocedure, 'pg_proc'),
       (select string_agg(p.proname || ':' || p.proowner::regrole::text || ':' || coalesce(p.proacl::text, '-'), ',' order by p.proname)
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'),
-      -- R4 : la fonction d'écriture du profil sous bail (ligne pg_proc complète : corps, attributs, propriétaire, droits + commentaire).
       (select coalesce(string_agg(to_jsonb(p)::text || '|' || coalesce(obj_description(p.oid, 'pg_proc'), '-'), E'\n' order by p.oid), 'fonction-sous-bail-absente')
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'set_merchant_notification_profile_under_save_lease'),
@@ -223,7 +227,7 @@ const TAMPERS: Array<{ name: string; apply: (url: string) => void }> = [
   { name: "fins de ligne mixtes (un seul CRLF)", apply: (url) => redefineClaim(url, `replace(s, E'begin\\n  return query', E'begin\\r\\n  return query')`) },
   // Un CR DANS un littéral de chaîne change la valeur comparée : l'ancienne empreinte (CR retirés) ne le voyait pas.
   { name: "CR isolé dans un littéral", apply: (url) => redefineClaim(url, `replace(s, '''processing''', '''processing' || E'\\r' || '''')`) },
-  { name: "commentaire de fonction modifié", apply: (url) => psqlQuery(url, `comment on function ${CLAIM_FN} is 'commentaire altéré';`) },
+  { name: "commentaire de fonction modifié", apply: (url) => psqlQuery(url, `comment on function ${CLAIM_FN} is 'commentaire altere (R5 : ASCII, limite Windows de psql -c)';`) },
   { name: "commentaire SQL ajouté dans le corps", apply: (url) => redefineClaim(url, `replace(s, 'begin', 'begin -- x')`) },
 ];
 

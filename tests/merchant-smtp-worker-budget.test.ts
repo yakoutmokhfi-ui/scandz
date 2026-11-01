@@ -49,6 +49,27 @@ function rpcWorld(t: { mock: { method: Function } }, rows: ReturnType<typeof cla
   return completed;
 }
 
+/**
+ * R5 (contre-audit de 2431eba : « date limite atteinte PENDANT le lot » rouge, 0 envoi au lieu de 1) : ces tests
+ * mesuraient une échéance de 40 ms sur l'horloge RÉELLE. Entre le calcul de `deadlineAt` et le premier contrôle du
+ * worker s'écoulent la RPC de réclamation simulée et la mise en forme des lignes ; sur une machine chargée ou sous
+ * Windows (minuteries de ~15,6 ms) ces 40 ms sont consommées AVANT le premier envoi, le worker s'arrête (conservateur,
+ * jamais un envoi tardif) et le test échoue. Rejoué sous charge CPU : 19 échecs sur 20.
+ * Ici la date murale est CONTRÔLÉE : elle ne bouge que lorsque le scénario le décide (une étape « lente » AVANCE
+ * l'horloge, sans attente réelle) -- le résultat ne dépend plus de la vitesse de la machine, et chaque test ne peut plus
+ * passer « pour la mauvaise raison » (échéance atteinte avant l'étape qu'il prétend tester).
+ */
+function controlledWallClock(t: { mock: { method: Function } }, startMs = 1_800_000_000_000) {
+  let now = startMs;
+  t.mock.method(Date, "now", () => now);
+  return {
+    now: () => now,
+    advance: (ms: number) => { now += ms; },
+  };
+}
+
+const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 test("date limite dépassée AVANT le premier envoi : rien n'est envoyé, rien n'est complété", async (t) => {
   const completed = rpcWorld(t, [claimRow(1), claimRow(2), claimRow(3)]);
   let sends = 0;
@@ -62,13 +83,20 @@ test("date limite dépassée AVANT le premier envoi : rien n'est envoyé, rien n
 
 test("date limite atteinte PENDANT le lot : l'envoi en cours se termine, les suivants ne démarrent pas", async (t) => {
   const completed = rpcWorld(t, [claimRow(1), claimRow(2), claimRow(3)]);
+  const clock = controlledWallClock(t);
   let sends = 0;
   const provider = {
     name: "merchant_smtp",
-    async send() { sends += 1; await new Promise((resolve) => setTimeout(resolve, 80)); return { ok: true as const, providerMessageId: `m${sends}` }; },
+    // Le premier envoi « dure » 80 ms (horloge avancée) et franchit donc l'échéance de 40 ms EN COURS D'ENVOI.
+    async send() { sends += 1; await nextTurn(); clock.advance(80); return { ok: true as const, providerMessageId: `m${sends}` }; },
   };
-  const result = await processPendingNotifications(provider, { deadlineAt: Date.now() + 40 });
-  assert.equal(sends, 1);
+  let resolutions = 0; // lecture du coffre + déchiffrement : pas seulement l'envoi, la résolution aussi doit s'arrêter
+  const result = await processPendingNotifications(provider, {
+    deadlineAt: clock.now() + 40,
+    providerForNotification: async () => { resolutions += 1; return provider; },
+  });
+  assert.equal(resolutions, 1, "le fournisseur ne doit plus être résolu (coffre lu, secret déchiffré) pour les lignes suivantes une fois l'échéance franchie");
+  assert.equal(sends, 1, "le premier envoi doit partir (échéance non atteinte au départ) et être le seul");
   assert.equal(completed.length, 1);
   assert.equal(completed[0]!.p_result, "success");
   assert.equal(result.claimed, 3);
@@ -81,6 +109,7 @@ test("date limite atteinte PENDANT le lot : l'envoi en cours se termine, les sui
 // pendant ce dernier envoi, `reap` remet la ligne en attente : doublon chez le client.
 test("R2 résolution du fournisseur plus lente que prévu : la date limite est revérifiée, aucun envoi ne démarre et aucune capacité de suivi n'est émise pour rien", async (t) => {
   const completed: Array<Record<string, unknown>> = [];
+  const clock = controlledWallClock(t);
   let capabilityIssued = 0;
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
     if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
@@ -91,8 +120,9 @@ test("R2 résolution du fournisseur plus lente que prévu : la date limite est r
   let sends = 0;
   const provider = { name: "merchant_smtp", async send() { sends += 1; return { ok: true as const, providerMessageId: "x" }; } };
   const result = await processPendingNotifications(provider, {
-    deadlineAt: Date.now() + 40,
-    providerForNotification: async () => { await new Promise((resolve) => setTimeout(resolve, 90)); return provider; },
+    deadlineAt: clock.now() + 40,
+    // Résolution du fournisseur « lente » : 90 ms, soit 50 ms de plus que le temps restant.
+    providerForNotification: async () => { await nextTurn(); clock.advance(90); return provider; },
   });
   assert.equal(sends, 0, "envoi démarré après la date limite");
   assert.equal(capabilityIssued, 0, "capacité de suivi émise pour une ligne qui ne partira pas");
@@ -103,10 +133,12 @@ test("R2 résolution du fournisseur plus lente que prévu : la date limite est r
 
 test("R2 émission de la capacité de suivi plus lente que prévu : la date limite est revérifiée, aucun envoi ne démarre", async (t) => {
   const completed: Array<Record<string, unknown>> = [];
+  const clock = controlledWallClock(t);
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
     if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
     if (name === "issue_order_email_tracking_capability") {
-      await new Promise((resolve) => setTimeout(resolve, 90));
+      await nextTurn();
+      clock.advance(90);
       return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null };
     }
     if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
@@ -114,7 +146,7 @@ test("R2 émission de la capacité de suivi plus lente que prévu : la date limi
   });
   let sends = 0;
   const provider = { name: "merchant_smtp", async send() { sends += 1; return { ok: true as const, providerMessageId: "x" }; } };
-  const result = await processPendingNotifications(provider, { deadlineAt: Date.now() + 40 });
+  const result = await processPendingNotifications(provider, { deadlineAt: clock.now() + 40 });
   assert.equal(sends, 0, "envoi démarré après la date limite");
   assert.equal(completed.length, 0);
   assert.equal(result.sent, 0);

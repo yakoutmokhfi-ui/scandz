@@ -300,7 +300,28 @@ interface PendingRead {
   stage: SmtpFailureStage;
 }
 
-type ReaderFailure = { kind: "error"; error: unknown } | { kind: "overflow" } | { kind: "closed" };
+/**
+ * R5 : raisons (ensemble FERMÉ, jamais un texte du serveur) pour lesquelles une réponse n'est pas une réponse SMTP valide.
+ *  - line_syntax       : une ligne n'est ni « NNN-texte » (continuation) ni « NNN texte » / « NNN » (finale), ou NNN est hors
+ *                        de la grammaire [2-5][0-5][0-9] (RFC 5321 §4.2) -- ligne vide, texte libre, code collé au texte...
+ *  - code_mismatch     : les lignes d'une même réponse ne portent pas toutes le MÊME code (ex. « 250- » puis « 550 »).
+ *  - control_character : caractère de contrôle (hors tabulation) dans le texte -- CR isolé, NUL, ESC...
+ */
+type SmtpMalformedReason = "line_syntax" | "code_mismatch" | "control_character";
+
+type ReaderFailure =
+  | { kind: "error"; error: unknown }
+  | { kind: "overflow" }
+  | { kind: "malformed"; reason: SmtpMalformedReason }
+  | { kind: "closed" };
+
+/** Ce que `takeReply` trouve dans le tampon : une réponse valide et complète, ou une violation (jamais un succès). */
+type TakenReply = { kind: "reply"; text: string } | { kind: "overflow" } | { kind: "malformed"; reason: SmtpMalformedReason };
+
+/** Une ligne de réponse (sans CRLF) : code, puis « - » (continuation) ou « SP texte » / rien (finale). */
+const REPLY_LINE = /^([2-5][0-5]\d)(?:([- ])([\s\S]*))?$/;
+/** Caractères de contrôle interdits dans le texte d'une réponse (la tabulation est admise). */
+const REPLY_CONTROL_CHARS = /[\u0000-\u0008\u000A-\u001F\u007F]/;
 
 /**
  * Lecteur de réponses SMTP (R2, contre-audit de 7cb60a8, défaut 1).
@@ -322,6 +343,13 @@ type ReaderFailure = { kind: "error"; error: unknown } | { kind: "overflow" } | 
  * tout octet arrivé que le client n'a pas sollicité est une violation de protocole. `assertNoUnsolicited`
  * est appelé AVANT chaque écriture (commande ou corps) ; une réponse ne peut donc JAMAIS précéder ce
  * qu'elle acquitte.
+ *
+ * R5 (contre-audit de 2431eba, A196-R2-SMTP-01) : une réponse n'est pas seulement « complète », elle doit être VALIDE.
+ * `takeReply` applique la grammaire de la RFC 5321 §4.2 à CHAQUE ligne (code [2-5][0-5][0-9], puis « - », « SP texte »
+ * ou rien), exige le MÊME code sur toutes les lignes, une dernière ligne finale, et aucun caractère de contrôle ; sinon
+ * SMTP_MALFORMED_RESPONSE (temporaire). L'ancien lecteur clôturait la réponse sur n'importe quelle ligne qui n'était pas
+ * « NNN- » (ligne vide, texte libre, « 550 … ») et `expectCode` ne lisait que le préfixe de la première ligne : « 250- »
+ * suivi de « 550 EHLO refused » passait pour un 250. La borne de taille s'applique à la réponse COMPLÈTE.
  */
 class SmtpReplyReader {
   private buffer = "";
@@ -355,7 +383,12 @@ class SmtpReplyReader {
     return new Promise<string>((resolve, reject) => {
       const ready = this.takeReply();
       if (ready !== null) {
-        resolve(ready);
+        if (ready.kind === "reply") {
+          resolve(ready.text);
+        } else {
+          this.failure ??= ready;
+          reject(this.errorFor(ready, stage));
+        }
         return;
       }
       if (this.failure) {
@@ -397,11 +430,16 @@ class SmtpReplyReader {
   private settleFromBuffer(): boolean {
     const pending = this.pending;
     if (!pending) return false;
-    const reply = this.takeReply();
-    if (reply === null) return false;
+    const taken = this.takeReply();
+    if (taken === null) return false;
     clearTimeout(pending.timer);
     this.pending = null;
-    pending.resolve(reply);
+    if (taken.kind === "reply") {
+      pending.resolve(taken.text);
+    } else {
+      this.failure ??= taken;
+      pending.reject(this.errorFor(taken, pending.stage));
+    }
     return true;
   }
 
@@ -419,23 +457,36 @@ class SmtpReplyReader {
   private errorFor(failure: ReaderFailure, stage: SmtpFailureStage): unknown {
     if (failure.kind === "error") return failure.error;
     if (failure.kind === "overflow") return new SmtpSessionError("SMTP_REPLY_TOO_LARGE", stage);
+    if (failure.kind === "malformed") return new SmtpSessionError(`SMTP_MALFORMED_RESPONSE: ${failure.reason}`, stage);
     return new SmtpSessionError("SMTP_CONNECTION_CLOSED", "connect", null, "ECONNRESET");
   }
 
-  /** Extrait du tampon la prochaine réponse complète, ou null s'il en manque la fin. */
-  private takeReply(): string | null {
+  /**
+   * Extrait du tampon la prochaine réponse VALIDE et complète, ou null s'il en manque la fin. Dès qu'une ligne COMPLÈTE
+   * viole la grammaire, la violation est rendue sans attendre la suite (jamais de succès d'étape sur une réponse invalide).
+   * Ce qui suit la ligne finale reste dans le tampon : c'est un octet non sollicité (`assertNoUnsolicited`).
+   */
+  private takeReply(): TakenReply | null {
     let offset = 0;
     const lines: string[] = [];
+    let code: string | null = null;
     for (;;) {
       const lf = this.buffer.indexOf("\n", offset);
       if (lf === -1) return null;
       const line = this.buffer.slice(offset, lf).replace(/\r$/, "");
       offset = lf + 1;
-      if (line === "" && lines.length === 0) continue; // reste de saut de ligne : ignoré, jamais une réponse
+      // R5 (P3) : la borne s'applique à la réponse COMPLÈTE (tous séparateurs compris), contrôlée AVANT l'extraction.
+      if (offset > MAX_REPLY_CHARS) return { kind: "overflow" };
+      if (line === "" && lines.length === 0) continue; // reste de saut de ligne AVANT une réponse : ignoré, jamais une réponse
+      const match = REPLY_LINE.exec(line);
+      if (!match) return { kind: "malformed", reason: "line_syntax" };
+      if (code !== null && match[1] !== code) return { kind: "malformed", reason: "code_mismatch" };
+      if (REPLY_CONTROL_CHARS.test(match[3] ?? "")) return { kind: "malformed", reason: "control_character" };
+      code = match[1]!;
       lines.push(line);
-      if (!/^\d{3}-/.test(line)) {
+      if (match[2] !== "-") {
         this.buffer = this.buffer.slice(offset);
-        return lines.join(CRLF);
+        return { kind: "reply", text: lines.join(CRLF) };
       }
     }
   }

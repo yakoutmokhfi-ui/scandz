@@ -140,6 +140,26 @@ export interface PsqlRunnerOptions {
   isolatedHome: string;
 }
 
+/**
+ * R5 (contre-audit de 2431eba, limite Windows) : le SQL passé à `psql -c` voyage dans l'ARGV du processus. Sous Windows,
+ * l'argv est converti par la page de code ANSI du système, pas en UTF-8 : un « é » devient l'octet 0xE9 et le serveur
+ * répond « invalid byte sequence for encoding UTF8: 0xe9 » (8 tests sur 14 rouges chez Maxwell, tous verts sous Linux).
+ * Un SQL non ASCII passé par `-c` est donc refusé ICI, avant tout lancement, sur TOUTES les plateformes -- l'erreur est
+ * la même partout et nomme le caractère fautif. Un texte accentué se met dans un commentaire JS, ou s'écrit avec une
+ * séquence d'échappement ASCII (E'\u00e9'), ou passe par un fichier `-f` / l'entrée standard (qui, eux, sont des OCTETS).
+ */
+export function assertAsciiSqlArgv(args: readonly string[]): void {
+  for (let i = 0; i < args.length - 1; i += 1) {
+    if (args[i] !== "-c") continue;
+    const bad = /[^\x00-\x7F]/u.exec(args[i + 1]!);
+    if (bad) {
+      throw new Error(
+        `SCANYM_HARNESS_SQL_NOT_ASCII: SQL passé à psql -c contenant « ${bad[0]} » (U+${bad[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}) en position ${bad.index} -- l'argv Windows n'est pas en UTF-8 ; ASCII seulement, ou -f / stdin`
+      );
+    }
+  }
+}
+
 export function createPsqlRunner(options: PsqlRunnerOptions) {
   const verified = new Set<string>();
   const baseArgs = options.binPrefixArgs ?? [];
@@ -160,12 +180,14 @@ export function createPsqlRunner(options: PsqlRunnerOptions) {
   return {
     /** Exécute psql (synchrone) sur la cible, identité du serveur vérifiée au premier usage. */
     run(url: string, args: string[], extra: { input?: string; timeout?: number } = {}): SpawnSyncReturns<string> {
+      assertAsciiSqlArgv(args);
       const target = parseLocalPgUrl(url);
       verifyServer(target);
       return spawnSync(options.bin, spawnArgs(target, args), { encoding: "utf8", env: envFor(target), input: extra.input, timeout: extra.timeout });
     },
     /** Session interactive (stdin/stdout/stderr en tuyaux), mêmes garde-fous. */
     session(url: string, args: string[]): ChildProcessWithoutNullStreams {
+      assertAsciiSqlArgv(args);
       const target = parseLocalPgUrl(url);
       verifyServer(target);
       return spawn(options.bin, spawnArgs(target, args), { stdio: ["pipe", "pipe", "pipe"], env: envFor(target) });

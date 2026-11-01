@@ -34,6 +34,8 @@ interface ServerScript {
   dataEnd?: string | null;
   /** Délai avant chaque réponse du serveur. */
   delayMs?: number;
+  /** R5 : la bannière est déjà dans le tampon du lecteur quand le client appelle `read("greeting")` (livrée dans le même tour que la connexion). */
+  greetingBeforeRead?: boolean;
   /** R2 : découpe de chaque réponse (octets sur le fil, CRLF compris) en fragments livrés l'un après l'autre. */
   chunker?: (wire: string) => Array<string | Buffer>;
 }
@@ -67,9 +69,19 @@ class FakeSocket extends EventEmitter {
     const wire = `${line}\r\n`;
     const pieces = this.script.chunker ? this.script.chunker(wire) : [wire];
     const base = this.script.delayMs ?? 0;
-    pieces.forEach((piece, index) => {
-      setTimeout(() => { if (!this.destroyed) this.emit("data", Buffer.from(piece)); }, base + index);
-    });
+    // R5 : livraison STRICTEMENT ordonnée. Avant, chaque fragment avait sa propre minuterie `setTimeout(base + index)` ;
+    // sous charge (machine saturée, Windows) deux minuteries expirées ensemble pouvaient se déclencher dans le désordre,
+    // le lecteur recevait alors des morceaux de réponse permutés (≈ 10 exécutions sur 25 en échec sous charge CPU) -- un
+    // artefact du harnais, jamais un comportement du serveur. Chaque fragment n'est maintenant planifié qu'APRÈS la
+    // livraison du précédent : l'ordre est vrai par construction, quelle que soit la vitesse de la machine.
+    let index = 0;
+    const deliver = () => {
+      if (this.destroyed) return;
+      this.emit("data", Buffer.from(pieces[index]!));
+      index += 1;
+      if (index < pieces.length) setImmediate(deliver);
+    };
+    setTimeout(deliver, base);
   }
 }
 
@@ -101,7 +113,10 @@ function harness(opts: {
         if (behaviour === "ok") {
           onConnect();
           const greeting = opts.script?.greeting === undefined ? "220 smtp.merchant.example ESMTP" : opts.script.greeting;
-          if (greeting !== null) socket.reply(greeting);
+          if (greeting !== null) {
+            if (opts.script?.greetingBeforeRead) socket.emit("data", Buffer.from(`${greeting}\r\n`));
+            else socket.reply(greeting);
+          }
         } else if (behaviour === "timeout") {
           socket.emit("timeout");
         } else if ("error" in behaviour) {
@@ -480,4 +495,232 @@ test("R3-04 : un seul chemin d'écriture dans le dialogue (exchange) -- aucune �
   const writes = [...src.matchAll(/socket\.write\(([^)]*)\)/g)].map((m) => m[1]);
   assert.deepEqual(writes, ["payload", "`QUIT${CRLF}`"], "toute commande et le corps passent par exchange() ; seule la fin de session écrit QUIT");
   assert.equal((src.match(/assertNoUnsolicited\(/g) ?? []).length, 2, "définition + un seul appel, dans exchange()");
+});
+
+// ====================================================================
+// R5 (contre-audit de 2431eba, Maxwell, A196-R2-SMTP-01 -- P2) : « une réponse multiligne invalide ou terminée
+// par 550 ne doit pas être acceptée comme un succès ».
+//
+// Avant R5, `takeReply` clôturait une réponse dès qu'une ligne n'était pas de la forme « NNN- » (donc aussi une
+// ligne vide ou du texte libre), et `expectCode` ne regardait que le préfixe de la PREMIÈRE ligne :
+//   « 250-continue » + « NOT A STATUS LINE »      => lu comme un 250 valide ;
+//   « 250-capability » + « 550 EHLO refused »      => lu comme un 250 (le refus final était ignoré) ;
+//   « 250-capability » + ligne vide                => lu comme un 250 ;
+// et le client poursuivait AUTH / MAIL / RCPT / DATA, jusqu'à « {ok:true} ».
+// Grammaire appliquée (RFC 5321 §4.2) : chaque ligne = code [2-5][0-5][0-9], puis « - » (continuation) ou
+// « SP texte » / rien (ligne finale) ; TOUTES les lignes portent le MÊME code ; la dernière est une ligne finale ;
+// aucun caractère de contrôle (hors tabulation) dans le texte. Toute violation => SMTP_MALFORMED_RESPONSE
+// (temporaire, jamais un succès, jamais un statut permanent déduit d'une réponse incohérente).
+// ====================================================================
+const MALFORMED = /^SMTP_MALFORMED_RESPONSE: (line_syntax|code_mismatch|control_character)$/;
+
+test("R5 REPRO de Maxwell : les trois réponses EHLO multilignes invalides sont REFUSÉES avant AUTH (envoi ET test de connexion), le corps n'est jamais écrit", async () => {
+  const cases: Array<{ label: string; ehlo: string; reason: string }> = [
+    { label: "ligne qui n'est pas une ligne d'état après une continuation", ehlo: "250-continue\r\nNOT A STATUS LINE", reason: "line_syntax" },
+    { label: "continuation « 250- » terminée par « 550 EHLO refused »", ehlo: "250-capability\r\n550 EHLO refused", reason: "code_mismatch" },
+    { label: "ligne vide dans une continuation", ehlo: "250-capability\r\n", reason: "line_syntax" },
+  ];
+  for (const c of cases) {
+    const sendH = harness({ script: { ehlo: c.ehlo } });
+    const sent = await createSmtpTransport(sendH.io, FAST).send(MESSAGE);
+    assert.equal(sent.ok, false, `${c.label} : accepté comme un succès (${JSON.stringify(sent)})`);
+    if (!sent.ok) {
+      assert.match(sent.error, MALFORMED, c.label);
+      assert.equal(sent.error, `SMTP_MALFORMED_RESPONSE: ${c.reason}`, c.label);
+      assert.equal(sent.stage, "ehlo", c.label);
+      assert.equal(sent.status ?? null, null, `${c.label} : aucun statut déduit d'une réponse incohérente`);
+    }
+    assert.deepEqual(commandsSeen(sendH.sockets[0]!.written), ["EHLO scanym.com"], `${c.label} : le dialogue a continué après une réponse invalide`);
+    assert.equal(bodyWritten(sendH.sockets[0]!.written), false, c.label);
+    assert.equal(sendH.sockets[0]!.destroyed, true, c.label);
+
+    const checkH = harness({ script: { ehlo: c.ehlo } });
+    const checked = await createSmtpTransport(checkH.io, FAST).checkConnectivity(CONFIG);
+    assert.equal(checked.ok, false, `${c.label} : « connexion réussie » sur une réponse invalide`);
+    if (!checked.ok) { assert.equal(checked.error, `SMTP_MALFORMED_RESPONSE: ${c.reason}`, c.label); assert.equal(checked.stage, "ehlo", c.label); }
+    assert.deepEqual(commandsSeen(checkH.sockets[0]!.written), ["EHLO scanym.com"], c.label);
+  }
+});
+
+type StageCase = { key: keyof ServerScript; stage: string; code: string; refusal: string; notSent: (sent: string[]) => boolean; viaCheck: boolean };
+const R5_STAGES: StageCase[] = [
+  { key: "greeting", stage: "greeting", code: "220", refusal: "554", notSent: (s) => s.length === 0, viaCheck: true },
+  { key: "ehlo", stage: "ehlo", code: "250", refusal: "550", notSent: (s) => !s.some((l) => l === "AUTH LOGIN"), viaCheck: true },
+  { key: "auth", stage: "auth", code: "334", refusal: "504", notSent: (s) => !s.includes(b64(CONFIG.user)), viaCheck: true },
+  { key: "authUser", stage: "auth", code: "334", refusal: "535", notSent: (s) => !s.includes(b64(PASSWORD)), viaCheck: true },
+  { key: "authPass", stage: "auth", code: "235", refusal: "535", notSent: (s) => !s.some((l) => l.startsWith("MAIL FROM")), viaCheck: true },
+  { key: "mailFrom", stage: "mail_from", code: "250", refusal: "550", notSent: (s) => !s.some((l) => l.startsWith("RCPT TO")), viaCheck: false },
+  { key: "rcpt", stage: "rcpt_to", code: "250", refusal: "550", notSent: (s) => !s.some((l) => l === "DATA"), viaCheck: false },
+  { key: "data", stage: "data", code: "354", refusal: "554", notSent: () => true, viaCheck: false },
+  { key: "dataEnd", stage: "data_end", code: "250", refusal: "550", notSent: () => true, viaCheck: false },
+];
+
+test("R5 : à CHAQUE étape, une continuation suivie de texte libre, d'un refus ou d'une ligne vide est refusée -- jamais un succès d'étape, jamais la commande suivante", async () => {
+  for (const s of R5_STAGES) {
+    const bad: Array<[string, string]> = [
+      ["texte libre", `${s.code}-x\r\nNOT A STATUS LINE`],
+      [`terminée par ${s.refusal}`, `${s.code}-x\r\n${s.refusal} refused`],
+      ["ligne vide", `${s.code}-x\r\n`],
+    ];
+    for (const [label, reply] of bad) {
+      const h = harness({ script: { [s.key]: reply } as ServerScript });
+      const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+      assert.equal(result.ok, false, `${s.key} / ${label} : accepté (${JSON.stringify(result)})`);
+      if (!result.ok) { assert.match(result.error, MALFORMED, `${s.key} / ${label}`); assert.equal(result.stage, s.stage, `${s.key} / ${label}`); assert.equal(result.status ?? null, null, `${s.key} / ${label}`); }
+      const sent = commandsSeen(h.sockets[0]!.written);
+      assert.equal(s.notSent(sent), true, `${s.key} / ${label} : commande suivante envoyée après une réponse invalide (${sent.join(" | ")})`);
+      if (s.key !== "dataEnd") assert.equal(bodyWritten(h.sockets[0]!.written), false, `${s.key} / ${label} : corps écrit`);
+      assert.equal(h.sockets[0]!.destroyed, true, `${s.key} / ${label}`);
+      if (s.viaCheck) {
+        const hc = harness({ script: { [s.key]: reply } as ServerScript });
+        const checked = await createSmtpTransport(hc.io, FAST).checkConnectivity(CONFIG);
+        assert.equal(checked.ok, false, `${s.key} / ${label} : test de connexion réussi sur une réponse invalide`);
+        if (!checked.ok) assert.match(checked.error, MALFORMED, `${s.key} / ${label}`);
+      }
+    }
+  }
+});
+
+test("R5 grammaire : chaque variante invalide d'une réponse EHLO est refusée (jamais lue comme un 250), le dialogue s'arrête après EHLO", async () => {
+  const invalid: Array<[string, string, string]> = [
+    // [libellé, réponse EHLO, raison attendue]
+    ["code collé au texte (finale)", "250-a\r\n250ok", "line_syntax"],
+    ["lettre après le code (finale)", "250-a\r\n250x done", "line_syntax"],
+    ["espace avant le code", "250-a\r\n 250 done", "line_syntax"],
+    ["code à deux chiffres", "250-a\r\n25 done", "line_syntax"],
+    ["code à quatre chiffres", "250-a\r\n2500 done", "line_syntax"],
+    ["tabulation comme séparateur", "250-a\r\n250\tdone", "line_syntax"],
+    ["autre code de succès en dernière ligne", "250-a\r\n251 done", "code_mismatch"],
+    ["autre classe de code en dernière ligne", "250-a\r\n354 done", "code_mismatch"],
+    ["continuation d'un autre code au milieu", "250-a\r\n251-b\r\n250 done", "code_mismatch"],
+    ["texte libre au milieu, finale valide ensuite", "250-a\r\nNOT A STATUS LINE\r\n250 done", "line_syntax"],
+    ["ligne vide au milieu, finale valide ensuite", "250-a\r\n\r\n250 done", "line_syntax"],
+    ["CR isolé dans le texte", "250-a\r\n250 done\rextra", "control_character"],
+    ["octet NUL dans le texte", "250-a\u0000b\r\n250 done", "control_character"],
+    ["caractère de contrôle (ESC) dans une continuation", "250-a\u001bb\r\n250 done", "control_character"],
+    ["caractère DEL (0x7F) dans le texte", "250-a\u007fb\r\n250 done", "control_character"],
+    ["une ligne : caractère DEL (0x7F)", "250 a\u007fb", "control_character"],
+    // réponses d'UNE seule ligne qui passaient la vérification de préfixe
+    ["une ligne : code collé au texte", "250ok", "line_syntax"],
+    ["une ligne : quatre chiffres", "2500 done", "line_syntax"],
+    ["une ligne : tabulation", "250\tdone", "line_syntax"],
+    ["une ligne : CR isolé", "250 done\rextra", "control_character"],
+    ["une ligne : pas un code d'état", "NOT A STATUS LINE", "line_syntax"],
+    ["une ligne : code hors grammaire (2e chiffre > 5)", "260 hors grammaire", "line_syntax"],
+    ["une ligne : code hors grammaire (classe 6)", "650 hors grammaire", "line_syntax"],
+  ];
+  for (const [label, ehlo, reason] of invalid) {
+    const h = harness({ script: { ehlo } });
+    const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+    assert.equal(result.ok, false, `${label} : accepté (${JSON.stringify(result)})`);
+    if (!result.ok) { assert.equal(result.error, `SMTP_MALFORMED_RESPONSE: ${reason}`, label); assert.equal(result.stage, "ehlo", label); }
+    assert.deepEqual(commandsSeen(h.sockets[0]!.written), ["EHLO scanym.com"], `${label} : dialogue poursuivi`);
+  }
+});
+
+test("R5 TÉMOINS : les réponses multilignes VALIDES sont acceptées, à chaque étape, sous tous les découpages (octet par octet, avant le CRLF, entre CR et LF...)", async () => {
+  const splitCrLf = (wire: string) => wire.replaceAll("\r\n", "\r|\n").split("|");
+  const multi: ServerScript = {
+    greeting: "220-smtp.merchant.example ESMTP\r\n220 prêt",
+    ehlo: "250-smtp.merchant.example\r\n250-SIZE 35882577\r\n250-AUTH LOGIN PLAIN\r\n250-8BITMIME\r\n250 SMTPUTF8",
+    auth: "334-VXNlcm5hbWU6\r\n334 ",
+    authUser: "334-UGFzc3dvcmQ6\r\n334",
+    authPass: "235-2.7.0 ok\r\n235 2.7.0 Authentication successful",
+    mailFrom: "250-2.1.0\r\n250 2.1.0 Ok",
+    rcpt: "250-2.1.5\r\n250 2.1.5 Ok",
+    data: "354-go\r\n354 End data with <CR><LF>.<CR><LF>",
+    dataEnd: "250-2.0.0 Ok\r\n250 2.0.0 Ok: queued as MULTI-1",
+  };
+  for (const [label, chunker] of [["entier", undefined], ["en deux", IN_HALF], ["avant le CRLF final", BEFORE_CRLF], ["entre code et texte", CODE_THEN_REST], ["octet par octet", BYTE_BY_BYTE], ["entre CR et LF", splitCrLf]] as const) {
+    const h = harness({ script: { ...multi, ...(chunker ? { chunker } : {}) } });
+    assert.deepEqual(await createSmtpTransport(h.io, FAST).send(MESSAGE), { ok: true, messageId: "MULTI-1" }, label);
+    assert.equal(bodyWritten(h.sockets[0]!.written), true, label);
+    const hc = harness({ script: { ...multi, ...(chunker ? { chunker } : {}) } });
+    assert.deepEqual(await createSmtpTransport(hc.io, FAST).checkConnectivity(CONFIG), { ok: true }, label);
+  }
+  // Continuations vides, ligne finale sans texte, tabulation et UTF-8 dans le texte : valides.
+  for (const ehlo of ["250-\r\n250-PIPELINING\r\n250", "250-a\tb\r\n250 c\td", "250-é\r\n250 ✓", "250 seule ligne finale", "250"]) {
+    for (const chunker of [IN_HALF, BYTE_BY_BYTE]) {
+      const h = harness({ script: { ehlo, chunker } });
+      assert.deepEqual(await createSmtpTransport(h.io, FAST).checkConnectivity(CONFIG), { ok: true }, JSON.stringify(ehlo));
+    }
+  }
+});
+
+test("R5 : un refus multiligne VALIDE (même code sur toutes les lignes) garde son statut et son étape -- ce n'est pas une réponse malformée", async () => {
+  const { classifySmtpFailure } = await import("../lib/server/notifications/smtp-failure-classification.ts");
+  const rcpt = harness({ script: { rcpt: "550-5.1.1 user unknown\r\n550 5.1.1 really unknown" } });
+  const refused = await createSmtpTransport(rcpt.io, FAST).send(MESSAGE);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) {
+    assert.match(refused.error, /^SMTP_UNEXPECTED_RESPONSE: attendu 250/);
+    assert.deepEqual([refused.stage, refused.status], ["rcpt_to", 550]);
+    assert.equal(classifySmtpFailure(refused).errorClass, "INVALID_RECIPIENT");
+  }
+  const greeting = harness({ script: { greeting: "421-4.7.0 try later\r\n421 4.7.0 service unavailable" } });
+  const busy = await createSmtpTransport(greeting.io, FAST).checkConnectivity(CONFIG);
+  assert.equal(busy.ok, false);
+  if (!busy.ok) { assert.deepEqual([busy.stage, busy.status], ["greeting", 421]); assert.deepEqual(classifySmtpFailure(busy), { errorClass: "PROVIDER_TEMPORARY_UNAVAILABLE", retryable: true, disableProvider: false }); }
+});
+
+test("R5 : une réponse malformée est TEMPORAIRE et réessayable à toute étape (jamais un succès, jamais une suspension du fournisseur, jamais de texte serveur conservé)", async () => {
+  const { classifySmtpFailure } = await import("../lib/server/notifications/smtp-failure-classification.ts");
+  for (const s of R5_STAGES) {
+    const h = harness({ script: { [s.key]: `${s.code}-x\r\n${s.refusal} SECRET-DU-SERVEUR` } as ServerScript });
+    const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+    assert.equal(result.ok, false, s.key);
+    if (result.ok) continue;
+    assert.deepEqual(classifySmtpFailure(result), { errorClass: "PROVIDER_TEMPORARY_UNAVAILABLE", retryable: true, disableProvider: false }, `${s.key} (${s.stage})`);
+    assert.equal(JSON.stringify(result).includes("SECRET-DU-SERVEUR"), false, `${s.key} : le texte du serveur n'est pas repris`);
+    assert.equal(JSON.stringify(result).includes(PASSWORD), false, s.key);
+  }
+});
+
+// R5 (observation P3 du même rapport) : la borne de taille était contrôlée APRÈS l'extraction d'une réponse
+// complète -- une bannière ASCII de 70 Kio terminée par CRLF était acceptée. La borne s'applique maintenant à la
+// réponse complète (lignes, séparateurs et sauts de ligne parasites compris).
+test("R5 borne : une réponse COMPLÈTE de plus de 64 Kio est refusée (ligne unique, très nombreuses continuations, sauts de ligne parasites) ; juste en dessous, elle passe", async () => {
+  const oversize: Array<[string, ServerScript]> = [
+    ["bannière ASCII de 70 Kio terminée par CRLF", { greeting: `220 ${"a".repeat(70 * 1024)}` }],
+    ["bannière en continuations (10 000 lignes)", { greeting: `${Array.from({ length: 10_000 }, () => "220-xxxxxxxx").join("\r\n")}\r\n220 fin` }],
+    ["EHLO en continuations (10 000 lignes)", { ehlo: `${Array.from({ length: 10_000 }, () => "250-xxxxxxxx").join("\r\n")}\r\n250 fin` }],
+    ["sauts de ligne parasites avant la bannière", { greeting: `${"\r\n".repeat(40_000)}220 prêt` }],
+  ];
+  for (const [label, script] of oversize) {
+    const h = harness({ script });
+    const result = await createSmtpTransport(h.io, FAST).checkConnectivity(CONFIG);
+    assert.equal(result.ok, false, `${label} : accepté`);
+    if (!result.ok) assert.equal(result.error, "SMTP_REPLY_TOO_LARGE", label);
+    assert.equal(h.sockets[0]!.destroyed, true, label);
+    assert.equal(commandsSeen(h.sockets[0]!.written).some((l) => l === "AUTH LOGIN" || l === b64(CONFIG.user)), false, label);
+  }
+  const justUnder = harness({ script: { greeting: `220 ${"a".repeat(60 * 1024)}` } });
+  assert.deepEqual(await createSmtpTransport(justUnder.io, FAST).checkConnectivity(CONFIG), { ok: true }, "60 Kio : sous la borne");
+});
+
+test("R5 : un seul analyseur de réponses -- chaque `expectCode` porte sur une réponse déjà validée par le lecteur (aucune lecture brute du socket)", async () => {
+  const src = (await import("node:fs")).readFileSync("lib/server/ack-mailer.ts", "utf8");
+  const reads = [...src.matchAll(/reader\.read\(/g)].length;
+  assert.equal(reads, 2, "bannière + exchange() : seules lectures, toutes via SmtpReplyReader.takeReply");
+  assert.equal((src.match(/socket\.on\("data"/g) ?? []).length, 1, "un seul abonnement aux données du socket (le lecteur)");
+});
+
+test("R5 bannière DÉJÀ dans le tampon quand le client lit : une bannière invalide ou démesurée est refusée comme les autres (chemin de lecture immédiate), une valide passe", async () => {
+  const invalid: Array<[string, string, string]> = [
+    ["texte libre après une continuation", "220-bonjour\r\nNOT A STATUS LINE", "SMTP_MALFORMED_RESPONSE: line_syntax"],
+    ["continuation puis refus", "220-bonjour\r\n554 service unavailable", "SMTP_MALFORMED_RESPONSE: code_mismatch"],
+    ["ligne vide dans la réponse", "220-bonjour\r\n", "SMTP_MALFORMED_RESPONSE: line_syntax"],
+    ["caractère de contrôle", "220 bon\u0000jour", "SMTP_MALFORMED_RESPONSE: control_character"],
+    ["70 Kio complets", `220 ${"a".repeat(70 * 1024)}`, "SMTP_REPLY_TOO_LARGE"],
+  ];
+  for (const [label, greeting, error] of invalid) {
+    const h = harness({ script: { greeting, greetingBeforeRead: true } });
+    const result = await createSmtpTransport(h.io, FAST).send(MESSAGE);
+    assert.equal(result.ok, false, `${label} : accepté (${JSON.stringify(result)})`);
+    if (!result.ok) { assert.equal(result.error, error, label); assert.equal(result.stage, "greeting", label); }
+    assert.deepEqual(commandsSeen(h.sockets[0]!.written), [], `${label} : une commande a été écrite après une bannière invalide`);
+  }
+  const valid = harness({ script: { greeting: "220-smtp.merchant.example ESMTP\r\n220 prêt", greetingBeforeRead: true } });
+  const ok = await createSmtpTransport(valid.io, FAST).send(MESSAGE);
+  assert.equal(ok.ok, true, JSON.stringify(ok));
 });
