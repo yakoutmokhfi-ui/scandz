@@ -10,6 +10,7 @@ import ProductInfoButton from "@/components/ProductInfoButton";
 import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
 import ProductTags from "@/components/ProductTags";
 import { productPhotoThumbnailUrl } from "@/lib/product-photo-thumbnail";
+import { isSoldOut } from "@/lib/storefront-sold-out";
 import { useI18n } from "@/lib/i18n-context";
 import { tName, tDescription, tShortDescription } from "@/lib/menu-i18n";
 import { frontendRestrictedModes, serviceModeNameKey } from "@/lib/service-mode-restrictions";
@@ -71,7 +72,19 @@ export default function MenuItemCard({
     if (!useOriginal && photoSrc !== item.image_url) setUseOriginal(true);
     else setPhotoFailed(true);
   };
-  const isInline = Boolean(inlineChoices && onChangeChoice);
+  // Issue #200 -- produit en rupture (affiché seulement si le commerçant l'a
+  // choisi) : mention « En rupture » en TEXTE (jamais la couleur seule), aucun
+  // bouton ni compteur, jamais d'ajout au panier depuis cette carte.
+  const soldOut = isSoldOut(item);
+  const soldOutBadge = soldOut ? (
+    <span
+      data-sold-out-badge=""
+      className="inline-block w-fit rounded-full border border-stone-400 bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-800"
+    >
+      {t("soldOutBadge")}
+    </span>
+  ) : null;
+  const isInline = !soldOut && Boolean(inlineChoices && onChangeChoice);
   // CUSTOMER TAGS DISPLAY (LOT 01) -- nom accessible de la liste des
   // tags publiés du produit (rendu nul pour un produit sans tag).
   const tagsLabel = t("productTagsAria", { name: tName(item, lang, sourceLanguage) });
@@ -194,7 +207,10 @@ export default function MenuItemCard({
   }
 
   return (
-    <article className={`flex gap-3 ${cardClasses}`}>
+    <article
+      className={`flex gap-3 ${cardClasses}`}
+      data-sold-out={soldOut ? "true" : undefined}
+    >
       {hasPhoto ? (
         <img
           src={photoSrc}
@@ -204,7 +220,7 @@ export default function MenuItemCard({
           loading="lazy"
           decoding="async"
           onError={onPhotoError}
-          className={`h-28 w-28 shrink-0 object-cover ${imageRadius}`}
+          className={`h-28 w-28 shrink-0 object-cover ${imageRadius}${soldOut ? " opacity-60" : ""}`}
         />
       ) : (
         <ProductPhotoPlaceholder className={`h-28 w-28 shrink-0 ${imageRadius}`} />
@@ -237,7 +253,9 @@ export default function MenuItemCard({
               <Ltr>{formatPrice(item.price, currency)}</Ltr>
             </span>
 
-            {requiresChoice ? (
+            {soldOut ? (
+              soldOutBadge
+            ) : requiresChoice ? (
               /*
                * Produit à options : la carte reflète le panier, jamais
                * un état local. À zéro on propose "Ajouter", qui ouvre
@@ -281,7 +299,7 @@ export default function MenuItemCard({
             )}
           </div>
 
-          {requiresChoice && quantity > 0 && (
+          {!soldOut && requiresChoice && quantity > 0 && (
             <p className="mt-2 text-right text-xs font-semibold text-accent-dark-on-bg">
               {t("alreadyInCart", { n: quantity })}
             </p>

@@ -2,6 +2,7 @@
 // Ne pas modifier sans validation Yakout + revue CTO.
 
 import type { CustomerCollection } from "@/lib/customer-collections";
+import type { CustomerTagTranslations } from "@/lib/customer-tag-translations";
 
 export interface Restaurant {
   id: string;
@@ -82,6 +83,11 @@ export interface RestaurantConfig {
    *  Typé `unknown` volontairement : toujours repassé par
    *  normalizeStorefrontPhotoOverlay avant usage. */
   storefront_photo_overlay?: unknown;
+  /** Issue #200 -- afficher les produits indisponibles « En rupture » (sans
+   *  ajout au panier). Colonne additive ; absente, nulle ou invalide => false
+   *  (comportement historique : produits indisponibles masqués). Typé
+   *  `unknown` : toujours repassé par normalizeShowUnavailableProducts. */
+  show_unavailable_products?: unknown;
   /** LOT 1A — réseaux sociaux, un champ par réseau. Validés serveur
    *  (HTTPS strict, domaine exact) par update_restaurant_social_links.
    *  NULL = icône non affichée sur la carte publique. */
@@ -322,4 +328,5 @@ export interface RestaurantFull extends Restaurant {
    *  produits de `categories` (voir lib/customer-collections.ts).
    *  Optionnel : absent ou vide = aucune navigation « Collections ». */
   collections?: CustomerCollection[];
+  customerTagTranslations?: CustomerTagTranslations;
 }

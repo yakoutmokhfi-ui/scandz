@@ -41,6 +41,18 @@ interface CommunicationTextRow {
   body: string | null;
 }
 
+export type OrderHelpTranslationKey =
+  | "order_help_button_label"
+  | "order_help_title"
+  | "order_help_body";
+
+export interface OrderHelpTranslationSource {
+  text_key: OrderHelpTranslationKey;
+  body: string;
+  body_hash: string | null;
+  translations: Record<string, Record<string, string | undefined> | undefined> | null;
+}
+
 interface CommunicationEventRow {
   event_code: string;
   enabled: boolean | null;
@@ -78,6 +90,21 @@ export async function getMerchantCommunicationTexts(
   return sanitizeCommunicationTextOverrides(raw);
 }
 
+/** Merchant-only source rows for the three configurable order-help fields. */
+export async function getMerchantOrderHelpTexts(
+  restaurantId: string
+): Promise<OrderHelpTranslationSource[]> {
+  const { data, error } = await supabase
+    .from("merchant_communication_text")
+    .select("text_key,body,body_hash,translations")
+    .eq("restaurant_id", restaurantId)
+    .in("text_key", ["order_help_button_label", "order_help_title", "order_help_body"]);
+  if (error) throw new CommunicationTextsReadError(error.message);
+  return ((data ?? []) as OrderHelpTranslationSource[]).filter(
+    (row) => typeof row.body === "string" && row.body.trim() !== ""
+  );
+}
+
 /**
  * CHEMIN CLIENT ANONYME — les 11 emplacements customer-facing d'UN
  * établissement. Les gabarits d'e-mail ne traversent pas cette
@@ -101,6 +128,34 @@ export async function getPublicCommunicationTexts(
   if (error || data === null || data === undefined) return {};
   return overridesFromPublicProjection(
     data as ReadonlyArray<{ text_key?: unknown; body?: unknown }>
+  );
+}
+
+/** Public multilingual projection. It contains only the three public
+ * order-help texts, never e-mail templates or other tenant settings. */
+export async function getPublicOrderHelpTexts(
+  restaurantId: string
+): Promise<OrderHelpTranslationSource[]> {
+  const id = (restaurantId ?? "").trim();
+  if (!id) return [];
+  let data: unknown;
+  try {
+    const result = await supabase.rpc("get_restaurant_public_order_help_texts", {
+      p_restaurant_id: id,
+    });
+    if (result.error) return [];
+    data = result.data;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  const allowed = new Set<OrderHelpTranslationKey>([
+    "order_help_button_label", "order_help_title", "order_help_body",
+  ]);
+  return data.filter((row): row is OrderHelpTranslationSource =>
+    typeof row === "object" && row !== null &&
+    allowed.has((row as { text_key?: OrderHelpTranslationKey }).text_key as OrderHelpTranslationKey) &&
+    typeof (row as { body?: unknown }).body === "string"
   );
 }
 

@@ -267,6 +267,29 @@ function cleanup(x: { container: HTMLElement; root: any }) {
 
 // ====================================================================
 
+test("les tags traduits restent associés à leur collection et à leurs produits", async () => {
+  const r = restaurant(PUBLISHED);
+  r.activeLanguages = [
+    { code: "fr", label: "Français", dir: "ltr", display_order: 1 },
+    { code: "en", label: "English", dir: "ltr", display_order: 2 },
+  ];
+  r.customerTagTranslations = { "t-apero": { en: "Aperitif" }, "t-bio": { en: "Organic" } };
+  const x = await render(r);
+  try {
+    const english = x.container.querySelector('button[lang="en"]');
+    assert.ok(english);
+    click(english);
+    await flush();
+    assert.deepEqual(collectionButtons(x.container).map((b) => b.textContent), ["Aperitif", "Organic"]);
+    assert.deepEqual(badgesOf(x.container, "Tomme directe"), ["Aperitif"]);
+    click(collectionButtons(x.container)[0]!);
+    await flush();
+    assert.equal(sectionTitle(x.container), "Aperitif");
+    assert.ok(cardNames(x.container).includes("Tomme directe"));
+    assert.ok(!cardNames(x.container).includes("Crottin"));
+  } finally { cleanup(x); }
+});
+
 test("[NO COLLECTION] sans collection (champ absent OU vide), aucune navigation Collections : catalogue normal strictement inchangé", async () => {
   for (const r of [restaurant(), restaurant([])]) {
     const x = await render(r);

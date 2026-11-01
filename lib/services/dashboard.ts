@@ -1446,7 +1446,9 @@ export type TranslationEntityType =
   | "category"
   | "subcategory"
   | "item"
-  | "customer_notice";
+  | "customer_notice"
+  | "tag"
+  | "order_help";
 export type TranslationWriteStatus = "to_review" | "validated";
 
 /**
@@ -1474,6 +1476,27 @@ export async function writeTranslation(
   status: TranslationWriteStatus,
   expectedSourceHash: string | null = null
 ): Promise<void> {
+  if (entityType === "tag") {
+    if (field !== "name" || !expectedSourceHash) throw new Error("Source tag non disponible ; actualisez la page.");
+    const { error } = await supabase.rpc("write_tag_translation", {
+      p_restaurant_id: restaurantId, p_tag_id: entityId, p_lang: lang, p_value: value,
+      p_status: status, p_expected_source_hash: expectedSourceHash,
+    });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  if (entityType === "order_help") {
+    const { error } = await supabase.rpc("write_order_help_translation", {
+      p_restaurant_id: restaurantId,
+      p_text_key: field,
+      p_lang: lang,
+      p_value: value,
+      p_status: status,
+      p_expected_source_hash: expectedSourceHash,
+    });
+    if (error) throw new Error(error.message);
+    return;
+  }
   const { error } = await supabase.rpc("write_translation", {
     p_restaurant_id: restaurantId,
     p_entity_type: entityType,
@@ -1773,4 +1796,37 @@ export async function getMerchantDeliveryTestCountries(restaurantId: string): Pr
   const { data, error } = await supabase.rpc("get_restaurant_public_delivery_countries", { p_restaurant_id: restaurantId });
   if (error) throw new Error(error.message);
   return (data ?? []).map((r: { country_code: string; country_name: string }) => ({ code: r.country_code, name: r.country_name }));
+}
+
+/**
+ * Issue #200 — produits en rupture visibles en vitrine.
+ *
+ * LECTURE INDÉPENDANTE de getRestaurantSettings (même raison que le voile
+ * photo) : tant que la colonne n'est pas appliquée, une colonne manquante
+ * dans le SELECT principal ferait échouer TOUTE la page Réglages. Ici
+ * l'échec reste local. Une valeur qui n'est pas un booléen est REFUSÉE
+ * (erreur), jamais devinée.
+ */
+export async function getRestaurantShowUnavailable(restaurantId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("restaurant_configs")
+    .select("show_unavailable_products")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const value = (data as { show_unavailable_products?: unknown } | null)?.show_unavailable_products;
+  if (typeof value !== "boolean") throw new Error("show_unavailable_products unavailable");
+  return value;
+}
+
+/** Écriture par la SEULE voie RPC (rôle owner/manager du restaurant ou opérateur). */
+export async function updateRestaurantShowUnavailable(
+  restaurantId: string,
+  show: boolean
+): Promise<void> {
+  const { error } = await supabase.rpc("update_restaurant_show_unavailable", {
+    p_restaurant_id: restaurantId,
+    p_show: show,
+  });
+  if (error) throw new Error(error.message);
 }

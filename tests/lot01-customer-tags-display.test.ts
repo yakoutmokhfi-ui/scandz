@@ -163,7 +163,11 @@ test("[TAGGED/MULTI/UNTAGGED] getRestaurantBySlug pose les tags publiés, ordonn
     allowed_sale_modes: null,
   });
 
-  assert.deepEqual(rpcCalls, [{ name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } }]);
+  // Traductions publiques : seconde lecture, bornée au même établissement.
+  assert.deepEqual(rpcCalls, [
+    { name: "get_restaurant_collections", args: { p_restaurant_id: RESTO_A } },
+    { name: "get_public_tag_translations", args: { p_restaurant_id: RESTO_A } },
+  ]);
 });
 
 test("[DUPLICATES] une même étiquette répétée (même collection listant 2 fois le produit, ou 2 tags de même libellé à la casse près) ne s'affiche qu'une fois", async (t) => {
@@ -185,8 +189,9 @@ test("[TENANT] les tags sont lus pour le restaurant résolu par slug (publié) ;
 
   // Le filtre public préexistant est conservé tel quel.
   assert.deepEqual(eqs, [["slug", "au-lait-cru"], ["is_active", true], ["status", "active"]]);
-  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls.length, 2);
   assert.equal(rpcCalls[0].args.p_restaurant_id, RESTO_A);
+  assert.equal(rpcCalls[1].args.p_restaurant_id, RESTO_A);
 
   const items = itemsById(restaurant);
   assert.equal(items.has(P_FOREIGN), false, "aucun produit étranger n'est injecté dans la carte");

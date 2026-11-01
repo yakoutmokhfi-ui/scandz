@@ -15,6 +15,8 @@ import {
   getRestaurantThemeTokens,
   getRestaurantPhotoOverlay,
   updateRestaurantPhotoOverlay,
+  getRestaurantShowUnavailable,
+  updateRestaurantShowUnavailable,
   updateRestaurantThemeTokens,
   updateRestaurantSocialLinks,
   updateRestaurantLanguages,
@@ -74,6 +76,8 @@ import { isValidHexColor, readableTextColor } from "@/lib/color-contrast";
 import ThemeTokensFields, { emptyThemeTokenInputs, type ThemeTokenInputs } from "@/components/dashboard/ThemeTokensFields";
 import { THEME_TOKEN_KEYS, canonicalThemeTokens, validateThemeTokens } from "@/lib/theme-tokens";
 import PhotoOverlayField from "@/components/dashboard/PhotoOverlayField";
+import SoldOutVisibilityField from "@/components/dashboard/SoldOutVisibilityField";
+import { LEGACY_SHOW_UNAVAILABLE_PRODUCTS } from "@/lib/storefront-sold-out";
 import { LEGACY_STOREFRONT_PHOTO_OVERLAY, type StorefrontPhotoOverlay } from "@/lib/storefront-photo-overlay";
 import { isValidMapsUrl, normalizeMapsUrl, MAPS_URL_MAX_LENGTH } from "@/lib/maps-url";
 import { isValidInstagramUrl, isValidTiktokUrl, isValidFacebookUrl } from "@/lib/social-links";
@@ -127,6 +131,8 @@ type GeneralSettingsSnapshot = {
   themeTokens: string;
   /** STOREFRONT PHOTO OVERLAY v1 — valeur lue (lib/storefront-photo-overlay.ts). */
   photoOverlay: StorefrontPhotoOverlay;
+  /** Issue #200 — afficher les produits indisponibles « En rupture ». */
+  showUnavailable: boolean;
   instagramUrl: string | null;
   tiktokUrl: string | null;
   facebookUrl: string | null;
@@ -268,6 +274,9 @@ function themeTokensGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSna
 function photoOverlayGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.photoOverlay !== b.photoOverlay;
 }
+function showUnavailableGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
+  return a.showUnavailable !== b.showUnavailable;
+}
 function socialGroupDirty(a: GeneralSettingsSnapshot, b: GeneralSettingsSnapshot): boolean {
   return a.instagramUrl !== b.instagramUrl || a.tiktokUrl !== b.tiktokUrl || a.facebookUrl !== b.facebookUrl;
 }
@@ -344,6 +353,9 @@ export default function SettingsPage() {
   // n'est jamais écrit.
   const [photoOverlay, setPhotoOverlay] = useState<StorefrontPhotoOverlay>(LEGACY_STOREFRONT_PHOTO_OVERLAY);
   const [photoOverlayReadable, setPhotoOverlayReadable] = useState(false);
+  // Issue #200 — même discipline : jamais écrit tant que la lecture dédiée n'a pas abouti.
+  const [showUnavailable, setShowUnavailable] = useState<boolean>(LEGACY_SHOW_UNAVAILABLE_PRODUCTS);
+  const [showUnavailableReadable, setShowUnavailableReadable] = useState(false);
   const [instagramUrl, setInstagramUrl] = useState("");
   const [tiktokUrl, setTiktokUrl] = useState("");
   const [facebookUrl, setFacebookUrl] = useState("");
@@ -609,6 +621,8 @@ export default function SettingsPage() {
       setThemeTokensReadable(false);
       setPhotoOverlay(LEGACY_STOREFRONT_PHOTO_OVERLAY);
       setPhotoOverlayReadable(false);
+      setShowUnavailable(LEGACY_SHOW_UNAVAILABLE_PRODUCTS);
+      setShowUnavailableReadable(false);
       setInstagramUrl(s.instagram_url ?? "");
       setTiktokUrl(s.tiktok_url ?? "");
       setFacebookUrl(s.facebook_url ?? "");
@@ -637,6 +651,7 @@ export default function SettingsPage() {
         bgColor: normStrOrNull(s.bg_color ?? ""),
         themeTokens: canonicalThemeTokens({}),
         photoOverlay: LEGACY_STOREFRONT_PHOTO_OVERLAY,
+        showUnavailable: LEGACY_SHOW_UNAVAILABLE_PRODUCTS,
         instagramUrl: normStrOrNull(s.instagram_url ?? ""),
         tiktokUrl: normStrOrNull(s.tiktok_url ?? ""),
         facebookUrl: normStrOrNull(s.facebook_url ?? ""),
@@ -843,6 +858,22 @@ export default function SettingsPage() {
         if (!token.isCurrent()) return;
         setPhotoOverlay(LEGACY_STOREFRONT_PHOTO_OVERLAY);
         setPhotoOverlayReadable(false);
+      }
+
+      // Issue #200 — lecture INDÉPENDANTE (colonne pas encore appliquée =>
+      // section désactivée, groupe non écrit), même garde de provenance.
+      try {
+        const stored = await getRestaurantShowUnavailable(id);
+        if (!token.isCurrent()) return;
+        setShowUnavailable(stored);
+        setShowUnavailableReadable(true);
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, showUnavailable: stored };
+        }
+      } catch {
+        if (!token.isCurrent()) return;
+        setShowUnavailable(LEGACY_SHOW_UNAVAILABLE_PRODUCTS);
+        setShowUnavailableReadable(false);
       }
 
       try {
@@ -1307,6 +1338,9 @@ export default function SettingsPage() {
       photoOverlay: photoOverlayReadable
         ? photoOverlay
         : (generalSnapshotRef.current?.photoOverlay ?? LEGACY_STOREFRONT_PHOTO_OVERLAY),
+      showUnavailable: showUnavailableReadable
+        ? showUnavailable
+        : (generalSnapshotRef.current?.showUnavailable ?? LEGACY_SHOW_UNAVAILABLE_PRODUCTS),
       instagramUrl: normStrOrNull(instagramUrl),
       tiktokUrl: normStrOrNull(tiktokUrl),
       facebookUrl: normStrOrNull(facebookUrl),
@@ -1393,6 +1427,7 @@ export default function SettingsPage() {
     const themeTokensDirty =
       themeTokensReadable && themeTokenCheck.ok && !!generalSnap && themeTokensGroupDirty(generalSnap, currentGeneral);
     const photoOverlayDirty = photoOverlayReadable && !!generalSnap && photoOverlayGroupDirty(generalSnap, currentGeneral);
+    const showUnavailableDirty = showUnavailableReadable && !!generalSnap && showUnavailableGroupDirty(generalSnap, currentGeneral);
     const socialDirty = !generalSnap || socialGroupDirty(generalSnap, currentGeneral);
     const languagesDirty = !generalSnap || languagesGroupDirty(generalSnap, currentGeneral);
 
@@ -1824,6 +1859,21 @@ export default function SettingsPage() {
       } catch {
         if (!token.isCurrent()) return;
         failedKeys.push("stPhotoOverlaySaveError");
+      }
+    }
+
+    if (showUnavailableDirty) {
+      attemptedCount++;
+      try {
+        await updateRestaurantShowUnavailable(restaurantId, currentGeneral.showUnavailable);
+        if (!token.isCurrent()) return;
+        if (generalSnapshotRef.current) {
+          generalSnapshotRef.current = { ...generalSnapshotRef.current, showUnavailable: currentGeneral.showUnavailable };
+        }
+        succeededCount++;
+      } catch {
+        if (!token.isCurrent()) return;
+        failedKeys.push("stSoldOutSaveError");
       }
     }
 
@@ -2414,6 +2464,19 @@ export default function SettingsPage() {
             disabled={!canEdit || !photoOverlayReadable}
             coverUrl={coverUrl}
             ink={secondaryColor.trim() || null}
+            t={t}
+          />
+        </section>
+
+        {/* Issue #200 — produits en rupture visibles en vitrine, réglage
+            PAR établissement. Désactivé tant que la lecture dédiée n'a pas
+            abouti (colonne pas encore appliquée). */}
+        <section className="mt-4 rounded-2xl border border-stone-200 bg-white p-4" data-settings-sold-out-section="">
+          <h3 className="font-bold text-stone-900">{t("stSoldOutTitle")}</h3>
+          <SoldOutVisibilityField
+            value={showUnavailable}
+            onChange={setShowUnavailable}
+            disabled={!canEdit || !showUnavailableReadable}
             t={t}
           />
         </section>

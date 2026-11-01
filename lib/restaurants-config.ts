@@ -1,3 +1,4 @@
+import { isSoldOut } from "@/lib/storefront-sold-out";
 import type { MenuItem, RestaurantFull } from "@/lib/types";
 import type { Lang } from "@/lib/i18n";
 
@@ -167,5 +168,6 @@ export function getChoices(
   const category = [...restaurant.categories, ...restaurant.hiddenCategories].find(
     (c) => c.name.includes(group.sourceCategory)
   );
-  return category?.menu_items ?? [];
+  // Issue #200 : un choix en rupture n'est jamais proposé.
+  return (category?.menu_items ?? []).filter((i) => !isSoldOut(i));
 }

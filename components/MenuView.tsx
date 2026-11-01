@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isWhatsappEnabled } from "@/lib/customer-contact";
 import type { RestaurantFull, MenuItem } from "@/lib/types";
 import {
@@ -66,9 +66,19 @@ import OrderHelpButton from "@/components/OrderHelpButton";
 import { sanitizeThemeTokens, themeSurfaceStyle, themedAttribute } from "@/lib/theme-tokens";
 import CategoryNav from "@/components/CategoryNav";
 import SubcategoryFilter from "@/components/SubcategoryFilter";
+import ProductSearch from "@/components/ProductSearch";
+import {
+  PRODUCT_SEARCH_MIN_ITEMS,
+  PRODUCT_SEARCH_PAGE_SIZE,
+  buildProductSearchIndex,
+  productSearchTokens,
+  searchProducts,
+} from "@/lib/product-search";
 import CollectionNav from "@/components/CollectionNav";
 import { buildCustomerCollections, selectCollectionItems } from "@/lib/customer-collections";
+import { translatedTagLabel } from "@/lib/customer-tag-translations";
 import MenuItemCard from "@/components/MenuItemCard";
+import { isSoldOut } from "@/lib/storefront-sold-out";
 import CartPanel from "@/components/CartPanel";
 import CheckoutSchedulePicker from "@/components/CheckoutSchedulePicker";
 import { useCheckoutSchedule } from "@/lib/checkout-schedule/use-checkout-schedule";
@@ -106,6 +116,8 @@ import { buildTrackingPath } from "@/lib/tracking/link";
 import {
   fetchWithdrawalEligibility,
   getPublicCommunicationTexts,
+  getPublicOrderHelpTexts,
+  type OrderHelpTranslationSource,
 } from "@/lib/services/merchant-communications";
 import type { CommunicationTextOverrides } from "@/lib/communications/text-keys";
 
@@ -117,6 +129,7 @@ import {
   createOrder,
   markWhatsappOpened,
   OrderNoteTooLongError,
+  ItemUnavailableError,
   CgvAcceptanceRequiredError,
   ScheduleSelectionError,
   type CreatedOrder,
@@ -731,6 +744,8 @@ export default function MenuView({
    */
   const [communicationTexts, setCommunicationTexts] =
     useState<CommunicationTextOverrides>({});
+  const [orderHelpTranslations, setOrderHelpTranslations] =
+    useState<OrderHelpTranslationSource[]>([]);
   /**
    * MERCHANT CUSTOMER COMMUNICATIONS v1.1 — PREUVE D'ÉLIGIBILITÉ LIÉE À
    * L'IDENTITÉ DE LA COMMANDE AFFICHÉE.
@@ -860,13 +875,21 @@ export default function MenuView({
   useEffect(() => {
     let cancelled = false;
     setCommunicationTexts({});
-    getPublicCommunicationTexts(restaurant.id)
-      .then((texts) => {
-        if (!cancelled) setCommunicationTexts(texts);
-      })
-      .catch(() => {
-        if (!cancelled) setCommunicationTexts({});
-      });
+    setOrderHelpTranslations([]);
+    Promise.all([
+      getPublicCommunicationTexts(restaurant.id),
+      getPublicOrderHelpTexts(restaurant.id),
+    ]).then(([texts, helpTranslations]) => {
+      if (!cancelled) {
+        setCommunicationTexts(texts);
+        setOrderHelpTranslations(helpTranslations);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setCommunicationTexts({});
+        setOrderHelpTranslations([]);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -965,8 +988,11 @@ export default function MenuView({
       buildCustomerCollections(
         restaurant.collections ?? [],
         new Set(restaurant.categories.flatMap((c) => c.menu_items.map((i) => i.id)))
-      ),
-    [restaurant.collections, restaurant.categories]
+      ).map((collection) => ({
+        ...collection,
+        label: translatedTagLabel(collection.id, collection.label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations),
+      })),
+    [restaurant.collections, restaurant.categories, restaurant.config.source_language, restaurant.customerTagTranslations, lang]
   );
   const activeCollection =
     activeCollectionId === null
@@ -975,6 +1001,67 @@ export default function MenuView({
   const activeCollectionItems = useMemo(
     () => selectCollectionItems(restaurant.categories, activeCollection),
     [restaurant.categories, activeCollection]
+  );
+
+  // RECHERCHE DE PRODUITS (issue #169, PR #201).
+  // Portée : le catalogue de l'établissement AFFICHÉ (`restaurant.categories`),
+  // jamais autre chose. La requête est rattachée à l'identifiant de
+  // l'établissement ET RÉINITIALISÉE dès que celui-ci change : si MenuView est
+  // réutilisé pour un autre établissement sans démontage, la saisie de l'ancien
+  // ne s'applique pas au nouveau et ne revient pas non plus au retour sur
+  // l'ancien (séquence A -> B -> A). La réinitialisation est faite PENDANT le
+  // rendu (mise à jour d'état autorisée par React pour dériver un état d'une
+  // prop) : aucun rendu intermédiaire ne peint la saisie de l'autre
+  // établissement. La valeur différée est rattachée à l'établissement de la
+  // même façon, pour qu'un retard de rendu ne ressorte jamais la requête de
+  // l'ancien établissement sur le nouveau.
+  // Quand une recherche est active elle est GLOBALE (toutes les catégories) et
+  // prime sur catégorie, sous-catégorie et collection, dont les sélections ne sont
+  // ni lues ni réécrites : effacer la recherche ramène exactement la vue d'avant.
+  // Le panier est un état indépendant : il n'est jamais touché.
+  const [searchState, setSearchState] = useState({
+    restaurantId: restaurant.id,
+    query: "",
+    pages: 1,
+  });
+  if (searchState.restaurantId !== restaurant.id) {
+    setSearchState({ restaurantId: restaurant.id, query: "", pages: 1 });
+  }
+  const searchQuery = searchState.restaurantId === restaurant.id ? searchState.query : "";
+  function setSearchQuery(query: string) {
+    setSearchState({ restaurantId: restaurant.id, query, pages: 1 });
+  }
+  function showMoreSearchResults() {
+    setSearchState({ restaurantId: restaurant.id, query: searchQuery, pages: searchState.pages + 1 });
+  }
+  const searchSourceLanguage = (restaurant.config.source_language ?? "fr") as Lang;
+  const searchIndex = useMemo(
+    () => buildProductSearchIndex(restaurant.categories, lang, searchSourceLanguage),
+    [restaurant.categories, lang, searchSourceLanguage]
+  );
+  const searchEnabled = searchIndex.length >= PRODUCT_SEARCH_MIN_ITEMS;
+  const deferredSearch = useDeferredValue(searchState);
+  const deferredForThisRestaurant = deferredSearch.restaurantId === restaurant.id;
+  const deferredSearchQuery = deferredForThisRestaurant ? deferredSearch.query : "";
+  const searchPages = deferredForThisRestaurant ? deferredSearch.pages : 1;
+  // La valeur différée garde la frappe fluide sur un grand catalogue, mais ne doit
+  // JAMAIS retarder le retour à la vue normale : dès que la saisie courante est vide
+  // (effacement, changement d'établissement, choix d'une catégorie), les résultats
+  // disparaissent au rendu même, sans attendre le rattrapage de la valeur différée.
+  // Tant que le rattrapage n'est pas fait, la section de résultats est marquée occupée.
+  const searchActive = productSearchTokens(searchQuery).length > 0;
+  const searchPending = searchQuery !== deferredSearchQuery;
+  const searchResult = useMemo(
+    () =>
+      searchEnabled && searchActive
+        ? searchProducts(
+            restaurant.categories,
+            searchIndex,
+            deferredSearchQuery,
+            searchPages * PRODUCT_SEARCH_PAGE_SIZE
+          )
+        : null,
+    [searchEnabled, searchActive, restaurant.categories, searchIndex, deferredSearchQuery, searchPages]
   );
 
   // CATALOGUE / SUBCATEGORIES v1 -- segmente les produits de la
@@ -1093,6 +1180,7 @@ export default function MenuView({
 
   /** Ajout/retrait direct d'un goût depuis la carte produit. */
   function handleInlineChange(item: MenuItem, choice: MenuItem, delta: number) {
+    if (delta > 0 && (isSoldOut(item) || isSoldOut(choice))) return;
     const group = getOptionGroup(restaurant.slug, item);
     setCart((c) =>
       addToCart(c, {
@@ -1157,6 +1245,8 @@ export default function MenuView({
    * au panier avant confirmation.
    */
   function handleAdd(item: MenuItem) {
+    // Issue #200 : un produit en rupture n'entre jamais au panier.
+    if (isSoldOut(item)) return;
     const group = getOptionGroup(restaurant.slug, item);
     if (group) {
       setChoiceItem(item);
@@ -1179,7 +1269,7 @@ export default function MenuView({
   function handleChoiceConfirm(
     distribution: { choice: MenuItem; quantity: number }[]
   ) {
-    if (!choiceItem || !choiceGroup) return;
+    if (!choiceItem || !choiceGroup || isSoldOut(choiceItem)) return;
     const kind = choiceGroup.title.includes("goût") ? "flavor" : "pastry";
     setCart((c) => {
       let next = c;
@@ -1212,10 +1302,16 @@ export default function MenuView({
   function renderMenuItem(item: MenuItem) {
     const group = getOptionGroup(restaurant.slug, item);
     const inline = isInlineOptions && group !== null;
+    const translatedTags = item.customer_tags?.map((label) => {
+      const tag = restaurant.collections?.find((collection) =>
+        collection.label === label && collection.menuItemIds.includes(item.id)
+      );
+      return tag ? translatedTagLabel(tag.id, label, lang, restaurant.config.source_language ?? "fr", restaurant.customerTagTranslations) : label;
+    });
     return (
       <MenuItemCard
         key={item.id}
-        item={item}
+        item={translatedTags ? { ...item, customer_tags: translatedTags } : item}
         currency={restaurant.config.currency}
         quantity={quantityFor(item)}
         requiresChoice={group !== null}
@@ -1871,7 +1967,9 @@ export default function MenuView({
           ? t("noteTooLong")
           : err instanceof CgvAcceptanceRequiredError
             ? t("cgvAcceptanceRequiredError")
-            : t("orderFailed")
+            : err instanceof ItemUnavailableError
+              ? t("orderItemUnavailable")
+              : t("orderFailed")
       );
     } finally {
       submitInFlightRef.current = false;
@@ -2170,7 +2268,7 @@ export default function MenuView({
           Les textes par règle de livraison ne sont plus agrégés ici : ils
           restent dans le résultat du code postal saisi
           (DeliveryPostcodeResult). */}
-      <OrderHelpButton communicationTexts={communicationTexts} />
+      <OrderHelpButton communicationTexts={communicationTexts} translatedTexts={orderHelpTranslations} />
 
       {/* NAVIGATION CATALOGUE MICRO-LOT (issue #11, arbitrage CIO/Ravel
           issuecomment-5875680103) : Tags/Collections transversaux
@@ -2184,12 +2282,21 @@ export default function MenuView({
           mt-3 -> mt-1, sections mt-7 -> mt-5) et wrapper des collections
           rendu UNIQUEMENT s'il existe des collections (CollectionNav
           renvoie null sinon) : plus de marge vide avant les catégories. */}
+      {searchEnabled && (
+        <div className="mt-3">
+          <ProductSearch value={searchQuery} onChange={setSearchQuery} />
+        </div>
+      )}
+
       {collections.length > 0 && (
       <div className="mt-3">
         <CollectionNav
           collections={collections}
-          activeId={activeCollection?.id ?? null}
-          onSelect={setActiveCollectionId}
+          activeId={searchResult ? null : (activeCollection?.id ?? null)}
+          onSelect={(id) => {
+            setSearchQuery("");
+            setActiveCollectionId(id);
+          }}
           navLabel={t("collectionsNavLabel")}
         />
       </div>
@@ -2198,8 +2305,11 @@ export default function MenuView({
       <div className={collections.length > 0 ? "mt-1" : "mt-3"}>
         <CategoryNav
           categories={restaurant.categories}
-          activeId={activeCollection ? "" : activeCategoryId}
-          onSelect={changeActiveCategory}
+          activeId={activeCollection || searchResult ? "" : activeCategoryId}
+          onSelect={(id) => {
+            setSearchQuery("");
+            changeActiveCategory(id);
+          }}
           variant={menuVariant}
         />
       </div>
@@ -2211,7 +2321,60 @@ export default function MenuView({
             <button type="button" className="underline" onClick={dismissCartAdjusted}>{t("cartRestoreDismiss")}</button>
           </div>
         )}
-        {!activeCollection && activeCategory && (
+        {searchResult && (
+          <section
+            className="mt-5"
+            data-product-search-results="true"
+            aria-busy={searchPending ? "true" : undefined}
+          >
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-sm text-stone-700"
+              data-product-search-status="true"
+            >
+              {searchResult.total === 0
+                ? t("productSearchNoResults", { query: deferredSearchQuery.trim() })
+                : t(
+                    searchResult.total === 1 ? "productSearchResultsOne" : "productSearchResultsMany",
+                    { n: searchResult.total }
+                  )}
+            </p>
+            {searchResult.total === 0 && (
+              <button
+                type="button"
+                data-product-search-reset="true"
+                onClick={() => setSearchQuery("")}
+                className="mt-3 rounded-full border border-espresso/20 px-4 py-2 text-sm font-medium"
+              >
+                {t("productSearchClear")}
+              </button>
+            )}
+            {searchResult.groups.map(({ category, items }) => (
+              <div key={category.id} className="mt-5" data-product-search-category={category.id}>
+                <h2
+                  dir="auto"
+                  className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg"
+                >
+                  {tName(category, lang, searchSourceLanguage)}
+                </h2>
+                <div className="mt-1.5 h-px w-12 bg-gold" />
+                <div className="mt-4 space-y-4">{items.map(renderMenuItem)}</div>
+              </div>
+            ))}
+            {searchResult.shown < searchResult.total && (
+              <button
+                type="button"
+                data-product-search-more="true"
+                onClick={showMoreSearchResults}
+                className="mt-6 w-full rounded-full border border-espresso/20 px-4 py-3 text-sm font-medium"
+              >
+                {t("productSearchShowMore")}
+              </button>
+            )}
+          </section>
+        )}
+        {!searchResult && !activeCollection && activeCategory && (
           <section className="mt-5">
             <div className="flex items-start gap-1.5">
               <h2 className="min-w-0 text-lg font-bold uppercase tracking-wide leading-snug text-accent-dark-on-bg">
@@ -2276,7 +2439,7 @@ export default function MenuView({
             </div>
           </section>
         )}
-        {activeCollection && (
+        {!searchResult && activeCollection && (
           <section className="mt-5" data-customer-collection-view="true">
             <h2
               dir="auto"

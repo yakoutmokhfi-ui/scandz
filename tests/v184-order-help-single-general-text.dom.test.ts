@@ -421,6 +421,55 @@ test("[184-HELP-4] un seul bouton, libellé CENTRÉ ; à l'ouverture titre + cor
   } finally { root.unmount(); container.remove(); }
 });
 
+test("[TR-OH-1] le bouton, le titre et le texte d'aide utilisent la traduction validée de la langue affichée", async () => {
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  const communicationTexts = {
+    order_help_button_label: "Comment passer commande ?",
+    order_help_title: "Comment passer commande ?",
+    order_help_body: "Choisissez vos produits.",
+  };
+  const translatedTexts = [
+    { text_key: "order_help_button_label", body: communicationTexts.order_help_button_label, body_hash: "label-hash", translations: { en: { order_help_button_label: "How to order", order_help_button_label_status: "validated", order_help_button_label_source_hash: "label-hash" } } },
+    { text_key: "order_help_title", body: communicationTexts.order_help_title, body_hash: "title-hash", translations: { en: { order_help_title: "How to order", order_help_title_status: "validated", order_help_title_source_hash: "title-hash" } } },
+    { text_key: "order_help_body", body: communicationTexts.order_help_body, body_hash: "body-hash", translations: { en: { order_help_body: "Choose your products.", order_help_body_status: "validated", order_help_body_source_hash: "body-hash" } } },
+  ] as const;
+  root.render(React.createElement(I18nProvider, {
+    lang: "en", sourceLanguage: "fr", children: React.createElement(OrderHelpButton, { communicationTexts, translatedTexts }),
+  }));
+  await flush();
+  const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent === "How to order");
+  assert.ok(trigger, "the French source label is translated in English");
+  click(trigger);
+  await flush();
+  assert.equal(container.querySelector("[data-order-help-title]")?.textContent, "How to order");
+  assert.equal(container.querySelector("[data-order-help-body]")?.textContent, "Choose your products.");
+  root.unmount();
+  container.remove();
+});
+
+test("[TR-OH-2] une traduction de l'ancienne source n'est pas affichée avec la nouvelle source", async () => {
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    const communicationTexts = { order_help_button_label: "Nouvelle instruction", order_help_body: "Nouveau texte" };
+    const translatedTexts = [
+      { text_key: "order_help_button_label", body: "Ancienne instruction", body_hash: "old", translations: { en: { order_help_button_label: "Old instruction", order_help_button_label_status: "validated", order_help_button_label_source_hash: "old" } } },
+      { text_key: "order_help_body", body: "Ancien texte", body_hash: "old-body", translations: { en: { order_help_body: "Old text", order_help_body_status: "validated", order_help_body_source_hash: "old-body" } } },
+    ] as const;
+    root.render(React.createElement(I18nProvider, { lang: "en", sourceLanguage: "fr", children: React.createElement(OrderHelpButton, { communicationTexts, translatedTexts }) }));
+    await flush();
+    const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent === "Nouvelle instruction");
+    assert.ok(trigger);
+    click(trigger);
+    await flush();
+    assert.equal(container.querySelector("[data-order-help-body]")?.textContent, "Nouveau texte");
+    assert.ok(!container.textContent?.includes("Old text"));
+  } finally { root.unmount(); container.remove(); }
+});
+
 test("[184-HELP-2] l'aide générale ne varie pas avec le nombre de règles", async (t) => {
   const snap = async (n: number) => {
     mockRpcHelp(t, Array.from({ length: n }, (_, i) => ruleRow(i, [`7500${i}`], SHARED_RULE_TEXT, i === n - 1)));
