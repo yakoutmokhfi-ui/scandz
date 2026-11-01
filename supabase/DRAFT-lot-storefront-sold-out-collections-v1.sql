@@ -59,9 +59,10 @@ begin
   end if;
 
   select md5(p.prosrc),
-         p.prosecdef::text || p.provolatile::text || coalesce(p.proconfig::text, '')
+         format('%s|%s|%s|%s|%s|%s|%s|%s', p.prosecdef, p.provolatile, p.proisstrict, p.proleakproof, p.proparallel, l.lanname, coalesce(p.proconfig::text, ''), pg_get_function_result(p.oid))
     into v_md5, v_flags
-  from pg_proc p where p.oid = v_oid;
+  from pg_proc p join pg_language l on l.oid = p.prolang
+  where p.oid = v_oid;
 
   if v_md5 = '364c52f3d561593421b2e6deb034069d' then
     raise exception 'SCANYM_ALREADY_APPLIED: STOREFRONT SOLD-OUT COLLECTIONS v1 déjà appliqué -- annulé.';
@@ -73,7 +74,7 @@ begin
   -- Toute fonction modifiée depuis (restriction de publication, filtre
   -- ajouté, autre version) est refusée : rien n'est écrasé, silencieusement
   -- ou non. Il faut alors réconcilier à la main, jamais écraser.
-  if v_md5 is distinct from '62469954066d750857dc0153534be55d' or v_flags is distinct from 'trues{"search_path=\"\""}' then
+  if v_md5 is distinct from '62469954066d750857dc0153534be55d' or v_flags is distinct from 't|s|f|f|u|plpgsql|{"search_path=\"\""}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])' then
     raise exception 'SCANYM_FUNCTION_DRIFT: get_restaurant_collections(uuid) diffère de la définition attendue du lot COLLECTIONS / TAGS (md5 %, attributs %) -- annulé, rien n''est écrasé.', v_md5, v_flags;
   end if;
 end $$;
@@ -131,6 +132,9 @@ do $$
 begin
   if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from '364c52f3d561593421b2e6deb034069d' then
     raise exception 'SCANYM_POSTFLIGHT: définition non remplacée comme attendu -- annulé.';
+  end if;
+  if (select format('%s|%s|%s|%s|%s|%s|%s|%s', p.prosecdef, p.provolatile, p.proisstrict, p.proleakproof, p.proparallel, l.lanname, coalesce(p.proconfig::text, ''), pg_get_function_result(p.oid)) from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from 't|s|f|f|u|plpgsql|{"search_path=\"\""}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])' then
+    raise exception 'SCANYM_POSTFLIGHT: attributs de sécurité inattendus (SECURITY DEFINER, search_path vide) -- annulé.';
   end if;
   if not has_function_privilege('anon', 'public.get_restaurant_collections(uuid)', 'execute')
      or not has_function_privilege('authenticated', 'public.get_restaurant_collections(uuid)', 'execute') then

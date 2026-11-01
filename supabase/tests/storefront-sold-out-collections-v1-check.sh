@@ -181,6 +181,29 @@ echo "$out" | grep -q "SCANYM_ROLLBACK_DRIFT" && pass "rollback : fonction modif
 qf "$TMP_DIR/lotfn.sql" >/dev/null
 [ "$(md5fn)" = "364c52f3d561593421b2e6deb034069d" ] || fatal "restauration de la définition du lot impossible"
 
+# --- 7c. SCÉNARIO TURING (2e P2) : fonction passée en SECURITY INVOKER après le lot ---
+# Avec RLS actif et aucune policy pour anon, un INVOKER ne voit rien ; si le
+# rollback « réparait » en rétablissant SECURITY DEFINER, anon verrait la collection.
+attrs() { q "select format('%s|%s|%s|%s|%s|%s|%s|%s', p.prosecdef, p.provolatile, p.proisstrict, p.proleakproof, p.proparallel, l.lanname, coalesce(p.proconfig::text,''), pg_get_function_result(p.oid)) from pg_proc p join pg_language l on l.oid=p.prolang where p.oid='public.get_restaurant_collections(uuid)'::regprocedure"; }
+q "grant select on all tables in schema public to anon, authenticated; alter table public.restaurants enable row level security; alter table public.restaurant_configs enable row level security; alter table public.menu_categories enable row level security; alter table public.menu_items enable row level security; alter table public.menu_tags enable row level security; alter table public.menu_item_tags enable row level security;" >/dev/null
+q "alter function public.get_restaurant_collections(uuid) security invoker" >/dev/null
+b_attrs="$(attrs)"; b_md5="$(md5fn)"; b_anon="$(as_anon "select count(*) from public.get_restaurant_collections('$A')")"
+[ "$b_anon" = "0" ] && pass "préparation : INVOKER + RLS => anon ne voit aucune collection" || fail "préparation Turing : anon voit '$b_anon'"
+out="$(qf "$ROLLBACK")"
+echo "$out" | grep -q "SCANYM_ROLLBACK_DRIFT" && pass "TURING : rollback REFUSE une fonction passée en SECURITY INVOKER" || fail "rollback a accepté INVOKER : $out"
+[ "$(attrs)" = "$b_attrs" ] && [ "$(md5fn)" = "$b_md5" ] && pass "TURING : refus SANS MUTATION (attributs et corps identiques)" || fail "mutation malgré le refus : $(attrs)"
+[ "$(as_anon "select count(*) from public.get_restaurant_collections('$A')")" = "0" ] && pass "TURING : anon ne voit toujours aucune collection (aucune exposition créée)" || fail "exposition anonyme créée"
+q "alter function public.get_restaurant_collections(uuid) security definer" >/dev/null
+for variant in "set search_path = public" "volatile" "leakproof" "strict" "parallel safe"; do
+  q "alter function public.get_restaurant_collections(uuid) $variant" >/dev/null
+  b_attrs="$(attrs)"
+  out="$(qf "$ROLLBACK")"
+  echo "$out" | grep -q "SCANYM_ROLLBACK_DRIFT" && [ "$(attrs)" = "$b_attrs" ] && [ "$(md5fn)" = "364c52f3d561593421b2e6deb034069d" ] && pass "rollback refusé sans mutation : attribut modifié ($variant)" || fail "attribut ($variant) non contrôlé : $out"
+  qf "$TMP_DIR/lotfn.sql" >/dev/null   # create or replace : rétablit TOUS les attributs de la définition du lot
+done
+q "alter table public.restaurants disable row level security; alter table public.restaurant_configs disable row level security; alter table public.menu_categories disable row level security; alter table public.menu_items disable row level security; alter table public.menu_tags disable row level security; alter table public.menu_item_tags disable row level security;" >/dev/null
+[ "$(attrs)" = "t|s|f|f|u|plpgsql|{\"search_path=\\\"\\\"\"}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])" ] && pass "attributs nominaux rétablis pour la suite du scénario" || fail "attributs nominaux : $(attrs)"
+
 # --- 8. Double application / rollback / réapplication ------------------
 out="$(qf "$LOT")"; echo "$out" | grep -q "SCANYM_ALREADY_APPLIED" && pass "second passage refusé" || fail "double application : $out"
 out="$(qf "$ROLLBACK")"; rc=$?

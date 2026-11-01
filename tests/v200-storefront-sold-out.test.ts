@@ -295,3 +295,22 @@ test("[200-SQL-DRIFT-2] pré-vol du lot : refuse toute définition différente d
   assert.match(lotPost, new RegExp(`is distinct from '${NEW_MD5}'`));
   assert.match(rb.slice(rb.indexOf("create or replace function")), new RegExp(`is distinct from '${ORIG_MD5}'`));
 });
+
+// --- Audit TURING (2e P2) : le rollback contrôle aussi les ATTRIBUTS de sécurité ---
+test("[200-SQL-DRIFT-3] rollback ET lot contrôlent prosecdef, volatilité, strict, leakproof, parallel, langage, search_path et type de retour", () => {
+  const exec = (f: string) => readFileSync(f, "utf8").split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+  const ATTR = 't|s|f|f|u|plpgsql|{"search_path=\\"\\""}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])';
+  const lot = exec("supabase/DRAFT-lot-storefront-sold-out-collections-v1.sql");
+  const rb = exec("supabase/DRAFT-lot-storefront-sold-out-collections-v1-ROLLBACK.sql");
+  for (const [name, sql] of [["lot", lot], ["rollback", rb]] as const) {
+    for (const col of ["p.prosecdef", "p.provolatile", "p.proisstrict", "p.proleakproof", "p.proparallel", "l.lanname", "p.proconfig", "pg_get_function_result(p.oid)"]) {
+      assert.ok(sql.includes(col), `${name}: ${col}`);
+    }
+    assert.ok(sql.includes(`is distinct from '${ATTR}'`), `${name}: attributs attendus`);
+  }
+  // rollback : refus AVANT toute restauration (la garde précède le create or replace), et post-vol des attributs
+  const rbPre = rb.slice(0, rb.indexOf("create or replace function"));
+  assert.match(rbPre, /v_attrs is distinct from/);
+  assert.match(rbPre, /SCANYM_ROLLBACK_DRIFT/);
+  assert.match(rb.slice(rb.indexOf("create or replace function")), /SCANYM_ROLLBACK_POSTFLIGHT: attributs/);
+});

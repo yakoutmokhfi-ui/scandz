@@ -13,14 +13,18 @@ begin;
 
 do $$
 declare
-  v_oid  oid;
-  v_md5  text;
+  v_oid   oid;
+  v_md5   text;
+  v_attrs text;
 begin
   v_oid := to_regprocedure('public.get_restaurant_collections(uuid)');
   if v_oid is null then
     raise exception 'SCANYM_ROLLBACK_DRIFT: get_restaurant_collections(uuid) absente -- rien à annuler. Annulé.';
   end if;
-  select md5(p.prosrc) into v_md5 from pg_proc p where p.oid = v_oid;
+  select md5(p.prosrc), format('%s|%s|%s|%s|%s|%s|%s|%s', p.prosecdef, p.provolatile, p.proisstrict, p.proleakproof, p.proparallel, l.lanname, coalesce(p.proconfig::text, ''), pg_get_function_result(p.oid))
+    into v_md5, v_attrs
+  from pg_proc p join pg_language l on l.oid = p.prolang
+  where p.oid = v_oid;
   if v_md5 = '62469954066d750857dc0153534be55d' then
     raise exception 'SCANYM_ROLLBACK_DRIFT: définition déjà celle d''origine -- rien à annuler. Annulé.';
   end if;
@@ -28,8 +32,11 @@ begin
   -- si la fonction en place est EXACTEMENT celle posée par ce lot. Toute
   -- modification ultérieure (restriction de publication, autre version) est
   -- refusée au lieu d'être écrasée silencieusement.
-  if v_md5 is distinct from '364c52f3d561593421b2e6deb034069d' then
-    raise exception 'SCANYM_ROLLBACK_DRIFT: get_restaurant_collections(uuid) a été modifiée depuis le lot (md5 %) -- annulé, rien n''est écrasé.', v_md5;
+  -- (corps ET attributs de sécurité : un passage en SECURITY INVOKER, un
+  -- search_path différent, etc. serait sinon « réparé » silencieusement par
+  -- la restauration -- audit TURING, 2e P2.)
+  if v_md5 is distinct from '364c52f3d561593421b2e6deb034069d' or v_attrs is distinct from 't|s|f|f|u|plpgsql|{"search_path=\"\""}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])' then
+    raise exception 'SCANYM_ROLLBACK_DRIFT: get_restaurant_collections(uuid) a été modifiée depuis le lot (md5 %, attributs %) -- annulé, rien n''est écrasé.', v_md5, v_attrs;
   end if;
 end $$;
 
@@ -79,6 +86,9 @@ do $$
 begin
   if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from '62469954066d750857dc0153534be55d' then
     raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: définition d''origine non restaurée -- annulé.';
+  end if;
+  if (select format('%s|%s|%s|%s|%s|%s|%s|%s', p.prosecdef, p.provolatile, p.proisstrict, p.proleakproof, p.proparallel, l.lanname, coalesce(p.proconfig::text, ''), pg_get_function_result(p.oid)) from pg_proc p join pg_language l on l.oid = p.prolang where p.oid = 'public.get_restaurant_collections(uuid)'::regprocedure) is distinct from 't|s|f|f|u|plpgsql|{"search_path=\"\""}|TABLE(id uuid, label text, display_order integer, menu_item_ids uuid[])' then
+    raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: attributs de sécurité inattendus -- annulé.';
   end if;
   if not has_function_privilege('anon', 'public.get_restaurant_collections(uuid)', 'execute') then
     raise exception 'SCANYM_ROLLBACK_POSTFLIGHT: droit anon perdu -- annulé.';
