@@ -898,11 +898,18 @@ test("P2B-B DOM: navigation Dashboard -- stratégie explicite anti-débordement 
   // qui reste du retour à la ligne dans le flux normal : aucun
   // défilement, aucun onglet caché -- vérifié par la boucle ci-dessous
   // et, en détail, par tests/csdj-bo1-availability-mobile.dom.test.ts.
+  // Mis à jour par PR #196 (SMTP par commerce) : un 9e onglet (« E-mails »)
+  // a été ajouté à DashboardNav.tsx -- décompte attendu passe de 8 à 9.
+  // Même raisonnement que les mises à jour précédentes : la preuve (flex-wrap,
+  // aucun onglet masqué ni inatteignable) est inchangée. Conséquence de
+  // mise en page assumée à arbitrer par le produit : 9 onglets à quatre par
+  // ligne sous « sm » occupent trois lignes (voir A196-11 et
+  // tests/csdj-bo1-availability-mobile.dom.test.ts).
   const tabs = Array.from(navEl!.querySelectorAll("a"));
   assert.equal(
     tabs.length,
-    8,
-    "les 8 onglets doivent tous être présents dans le DOM (7 + Mise à disposition, CSDJ-BO-1)"
+    9,
+    "les 9 onglets doivent tous être présents dans le DOM (8 + E-mails, PR #196)"
   );
   for (const tabEl of tabs) {
     assert.notEqual((tabEl as HTMLElement).hidden, true, "aucun onglet ne doit être masqué (hidden)");

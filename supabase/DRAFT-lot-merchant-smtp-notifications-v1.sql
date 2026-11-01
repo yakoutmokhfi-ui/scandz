@@ -1,0 +1,397 @@
+-- MERCHANT SMTP PROVIDER CONFIG v1 (révision R1 -- corrections de l'audit PR #196)
+--
+-- Coffre SMTP chiffré par établissement + claim des notifications limité aux
+-- commerces configurés.
+--
+-- Prédécesseur ATTENDU, vérifié EXACTEMENT (corps md5, attributs, arguments,
+-- colonnes retournées, propriétaire, ACL) : claim_pending_notifications tel que
+-- posé par le lot ORDER_RECEIVED PAYMENT GATE v1 (#180). Toute variante =>
+-- SCANYM_PREDECESSOR_DRIFT, transaction annulée, rien modifié (même norme que
+-- #180 ; A196-03).
+--
+-- Seules différences du nouveau claim par rapport à celui de #180 : deux
+-- jointures (coffre activé avec secret ; opt-in marchand) et le verrou ciblé
+-- « for update of o ». Signature, colonnes, bail, droits et attributs inchangés.
+--
+-- R3 (contre-audit de 9e38c88, P2 « profil ancien ») : ajoute
+-- set_merchant_notification_profile_under_save_lease -- écriture du profil dans la MÊME transaction que la
+-- vérification du bail d'enregistrement (verrou de la ligne du coffre). Le front de cette PR l'appelle : ce lot
+-- doit donc être appliqué AVANT le déploiement du front (comme les colonnes save_token / save_lease_until).
+--
+-- Retour arrière : DRAFT-lot-merchant-smtp-notifications-v1-rollback.sql
+-- restaure le claim de #180 OCTET POUR OCTET (même empreinte, même
+-- commentaire) : le rollback de #180 reste ensuite possible (A196-02).
+-- Ordre de retour arrière : d'abord CE lot, ensuite #180.
+begin;
+
+-- -----------------------------------------------------------------------------
+-- 0. PRÉ-VOL — existence et double application.
+-- -----------------------------------------------------------------------------
+do $$
+begin
+  if to_regclass('public.merchant_notification_profile') is null
+     or to_regclass('public.notification_outbox') is null
+     or to_regclass('public.restaurants') is null
+     or to_regprocedure('public.touch_updated_at()') is null
+     or to_regprocedure('public.notification_send_gate_open(uuid,text)') is null
+     or to_regprocedure('public.claim_pending_notifications(integer,integer)') is null
+     or to_regprocedure('public.set_merchant_notification_profile(uuid,boolean,text,text,text,text)') is null
+     or to_regprocedure('public.has_role_in(uuid,text[])') is null
+     or to_regprocedure('public.is_scanym_operator()') is null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: email notification foundation/payment gate is missing';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'merchant_notification_profile' and column_name = 'email_enabled'
+  ) then
+    raise exception 'SCANYM_SCHEMA_DRIFT: merchant_notification_profile.email_enabled is missing';
+  end if;
+  if to_regclass('public.merchant_email_provider_config') is not null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: merchant_email_provider_config already exists';
+  end if;
+  if to_regprocedure('public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)') is not null then
+    raise exception 'SCANYM_SCHEMA_DRIFT: set_merchant_notification_profile_under_save_lease already exists';
+  end if;
+  if (
+    select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'claim_pending_notifications'
+  ) <> 1 then
+    raise exception 'SCANYM_SCHEMA_DRIFT: claim_pending_notifications doit exister en UNE seule surcharge. Annulé.';
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 0b. PRÉ-VOL DU PRÉDÉCESSEUR (A196-03) — refus de toute définition inattendue.
+--     Bloc repris du lot #180 (§0b) ; constante = empreinte du claim POSÉ PAR #180.
+--     CREATE OR REPLACE écraserait sans discussion une variante (STRICT, droits
+--     supplémentaires...) : on refuse, on ne normalise jamais.
+-- -----------------------------------------------------------------------------
+do $$
+declare
+  -- Empreinte du corps sur les OCTETS EXACTS de prosrc (aucune normalisation : un CR isolé dans
+  -- un littéral changerait le comportement de la fonction sans changer une empreinte « sans CR »).
+  -- Deux formes admises, rien d'autre : fins de ligne LF (dépôt) ou TOUTES en CRLF (extraction Windows).
+  c_expected_body_md5      constant text := '16d75b38372fd5dfd0ca1a4e20dfa3a8';
+  c_expected_body_md5_crlf constant text := 'b72e191ff8ee6332bd4ed4a09409060b';
+  -- Le commentaire de la fonction fait partie de ce que le retour arrière restaure : il est épinglé.
+  c_expected_comment_md5   constant text := 'dba8c60099d3bb7348201fe39b6fdae4';
+  c_expected_args     constant text := 'p_batch_size integer DEFAULT 10, p_lease_seconds integer DEFAULT 60';
+  c_expected_result   constant text := 'TABLE(outbox_id uuid, restaurant_id uuid, order_id uuid, notification_type text, recipient_email text, locale text, payload_snapshot jsonb, attempt_count integer, claim_token uuid, sender_name text, sender_email text, reply_to text)';
+  -- Attributs de pg_proc que CREATE OR REPLACE réécrit (explicitement ou par valeur
+  -- par défaut) : un écart est une variante opérationnelle inconnue, jamais normalisée.
+  c_expected_attrs constant text := 'kind=f;lang=plpgsql;secdef=t;strict=f;leakproof=f;volatile=v;parallel=u;retset=t;cost=100;rows=1000;support=0;variadic=0;nargs=2;ndefaults=2;config=search_path=""';
+  v_oid      oid;
+  v_owner    oid;
+  v_args     text;
+  v_result   text;
+  v_md5      text;
+  v_attrs    text;
+  v_acl      text[];
+  v_comment_md5 text;
+  v_expected_acl text[];
+begin
+  select p.oid,
+         p.proowner,
+         pg_get_function_arguments(p.oid),
+         pg_get_function_result(p.oid),
+         md5(p.prosrc),
+         format('kind=%s;lang=%s;secdef=%s;strict=%s;leakproof=%s;volatile=%s;parallel=%s;retset=%s;cost=%s;rows=%s;support=%s;variadic=%s;nargs=%s;ndefaults=%s;config=%s',
+                p.prokind, l.lanname, p.prosecdef, p.proisstrict, p.proleakproof, p.provolatile,
+                p.proparallel, p.proretset, p.procost, p.prorows, p.prosupport::oid, p.provariadic,
+                p.pronargs, p.pronargdefaults, coalesce(array_to_string(p.proconfig, ','), '')),
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e),
+         md5(coalesce(obj_description(p.oid, 'pg_proc'), ''))
+    into v_oid, v_owner, v_args, v_result, v_md5, v_attrs, v_acl, v_comment_md5
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  join pg_language l on l.oid = p.prolang
+  where n.nspname = 'public' and p.proname = 'claim_pending_notifications';
+
+  if v_oid is null then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: claim_pending_notifications est introuvable. Migration annulée, rien modifié.';
+  end if;
+
+  if v_md5 not in (c_expected_body_md5, c_expected_body_md5_crlf) then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le corps de claim_pending_notifications (md5 %) n''est pas celui du lot ORDER_RECEIVED PAYMENT GATE v1 (#180) attendu (md5 %). Migration annulée, rien modifié.', v_md5, c_expected_body_md5;
+  end if;
+
+  if v_attrs is distinct from c_expected_attrs
+     or v_args is distinct from c_expected_args
+     or v_result is distinct from c_expected_result then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: attributs de claim_pending_notifications différents de #180 (SECURITY DEFINER, STRICT, volatilité, LEAKPROOF, PARALLEL, COST/ROWS, langage, search_path, arguments, colonnes retournées). Observé : % ; attendu : %.', v_attrs, c_expected_attrs;
+  end if;
+
+  if v_comment_md5 is distinct from c_expected_comment_md5 then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: le commentaire de claim_pending_notifications (md5 %) n''est pas celui de #180 attendu (md5 %). Migration annulée, rien modifié.', v_comment_md5, c_expected_comment_md5;
+  end if;
+
+  -- Droits (politique explicite) : l'ENSEMBLE COMPLET des bénéficiaires EXECUTE doit
+  -- être exactement {propriétaire, service_role}, accordé par le propriétaire, sans
+  -- option de transmission, sans PUBLIC ni aucun autre rôle (anon, authenticated ou
+  -- tout rôle supplémentaire). Le propriétaire doit être le rôle qui applique ce
+  -- script. Aucun droit inconnu n'est révoqué ni accordé silencieusement : refus.
+  v_expected_acl := (
+    select array_agg(x order by x) from unnest(array[
+      format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+      format('%s=EXECUTE/%s', to_regrole('service_role')::text, v_owner::regrole::text)
+    ]) as x
+  );
+  if v_owner is distinct from (select r.oid from pg_roles r where r.rolname = current_user)
+     or v_acl is distinct from v_expected_acl then
+    raise exception 'SCANYM_PREDECESSOR_DRIFT: droits d''exécution de claim_pending_notifications différents de #180 (propriétaire = rôle appliquant le script ET service_role, rien d''autre, sans option de transmission). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié ni révoqué silencieusement.', v_owner::regrole::text, v_acl, v_expected_acl;
+  end if;
+end $$;
+
+-- -----------------------------------------------------------------------------
+-- 1. Coffre SMTP par établissement.
+-- -----------------------------------------------------------------------------
+create table public.merchant_email_provider_config (
+  restaurant_id uuid primary key references public.restaurants(id) on delete cascade,
+  host text not null check (host = lower(host) and host ~ '^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'),
+  port integer not null check (port = 465),
+  username text not null check (username ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
+  enabled boolean not null default false,
+  secret_ciphertext text,
+  secret_iv text,
+  secret_auth_tag text,
+  -- État opérationnel (A196-04 / A196-09) : dernière erreur observée (classe
+  -- normalisée uniquement, jamais un message brut) et dernier test de connexion.
+  last_test_at timestamptz,
+  last_error_class text,
+  last_error_at timestamptz,
+  -- Verrou d'enregistrement (R2, contre-audit de 7cb60a8) : un enregistrement est une suite de trois
+  -- écritures (coffre désactivé -> profil -> coffre activé). Chacune est CONDITIONNELLE à ce jeton, de
+  -- sorte qu'un enregistrement concurrent ne puisse ni s'intercaler ni être écrasé par la restauration
+  -- d'un enregistrement qui échoue. Le bail expire seul (jamais de verrou orphelin après un crash).
+  save_token uuid,
+  save_lease_until timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint merchant_email_provider_secret_complete check (
+    (secret_ciphertext is null and secret_iv is null and secret_auth_tag is null)
+    or (secret_ciphertext is not null and secret_iv is not null and secret_auth_tag is not null)
+  ),
+  constraint merchant_email_provider_enabled_requires_secret check (not enabled or secret_ciphertext is not null),
+  constraint merchant_email_provider_last_error_consistent check ((last_error_class is null) = (last_error_at is null)),
+  constraint merchant_email_provider_save_lease_consistent check ((save_token is null) = (save_lease_until is null)),
+  constraint merchant_email_provider_last_error_class_format check (
+    last_error_class is null or last_error_class ~ '^[A-Z][A-Z_]{2,59}$'
+  )
+);
+
+comment on table public.merchant_email_provider_config is
+  'Encrypted per-restaurant SMTP settings. Ciphertext is AES-256-GCM encrypted by the application (additional authenticated data bound to the restaurant); no direct merchant table access. SMTP password is never returned to the browser. last_error_class holds a normalized class only.';
+
+alter table public.merchant_email_provider_config enable row level security;
+revoke all on public.merchant_email_provider_config from public, anon, authenticated, service_role;
+grant select, insert, update on public.merchant_email_provider_config to service_role;
+
+create trigger merchant_email_provider_config_touch_updated_at
+before update on public.merchant_email_provider_config
+for each row execute function public.touch_updated_at();
+
+-- -----------------------------------------------------------------------------
+-- 1b. Écriture du profil SOUS BAIL (R3, P2 « un profil ancien peut remplacer celui d'une configuration
+--     récemment enregistrée »).
+--
+--     Un enregistrement = coffre fermé (bail) -> profil -> coffre activé. Si le bail d'un enregistrement lent
+--     expire et qu'un second enregistrement le reprend et se termine, l'appel tardif du premier à
+--     set_merchant_notification_profile (non conditionnel) REMPLAÇAIT le profil du second. Cette fonction
+--     verrouille la ligne du coffre (FOR UPDATE) si et seulement si le jeton est TOUJOURS celui de l'appelant,
+--     puis écrit le profil dans la même transaction : une reprise du bail attend la fin de l'écriture, et un bail
+--     déjà repris ne laisse AUCUNE écriture (SCANYM_SAVE_LEASE_LOST). Aucune horloge n'intervient : « le jeton est
+--     encore le mien » est exact tant que le verrou est tenu. L'autorisation est celle de la fonction de profil
+--     (owner/manager ou opérateur), vérifiée AVANT de toucher ou de révéler quoi que ce soit.
+-- -----------------------------------------------------------------------------
+create function public.set_merchant_notification_profile_under_save_lease(
+  p_restaurant_id  uuid,
+  p_save_token     uuid,
+  p_email_enabled  boolean,
+  p_sender_name    text default null,
+  p_sender_email   text default null,
+  p_reply_to       text default null,
+  p_default_locale text default 'fr'
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not (public.has_role_in(p_restaurant_id, array['owner', 'manager']) or public.is_scanym_operator()) then
+    raise exception 'SCANYM_NOTIFICATION_PROFILE_FORBIDDEN: rôle owner/manager (ou opérateur) requis pour %', p_restaurant_id
+      using errcode = '42501';
+  end if;
+
+  perform 1
+    from public.merchant_email_provider_config c
+   where c.restaurant_id = p_restaurant_id
+     and c.save_token = p_save_token
+     for update of c;
+  if not found then
+    raise exception 'SCANYM_SAVE_LEASE_LOST: le bail d''enregistrement du coffre SMTP de % n''est plus celui de l''appelant. Profil non écrit.', p_restaurant_id
+      using errcode = '55000';
+  end if;
+
+  perform public.set_merchant_notification_profile(
+    p_restaurant_id, p_email_enabled, p_sender_name, p_sender_email, p_reply_to, p_default_locale
+  );
+end $$;
+
+comment on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) is
+  'MERCHANT SMTP v1 R3 — écrit le profil e-mail marchand (via set_merchant_notification_profile) seulement si save_token du coffre est encore celui de l''appelant, sous FOR UPDATE de la ligne du coffre, dans la même transaction. Sinon SCANYM_SAVE_LEASE_LOST et aucune écriture. Exige owner/manager (ou opérateur).';
+
+revoke all on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) from public, anon, authenticated, service_role;
+grant execute on function public.set_merchant_notification_profile_under_save_lease(uuid, uuid, boolean, text, text, text, text) to authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 2. claim_pending_notifications — corps de #180 + deux jointures + verrou ciblé.
+-- -----------------------------------------------------------------------------
+create or replace function public.claim_pending_notifications(
+  p_batch_size    integer default 10,
+  p_lease_seconds integer default 60
+)
+returns table (
+  outbox_id           uuid,
+  restaurant_id       uuid,
+  order_id            uuid,
+  notification_type   text,
+  recipient_email      text,
+  locale              text,
+  payload_snapshot    jsonb,
+  attempt_count       integer,
+  claim_token         uuid,
+  sender_name         text,
+  sender_email        text,
+  reply_to            text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_batch_size integer := greatest(1, least(coalesce(p_batch_size, 10), 100));
+  v_lease      integer := greatest(1, least(coalesce(p_lease_seconds, 60), 3600));
+begin
+  return query
+  with eligible as (
+    select o.id
+    from public.notification_outbox o
+    -- MERCHANT SMTP v1 : seuls les commerces avec un coffre SMTP activé ET
+    -- l'opt-in e-mail marchand sont éligibles ; les autres lignes restent
+    -- 'pending', sans tentative consommée (le filtre précède la limite).
+    join public.merchant_email_provider_config ep
+      on ep.restaurant_id = o.restaurant_id and ep.enabled and ep.secret_ciphertext is not null
+    join public.merchant_notification_profile mp
+      on mp.restaurant_id = o.restaurant_id and mp.email_enabled
+    where o.status in ('pending', 'failed_retryable')
+      and (o.next_attempt_at is null or o.next_attempt_at <= now())
+      -- ORDER_RECEIVED PAYMENT GATE v1 : seul ajout par rapport à N1-A.
+      and public.notification_send_gate_open(o.order_id, o.notification_type)
+    order by o.created_at, o.id
+    limit v_batch_size
+    for update of o skip locked
+  ),
+  claimed as (
+    update public.notification_outbox o
+    set status = 'processing',
+        claim_token = gen_random_uuid(),
+        claimed_at = now(),
+        claim_expires_at = now() + make_interval(secs => v_lease)
+    from eligible
+    where o.id = eligible.id
+    returning o.id, o.restaurant_id, o.order_id, o.notification_type,
+              o.recipient_email, o.locale, o.payload_snapshot, o.attempt_count, o.claim_token
+  )
+  select
+    c.id, c.restaurant_id, c.order_id, c.notification_type,
+    c.recipient_email, c.locale, c.payload_snapshot, c.attempt_count, c.claim_token,
+    p.sender_name, p.sender_email, p.reply_to
+  from claimed c
+  left join public.merchant_notification_profile p on p.restaurant_id = c.restaurant_id
+  order by c.id;
+end $$;
+
+comment on function public.claim_pending_notifications(integer, integer) is
+  'N1-A + ORDER_RECEIVED PAYMENT GATE v1 + MERCHANT SMTP v1 — réclame un lot de notifications éligibles (FOR UPDATE OF o SKIP LOCKED + bail). Éligible seulement si la porte de paiement est ouverte ET si le commerce a un coffre SMTP activé avec secret ET l''opt-in e-mail marchand. Sans fournisseur, la ligne reste en attente : aucune réclamation, aucune tentative consommée.';
+
+revoke all on function public.claim_pending_notifications(integer, integer) from public, anon, authenticated;
+grant execute on function public.claim_pending_notifications(integer, integer) to service_role;
+
+-- -----------------------------------------------------------------------------
+-- 3. POST-CONTRÔLE — état final exact.
+-- -----------------------------------------------------------------------------
+do $$
+declare
+  c_smtp_body_md5      constant text := 'cf3cfb8055dab9cc93e3ce5b8563a46a';
+  c_smtp_body_md5_crlf constant text := 'e8b88f88d8334fb6ca62c18992057d2a';
+  c_smtp_comment_md5   constant text := '2686f2b19c67dd1aac715fad99c91d3e';
+  v_owner oid;
+  v_acl   text[];
+begin
+  if has_table_privilege('anon', 'public.merchant_email_provider_config', 'SELECT')
+     or has_table_privilege('authenticated', 'public.merchant_email_provider_config', 'SELECT')
+     or has_table_privilege('service_role', 'public.merchant_email_provider_config', 'DELETE') then
+    raise exception 'SCANYM_POSTCHECK_FAILED: unexpected access to merchant SMTP credentials';
+  end if;
+  if not has_table_privilege('service_role', 'public.merchant_email_provider_config', 'SELECT')
+     or not has_table_privilege('service_role', 'public.merchant_email_provider_config', 'INSERT')
+     or not has_table_privilege('service_role', 'public.merchant_email_provider_config', 'UPDATE') then
+    raise exception 'SCANYM_POSTCHECK_FAILED: service_role lacks SMTP configuration access';
+  end if;
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.merchant_email_provider_config'::regclass) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: SMTP vault RLS is disabled';
+  end if;
+  -- R3 : la fonction d'écriture du profil sous bail existe, SECURITY DEFINER, search_path vide, exécutable par
+  -- authenticated SEULEMENT (ni PUBLIC, ni anon, ni service_role : son contrôle de rôle repose sur auth.uid()).
+  select p.proowner,
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+    into v_owner, v_acl
+  from pg_proc p
+  where p.oid = to_regprocedure('public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)');
+  if v_owner is null
+     or not exists (select 1 from pg_proc p
+                     where p.oid = 'public.set_merchant_notification_profile_under_save_lease(uuid,uuid,boolean,text,text,text,text)'::regprocedure
+                       and p.prosecdef and p.proconfig = array['search_path=""']) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: set_merchant_notification_profile_under_save_lease is missing or not SECURITY DEFINER with an empty search_path';
+  end if;
+  if v_acl is distinct from (select array_agg(x order by x) from unnest(array[
+       format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+       format('%s=EXECUTE/%s', to_regrole('authenticated')::text, v_owner::regrole::text)]) as x) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: set_merchant_notification_profile_under_save_lease privileges are not {owner, authenticated} (%)', v_acl;
+  end if;
+  if (select md5(p.prosrc) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) not in (c_smtp_body_md5, c_smtp_body_md5_crlf) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications is not the expected SMTP claim (body fingerprint)';
+  end if;
+  if (select md5(coalesce(obj_description(p.oid, 'pg_proc'), '')) from pg_proc p
+       where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure) is distinct from c_smtp_comment_md5 then
+    raise exception 'SCANYM_POSTCHECK_FAILED: claim_pending_notifications comment is not the expected SMTP comment';
+  end if;
+  select p.proowner,
+         (select coalesce(array_agg(e.entry order by e.entry), '{}'::text[])
+            from (select format('%s=%s/%s%s',
+                                case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end,
+                                a.privilege_type, a.grantor::regrole::text,
+                                case when a.is_grantable then ' WITH GRANT OPTION' else '' end) as entry
+                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a) e)
+    into v_owner, v_acl
+  from pg_proc p where p.oid = 'public.claim_pending_notifications(integer,integer)'::regprocedure;
+  if v_acl is distinct from (select array_agg(x order by x) from unnest(array[
+       format('%s=EXECUTE/%s', v_owner::regrole::text, v_owner::regrole::text),
+       format('%s=EXECUTE/%s', to_regrole('service_role')::text, v_owner::regrole::text)]) as x) then
+    raise exception 'SCANYM_POSTCHECK_FAILED: notification claim privileges changed unexpectedly (%)', v_acl;
+  end if;
+end $$;
+
+commit;

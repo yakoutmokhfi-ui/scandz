@@ -1,5 +1,7 @@
 import "server-only";
+import { StringDecoder } from "node:string_decoder";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { lookup as dnsLookup } from "node:dns/promises";
 
 /**
  * SCANYM — GAP-01 — TRANSPORT SMTP RÉEL DE L'ACCUSÉ DE RÉCEPTION DE
@@ -202,101 +204,452 @@ export interface SmtpSendInput {
   config: SmtpConfig;
   to: string;
   cc: string | null;
+  fromName?: string | null;
   subject: string;
   text: string;
   html: string;
+  replyTo?: string | null;
+  messageId?: string | null;
+}
+
+/**
+ * Étape du dialogue SMTP où un échec est survenu. Sert UNIQUEMENT à classer
+ * l'échec (voir lib/server/notifications/smtp-failure-classification.ts) ;
+ * jamais renvoyée au navigateur ni persistée telle quelle.
+ */
+export type SmtpFailureStage =
+  | "dns"
+  | "host_not_public"
+  | "connect"
+  | "greeting"
+  | "ehlo"
+  | "auth"
+  | "mail_from"
+  | "rcpt_to"
+  | "data"
+  | "data_end"
+  | "timeout"
+  | "header";
+
+export interface SmtpFailureDetail {
+  stage?: SmtpFailureStage;
+  /** Code de réponse SMTP à 3 chiffres quand le serveur a répondu, sinon null. */
+  status?: number | null;
+  /** Code d'erreur Node (ECONNREFUSED, ERR_TLS_CERT_ALTNAME_INVALID...) quand disponible. */
+  nodeCode?: string | null;
 }
 
 export type SmtpSendResult =
   | { ok: true; messageId: string }
-  | { ok: false; error: string };
+  | ({ ok: false; error: string } & SmtpFailureDetail);
+
+export type SmtpConnectivityResult =
+  | { ok: true }
+  | ({ ok: false; error: string } & SmtpFailureDetail);
 
 export interface SmtpTransport {
   send(input: SmtpSendInput): Promise<SmtpSendResult>;
   /** Connexion + AUTH LOGIN uniquement, AUCUN message envoyé -- pour le health-check admin. */
-  checkConnectivity(config: SmtpConfig): Promise<{ ok: true } | { ok: false; error: string }>;
+  checkConnectivity(config: SmtpConfig): Promise<SmtpConnectivityResult>;
+}
+
+/** Erreur typée du dialogue SMTP : le message reste celui historique (aucun secret). */
+export class SmtpSessionError extends Error {
+  readonly stage: SmtpFailureStage;
+  readonly status: number | null;
+  readonly nodeCode: string | null;
+  constructor(message: string, stage: SmtpFailureStage, status: number | null = null, nodeCode: string | null = null) {
+    super(message);
+    this.name = "SmtpSessionError";
+    this.stage = stage;
+    this.status = status;
+    this.nodeCode = nodeCode;
+  }
+}
+
+/** Entrées/sorties réseau injectables (tests) ; les valeurs par défaut sont les vraies. */
+export interface SmtpIo {
+  lookup(host: string): Promise<Array<{ address: string; family: number }>>;
+  connect(options: { host: string; servername: string; port: number; timeout: number }, onConnect: () => void): TLSSocket;
+}
+
+export interface SmtpLimits {
+  /** Délai maximal d'attente d'UNE réponse du serveur. */
+  stepTimeoutMs: number;
+  /** Durée maximale d'une session complète (DNS + connexion + dialogue). */
+  totalTimeoutMs: number;
 }
 
 const CRLF = "\r\n";
 const SMTP_TIMEOUT_MS = 15_000;
+/** Borne dure d'une session : un hôte lent ne peut pas retenir le worker plus longtemps (A196-05). */
+export const SMTP_SESSION_TOTAL_TIMEOUT_MS = 60_000;
+const DEFAULT_LIMITS: SmtpLimits = { stepTimeoutMs: SMTP_TIMEOUT_MS, totalTimeoutMs: SMTP_SESSION_TOTAL_TIMEOUT_MS };
+const DEFAULT_IO: SmtpIo = {
+  lookup: (host) => dnsLookup(host, { all: true, verbatim: true }),
+  connect: (options, onConnect) => tlsConnect(options, onConnect),
+};
 
-function readLine(socket: TLSSocket, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buf = "";
-    const onData = (chunk: Buffer) => {
-      buf += chunk.toString("utf8");
-      // Une réponse multi-ligne SMTP a "250-..." sur les lignes
-      // intermédiaires et "250 ..." (espace) sur la dernière.
-      const lines = buf.split(CRLF).filter((l) => l.length > 0);
-      const last = lines[lines.length - 1];
-      if (last && /^\d{3} /.test(last)) {
-        cleanup();
-        resolve(buf);
-      }
-    };
-    const onError = (err: Error) => {
-      cleanup();
-      reject(err);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("SMTP_TIMEOUT"));
-    }, timeoutMs);
-    function cleanup() {
-      clearTimeout(timer);
-      socket.off("data", onData);
-      socket.off("error", onError);
-    }
-    socket.on("data", onData);
-    socket.on("error", onError);
-  });
+/** Taille maximale d'UNE réponse SMTP (un serveur hostile ne peut pas faire grossir le tampon sans fin). */
+const MAX_REPLY_CHARS = 64 * 1024;
+
+interface PendingRead {
+  resolve: (reply: string) => void;
+  reject: (err: unknown) => void;
+  timer: ReturnType<typeof setTimeout>;
+  stage: SmtpFailureStage;
 }
 
-function expectCode(response: string, code: string): void {
+/**
+ * R5 : raisons (ensemble FERMÉ, jamais un texte du serveur) pour lesquelles une réponse n'est pas une réponse SMTP valide.
+ *  - line_syntax       : une ligne n'est ni « NNN-texte » (continuation) ni « NNN texte » / « NNN » (finale), ou NNN est hors
+ *                        de la grammaire [2-5][0-5][0-9] (RFC 5321 §4.2) -- ligne vide, texte libre, code collé au texte...
+ *  - code_mismatch     : les lignes d'une même réponse ne portent pas toutes le MÊME code (ex. « 250- » puis « 550 »).
+ *  - control_character : caractère de contrôle (hors tabulation) dans le texte -- CR isolé, NUL, ESC...
+ */
+type SmtpMalformedReason = "line_syntax" | "code_mismatch" | "control_character";
+
+type ReaderFailure =
+  | { kind: "error"; error: unknown }
+  | { kind: "overflow" }
+  | { kind: "malformed"; reason: SmtpMalformedReason }
+  | { kind: "closed" };
+
+/** Ce que `takeReply` trouve dans le tampon : une réponse valide et complète, ou une violation (jamais un succès). */
+type TakenReply = { kind: "reply"; text: string } | { kind: "overflow" } | { kind: "malformed"; reason: SmtpMalformedReason };
+
+/** Une ligne de réponse (sans CRLF) : code, puis « - » (continuation) ou « SP texte » / rien (finale). */
+const REPLY_LINE = /^([2-5][0-5]\d)(?:([- ])([\s\S]*))?$/;
+/** Caractères de contrôle interdits dans le texte d'une réponse (la tabulation est admise). */
+const REPLY_CONTROL_CHARS = /[\u0000-\u0008\u000A-\u001F\u007F]/;
+
+/**
+ * Lecteur de réponses SMTP (R2, contre-audit de 7cb60a8, défaut 1).
+ *
+ * TCP/TLS ne garantit aucun découpage : une réponse peut arriver en plusieurs morceaux, au
+ * milieu d'une ligne, d'un code ou d'un caractère UTF-8. L'ancien lecteur démarrait avec un
+ * tampon VIDE à chaque lecture (donc jetait le reste d'un fragment) et prenait une ligne
+ * incomplète commençant par « 250 » pour une réponse terminée.
+ *
+ * Ici : UN seul abonnement par session, un tampon persistant, décodage UTF-8 avec état, et
+ * une réponse n'est complète qu'à sa DERNIÈRE ligne COMPLÈTE (terminée par un saut de ligne ;
+ * « 250-… » = ligne de continuation, « 250 … » ou « 250 » = dernière ligne).
+ *
+ * R3 (contre-audit de 9e38c88, P2 « faux succès SMTP, sans réception du corps du message ») :
+ * l'ancienne règle « ce qui suit la réponse consommée reste dans le tampon pour la lecture suivante »
+ * laissait un serveur répondre AVANT d'avoir reçu la commande : « 354 … » suivi, dans le même paquet,
+ * d'un « 250 … queued as X » était lu comme la réponse au CORPS du message, avant même que le corps ait
+ * été écrit. Le dialogue SMTP est strictement synchrone (aucune extension de pipelining n'est utilisée) :
+ * tout octet arrivé que le client n'a pas sollicité est une violation de protocole. `assertNoUnsolicited`
+ * est appelé AVANT chaque écriture (commande ou corps) ; une réponse ne peut donc JAMAIS précéder ce
+ * qu'elle acquitte.
+ *
+ * R5 (contre-audit de 2431eba, A196-R2-SMTP-01) : une réponse n'est pas seulement « complète », elle doit être VALIDE.
+ * `takeReply` applique la grammaire de la RFC 5321 §4.2 à CHAQUE ligne (code [2-5][0-5][0-9], puis « - », « SP texte »
+ * ou rien), exige le MÊME code sur toutes les lignes, une dernière ligne finale, et aucun caractère de contrôle ; sinon
+ * SMTP_MALFORMED_RESPONSE (temporaire). L'ancien lecteur clôturait la réponse sur n'importe quelle ligne qui n'était pas
+ * « NNN- » (ligne vide, texte libre, « 550 … ») et `expectCode` ne lisait que le préfixe de la première ligne : « 250- »
+ * suivi de « 550 EHLO refused » passait pour un 250. La borne de taille s'applique à la réponse COMPLÈTE.
+ */
+class SmtpReplyReader {
+  private buffer = "";
+  private readonly decoder = new StringDecoder("utf8");
+  private pending: PendingRead | null = null;
+  private failure: ReaderFailure | null = null;
+  private readonly socket: TLSSocket;
+  private readonly stepTimeoutMs: number;
+  private readonly onData: (chunk: Buffer | string) => void;
+  private readonly onError: (err: unknown) => void;
+  private readonly onClose: () => void;
+
+  constructor(socket: TLSSocket, stepTimeoutMs: number) {
+    this.socket = socket;
+    this.stepTimeoutMs = stepTimeoutMs;
+    this.onData = (chunk) => {
+      this.buffer += typeof chunk === "string" ? chunk : this.decoder.write(chunk);
+      if (this.pending && this.settleFromBuffer()) return;
+      if (this.buffer.length > MAX_REPLY_CHARS) this.fail({ kind: "overflow" });
+    };
+    this.onError = (err) => this.fail({ kind: "error", error: err });
+    this.onClose = () => this.fail({ kind: "closed" });
+    socket.on("data", this.onData);
+    socket.on("error", this.onError);
+    socket.on("close", this.onClose);
+    socket.on("end", this.onClose);
+  }
+
+  /** Lit la prochaine réponse COMPLÈTE, bornée par le délai d'étape. */
+  read(stage: SmtpFailureStage): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const ready = this.takeReply();
+      if (ready !== null) {
+        if (ready.kind === "reply") {
+          resolve(ready.text);
+        } else {
+          this.failure ??= ready;
+          reject(this.errorFor(ready, stage));
+        }
+        return;
+      }
+      if (this.failure) {
+        reject(this.errorFor(this.failure, stage));
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.pending = null;
+        reject(new Error("SMTP_TIMEOUT"));
+      }, this.stepTimeoutMs);
+      this.pending = { resolve, reject, timer, stage };
+    });
+  }
+
+  /**
+   * À appeler avant d'écrire une commande ou le corps du message : le tampon ne doit contenir AUCUN octet
+   * (hors sauts de ligne parasites, toujours tolérés) -- la réponse précédente a été consommée en entier et
+   * le serveur n'a, à ce stade, rien à dire de plus.
+   */
+  assertNoUnsolicited(stage: SmtpFailureStage): void {
+    if (/[^\r\n]/.test(this.buffer)) throw new SmtpSessionError("SMTP_UNSOLICITED_RESPONSE", stage);
+  }
+
+  /** Fin de session : plus d'abonnement aux données, mais un écouteur d'erreur reste (jamais d'exception non interceptée). */
+  dispose(): void {
+    this.socket.off("data", this.onData);
+    this.socket.off("close", this.onClose);
+    this.socket.off("end", this.onClose);
+    this.socket.off("error", this.onError);
+    this.socket.on("error", () => undefined);
+    const pending = this.pending;
+    this.pending = null;
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.reject(new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout"));
+    }
+  }
+
+  private settleFromBuffer(): boolean {
+    const pending = this.pending;
+    if (!pending) return false;
+    const taken = this.takeReply();
+    if (taken === null) return false;
+    clearTimeout(pending.timer);
+    this.pending = null;
+    if (taken.kind === "reply") {
+      pending.resolve(taken.text);
+    } else {
+      this.failure ??= taken;
+      pending.reject(this.errorFor(taken, pending.stage));
+    }
+    return true;
+  }
+
+  private fail(failure: ReaderFailure): void {
+    // Une réponse déjà COMPLÈTE dans le tampon reste lisible ; l'échec ne s'applique qu'à la suivante.
+    if (!this.failure) this.failure = failure;
+    const pending = this.pending;
+    if (!pending) return;
+    if (this.settleFromBuffer()) return;
+    clearTimeout(pending.timer);
+    this.pending = null;
+    pending.reject(this.errorFor(failure, pending.stage));
+  }
+
+  private errorFor(failure: ReaderFailure, stage: SmtpFailureStage): unknown {
+    if (failure.kind === "error") return failure.error;
+    if (failure.kind === "overflow") return new SmtpSessionError("SMTP_REPLY_TOO_LARGE", stage);
+    if (failure.kind === "malformed") return new SmtpSessionError(`SMTP_MALFORMED_RESPONSE: ${failure.reason}`, stage);
+    return new SmtpSessionError("SMTP_CONNECTION_CLOSED", "connect", null, "ECONNRESET");
+  }
+
+  /**
+   * Extrait du tampon la prochaine réponse VALIDE et complète, ou null s'il en manque la fin. Dès qu'une ligne COMPLÈTE
+   * viole la grammaire, la violation est rendue sans attendre la suite (jamais de succès d'étape sur une réponse invalide).
+   * Ce qui suit la ligne finale reste dans le tampon : c'est un octet non sollicité (`assertNoUnsolicited`).
+   */
+  private takeReply(): TakenReply | null {
+    let offset = 0;
+    const lines: string[] = [];
+    let code: string | null = null;
+    for (;;) {
+      const lf = this.buffer.indexOf("\n", offset);
+      if (lf === -1) return null;
+      const line = this.buffer.slice(offset, lf).replace(/\r$/, "");
+      offset = lf + 1;
+      // R5 (P3) : la borne s'applique à la réponse COMPLÈTE (tous séparateurs compris), contrôlée AVANT l'extraction.
+      if (offset > MAX_REPLY_CHARS) return { kind: "overflow" };
+      if (line === "" && lines.length === 0) continue; // reste de saut de ligne AVANT une réponse : ignoré, jamais une réponse
+      const match = REPLY_LINE.exec(line);
+      if (!match) return { kind: "malformed", reason: "line_syntax" };
+      if (code !== null && match[1] !== code) return { kind: "malformed", reason: "code_mismatch" };
+      if (REPLY_CONTROL_CHARS.test(match[3] ?? "")) return { kind: "malformed", reason: "control_character" };
+      code = match[1]!;
+      lines.push(line);
+      if (match[2] !== "-") {
+        this.buffer = this.buffer.slice(offset);
+        return { kind: "reply", text: lines.join(CRLF) };
+      }
+    }
+  }
+}
+
+function expectCode(response: string, code: string, stage: SmtpFailureStage): void {
   if (!response.startsWith(code)) {
     // Ne jamais inclure la commande envoyée (peut contenir le secret
     // AUTH LOGIN encodé) dans le message d'erreur -- uniquement la
     // réponse SERVEUR, jamais ce qui a été transmis.
-    throw new Error(`SMTP_UNEXPECTED_RESPONSE: attendu ${code}, reçu: ${response.trim().slice(0, 200)}`);
+    const status = /^\d{3}/.test(response) ? Number(response.slice(0, 3)) : null;
+    throw new SmtpSessionError(
+      `SMTP_UNEXPECTED_RESPONSE: attendu ${code}, reçu: ${response.trim().slice(0, 200)}`,
+      stage,
+      status
+    );
   }
 }
 
+/**
+ * Adresse IPv4 publique (routable) ? Refuse les plages privées, de
+ * boucle locale, de lien local, de partage opérateur, de documentation,
+ * de test et réservées/multicast. Exportée pour être testée seule.
+ */
+export function isPublicIpv4Address(address: string): boolean {
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b, c] = parts as [number, number, number, number];
+  return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113));
+}
+
+function nodeCodeOf(err: unknown): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
+}
+
+/** Convertit toute erreur de session en résultat typé, sans jamais exposer autre chose que le message historique. */
+function failureFrom(err: unknown): { ok: false; error: string } & SmtpFailureDetail {
+  if (err instanceof SmtpSessionError) {
+    return { ok: false, error: err.message, stage: err.stage, status: err.status, nodeCode: err.nodeCode };
+  }
+  const message = err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR";
+  if (message === "SMTP_TIMEOUT") return { ok: false, error: message, stage: "timeout" };
+  if (/^SMTP_INVALID_[A-Z-]+_HEADER$/.test(message)) return { ok: false, error: message, stage: "header" };
+  return { ok: false, error: message, nodeCode: nodeCodeOf(err) };
+}
+
+/**
+ * Ce que le corps d'une session peut faire : UN échange = écrire une commande (ou le corps du message), puis lire SA
+ * réponse complète. Un échange échoue (SMTP_UNSOLICITED_RESPONSE) si le serveur a envoyé quoi que ce soit que le
+ * client n'avait pas sollicité avant l'écriture (R3).
+ */
+interface SmtpDialogue {
+  exchange(stage: SmtpFailureStage, payload: string): Promise<string>;
+}
+
 async function withSmtpSession<T>(
+  io: SmtpIo,
+  limits: SmtpLimits,
   config: SmtpConfig,
-  body: (socket: TLSSocket) => Promise<T>
+  body: (session: SmtpDialogue) => Promise<T>
 ): Promise<T> {
-  const socket = await new Promise<TLSSocket>((resolve, reject) => {
-    const s = tlsConnect({ host: config.host, port: config.port, timeout: SMTP_TIMEOUT_MS }, () => resolve(s));
-    s.once("error", reject);
+  const held: { socket: TLSSocket | null; reader: SmtpReplyReader | null } = { socket: null, reader: null };
+  // Posé dès que la session est terminée (succès, échec ou délai global) : une
+  // étape encore en vol (DNS, connexion) ne doit JAMAIS poursuivre le dialogue
+  // en arrière-plan -- sinon un message pourrait partir après qu'on a rendu
+  // « délai dépassé » à l'appelant, puis être renvoyé (doublon, A196-05).
+  const state = { aborted: false };
+  const abortedError = () => new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Borne dure sur TOUTE la session (DNS, connexion, dialogue) : un hôte qui
+  // répond lentement ne peut plus retenir le worker (A196-05).
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new SmtpSessionError("SMTP_SESSION_TIMEOUT", "timeout")), limits.totalTimeoutMs);
   });
-  try {
-    const greeting = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(greeting, "220");
-
-    socket.write(`EHLO scanym.com${CRLF}`);
-    const ehloResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(ehloResp, "250");
-
-    socket.write(`AUTH LOGIN${CRLF}`);
-    const authResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(authResp, "334");
-
-    socket.write(`${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
-    const userResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(userResp, "334");
-
-    socket.write(`${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
-    const passResp = await readLine(socket, SMTP_TIMEOUT_MS);
-    expectCode(passResp, "235");
-
-    return await body(socket);
-  } finally {
+  const run = (async (): Promise<T> => {
+    // Merchant-controlled SMTP hosts must not turn this server into an SSRF
+    // proxy. Resolve once, reject private/special-use addresses, then pin the
+    // socket to the validated public IPv4 while preserving hostname SNI.
+    let addresses: Array<{ address: string; family: number }>;
     try {
-      socket.write(`QUIT${CRLF}`);
-    } catch {
-      // best-effort
+      addresses = await io.lookup(config.host);
+    } catch (err) {
+      throw new SmtpSessionError("SMTP_DNS_FAILED", "dns", null, nodeCodeOf(err));
     }
-    socket.destroy();
+    if (state.aborted) throw abortedError();
+    const address = addresses.filter((entry) => entry.family === 4).find((entry) => isPublicIpv4Address(entry.address))?.address;
+    if (!address) {
+      throw new SmtpSessionError("SMTP_HOST_NOT_PUBLIC", "host_not_public");
+    }
+    const connected = await new Promise<{ socket: TLSSocket; reader: SmtpReplyReader }>((resolve, reject) => {
+      const s = io.connect({ host: address, servername: config.host, port: config.port, timeout: limits.stepTimeoutMs }, () => {
+        s.off("timeout", onTimeout);
+        s.setTimeout(0);
+        // Le lecteur s'abonne DÈS la connexion : aucune octet de la bannière ne peut être perdu.
+        resolve({ socket: s, reader: new SmtpReplyReader(s, limits.stepTimeoutMs) });
+      });
+      const onTimeout = () => {
+        s.destroy();
+        reject(new SmtpSessionError("SMTP_TIMEOUT", "timeout"));
+      };
+      s.once("timeout", onTimeout);
+      s.once("error", (err) => reject(new SmtpSessionError(err instanceof Error ? err.message : "SMTP_CONNECT_FAILED", "connect", null, nodeCodeOf(err))));
+    });
+    const { socket, reader } = connected;
+    held.socket = socket;
+    held.reader = reader;
+    if (state.aborted) {
+      reader.dispose();
+      socket.destroy();
+      throw abortedError();
+    }
+
+    // Un seul chemin d'écriture : vérification « rien de non sollicité », écriture, lecture de SA réponse.
+    const exchange = (stage: SmtpFailureStage, payload: string): Promise<string> => {
+      try {
+        reader.assertNoUnsolicited(stage);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      socket.write(payload);
+      return reader.read(stage);
+    };
+
+    const greeting = await reader.read("greeting");
+    expectCode(greeting, "220", "greeting");
+
+    const ehloResp = await exchange("ehlo", `EHLO scanym.com${CRLF}`);
+    expectCode(ehloResp, "250", "ehlo");
+
+    const authResp = await exchange("auth", `AUTH LOGIN${CRLF}`);
+    expectCode(authResp, "334", "auth");
+
+    const userResp = await exchange("auth", `${Buffer.from(config.user, "utf8").toString("base64")}${CRLF}`);
+    expectCode(userResp, "334", "auth");
+
+    const passResp = await exchange("auth", `${Buffer.from(config.password, "utf8").toString("base64")}${CRLF}`);
+    expectCode(passResp, "235", "auth");
+
+    return await body({ exchange });
+  })();
+  try {
+    return await Promise.race([run, deadline]);
+  } finally {
+    state.aborted = true;
+    clearTimeout(timer);
+    const socket = held.socket;
+    if (socket) {
+      try {
+        socket.write(`QUIT${CRLF}`);
+      } catch {
+        // best-effort
+      }
+      held.reader?.dispose();
+      socket.destroy();
+    }
   }
 }
 
@@ -309,13 +662,23 @@ function escapeDotStuffing(body: string): string {
     .join(CRLF);
 }
 
-function buildMimeMessage(input: SmtpSendInput): string {
+function smtpHeaderValue(value: string, field: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`SMTP_INVALID_${field.toUpperCase()}_HEADER`);
+  return value;
+}
+
+export function buildSmtpMimeMessage(input: SmtpSendInput): string {
   const boundary = `scanym-gap01-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const encodedSubject = Buffer.from(smtpHeaderValue(input.subject, "subject"), "utf8").toString("base64");
+  const fromName = smtpHeaderValue(input.fromName?.trim() || "Scanym", "from-name");
+  const encodedFromName = Buffer.from(fromName, "utf8").toString("base64");
   const headers = [
-    `From: Scanym <${input.config.from}>`,
-    `To: ${input.to}`,
-    ...(input.cc ? [`Cc: ${input.cc}`] : []),
-    `Subject: ${input.subject}`,
+    `From: =?UTF-8?B?${encodedFromName}?= <${smtpHeaderValue(input.config.from, "from")}>`,
+    `To: ${smtpHeaderValue(input.to, "to")}`,
+    ...(input.replyTo ? [`Reply-To: ${smtpHeaderValue(input.replyTo, "reply-to")}`] : []),
+    ...(input.cc ? [`Cc: ${smtpHeaderValue(input.cc, "cc")}`] : []),
+    ...(input.messageId ? [`Message-ID: ${smtpHeaderValue(input.messageId, "message-id")}`] : []),
+    `Subject: =?UTF-8?B?${encodedSubject}?=`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].join(CRLF);
@@ -339,52 +702,53 @@ function buildMimeMessage(input: SmtpSendInput): string {
  * tests unitaires -- injectée par défaut uniquement dans
  * `sendWithdrawalAcknowledgement`/le endpoint de health-check.
  */
-export const realSmtpTransport: SmtpTransport = {
-  async send(input) {
-    try {
-      const messageId = await withSmtpSession(input.config, async (socket) => {
-        socket.write(`MAIL FROM:<${input.config.from}>${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
+export function createSmtpTransport(io: SmtpIo = DEFAULT_IO, limits: SmtpLimits = DEFAULT_LIMITS): SmtpTransport {
+  return {
+    async send(input) {
+      try {
+        const messageId = await withSmtpSession(io, limits, input.config, async ({ exchange }) => {
+          expectCode(await exchange("mail_from", `MAIL FROM:<${input.config.from}>${CRLF}`), "250", "mail_from");
 
-        socket.write(`RCPT TO:<${input.to}>${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
+          expectCode(await exchange("rcpt_to", `RCPT TO:<${input.to}>${CRLF}`), "250", "rcpt_to");
 
-        if (input.cc) {
-          socket.write(`RCPT TO:<${input.cc}>${CRLF}`);
-          expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "250");
-        }
+          if (input.cc) {
+            expectCode(await exchange("rcpt_to", `RCPT TO:<${input.cc}>${CRLF}`), "250", "rcpt_to");
+          }
 
-        socket.write(`DATA${CRLF}`);
-        expectCode(await readLine(socket, SMTP_TIMEOUT_MS), "354");
+          expectCode(await exchange("data", `DATA${CRLF}`), "354", "data");
 
-        const message = escapeDotStuffing(buildMimeMessage(input));
-        socket.write(`${message}${CRLF}.${CRLF}`);
-        const dataResp = await readLine(socket, SMTP_TIMEOUT_MS);
-        expectCode(dataResp, "250");
+          // Le corps n'est écrit que si le serveur n'a rien dit de plus que « 354 » (assertNoUnsolicited), et la réponse
+          // finale lue est celle qui SUIT cette écriture : jamais une réponse arrivée avant le corps (R3).
+          const message = escapeDotStuffing(buildSmtpMimeMessage(input));
+          const dataResp = await exchange("data_end", `${message}${CRLF}.${CRLF}`);
+          expectCode(dataResp, "250", "data_end");
 
-        // Le message id du prestataire, quand il en renvoie un, se
-        // trouve dans la réponse 250 (ex. "250 2.0.0 Ok: queued as
-        // <id>"). À défaut, un identifiant local est construit --
-        // toujours PRÉFIXÉ pour rester distinguable d'un id fourni
-        // par le serveur dans les preuves d'audit.
-        const match = dataResp.match(/queued as ([^\s]+)/i);
-        return match?.[1] ?? `scanym-local-${Date.now()}`;
-      });
-      return { ok: true, messageId };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR" };
-    }
-  },
+          // Le message id du prestataire, quand il en renvoie un, se
+          // trouve dans la réponse 250 (ex. "250 2.0.0 Ok: queued as
+          // <id>"). À défaut, un identifiant local est construit --
+          // toujours PRÉFIXÉ pour rester distinguable d'un id fourni
+          // par le serveur dans les preuves d'audit.
+          const match = dataResp.match(/queued as ([^\s]+)/i);
+          return match?.[1] ?? `scanym-local-${Date.now()}`;
+        });
+        return { ok: true, messageId };
+      } catch (err) {
+        return failureFrom(err);
+      }
+    },
 
-  async checkConnectivity(config) {
-    try {
-      await withSmtpSession(config, async () => undefined);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "SMTP_UNKNOWN_ERROR" };
-    }
-  },
-};
+    async checkConnectivity(config) {
+      try {
+        await withSmtpSession(io, limits, config, async () => undefined);
+        return { ok: true };
+      } catch (err) {
+        return failureFrom(err);
+      }
+    },
+  };
+}
+
+export const realSmtpTransport: SmtpTransport = createSmtpTransport();
 
 // -----------------------------------------------------------------------------
 // D. ORCHESTRATION — appelée depuis la route API de soumission,

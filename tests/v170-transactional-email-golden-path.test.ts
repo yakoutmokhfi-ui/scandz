@@ -306,8 +306,10 @@ test("1. commande éligible -> EXACTEMENT le message provider-neutre du gabarit 
   assert.deepEqual(result, { claimed: 1, sent: 1, retriedRetryable: 0, failedTerminal: 0 });
   assert.equal(provider.callCountForAssertions, 1);
   const msg = provider.sent[0]!;
-  // Forme provider-neutre : uniquement les champs de EmailMessage.
-  assert.deepEqual(Object.keys(msg).sort(), ["from", "html", "idempotencyKey", "replyTo", "subject", "text", "to"]);
+  // Forme provider-neutre : les métadonnées SMTP conservent l'identité
+  // d'expéditeur choisie par le commerçant, sans changer le corps.
+  assert.deepEqual(Object.keys(msg).sort(), ["from", "fromName", "html", "idempotencyKey", "replyTo", "subject", "text", "to"]);
+  assert.equal(msg.fromName, ALCRU.sender_name);
 
   const cap = db.caps[0]!;
   const expected = renderOrderReceivedEmail({
@@ -746,6 +748,37 @@ test("10. un type autre que order_received n'est jamais envoyé avec le gabarit 
 // --------------------------------------------------------------------
 // S. Épinglage du faux sur le SQL réel + non-dérive des types.
 // --------------------------------------------------------------------
+
+test("9b. worker : le provider est résolu pour le restaurant de chaque ligne, jamais par lot partagé", async (t) => {
+  const db = makeFakeDb();
+  install(t, db);
+  const first = db.addTenant(ALCRU);
+  const second = db.addTenant({ sender_name: "Autre commerce", sender_email: "other@merchant.test", reply_to: null });
+  db.enqueue(db.addOrder(first), { recipient: "one@client.test" });
+  db.enqueue(db.addOrder(second), { recipient: "two@client.test" });
+  const firstProvider = new FakeEmailProvider();
+  const secondProvider = new FakeEmailProvider();
+  const result = await processPendingNotifications(new FakeEmailProvider(), {
+    providerForNotification: async (notification) => notification.restaurantId === first ? firstProvider : secondProvider,
+  });
+  assert.equal(result.sent, 2);
+  assert.deepEqual(firstProvider.sent.map((message) => message.to), ["one@client.test"]);
+  assert.deepEqual(secondProvider.sent.map((message) => message.to), ["two@client.test"]);
+});
+
+test("9c. provider marchand indisponible : notification réessayable, aucune capacité ni envoi", async (t) => {
+  const db = makeFakeDb();
+  install(t, db);
+  const tenant = db.addTenant(ALCRU);
+  const order = db.addOrder(tenant);
+  const row = db.enqueue(order, { recipient: "client@example.test" });
+  const provider = new FakeEmailProvider();
+  const result = await processPendingNotifications(provider, { providerForNotification: async () => null });
+  assert.equal(result.retriedRetryable, 1);
+  assert.equal(provider.sent.length, 0);
+  assert.equal(db.caps.length, 0);
+  assert.equal(row.status, "failed_retryable");
+});
 
 test("S1. le faux reproduit le barème SQL : 30/120/600/1800 s, 5 tentatives max, succès -> sent, terminal/plafond -> failed_terminal", () => {
   const body = N1A_SQL.slice(N1A_SQL.indexOf("create function public.complete_notification_attempt("));

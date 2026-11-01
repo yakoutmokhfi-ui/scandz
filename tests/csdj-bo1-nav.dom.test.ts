@@ -11,7 +11,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
 // ====================================================================
-// CSDJ-BO-1 — HUITIÈME ONGLET : MATRICE COMPLÈTE DE L'ÉTAT ACTIF.
+// CSDJ-BO-1 — ONGLET DE NAVIGATION : MATRICE COMPLÈTE DE L'ÉTAT ACTIF.
 //
 // Le défaut L1B-02 (contre-audit LOT 1B.1) s'est produit parce que
 // l'onglet « Commandes » n'a pas de route propre : il est un repli
@@ -20,7 +20,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // est oublié un jour sur deux.
 //
 // Ce fichier ne teste pas « la nouvelle route fonctionne » : il teste
-// les HUIT routes, une par une, et vérifie pour chacune qu'un seul
+// toutes les routes, une par une, et vérifie pour chacune qu'un seul
 // onglet est actif. C'est la seule forme qui attrape la régression
 // dans l'autre sens -- un onglet ancien qui redeviendrait actif sur la
 // nouvelle route, ou l'inverse.
@@ -96,7 +96,7 @@ rmSync(tmpDir, { recursive: true, force: true });
 
 const ACTIVE_CLASS = "bg-stone-900";
 
-/** Les huit routes, et l'onglet qui doit être actif sur chacune. */
+/** Les routes, et l'onglet qui doit être actif sur chacune. */
 const ROUTES: Array<[route: string, activeHref: string]> = [
   ["/dashboard", "/dashboard?"],
   ["/dashboard/catalogue", "/dashboard/catalogue"],
@@ -106,6 +106,7 @@ const ROUTES: Array<[route: string, activeHref: string]> = [
   ["/dashboard/payment", "/dashboard/payment"],
   ["/dashboard/legal-cgv", "/dashboard/legal-cgv"],
   ["/dashboard/translations", "/dashboard/translations"],
+  ["/dashboard/email", "/dashboard/email"],
 ];
 
 function render(pathname: string) {
@@ -132,12 +133,12 @@ function tabs(container: Element): HTMLAnchorElement[] {
   return Array.from(container.querySelectorAll("nav a")) as HTMLAnchorElement[];
 }
 
-test("[BO1-NAV-DOM-1] le huitième onglet existe, porte le libellé attendu et conserve l'établissement", async () => {
+test("[BO1-NAV-DOM-1] l'onglet Disponibilités conserve le libellé et l'établissement, l'onglet E-mails est ajouté", async () => {
   const { container, root } = render("/dashboard/availability");
   await flush();
 
   const links = tabs(container);
-  assert.equal(links.length, 8, "la barre doit compter huit onglets");
+  assert.equal(links.length, 9, "la barre compte neuf onglets avec E-mails");
   const target = links.find((a) => (a.getAttribute("href") ?? "").includes("/dashboard/availability"));
   assert.ok(target, "un lien vers /dashboard/availability doit exister");
   assert.ok(
@@ -148,6 +149,7 @@ test("[BO1-NAV-DOM-1] le huitième onglet existe, porte le libellé attendu et c
     (target!.textContent ?? "").includes("Mise à disposition"),
     "le libellé complet doit être présent dans le DOM"
   );
+  assert.ok(links.some((a) => a.getAttribute("href")?.includes("/dashboard/email")), "le nouvel onglet E-mails doit être présent");
 
   // Placé juste après « Tarifs de livraison » : les deux règlent la
   // même chose, la mise à disposition.
@@ -160,7 +162,7 @@ test("[BO1-NAV-DOM-1] le huitième onglet existe, porte le libellé attendu et c
   container.remove();
 });
 
-test("[BO1-NAV-DOM-2] sur CHACUNE des huit routes, un seul onglet est actif (matrice complète, L1B-02)", async () => {
+test("[BO1-NAV-DOM-2] sur CHAQUE route, un seul onglet est actif (matrice complète, L1B-02)", async () => {
   for (const [route, activeHref] of ROUTES) {
     const { container, root } = render(route);
     await flush();
@@ -212,7 +214,7 @@ test("[BO1-NAV-DOM-4] une route inconnue laisse « Commandes » actif, et aucun 
   container.remove();
 });
 
-test("[BO1-NAV-DOM-5] les sept onglets antérieurs sont intacts : mêmes routes, même ordre relatif", async () => {
+test("[BO1-NAV-DOM-5] les huit onglets antérieurs restent dans le même ordre et E-mails est ajouté en dernier", async () => {
   const { container, root } = render("/dashboard");
   await flush();
 
@@ -226,6 +228,7 @@ test("[BO1-NAV-DOM-5] les sept onglets antérieurs sont intacts : mêmes routes,
     "/dashboard/payment",
     "/dashboard/legal-cgv",
     "/dashboard/translations",
+    "/dashboard/email",
   ]);
 
   root.unmount();
