@@ -75,6 +75,7 @@ test("porte ouverte : reap puis claim avec les bornes du module de limites (lot 
   const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
     rpcCalls.push({ name, args });
+    if (name === "recover_new_order_received_notifications") return { data: [{ recovered: 0, failed: 0 }], error: null };
     if (name === "reap_stale_notification_claims") return { data: 2, error: null };
     if (name === "claim_pending_notifications") return { data: [], error: null };
     throw new Error(`RPC inattendue : ${name}`);
@@ -86,8 +87,8 @@ test("porte ouverte : reap puis claim avec les bornes du module de limites (lot 
     assert.equal(body.ok, true);
     assert.equal(body.reaped, 2);
   });
-  assert.deepEqual(rpcCalls.map((c) => c.name), ["reap_stale_notification_claims", "claim_pending_notifications"]);
-  assert.deepEqual(rpcCalls[1]!.args, { p_batch_size: limits.WORKER_BATCH_SIZE, p_lease_seconds: limits.WORKER_LEASE_SECONDS });
+  assert.deepEqual(rpcCalls.map((c) => c.name), ["recover_new_order_received_notifications", "reap_stale_notification_claims", "claim_pending_notifications"]);
+  assert.deepEqual(rpcCalls[2]!.args, { p_batch_size: limits.WORKER_BATCH_SIZE, p_lease_seconds: limits.WORKER_LEASE_SECONDS });
 });
 
 test("panne de la base : 503 générique, aucun détail", async (t) => {
