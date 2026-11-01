@@ -133,6 +133,51 @@ test("rollback refuses to discard order-help translations", async () => {
   await assert.rejects(() => pg.exec(ROLLBACK),/communication text translations exist/);
 });
 
+test("AUD203-01 rollback refuses altered functions and columns without mutation", async () => {
+  const cases = [
+    "alter function public.get_restaurant_public_order_help_texts(uuid) security invoker",
+    "create or replace function public.get_restaurant_public_order_help_texts(p_restaurant_id uuid) returns table(text_key text, body text, body_hash text, translations jsonb) language sql stable security definer set search_path='' as $$ select null::text,null::text,null::text,null::jsonb where false $$",
+    "grant execute on function public.write_order_help_translation(uuid,text,text,text,text,text) to anon",
+    "revoke execute on function public.get_restaurant_public_order_help_texts(uuid) from anon",
+    "alter function public.write_order_help_translation(uuid,text,text,text,text,text) strict",
+    "alter table public.merchant_communication_text alter column translations set default '{}'::jsonb",
+  ];
+  for (const mutation of cases) {
+    const pg = await db();
+    await pg.exec(mutation);
+    const snapshot = async () => ({
+      functions: (await pg.query(`select p.oid::regprocedure::text signature,p.prosrc,p.prosecdef,p.proisstrict,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('get_restaurant_public_order_help_texts','write_order_help_translation') order by 1`)).rows,
+      columns: (await pg.query(`select a.attname, format_type(a.atttypid,a.atttypmod) type,a.attgenerated,pg_get_expr(d.adbin,d.adrelid) expr from pg_attribute a left join pg_attrdef d on d.adrelid=a.attrelid and d.adnum=a.attnum where a.attrelid='public.merchant_communication_text'::regclass and a.attname in ('body_hash','translations') order by 1`)).rows,
+    });
+    const before = await snapshot();
+    await assert.rejects(pg.exec(ROLLBACK), /SCANYM_PREDECESSOR_DRIFT/, mutation);
+    await pg.exec('rollback');
+    assert.deepEqual(await snapshot(), before, mutation);
+    await pg.close();
+  }
+});
+
+test("AUD203-01 accepts full CRLF function bodies but refuses mixed endings", async () => {
+  const signatures = ['public.get_restaurant_public_order_help_texts(uuid)', 'public.write_order_help_translation(uuid,text,text,text,text,text)'];
+  for (const mixed of [false, true]) {
+    const pg = await db();
+    for (const signature of signatures) {
+      const definition = (await pg.query<{ definition: string }>('select pg_get_functiondef($1::regprocedure) definition', [signature])).rows[0]!.definition;
+      const crlf = mixed
+        ? definition.replace(/(AS \$function\$)([\s\S]*?)(\$function\$)/i, (_all, open: string, body: string, close: string) => open + body.replace('\n', '\r\n') + close)
+        : definition.replaceAll('\n', '\r\n');
+      await pg.exec(crlf);
+    }
+    if (mixed) {
+      await assert.rejects(pg.exec(ROLLBACK), /SCANYM_PREDECESSOR_DRIFT/);
+      await pg.exec('rollback');
+    } else {
+      await pg.exec(ROLLBACK);
+    }
+    await pg.close();
+  }
+});
+
 test("translation migration refuses to run before the approved 5000-character help-body limit", async () => {
   const pg = new PGlite();
   await pg.exec(`
