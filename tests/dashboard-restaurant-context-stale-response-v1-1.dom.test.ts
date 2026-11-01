@@ -192,6 +192,7 @@ const mocks: Record<string, string> = {
   // Même motif que les talons ci-dessus ; aucune assertion modifiée.
   "@/lib/services/merchant-communications": `
 export async function getMerchantCommunicationTexts() { return {}; }
+export async function getMerchantOrderHelpTexts() { return []; }
 export async function getMerchantCommunicationEvents() { return {}; }
 export async function setMerchantCommunicationText() {}
 export async function setMerchantCommunicationEventEnabled() {}

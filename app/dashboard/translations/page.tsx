@@ -483,7 +483,11 @@ export default function TranslationsPage() {
   ) {
     if (!targetLang) return;
     try {
-      await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status, entityType === "order_help" ? sourceHash : null);
+      if (entityType === "order_help") {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status, sourceHash);
+      } else {
+        await writeTranslation(restaurantId, entityType, entityId, field, targetLang, value, status);
+      }
       await load(restaurantId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Échec de l'enregistrement");

@@ -90,7 +90,7 @@ begin
   if not found then
     raise exception using errcode='P0002', message='Order-help source text not configured';
   end if;
-  if p_expected_source_hash is not null and p_expected_source_hash is distinct from v_hash then
+  if p_expected_source_hash is null or p_expected_source_hash is distinct from v_hash then
     raise exception using errcode='40001', message='SCANYM_TRANSLATION_SOURCE_CHANGED';
   end if;
   v_value := nullif(pg_catalog.btrim(coalesce(p_value,'')), '');
@@ -105,10 +105,14 @@ begin
   end if;
   if v_value is null then
     update public.merchant_communication_text
-    set translations = coalesce(translations, '{}'::jsonb)
-      || jsonb_build_object(p_lang,
-        coalesce(translations->p_lang,'{}'::jsonb) - p_text_key
+    set translations = case
+      when (coalesce(translations->p_lang,'{}'::jsonb) - p_text_key
+          - (p_text_key || '_status') - (p_text_key || '_source_hash')) = '{}'::jsonb
+        then coalesce(translations, '{}'::jsonb) - p_lang
+      else coalesce(translations, '{}'::jsonb)
+        || jsonb_build_object(p_lang, coalesce(translations->p_lang,'{}'::jsonb) - p_text_key
           - (p_text_key || '_status') - (p_text_key || '_source_hash'))
+      end
     where restaurant_id=p_restaurant_id and text_key=p_text_key;
   else
     update public.merchant_communication_text

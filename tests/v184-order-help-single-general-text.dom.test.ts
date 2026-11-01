@@ -447,6 +447,27 @@ test("[TR-OH-1] le bouton, le titre et le texte d'aide utilisent la traduction v
   container.remove();
 });
 
+test("[TR-OH-2] une traduction de l'ancienne source n'est pas affichée avec la nouvelle source", async () => {
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    const communicationTexts = { order_help_button_label: "Nouvelle instruction", order_help_body: "Nouveau texte" };
+    const translatedTexts = [
+      { text_key: "order_help_button_label", body: "Ancienne instruction", body_hash: "old", translations: { en: { order_help_button_label: "Old instruction", order_help_button_label_status: "validated", order_help_button_label_source_hash: "old" } } },
+      { text_key: "order_help_body", body: "Ancien texte", body_hash: "old-body", translations: { en: { order_help_body: "Old text", order_help_body_status: "validated", order_help_body_source_hash: "old-body" } } },
+    ] as const;
+    root.render(React.createElement(I18nProvider, { lang: "en", sourceLanguage: "fr", children: React.createElement(OrderHelpButton, { communicationTexts, translatedTexts }) }));
+    await flush();
+    const trigger = [...container.querySelectorAll("button")].find((button) => button.textContent === "Nouvelle instruction");
+    assert.ok(trigger);
+    click(trigger);
+    await flush();
+    assert.equal(container.querySelector("[data-order-help-body]")?.textContent, "Nouveau texte");
+    assert.ok(!container.textContent?.includes("Old text"));
+  } finally { root.unmount(); container.remove(); }
+});
+
 test("[184-HELP-2] l'aide générale ne varie pas avec le nombre de règles", async (t) => {
   const snap = async (n: number) => {
     mockRpcHelp(t, Array.from({ length: n }, (_, i) => ruleRow(i, [`7500${i}`], SHARED_RULE_TEXT, i === n - 1)));
