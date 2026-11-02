@@ -233,7 +233,7 @@ function installWorkerRpc(t: any, payload: Record<string, unknown>) {
   let claimedOnce = false;
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
     switch (name) {
-      case "claim_pending_notifications": {
+      case "claim_new_order_notifications": {
         if (claimedOnce) return { data: [], error: null };
         claimedOnce = true;
         return {

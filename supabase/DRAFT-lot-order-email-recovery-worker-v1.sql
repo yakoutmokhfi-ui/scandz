@@ -27,6 +27,28 @@ begin
   perform n.id, n.order_id, n.restaurant_id, n.notification_type, n.status, n.created_at,
     n.next_attempt_at, n.claimed_at, n.claim_token, n.claim_expires_at,
     n.recipient_email, n.locale, n.payload_snapshot, n.attempt_count from public.notification_outbox n limit 0;
+  -- Verify the exact types used by the worker, before creating any objects.
+  if exists (
+    select 1 from (values
+      ('orders','id','uuid'), ('orders','restaurant_id','uuid'),
+      ('orders','order_received_notification_intent_at','timestamptz'),
+      ('orders','customer_email','text'), ('orders','payment_status','text'), ('orders','payment_mode_final','text'),
+      ('merchant_notification_profile','restaurant_id','uuid'), ('merchant_notification_profile','email_enabled','bool'),
+      ('merchant_notification_profile','sender_name','text'), ('merchant_notification_profile','sender_email','text'), ('merchant_notification_profile','reply_to','text'),
+      ('merchant_email_provider_config','restaurant_id','uuid'), ('merchant_email_provider_config','enabled','bool'), ('merchant_email_provider_config','secret_ciphertext','text'),
+      ('notification_outbox','id','uuid'), ('notification_outbox','order_id','uuid'), ('notification_outbox','restaurant_id','uuid'),
+      ('notification_outbox','notification_type','text'), ('notification_outbox','status','text'),
+      ('notification_outbox','created_at','timestamptz'), ('notification_outbox','next_attempt_at','timestamptz'),
+      ('notification_outbox','claimed_at','timestamptz'), ('notification_outbox','claim_expires_at','timestamptz'),
+      ('notification_outbox','claim_token','uuid'), ('notification_outbox','recipient_email','text'),
+      ('notification_outbox','locale','text'), ('notification_outbox','payload_snapshot','jsonb'), ('notification_outbox','attempt_count','int4')
+    ) expected(table_name, column_name, type_name)
+    left join pg_catalog.pg_class t on t.oid = pg_catalog.to_regclass('public.' || expected.table_name)
+    left join pg_catalog.pg_attribute a on a.attrelid = t.oid and a.attname = expected.column_name and not a.attisdropped
+    where a.atttypid is distinct from pg_catalog.to_regtype(expected.type_name)::oid
+  ) then
+    raise exception 'SCANYM_SCHEMA_DRIFT: incompatible recovery worker column type';
+  end if;
 end $$;
 
 -- Keep activation changes serialized with the initial snapshot and trigger

@@ -182,7 +182,7 @@ function claimRow(payloadExtra: Record<string, unknown> = {}, overrides: Record<
 function installWorkerBackend(t: any, rows: Array<Record<string, unknown>>) {
   const completed: Array<Record<string, unknown>> = [];
   t.mock.method(adminClient, "rpc", async (name: string, args: Record<string, any>) => {
-    if (name === "claim_pending_notifications") return { data: rows.splice(0), error: null };
+    if (name === "claim_new_order_notifications") return { data: rows.splice(0), error: null };
     if (name === "complete_notification_attempt") {
       completed.push(args);
       return { data: null, error: null };

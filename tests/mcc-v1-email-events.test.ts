@@ -103,7 +103,7 @@ function installWorkerBackend(
   const backend: Backend = { completed: [], rpcNames: [], capabilityIssuances: 0 };
   t.mock.method(adminClient, "rpc", async (name: string, args: Record<string, unknown>) => {
     backend.rpcNames.push(name);
-    if (name === "claim_pending_notifications") return { data: rows.splice(0), error: null };
+    if (name === "claim_new_order_notifications") return { data: rows.splice(0), error: null };
     if (name === "complete_notification_attempt") {
       backend.completed.push(args);
       return { data: null, error: null };
@@ -348,7 +348,7 @@ test("[DISABLED-1] un événement non activé n'est jamais réclamé : aucun env
   assert.deepEqual(result, { claimed: 0, sent: 0, retriedRetryable: 0, failedTerminal: 0 });
   assert.equal(provider.callCountForAssertions, 0);
   assert.equal(backend.capabilityIssuances, 0);
-  assert.deepEqual(backend.rpcNames, ["claim_pending_notifications"]);
+  assert.deepEqual(backend.rpcNames, ["claim_new_order_notifications"]);
 });
 
 test("[DISABLED-2] les 8 types placeholders N1-A restent SANS émission active -- comportement inchangé", async (t) => {
@@ -560,7 +560,7 @@ test("[EVENT-TEMPLATE-2] changer le gabarit APRÈS l'enfilement ne change pas le
   assert.ok(provider.sent[0]!.text.includes("GABARIT AU MOMENT DE L'ENFILEMENT"));
   assert.deepEqual(
     backend.rpcNames,
-    ["claim_pending_notifications", "complete_notification_attempt"],
+    ["claim_new_order_notifications", "complete_notification_attempt"],
     "aucune lecture de merchant_communication_text au moment de l'envoi"
   );
   // Le pendant SQL -- modifier la ligne marchande puis relire

@@ -158,7 +158,7 @@ function install(t: { mock: { method: Function } }, db: FakeDb, notifications: A
     return db.rpc(name, args);
   });
   t.mock.method(adminClient, "rpc", async (name: string, args: Record<string, any>) => {
-    if (name === "claim_pending_notifications") return { data: notifications.splice(0), error: null };
+    if (name === "claim_new_order_notifications") return { data: notifications.splice(0), error: null };
     if (name === "complete_notification_attempt") return { data: null, error: null };
     return db.rpc(name, args);
   });
@@ -542,7 +542,7 @@ test("K'. le worker n'envoie JAMAIS d'e-mail sans lien valide : panne d'émissio
 
   const pending = [claimRow(order.id, order.publicToken)];
   t.mock.method(adminClient, "rpc", async (name: string, args: Record<string, any>) => {
-    if (name === "claim_pending_notifications") return { data: pending.splice(0), error: null };
+    if (name === "claim_new_order_notifications") return { data: pending.splice(0), error: null };
     if (name === "complete_notification_attempt") {
       results.push(args);
       return { data: null, error: null };

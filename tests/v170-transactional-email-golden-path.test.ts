@@ -162,7 +162,7 @@ function makeFakeDb() {
   async function rpc(name: string, args: Record<string, any>) {
     rpcCalls.push({ name, args });
     switch (name) {
-      case "claim_pending_notifications": {
+      case "claim_new_order_notifications": {
         const batch = Math.max(1, Math.min(args.p_batch_size ?? 10, 100));
         const lease = Math.max(1, Math.min(args.p_lease_seconds ?? 60, 3600));
         const eligible = outbox

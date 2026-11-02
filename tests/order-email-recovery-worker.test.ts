@@ -120,3 +120,35 @@ test("recovery only enqueues new, eligible orders once and preserves the histori
     await assert.rejects(db.exec("set role authenticated; select * from public.recover_new_order_received_notifications(25)"), /permission denied/i);
   } finally { await db.close(); }
 });
+
+test("migration refuses incompatible column types before creating objects", async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`
+      create role anon; create role authenticated; create role service_role;
+      create table public.orders (id uuid primary key, restaurant_id uuid not null,
+        order_received_notification_intent_at timestamptz, customer_email text,
+        payment_status text, payment_mode_final text);
+      create table public.merchant_notification_profile (restaurant_id uuid primary key, email_enabled boolean, sender_name text, sender_email text, reply_to text);
+      create table public.merchant_email_provider_config (restaurant_id uuid primary key, enabled boolean, secret_ciphertext text);
+      create table public.notification_outbox (order_id uuid, restaurant_id uuid, notification_type text, id uuid default gen_random_uuid(),
+        status text default 'pending', created_at timestamptz default now(), next_attempt_at timestamptz,
+        claimed_at timestamptz, claim_token uuid, claim_expires_at timestamptz, recipient_email text,
+        locale text, payload_snapshot jsonb, attempt_count integer default 0,
+        unique (order_id, restaurant_id, notification_type));
+      create function public.notification_send_gate_open(uuid,text) returns boolean language sql as 'select true';
+      insert into public.merchant_notification_profile (restaurant_id,email_enabled) values ('00000000-0000-0000-0000-000000000001',true);
+      create function public.create_order_received_notification(uuid,uuid) returns uuid language plpgsql as $f$
+      begin
+        insert into public.notification_outbox (order_id,restaurant_id,notification_type) values ($1,$2,'order_received') on conflict do nothing;
+        return $1;
+      end $f$;
+    `);
+    await db.exec("alter table public.orders alter column payment_mode_final type boolean using null::boolean");
+    const sql = readFileSync(new URL("../supabase/DRAFT-lot-order-email-recovery-worker-v1.sql", import.meta.url), "utf8");
+    await assert.rejects(db.exec(sql), /SCANYM_SCHEMA_DRIFT: incompatible recovery worker column type/);
+    await db.exec("rollback");
+    const result = await db.query<{ boundary: string | null }>("select to_regclass('public.order_email_recovery_boundary')::text as boundary");
+    assert.equal(result.rows[0]?.boundary, null);
+  } finally { await db.close(); }
+});
