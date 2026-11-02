@@ -62,7 +62,7 @@ export default function PhotoLightbox({
       aria-modal="true"
       aria-label={alt}
       data-photo-lightbox=""
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-espresso/90 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4"
       onClick={() => onCloseRef.current()}
     >
       <button

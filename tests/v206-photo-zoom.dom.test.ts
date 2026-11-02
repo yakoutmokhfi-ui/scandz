@@ -220,3 +220,13 @@ test("[206-ZOOM-lang] libellé du bouton localisé FR / EN / AR / NL", async () 
 });
 
 after(() => { for (const v of tracked) { try { v.root.unmount(); } catch {} v.container.remove(); } dom.window.close(); });
+
+// [206-BACKDROP] le fond de la fenêtre doit utiliser une classe qui génère
+// réellement une règle CSS (bg-espresso/90 n'en générait aucune : la couleur
+// est une variable CSS, Tailwind ne peut pas lui appliquer d'opacité).
+import { readFileSync as __rf206 } from "node:fs";
+test("[206-BACKDROP] fond opaque à 85 % via une classe valide", () => {
+  const src = __rf206(new URL("../components/PhotoLightbox.tsx", import.meta.url), "utf8");
+  assert.match(src, /bg-black\/85/);
+  assert.doesNotMatch(src, /bg-espresso\/\d+/);
+});
