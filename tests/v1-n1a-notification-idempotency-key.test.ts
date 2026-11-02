@@ -77,7 +77,7 @@ function claimRow(overrides: Record<string, unknown> = {}) {
 // --------------------------------------------------------------
 test("idempotency #1 : premier traitement reçoit la clé stable scanym:notification:<outbox_id>", async (t) => {
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") return { data: null, error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -98,7 +98,7 @@ test("idempotency #2 : retry après échec réessayable reçoit la MÊME clé qu
 
   // Tentative 1 : attempt_count=0 (attemptNumber=1) -> échec réessayable.
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow({ attempt_count: 0 })], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow({ attempt_count: 0 })], error: null };
     if (name === "complete_notification_attempt") return { data: null, error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -110,7 +110,7 @@ test("idempotency #2 : retry après échec réessayable reçoit la MÊME clé qu
   // MÊME outbox_id, nouveau claim_token -- le worker relit la ligne via
   // claim_pending_notifications à chaque appel) -> succès cette fois.
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return { data: [claimRow({ attempt_count: 1, claim_token: "ffffffff-0000-4000-8000-000000000002" })], error: null };
     }
     if (name === "complete_notification_attempt") return { data: null, error: null };
@@ -135,7 +135,7 @@ test("idempotency #3 : récupération après bail périmé (nouveau claim_token)
   // crash (aucune tentative n'a été complétée), mais un nouveau
   // claim_token est émis par la réclamation suivante.
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return {
         data: [claimRow({ attempt_count: 0, claim_token: "99999999-0000-4000-8000-000000000009" })],
         error: null,
@@ -156,7 +156,7 @@ test("idempotency #3 : récupération après bail périmé (nouveau claim_token)
 // --------------------------------------------------------------
 test("idempotency #4 : deux notifications distinctes (outbox_id différents) reçoivent des clés DIFFÉRENTES", async (t) => {
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return {
         data: [
           claimRow({ outbox_id: "11111111-0000-4000-8000-000000000001", order_id: "order-1" }),
@@ -189,7 +189,7 @@ test("idempotency #5 : p_attempt_number varie (1 puis 2) tandis que idempotencyK
   for (const attemptCount of [0, 1, 2]) {
     let completeArgs: Record<string, unknown> | null = null;
     routeRpc(t, (name, args) => {
-      if (name === "claim_pending_notifications") return { data: [claimRow({ attempt_count: attemptCount })], error: null };
+      if (name === "claim_new_order_notifications") return { data: [claimRow({ attempt_count: attemptCount })], error: null };
       if (name === "complete_notification_attempt") {
         completeArgs = args;
         return { data: null, error: null };
@@ -215,7 +215,7 @@ test("idempotency #5 : p_attempt_number varie (1 puis 2) tandis que idempotencyK
 // --------------------------------------------------------------
 test("idempotency #6 : provider.sent[i].idempotencyKey est directement assertable après un traitement via le worker", async (t) => {
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") return { data: null, error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });
@@ -254,7 +254,7 @@ test("idempotency #7 : simulation crash worker (send() réussi, complete jamais 
   // Notifications().
   let firstSendKey: string | null = null;
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow({ attempt_count: 0 })], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow({ attempt_count: 0 })], error: null };
     if (name === "complete_notification_attempt") {
       throw new Error("SIMULATED_TRANSPORT_FAILURE_DURING_CRASH");
     }
@@ -269,7 +269,7 @@ test("idempotency #7 : simulation crash worker (send() réussi, complete jamais 
   // complétion n'a jamais été enregistrée). Le worker suivant la
   // réclame de nouveau (nouveau claim_token) et RÉUSSIT cette fois.
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") {
+    if (name === "claim_new_order_notifications") {
       return { data: [claimRow({ attempt_count: 0, claim_token: "abababab-0000-4000-8000-00000000000a" })], error: null };
     }
     if (name === "complete_notification_attempt") return { data: null, error: null };
@@ -296,7 +296,7 @@ test("idempotency #7 : simulation crash worker (send() réussi, complete jamais 
 // --------------------------------------------------------------
 test("idempotency #8 : chaque provider utilisé dans ce fichier est FakeEmailProvider (name === 'fake'), aucun envoi réel possible", async (t) => {
   routeRpc(t, (name) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow()], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow()], error: null };
     if (name === "complete_notification_attempt") return { data: null, error: null };
     throw new Error(`RPC inattendue : ${name}`);
   });

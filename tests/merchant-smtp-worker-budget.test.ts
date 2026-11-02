@@ -41,7 +41,7 @@ function claimRow(n: number) {
 function rpcWorld(t: { mock: { method: Function } }, rows: ReturnType<typeof claimRow>[]) {
   const completed: Array<Record<string, unknown>> = [];
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
-    if (name === "claim_pending_notifications") return { data: rows, error: null };
+    if (name === "claim_new_order_notifications") return { data: rows, error: null };
     if (name === "issue_order_email_tracking_capability") return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null };
     if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
     throw new Error(`RPC inattendue : ${name}`);
@@ -112,7 +112,7 @@ test("R2 résolution du fournisseur plus lente que prévu : la date limite est r
   const clock = controlledWallClock(t);
   let capabilityIssued = 0;
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
     if (name === "issue_order_email_tracking_capability") { capabilityIssued += 1; return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null }; }
     if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
     throw new Error(`RPC inattendue : ${name}`);
@@ -135,7 +135,7 @@ test("R2 émission de la capacité de suivi plus lente que prévu : la date limi
   const completed: Array<Record<string, unknown>> = [];
   const clock = controlledWallClock(t);
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
-    if (name === "claim_pending_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
+    if (name === "claim_new_order_notifications") return { data: [claimRow(1), claimRow(2)], error: null };
     if (name === "issue_order_email_tracking_capability") {
       await nextTurn();
       clock.advance(90);

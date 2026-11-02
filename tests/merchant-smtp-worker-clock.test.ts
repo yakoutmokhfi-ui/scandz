@@ -39,8 +39,9 @@ function claimRow(n: number) {
 function rpcWorld(t: { mock: { method: Function } }, rows: ReturnType<typeof claimRow>[]) {
   const completed: Array<Record<string, unknown>> = [];
   t.mock.method(client, "rpc", async (name: string, args: Record<string, unknown>) => {
+    if (name === "recover_new_order_received_notifications") return { data: [{ recovered: 0, failed: 0 }], error: null };
     if (name === "reap_stale_notification_claims") return { data: 0, error: null };
-    if (name === "claim_pending_notifications") return { data: rows, error: null };
+    if (name === "claim_new_order_notifications") return { data: rows, error: null };
     if (name === "issue_order_email_tracking_capability") return { data: [{ capability_id: "ffffffff-0000-4000-8000-00000000000c", capability_secret: "c0".repeat(32) }], error: null };
     if (name === "complete_notification_attempt") { completed.push(args); return { data: null, error: null }; }
     throw new Error(`RPC inattendue : ${name}`);
