@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { MenuItem } from "@/lib/types";
 import { formatPrice } from "@/lib/whatsapp";
 import QuantityControl from "@/components/QuantityControl";
@@ -8,6 +8,7 @@ import InlineOptions from "@/components/InlineOptions";
 import Ltr from "@/components/Bidi";
 import ProductInfoButton from "@/components/ProductInfoButton";
 import ProductPhotoPlaceholder from "@/components/ProductPhotoPlaceholder";
+import PhotoLightbox from "@/components/PhotoLightbox";
 import ProductTags from "@/components/ProductTags";
 import { productPhotoThumbnailUrl } from "@/lib/product-photo-thumbnail";
 import { isSoldOut } from "@/lib/storefront-sold-out";
@@ -68,6 +69,20 @@ export default function MenuItemCard({
       ? item.image_url
       : productPhotoThumbnailUrl(item.image_url)
     : "";
+  // Agrandissement au clic, en qualité d'origine (jamais la miniature).
+  const [zoomed, setZoomed] = useState(false);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const closeZoom = () => {
+    setZoomed(false);
+    openerRef.current?.focus();
+  };
+  const zoomLabel = t("enlargePhoto", { name: tName(item, lang, sourceLanguage) });
+  const lightbox =
+    zoomed && item.image_url ? (
+      <PhotoLightbox src={item.image_url} alt={tName(item, lang, sourceLanguage)} onClose={closeZoom} />
+    ) : null;
+  const zoomClass = (radius: string) =>
+    `block shrink-0 cursor-zoom-in ${radius} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-caramel`;
   const onPhotoError = () => {
     if (!useOriginal && photoSrc !== item.image_url) setUseOriginal(true);
     else setPhotoFailed(true);
@@ -145,8 +160,10 @@ export default function MenuItemCard({
   if (isInline) {
     return (
       <article className={cardClasses}>
+        {lightbox}
         <div className="flex gap-3">
           {hasPhoto ? (
+            <button type="button" ref={openerRef} onClick={() => setZoomed(true)} aria-label={zoomLabel} aria-haspopup="dialog" className={zoomClass(imageRadius)}>
             <img
               src={photoSrc}
               alt={item.name}
@@ -157,6 +174,7 @@ export default function MenuItemCard({
               onError={onPhotoError}
               className={`h-24 w-24 shrink-0 object-cover ${imageRadius}`}
             />
+            </button>
           ) : (
             <ProductPhotoPlaceholder
               className={`h-24 w-24 shrink-0 ${imageRadius}`}
@@ -211,7 +229,9 @@ export default function MenuItemCard({
       className={`flex gap-3 ${cardClasses}`}
       data-sold-out={soldOut ? "true" : undefined}
     >
+      {lightbox}
       {hasPhoto ? (
+        <button type="button" ref={openerRef} onClick={() => setZoomed(true)} aria-label={zoomLabel} aria-haspopup="dialog" className={zoomClass(imageRadius)}>
         <img
           src={photoSrc}
           alt={item.name}
@@ -222,6 +242,7 @@ export default function MenuItemCard({
           onError={onPhotoError}
           className={`h-28 w-28 shrink-0 object-cover ${imageRadius}${soldOut ? " opacity-60" : ""}`}
         />
+        </button>
       ) : (
         <ProductPhotoPlaceholder className={`h-28 w-28 shrink-0 ${imageRadius}`} />
       )}
