@@ -57,6 +57,13 @@ const nextConfig = {
   // NIVEAU EN-TÊTE HTTP (ceinture et bretelles).
   async headers() {
     return [
+      // Les retours bancaires portent un relais privé dans la query.
+      // Ne jamais transmettre cette URL comme Referer, même vers le menu
+      // ou le suivi du même domaine (règle valable pour ok et err).
+      {
+        source: "/checkout/return/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
       {
         source: "/track/:path*",
         headers: [
