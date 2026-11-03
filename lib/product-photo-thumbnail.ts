@@ -8,9 +8,14 @@
 // production = décision distincte, après vérification du quota Pro :
 // 100 images d'origine incluses/cycle, puis 5 $ / 1000).
 
-export const THUMBNAIL_WIDTH_CARD = 256; // cartes affichées à 96-112 px (x2 écrans denses)
-export const THUMBNAIL_WIDTH_WIDE = 384; // bandeau de la fenêtre pâtisserie (pleine largeur)
-export const THUMBNAIL_QUALITY = 70;
+// Réglage de netteté (demande du commerçant : le rendu 256 px / qualité 70 était
+// trop flou). Cartes affichées à 96-112 px : 512 px couvre jusqu'à x4 (écrans
+// très denses, zoom) ; qualité 85 supprime les artefacts de compression.
+// Le coût Supabase est inchangé : il se compte en images d'ORIGINE distinctes,
+// pas en tailles demandées.
+export const THUMBNAIL_WIDTH_CARD = 512;
+export const THUMBNAIL_WIDTH_WIDE = 768; // bandeau de la fenêtre pâtisserie (pleine largeur)
+export const THUMBNAIL_QUALITY = 85;
 
 const OBJECT_MARKER = "/storage/v1/object/public/";
 const RENDER_MARKER = "/storage/v1/render/image/public/";

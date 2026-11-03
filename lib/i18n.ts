@@ -45,6 +45,8 @@ type Dict = Record<string, string>;
 const fr: Dict = {
   cartRestoreAdjusted: "Certains articles ou options ne sont plus disponibles et ont été retirés de votre panier.",
   cartRestoreDismiss: "Fermer",
+  enlargePhoto: "Agrandir la photo de {name}",
+  photoUnavailable: "Photo indisponible.",
   soldOutBadge: "En rupture",
   orderItemUnavailable: "Un article de votre panier n'est plus disponible. Actualisez la page : votre panier sera mis à jour et vous pourrez réessayer.",
   productSearchLabel: "Rechercher un produit",
@@ -1648,6 +1650,8 @@ const fr: Dict = {
 const en: Dict = {
   cartRestoreAdjusted: "Some items or options are no longer available and have been removed from your cart.",
   cartRestoreDismiss: "Dismiss",
+  enlargePhoto: "Enlarge the photo of {name}",
+  photoUnavailable: "Photo unavailable.",
   soldOutBadge: "Out of stock",
   orderItemUnavailable: "An item in your cart is no longer available. Refresh the page: your cart will be updated and you can try again.",
   productSearchLabel: "Search for a product",
@@ -3087,6 +3091,8 @@ const en: Dict = {
 const ar: Dict = {
   cartRestoreAdjusted: "بعض المنتجات أو الخيارات لم تعد متاحة وتمت إزالتها من سلتك.",
   cartRestoreDismiss: "إغلاق",
+  enlargePhoto: "تكبير صورة {name}",
+  photoUnavailable: "الصورة غير متاحة.",
   soldOutBadge: "نفد من المخزون",
   orderItemUnavailable: "أحد المنتجات في سلتك لم يعد متوفرًا. حدّث الصفحة: سيتم تحديث سلتك ويمكنك المحاولة مرة أخرى.",
   productSearchLabel: "ابحث عن منتج",
@@ -4560,6 +4566,8 @@ const ar: Dict = {
 const nl: Dict = {
   cartRestoreAdjusted: "Sommige artikelen of opties zijn niet meer beschikbaar en zijn uit je winkelmand verwijderd.",
   cartRestoreDismiss: "Sluiten",
+  enlargePhoto: "Foto van {name} vergroten",
+  photoUnavailable: "Foto niet beschikbaar.",
   soldOutBadge: "Uitverkocht",
   orderItemUnavailable: "Een artikel in je winkelmand is niet meer beschikbaar. Vernieuw de pagina: je winkelmand wordt bijgewerkt en je kunt het opnieuw proberen.",
   productSearchLabel: "Zoek een product",
