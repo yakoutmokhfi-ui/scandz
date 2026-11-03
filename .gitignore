@@ -5,3 +5,9 @@ node_modules
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# Local/CI Playwright evidence (uploaded as workflow artifacts).
+/playwright-report/
+/test-results/
+/playwright-results.json
+/playwright-run.log
