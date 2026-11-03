@@ -12,6 +12,7 @@
 // base réelle, aucun lien privé réel. Code de sortie non nul au moindre écart.
 import { createRequire } from "node:module";
 import { startStub } from "./stub-supabase.mjs";
+import { trackingCurrentStatus } from "./tracking-current-status.mjs";
 
 const require = createRequire(process.env.PLAYWRIGHT_RESOLVE_FROM || import.meta.url);
 const { chromium } = require("playwright");
@@ -32,17 +33,22 @@ const secretsOf = (s) => [s.secret, s.capabilityId, s.legacyToken].filter(Boolea
 
 const text = (page) =>
   page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").trim()).catch(() => "");
-async function waitFor(page, pred, timeout) {
+async function waitFor(page, pred, timeout, read = text) {
   const t = Date.now();
   let last = "";
   while (Date.now() - t < timeout) {
-    last = await text(page);
+    last = await read(page);
     if (pred(last)) return { ok: true, ms: Date.now() - t, txt: last };
     await sleep(100);
   }
   return { ok: false, ms: Date.now() - t, txt: last };
 }
 const hasOrder = (n) => (txt) => new RegExp(`#${n}\\b`).test(txt);
+
+// Le statut courant est le paragraphe aria-live du suivi. La frise
+// contient déjà les libellés futurs : son texte ne prouve aucune mise à jour.
+const waitForBadge = (page, expected, timeout) =>
+  waitFor(page, (value) => value === expected, timeout, trackingCurrentStatus);
 
 /** Observe tout ce que le navigateur envoie à l'application / affiche en console. */
 function observe(page) {
@@ -127,7 +133,8 @@ try {
     await p2.goto(capLink(s), { waitUntil: "load" });
     const r = await waitFor(p2, hasOrder(4243), 3000);
     checks.push(["le lien rouvert affiche la commande en moins de 3 s", r.ok]);
-    checks.push(["l'état courant est affiché (Commande acceptée)", /accept/i.test(r.txt)]);
+    const status = await waitForBadge(p2, "Commande acceptée", 3000);
+    checks.push(["le badge courant affiche exactement « Commande acceptée »", status.ok]);
   });
 
   // C. Page laissée ouverte : le statut change côté serveur, la page suit seule.
@@ -137,11 +144,13 @@ try {
     await page.goto(capLink(s));
     const first = await waitFor(page, hasOrder(4244), 3000);
     checks.push(["affichage initial sans actualisation", first.ok]);
+    const initial = await waitForBadge(page, "Commande reçue", 3000);
+    checks.push(["le badge initial affiche exactement « Commande reçue »", initial.ok]);
     await ctl("/__ctl/status", { orderId: s.orderId, status: "accepted" });
-    const r = await waitFor(page, (t) => /accept/i.test(t), 12000);
+    const r = await waitForBadge(page, "Commande acceptée", 12000);
     checks.push(["le nouveau statut apparaît sans action de l'utilisateur (≤ 12 s, cadence 5 s)", r.ok]);
     await ctl("/__ctl/status", { orderId: s.orderId, status: "preparing" });
-    const r2 = await waitFor(page, (t) => /pr[ée]par/i.test(t), 12000);
+    const r2 = await waitForBadge(page, "En préparation", 12000);
     checks.push(["un second changement est aussi suivi", r2.ok]);
   });
 
@@ -154,7 +163,7 @@ try {
     await sleep(300);
     await ctl("/__ctl/status", { orderId: s.orderId, status: "ready" });
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    const r = await waitFor(page, (t) => /pr[êe]te/i.test(t), 3000);
+    const r = await waitForBadge(page, "Prête pour le retrait", 3000);
     checks.push(["le statut est à jour moins de 3 s après le retour de focus", r.ok]);
   });
 
@@ -170,7 +179,7 @@ try {
     await other.bringToFront();
     await ctl("/__ctl/status", { orderId: s.orderId, status: "accepted" });
     await page.bringToFront();
-    const r = await waitFor(page, (t) => /accept/i.test(t), 7000);
+    const r = await waitForBadge(page, "Commande acceptée", 7000);
     checks.push(["le statut est à jour après retour sur l'onglet", r.ok]);
   });
 
