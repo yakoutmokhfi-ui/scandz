@@ -650,6 +650,7 @@ const fr: Dict = {
   dsLegalCgv: "CGV",
   dsAvailability: "Mise à disposition",
   dsAvailabilityShort: "Mise à dispo.",
+  dsWithdrawals: "Rétractations",
   dsEmailProvider: "E-mails",
 
   "dsEmailTitle": "E-mails clients",
@@ -2166,6 +2167,7 @@ const en: Dict = {
   dsLegalCgv: "CGV",
   dsAvailability: "Availability",
   dsAvailabilityShort: "Availability",
+  dsWithdrawals: "Withdrawal requests",
   dsEmailProvider: "Emails",
 
   "dsEmailTitle": "Customer emails",
@@ -3601,6 +3603,7 @@ const ar: Dict = {
   dsLegalCgv: "الشروط والأحكام",
   dsAvailability: "إتاحة المنتجات",
   dsAvailabilityShort: "الإتاحة",
+  dsWithdrawals: "طلبات التراجع",
   dsEmailProvider: "البريد الإلكتروني",
 
   "dsEmailTitle": "رسائل البريد للعملاء",
@@ -4564,6 +4567,7 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  dsWithdrawals: "Herroepingsverzoeken",
   cartRestoreAdjusted: "Sommige artikelen of opties zijn niet meer beschikbaar en zijn uit je winkelmand verwijderd.",
   cartRestoreDismiss: "Sluiten",
   enlargePhoto: "Foto van {name} vergroten",

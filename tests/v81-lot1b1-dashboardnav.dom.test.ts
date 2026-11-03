@@ -193,6 +193,19 @@ test("DashboardNav (DOM réel, L1B-02) : sur /dashboard (Commandes), c'est bien 
   container.remove();
 });
 
+test("Rétractations : onglet visible, établissement conservé et seul actif", async () => {
+  const { container, root } = render("/dashboard/withdrawal-requests");
+  try {
+    await flush();
+    const link = container.querySelector('nav a[href="/dashboard/withdrawal-requests?r=r1"]');
+    assert.ok(link);
+    assert.equal(link.textContent, "Rétractations");
+    assert.ok(link.className.includes("bg-stone-900"));
+    assert.equal(container.querySelectorAll("nav a.bg-stone-900").length, 1);
+    assert.ok(!container.querySelector('nav a[href="/dashboard?r=r1"]')!.className.includes("bg-stone-900"));
+  } finally { root.unmount(); container.remove(); }
+});
+
 after(async () => {
   // Corrige un ordre de nettoyage trop hâtif (leçon L1A1-01) : laisse
   // un court délai pour que toute activité asynchrone interne de

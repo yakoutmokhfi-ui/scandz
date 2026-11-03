@@ -58,6 +58,7 @@ export default function DashboardNav({
   // onglets ci-dessus -- exclu explicitement du repli générique de
   // l'onglet "Commandes" pour ne pas reproduire L1B-02.
   const onAvailability = pathname?.startsWith("/dashboard/availability");
+  const onWithdrawals = pathname?.startsWith("/dashboard/withdrawal-requests");
   const onEmail = pathname?.startsWith("/dashboard/email");
   const t = (k: string) => translate(staffLanguage as Lang, k);
 
@@ -188,10 +189,13 @@ export default function DashboardNav({
           <a
             href={href("/dashboard")}
             className={tab(
-              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv && !onAvailability && !onEmail
+              !onCatalogue && !onSettings && !onTranslations && !onDeliveryPricing && !onPayment && !onLegalCgv && !onAvailability && !onEmail && !onWithdrawals
             )}
           >
             {t("dsOrders")}
+          </a>
+          <a href={href("/dashboard/withdrawal-requests")} className={tab(!!onWithdrawals)}>
+            {t("dsWithdrawals")}
           </a>
           <a href={href("/dashboard/catalogue")} className={tab(!!onCatalogue)}>
             {/* CSDJ-BO-1 : libellé court sous `sm`, complet au-dessus. */}
