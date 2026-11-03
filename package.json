@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --import ./tests/register.mjs --test tests/*.test.ts",
+    "test:browser:tracking": "node tests/browser/tracking-no-manual-refresh-210.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.0",

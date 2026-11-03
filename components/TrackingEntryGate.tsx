@@ -30,10 +30,13 @@ import {
  *      coquille vide) ;
  *   3. POST `{ orderId, publicToken }` en CORPS JSON vers
  *      `/api/track/exchange` (jamais dans l'URL) ;
- *   4. succès -> `history.replaceState` vers le chemin PROPRE (mandat
- *      §7/§22, retire le fragment de l'historique visible) PUIS
- *      `router.refresh()` (jamais l'inverse -- évite un instant où
- *      l'URL affichée porte encore le jeton pendant un nouveau rendu) ;
+ *   4. succès -> `router.replace(<chemin PROPRE>)` (issue #210) : une
+ *      seule navigation de même origine qui retire le fragment de
+ *      l'historique visible (mandat §7/§22) et redemande le rendu
+ *      serveur avec le cookie de session fraîchement posé. L'ancienne
+ *      séquence `history.replaceState` + `router.refresh()` dans le
+ *      même tick est abandonnée : le routeur annulait le
+ *      rafraîchissement (voir le commentaire au point d'appel) ;
  *   5. échec -> état "invalide" ou "indisponible" GÉNÉRIQUE selon la
  *      catégorie renvoyée par le point de terminaison (mandat §13).
  *
@@ -135,12 +138,26 @@ export default function TrackingEntryGate({
         if (cancelled) return;
 
         if (res.ok) {
-          // Mandat §7/§22 : retire le fragment de l'historique
-          // visible AVANT de redemander le rendu serveur -- jamais de
-          // fenêtre où l'URL affichée porte encore le jeton pendant
-          // qu'un nouveau contenu se charge.
-          window.history.replaceState(null, "", buildCleanTrackingPath(orderId));
-          router.refresh();
+          // ISSUE #210 -- UNE SEULE navigation vers le chemin PROPRE de
+          // même origine : elle remplace l'entrée d'historique (le
+          // fragment disparaît) ET demande le rendu serveur, désormais
+          // autorisé par le cookie de session que l'échange vient de
+          // poser.
+          //
+          // JAMAIS `history.replaceState(...)` suivi de `router.refresh()`
+          // dans le même tick (séquence d'origine) : le `replaceState`
+          // est intercepté par le routeur Next.js, qui le traduit en
+          // action de navigation (ACTION_RESTORE) et ABANDONNE l'action
+          // en cours -- le rafraîchissement est annulé par le navigateur
+          // (net::ERR_ABORTED, observé en vrai navigateur) et la coquille
+          // d'entrée reste affichée jusqu'à une actualisation manuelle.
+          // Le fragment n'a de toute façon plus à être retiré ici :
+          // TrackingFragmentScrubber le retire déjà au montage, avant
+          // l'échange (`rawHash` est capturé au rendu).
+          //
+          // Le chemin ne dépend que de `orderId` : ni jeton, ni capacité,
+          // ni chaîne de requête.
+          router.replace(buildCleanTrackingPath(orderId));
           return;
         }
 
