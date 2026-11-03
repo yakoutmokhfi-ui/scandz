@@ -3,6 +3,7 @@ import { getOrderPaymentStatusSnapshot } from "@/lib/server/payment-service";
 import { verifyReturnRelayToken } from "@/lib/server/payment-return-relay";
 import { buildCapabilityTrackingPath, buildTrackingPath } from "@/lib/tracking/link";
 import { issueOrderReturnTrackingCapability } from "@/lib/server/return-tracking-capability";
+import { getPaymentReturnMerchantPath } from "@/lib/server/payment-return-merchant";
 
 /**
  * PAYMENT P3-B MONETICO CHECKOUT RUNTIME v4 — PAGES DE RETOUR.
@@ -44,12 +45,13 @@ import { issueOrderReturnTrackingCapability } from "@/lib/server/return-tracking
  * incohérente) -- il ne peut donc JAMAIS porter de lien de suivi, ce
  * qui reste cohérent avec la posture anti-fuite ci-dessus.
  */
-export type PaymentReturnStatus =
+export type PaymentReturnStatus = (
   | { kind: "unavailable" }
   | { kind: "paid"; trackingPath: string }
   | { kind: "pending"; trackingPath: string }
   | { kind: "not_required"; trackingPath: string }
-  | { kind: "failed_or_cancelled"; trackingPath: string };
+  | { kind: "failed_or_cancelled"; trackingPath: string }
+) & { merchantPath?: string };
 
 function firstStringParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -80,6 +82,9 @@ export async function resolvePaymentReturnStatus(
   }
   if (snapshot === null) return { kind: "unavailable" };
 
+  const merchantPath = await getPaymentReturnMerchantPath({ orderId, publicToken });
+  const merchantNavigation = merchantPath ? { merchantPath } : {};
+
   // CUSTOMER CONFIRMATION + TRACKING FINAL v1 : `publicToken` a déjà
   // été vérifié ci-dessus (issu du jeton de relais décodé, jamais du
   // query string en clair).
@@ -97,24 +102,25 @@ export async function resolvePaymentReturnStatus(
 
   switch (snapshot.paymentStatus) {
     case "paid":
-      return { kind: "paid", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath) };
+      return { kind: "paid", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath), ...merchantNavigation };
     case "pending":
     // PAYMENT P4-A : `required` = paiement exigé mais aucune tentative
     // encore initiée (retour navigateur avant/sans initiation) -- pas un
     // échec, pas un paiement : traité comme « en cours », jamais comme
     // refusé.
     case "required":
-      return { kind: "pending", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath) };
+      return { kind: "pending", trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath), ...merchantNavigation };
     case "not_required":
       return {
         kind: "not_required",
         trackingPath: await reusableOrLegacyPath(orderId, legacyTrackingPath),
+        ...merchantNavigation,
       };
     default:
       // "failed"/"cancelled" -- gérée uniquement par robustesse
       // (état antérieur/legacy/ops), structurellement inatteignable via
       // un simple refus/abandon (INCHANGÉ, voir payment-callback-runtime.ts).
-      return { kind: "failed_or_cancelled", trackingPath: legacyTrackingPath };
+      return { kind: "failed_or_cancelled", trackingPath: legacyTrackingPath, ...merchantNavigation };
   }
 }
 

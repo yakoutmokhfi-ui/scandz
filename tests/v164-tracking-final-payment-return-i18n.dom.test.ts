@@ -46,7 +46,7 @@ const MOCK_LINK = `
 import { createElement } from "react";
 export default function Link(props) {
   const { href, children, ...rest } = props;
-  return createElement("a", { href, ...rest }, children);
+  return createElement("a", { href, ...rest, "data-next-link": "true" }, children);
 }
 `;
 
@@ -203,6 +203,31 @@ test("le lien « retour à l'accueil » est toujours présent et traduit, quel q
 
   root.unmount();
   container.remove();
+});
+
+test("retour Monetico : retour vers la boutique vérifiée, jamais l'accueil global", async () => {
+  const merchantPath = "https://shop.scanym.com/au-lait-cru";
+  const { container, root } = render({ kind: "paid", trackingPath: TRACKING_PATH, merchantPath });
+  try {
+    await flush();
+    const merchantLink = container.querySelector(`a[href="${merchantPath}"]`);
+    assert.ok(merchantLink, "la boutique vérifiée doit être proposée");
+    assert.equal(merchantLink.textContent, "Retour au menu");
+    assert.equal(container.querySelector('a[href="/"]'), null);
+    const tracking = findTrackingAnchor(container)!;
+    assert.equal(tracking.getAttribute("href"), TRACKING_PATH);
+    assert.equal(tracking.hasAttribute("data-next-link"), false, "le lien de possession doit ouvrir un document, sans préchargement Next");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("retour Monetico : le suivi est un lien de document natif, même sans contexte marchand", async () => {
+  const { container, root } = render({ kind: "paid", trackingPath: TRACKING_PATH });
+  try {
+    await flush();
+    const tracking = findTrackingAnchor(container)!;
+    assert.equal(tracking.getAttribute("href"), TRACKING_PATH);
+    assert.equal(tracking.hasAttribute("data-next-link"), false);
+  } finally { root.unmount(); container.remove(); }
 });
 
 after(async () => {
