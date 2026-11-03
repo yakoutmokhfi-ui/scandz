@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { PaymentReturnStatus } from "@/app/checkout/return/shared";
 import { translate, type Lang } from "@/lib/i18n";
 
@@ -71,20 +70,22 @@ export default function PaymentReturnStatusView({
       <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
         <h1 className="mb-3 text-xl font-semibold">{content.title}</h1>
         <p className="mb-6 text-sm text-neutral-600">{content.body}</p>
+        {/* Navigation de document : la porte de suivi doit lire le fragment
+            à l'ouverture, sans préchargement d'une page sans session par Next. */}
         {status.kind !== "unavailable" && (
-          <Link
+          <a
             href={status.trackingPath}
             className="mb-3 block w-full rounded-full bg-caramel px-6 py-2 text-sm font-bold text-caramel-ink"
           >
             {t("trackYourOrder")}
-          </Link>
+          </a>
         )}
-        <Link
-          href="/"
+        <a
+          href={status.merchantPath ?? "/"}
           className="inline-block rounded-full bg-neutral-900 px-6 py-2 text-sm font-medium text-white"
         >
-          {t("paymentReturnBackHome")}
-        </Link>
+          {t(status.merchantPath ? "backToMenu" : "paymentReturnBackHome")}
+        </a>
       </div>
     </div>
   );
