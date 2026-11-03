@@ -6,7 +6,8 @@ import {
   resolveStatusText,
 } from "@/lib/tracking/status-text";
 import { buildNotificationIdempotencyKey, type EmailProvider } from "@/lib/server/notifications/email-provider";
-import { renderOrderReceivedEmail } from "@/lib/server/notifications/order-received-template";
+import { formatCivilDate, renderOrderReceivedEmail } from "@/lib/server/notifications/order-received-template";
+import { parseOrderReceivedDetail } from "@/lib/server/notifications/order-received-detail";
 import {
   claimPendingNotifications,
   completeNotificationAttempt,
@@ -292,9 +293,24 @@ export async function processPendingNotifications(
           trackingCapability.secret
         )}`
       : null;
+    // ORDER EMAIL DETAIL v1 (#211) — récapitulatif figé dans le snapshot (articles, montants, jour/créneau).
+    // Lecture DÉFENSIVE : une ligne enfilée avant ce lot n'a aucune de ces clés et reste rendue sans
+    // récapitulatif ; une valeur mal formée supprime son bloc, jamais l'envoi.
+    const detail = isOrderReceived
+      ? parseOrderReceivedDetail(payload as Readonly<Record<string, unknown>>, payload.service_mode)
+      : null;
+    // Variables marchandes {fulfillment_date} / {fulfillment_slot} : valeurs persistées, la date mise en forme
+    // dans la langue du client (jamais d'heure inventée : jour seul => créneau vide).
+    const valuesPayload: Readonly<Record<string, unknown>> = detail?.schedule
+      ? {
+          ...(payload as Record<string, unknown>),
+          fulfillment_date: formatCivilDate(locale, detail.schedule.date) ?? "",
+          fulfillment_slot: detail.schedule.time ?? "",
+        }
+      : (payload as Readonly<Record<string, unknown>>);
     const templateValues = buildCommunicationTemplateValues({
       locale,
-      payload: payload as Readonly<Record<string, unknown>>,
+      payload: valuesPayload,
       withdrawalLink: merchantTrackingUrl,
     });
     //
@@ -417,6 +433,12 @@ export async function processPendingNotifications(
         fulfillmentDate: templateField("fulfillment_date"),
         fulfillmentSlot: templateField("fulfillment_slot"),
         withdrawalEligible: payload.withdrawal_eligible === true,
+        // ORDER EMAIL DETAIL v1 (#211) : récapitulatif figé, jamais relu ailleurs que dans le snapshot.
+        items: detail?.items ?? null,
+        subtotal: detail?.subtotal ?? null,
+        deliveryFee: detail?.deliveryFee ?? null,
+        schedule: detail?.schedule ?? null,
+        merchantAddress: detail?.merchantAddress ?? null,
       });
     } else {
       // INATTEIGNABLE : la branche order_received a déjà échoué plus
