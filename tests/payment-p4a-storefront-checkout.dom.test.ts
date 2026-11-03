@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import * as esbuild from "esbuild";
 
 import { autoConfirmCheckoutReview } from "./helpers/checkout-review-autoconfirm.ts";
+import { clearTestCartSession } from "./helpers/cart-session-isolation.ts";
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://placeholder.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 
@@ -15,7 +16,7 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   pretendToBeVisual: true,
 });
 const { window } = dom;
-autoConfirmCheckoutReview(window);
+const stopReviewAutoConfirm = autoConfirmCheckoutReview(window);
 (globalThis as any).window = window;
 (globalThis as any).document = window.document;
 Object.defineProperty(globalThis, "navigator", {
@@ -233,6 +234,7 @@ function mockRpc(
 }
 
 async function renderFillPickupAndReachSubmit() {
+  clearTestCartSession(window.sessionStorage);
   const restaurant = sanaaCookiesRestaurant();
   const container = window.document.createElement("div");
   window.document.body.appendChild(container);
@@ -295,11 +297,18 @@ const CREATE_ORDER_OK = {
 interface CheckoutCall { body: any }
 type CheckoutResponder = (call: CheckoutCall, index: number) => { status: number; body: unknown };
 
-function installFetch(respond: CheckoutResponder) {
+function installFetch(respond: CheckoutResponder, invoiceRespond: (body: any, index: number) => { status: number; body: unknown } = () => ({ status: 200, body: { ok: true } })) {
   const checkoutCalls: CheckoutCall[] = [];
+  const invoiceCalls: any[] = [];
   const otherCalls: string[] = [];
   (globalThis as any).fetch = async (input: unknown, init: any) => {
     const url = String(input);
+    if (url.includes("/api/checkout/invoice-request")) {
+      const body = JSON.parse(init.body);
+      invoiceCalls.push(body);
+      const r = invoiceRespond(body, invoiceCalls.length - 1);
+      return new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
+    }
     if (url.includes("/api/payments/monetico/checkout")) {
       const body = JSON.parse(init.body);
       checkoutCalls.push({ body });
@@ -313,7 +322,7 @@ function installFetch(respond: CheckoutResponder) {
     otherCalls.push(url);
     throw new Error(`requête sortante inattendue : ${url}`);
   };
-  return { checkoutCalls, otherCalls };
+  return { checkoutCalls, otherCalls, invoiceCalls };
 }
 
 const READY = { status: 200, body: { outcome: "ready", submissionUrl: "https://p.monetico-services.com/test/paiement.cgi", fields: { version: "3.0", TPE: "35VV71I", montant: "3.50EUR", reference: "ABC123", MAC: "deadbeef" }, resumed: false } };
@@ -365,6 +374,103 @@ async function orderPickupWith(t: any, respond: CheckoutResponder) {
 }
 
 const rpcNames = () => ((supabase.rpc as any).mock.calls as Array<{ arguments: unknown[] }>).map((c) => String(c.arguments[0]));
+
+async function fillInvoice(container: Element) {
+  const label = [...container.querySelectorAll("label")].find((node) => node.textContent?.includes("Besoin d'une facture ?"));
+  assert.ok(label);
+  (label.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+  await waitFor(() => inputById(container, "invoice-address-line-1") !== null, "adresse facture rendue");
+  for (const [id, value] of Object.entries({
+    "invoice-address-line-1": "12 rue de la Facture",
+    "invoice-address-line-2": "Bâtiment B",
+    "invoice-postal-code": "75018",
+    "invoice-city": "Paris",
+    "invoice-country": "FR",
+  })) {
+    setNativeValue(inputById(container, id)!, value);
+    await flush();
+  }
+}
+
+test("retrait avec facture : l'adresse enregistrée est transmise au premier checkout, sans seconde saisie", async (t) => {
+  mockRpc(t, CREATE_ORDER_OK);
+  const calls = installFetch(() => READY);
+  const forms = captureRedirectForms();
+  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
+  try {
+    await fillInvoice(container);
+    click([...container.querySelectorAll("button")].find(b => b.textContent === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") !== "true")!);
+    await waitFor(() => forms.submitted.length === 1, "redirection sans seconde saisie");
+    assert.equal(calls.invoiceCalls.length, 1);
+    assert.equal(calls.checkoutCalls.length, 1);
+    const billing = calls.checkoutCalls[0]!.body.billing;
+    assert.equal(billing.source, "manual");
+    for (const key of ["addressLine1", "addressLine2", "postalCode", "city", "country"]) {
+      assert.equal(billing[key], calls.invoiceCalls[0][key], `même valeur enregistrée pour ${key}`);
+    }
+    assert.equal(billingOpen(container), false);
+    assert.equal(rpcNames().filter((name) => name === "create_order").length, 1);
+  } finally { forms.restore(); root.unmount(); container.remove(); }
+});
+
+test("adresse facture refusée par le paiement : dialogue conservé et prérempli", async (t) => {
+  mockRpc(t, CREATE_ORDER_OK);
+  const calls = installFetch(() => BILLING_INVALID);
+  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
+  try {
+    await fillInvoice(container);
+    click([...container.querySelectorAll("button")].find(b => b.textContent === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") !== "true")!);
+    await waitFor(() => billingOpen(container), "le refus serveur ouvre le dialogue");
+    assert.equal(calls.checkoutCalls[0]!.body.billing.addressLine1, "12 rue de la Facture");
+    for (const [key, value] of Object.entries({ addressLine1: "12 rue de la Facture", addressLine2: "Bâtiment B", postalCode: "75018", city: "Paris", country: "FR" })) {
+      assert.equal((container.querySelector(`[data-billing-field="${key}"]`) as HTMLInputElement).value, value);
+    }
+    assert.equal(confirmationShown(container), false, "la réutilisation ne contourne jamais un refus serveur");
+  } finally { root.unmount(); container.remove(); }
+});
+
+test("facture en échec puis corrigée : seul le payload finalement enregistré sert au paiement, même commande", async (t) => {
+  mockRpc(t, CREATE_ORDER_OK);
+  const calls = installFetch(() => READY, (_body, index) => index === 0
+    ? { status: 503, body: { outcome: "unavailable" } }
+    : { status: 200, body: { ok: true } });
+  const forms = captureRedirectForms();
+  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
+  try {
+    await fillInvoice(container);
+    click([...container.querySelectorAll("button")].find(b => b.textContent === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") !== "true")!);
+    await waitFor(() => calls.invoiceCalls.length === 1, "échec facture reçu");
+    await waitFor(() => [...container.querySelectorAll("button")].some(b => b.textContent?.includes("Réessayer la demande de facture")), "reprise facture proposée");
+    assert.equal(calls.checkoutCalls.length, 0, "pas de paiement avant la facture demandée");
+    setNativeValue(inputById(container, "invoice-address-line-1")!, "20 rue Corrigée");
+    await flush();
+    click([...container.querySelectorAll("button")].find(b => b.textContent?.includes("Réessayer la demande de facture"))!);
+    await waitFor(() => forms.submitted.length === 1, "paiement après la reprise facture");
+    assert.equal(calls.invoiceCalls.length, 2);
+    assert.equal(calls.checkoutCalls[0]!.body.billing.addressLine1, "20 rue Corrigée");
+    assert.equal(calls.checkoutCalls[0]!.body.orderId, ORDER_ID);
+    assert.equal(rpcNames().filter((name) => name === "create_order").length, 1);
+  } finally { forms.restore(); root.unmount(); container.remove(); }
+});
+
+test("reprise paiement : l'adresse de la facture enregistrée est conservée sur la même commande", async (t) => {
+  mockRpc(t, CREATE_ORDER_OK);
+  const calls = installFetch((_call, index) => index === 0 ? UNAVAILABLE : READY);
+  const forms = captureRedirectForms();
+  const { container, root, submitBtn } = await renderFillPickupAndReachSubmit();
+  try {
+    await fillInvoice(container);
+    click([...container.querySelectorAll("button")].find(b => b.textContent === "Enregistrer et continuer sur WhatsApp" && b.getAttribute("aria-disabled") !== "true")!);
+    await waitFor(() => container.querySelector('[data-payment-action="retry"]') !== null, "reprise paiement");
+    click(container.querySelector('[data-payment-action="retry"]')!);
+    await waitFor(() => forms.submitted.length === 1, "paiement repris");
+    assert.equal(calls.invoiceCalls.length, 1, "aucune nouvelle facture");
+    assert.equal(calls.checkoutCalls.length, 2);
+    assert.equal(calls.checkoutCalls[0]!.body.billing.addressLine1, "12 rue de la Facture");
+    assert.deepEqual(calls.checkoutCalls[1]!.body.billing, calls.checkoutCalls[0]!.body.billing);
+    assert.equal(rpcNames().filter((name) => name === "create_order").length, 1);
+  } finally { forms.restore(); root.unmount(); container.remove(); }
+});
 
 test("[P4A-1] après create_order, la boutique appelle POST /api/payments/monetico/checkout avec l'order_id/public_token RÉELS et la langue -- sans adresse (retrait) ; `checkout_not_needed` -> confirmation historique", async (t) => {
   const { container, root, checkoutCalls } = await orderPickupWith(t, () => NOT_NEEDED);
@@ -517,6 +623,7 @@ test("[P4A-8] annuler le dialogue d'adresse -> la commande reste reprise possibl
 });
 
 after(async () => {
+  stopReviewAutoConfirm();
   window.close();
   await esbuild.stop();
   await new Promise((r) => setTimeout(r, 50));
