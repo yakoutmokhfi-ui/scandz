@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
-import { getMerchantRestaurants, getWithdrawalRequests } from "@/lib/services/dashboard";
+import { getMerchantRestaurants, getWithdrawalRequests, getRestaurantSettings } from "@/lib/services/dashboard";
 import { getEstablishmentSummary } from "@/lib/services/establishments";
 import type { MerchantRestaurant, WithdrawalRequestRow } from "@/lib/dashboard-types";
 import DashboardNav from "@/components/dashboard/DashboardNav";
@@ -59,6 +59,7 @@ export default function WithdrawalRequestsPage() {
   const [mappings, setMappings] = useState<MerchantRestaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState("");
   const [restaurantName, setRestaurantName] = useState("");
+  const [staffLanguage, setStaffLanguage] = useState("fr");
 
   const [rows, setRows] = useState<WithdrawalRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +97,9 @@ export default function WithdrawalRequestsPage() {
       const token = guard.beginRequest(id);
       setLoading(true);
       setLoadError(null);
+      void getRestaurantSettings(id).then((settings) => {
+        if (token.isCurrent()) setStaffLanguage(settings.staff_receipt_language ?? "fr");
+      }).catch(() => { if (token.isCurrent()) setStaffLanguage("fr"); });
       try {
         const summary = await getEstablishmentSummary(id);
         if (!token.isCurrent()) return;
@@ -134,9 +138,17 @@ export default function WithdrawalRequestsPage() {
         restaurantName={restaurantName}
         restaurantId={restaurantId}
         mappings={mappings}
+        staffLanguage={staffLanguage}
         onSelectRestaurant={(id) => {
+          if (id === restaurantId) return;
           guard.enterContext(id);
+          setRows([]);
+          setRestaurantName("");
+          setStaffLanguage("fr");
+          setLoadError(null);
+          setLoading(true);
           setRestaurantId(id);
+          router.replace(`/dashboard/withdrawal-requests?r=${encodeURIComponent(id)}`);
         }}
       />
       <main className="mx-auto max-w-4xl p-4">

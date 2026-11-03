@@ -61,7 +61,7 @@ const RESTO_ID = "resto-le-gap-un";
 (globalThis as any).__withdrawalRequestRows = [] as unknown[];
 
 const MOCK_NAV = `
-const _router = { replace: () => {}, push: () => {} };
+const _router = { replace: (url) => { window.history.replaceState(null, "", url); }, push: () => {} };
 export function useRouter() { return _router; }
 export function usePathname() { return "/dashboard/withdrawal-requests"; }
 export function useSearchParams() { return new URLSearchParams("r=${RESTO_ID}"); }
@@ -77,14 +77,15 @@ export async function signOut() {}
 // d'erreur.
 const MOCK_DASHBOARD = `
 export async function getMerchantRestaurants() {
-  return [{ restaurant_id: "${RESTO_ID}", name: "Le Gap Un", role: "owner" }];
+  return [{ restaurant_id: "${RESTO_ID}", name: "Le Gap Un", role: "owner" }, { restaurant_id: "resto-b", name: "Boutique B", role: "owner" }];
 }
+export async function getRestaurantSettings() { return { staff_receipt_language: "fr" }; }
 export async function getWithdrawalRequests() {
   return (globalThis).__withdrawalRequestRows;
 }
 `;
 const MOCK_ESTABLISHMENTS = `
-export async function getEstablishmentSummary() { return { name: "Le Gap Un" }; }
+export async function getEstablishmentSummary(id) { if (id === "resto-b") throw new Error("Résumé indisponible"); return { name: "Le Gap Un" }; }
 export async function isScanymOperator() { return false; }
 `;
 
@@ -218,4 +219,27 @@ test("écran backoffice : aucune demande -- message explicite, jamais un écran 
   assert.match(container.innerHTML, /Aucune demande de rétractation reçue/);
 
   root.unmount();
+});
+
+
+test("changement A vers B : une erreur de résumé ne réaffiche jamais les demandes ou le nom de A", async () => {
+  window.history.replaceState(null, "", "/dashboard/withdrawal-requests?r=resto-le-gap-un");
+  (globalThis as any).__withdrawalRequestRows = [{ id: "a", status: "recorded", acknowledgement_status: "sent", declaration_snapshot: { order_number: 987654, customer_first_name: "ClientA", lines: [] } }];
+  const container = window.document.createElement("div");
+  window.document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    root.render(React.createElement(WithdrawalRequestsPage));
+    await flush(30); await flush(30);
+    assert.match(container.textContent!, /ClientA/);
+    const select = container.querySelector("select")!;
+    assert.ok(select);
+    select.value = "resto-b";
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    await flush(30); await flush(30);
+    assert.equal(select.value, "resto-b");
+    assert.match(container.textContent!, /Résumé indisponible/);
+    assert.doesNotMatch(container.textContent!, /ClientA|987654|Le Gap Un/);
+    assert.equal(new URLSearchParams(window.location.search).get("r"), "resto-b");
+  } finally { root.unmount(); container.remove(); }
 });
