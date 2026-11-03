@@ -107,7 +107,7 @@ test("la route n'exporte que des noms reconnus par Next (sinon `next build` éch
   for (const name of Object.keys(route)) assert.ok(allowed.has(name), `export non autorisé : ${name}`);
 });
 
-test("vercel.json planifie la route Cron toutes les 5 minutes", () => {
+test("vercel.json planifie la route Cron toutes les 2 minutes", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")) as { crons: Array<{ path: string; schedule: string }> };
-  assert.deepEqual(config.crons.find((c) => c.path === "/api/internal/notifications/send"), { path: "/api/internal/notifications/send", schedule: "*/5 * * * *" });
+  assert.deepEqual(config.crons.find((c) => c.path === "/api/internal/notifications/send"), { path: "/api/internal/notifications/send", schedule: "*/2 * * * *" });
 });
