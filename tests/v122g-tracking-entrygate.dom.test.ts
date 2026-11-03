@@ -14,7 +14,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "placeholder";
 // components/TrackingEntryGate.tsx : rendu DOM RÉEL de la porte
 // d'entrée client (mandat §8/§30).
 //
-// next/navigation est mocké (useRouter().refresh contrôlable, même
+// next/navigation est mocké (useRouter().replace/refresh enregistrés, même
 // technique que tests/v81-lot1b1-dashboardnav.dom.test.ts) ; `fetch`
 // est un global simple substitué directement (ce composant ne
 // l'importe pas -- c'est l'API navigateur ambiante) ; `window.
@@ -50,12 +50,13 @@ const { createRoot } = await import("react-dom/client");
 const REPO_ROOT = process.cwd();
 
 (globalThis as any).__mockRefreshCount = 0;
+(globalThis as any).__mockReplaceCalls = [] as string[];
 
 const MOCK_NAV = `
 export function useRouter() {
   return {
     refresh: () => { (globalThis as any).__mockRefreshCount++; },
-    replace: () => {},
+    replace: (url: string) => { (globalThis as any).__mockReplaceCalls.push(url); },
     push: () => {},
   };
 }
@@ -150,7 +151,29 @@ function render() {
   return { container, root };
 }
 
-test("hash présent + jeton bien formé + échange RÉUSSI -- history.replaceState vers le chemin PROPRE, router.refresh() appelé, fragment disparu de l'URL affichée", async () => {
+// ISSUE #210 -- ce que l'on prouve ICI (jsdom + routeur mocké) : la porte
+// n'émet, après un échange réussi, QU'UNE navigation `router.replace` vers le
+// chemin propre. Elle n'appelle ni `router.refresh()` ni `history.replaceState`
+// (la séquence d'origine, annulée par le vrai routeur Next.js). Que cette
+// navigation affiche réellement la commande SANS rechargement manuel n'est PAS
+// démontrable avec un routeur mocké : c'est la preuve en vrai navigateur,
+// tests/browser/tracking-no-manual-refresh-210.mjs.
+function spyReplaceState() {
+  const calls: unknown[][] = [];
+  const original = window.history.replaceState.bind(window.history);
+  window.history.replaceState = ((...args: unknown[]) => {
+    calls.push(args);
+    return (original as (...a: unknown[]) => void)(...args);
+  }) as typeof window.history.replaceState;
+  return {
+    calls,
+    restore: () => {
+      window.history.replaceState = original as typeof window.history.replaceState;
+    },
+  };
+}
+
+test("hash présent + jeton bien formé + échange RÉUSSI -- UNE navigation router.replace vers le chemin PROPRE, ni router.refresh() ni history.replaceState (#210)", async () => {
   setHash(`#${TOKEN}`);
   let fetchCalls: Array<{ url: string; init: RequestInit }> = [];
   (globalThis as any).fetch = async (url: string, init: RequestInit) => {
@@ -160,33 +183,42 @@ test("hash présent + jeton bien formé + échange RÉUSSI -- history.replaceSta
       json: async () => ({ ok: true }),
     };
   };
-  const before = (globalThis as any).__mockRefreshCount;
+  const beforeRefresh = (globalThis as any).__mockRefreshCount;
+  const replaceCalls: string[] = (globalThis as any).__mockReplaceCalls;
+  replaceCalls.length = 0;
+  const spy = spyReplaceState();
 
-  const { container, root } = render();
-  await waitFor(
-    () => (globalThis as any).__mockRefreshCount > before,
-    "router.refresh() appelé après l'échange réussi"
-  );
+  try {
+    const { container, root } = render();
+    await waitFor(() => replaceCalls.length > 0, "router.replace() appelé après l'échange réussi");
+    await flush(50); // laisse passer un éventuel second appel erroné
 
-  assert.equal(fetchCalls.length, 1, "exactement un appel d'échange");
-  assert.equal(fetchCalls[0]!.url, "/api/track/exchange", "l'URL ne doit JAMAIS porter le jeton");
-  assert.equal(fetchCalls[0]!.init.method, "POST");
-  const sentBody = JSON.parse(fetchCalls[0]!.init.body as string);
-  assert.deepEqual(sentBody, { orderId: ORDER_ID, publicToken: TOKEN });
+    assert.equal(fetchCalls.length, 1, "exactement un appel d'échange");
+    assert.equal(fetchCalls[0]!.url, "/api/track/exchange", "l'URL ne doit JAMAIS porter le jeton");
+    assert.equal(fetchCalls[0]!.init.method, "POST");
+    const sentBody = JSON.parse(fetchCalls[0]!.init.body as string);
+    assert.deepEqual(sentBody, { orderId: ORDER_ID, publicToken: TOKEN });
 
-  assert.equal((globalThis as any).__mockRefreshCount, before + 1, "router.refresh() doit avoir été appelé exactement une fois");
+    // Une seule navigation, vers le chemin propre de même origine : ni
+    // jeton, ni fragment, ni chaîne de requête, ni hôte.
+    assert.deepEqual(replaceCalls, [`/track/${ORDER_ID}`]);
+    assert.equal(replaceCalls[0]!.includes(TOKEN), false);
+    assert.equal(/[#?]|^[a-z]+:|\/\//i.test(replaceCalls[0]!), false, "chemin relatif, sans fragment ni requête");
 
-  // Mandat §7/§22 : le fragment doit avoir disparu de l'URL AFFICHÉE.
-  assert.equal(window.location.hash, "", "le fragment doit être retiré de l'historique visible");
-  assert.equal(window.location.pathname, `/track/${ORDER_ID}`);
+    // Séquence d'origine bannie (annulée par le routeur Next.js réel).
+    assert.equal((globalThis as any).__mockRefreshCount, beforeRefresh, "router.refresh() ne doit PAS être appelé");
+    assert.equal(spy.calls.length, 0, "la porte ne doit PAS appeler history.replaceState");
 
-  assert.equal(container.textContent!.includes(TOKEN), false, "le jeton ne doit jamais apparaître dans le texte rendu");
+    assert.equal(container.textContent!.includes(TOKEN), false, "le jeton ne doit jamais apparaître dans le texte rendu");
 
-  root.unmount();
-  container.remove();
+    root.unmount();
+    container.remove();
+  } finally {
+    spy.restore();
+  }
 });
 
-test("v3.1 : fragment capacité e-mail (#c1.<capability_id>.<secret>) -- POST { orderId, capabilityId, secret } en corps, fragment retiré, router.refresh()", async () => {
+test("v3.1 : fragment capacité e-mail (#c1.<capability_id>.<secret>) -- POST { orderId, capabilityId, secret } en corps, UNE navigation router.replace vers le chemin propre, aucun router.refresh()", async () => {
   const CAP_ID = "33333333-3333-4333-8333-333333333333";
   const SECRET = "ab".repeat(32);
   setHash(`#c1.${CAP_ID}.${SECRET}`);
@@ -195,16 +227,21 @@ test("v3.1 : fragment capacité e-mail (#c1.<capability_id>.<secret>) -- POST { 
     fetchCalls.push({ url, init });
     return { ok: true, json: async () => ({ ok: true }) };
   };
-  const before = (globalThis as any).__mockRefreshCount;
+  const beforeRefresh = (globalThis as any).__mockRefreshCount;
+  const replaceCalls: string[] = (globalThis as any).__mockReplaceCalls;
+  replaceCalls.length = 0;
 
   const { container, root } = render();
-  await waitFor(() => (globalThis as any).__mockRefreshCount > before, "router.refresh() après échange capacité");
+  await waitFor(() => replaceCalls.length > 0, "router.replace() après échange capacité");
+  await flush(50);
 
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0]!.url, "/api/track/exchange");
   assert.equal(fetchCalls[0]!.init.credentials, "same-origin");
   assert.deepEqual(JSON.parse(fetchCalls[0]!.init.body as string), { orderId: ORDER_ID, capabilityId: CAP_ID, secret: SECRET });
-  assert.equal(window.location.hash, "");
+  assert.deepEqual(replaceCalls, [`/track/${ORDER_ID}`]);
+  assert.equal(replaceCalls[0]!.includes(SECRET) || replaceCalls[0]!.includes(CAP_ID), false);
+  assert.equal((globalThis as any).__mockRefreshCount, beforeRefresh, "router.refresh() ne doit PAS être appelé");
   assert.equal(container.textContent!.includes(SECRET), false);
 
   root.unmount();
