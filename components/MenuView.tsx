@@ -149,6 +149,7 @@ import { blockingItemsByMode } from "@/lib/service-mode-restrictions";
 import Ltr from "@/components/Bidi";
 import BillingAddressDialog, { type BillingAddressValues } from "@/components/BillingAddressDialog";
 import { startOnlineCheckout, type CheckoutBillingInput } from "@/lib/services/payment-checkout";
+import { paymentBillingFromSavedInvoice, type InvoicePaymentBilling } from "@/lib/payment-invoice-billing";
 import { submitPaymentRedirect } from "@/lib/payment-redirect";
 
 /** Seul établissement où les variantes d'URL sont acceptées. */
@@ -963,6 +964,9 @@ export default function MenuView({
    */
   interface PendingPayment extends PendingInvoiceCompletion {
     invoiceRequested: boolean;
+    // Adresse exacte dont l'enregistrement de facture a réussi pour CETTE
+    // commande ; conservée pour les reprises, jamais relue dans l'état mutable.
+    invoiceBilling?: InvoicePaymentBilling;
   }
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -971,6 +975,8 @@ export default function MenuView({
   const [billingError, setBillingError] = useState<string | null>(null);
   const [billingBusy, setBillingBusy] = useState(false);
   const [confirmedNumber, setConfirmedNumber] = useState<number | null>(null);
+  const savedPickupInvoiceBilling = pendingPayment?.frozenOrderContext.mode === "pickup"
+    ? pendingPayment.invoiceBilling : undefined;
 
   const activeCategory = restaurant.categories.find(
     (c) => c.id === activeCategoryId
@@ -1913,10 +1919,10 @@ export default function MenuView({
       // échouer silencieusement. La commande N'EST PAS considérée
       // "complète" tant que l'issue de la demande de facture n'est
       // pas CONNUE (mandat, littéral).
+      let invoiceBilling: InvoicePaymentBilling | undefined;
       if (invoiceRequest.wantsInvoice) {
-        const outcome = await submitInvoiceRequest(
-          buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
-        );
+        const invoicePayload = buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest);
+        const outcome = await submitInvoiceRequest(invoicePayload);
         if (!outcome.ok) {
           // ÉCHEC VISIBLE, jamais un faux succès. La commande N'EST
           // PAS recréée, N'EST PAS perdue -- l'instantané de LA
@@ -1939,6 +1945,8 @@ export default function MenuView({
           setIsSubmitting(false);
           return;
         }
+        invoiceBilling = paymentBillingFromSavedInvoice(invoicePayload,
+          frozenOrderContext.mode === "table" ? null : frozenOrderContext.customer);
       }
 
       await proceedAfterOrderCreated({
@@ -1947,6 +1955,7 @@ export default function MenuView({
         frozenOrderContext,
         frozenNote,
         invoiceRequested: invoiceRequest.wantsInvoice,
+        invoiceBilling,
       });
     } catch (err) {
       // CSDJ-2 / #158 -- refus TYPÉ de la date/du créneau par le serveur :
@@ -2006,12 +2015,13 @@ export default function MenuView({
     setInvoiceRequestError(null);
     // Livraison : l'adresse de livraison de la commande sert de
     // facturation (copiée CÔTÉ BASE, jamais renvoyée depuis ici) ; le
-    // pays est confirmé explicitement. Retrait : le serveur répondra
-    // `billing_required` et le client saisira son adresse.
+    // pays est confirmé explicitement. Retrait avec facture enregistrée :
+    // réutiliser cette adresse déjà saisie. Sans facture/adresse exploitable,
+    // le dialogue existant reste disponible si le serveur le demande.
     const billing: CheckoutBillingInput | undefined =
       pending.frozenOrderContext.mode === "delivery"
         ? { source: "delivery_reuse", country: deliveryCountry?.countryCode ?? "FR" }
-        : undefined;
+        : pending.frozenOrderContext.mode === "pickup" ? pending.invoiceBilling : undefined;
     await runOnlineCheckout(pending, billing);
   }
 
@@ -2122,9 +2132,8 @@ export default function MenuView({
     setIsRetryingInvoice(true);
     try {
       const { order, frozenLines, frozenOrderContext, frozenNote } = pendingInvoiceCompletion;
-      const outcome = await submitInvoiceRequest(
-        buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest)
-      );
+      const invoicePayload = buildInvoicePayload(order.orderId, order.publicToken, invoiceRequest);
+      const outcome = await submitInvoiceRequest(invoicePayload);
       if (outcome.ok) {
         await proceedAfterOrderCreated({
           order,
@@ -2132,6 +2141,8 @@ export default function MenuView({
           frozenOrderContext,
           frozenNote,
           invoiceRequested: invoiceRequest.wantsInvoice,
+          invoiceBilling: paymentBillingFromSavedInvoice(invoicePayload,
+            frozenOrderContext.mode === "table" ? null : frozenOrderContext.customer),
         });
       } else {
         setInvoiceRequestError(t("invoiceRequestFailed"));
@@ -2599,19 +2610,19 @@ export default function MenuView({
         open={billingPromptOpen}
         initial={{
           addressLine1:
-            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+            savedPickupInvoiceBilling?.addressLine1 ?? (pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
               ? pendingPayment.frozenOrderContext.customer.street
-              : "",
-          addressLine2: "",
+              : ""),
+          addressLine2: savedPickupInvoiceBilling?.addressLine2 ?? "",
           postalCode:
-            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+            savedPickupInvoiceBilling?.postalCode ?? (pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
               ? pendingPayment.frozenOrderContext.customer.postalCode
-              : "",
+              : ""),
           city:
-            pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
+            savedPickupInvoiceBilling?.city ?? (pendingPayment && pendingPayment.frozenOrderContext.mode !== "table"
               ? pendingPayment.frozenOrderContext.customer.city
-              : "",
-          country: deliveryCountry?.countryCode ?? "FR",
+              : ""),
+          country: savedPickupInvoiceBilling?.country ?? deliveryCountry?.countryCode ?? "FR",
         }}
         error={billingError}
         busy={billingBusy}
