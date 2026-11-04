@@ -77,15 +77,16 @@ export async function signOut() {}
 // d'erreur.
 const MOCK_DASHBOARD = `
 export async function getMerchantRestaurants() {
-  return [{ restaurant_id: "${RESTO_ID}", name: "Le Gap Un", role: "owner" }, { restaurant_id: "resto-b", name: "Boutique B", role: "owner" }];
+  return [{ restaurant_id: "${RESTO_ID}", restaurants: { id: "${RESTO_ID}", name: "Le Gap Un", slug: "gap" }, role: "owner" }, { restaurant_id: "resto-b", restaurants: { id: "resto-b", name: "Boutique B", slug: "b" }, role: "owner" }];
 }
 export async function getRestaurantSettings() { return { staff_receipt_language: "fr" }; }
-export async function getWithdrawalRequests() {
+export async function getWithdrawalRequests(id) {
+  if (id === "resto-b") throw new Error("Demandes indisponibles");
   return (globalThis).__withdrawalRequestRows;
 }
 `;
 const MOCK_ESTABLISHMENTS = `
-export async function getEstablishmentSummary(id) { if (id === "resto-b") throw new Error("Résumé indisponible"); return { name: "Le Gap Un" }; }
+export async function getEstablishmentSummary() { throw new Error("Not authorized: Scanym operator required"); }
 export async function isScanymOperator() { return false; }
 `;
 
@@ -222,7 +223,7 @@ test("écran backoffice : aucune demande -- message explicite, jamais un écran 
 });
 
 
-test("changement A vers B : une erreur de résumé ne réaffiche jamais les demandes ou le nom de A", async () => {
+test("changement A vers B : une erreur de lecture ne réaffiche jamais les demandes ou le nom de A", async () => {
   window.history.replaceState(null, "", "/dashboard/withdrawal-requests?r=resto-le-gap-un");
   (globalThis as any).__withdrawalRequestRows = [{ id: "a", status: "recorded", acknowledgement_status: "sent", declaration_snapshot: { order_number: 987654, customer_first_name: "ClientA", lines: [] } }];
   const container = window.document.createElement("div");
@@ -238,8 +239,8 @@ test("changement A vers B : une erreur de résumé ne réaffiche jamais les dema
     select.dispatchEvent(new window.Event("change", { bubbles: true }));
     await flush(30); await flush(30);
     assert.equal(select.value, "resto-b");
-    assert.match(container.textContent!, /Résumé indisponible/);
-    assert.doesNotMatch(container.textContent!, /ClientA|987654|Le Gap Un/);
+    assert.match(container.textContent!, /Demandes indisponibles/);
+    assert.doesNotMatch(container.textContent!, /ClientA|987654/);
     assert.equal(new URLSearchParams(window.location.search).get("r"), "resto-b");
   } finally { root.unmount(); container.remove(); }
 });

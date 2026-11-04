@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/services/auth";
 import { getMerchantRestaurants, getWithdrawalRequests, getRestaurantSettings } from "@/lib/services/dashboard";
-import { getEstablishmentSummary } from "@/lib/services/establishments";
 import type { MerchantRestaurant, WithdrawalRequestRow } from "@/lib/dashboard-types";
 import DashboardNav from "@/components/dashboard/DashboardNav";
 import { resolveRestaurantContext } from "@/lib/dashboard-nav";
@@ -100,29 +99,21 @@ export default function WithdrawalRequestsPage() {
       void getRestaurantSettings(id).then((settings) => {
         if (token.isCurrent()) setStaffLanguage(settings.staff_receipt_language ?? "fr");
       }).catch(() => { if (token.isCurrent()) setStaffLanguage("fr"); });
+      setRestaurantName(mappings.find((item) => item.restaurant_id === id)?.restaurants?.name ?? "");
       try {
-        const summary = await getEstablishmentSummary(id);
+        const data = await getWithdrawalRequests(id);
         if (!token.isCurrent()) return;
-        setRestaurantName(summary?.name ?? "");
-
-        try {
-          const data = await getWithdrawalRequests(id);
-          if (!token.isCurrent()) return;
-          setRows(data);
-        } catch (queryErr) {
-          if (!token.isCurrent()) return;
-          setLoadError(queryErr instanceof Error ? queryErr.message : "Erreur inconnue");
-          setRows([]);
-        }
+        setRows(data);
       } catch (err) {
         if (token.isCurrent()) {
           setLoadError(err instanceof Error ? err.message : "Erreur inconnue");
+          setRows([]);
         }
       } finally {
         if (token.isCurrent()) setLoading(false);
       }
     },
-    [guard]
+    [guard, mappings]
   );
 
   useEffect(() => {
@@ -165,7 +156,7 @@ export default function WithdrawalRequestsPage() {
 
         {loading ? (
           <p className="text-sm text-stone-500">Chargement…</p>
-        ) : rows.length === 0 ? (
+        ) : loadError ? null : rows.length === 0 ? (
           <p className="text-sm text-stone-500">Aucune demande de rétractation reçue pour le moment.</p>
         ) : (
           <ul className="space-y-3">
