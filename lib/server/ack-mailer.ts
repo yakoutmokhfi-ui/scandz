@@ -814,12 +814,12 @@ export type SendAckOutcome =
  * l'e-mail marchand n'est obligatoire QUE sous ces deux régimes, car
  * l'accusé de réception D.221-5 n'est transporté QUE par e-mail.
  */
-const APPLICABLE_WITHDRAWAL_REGIMES = new Set(["STANDARD_14_DAYS", "MIXED"]);
+export const APPLICABLE_WITHDRAWAL_REGIMES = new Set(["STANDARD_14_DAYS", "MIXED"]);
 
 /** Code d'erreur stable de la garde défensive ci-dessous -- distinct de
  * tout code de transport SMTP réel (jamais confondu avec ECONNREFUSED
  * et consorts dans les journaux/évidences d'audit). */
-const MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR =
+export const MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR =
   "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME";
 
 /**

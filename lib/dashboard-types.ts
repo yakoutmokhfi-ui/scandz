@@ -434,6 +434,8 @@ export interface WithdrawalRequestRow {
   requested_at: string;
   acknowledgement_status: string;
   acknowledgement_cc: string | null;
+  /** Classe d'erreur normalisée de l'envoi (jamais un texte serveur) ; null hors échec. */
+  acknowledgement_last_error: string | null;
   declaration_snapshot: WithdrawalRequestDeclarationSnapshot;
 }
 

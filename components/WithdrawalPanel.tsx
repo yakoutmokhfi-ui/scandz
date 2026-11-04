@@ -480,7 +480,9 @@ export default function WithdrawalPanel({
               ? t("withdrawalAckSent")
               : receipt.acknowledgementStatus === "unavailable_no_channel"
                 ? t("withdrawalAckUnavailable")
-                : t("withdrawalAckPending")}
+                : receipt.acknowledgementStatus === "failed"
+                  ? t("withdrawalAckFailed")
+                  : t("withdrawalAckPending")}
           </p>
         </>
       ) : null}
