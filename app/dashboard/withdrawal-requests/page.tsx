@@ -50,6 +50,24 @@ const ACK_STATUS_LABEL: Record<string, string> = {
   unavailable_no_channel: "Canal d'accusé indisponible",
 };
 
+/**
+ * Cause lisible d'un échec d'envoi, à partir de la classe d'erreur NORMALISÉE
+ * enregistrée (jamais un texte du serveur de messagerie). Une classe inconnue
+ * est affichée telle quelle plutôt que d'être devinée.
+ */
+const ACK_ERROR_HINT: Record<string, string> = {
+  PROVIDER_AUTHENTICATION_FAILED: "identifiants de la messagerie refusés — corrigez-les dans l'onglet E-mails",
+  PROVIDER_CONFIGURATION_ERROR: "configuration de la messagerie invalide — vérifiez l'onglet E-mails",
+  PROVIDER_TIMEOUT: "la messagerie n'a pas répondu à temps",
+  PROVIDER_TEMPORARY_UNAVAILABLE: "la messagerie est momentanément indisponible",
+  INVALID_RECIPIENT: "adresse refusée par le serveur de messagerie",
+  MERCHANT_MAILER_UNAVAILABLE: "messagerie non configurée ou suspendue — onglet E-mails",
+  MERCHANT_MAILER_SENDER_UNRESOLVED: "identité d'expéditeur incomplète — onglet E-mails",
+  MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME: "e-mail de contact absent du profil légal",
+  ACK_RECIPIENT_ADDRESS_INVALID: "adresse e-mail du client invalide",
+  ACK_DISPATCH_UNKNOWN_ERROR: "erreur technique inattendue lors de l'envoi",
+};
+
 export default function WithdrawalRequestsPage() {
   const router = useRouter();
   const guard = useRestaurantContextGuard();
@@ -146,8 +164,9 @@ export default function WithdrawalRequestsPage() {
         <h1 className="mb-1 text-xl font-bold text-stone-900">Demandes de rétractation</h1>
         <p className="mb-4 text-sm text-stone-500">
           Chaque demande soumise par un client via la fonctionnalité de rétractation en ligne apparaît ici, avec
-          l&apos;état de l&apos;accusé de réception envoyé par Scanym. Ce canal backoffice est indépendant de
-          l&apos;e-mail : consultez cette page même si vous n&apos;avez pas reçu la copie par e-mail.
+          l&apos;état réel de l&apos;accusé de réception. Ce canal backoffice est indépendant de l&apos;e-mail :
+          consultez cette page même si vous n&apos;avez pas reçu la copie par e-mail. Une demande enregistrée le
+          reste même si l&apos;envoi de l&apos;accusé échoue.
         </p>
 
         {loadError && (
@@ -200,8 +219,13 @@ export default function WithdrawalRequestsPage() {
                     >
                       {ACK_STATUS_LABEL[row.acknowledgement_status] ?? row.acknowledgement_status}
                     </span>
-                    {row.acknowledgement_cc && (
+                    {row.acknowledgement_status === "sent" && row.acknowledgement_cc && (
                       <span className="text-stone-500">Copie envoyée à : {row.acknowledgement_cc}</span>
+                    )}
+                    {row.acknowledgement_status === "failed" && row.acknowledgement_last_error && (
+                      <span className="text-red-800">
+                        Cause : {ACK_ERROR_HINT[row.acknowledgement_last_error] ?? row.acknowledgement_last_error}
+                      </span>
                     )}
                   </div>
                 </li>

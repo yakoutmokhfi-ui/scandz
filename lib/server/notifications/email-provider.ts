@@ -17,6 +17,13 @@ export interface EmailMessage {
   /** Optional display name for providers that support merchant-specific sender identity. */
   fromName?: string | null;
   replyTo?: string | null;
+  /**
+   * Copie visible (Cc) -- OPTIONNELLE. Absente pour tous les messages du
+   * worker de notifications (comportement inchangé) ; utilisée par l'accusé
+   * de réception de rétractation (copie au commerçant, lib/server/
+   * withdrawal-ack-merchant-mailer.ts).
+   */
+  cc?: string | null;
   subject: string;
   html: string;
   text: string;
