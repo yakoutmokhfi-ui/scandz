@@ -3,6 +3,12 @@ import { translate, type Lang } from "@/lib/i18n";
 import { formatPrice } from "@/lib/whatsapp";
 import { buildCapabilityTrackingPath } from "@/lib/tracking/link";
 import { resolveCanonicalPublicOrigin } from "@/lib/server/canonical-public-origin";
+import {
+  coherentBreakdown,
+  isValidCivilDate,
+  type OrderDetailItem,
+  type OrderDetailSchedule,
+} from "@/lib/server/notifications/order-received-detail";
 
 /**
  * N1-A — SCANYM-CONTROLLED ORDER_RECEIVED EMAIL TEMPLATE.
@@ -110,14 +116,29 @@ export interface OrderReceivedTemplateInput {
   fulfillmentDate?: string | null;
   fulfillmentSlot?: string | null;
   /**
-   * ISSUE #172 — éligibilité à la rétractation LUE dans le snapshot
+   * ISSUE #172 / #211 — éligibilité à la rétractation LUE dans le snapshot
    * (`withdrawal_eligible`, instantané par ligne pris à la commande). Vrai :
-   * un second lien explicite, MÊME cible que le lien de suivi (la page de
-   * suivi porte l'écran de rétractation existant), avec le libellé déjà
-   * employé par cet écran. Aucune règle, délai ni condition n'est écrit dans
-   * l'e-mail.
+   * une action SÉPARÉE « Demander une rétractation » (libellé de l'écran de
+   * confirmation) vers la MÊME cible serveur que le suivi — la page de suivi
+   * reste l'unique autorité (lignes éligibles de l'instantané, quantités
+   * restantes, capacité non expirée). L'e-mail ne promet ni droit, ni
+   * remboursement, et n'écrit aucun délai.
    */
   withdrawalEligible?: boolean;
+  /**
+   * ORDER EMAIL DETAIL v1 (#211) — récapitulatif figé dans le snapshot
+   * (voir order-received-detail.ts). Tous OPTIONNELS : absents, l'e-mail est
+   * rendu comme avant ce lot (aucune ligne vide, aucune valeur inventée).
+   * `items` : lignes HISTORIQUES de la commande ; `subtotal`/`deliveryFee` :
+   * affichés seulement s'ils sont cohérents avec les lignes et le total
+   * autoritaire ; `schedule` : jour/créneau persistés ; `merchantAddress` :
+   * adresse du commerçant (retrait).
+   */
+  items?: ReadonlyArray<OrderDetailItem> | null;
+  subtotal?: number | null;
+  deliveryFee?: number | null;
+  schedule?: OrderDetailSchedule | null;
+  merchantAddress?: string | null;
 }
 
 export interface RenderedEmail {
@@ -145,10 +166,23 @@ function intlLocale(locale: string): string {
     case "en":
       return "en-GB";
     case "ar":
-      return "ar";
+      // Chiffres latins : les montants (fr-FR) et les heures « HH:MM » de l'e-mail le sont aussi ; un seul
+      // système de chiffres dans le même message, et un rendu indépendant de la version d'ICU.
+      return "ar-u-nu-latn";
+    case "nl":
+      return "nl-NL";
     default:
       return "fr-FR";
   }
+}
+
+/** Date civile « YYYY-MM-DD » → texte long, formaté à partir de ses composantes (midi UTC, fuseau UTC) :
+ *  jamais de décalage d'un jour selon le fuseau du serveur. Forme invalide → `null` (rien d'affiché). */
+export function formatCivilDate(locale: string, isoDate: string): string | null {
+  if (!isValidCivilDate(isoDate)) return null;
+  return new Intl.DateTimeFormat(intlLocale(locale), { dateStyle: "full", timeZone: "UTC" }).format(
+    new Date(`${isoDate}T12:00:00Z`)
+  );
 }
 
 /**
@@ -178,8 +212,32 @@ export function formatFulfillmentSchedule(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
+/** Substitution en UNE passe de `{clé}` : une valeur qui contiendrait elle-même `{autre}` n'est jamais
+ *  re-développée (un nom de produit « {unit} » reste un nom de produit). */
+function fill(template: string, values: Readonly<Record<string, string>>): string {
+  return template.replace(/\{(\w+)\}/g, (whole, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? values[key]! : whole
+  );
+}
+
+/** Un bloc de l'e-mail, rendu à l'identique en HTML (échappé) et en texte : les deux parties ne peuvent pas
+ *  diverger sur le contenu. */
+interface Block {
+  html: string;
+  text: string;
+}
+
 export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): RenderedEmail {
   const t = (key: string, vars?: Record<string, string | number>) => translate(input.locale, key, vars);
+
+  // ORDER EMAIL DETAIL v1 — arabe : sens de lecture droite-à-gauche, et isolation bidirectionnelle des
+  // fragments à sens propre (montants, heures, fuseau, noms de produits) pour que ni les chiffres ni un nom
+  // latin ne soient réordonnés au milieu d'une phrase arabe. Caractères Unicode d'isolation (valides tels
+  // quels en HTML comme en texte) ; aucune autre langue n'est modifiée.
+  const rtl = input.locale === "ar";
+  const iso = (value: string, dir: "ltr" | "auto" = "auto"): string =>
+    rtl ? `${dir === "ltr" ? "⁦" : "⁨"}${value}⁩` : value;
+  const price = (amount: number) => iso(formatPrice(amount, input.currency), "ltr");
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — surcharge marchande d'abord,
   // texte plateforme ensuite ; aucun troisième repli. `trim()` : une
@@ -197,7 +255,6 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   const fulfillment = t(fulfillmentKey(input.serviceMode));
   const orderNumberLine = t("orderNumber", { n: input.orderNumber });
   const totalLabel = t("confirmTotalLabel");
-  const totalFormatted = formatPrice(input.total, input.currency);
   const cta = t("trackYourOrder");
   const thanks = t("confirmThanks", { name: input.merchantSenderName });
   const footer = t("emailOrderReceivedFooter");
@@ -220,60 +277,122 @@ export function renderOrderReceivedEmail(input: OrderReceivedTemplateInput): Ren
   );
   const trackingUrl = `${resolveCanonicalPublicOrigin()}${trackingPath}`;
 
-  // ISSUE #172 — créneau (uniquement si figé sur la commande) et lien de
-  // rétractation explicite (uniquement si l'instantané l'autorise).
-  const scheduleText = formatFulfillmentSchedule(
-    input.locale,
-    input.fulfillmentDate,
-    input.fulfillmentSlot
-  );
-  const scheduleLabel = t(
-    input.serviceMode === "delivery"
-      ? "emailOrderReceivedSlotLabelDelivery"
-      : "emailOrderReceivedSlotLabelPickup"
-  );
-  const withdrawalLabel = t("withdrawalEntryAction");
+  const blocks: Block[] = [];
+  const para = (text: string) => blocks.push({ html: `<p>${escapeHtml(text)}</p>`, text });
 
+  // Mode de service : seuls retrait et livraison portent un jour/créneau et une adresse « utile ».
+  const isDelivery = input.serviceMode === "delivery";
+  const isPickup = input.serviceMode === "pickup";
+  const plannable = isDelivery || isPickup;
+
+  para(heading);
+  para(intro);
+  para(`${merchantLabel} ${input.merchantName}`);
+  para(orderNumberLine);
+  para(fulfillment);
+
+  // ISSUE #172 / #211 — jour et créneau RETENUS, tels que persistés. Jamais d'heure inventée : jour seul
+  // (Chronofresh, date sans créneau) => une seule ligne. Aucune ligne pour la table / la chambre.
+  const slotLabel = t(isDelivery ? "emailOrderReceivedSlotLabelDelivery" : "emailOrderReceivedSlotLabelPickup");
+  const scheduleDay = plannable && input.schedule ? formatCivilDate(input.locale, input.schedule.date) : null;
+  if (scheduleDay !== null && input.schedule) {
+    para(`${t(isDelivery ? "emailOrderReceivedDayLabelDelivery" : "emailOrderReceivedDayLabelPickup")} ${scheduleDay}`);
+    if (input.schedule.time) {
+      const zone = input.schedule.timezone ? ` (${iso(input.schedule.timezone, "ltr")})` : "";
+      para(`${slotLabel} ${iso(input.schedule.time, "ltr")}${zone}`);
+    }
+  } else if (plannable && !input.schedule) {
+    // Repli ANTÉRIEUR à #211 (clés `fulfillment_date` / `fulfillment_slot` seules) : comportement inchangé.
+    const legacy = formatFulfillmentSchedule(input.locale, input.fulfillmentDate, input.fulfillmentSlot);
+    if (legacy) para(`${slotLabel} ${legacy}`);
+  }
+
+  // Adresse utile selon le mode : livraison -> adresse de livraison persistée ; retrait -> adresse du
+  // commerçant (aucune adresse de retrait distincte n'est modélisée) ; table -> aucune.
+  if (deliveryAddress) {
+    para(`${deliveryAddressLabel} ${deliveryAddress}`);
+  } else if (isPickup && input.merchantAddress?.trim()) {
+    para(`${t("emailOrderReceivedMerchantAddressLabel")} ${input.merchantAddress.trim()}`);
+  }
+
+  if (statusText) para(statusText);
+
+  // ORDER EMAIL DETAIL v1 — articles, options, quantités et montants HISTORIQUES de la commande.
+  const items = input.items && input.items.length > 0 ? input.items : null;
+  if (items) {
+    const lineTemplate = t("emailOrderReceivedItemLine");
+    const optionTemplate = t("emailOrderReceivedItemOption");
+    const entries = items.map((item) => ({
+      line: fill(lineTemplate, {
+        qty: iso(String(item.quantity), "ltr"),
+        name: iso(item.name),
+        unit: price(item.unitPrice),
+        total: price(item.lineTotal),
+      }),
+      option: item.option ? fill(optionTemplate, { option: iso(item.option) }) : null,
+    }));
+    blocks.push({
+      html: [
+        `<p>${escapeHtml(t("emailOrderReceivedItemsHeading"))}</p>`,
+        `<ul>`,
+        ...entries.map(
+          (e) => `<li>${escapeHtml(e.line)}${e.option ? `<br><small>${escapeHtml(e.option)}</small>` : ""}</li>`
+        ),
+        `</ul>`,
+      ].join("\n"),
+      text: [
+        t("emailOrderReceivedItemsHeading"),
+        ...entries.flatMap((e) => [`- ${e.line}`, ...(e.option ? [`  ${e.option}`] : [])]),
+      ].join("\n"),
+    });
+  }
+
+  // Sous-total et frais : seulement s'ils sont COHÉRENTS avec les lignes et le total autoritaire.
+  const breakdown = coherentBreakdown(items, input.subtotal ?? null, input.deliveryFee ?? null, input.total);
+  if (breakdown && (isDelivery || breakdown.deliveryFee > 0)) {
+    para(`${t("emailOrderReceivedSubtotalLabel")} ${price(breakdown.subtotal)}`);
+    para(`${t("emailOrderReceivedDeliveryFeeLabel")} ${price(breakdown.deliveryFee)}`);
+  }
+  para(`${totalLabel} ${price(input.total)}`);
+
+  blocks.push({
+    html: `<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(cta)}</a></p>`,
+    text: `${cta}: ${trackingUrl}`,
+  });
+
+  // Rétractation : action SÉPARÉE, uniquement si l'instantané de commande l'autorise. Même cible serveur que
+  // le suivi (la page reste l'unique autorité) ; la mention de portée évite qu'un lien vaille promesse.
+  if (input.withdrawalEligible === true) {
+    const withdrawalCta = t("confirmWithdrawalCta");
+    para(t("emailOrderReceivedWithdrawalNote"));
+    blocks.push({
+      html: `<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(withdrawalCta)}</a></p>`,
+      text: `${withdrawalCta}: ${trackingUrl}`,
+    });
+  }
+
+  para(thanks);
+  blocks.push({ html: `<p><small>${escapeHtml(footer)}</small></p>`, text: footer });
+
+  const dirAttr = rtl ? ` dir="rtl"` : "";
   const html = [
     `<!doctype html>`,
+    // `<html lang>` reste celui du contrat antérieur ; le sens de lecture est porté par <body> (arabe seulement).
     `<html lang="${escapeHtml(input.locale)}">`,
-    `<body>`,
-    `<h1>${escapeHtml(heading)}</h1>`,
-    `<p>${escapeHtml(intro)}</p>`,
-    `<p>${escapeHtml(merchantLabel)} ${escapeHtml(input.merchantName)}</p>`,
-    `<p>${escapeHtml(orderNumberLine)}</p>`,
-    `<p>${escapeHtml(fulfillment)}</p>`,
-    ...(scheduleText ? [`<p>${escapeHtml(scheduleLabel)} ${escapeHtml(scheduleText)}</p>`] : []),
-    ...(statusText ? [`<p>${escapeHtml(statusText)}</p>`] : []),
-    `<p>${escapeHtml(totalLabel)} ${escapeHtml(totalFormatted)}</p>`,
-    ...(deliveryAddress
-      ? [`<p>${escapeHtml(deliveryAddressLabel)} ${escapeHtml(deliveryAddress)}</p>`]
-      : []),
-    `<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(cta)}</a></p>`,
-    ...(input.withdrawalEligible === true
-      ? [`<p><a href="${escapeHtml(trackingUrl)}">${escapeHtml(withdrawalLabel)}</a></p>`]
-      : []),
-    `<p>${escapeHtml(thanks)}</p>`,
-    `<p><small>${escapeHtml(footer)}</small></p>`,
+    `<body${dirAttr}>`,
+    ...blocks.map((b) => b.html),
     `</body>`,
     `</html>`,
   ].join("\n");
 
-  const text = [
-    heading,
-    intro,
-    `${merchantLabel} ${input.merchantName}`,
-    orderNumberLine,
-    fulfillment,
-    ...(scheduleText ? [`${scheduleLabel} ${scheduleText}`] : []),
-    ...(statusText ? [statusText] : []),
-    `${totalLabel} ${totalFormatted}`,
-    ...(deliveryAddress ? [`${deliveryAddressLabel} ${deliveryAddress}`] : []),
-    `${cta}: ${trackingUrl}`,
-    ...(input.withdrawalEligible === true ? [`${withdrawalLabel}: ${trackingUrl}`] : []),
-    thanks,
-    footer,
-  ].join("\n");
+  // Texte : en arabe, chaque ligne commence par la marque droite-à-gauche (sens de base explicite pour les
+  // clients qui n'interprètent pas dir=).
+  const text = blocks
+    .map((b) => b.text)
+    .join("\n")
+    .split("\n")
+    .map((line) => (rtl && line !== "" ? `‏${line}` : line))
+    .join("\n");
 
   return { subject, html, text };
 }

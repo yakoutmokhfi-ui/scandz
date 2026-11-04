@@ -469,6 +469,17 @@ const fr: Dict = {
   // ISSUE #172 — créneau, rendu UNIQUEMENT si le snapshot le porte.
   emailOrderReceivedSlotLabelPickup: "Créneau de retrait :",
   emailOrderReceivedSlotLabelDelivery: "Créneau de livraison :",
+  // ORDER EMAIL DETAIL v1 (#211) -- récapitulatif de l'e-mail de confirmation : articles, options, quantités,
+  // montants, jour/créneau, adresse du commerçant et mention de portée de l'action de rétractation.
+  emailOrderReceivedItemsHeading: "Votre commande :",
+  emailOrderReceivedItemLine: "{qty} × {name} — {unit} l'unité — {total}",
+  emailOrderReceivedItemOption: "Option : {option}",
+  emailOrderReceivedSubtotalLabel: "Sous-total :",
+  emailOrderReceivedDeliveryFeeLabel: "Frais de livraison :",
+  emailOrderReceivedDayLabelPickup: "Jour de retrait :",
+  emailOrderReceivedDayLabelDelivery: "Jour de livraison :",
+  emailOrderReceivedMerchantAddressLabel: "Adresse du commerçant :",
+  emailOrderReceivedWithdrawalNote: "Si certains produits de cette commande ouvrent droit à rétractation, vous pouvez en faire la demande depuis la page de suivi : seuls les produits concernés et les quantités encore disponibles y sont proposés. Ce lien ne vaut ni acceptation de la demande ni promesse de remboursement.",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — textes de BASE PLATEFORME,
   // génériques et identiques pour tous les commerçants. Ils sont le
@@ -1997,6 +2008,17 @@ const en: Dict = {
   // ISSUE #172 — time slot, rendered ONLY when the snapshot carries it.
   emailOrderReceivedSlotLabelPickup: "Pickup time slot:",
   emailOrderReceivedSlotLabelDelivery: "Delivery time slot:",
+  // ORDER EMAIL DETAIL v1 (#211) -- récapitulatif de l'e-mail de confirmation : articles, options, quantités,
+  // montants, jour/créneau, adresse du commerçant et mention de portée de l'action de rétractation.
+  emailOrderReceivedItemsHeading: "Your order:",
+  emailOrderReceivedItemLine: "{qty} × {name} — {unit} each — {total}",
+  emailOrderReceivedItemOption: "Option: {option}",
+  emailOrderReceivedSubtotalLabel: "Subtotal:",
+  emailOrderReceivedDeliveryFeeLabel: "Delivery fee:",
+  emailOrderReceivedDayLabelPickup: "Pickup day:",
+  emailOrderReceivedDayLabelDelivery: "Delivery day:",
+  emailOrderReceivedMerchantAddressLabel: "Merchant address:",
+  emailOrderReceivedWithdrawalNote: "If some products in this order qualify for withdrawal, you can submit a request from the tracking page: only the products concerned and the quantities still available are offered there. This link is neither an acceptance of the request nor a promise of refund.",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — platform BASE texts.
   commCarrierPreparedDefault:
@@ -3435,6 +3457,17 @@ const ar: Dict = {
   // ISSUE #172 — الفترة الزمنية، تُعرض فقط إذا كانت اللقطة تحملها.
   emailOrderReceivedSlotLabelPickup: "موعد الاستلام:",
   emailOrderReceivedSlotLabelDelivery: "موعد التوصيل:",
+  // ORDER EMAIL DETAIL v1 (#211) -- récapitulatif de l'e-mail de confirmation : articles, options, quantités,
+  // montants, jour/créneau, adresse du commerçant et mention de portée de l'action de rétractation.
+  emailOrderReceivedItemsHeading: "طلبك:",
+  emailOrderReceivedItemLine: "{qty} × {name} — {unit} للوحدة — {total}",
+  emailOrderReceivedItemOption: "الخيار: {option}",
+  emailOrderReceivedSubtotalLabel: "المجموع الفرعي:",
+  emailOrderReceivedDeliveryFeeLabel: "رسوم التوصيل:",
+  emailOrderReceivedDayLabelPickup: "يوم الاستلام:",
+  emailOrderReceivedDayLabelDelivery: "يوم التوصيل:",
+  emailOrderReceivedMerchantAddressLabel: "عنوان التاجر:",
+  emailOrderReceivedWithdrawalNote: "إذا كانت بعض منتجات هذا الطلب تتيح حق الانسحاب، فيمكنك تقديم طلب من صفحة التتبع: لا تُعرض فيها إلا المنتجات المعنية والكميات التي لا تزال متاحة. هذا الرابط لا يعني قبول الطلب ولا يَعِد باسترداد المبلغ.",
 
   // MERCHANT CUSTOMER COMMUNICATIONS v1 — نصوص المنصة الأساسية.
   commCarrierPreparedDefault:
@@ -5034,6 +5067,40 @@ const nl: Dict = {
   "chkScheduleUnreadableDate": "De ontvangen beschikbaarheid bevat een datum die niet bestaat. Om elke datumfout te vermijden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
   "chkScheduleUnreadableInterval": "De ontvangen beschikbaarheid bevat een inconsistente tijd: het einde ligt vóór het begin. Om elke tijdfout te vermijden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
   "chkScheduleUnreadablePolicy": "De regels voor het kiezen van de datum of tijd worden niet herkend. Om niet voor u een tijdvak te raden, kan de bestelling nu niet worden verzonden. Probeer het zo meteen opnieuw of neem contact op met de zaak.",
+  // ORDER EMAIL DETAIL v1 (#211) -- e-mail de confirmation COMPLET en néerlandais (aucun repli français) : articles, options, quantités,
+  // montants, jour/créneau, adresse du commerçant et mention de portée de l'action de rétractation.
+  emailOrderReceivedSubject: "{merchant} — bestelling ontvangen #{n}",
+  emailOrderReceivedHeading: "Bestelling ontvangen",
+  emailOrderReceivedIntro: "Wij hebben uw bestelling nr. {n} goed ontvangen.",
+  emailOrderReceivedFulfillmentTable: "U zit aan tafel — uw bestelling komt rechtstreeks naar u toe.",
+  emailOrderReceivedFulfillmentPickup: "Uw bestelling kan ter plaatse worden afgehaald.",
+  emailOrderReceivedFulfillmentDelivery: "Uw bestelling wordt bij u bezorgd.",
+  emailOrderReceivedFooter: "Deze e-mail wordt automatisch verzonden, antwoord er alstublieft niet op.",
+  emailOrderReceivedMerchantLabel: "Verkoper:",
+  emailOrderReceivedDeliveryAddressLabel: "Bezorgadres:",
+  emailOrderReceivedSlotLabelPickup: "Afhaaltijdvak:",
+  emailOrderReceivedSlotLabelDelivery: "Bezorgtijdvak:",
+  emailOrderReceivedItemsHeading: "Uw bestelling:",
+  emailOrderReceivedItemLine: "{qty} × {name} — {unit} per stuk — {total}",
+  emailOrderReceivedItemOption: "Optie: {option}",
+  emailOrderReceivedSubtotalLabel: "Subtotaal:",
+  emailOrderReceivedDeliveryFeeLabel: "Bezorgkosten:",
+  emailOrderReceivedDayLabelPickup: "Afhaaldag:",
+  emailOrderReceivedDayLabelDelivery: "Bezorgdag:",
+  emailOrderReceivedMerchantAddressLabel: "Adres van de verkoper:",
+  emailOrderReceivedWithdrawalNote: "Als bepaalde producten in deze bestelling recht geven op herroeping, kunt u vanaf de volgpagina een aanvraag indienen: daar worden alleen de betrokken producten en de nog beschikbare hoeveelheden aangeboden. Deze link betekent niet dat de aanvraag wordt aanvaard en belooft geen terugbetaling.",
+  confirmTotalLabel: "Totaalbedrag:",
+  confirmThanks: "Bedankt dat u voor {name} heeft gekozen!",
+  orderNumber: "Bestelling nr. {n}",
+  trackYourOrder: "Mijn bestelling volgen",
+  confirmWithdrawalCta: "Herroeping aanvragen",
+  trackingStatusExplain_new: "Wij hebben uw bestelling ontvangen. De verkoper bevestigt ze binnen enkele ogenblikken.",
+  trackingStatusExplain_accepted: "De verkoper heeft uw bestelling aanvaard en begint ze voor te bereiden.",
+  trackingStatusExplain_preparing: "Uw bestelling wordt voorbereid.",
+  trackingStatusExplain_ready: "Uw bestelling is klaar.",
+  trackingStatusExplain_completed: "Uw bestelling is afgerond. Bedankt voor uw vertrouwen!",
+  trackingStatusExplain_rejected: "De verkoper kon uw bestelling niet aanvaarden. Neem rechtstreeks contact op voor meer informatie.",
+  trackingStatusExplain_cancelled: "Deze bestelling is geannuleerd. Neem contact op met de verkoper als u een vraag heeft.",
 };
 
 export const DICTS: Record<Lang, Dict> = { fr, en, ar, nl };
