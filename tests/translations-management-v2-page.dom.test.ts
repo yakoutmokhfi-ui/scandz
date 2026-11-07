@@ -187,7 +187,14 @@ export async function signOut() {}`,
       return [{ menuItemId: "p-tomme", tagIds: ["t-bio"], tagNames: ["Bio"] }];
     }`,
   }),
-  "@/lib/services/merchant-communications": `export async function getMerchantOrderHelpTexts() { return (globalThis).__helpTexts ?? []; }`,
+  // #209 -- `__helpScript` : comportements successifs (un par lecture) pour
+  // simuler un échec, une lecture lente ou une réponse périmée.
+  "@/lib/services/merchant-communications": `export async function getMerchantOrderHelpTexts() {
+    (globalThis).__helpCalls = ((globalThis).__helpCalls ?? 0) + 1;
+    const script = (globalThis).__helpScript;
+    if (script && script.length) return script.shift()();
+    return (globalThis).__helpTexts ?? [];
+  }`,
 };
 
 const mockPlugin: esbuild.Plugin = {
@@ -509,4 +516,266 @@ test("aide à la commande : la validation manuelle transmet le hash source affic
   const write = writes.find((args) => args[1] === "order_help");
   assert.ok(write, "la traduction est envoyée au service");
   assert.equal(write[7], "help-source-v1", "la source affichée est la précondition de concurrence");
+});
+
+
+// ====================================================================
+// #209 -- TRADUCTIONS DE L'AIDE : bouton, titre et contenu repérables
+// ====================================================================
+const LONG_BODY = Array.from(
+  { length: 40 },
+  (_, i) => `Étape ${i + 1} : choisissez vos fromages, ajoutez-les au panier puis validez.`
+).join("\n\n");
+const helpRows = (body = LONG_BODY) => [
+  { text_key: "order_help_button_label", body: "Comment passer commande ?", body_hash: "h-label", translations: null },
+  { text_key: "order_help_title", body: "Comment passer commande", body_hash: "h-title", translations: null },
+  { text_key: "order_help_body", body, body_hash: "h-body", translations: null },
+];
+const helpCard = (c: Element) => c.querySelector('[data-translation-entity="order_help"]');
+const helpFields = (c: Element) => [...(helpCard(c)?.querySelectorAll("textarea") ?? [])];
+function cleanHelp(t: any) {
+  t.after(() => {
+    delete (globalThis as any).__helpTexts;
+    delete (globalThis as any).__helpScript;
+    delete (globalThis as any).__helpCalls;
+  });
+}
+async function click(el: Element | null | undefined) {
+  assert.ok(el, "élément à cliquer introuvable");
+  await (React as any).act(async () => {
+    (el as HTMLElement).click();
+  });
+  await flush(60);
+}
+
+test("[209-A] les trois champs de l'aide sont réunis dans UNE carte nommée, le corps de 2 430+ caractères est lisible et saisissable", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  assert.ok(LONG_BODY.length > 2430);
+  const container = await mount(t);
+  const card = helpCard(container)!;
+  assert.ok(card, "la carte de l'aide est rendue");
+  assert.equal(card.id, "translations-order-help");
+  assert.equal(card.querySelector("h3")?.textContent, "Comment passer commande");
+  assert.equal(helpFields(container).length, 3, "bouton + titre + contenu");
+  const labels = [...card.querySelectorAll("label")].map((l) => l.textContent);
+  assert.deepEqual(labels, [
+    "Bouton « Comment passer commande »",
+    "Titre de la fenêtre d’aide",
+    "Texte de la fenêtre d’aide",
+  ]);
+  const body = card.querySelectorAll("[data-translation-source]")[2] as HTMLElement;
+  assert.equal(body.textContent, LONG_BODY, "texte source COMPLET, sans troncature");
+  assert.ok(body.className.includes("whitespace-pre-wrap"), "sauts de ligne préservés à l'affichage");
+  assert.ok(body.className.includes("overflow-y-auto"), "un texte long défile dans son cadre");
+  assert.equal(helpFields(container)[2].getAttribute("rows"), "16", "zone de saisie adaptée au texte long");
+  assert.match(textOf(card), /0 \/ 5\s000 caractère/, "compteur et limite serveur du corps");
+});
+
+test("[209-B] saisie manuelle du corps long : sauts de ligne conservés, hash source transmis, jamais validé tout seul", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  const card = helpCard(container)!;
+  const english = "Step 1: pick your cheeses.\n\nStep 2: add to cart.\n\nStep 3: confirm.";
+  await (React as any).act(async () => {
+    setValue(helpFields(container)[2], english);
+  });
+  const buttons = [...card.querySelectorAll("button")];
+  const save = buttons.filter((b) => b.textContent === "Enregistrer")[2];
+  await click(save);
+  const writes = (globalThis as any).__writes as unknown[][];
+  const w = writes.find((a) => a[1] === "order_help" && a[3] === "order_help_body")!;
+  assert.ok(w, "écriture envoyée");
+  assert.equal(w[5], english, "sauts de ligne intacts");
+  assert.equal(w[6], "to_review", "« Enregistrer » ne valide pas");
+  assert.equal(w[7], "h-body", "précondition de hash source");
+  assert.equal(writes.filter((a) => a[6] === "validated").length, 0, "rien n'est validé automatiquement");
+});
+
+test("[209-C] la recherche trouve l'aide par le libellé du champ, sans en élargir l'effet au catalogue", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  for (const q of ["bouton", "titre de la fenêtre", "aide à la commande", "comment passer commande"]) {
+    await (React as any).act(async () => {
+      setValue(container.querySelector("[data-translations-search]")!, q);
+    });
+    await flush(40);
+    assert.ok(helpCard(container), `« ${q} » retrouve l'aide`);
+  }
+  await (React as any).act(async () => {
+    setValue(container.querySelector("[data-translations-search]")!, "description");
+  });
+  await flush(40);
+  assert.equal(helpCard(container), null, "« description » ne ramène pas l'aide");
+  assert.deepEqual(entityIds(container), [], "ni le catalogue (libellés de champ non cherchables)");
+});
+
+test("[209-D] un filtre catalogue masque l'aide : le message le dit et un clic la rend", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  await (React as any).act(async () => {
+    setValue(container.querySelector("[data-translations-filter-category]")!, "c-fromages");
+  });
+  await flush(40);
+  assert.equal(helpCard(container), null, "masquée par le filtre de contexte");
+  const hidden = container.querySelector("[data-translations-order-help-hidden]");
+  assert.ok(hidden, "le masquage est annoncé");
+  assert.match(textOf(hidden), /masqués par les filtres catalogue/);
+  await click(container.querySelector("[data-translations-order-help-show]"));
+  assert.ok(helpCard(container), "l'aide est affichée");
+  assert.equal(
+    (container.querySelector("[data-translations-filter-category]") as HTMLSelectElement).value,
+    "",
+    "le filtre de catégorie est levé"
+  );
+});
+
+test("[209-E] une recherche qui ne l'inclut pas la masque : message et retour direct, statut levé aussi", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  await (React as any).act(async () => {
+    setValue(container.querySelector("[data-translations-search]")!, "crottin");
+  });
+  await flush(40);
+  assert.equal(helpCard(container), null);
+  assert.match(textOf(container.querySelector("[data-translations-order-help-hidden]")!), /recherche ou le statut/);
+  await click(container.querySelector("[data-translations-order-help-show]"));
+  assert.ok(helpCard(container));
+  assert.equal((container.querySelector("[data-translations-search]") as HTMLInputElement).value, "");
+});
+
+test("[209-F] erreur de lecture : message + reprise, catalogue utilisable, jamais confondue avec « aucun texte »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpScript = [() => { throw new Error("réseau"); }];
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  const alert = container.querySelector("[data-translations-order-help-error]");
+  assert.ok(alert, "l'échec est visible");
+  assert.equal(alert.getAttribute("role"), "alert");
+  assert.match(textOf(alert), /Impossible de charger les textes « Comment passer commande »/);
+  assert.match(textOf(alert), /Il ne s'agit pas d'une absence de texte/);
+  assert.equal(helpCard(container), null, "aucune carte vide");
+  assert.equal(container.querySelector("[data-translations-order-help-shortcut]"), null);
+  assert.ok(entityIds(container).includes("p-tomme"), "le catalogue reste utilisable");
+  await click(container.querySelector("[data-translations-order-help-retry]"));
+  assert.equal(container.querySelector("[data-translations-order-help-error]"), null, "erreur levée");
+  assert.equal(helpFields(container).length, 3, "les trois champs apparaissent après la reprise");
+  assert.equal((globalThis as any).__helpCalls, 2, "une seule relecture de l'aide");
+});
+
+test("[209-G] lecture réussie mais vide : aucun message d'erreur, aucune carte", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = [];
+  const container = await mount(t);
+  assert.equal(container.querySelector("[data-translations-order-help-error]"), null);
+  assert.equal(helpCard(container), null);
+});
+
+test("[209-H] champ non renseigné : dit clairement qu'il n'y a rien à traduire, sans ligne vide à « traduire »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = [helpRows()[0], helpRows()[2]];
+  const container = await mount(t);
+  assert.equal(helpFields(container).length, 2);
+  const unset = container.querySelector('[data-translation-order-help-unset="order_help_title"]')!;
+  assert.ok(unset);
+  assert.match(textOf(unset), /non renseigné dans les réglages/);
+  assert.match(textOf(unset), /titre est facultatif/);
+});
+
+test("[209-I] réponse périmée : une reprise lente ne remplace jamais une lecture plus récente", async (t) => {
+  cleanHelp(t);
+  let releaseOld!: (rows: unknown[]) => void;
+  const oldRead = new Promise<unknown[]>((r) => { releaseOld = r; });
+  (globalThis as any).__helpScript = [
+    () => { throw new Error("réseau"); }, // chargement initial : échec
+    () => oldRead, // reprise : lente
+    () => helpRows("TEXTE RÉCENT"), // rechargement après enregistrement : rapide
+  ];
+  const container = await mount(t);
+  await click(container.querySelector("[data-translations-order-help-retry]")); // reprise en attente
+  const tomme = container.querySelector('[data-translation-entity-id="p-tomme"]')!;
+  await (React as any).act(async () => {
+    setValue(tomme.querySelector("textarea")!, "Sheep tomme");
+  });
+  await click([...tomme.querySelectorAll("button")].find((b) => b.textContent === "Enregistrer"));
+  assert.match(textOf(helpCard(container)!), /TEXTE RÉCENT/);
+  await (React as any).act(async () => {
+    releaseOld(helpRows("TEXTE PÉRIMÉ"));
+  });
+  await flush(80);
+  assert.match(textOf(helpCard(container)!), /TEXTE RÉCENT/);
+  assert.doesNotMatch(textOf(container), /TEXTE PÉRIMÉ/, "la réponse tardive est abandonnée");
+  assert.equal(container.querySelector("[data-translations-order-help-error]"), null);
+});
+
+test("[209-J] dépasser la limite serveur du corps : message clair et enregistrement bloqué (aucune coupe silencieuse)", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  const card = helpCard(container)!;
+  await (React as any).act(async () => {
+    setValue(helpFields(container)[2], "x".repeat(5001));
+  });
+  assert.match(textOf(card), /5\s001 \/ 5\s000 caractère\(s\) — trop long/);
+  const body = helpFields(container)[2] as HTMLTextAreaElement;
+  assert.equal(body.value.length, 5001, "rien n'est coupé en silence");
+  const buttons = [...card.querySelectorAll("button")];
+  assert.equal((buttons.filter((b) => b.textContent === "Enregistrer")[2] as HTMLButtonElement).disabled, true);
+  assert.equal((buttons.filter((b) => b.textContent === "Valider")[2] as HTMLButtonElement).disabled, true);
+  assert.equal((buttons.filter((b) => b.textContent === "Valider")[0] as HTMLButtonElement).disabled, false, "les autres champs restent éditables");
+});
+
+// AUD212-01 -- « masqué par la recherche » ≠ « non renseigné »
+async function searchFor(container: Element, q: string) {
+  await (React as any).act(async () => {
+    setValue(container.querySelector("[data-translations-search]")!, q);
+  });
+  await flush(40);
+}
+const unsetFields = (c: Element) =>
+  [...c.querySelectorAll("[data-translation-order-help-unset]")].map((n) => n.getAttribute("data-translation-order-help-unset"));
+const filteredFields = (c: Element) =>
+  [...c.querySelectorAll("[data-translation-order-help-filtered]")].map((n) => n.getAttribute("data-translation-order-help-filtered"));
+
+test("[209-K] recherche « bouton » avec les trois sources configurées : titre et corps sont MASQUÉS, jamais « non renseignés »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  assert.deepEqual(unsetFields(container), [], "rien d'absent sans recherche");
+  await searchFor(container, "bouton");
+  assert.equal(helpFields(container).length, 1, "seul le champ bouton correspond");
+  assert.deepEqual(unsetFields(container), [], "AUD212-01 : aucune fausse absence");
+  assert.deepEqual(filteredFields(container).sort(), ["order_help_body", "order_help_title"]);
+  assert.match(textOf(helpCard(container)!), /masqué par la recherche ou le statut choisis \(le texte existe\)/);
+  assert.doesNotMatch(textOf(helpCard(container)!), /non renseigné/);
+  const shortcut = container.querySelector("[data-translations-order-help-hidden]");
+  assert.ok(shortcut, "message de masquage partiel");
+  assert.match(textOf(shortcut), /Certains de ces textes sont masqués par la recherche ou le statut/);
+  await click(container.querySelector("[data-translations-order-help-show]"));
+  assert.equal(helpFields(container).length, 3, "un clic ramène les trois champs");
+  assert.equal(container.querySelector("[data-translations-order-help-hidden]"), null);
+  assert.deepEqual(filteredFields(container), []);
+});
+
+test("[209-L] recherche « titre » : bouton et corps masqués (existent), pas absents", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  await searchFor(container, "titre de la fenêtre");
+  assert.equal(helpFields(container).length, 1);
+  assert.deepEqual(unsetFields(container), []);
+  assert.deepEqual(filteredFields(container).sort(), ["order_help_body", "order_help_button_label"]);
+});
+
+test("[209-M] titre RÉELLEMENT absent + recherche « bouton » : le titre reste « non renseigné », le corps est « masqué »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = [helpRows()[0], helpRows()[2]];
+  const container = await mount(t);
+  await searchFor(container, "bouton");
+  assert.deepEqual(unsetFields(container), ["order_help_title"], "vraie absence conservée");
+  assert.deepEqual(filteredFields(container), ["order_help_body"], "le corps existe, il est masqué");
 });

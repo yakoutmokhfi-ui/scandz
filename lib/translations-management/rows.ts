@@ -97,6 +97,22 @@ export interface TranslationRow extends TranslationRowContext {
   tagIds: readonly string[];
 }
 
+/** Libellé lisible de chaque famille de contenu -- UNE seule source,
+ *  partagée par l'écran (étiquette de carte) et par la recherche (le
+ *  commerçant tape « aide » ou « commander » pour retrouver le bloc). */
+export const ENTITY_TYPE_LABELS: Record<TranslationEntityType, string> = {
+  restaurant: "Établissement",
+  category: "Catégorie",
+  subcategory: "Sous-catégorie",
+  item: "Produit",
+  customer_notice: "Message client",
+  tag: "Tag",
+  order_help: "Aide à la commande",
+};
+
+/** Titre de la carte qui regroupe les trois champs de l'aide. */
+export const ORDER_HELP_CARD_TITLE = "Comment passer commande";
+
 export const FIELD_LABELS: Record<string, string> = {
   intro_text: "Texte de présentation",
   announcement_text: "Message temporaire",

@@ -54,7 +54,13 @@ import {
   EMPTY_FILTERS,
   DEFAULT_SORT,
 } from "@/lib/catalogue-management/filtering";
-import { entityKey, rowStatus, type TranslationRow } from "@/lib/translations-management/rows";
+import {
+  ENTITY_TYPE_LABELS,
+  ORDER_HELP_CARD_TITLE,
+  entityKey,
+  rowStatus,
+  type TranslationRow,
+} from "@/lib/translations-management/rows";
 import type { TranslationDisplayStatus } from "@/lib/translation-resolver";
 
 export type { CatalogueFilters, SortKey };
@@ -89,7 +95,7 @@ export function isDefaultTranslationFilters(f: TranslationFilters): boolean {
 
 /** Un filtre de CONTEXTE est actif (catégorie/sous-catégorie/tag/
  *  disponibilité) : les entités hors catalogue sont alors masquées. */
-function hasContextFilter(f: TranslationFilters): boolean {
+export function hasContextFilter(f: TranslationFilters): boolean {
   return (
     f.categoryId !== null || f.subcategoryId !== null || f.tagId !== null || f.available !== null
   );
@@ -98,10 +104,39 @@ function hasContextFilter(f: TranslationFilters): boolean {
 export function matchesTranslationSearch(row: TranslationRow, needle: string): boolean {
   const q = normalizeForSearch(needle);
   if (q === "") return true;
-  return [row.entityLabel, row.categoryName ?? "", row.subcategoryName ?? "", row.sourceText]
+  // Pour l'AIDE À LA COMMANDE, le libellé du champ, la famille de
+  // contenu et le titre de carte sont cherchables : sans cela « bouton »,
+  // « titre » ou « aide à la commande » ne retrouvaient rien tant que le
+  // commerçant ne se souvenait pas d'un mot du texte source (#209).
+  // Volontairement RESTREINT à ces lignes : élargir à tous les champs
+  // ferait de « nom » ou « description » une recherche qui retourne tout
+  // le catalogue.
+  const helpTerms =
+    row.entityType === "order_help"
+      ? [row.fieldLabel, ENTITY_TYPE_LABELS.order_help, ORDER_HELP_CARD_TITLE]
+      : [];
+  return [row.entityLabel, row.categoryName ?? "", row.subcategoryName ?? "", row.sourceText, ...helpTerms]
     .map(normalizeForSearch)
     .join("   ")
     .includes(q);
+}
+
+/** Vrai quand l'aide à la commande EXISTE pour cet établissement mais
+ *  qu'un filtre de CONTEXTE catalogue (catégorie, sous-catégorie, tag,
+ *  disponibilité) la masque -- l'écran doit alors le dire et offrir un
+ *  retour direct, jamais laisser croire qu'elle n'existe pas (#209). */
+export function isOrderHelpHiddenByContextFilter(
+  rows: ReadonlyArray<TranslationRow>,
+  filters: TranslationFilters
+): boolean {
+  return hasContextFilter(filters) && rows.some((row) => row.entityType === "order_help");
+}
+
+/** Filtres identiques, sans les critères de contexte catalogue : la
+ *  recherche et le statut sont conservés (le commerçant garde ce qu'il
+ *  a tapé), seuls les critères qui excluent l'aide sont levés. */
+export function withoutContextFilters(filters: TranslationFilters): TranslationFilters {
+  return { ...filters, categoryId: null, subcategoryId: null, tagId: null, available: null };
 }
 
 /** Applique les filtres CATALOGUE (hors statut) à une ligne. */

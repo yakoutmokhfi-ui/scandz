@@ -28,14 +28,25 @@ import { getTranslationStatus, type TranslationDisplayStatus } from "@/lib/trans
 import {
   buildTranslationRows,
   entityKey,
+  rowStatus,
+  ENTITY_TYPE_LABELS,
+  ORDER_HELP_CARD_TITLE,
+  TRANSLATABLE_FIELDS,
+  FIELD_LABELS,
   type TranslationRow,
 } from "@/lib/translations-management/rows";
+import {
+  communicationTextMaxLength,
+  isCommunicationTextKey,
+} from "@/lib/communications/text-keys";
 import {
   applyTranslationFilters,
   availableTranslationFilterOptions,
   coherentSubcategoryOptions,
   countEntities,
   isDefaultTranslationFilters,
+  isOrderHelpHiddenByContextFilter,
+  withoutContextFilters,
   statusCounts,
   EMPTY_TRANSLATION_FILTERS,
   type TranslationFilters,
@@ -83,15 +94,7 @@ const STATUS_LABEL: Record<TranslationDisplayStatus, string> = {
   stale: "Périmé",
 };
 
-const ENTITY_LABEL: Record<TranslationEntityType, string> = {
-  restaurant: "Établissement",
-  category: "Catégorie",
-  subcategory: "Sous-catégorie",
-  item: "Produit",
-  customer_notice: "Message client",
-  tag: "Tag",
-  order_help: "Aide à la commande",
-};
+const ENTITY_LABEL = ENTITY_TYPE_LABELS;
 
 /** TRANSLATIONS MANAGEMENT v2 (mandat §15) -- l'écran doit rester
  *  utilisable au-delà de 300 produits : la liste est rendue par
@@ -120,6 +123,15 @@ export default function TranslationsPage() {
     MerchantDeliveryFulfillmentPricingRule[]
   >([]);
   const [orderHelpTexts, setOrderHelpTexts] = useState<OrderHelpTranslationSource[]>([]);
+  /** #209 -- l'échec de lecture de l'aide est un ÉTAT visible, jamais une
+   *  liste vide : « impossible de lire » ≠ « aucun texte configuré ». */
+  const [orderHelpError, setOrderHelpError] = useState(false);
+  const [orderHelpRetrying, setOrderHelpRetrying] = useState(false);
+  /** Séquence des lectures de l'aide : une réponse plus ancienne que la
+   *  dernière lecture lancée (chargement complet OU reprise) est
+   *  abandonnée, jamais peinte. */
+  const orderHelpSeqRef = useRef(0);
+  const [pendingScrollToHelp, setPendingScrollToHelp] = useState(false);
   const [targetLang, setTargetLang] = useState<string>("");
   const [filters, setFilters] = useState<TranslationFilters>(EMPTY_TRANSLATION_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -178,6 +190,9 @@ export default function TranslationsPage() {
     setMethodNotices([]);
     setFulfillmentNotices([]);
     setOrderHelpTexts([]);
+    setOrderHelpError(false);
+    setOrderHelpRetrying(false);
+    const helpSeq = ++orderHelpSeqRef.current;
     try {
       // NOYAU (réglages, langues, catalogue) : ce sont les seules
       // lectures dont dépend l'affichage des traductions.
@@ -204,13 +219,22 @@ export default function TranslationsPage() {
           getMerchantDeliveryFulfillmentPricing(id).catch(
             () => [] as MerchantDeliveryFulfillmentPricingRule[]
           ),
-          getMerchantOrderHelpTexts(id).catch(() => [] as OrderHelpTranslationSource[]),
+          // #209 -- l'échec n'est PLUS transformé en liste vide : il est
+          // remonté à l'écran (message + reprise), le catalogue restant
+          // utilisable.
+          getMerchantOrderHelpTexts(id).then(
+            (rows) => ({ ok: true as const, rows }),
+            () => ({ ok: false as const, rows: [] as OrderHelpTranslationSource[] })
+          ),
         ]);
         if (!token.isCurrent()) return;
         setProductTags(tags);
         setMethodNotices(notices);
         setFulfillmentNotices(rules);
-        setOrderHelpTexts(helpTexts);
+        if (helpSeq === orderHelpSeqRef.current) {
+          setOrderHelpTexts(helpTexts.rows);
+          setOrderHelpError(!helpTexts.ok);
+        }
       })();
       void getMerchantTagTranslations(id).then((tags) => {
         if (token.isCurrent()) setTagTranslations(Array.isArray(tags) ? tags : []);
@@ -248,6 +272,9 @@ export default function TranslationsPage() {
       setMethodNotices([]);
       setFulfillmentNotices([]);
       setOrderHelpTexts([]);
+      setOrderHelpError(false);
+      setOrderHelpRetrying(false);
+      orderHelpSeqRef.current += 1;
       setContentLoadedRestaurantId(null);
       setFilters(EMPTY_TRANSLATION_FILTERS);
       setImportPreview(null);
@@ -275,6 +302,27 @@ export default function TranslationsPage() {
   const methodNoticesInContext = contentInContext ? methodNotices : [];
   const fulfillmentNoticesInContext = contentInContext ? fulfillmentNotices : [];
   const orderHelpTextsInContext = contentInContext ? orderHelpTexts : [];
+  const orderHelpErrorInContext = contentInContext && orderHelpError;
+
+  /** Reprise de la SEULE lecture de l'aide : le catalogue, les filtres
+   *  et les saisies en cours ne sont pas touchés. */
+  async function retryOrderHelp() {
+    const id = restaurantId;
+    if (!id || orderHelpRetrying) return;
+    const seq = ++orderHelpSeqRef.current;
+    setOrderHelpRetrying(true);
+    try {
+      const rows = await getMerchantOrderHelpTexts(id);
+      if (seq !== orderHelpSeqRef.current || guard.currentRestaurantId() !== id) return;
+      setOrderHelpTexts(rows);
+      setOrderHelpError(false);
+    } catch {
+      if (seq !== orderHelpSeqRef.current || guard.currentRestaurantId() !== id) return;
+      setOrderHelpError(true);
+    } finally {
+      if (seq === orderHelpSeqRef.current) setOrderHelpRetrying(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -400,6 +448,52 @@ export default function TranslationsPage() {
     [allRows, targetLang]
   );
   const resultCount = countEntities(filteredRows);
+
+  /** #209 -- l'aide à la commande est TOUJOURS repérable : résumé des
+   *  trois champs (même quand un filtre ou une recherche les masque) et
+   *  signalement explicite d'un masquage par les filtres catalogue. */
+  const orderHelpRows = useMemo(
+    () => allRows.filter((row) => row.entityType === "order_help"),
+    [allRows]
+  );
+  const orderHelpSummary = useMemo(() => {
+    if (!targetLang) return null;
+    const present = new Set(orderHelpRows.map((row) => row.field));
+    return {
+      total: orderHelpRows.length,
+      validated: orderHelpRows.filter((row) => rowStatus(row, targetLang) === "validated").length,
+      missingFields: (TRANSLATABLE_FIELDS.order_help as readonly string[]).filter(
+        (field) => !present.has(field)
+      ),
+    };
+  }, [orderHelpRows, targetLang]);
+  const orderHelpHiddenByFilters = isOrderHelpHiddenByContextFilter(allRows, filters);
+  /** AUD212-01 -- « tous les champs configurés sont affichés » se juge sur
+   *  les sources NON filtrées : un seul champ visible ne suffit pas. */
+  const visibleOrderHelpFields = new Set(
+    filteredRows.filter((row) => row.entityType === "order_help").map((row) => row.field)
+  );
+  const orderHelpFullyVisible =
+    orderHelpRows.length > 0 && orderHelpRows.every((row) => visibleOrderHelpFields.has(row.field));
+
+  /** Affiche l'aide : lève les filtres catalogue ET la recherche (ce que
+   *  le commerçant tape ne doit pas la masquer non plus) puis y défile.
+   *  Le statut est levé aussi : « Validé » masquerait un champ manquant. */
+  function showOrderHelp() {
+    setFilters((f) => ({ ...withoutContextFilters(f), search: "", status: "all" }));
+    setPendingScrollToHelp(true);
+  }
+  useEffect(() => {
+    if (!pendingScrollToHelp) return;
+    const node = document.getElementById("translations-order-help");
+    if (!node) return;
+    setPendingScrollToHelp(false);
+    try {
+      node.scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch {
+      /* environnement sans scrollIntoView : sans effet sur l'écran */
+    }
+  }, [pendingScrollToHelp, filteredRows]);
 
   /** Regroupement d'affichage : une carte par ENTITÉ, dans l'ordre déjà
    *  décidé par `applyTranslationFilters` (hiérarchie conservée). */
@@ -1116,6 +1210,69 @@ export default function TranslationsPage() {
             {/* ------------------------------------------------------
                 LISTE -- une carte par entité, hiérarchie visible.
                ------------------------------------------------------ */}
+            {/* #209 -- AIDE À LA COMMANDE : repérable en tout état de cause. */}
+            {orderHelpErrorInContext && (
+              <section
+                role="alert"
+                data-translations-order-help-error=""
+                className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4"
+              >
+                <p className="text-sm font-bold text-red-800">
+                  Impossible de charger les textes « {ORDER_HELP_CARD_TITLE} ».
+                </p>
+                <p className="mt-1 text-xs text-red-700">
+                  Il ne s'agit pas d'une absence de texte : la lecture a échoué. Le reste des
+                  traductions reste utilisable. Réessayez avant de conclure que l'aide n'est pas
+                  configurée.
+                </p>
+                <button
+                  type="button"
+                  data-translations-order-help-retry=""
+                  onClick={() => void retryOrderHelp()}
+                  disabled={orderHelpRetrying}
+                  className="mt-2 rounded-lg bg-red-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                  {orderHelpRetrying ? "Nouvelle tentative…" : "Réessayer"}
+                </button>
+              </section>
+            )}
+
+            {!orderHelpErrorInContext && orderHelpSummary && orderHelpSummary.total > 0 && (
+              <section
+                data-translations-order-help-shortcut=""
+                className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4"
+              >
+                <p className="text-sm font-bold text-stone-900">{ORDER_HELP_CARD_TITLE}</p>
+                <p className="mt-1 text-xs text-stone-600">
+                  Bouton, titre et texte de la fenêtre d'aide de la vitrine :{" "}
+                  <span data-translations-order-help-progress="">
+                    {orderHelpSummary.validated} / {orderHelpSummary.total} validé(s)
+                  </span>{" "}
+                  dans la langue choisie.
+                </p>
+                {(orderHelpHiddenByFilters || !orderHelpFullyVisible) && (
+                  <p
+                    data-translations-order-help-hidden=""
+                    className="mt-1 text-xs font-semibold text-amber-800"
+                  >
+                    {orderHelpHiddenByFilters
+                      ? "Ces textes sont masqués par les filtres catalogue actifs (catégorie, sous-catégorie, tag ou disponibilité)."
+                      : "Certains de ces textes sont masqués par la recherche ou le statut choisis."}
+                  </p>
+                )}
+                {(orderHelpHiddenByFilters || !orderHelpFullyVisible) && (
+                  <button
+                    type="button"
+                    data-translations-order-help-show=""
+                    onClick={showOrderHelp}
+                    className="mt-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800"
+                  >
+                    Afficher l'aide à la commande
+                  </button>
+                )}
+              </section>
+            )}
+
             {entityGroups.length === 0 && (
               <p data-translations-empty="" className="mt-4 rounded-2xl bg-stone-50 p-4 text-sm text-stone-500">
                 Aucun élément ne correspond à ces filtres.
@@ -1127,6 +1284,7 @@ export default function TranslationsPage() {
               return (
                 <section
                   key={group.key}
+                  id={head.entityType === "order_help" ? "translations-order-help" : undefined}
                   data-translation-entity={head.entityType}
                   data-translation-entity-id={head.entityId}
                   className="mt-4 rounded-2xl border border-stone-200 bg-white p-4"
@@ -1134,7 +1292,14 @@ export default function TranslationsPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
                     {ENTITY_LABEL[head.entityType]}
                   </p>
-                  <h3 className="font-bold text-stone-900">{head.entityLabel}</h3>
+                  <h3 className="font-bold text-stone-900">
+                    {head.entityType === "order_help" ? ORDER_HELP_CARD_TITLE : head.entityLabel}
+                  </h3>
+                  {head.entityType === "order_help" && (
+                    <p data-translation-order-help-intro="" className="text-xs text-stone-500">
+                      Les trois textes de la fenêtre d'aide de la vitrine : bouton, titre et contenu.
+                    </p>
+                  )}
                   {(head.categoryName || head.subcategoryName) && (
                     <p data-translation-breadcrumb="" className="text-xs text-stone-500">
                       {[head.categoryName, head.subcategoryName, head.entityType === "item" ? head.entityLabel : null]
@@ -1156,8 +1321,55 @@ export default function TranslationsPage() {
                       onSave={(v, status) =>
                         handleSave(row.entityType, row.entityId, row.field, v, status, row.sourceHash)
                       }
+                      maxLength={
+                        row.entityType === "order_help" && isCommunicationTextKey(row.field)
+                          ? communicationTextMaxLength(row.field)
+                          : undefined
+                      }
                     />
                   ))}
+                  {/* AUD212-01 -- « masqué » (la source existe, la recherche ou le
+                      statut l'écarte) n'est JAMAIS présenté comme « non renseigné »
+                      (la source n'existe pas) : seule la liste NON filtrée tranche. */}
+                  {head.entityType === "order_help" &&
+                    (TRANSLATABLE_FIELDS.order_help as readonly string[])
+                      .filter(
+                        (field) =>
+                          orderHelpRows.some((row) => row.field === field) &&
+                          !group.rows.some((row) => row.field === field)
+                      )
+                      .map((field) => (
+                        <p
+                          key={field}
+                          data-translation-order-help-filtered={field}
+                          className="mt-4 border-t border-stone-100 pt-3 text-xs text-amber-800"
+                        >
+                          <span className="font-semibold">{FIELD_LABELS[field]}</span> : masqué par la
+                          recherche ou le statut choisis (le texte existe).{" "}
+                          <button
+                            type="button"
+                            onClick={showOrderHelp}
+                            className="font-semibold underline"
+                          >
+                            Afficher les trois champs
+                          </button>
+                        </p>
+                      ))}
+                  {head.entityType === "order_help" &&
+                    (TRANSLATABLE_FIELDS.order_help as readonly string[])
+                      .filter((field) => !orderHelpRows.some((row) => row.field === field))
+                      .map((field) => (
+                        <p
+                          key={field}
+                          data-translation-order-help-unset={field}
+                          className="mt-4 border-t border-stone-100 pt-3 text-xs text-stone-500"
+                        >
+                          <span className="font-semibold text-stone-600">{FIELD_LABELS[field]}</span>{" "}
+                          : non renseigné dans les réglages — rien à traduire.
+                          {field === "order_help_title" &&
+                            " (Le titre est facultatif : la vitrine reprend alors le texte du bouton.)"}
+                        </p>
+                      ))}
                 </section>
               );
             })}
@@ -1179,6 +1391,20 @@ export default function TranslationsPage() {
   );
 }
 
+/** Au-delà, le texte source défile dans son cadre et le compteur de
+ *  caractères est affiché même sans limite serveur. */
+const LONG_TEXT_THRESHOLD = 400;
+
+/** Hauteur de la zone de saisie : suit le texte (retours à la ligne et
+ *  longueur) entre 2 et 16 lignes -- un texte de 2 400 caractères ne se
+ *  saisit pas dans 2 lignes. */
+function textareaRows(source: string, draft: string): number {
+  const basis = draft.length > source.length ? draft : source;
+  const byBreaks = basis.split("\n").length;
+  const byLength = Math.ceil(basis.length / 80);
+  return Math.min(16, Math.max(2, byBreaks, byLength));
+}
+
 /**
  * Un champ traduisible : texte source affiché à côté du champ de
  * traduction, statut visible (À relire / Validé / Périmé / Manquant),
@@ -1193,6 +1419,7 @@ function TranslationField({
   lang,
   canEdit,
   onSave,
+  maxLength,
 }: {
   label: string;
   sourceValue: string | null;
@@ -1202,10 +1429,15 @@ function TranslationField({
   lang: string;
   canEdit: boolean;
   onSave: (value: string, status: "to_review" | "validated") => void;
+  /** Longueur maximale acceptée côté serveur (champs de l'aide). Jamais
+   *  appliquée par `maxLength` natif : une coupe silencieuse au collage
+   *  est pire qu'un message clair. */
+  maxLength?: number;
 }) {
   const status = getTranslationStatus(sourceHash, translations, lang, field);
   const storedValue = translations?.[lang]?.[field] ?? "";
   const [draft, setDraft] = useState(storedValue);
+  const overLimit = maxLength !== undefined && draft.length > maxLength;
 
   useEffect(() => {
     setDraft(storedValue);
@@ -1223,27 +1455,49 @@ function TranslationField({
           {STATUS_LABEL[status]}
         </span>
       </div>
-      <p className="mt-1 rounded-lg bg-stone-50 p-2 text-xs text-stone-500">{sourceValue}</p>
+      {/* Les sauts de ligne du texte source sont CONSERVÉS à l'affichage ;
+          un texte long défile dans son cadre au lieu d'allonger la page. */}
+      <p
+        data-translation-source=""
+        tabIndex={(sourceValue?.length ?? 0) > LONG_TEXT_THRESHOLD ? 0 : undefined}
+        className={`mt-1 whitespace-pre-wrap break-words rounded-lg bg-stone-50 p-2 text-xs text-stone-500 ${
+          (sourceValue?.length ?? 0) > LONG_TEXT_THRESHOLD ? "max-h-56 overflow-y-auto" : ""
+        }`}
+      >
+        {sourceValue}
+      </p>
       <textarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         disabled={!canEdit}
-        rows={2}
-        className="mt-1 w-full rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
+        rows={textareaRows(sourceValue ?? "", draft)}
+        className="mt-1 w-full resize-y rounded-xl border border-stone-300 p-2.5 text-sm disabled:bg-stone-50"
       />
+      {(maxLength !== undefined || (sourceValue?.length ?? 0) > LONG_TEXT_THRESHOLD) && (
+        <p
+          data-translation-length=""
+          className={`mt-1 text-xs ${overLimit ? "font-semibold text-red-700" : "text-stone-500"}`}
+        >
+          {draft.length.toLocaleString("fr-FR")}
+          {maxLength !== undefined ? ` / ${maxLength.toLocaleString("fr-FR")}` : ""} caractère(s)
+          {overLimit ? " — trop long : raccourcissez avant d'enregistrer." : ""}
+        </p>
+      )}
       {canEdit && (
         <div className="mt-1.5 flex gap-2">
           <button
             type="button"
+            disabled={overLimit}
             onClick={() => onSave(draft, "to_review")}
-            className="rounded-lg border border-stone-300 px-3 py-1 text-xs font-semibold text-stone-700"
+            className="rounded-lg border border-stone-300 px-3 py-1 text-xs font-semibold text-stone-700 disabled:opacity-40"
           >
             Enregistrer
           </button>
           <button
             type="button"
+            disabled={overLimit}
             onClick={() => onSave(draft, "validated")}
-            className="rounded-lg bg-stone-900 px-3 py-1 text-xs font-semibold text-white"
+            className="rounded-lg bg-stone-900 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
           >
             Valider
           </button>
