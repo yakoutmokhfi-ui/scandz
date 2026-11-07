@@ -509,6 +509,54 @@ test("[211-F3] application nominale puis seconde application : ALREADY_APPLIED, 
   assert.equal(q(url, `select has_function_privilege('service_role', '${FN}', 'execute')::text`), "true");
 });
 
+/** AUD214-01 : une valeur de locale qui ne diffère de fr/en/ar/nl QUE par un espace (ou une tabulation, un saut de
+ *  ligne) n'est PAS la même contrainte. Le CHECK de remplacement est posé tel quel, avec ses littéraux exacts. */
+const withCheck = (values: string[]) =>
+  `alter table public.notification_outbox drop constraint notification_outbox_locale_check;
+   alter table public.notification_outbox add constraint notification_outbox_locale_check check (locale in (${values.join(", ")}));`;
+
+test("[211-F4] AUD214-01 pré-vol : un CHECK de locale dont un littéral ne diffère que par une espace ('f r', ' fr', 'fr ', tab, saut de ligne) est REFUSÉ, contrainte intacte", { skip: SKIP }, () => {
+  const variants: Array<[string, string[]]> = [
+    ["espace-interne", ["'f r'", "'en'", "'ar'"]],
+    ["espace-avant", ["' fr'", "'en'", "'ar'"]],
+    ["espace-apres", ["'fr '", "'en'", "'ar'"]],
+    ["tabulation", ["E'f\\tr'", "'en'", "'ar'"]],
+    ["saut-de-ligne", ["'fr'", "E'e\\nn'", "'ar'"]],
+    ["autre-ordre", ["'en'", "'fr'", "'ar'"]],
+    ["valeur-en-plus", ["'fr'", "'en'", "'ar'", "'de'"]],
+    ["valeur-en-moins", ["'fr'", "'en'"]],
+  ];
+  for (const [label, values] of variants) {
+    const url = newDb({ extraSql: withCheck(values) });
+    assertRefused(url, LOT, `locale-${label}`, "SCANYM_SCHEMA_DRIFT", /CHECK de locale n'est pas ceux de N1-A/);
+  }
+  // Témoin : la forme exacte est acceptée (le refus ci-dessus vient bien du littéral, pas du harnais).
+  applyLot(newDb({ extraSql: withCheck(["'fr'", "'en'", "'ar'"]) }));
+});
+
+test("[211-F5] AUD214-01 rollback : un CHECK ('f r','en','ar','nl'), ('fr','en','ar','n l'), (' fr',…) est REFUSÉ sans rien modifier ; la forme exacte est acceptée", { skip: SKIP }, () => {
+  const variants: Array<[string, string[]]> = [
+    ["espace-interne-fr", ["'f r'", "'en'", "'ar'", "'nl'"]],
+    ["espace-interne-nl", ["'fr'", "'en'", "'ar'", "'n l'"]],
+    ["espace-avant", ["' fr'", "'en'", "'ar'", "'nl'"]],
+    ["espace-apres", ["'fr'", "'en'", "'ar'", "'nl '"]],
+    ["tabulation", ["'fr'", "'en'", "E'a\\tr'", "'nl'"]],
+    ["autre-ordre", ["'nl'", "'fr'", "'en'", "'ar'"]],
+    ["sans-nl", ["'fr'", "'en'", "'ar'"]],
+  ];
+  for (const [label, values] of variants) {
+    const url = newDb();
+    applyLot(url);
+    assert.equal(psqlFile(url, `drift-${label}.sql`, withCheck(values), true).status, 0);
+    assertRefused(url, RB, `rb-locale-${label}`, "SCANYM_PREDECESSOR_DRIFT", /CHECK de locale/);
+  }
+  // Témoin : la forme exacte (posée à la main) est acceptée par le rollback.
+  const ok = newDb();
+  applyLot(ok);
+  assert.equal(psqlFile(ok, "hand-exact.sql", withCheck(["'fr'", "'en'", "'ar'", "'nl'"]), true).status, 0);
+  assert.equal(psqlFile(ok, "rb-ok.sql", RB, true).status, 0);
+});
+
 // --------------------------------------------------------------------
 // R. Rollback
 // --------------------------------------------------------------------

@@ -39,6 +39,14 @@ export interface OrderReceivedDetail {
   deliveryFee: number | null;
   schedule: OrderDetailSchedule | null;
   merchantAddress: string | null;
+  /**
+   * `true` : ce snapshot est au format ORDER EMAIL DETAIL v1 (marqueur `order_email_detail_v1` ou clé `schedule`
+   * présente, même `null`). `schedule` est alors la SEULE autorité de jour/créneau : un planning rejeté (date
+   * impossible, mode contradictoire, forme inconnue) ne doit réapparaître sous aucune autre forme — ni via les clés
+   * « à plat » `fulfillment_date` / `fulfillment_slot`, ni via les variables marchandes. `false` : ligne antérieure
+   * au lot, seul le repli antérieur (#172) s'applique.
+   */
+  scheduleAuthoritative: boolean;
 }
 
 /** Borne dure de lignes rendues : un snapshot absurde ne doit pas produire un e-mail démesuré. */
@@ -135,6 +143,8 @@ export function parseOrderReceivedDetail(
     deliveryFee: asAmount(snapshot.delivery_fee),
     schedule: parseSchedule(snapshot.schedule, serviceMode),
     merchantAddress: asText(snapshot.merchant_address),
+    scheduleAuthoritative:
+      snapshot.order_email_detail_v1 === true || Object.prototype.hasOwnProperty.call(snapshot, "schedule"),
   };
 }
 

@@ -211,13 +211,21 @@ begin
 end $$;
 
 -- A.3 CHECK de locale : exactement un, et exactement ('fr','en','ar'). Toute autre forme = dérive inconnue.
+--     Comparaison EXACTE (AUD214-01) : le squelette de la définition (littéraux remplacés par un marqueur, espaces
+--     de structure ignorés) ET la liste ordonnée des littéraux, octet pour octet. Une espace DANS un littéral
+--     ('f r', ' fr', 'fr ') ou une valeur en plus/en moins/dans un autre ordre n'est donc JAMAIS assimilée à la forme
+--     attendue ; seuls les espaces entre les éléments de la définition sont ignorés.
 do $$
 declare
+  c_ref3  constant text := 'CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text])))';
+  c_ref4  constant text := 'CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text, ''nl''::text])))';
   v_count integer;
-  v_def   text;
+  v_raw   text;
+  v_skel  text;
+  v_vals  text[];
 begin
-  select count(*), min(regexp_replace(pg_get_constraintdef(con.oid), '\s', '', 'g'))
-    into v_count, v_def
+  select count(*), min(pg_get_constraintdef(con.oid))
+    into v_count, v_raw
   from pg_constraint con
   where con.conrelid = 'public.notification_outbox'::regclass
     and con.contype = 'c'
@@ -225,11 +233,13 @@ begin
   if v_count <> 1 then
     raise exception 'SCANYM_SCHEMA_DRIFT: notification_outbox doit porter exactement UN CHECK sur locale (trouvé %). Annulé, rien modifié.', v_count;
   end if;
-  if v_def like '%''nl''%' then
+  v_skel := regexp_replace(regexp_replace(v_raw, '''[^'']*''', '''L''', 'g'), '\s', '', 'g');
+  v_vals := (select coalesce(array_agg(t.m[1] order by t.n), '{}'::text[]) from regexp_matches(v_raw, '''([^'']*)''', 'g') with ordinality as t(m, n));
+  if v_vals = array['fr', 'en', 'ar', 'nl']::text[] and v_skel = regexp_replace(regexp_replace(c_ref4, '''[^'']*''', '''L''', 'g'), '\s', '', 'g') then
     raise exception 'SCANYM_ALREADY_APPLIED: le CHECK de locale accepte déjà nl -- annulé, rien modifié.';
   end if;
-  if v_def is distinct from regexp_replace('CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text])))', '\s', '', 'g') then
-    raise exception 'SCANYM_SCHEMA_DRIFT: le CHECK de locale n''est pas ceux de N1-A (fr, en, ar) : % -- annulé, rien modifié.', v_def;
+  if v_vals is distinct from array['fr', 'en', 'ar']::text[] or v_skel is distinct from regexp_replace(regexp_replace(c_ref3, '''[^'']*''', '''L''', 'g'), '\s', '', 'g') then
+    raise exception 'SCANYM_SCHEMA_DRIFT: le CHECK de locale n''est pas ceux de N1-A (fr, en, ar) : % -- annulé, rien modifié.', v_raw;
   end if;
 end $$;
 
@@ -532,8 +542,10 @@ begin
   select pg_get_constraintdef(con.oid) into v_def
   from pg_constraint con
   where con.conrelid = 'public.notification_outbox'::regclass and con.conname = 'notification_outbox_locale_check';
-  if v_def is null or v_def not like '%''nl''%' then
-    raise exception 'SCANYM_POSTCHECK: le CHECK de locale n''accepte pas nl.';
+  if v_def is null
+     or (select coalesce(array_agg(t.m[1] order by t.n), '{}'::text[]) from regexp_matches(v_def, '''([^'']*)''', 'g') with ordinality as t(m, n)) is distinct from array['fr', 'en', 'ar', 'nl']::text[]
+     or regexp_replace(regexp_replace(v_def, '''[^'']*''', '''L''', 'g'), '\s', '', 'g') is distinct from regexp_replace(regexp_replace('CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text, ''nl''::text])))', '''[^'']*''', '''L''', 'g'), '\s', '', 'g') then
+    raise exception 'SCANYM_POSTCHECK: le CHECK de locale n''est pas exactement (fr, en, ar, nl) : %.', v_def;
   end if;
 end $$;
 

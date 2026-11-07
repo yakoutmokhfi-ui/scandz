@@ -32,6 +32,11 @@ tables déjà commitées. Les deux chemins appellent la même fonction, donc le 
   seul (Chronofresh) s'affiche sans créneau.
 * Mode table, ou planning informatif sans date : aucune ligne de jour/créneau.
 * La clé interne de créneau (`slot_key`) n'est jamais recopiée ni lue.
+* Sur un snapshot au format #211 (marqueur `order_email_detail_v1` ou clé `schedule`, même `null`), `schedule` est la
+  **seule** autorité de jour/créneau. Un planning rejeté (date impossible comme le 30 février, mode contradictoire, forme
+  inconnue) n'est ni affiché, ni réinterprété (le 30 février ne devient jamais le 2 mars), ni relu via les clés « à plat »
+  `fulfillment_date` / `fulfillment_slot`, et les variables marchandes correspondantes sont vides. Le repli antérieur (#172)
+  ne s'applique qu'aux lignes antérieures au lot ; il rejette lui aussi une date civile impossible.
 * Base non UTF-8 : la fonction SQL utilise un tiret ASCII au lieu du tiret demi-cadratin, afin de ne **jamais** lever
   d'erreur d'encodage dans le déclencheur différé (une exception y annulerait la création de la commande).
 
@@ -54,6 +59,9 @@ tables déjà commitées. Les deux chemins appellent la même fonction, donc le 
 ## Ordre de mise en service (aucune étape n'est exécutée par la PR)
 
 1. SQL : `DRAFT-lot-order-email-detail-v1.sql` (pré-vol intégré ; refuse toute dérive du prédécesseur et du schéma).
+   Le CHECK de locale est comparé **exactement** (squelette de la définition ET littéraux, octet pour octet) : une valeur
+   qui ne diffère que par une espace (`'f r'`, `' fr'`, `'fr '`), une valeur en plus, en moins ou dans un autre ordre est refusée.
+   Seules les espaces de structure entre éléments sont ignorées. Même règle dans le rollback et dans les post-contrôles.
 2. Code applicatif de la PR.
 
 L'ordre inverse est sans danger (le code traite l'absence de clés comme « pas de récapitulatif ») mais enverrait des

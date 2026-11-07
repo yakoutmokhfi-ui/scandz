@@ -200,13 +200,11 @@ export function formatFulfillmentSchedule(
   const s = slot?.trim() || "";
   let datePart = d;
   if (DATE_ONLY.test(d)) {
-    const parsed = new Date(`${d}T12:00:00Z`);
-    if (!Number.isNaN(parsed.getTime())) {
-      datePart = new Intl.DateTimeFormat(intlLocale(locale), {
-        dateStyle: "full",
-        timeZone: "UTC",
-      }).format(parsed);
-    }
+    // Date civile IMPOSSIBLE (30 février, 31 avril, mois 13…) : REJETÉE, jamais réinterprétée — `new Date()` la
+    // ferait glisser silencieusement au 2 mars. Rien n'est affiché, pas même le créneau qui l'accompagnait.
+    const formatted = formatCivilDate(locale, d);
+    if (formatted === null) return null;
+    datePart = formatted;
   }
   const parts = [datePart, s].filter((part) => part !== "");
   return parts.length > 0 ? parts.join(", ") : null;

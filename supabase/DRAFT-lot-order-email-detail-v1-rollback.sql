@@ -95,14 +95,16 @@ begin
     raise exception 'SCANYM_PREDECESSOR_DRIFT: droits de create_order_received_notification différents de ceux posés par le lot (propriétaire = rôle appliquant le script ET service_role, rien d''autre). Observé : propriétaire %, droits % ; attendu : %. Aucun droit n''est modifié silencieusement. Rollback annulé, rien modifié.', v_owner::regrole::text, v_acl, v_expected_acl;
   end if;
 
-  select count(*), min(regexp_replace(pg_get_constraintdef(con.oid), '\s', '', 'g'))
+  select count(*), min(pg_get_constraintdef(con.oid))
     into v_count, v_def
   from pg_constraint con
   where con.conrelid = 'public.notification_outbox'::regclass
     and con.contype = 'c'
     and pg_get_constraintdef(con.oid) like '%locale%';
+  -- Comparaison EXACTE (AUD214-01) : squelette ET littéraux, octet pour octet ; 'f r' n'est pas 'fr'.
   if v_count <> 1
-     or v_def is distinct from regexp_replace('CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text, ''nl''::text])))', '\s', '', 'g') then
+     or (select coalesce(array_agg(t.m[1] order by t.n), '{}'::text[]) from regexp_matches(v_def, '''([^'']*)''', 'g') with ordinality as t(m, n)) is distinct from array['fr', 'en', 'ar', 'nl']::text[]
+     or regexp_replace(regexp_replace(v_def, '''[^'']*''', '''L''', 'g'), '\s', '', 'g') is distinct from regexp_replace(regexp_replace('CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text, ''nl''::text])))', '''[^'']*''', '''L''', 'g'), '\s', '', 'g') then
     raise exception 'SCANYM_PREDECESSOR_DRIFT: le CHECK de locale de notification_outbox n''est plus exactement (fr, en, ar, nl) : % (% contrainte(s)). Rollback annulé, rien modifié.', v_def, v_count;
   end if;
 
@@ -295,8 +297,10 @@ begin
   select pg_get_constraintdef(con.oid) into v_def
   from pg_constraint con
   where con.conrelid = 'public.notification_outbox'::regclass and con.conname = 'notification_outbox_locale_check';
-  if v_def is null or v_def like '%''nl''%' then
-    raise exception 'SCANYM_POSTCHECK: le CHECK de locale restauré est inattendu.';
+  if v_def is null
+     or (select coalesce(array_agg(t.m[1] order by t.n), '{}'::text[]) from regexp_matches(v_def, '''([^'']*)''', 'g') with ordinality as t(m, n)) is distinct from array['fr', 'en', 'ar']::text[]
+     or regexp_replace(regexp_replace(v_def, '''[^'']*''', '''L''', 'g'), '\s', '', 'g') is distinct from regexp_replace(regexp_replace('CHECK ((locale = ANY (ARRAY[''fr''::text, ''en''::text, ''ar''::text])))', '''[^'']*''', '''L''', 'g'), '\s', '', 'g') then
+    raise exception 'SCANYM_POSTCHECK: le CHECK de locale restauré n''est pas exactement (fr, en, ar) : %.', v_def;
   end if;
 end $$;
 

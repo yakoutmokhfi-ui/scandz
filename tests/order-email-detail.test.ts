@@ -23,7 +23,7 @@ const client = getServiceRoleSupabaseClient();
 const { parseOrderReceivedDetail, coherentBreakdown, ORDER_DETAIL_MAX_ITEMS } = await import(
   "../lib/server/notifications/order-received-detail.ts"
 );
-const { renderOrderReceivedEmail, formatCivilDate } = await import(
+const { renderOrderReceivedEmail, formatCivilDate, formatFulfillmentSchedule } = await import(
   "../lib/server/notifications/order-received-template.ts"
 );
 const { processPendingNotifications } = await import("../lib/server/notifications/notification-worker.ts");
@@ -94,7 +94,17 @@ test("[211-A1] snapshot complet : lignes historiques, montants, jour/fenêtre/fu
 
 test("[211-A2] ancien snapshot (aucune clé #211) : aucun récapitulatif, aucune valeur inventée", () => {
   const old = { order_number: 1, total: 10, currency: "EUR", service_mode: "pickup", public_token: LEGACY_TOKEN };
-  assert.deepEqual(detailOf(old), { items: null, subtotal: null, deliveryFee: null, schedule: null, merchantAddress: null });
+  assert.deepEqual(detailOf(old), { items: null, subtotal: null, deliveryFee: null, schedule: null, merchantAddress: null, scheduleAuthoritative: false });
+});
+
+test("[211-A2b] AUD214-02 : le snapshot est « autoritaire » pour le planning dès que le marqueur OU la clé schedule (même null) est présent ; jamais pour une ligne antérieure", () => {
+  const old = { order_number: 1, total: 10, currency: "EUR", service_mode: "pickup", public_token: LEGACY_TOKEN, fulfillment_date: "2026-11-05" };
+  assert.equal(detailOf(old).scheduleAuthoritative, false, "ligne antérieure : repli #172 conservé");
+  assert.equal(detailOf({ ...old, order_email_detail_v1: true }).scheduleAuthoritative, true, "marqueur");
+  assert.equal(detailOf({ ...old, schedule: null }).scheduleAuthoritative, true, "clé schedule null (table / pas de planning)");
+  assert.equal(detailOf({ ...old, schedule: { scheduled_date: "2026-02-30" } }).scheduleAuthoritative, true, "planning rejeté : reste autoritaire");
+  assert.equal(detailOf({ ...old, schedule: { scheduled_date: "2026-02-30" } }).schedule, null);
+  assert.equal(detailOf({ ...old, order_email_detail_v1: "true" }).scheduleAuthoritative, false, "marqueur non booléen : ignoré");
 });
 
 test("[211-A3] lignes mal formées : TOUT ou RIEN (jamais un panier amputé présenté comme complet) ; bornes", () => {
@@ -418,6 +428,8 @@ test("[211-C5] snapshot ancien ou récapitulatif mal formé : l'e-mail PART quan
   for (const m of provider.sent) {
     assert.equal(m.text.includes("Votre commande :"), false);
     assert.equal(m.text.includes("Jour de retrait"), false);
+    // AUD214-02 : le planning rejeté ne revient pas par les clés « à plat » (fulfillment_date = 2026-11-05 dans baseSnapshot).
+    assert.equal(/novembre|16:00/.test(m.text + (m.html ?? "")), false, m.text);
     assert.ok(m.text.includes(`: ${TRACKING_URL}`));
   }
 });
@@ -463,6 +475,56 @@ test("[211-C7] variables marchandes {fulfillment_date}/{fulfillment_slot} : vale
   await processPendingNotifications(provider);
   assert.ok(provider.sent[0]!.text.includes("Retrait le jeudi 5 novembre 2026 (16:00–20:00)."), provider.sent[0]!.text);
   assert.ok(provider.sent[1]!.text.includes("Retrait le jeudi 5 novembre 2026 ()."), provider.sent[1]!.text);
+});
+
+// --------------------------------------------------------------------
+// AUD214-02 : un planning REJETÉ ne doit jamais réapparaître (ni via le repli antérieur, ni via les variables
+// marchandes) — « 30 février » ne devient jamais « 2 mars ».
+// --------------------------------------------------------------------
+
+const REJECTED_SCHEDULES: Array<[string, Record<string, unknown>, string]> = [
+  ["30-fevrier", { ...SCHEDULE_WINDOW, scheduled_date: "2026-02-30" }, "2026-02-30"],
+  ["31-avril", { ...SCHEDULE_WINDOW, scheduled_date: "2026-04-31" }, "2026-04-31"],
+  ["mois-13", { ...SCHEDULE_WINDOW, scheduled_date: "2026-13-01" }, "2026-13-01"],
+  ["29-fevrier-non-bissextile", { ...SCHEDULE_WINDOW, scheduled_date: "2027-02-29" }, "2027-02-29"],
+  ["forme-non-iso", { ...SCHEDULE_WINDOW, scheduled_date: "2026-2-3" }, "2026-2-3"],
+  ["mode-contradictoire", { ...SCHEDULE_WINDOW, mode_code: "delivery" }, "2026-11-05"],
+  ["objet-absent-de-date", { ...SCHEDULE_WINDOW, scheduled_date: null }, "2026-11-05"],
+];
+
+test("[211-C8] AUD214-02 via le VRAI worker : un planning rejeté n'est ni affiché, ni réinterprété par le repli antérieur, ni injecté dans les variables marchandes (avec ET sans marqueur)", async (t) => {
+  forbidNetwork(t);
+  const body = "Retrait : [{fulfillment_date}] [{fulfillment_slot}]";
+  const cases: Array<{ label: string; payload: Record<string, unknown> }> = [];
+  for (const [label, schedule, legacyDate] of REJECTED_SCHEDULES) {
+    // Les clés « à plat » reprennent la date (impossible ou non) : c'est ce que le repli antérieur formaterait.
+    cases.push({ label: `${label}/marqueur`, payload: baseSnapshot({ body_template: body, schedule, fulfillment_date: legacyDate, fulfillment_slot: "16:00\u201320:00" }) });
+    const { order_email_detail_v1: _omit, ...noMarker } = baseSnapshot({ body_template: body, schedule, fulfillment_date: legacyDate, fulfillment_slot: "16:00\u201320:00" }) as Record<string, unknown>;
+    cases.push({ label: `${label}/sans-marqueur`, payload: noMarker });
+  }
+  installWorkerRpc(t, cases.map((c) => row(c.payload)));
+  const provider = new FakeEmailProvider();
+  const result = await processPendingNotifications(provider);
+  assert.equal(result.sent, cases.length);
+  cases.forEach((c, i) => {
+    const mail = provider.sent[i]!;
+    for (const [kind, text] of [["texte", mail.text], ["html", mail.html!]] as const) {
+      assert.equal(/\bmars\b|2026-02-30|2026-04-31|2026-13-01|2027-02-29|2026-2-3/i.test(text), false, `${c.label} (${kind}) : date impossible réapparue\n${text.slice(0, 600)}`);
+      const labels = ["emailOrderReceivedDayLabelPickup", "emailOrderReceivedSlotLabelPickup", "emailOrderReceivedDayLabelDelivery", "emailOrderReceivedSlotLabelDelivery"].map((k) => translate("fr", k));
+      assert.equal(labels.some((l) => text.includes(l)) || /5 novembre|16:00/.test(text), false, `${c.label} (${kind}) : ligne de jour/créneau rendue\n${text.slice(0, 600)}`);
+    }
+    assert.equal(mail.text.includes("Retrait : [] []"), true, `${c.label} : variables marchandes vides\n${mail.text}`);
+  });
+});
+
+test("[211-C9] AUD214-02 gabarit seul : le repli antérieur ne réinterprète JAMAIS une date impossible (30 février) ; une date valide garde son rendu", () => {
+  assert.equal(formatFulfillmentSchedule("fr", "2026-02-30", null), null, "impossible -> rien, pas « 2 mars »");
+  assert.equal(formatFulfillmentSchedule("fr", "2026-02-30", "16:00"), null, "date impossible : le créneau seul ne survit pas à une date rejetée");
+  assert.equal(formatFulfillmentSchedule("fr", "2026-04-31", null), null);
+  assert.equal(formatFulfillmentSchedule("fr", "2026-11-05", "16:00"), "jeudi 5 novembre 2026, 16:00", "valide : inchangé");
+  assert.equal(formatFulfillmentSchedule("fr", "demain matin", null), "demain matin", "forme libre non ISO : contrat antérieur inchangé");
+  const mail = renderOrderReceivedEmail({ ...baseInput, fulfillmentDate: "2026-02-30", fulfillmentSlot: "16:00", schedule: null });
+  assert.equal(/mars|2026-02-30|16:00/.test(mail.text + mail.html), false);
 });
 
 // --------------------------------------------------------------------

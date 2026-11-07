@@ -301,11 +301,17 @@ export async function processPendingNotifications(
       : null;
     // Variables marchandes {fulfillment_date} / {fulfillment_slot} : valeurs persistées, la date mise en forme
     // dans la langue du client (jamais d'heure inventée : jour seul => créneau vide).
-    const valuesPayload: Readonly<Record<string, unknown>> = detail?.schedule
+    //
+    // AUD214-02 : sur un snapshot au format #211, `schedule` est la SEULE autorité. Un planning rejeté (date
+    // impossible, mode contradictoire…) donne des variables VIDES et aucun repli : les clés « à plat »
+    // `fulfillment_date` / `fulfillment_slot` du snapshot ne sont jamais relues, donc « 30 février » ne
+    // réapparaît ni tel quel ni réinterprété en « 2 mars ».
+    const scheduleAuthoritative = detail?.scheduleAuthoritative === true;
+    const valuesPayload: Readonly<Record<string, unknown>> = scheduleAuthoritative
       ? {
           ...(payload as Record<string, unknown>),
-          fulfillment_date: formatCivilDate(locale, detail.schedule.date) ?? "",
-          fulfillment_slot: detail.schedule.time ?? "",
+          fulfillment_date: detail?.schedule ? (formatCivilDate(locale, detail.schedule.date) ?? "") : "",
+          fulfillment_slot: detail?.schedule?.time ?? "",
         }
       : (payload as Readonly<Record<string, unknown>>);
     const templateValues = buildCommunicationTemplateValues({
@@ -430,8 +436,9 @@ export async function processPendingNotifications(
         // tant que la commande ne stocke pas de créneau (la ligne est alors
         // absente) ; `withdrawal_eligible` est l'éligibilité déjà arrêtée
         // à la commande.
-        fulfillmentDate: templateField("fulfillment_date"),
-        fulfillmentSlot: templateField("fulfillment_slot"),
+        // Snapshot #211 : jamais les clés « à plat » (le planning validé passe par `schedule`) — AUD214-02.
+        fulfillmentDate: scheduleAuthoritative ? null : templateField("fulfillment_date"),
+        fulfillmentSlot: scheduleAuthoritative ? null : templateField("fulfillment_slot"),
         withdrawalEligible: payload.withdrawal_eligible === true,
         // ORDER EMAIL DETAIL v1 (#211) : récapitulatif figé, jamais relu ailleurs que dans le snapshot.
         items: detail?.items ?? null,
