@@ -20,7 +20,8 @@ Le comportement par défaut après déploiement est **identique à celui d'avant
 
 **Expéditeur** : l'identité d'expéditeur du profil de notification de **l'établissement de la demande** (`sender_name`, `sender_email`, `reply_to`), envoyée par **sa** messagerie. Jamais l'adresse de la plateforme, jamais une adresse d'un autre établissement. L'adresse réellement utilisée est enregistrée (`acknowledgement_sender`) comme preuve.
 
-**Destinataires** : un **seul message** : À = adresse saisie par le client ; Cc = `merchant_legal_profile.customer_service_email`. Un seul message évite la double émission et garantit que le client et le commerçant reçoivent exactement le même contenu. Pas de Cc si l'adresse est absente, invalide ou identique à celle du client.
+**Destinataires** : un **seul message** : À = adresse saisie par le client ; Cc = `merchant_legal_profile.customer_service_email`. Un seul message évite la double émission et garantit que le client et le commerçant reçoivent exactement le même contenu.
+**Contrat de la copie (corrigé après audit, P2-1)** : les **deux** adresses sont validées *avant* toute résolution de messagerie ou envoi (pas d'espace, de CR/LF, de chevrons, de guillemets, de virgule). Copie **absente** (null, vide, espaces) ⇒ échec explicite `ACK_COPY_RECIPIENT_MISSING` ; copie **invalide** ⇒ `ACK_COPY_RECIPIENT_INVALID` ; dans les deux cas **pour tout régime**, rien n'est envoyé, la cause est visible au back-office. Plus aucun accusé « envoyé » sans copie. Seule exception : contact identique à l'adresse du client (casse ignorée) → le commerçant reçoit le message en À, sans Cc dupliqué. Un Cc refusé par le serveur SMTP (RCPT) fait échouer l'envoi entier (`failed`), jamais un succès partiel.
 
 **Au Lait Cru** : `contact@aulaitcru.com` n'est **écrit nulle part dans le code ni dans les scripts SQL** (un test le vérifie). Il se règle comme pour tout commerçant, dans son profil légal (`customer_service_email`). Vérification avant ouverture : requête 4 du diagnostic (recherche par nom, motif à adapter). Je n'ai pas lu la base hébergée (interdit) : la valeur actuelle de cette configuration reste **à constater** par le diagnostic.
 
@@ -30,14 +31,18 @@ Le comportement par défaut après déploiement est **identique à celui d'avant
 
 **Statut fidèle** :
 - l'envoi est lancé après l'enregistrement, via `after()` (Next 15.1+) : il se poursuit après la réponse (`maxDuration = 90`). Remplace un `void` non attendu, qui pouvait être coupé ;
-- la réponse attend au plus 8 s le résultat : `sent` / `failed` seulement s'il est connu, sinon l'état enregistré (`pending`). Jamais `sent` sans envoi confirmé ;
-- l'enregistrement du résultat est conditionnel à l'état `sending` ; l'erreur est normalisée en classe fermée (rien de brut en base) ;
-- une exception du fournisseur devient un échec enregistré, jamais une demande laissée à `sending` ;
-- le tableau de bord affiche « Copie envoyée à » **uniquement** pour `sent`, et la cause pour `failed` ; la page publique a un libellé `failed` (FR/EN/AR) qui ne promet pas de notification du vendeur.
+- la réponse attend au plus 8 s le résultat : `sent` / `failed` seulement s'il est connu **et écrit en base**, sinon l'état enregistré. Jamais `sent` sans envoi confirmé ;
+- **résultat non enregistré (P2-2)** : l'écriture est faite par la RPC `record_..._v2`, dont l'erreur réelle est **propagée** (plus avalée). En cas d'erreur, 3 tentatives bornées (250 ms, 750 ms) — jamais d'envoi rejoué. Si l'écriture n'est pas confirmée (erreur persistante, ou `false` = ligne plus `sending`), le résultat est rapporté `resultPersisted:false` et la réponse dit **`unconfirmed`** (« l'envoi est en cours ou n'a pas pu être confirmé… vérifiez votre boîte »), jamais `sent`. Un échec d'envoi dont l'écriture échoue est rapporté `failed` (fait observé) ;
+- une exception du fournisseur devient un échec enregistré, jamais une demande laissée à `sending` sans trace ;
+- le tableau de bord affiche « Copie envoyée à » **uniquement** pour `sent`, la cause pour `failed`, et pour `sending` un avertissement avec le Message-ID à chercher dans le dossier « Envoyés » ; libellés publics FR/EN/AR.
 
 **Isolation entre commerçants** : l'établissement vient de la ligne de la demande lue en base, jamais du client ; `resolveProvider` n'est appelé qu'avec cet identifiant ; le secret du coffre est lié à l'établissement (AAD) : copié dans une autre ligne, il ne se déchiffre pas (contrôle négatif testé). Le lot ne contient aucune politique RLS ni droit pour `anon`/`authenticated`.
 
-**Doublons** : claim atomique (`pending`, ou `sending` périmé) ; une demande `sent`, `failed` ou `unavailable_no_channel` n'est jamais reprise ; un rejeu de la déclaration (`replayed`) ne relance pas l'envoi ; clé d'idempotence stable `scanym:withdrawal-ack:<id>`.
+**Doublons et issue ambiguë (P2-2)** : claim atomique de `pending` **uniquement**. **Un `sending` n'est plus jamais repris** par le canal marchand (la v1 le reprenait après 120 s). Raison : une clé d'idempotence stable (`scanym:withdrawal-ack:<id>`, Message-ID dérivé) n'a **aucun effet sur un serveur SMTP** — rien ne déduplique un second envoi ; reprendre un `sending` après un envoi accepté dont le résultat n'a pas pu être écrit enverrait un doublon. Une demande `sent`, `failed`, `sending` ou `unavailable_no_channel` n'est jamais reprise ; un rejeu de la déclaration (`replayed`) ne relance pas l'envoi ; l'enregistrement v2 n'accepte qu'une ligne `sending` revendiquée **par ce canal** (`acknowledgement_transport = 'merchant_smtp'`).
+
+**Garantie réelle** : *au plus un envoi par demande côté application* (pas de renvoi automatique, pas de reprise de bail) — **pas** un « exactly-once » et **pas** une garantie de remise. `sent` = le serveur SMTP du commerçant a accepté le message pour tous les destinataires (pas : lu, ni même remis). `failed` = acceptation non confirmée : dans de rares cas (réponse perdue après DATA) le message a pu partir. C'est pourquoi `failed` n'est jamais renvoyé automatiquement.
+
+**Traitement d'un `sending` (humain, sur GO explicite)** : (1) requête 5 du diagnostic : liste, ancienneté, `message_id_recherche` ; (2) chercher ce Message-ID dans le dossier « Envoyés » de la messagerie du commerçant ; (3) *trouvé* → régulariser en `sent` (horodatage et expéditeur relevés dans le message) ; *introuvable* → régulariser en `failed` (cause `OPERATOR_CONFIRMED_NOT_SENT`) ; (4) un renvoi éventuel est une décision distincte (action manuelle, hors périmètre). Ces écritures sont du SQL hébergé : aucune n'est faite ni fournie comme script automatique ici. Contrepartie assumée : une demande dont le processus disparaît **avant** l'envoi reste aussi `sending` (jamais envoyée toute seule).
 
 **Sécurité de l'adresse** : l'adresse du client est validée strictement (pas d'espace, de CR/LF, de chevrons, de guillemets) à la route **et** avant tout envoi — fermeture d'une injection de commandes SMTP.
 
@@ -45,7 +50,7 @@ Le comportement par défaut après déploiement est **identique à celui d'avant
 
 **Aucun envoi automatique, aucun backfill.**
 - Le lot ne modifie aucune ligne existante.
-- Le claim v2 ne prend que `pending` (ou `sending` périmé) : les demandes `unavailable_no_channel` et `failed` historiques ne sont **jamais** envoyées par ce chemin (testé en PostgreSQL réel).
+- Le claim v2 ne prend que `pending` : les demandes `unavailable_no_channel`, `failed` et `sending` historiques ne sont **jamais** envoyées par ce chemin (testé en PostgreSQL réel).
 - `DRAFT-diagnostic-withdrawal-ack-backlog-v1-READONLY.sql` (SELECT uniquement) liste ces demandes par établissement et par état, indique si la messagerie de chaque établissement est prête, le Cc prévu, et si les CGV publiées annoncent `retractation@scanym.com`.
 
 **Décision à prendre (CIO) avant tout envoi rétroactif**, car un accusé tardif est un acte juridique et un e-mail réel :
@@ -59,29 +64,52 @@ La clause v7 promet un accusé envoyé depuis `retractation@scanym.com` (avec co
 
 > « Un accusé de réception de votre demande, mentionnant sa date et son heure, vous est envoyé par courrier électronique à l'adresse que vous avez indiquée, depuis l'adresse électronique du vendeur ; le vendeur en reçoit une copie. »
 
-## 5. Mise en service (ordre)
+## 5. Mise en service (ordre) — rien de ceci n'est autorisé par cette PR
 
-1. Revue et audit de cette PR (Draft).
-2. **GO explicite** : appliquer `DRAFT-lot-withdrawal-ack-merchant-mailer-v1.sql` (n'ouvre pas l'interrupteur ; vérifie en fin de lot que l'interrupteur reste fermé et que la valeur de la garde CGV est inchangée). Rollback : `…-ROLLBACK.sql` (refuse si l'interrupteur est ouvert ou si des colonnes de preuve sont remplies).
+1. Revue et contre-audit de cette PR (Draft).
+2. **GO explicite** : appliquer `DRAFT-lot-withdrawal-ack-merchant-mailer-v1.sql` (n'ouvre pas l'interrupteur ; vérifie en fin de lot que l'interrupteur reste fermé et que la valeur de la garde CGV est inchangée).
 3. Déployer le code. Sans le lot SQL, la RPC est inconnue et le code reste sur le canal historique.
-4. **GO séparé**, après : diagnostic, test de connexion SMTP réussi dans l'onglet E-mails de chaque établissement concerné, `customer_service_email` renseigné, CGV revues et republiées.
+4. **GO séparé**, après : diagnostic (requêtes 2 et 4 : `copie_etat = OK` pour chaque établissement concerné), test de connexion SMTP réussi dans l'onglet E-mails, `customer_service_email` renseigné **et valide**, CGV revues et republiées (§4), décision sur la garde de publication des CGV (§7).
 5. Ouvrir l'interrupteur (snippet commenté en fin de lot). Fermeture immédiate possible sans rollback.
 
-## 6. Résultats
+## 6. Résultats (HEAD de la livraison, voir la PR pour le SHA)
 
-- Harnais PostgreSQL réel (`supabase/tests/withdrawal-ack-merchant-mailer-v1-check.sh`, base jetable, lots GAP-01, e-mail obligatoire, #180 et SMTP-marchand réellement appliqués) : **84 PASS, 0 FAIL** — interrupteur fermé/ouvert, isolation A/B, absence de renvoi automatique, fidélité de l'enregistrement, reprise d'un `sending` périmé, privilèges, canal plateforme sain, garde-fous du rollback.
-- `tests/withdrawal-ack-merchant-mailer.test.ts` : **33 tests**. Contrôle négatif : trois défauts introduits volontairement (Cc perdu, messagerie résolue pour un autre établissement, `void` non attendu) sont chacun détectés, puis le code est restauré.
-- Tests voisins relancés (ack-mailer, back-office rétractations, cookie/chemin, fournisseur/transport/classification SMTP, e-mail marchand, MCC e-mails, taxonomie, idempotence, worker, i18n) : **0 échec**. `tsc` : 0 erreur.
-- La suite complète et `next build` n'ont **pas** été relancés (pas de risque précis identifié ; consigne).
+- **Reproductions rouges sur le parent `b90b48fc`** : 9 des 13 tests de comportement de `tests/withdrawal-ack-merchant-mailer-p2.test.ts` échouent (contact invalide/absent envoyé sans copie ; écriture du résultat avalée ou fatale ; aucun état « non confirmé ») ; harnais PostgreSQL : le `sending` périmé est repris et son compteur passe à 2, une écriture v2 finalise un `sending` posé par le canal historique, et le **rollback du parent supprime sans broncher une fonction falsifiée** (`rc=0`), même avec des accusés en vol.
+- **Verts sur le correctif** : 48/48 (`withdrawal-ack-merchant-mailer-p2` + `withdrawal-ack-merchant-mailer`), 298/298 sur 18 fichiers voisins, `tsc` 0 erreur, `next build` de production OK (env Supabase factice), harnais PostgreSQL réel **158 PASS, 0 FAIL**.
+- Le harnais PostgreSQL applique les vrais lots (chaîne GAP-01, e-mail obligatoire, #180, SMTP marchand), y compris 25 contre-exemples de dérive du rollback (plus 3 refus d'état : interrupteur ouvert, preuves, accusés en vol) (corps, propriétaire, droits, attributs, signature, dépendances, déclencheurs, table, colonnes), chacun avec **empreinte d'état inchangée** après refus, un rollback nominal avec corps stockés en **CRLF**, puis le second rollback (refusé : sans objet) et la ré-application.
+- La suite complète n'a **pas** été relancée (aucun risque précis ; consigne).
 
-## 7. Limites connues
+## 7. Limites et conditions qui empêchent encore l'activation
 
-- **Pas de reprise automatique** : `failed` est terminal. Une demande reste `pending` si le processus meurt avant l'envoi (elle reste revendicable, de même qu'un `sending` périmé après 120 s, mais rien ne la relance seul).
-- La garde de publication des CGV (`_scanym_has_online_withdrawal_runtime`) lit toujours la santé du canal **plateforme**, volontairement non modifiée : elle peut continuer à bloquer la publication tant que ce canal est indisponible. À traiter dans le lot CGV v8.
+Conditions de mise en service **non traitées par ce correctif** :
+- **Textes / CGV** : la clause v7 promet `retractation@scanym.com` ; à revoir et republier avant l'interrupteur (§4).
+- **Garde de publication des CGV** (`_scanym_has_online_withdrawal_runtime`) : lit toujours la santé du canal **plateforme**, volontairement non modifiée. Tant que ce canal est indisponible, elle peut bloquer la publication des CGV même si les messageries marchandes fonctionnent. À traiter dans le lot CGV v8.
+
+Limites du fonctionnement :
+- **Pas d'« exactly-once »**, pas de garantie de remise (voir « Garantie réelle », §2).
+- **Issue ambiguë = humaine** : un `sending` (écriture non confirmée, ou processus disparu) n'est jamais repris ; il reste visible au back-office et au diagnostic. Aucun outil de régularisation n'est fourni (SQL hébergé).
+- **Pas de reprise automatique** : `failed` est terminal.
+- Un échec de **revendication** dont la réponse est perdue (RPC exécutée côté base, réponse non reçue) laisse la ligne `sending` sans envoi : même traitement humain.
 - La langue du client n'est pas transmise : accusé toujours en français.
 - Le fournisseur marchand est **suspendu** sur échec d'authentification permanent : cela affecte aussi ses autres e-mails (commandes).
-- L'adresse d'expéditeur doit être autorisée par le compte SMTP du commerçant (souvent identique à l'identifiant) : sinon l'hébergeur refuse, la demande passe `failed`.
-- Sous un régime exigeant l'accusé, un contact **présent mais invalide** donne un envoi sans copie (et `copie_vers` vide), pas un échec ; seul le contact absent est un échec (garde héritée).
-- `after()` : l'envoi peut être interrompu si la fonction est arrêtée avant la fin ; le résultat n'est alors pas enregistré.
-- Le canal historique n'a toujours pas de validation CR/LF dans son transport (la route la fait désormais en amont).
-- Le harnais PostgreSQL ne remplace pas un test sur la base hébergée : aucun SQL hébergé n'a été exécuté.
+- L'adresse d'expéditeur doit être autorisée par le compte SMTP du commerçant : sinon l'hébergeur refuse, la demande passe `failed`.
+- Un Reply-To invalide est ignoré (champ non contractuel) ; l'expéditeur invalide, lui, est un échec.
+- `after()` : si la fonction est arrêtée avant la fin, le résultat n'est pas écrit : la ligne reste `sending` (issue ambiguë ci-dessus).
+- Le canal historique n'a toujours pas de validation CR/LF dans son transport (la route la fait désormais en amont) ni de propagation des erreurs d'écriture (§9).
+- Le harnais PostgreSQL ne remplace pas un contrôle sur la base hébergée : aucun SQL hébergé n'a été exécuté.
+
+## 8. Rollback (P2-3)
+
+`DRAFT-lot-withdrawal-ack-merchant-mailer-v1-ROLLBACK.sql` pose un verrou sur `withdrawal_requests`, puis vérifie **tout avant la première mutation** et s'arrête sans rien modifier à la moindre dérive : interrupteur fermé (ligne unique, RLS, aucun droit) ; aucune preuve d'envoi ; aucun accusé `pending`/`sending` (un retrait ne doit pas rouvrir d'arriéré revendicable) ; pour **chaque** fonction : existence, signature, type de retour, langage, volatilité, `SECURITY DEFINER`, `search_path`, propriétaire (= celui de `withdrawal_requests`), droits d'exécution exacts, **corps** (MD5 après normalisation CRLF→LF, recalculée si le lot change : un test compare les empreintes au fichier du lot en LF et en CRLF) ; déclencheur exact ; colonnes et contrainte exactes ; aucun objet dépendant ni fonction tierce qui les nomme ; GAP-01 présent. Les suppressions n'utilisent plus `IF EXISTS`. Conséquence assumée : **le rollback est impossible une fois le canal utilisé** (preuves) ; la voie normale est de fermer l'interrupteur.
+
+## 9. Défaut PRÉEXISTANT de finalisation des baux (GAP-01, canal historique) — décrit à part
+
+**Où** : `record_withdrawal_acknowledgement_result` (v1, `DRAFT-lot-gap-01-ack-transport-v1.sql`) fait `update … where id = p_id` **sans condition d'état ni identité de bail**, et `claim_withdrawal_acknowledgement_send` reprend tout `sending` périmé (120 s). **Effets reproduits** (sonde `lease_probe` du harnais, sur l'état *parent* avant le lot puis sur le *candidat*, résultats identiques `sent|<m2>|2|sent`) :
+- a. un résultat « ok » sur une ligne `unavailable_no_channel` la fabrique en `sent` (faux succès) ;
+- b. deux résultats « ok » successifs (processus périmé puis repreneur) : l'identifiant de message et l'horodatage de la **première preuve sont écrasés** ;
+- c. deux revendications successives de la même demande après péremption : **deux envois possibles** ;
+- d. un résultat « échec » tardif sur une ligne `sent` n'est refusé que par la contrainte de table `withdrawal_requests_ack_sent_requires_timestamp` (pas par la fonction).
+
+**Couplage avec le nouveau parcours** : ce lot ne modifie pas ces fonctions (le défaut est identique avant/après). Le parcours marchand v2 n'en dépend pas : il ne reprend jamais un `sending`, et son enregistrement est conditionnel à `sending` + canal marchand (testé : écriture tardive refusée). Le défaut reste atteignable **par le canal historique** (interrupteur fermé) et par une éventuelle double invocation du canal historique sur une demande déjà revendiquée par v2 — aucun code ne le fait aujourd'hui (l'envoi n'est lancé qu'à la création, jamais au rejeu). Il **n'empêche donc pas** de garantir le nouveau parcours, mais il n'est pas pour autant « accepté ».
+
+**Correction proposée (à décider, PR séparée, non incluse ici)** : `create or replace` de `record_withdrawal_acknowledgement_result` avec `and acknowledgement_status = 'sending'` et `acknowledgement_transport is distinct from 'merchant_smtp'`, et de `claim_withdrawal_acknowledgement_send` avec `acknowledgement_transport is distinct from 'merchant_smtp'` (et, si le CIO veut supprimer aussi le risque de double envoi du canal historique, retrait de la reprise du `sending` périmé, comme en v2). Cette correction dépend du présent lot (colonne `acknowledgement_transport`) et exige son propre contre-audit : changement de comportement du canal historique actuellement en production.

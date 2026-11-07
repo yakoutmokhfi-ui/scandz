@@ -482,7 +482,9 @@ export default function WithdrawalPanel({
                 ? t("withdrawalAckUnavailable")
                 : receipt.acknowledgementStatus === "failed"
                   ? t("withdrawalAckFailed")
-                  : t("withdrawalAckPending")}
+                  : receipt.acknowledgementStatus === "unconfirmed" || receipt.acknowledgementStatus === "sending"
+                    ? t("withdrawalAckUnconfirmed")
+                    : t("withdrawalAckPending")}
           </p>
         </>
       ) : null}

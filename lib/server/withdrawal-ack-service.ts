@@ -117,9 +117,9 @@ export function createMerchantAckDependencies(deps: {
   const client = () => deps.client ?? getServiceRoleSupabaseClient();
   return {
     async claim(withdrawalRequestId) {
+      // Aucune reprise de `sending` périmé en v2 : pas de paramètre de péremption (voir le SQL).
       const { data, error } = await client().rpc("claim_withdrawal_acknowledgement_send_v2", {
         p_withdrawal_request_id: withdrawalRequestId,
-        p_stale_after_seconds: 120,
       });
       if (error) return null;
       const row = (Array.isArray(data) ? data[0] : data) as {
@@ -162,23 +162,23 @@ export function createMerchantAckDependencies(deps: {
 
     resolveProvider: deps.resolveProvider ?? ((restaurantId) => resolveMerchantSmtpProvider(restaurantId)),
 
+    // Contrat : `true` = écrit ; `false` = la ligne n'était plus `sending` ; une ERREUR réelle de la
+    // RPC (ou de l'appel) est PROPAGÉE -- l'orchestrateur la réessaie de façon bornée puis la rapporte
+    // (`resultPersisted:false`). Jamais avalée, jamais convertie en « pas persisté » silencieux.
     async recordResult(input) {
-      try {
-        const { data, error } = await client().rpc("record_withdrawal_acknowledgement_result_v2", {
-          p_withdrawal_request_id: input.withdrawalRequestId,
-          p_ok: input.ok,
-          p_to: input.to,
-          p_cc: input.cc,
-          p_message_id: input.messageId,
-          p_content_version: input.contentVersion,
-          p_error: input.error,
-          p_sender: input.sender,
-          p_transport: "merchant_smtp",
-        });
-        return !error && data === true;
-      } catch {
-        return false;
-      }
+      const { data, error } = await client().rpc("record_withdrawal_acknowledgement_result_v2", {
+        p_withdrawal_request_id: input.withdrawalRequestId,
+        p_ok: input.ok,
+        p_to: input.to,
+        p_cc: input.cc,
+        p_message_id: input.messageId,
+        p_content_version: input.contentVersion,
+        p_error: input.error,
+        p_sender: input.sender,
+        p_transport: "merchant_smtp",
+      });
+      if (error) throw new Error(`RECORD_RPC_FAILED: ${error.message ?? "unknown"}`);
+      return data === true;
     },
   };
 }
@@ -231,15 +231,20 @@ export function tryDispatchWithdrawalAcknowledgement(
   });
 }
 
-/**
- * Statut d'accusé à RAPPORTER au client dans la réponse : le résultat réel de
- * l'envoi s'il est connu (`sent` / `failed`), sinon l'état enregistré à la création
- * (`pending` / `unavailable_no_channel`). Jamais `sent` sans envoi confirmé.
- */
-export type ReportedAckStatus = "pending" | "unavailable_no_channel" | "sent" | "failed";
+export type ReportedAckStatus = "pending" | "unavailable_no_channel" | "sending" | "sent" | "failed" | "unconfirmed";
 
+/**
+ * Statut d'accusé à RAPPORTER au client dans la réponse :
+ *   - `sent`        : envoi accepté par le serveur SMTP ET résultat écrit en base ;
+ *   - `unconfirmed` : envoi accepté mais résultat NON écrit en base (issue ambiguë, jamais présentée comme `sent`) ;
+ *   - `failed`      : échec constaté (enregistré ou non) ;
+ *   - sinon l'état enregistré à la création.
+ */
 export function reportedAcknowledgementStatus(recorded: ReportedAckStatus, outcome: SendAckOutcome | null): ReportedAckStatus {
-  if (outcome && outcome.attempted) return outcome.ok ? "sent" : "failed";
+  if (outcome && outcome.attempted) {
+    if (!outcome.ok) return "failed";
+    return outcome.resultPersisted === false ? "unconfirmed" : "sent";
+  }
   return recorded;
 }
 

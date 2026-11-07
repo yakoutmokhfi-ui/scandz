@@ -1,8 +1,6 @@
 import "server-only";
 import {
   ACK_EMAIL_CONTENT_VERSION,
-  APPLICABLE_WITHDRAWAL_REGIMES,
-  MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR,
   buildAckEmailContent,
   type SendAckOutcome,
 } from "@/lib/server/ack-mailer";
@@ -31,11 +29,25 @@ import { normalizeNotificationErrorCode } from "@/lib/server/notifications/notif
  * sont tous dérivés : aucune valeur d'un autre commerçant ne peut être
  * utilisée pour cette demande.
  *
+ * CONTRAT DES DESTINATAIRES : client en À, contact légal du commerçant en Cc.
+ * Les DEUX adresses sont validées AVANT toute résolution de messagerie ou envoi ;
+ * une copie absente ou invalide est un REFUS EXPLICITE (`failed`, cause visible),
+ * jamais un accusé « envoyé » sans copie. Seule exception : contact identique à
+ * l'adresse du client (le commerçant reçoit alors le message en À, sans doublon).
+ *
  * STATUT FIDÈLE : `sent` n'est enregistré que si le serveur SMTP a accepté le
  * message pour TOUS ses destinataires (client + copie). Tout autre résultat est
  * enregistré `failed` avec une classe d'erreur d'un ensemble FERMÉ (jamais un
  * texte du serveur). La demande de rétractation, elle, est déjà enregistrée en
  * base et n'est jamais touchée par un échec d'envoi.
+ *
+ * RÉSULTAT NON ENREGISTRÉ : si l'écriture du résultat échoue après l'envoi
+ * (erreur RPC, ligne plus `sending`), le résultat est rapporté
+ * `resultPersisted: false` -- jamais présenté comme persisté -- après un nombre
+ * BORNÉ de tentatives d'écriture. L'envoi, lui, n'est JAMAIS rejoué : une clé
+ * d'idempotence stable n'a aucun effet sur un serveur SMTP (SMTP n'est pas
+ * idempotent). La base reste alors `sending`, état que la revendication v2 ne
+ * reprend plus (voir le SQL) : l'issue ambiguë est traitée par un humain.
  *
  * AUCUN RENVOI AUTOMATIQUE : une demande `failed` ou `unavailable_no_channel`
  * n'est jamais revendiquée par cette voie (le claim ne prend que `pending`, ou
@@ -49,7 +61,8 @@ export const ACK_MERCHANT_ERROR_CODES = [
   "MERCHANT_MAILER_SENDER_UNRESOLVED",
   "ACK_RECIPIENT_ADDRESS_INVALID",
   "ACK_DISPATCH_UNKNOWN_ERROR",
-  MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR,
+  "ACK_COPY_RECIPIENT_MISSING",
+  "ACK_COPY_RECIPIENT_INVALID",
 ] as const;
 type AckMerchantErrorCode = (typeof ACK_MERCHANT_ERROR_CODES)[number];
 const OWN_CODES: ReadonlySet<string> = new Set(ACK_MERCHANT_ERROR_CODES);
@@ -60,21 +73,28 @@ export function isSafeSmtpAddress(value: unknown): value is string {
   return typeof value === "string" && value.length <= 254 && SMTP_ADDRESS.test(value);
 }
 
+export type AckCopyRecipient =
+  | { kind: "copy"; address: string }
+  | { kind: "same_as_customer" }
+  | { kind: "missing" }
+  | { kind: "invalid" };
+
 /**
  * Destinataire de la COPIE : le contact service client du profil légal du
  * commerçant (`merchant_legal_profile.customer_service_email`), c'est-à-dire
  * l'adresse que ses CGV montrent déjà au client -- une seule source, jamais une
- * valeur codée en dur pour un commerçant. `null` si absente, invalide, ou
- * identique à l'adresse du client (pas de doublon dans le même message).
+ * valeur codée en dur pour un commerçant. Résultat NOMMÉ (jamais un `null`
+ * ambigu) : absente, invalide, identique à l'adresse du client, ou utilisable.
  */
-export function resolveAckCopyRecipient(
+export function classifyAckCopyRecipient(
   merchantContactEmail: string | null | undefined,
   customerAddress: string
-): string | null {
+): AckCopyRecipient {
   const candidate = typeof merchantContactEmail === "string" ? merchantContactEmail.trim() : "";
-  if (!isSafeSmtpAddress(candidate)) return null;
-  if (candidate.toLowerCase() === customerAddress.trim().toLowerCase()) return null;
-  return candidate;
+  if (candidate === "") return { kind: "missing" };
+  if (!isSafeSmtpAddress(candidate)) return { kind: "invalid" };
+  if (candidate.toLowerCase() === customerAddress.trim().toLowerCase()) return { kind: "same_as_customer" };
+  return { kind: "copy", address: candidate };
 }
 
 export interface MerchantAckClaim {
@@ -114,9 +134,20 @@ export interface MerchantAckDependencies {
   claim(withdrawalRequestId: string): Promise<MerchantAckClaim | null>;
   /** Fournisseur de CET établissement (coffre déchiffré), ou null s'il n'est pas utilisable. */
   resolveProvider(restaurantId: string): Promise<EmailProvider | null>;
-  /** Enregistre le résultat réel ; `false` si la ligne n'était plus `sending` (revendication perdue). */
+  /**
+   * Enregistre le résultat réel. `true` = écrit ; `false` = la ligne n'était plus
+   * `sending` (revendication perdue : inutile de réessayer) ; LÈVE en cas d'erreur
+   * réelle de la RPC (réseau, droit, base) -- l'erreur n'est jamais avalée ici.
+   */
   recordResult(input: MerchantAckRecord): Promise<boolean>;
+  /** Pause entre deux tentatives d'écriture (injectée en test). */
+  sleep?(ms: number): Promise<void>;
 }
+
+/** Tentatives d'ÉCRITURE du résultat (jamais d'envoi) : bornées, courtes, devant le bail de 120 s. */
+export const ACK_RECORD_MAX_ATTEMPTS = 3;
+const ACK_RECORD_BACKOFF_MS = [250, 750];
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Clé d'idempotence STABLE par demande -- identique à chaque tentative (jamais un compteur ni une date). */
 export function buildWithdrawalAckIdempotencyKey(withdrawalRequestId: string): string {
@@ -136,9 +167,25 @@ export async function sendWithdrawalAcknowledgementViaMerchantMailer(
   if (!claimed) return { attempted: false, reason: "already_claimed_elsewhere" };
 
   const to = claimed.acknowledgementAddress.trim();
+
+  // Écriture du résultat RÉEL, avec un nombre borné de tentatives sur ERREUR de la RPC
+  // (jamais sur `false` : la ligne a changé d'état, réessayer n'y changerait rien).
+  // Renvoie `true` seulement si l'écriture est CONFIRMÉE par la base.
+  const sleep = deps.sleep ?? realSleep;
+  const persist = async (record: MerchantAckRecord): Promise<boolean> => {
+    for (let attempt = 1; attempt <= ACK_RECORD_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return (await deps.recordResult(record)) === true;
+      } catch {
+        if (attempt < ACK_RECORD_MAX_ATTEMPTS) await sleep(ACK_RECORD_BACKOFF_MS[attempt - 1] ?? 750);
+      }
+    }
+    return false;
+  };
+
   const fail = async (code: AckMerchantErrorCode | string, sender: string | null, cc: string | null): Promise<SendAckOutcome> => {
     const error = normalizeError(code);
-    await deps.recordResult({
+    const persisted = await persist({
       withdrawalRequestId,
       ok: false,
       to: claimed.acknowledgementAddress,
@@ -148,24 +195,20 @@ export async function sendWithdrawalAcknowledgementViaMerchantMailer(
       error,
       sender,
     });
-    return { attempted: true, ok: false, error };
+    return persisted ? { attempted: true, ok: false, error } : { attempted: true, ok: false, error, resultPersisted: false };
   };
 
   // 1. Adresse du client : validée STRICTEMENT avant toute commande SMTP.
   if (!isSafeSmtpAddress(to)) return fail("ACK_RECIPIENT_ADDRESS_INVALID", null, null);
 
-  // 2. Copie au commerçant. Garde héritée du canal historique (CIO, issue #11) :
-  //    sous un régime où l'accusé est exigé, l'absence de contact marchand est un
-  //    ÉCHEC EXPLICITE, jamais un envoi silencieux sans copie.
-  const cc = resolveAckCopyRecipient(claimed.merchantContactEmail, to);
-  if (
-    cc === null &&
-    claimed.merchantContactEmail === null &&
-    claimed.merchantWithdrawalRegime !== null &&
-    APPLICABLE_WITHDRAWAL_REGIMES.has(claimed.merchantWithdrawalRegime)
-  ) {
-    return fail(MERCHANT_EMAIL_MISSING_FOR_APPLICABLE_REGIME_ERROR, null, null);
-  }
+  // 2. Copie au commerçant : contrat « client en À, commerçant en Cc ». Une copie
+  //    impossible (absente ou invalide) est un REFUS EXPLICITE avant tout envoi, pour
+  //    tout régime -- jamais un accusé « envoyé » sans copie. Un contact identique à
+  //    l'adresse du client est le seul cas sans Cc : le commerçant reçoit le message en À.
+  const copy = classifyAckCopyRecipient(claimed.merchantContactEmail, to);
+  if (copy.kind === "missing") return fail("ACK_COPY_RECIPIENT_MISSING", null, null);
+  if (copy.kind === "invalid") return fail("ACK_COPY_RECIPIENT_INVALID", null, null);
+  const cc = copy.kind === "copy" ? copy.address : null;
 
   // 3. Identité d'expéditeur de CET établissement (profil activé + nom + adresse valides).
   const senderEmail = claimed.senderEmail?.trim() ?? "";
@@ -189,20 +232,27 @@ export async function sendWithdrawalAcknowledgementViaMerchantMailer(
     lines?: Array<{ item_name: string; option_name: string | null; quantity: number }>;
     declared_at?: string;
   } | null;
-  const content = buildAckEmailContent({
-    lang,
-    orderNumber: snapshot?.order_number ?? 0,
-    requestedAt: snapshot?.declared_at ?? new Date().toISOString(),
-    customerFirstName: claimed.customerFirstName,
-    customerLastName: claimed.customerLastName,
-    lines: (snapshot?.lines ?? []).map((l) => ({ itemName: l.item_name, optionName: l.option_name, quantity: l.quantity })),
-    merchantName: claimed.merchantName,
-    merchantContactEmail: claimed.merchantContactEmail,
-    merchantContactPhone: claimed.merchantContactPhone,
-  });
+  let content: ReturnType<typeof buildAckEmailContent>;
+  try {
+    content = buildAckEmailContent({
+      lang,
+      orderNumber: snapshot?.order_number ?? 0,
+      requestedAt: snapshot?.declared_at ?? new Date().toISOString(),
+      customerFirstName: claimed.customerFirstName,
+      customerLastName: claimed.customerLastName,
+      lines: (snapshot?.lines ?? []).map((l) => ({ itemName: l.item_name, optionName: l.option_name, quantity: l.quantity })),
+      merchantName: claimed.merchantName,
+      merchantContactEmail: claimed.merchantContactEmail,
+      merchantContactPhone: claimed.merchantContactPhone,
+    });
+  } catch {
+    return fail("ACK_DISPATCH_UNKNOWN_ERROR", senderEmail, cc);
+  }
 
   // Une exception du fournisseur ne doit JAMAIS laisser la demande à `sending` :
-  // elle devient un échec enregistré, d'une classe fermée.
+  // elle devient un échec enregistré, d'une classe fermée. (Limite : une exception
+  // levée APRÈS l'acceptation du message par le serveur est indiscernable d'un échec ;
+  // `failed` signifie « acceptation non confirmée », pas « non remis ».)
   let result: Awaited<ReturnType<EmailProvider["send"]>>;
   try {
     result = await provider.send({
@@ -221,7 +271,10 @@ export async function sendWithdrawalAcknowledgementViaMerchantMailer(
   }
 
   if (result.ok) {
-    await deps.recordResult({
+    // Le message est accepté : à partir d'ici, AUCUN chemin ne le renvoie. Si l'écriture
+    // du résultat n'est pas confirmée, on le DIT (resultPersisted:false) au lieu de
+    // présenter un état comme persisté.
+    const persisted = await persist({
       withdrawalRequestId,
       ok: true,
       to,
@@ -231,7 +284,9 @@ export async function sendWithdrawalAcknowledgementViaMerchantMailer(
       error: null,
       sender: senderEmail,
     });
-    return { attempted: true, ok: true, messageId: result.providerMessageId };
+    return persisted
+      ? { attempted: true, ok: true, messageId: result.providerMessageId }
+      : { attempted: true, ok: true, messageId: result.providerMessageId, resultPersisted: false };
   }
   return fail(result.errorClass, senderEmail, cc);
 }

@@ -10,6 +10,7 @@ import {
   reportedAcknowledgementStatus,
   tryDispatchWithdrawalAcknowledgement,
   waitForAckOutcome,
+  type ReportedAckStatus,
 } from "@/lib/server/withdrawal-ack-service";
 import { isSafeSmtpAddress } from "@/lib/server/withdrawal-ack-merchant-mailer";
 import {
@@ -167,9 +168,10 @@ export async function POST(request: NextRequest) {
     // `after` garde la fonction vivante jusqu'à la fin de l'envoi (un `void` nu
     // peut être gelé par la plateforme dès la réponse envoyée, laissant la
     // demande à `sending`). La réponse n'attend que ACK_RESPONSE_WAIT_MS le
-    // résultat réel, pour dire la vérité : `sent` / `failed` si connu, sinon l'état
-    // enregistré (`pending` / `unavailable_no_channel`).
-    let acknowledgementStatus = receipt.acknowledgementStatus;
+    // résultat réel, pour dire la vérité : `sent` / `failed` si connu, `unconfirmed` si le
+    // message est accepté mais le résultat n'a pas pu être écrit, sinon l'état enregistré
+    // (`pending` / `unavailable_no_channel`).
+    let acknowledgementStatus: ReportedAckStatus = receipt.acknowledgementStatus;
     if (!receipt.replayed) {
       const dispatch = tryDispatchWithdrawalAcknowledgement(receipt.withdrawalRequestId);
       try {

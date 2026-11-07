@@ -28,9 +28,10 @@
 --      by_capability` n'est PAS réécrite (aucun risque de dérive de sa
 --      définition) ; le déclencheur ne touche que ce statut à l'insertion.
 --   F. `claim_withdrawal_acknowledgement_send_v2` / `record_withdrawal_
---      acknowledgement_result_v2` (service_role UNIQUEMENT) : mêmes
---      garanties d'atomicité que v1, plus l'identité d'expéditeur de
---      l'établissement et un enregistrement conditionnel à `sending`.
+--      acknowledgement_result_v2` (service_role UNIQUEMENT) : revendication
+--      atomique de `pending` SEULEMENT (un `sending` n'est jamais repris : SMTP
+--      n'est pas idempotent), identité d'expéditeur de l'établissement, et
+--      enregistrement conditionnel à `sending` + canal marchand.
 --
 -- CE QUE LE LOT NE FAIT PAS :
 --   * il n'ouvre pas l'interrupteur, n'envoie aucun e-mail, ne réécrit aucune
@@ -112,7 +113,7 @@ begin
 
   -- Double application refusée.
   if to_regclass('public.scanym_ack_merchant_mailer_activation') is not null
-     or to_regprocedure('public.claim_withdrawal_acknowledgement_send_v2(uuid,integer)') is not null
+     or to_regprocedure('public.claim_withdrawal_acknowledgement_send_v2(uuid)') is not null
      or exists (select 1 from pg_catalog.pg_trigger where tgname = 'trg_withdrawal_ack_pending_merchant_mailer') then
     raise exception 'SCANYM_SCHEMA_DRIFT: ce lot est déjà appliqué (objet existant) -- double application refusée.';
   end if;
@@ -176,7 +177,7 @@ alter table public.withdrawal_requests
 comment on column public.withdrawal_requests.acknowledgement_sender is
   'Adresse d''expéditeur (From) réellement utilisée pour l''accusé : preuve d''audit, écrite par record_withdrawal_acknowledgement_result_v2. NULL si aucun envoi tenté.';
 comment on column public.withdrawal_requests.acknowledgement_transport is
-  'Canal utilisé : platform_smtp (SMTP unique de la plateforme) ou merchant_smtp (messagerie configurée par le commerçant). Posé à la revendication.';
+  'Canal utilisé : merchant_smtp (messagerie configurée par le commerçant), posé à la revendication par claim_withdrawal_acknowledgement_send_v2. NULL = canal historique (SMTP de la plateforme), qui n''écrit pas cette colonne. platform_smtp est admis par la contrainte mais n''est écrit par aucun code de ce lot.';
 
 -- -----------------------------------------------------------------------------
 -- D. MESSAGERIE PRÊTE POUR CET ÉTABLISSEMENT ?
@@ -244,14 +245,19 @@ create trigger trg_withdrawal_ack_pending_merchant_mailer
 -- -----------------------------------------------------------------------------
 -- F. REVENDICATION ET ENREGISTREMENT (service_role uniquement)
 -- -----------------------------------------------------------------------------
--- Même atomicité que v1 (pending, ou sending périmé). En plus : (i) ne revendique
--- RIEN tant que l'interrupteur est fermé ; (ii) pose le canal ; (iii) renvoie
--- l'identité d'expéditeur DE L'ÉTABLISSEMENT DE LA DEMANDE (jointure sur le
--- restaurant_id de la ligne revendiquée -- jamais un paramètre de l'appelant).
--- Une demande `failed`, `sent` ou `unavailable_no_channel` n'est JAMAIS revendiquée.
+-- Atomicité de v1 pour `pending`, mais SANS reprise d'un `sending` périmé : un `sending`
+-- n'est JAMAIS revendiqué à nouveau. Raison : SMTP n'est pas idempotent (une clé stable ne
+-- déduplique rien) ; si le message a été accepté mais que le résultat n'a pas pu être écrit
+-- (ou si le processus a disparu pendant l'envoi), une seconde revendication enverrait un
+-- DOUBLON. L'issue ambiguë reste visible (`sending`) et est traitée par un humain
+-- (docs/withdrawal-ack-merchant-mailer-v1.md). Contrepartie assumée : une demande dont le
+-- processus meurt AVANT l'envoi reste aussi `sending` (jamais envoyée automatiquement).
+-- En plus de v1 : (i) ne revendique RIEN tant que l'interrupteur est fermé ; (ii) pose le
+-- canal ; (iii) renvoie l'identité d'expéditeur DE L'ÉTABLISSEMENT DE LA DEMANDE (jointure
+-- sur le restaurant_id de la ligne revendiquée -- jamais un paramètre de l'appelant).
+-- Une demande `failed`, `sent`, `sending` ou `unavailable_no_channel` n'est JAMAIS revendiquée.
 create function public.claim_withdrawal_acknowledgement_send_v2(
-  p_withdrawal_request_id uuid,
-  p_stale_after_seconds   integer default 120
+  p_withdrawal_request_id uuid
 )
 returns table (
   id                        uuid,
@@ -282,14 +288,7 @@ as $$
         acknowledgement_send_attempts = wr.acknowledgement_send_attempts + 1
     where wr.id = p_withdrawal_request_id
       and public.scanym_ack_merchant_mailer_enabled()
-      and (
-        wr.acknowledgement_status = 'pending'
-        or (
-          wr.acknowledgement_status = 'sending'
-          and wr.acknowledgement_claimed_at is not null
-          and wr.acknowledgement_claimed_at < now() - make_interval(secs => greatest(p_stale_after_seconds, 1))
-        )
-      )
+      and wr.acknowledgement_status = 'pending'
     returning wr.*
   )
   select
@@ -305,11 +304,11 @@ as $$
   left join public.merchant_notification_profile np on np.restaurant_id = c.restaurant_id;
 $$;
 
-comment on function public.claim_withdrawal_acknowledgement_send_v2(uuid, integer) is
-  'Revendication atomique de l''envoi d''un accusé par la messagerie du commerçant : ne renvoie une ligne QUE si l''interrupteur opérateur est ouvert ET la demande est pending (ou sending périmé). Renvoie l''identité d''expéditeur et le contact de l''établissement de la demande. service_role uniquement.';
+comment on function public.claim_withdrawal_acknowledgement_send_v2(uuid) is
+  'Revendication atomique de l''envoi d''un accusé par la messagerie du commerçant : ne renvoie une ligne QUE si l''interrupteur opérateur est ouvert ET la demande est pending. Un sending n''est JAMAIS repris (SMTP non idempotent : risque de doublon). Renvoie l''identité d''expéditeur et le contact de l''établissement de la demande. service_role uniquement.';
 
-revoke all on function public.claim_withdrawal_acknowledgement_send_v2(uuid, integer) from public, anon, authenticated;
-grant execute on function public.claim_withdrawal_acknowledgement_send_v2(uuid, integer) to service_role;
+revoke all on function public.claim_withdrawal_acknowledgement_send_v2(uuid) from public, anon, authenticated;
+grant execute on function public.claim_withdrawal_acknowledgement_send_v2(uuid) to service_role;
 
 -- Enregistrement du résultat RÉEL. Conditionnel à `sending` (une revendication perdue
 -- ou un résultat tardif ne peut pas écraser un état final) ; renvoie false dans ce cas.
@@ -349,14 +348,17 @@ as $$
         acknowledgement_transport = p_transport
     where wr.id = p_withdrawal_request_id
       and wr.acknowledgement_status = 'sending'
-      and p_transport in ('platform_smtp', 'merchant_smtp')
+      -- Seule une ligne revendiquée PAR CE CANAL (claim v2) peut être finalisée par v2 : jamais
+      -- un `sending` posé par le canal historique.
+      and wr.acknowledgement_transport = 'merchant_smtp'
+      and p_transport = 'merchant_smtp'
     returning 1
   )
   select exists (select 1 from updated);
 $$;
 
 comment on function public.record_withdrawal_acknowledgement_result_v2(uuid, boolean, text, text, text, text, text, text, text) is
-  'Persiste le résultat RÉEL d''une tentative d''accusé (sent / failed) avec l''expéditeur et le canal utilisés. Conditionnel à acknowledgement_status = sending ; false si la ligne n''est plus sending. Copie enregistrée seulement en cas de succès ; erreur réduite à une classe normalisée. service_role uniquement.';
+  'Persiste le résultat RÉEL d''une tentative d''accusé (sent / failed) avec l''expéditeur et le canal utilisés. Conditionnel à acknowledgement_status = sending ET acknowledgement_transport = merchant_smtp ; false sinon. Copie enregistrée seulement en cas de succès ; erreur réduite à une classe normalisée. service_role uniquement.';
 
 revoke all on function public.record_withdrawal_acknowledgement_result_v2(uuid, boolean, text, text, text, text, text, text, text) from public, anon, authenticated;
 grant execute on function public.record_withdrawal_acknowledgement_result_v2(uuid, boolean, text, text, text, text, text, text, text) to service_role;
@@ -375,14 +377,14 @@ begin
   if (select v from _scanym_ack_mm_guard_before) is distinct from public._scanym_has_operational_durable_ack_channel() then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: la garde de publication des CGV a changé de valeur -- ce lot ne doit pas la modifier.';
   end if;
-  if has_function_privilege('anon', 'public.claim_withdrawal_acknowledgement_send_v2(uuid,integer)', 'EXECUTE')
-     or has_function_privilege('authenticated', 'public.claim_withdrawal_acknowledgement_send_v2(uuid,integer)', 'EXECUTE')
+  if has_function_privilege('anon', 'public.claim_withdrawal_acknowledgement_send_v2(uuid)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.claim_withdrawal_acknowledgement_send_v2(uuid)', 'EXECUTE')
      or has_function_privilege('anon', 'public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.scanym_ack_merchant_mailer_enabled()', 'EXECUTE') then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: fonction du canal marchand exposée à un rôle client.';
   end if;
-  if not has_function_privilege('service_role', 'public.claim_withdrawal_acknowledgement_send_v2(uuid,integer)', 'EXECUTE')
+  if not has_function_privilege('service_role', 'public.claim_withdrawal_acknowledgement_send_v2(uuid)', 'EXECUTE')
      or not has_function_privilege('service_role', 'public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)', 'EXECUTE')
      or not has_function_privilege('service_role', 'public.scanym_ack_merchant_mailer_enabled()', 'EXECUTE') then
     raise exception 'SCANYM_POST_COMMIT_CHECK_FAILED: service_role ne peut pas exécuter une fonction du canal marchand.';

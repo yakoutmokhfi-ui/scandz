@@ -20,7 +20,7 @@ const { ACK_EMAIL_CONTENT_VERSION } = await import("../lib/server/ack-mailer.ts"
 const {
   ACK_MERCHANT_ERROR_CODES,
   isSafeSmtpAddress,
-  resolveAckCopyRecipient,
+  classifyAckCopyRecipient,
   buildWithdrawalAckIdempotencyKey,
   sendWithdrawalAcknowledgementViaMerchantMailer,
 } = mailer;
@@ -129,13 +129,15 @@ test("isSafeSmtpAddress : refuse CR/LF, espaces, chevrons, guillemets et caract�
   assert.equal(isSafeSmtpAddress(`${"a".repeat(250)}@example.test`), false);
 });
 
-test("resolveAckCopyRecipient : adresse du profil légal ; absente, invalide ou identique au client => null (jamais de doublon)", () => {
-  assert.equal(resolveAckCopyRecipient("  contact@boutique.example.test ", "client@example.test"), "contact@boutique.example.test");
-  assert.equal(resolveAckCopyRecipient(null, "client@example.test"), null);
-  assert.equal(resolveAckCopyRecipient("", "client@example.test"), null);
-  assert.equal(resolveAckCopyRecipient("pas une adresse", "client@example.test"), null);
-  assert.equal(resolveAckCopyRecipient("x@y.test\r\nBcc: z@y.test", "client@example.test"), null);
-  assert.equal(resolveAckCopyRecipient("Client@Example.test", "client@example.test"), null);
+test("classifyAckCopyRecipient : adresse du profil légal ; absente / invalide / identique au client : résultats NOMMÉS (jamais un null ambigu)", () => {
+  assert.deepEqual(classifyAckCopyRecipient("  contact@boutique.example.test ", "client@example.test"), { kind: "copy", address: "contact@boutique.example.test" });
+  assert.deepEqual(classifyAckCopyRecipient(null, "client@example.test"), { kind: "missing" });
+  assert.deepEqual(classifyAckCopyRecipient(undefined, "client@example.test"), { kind: "missing" });
+  assert.deepEqual(classifyAckCopyRecipient("", "client@example.test"), { kind: "missing" });
+  assert.deepEqual(classifyAckCopyRecipient("   ", "client@example.test"), { kind: "missing" });
+  assert.deepEqual(classifyAckCopyRecipient("pas une adresse", "client@example.test"), { kind: "invalid" });
+  assert.deepEqual(classifyAckCopyRecipient("x@y.test\r\nBcc: z@y.test", "client@example.test"), { kind: "invalid" });
+  assert.deepEqual(classifyAckCopyRecipient("Client@Example.test", "client@example.test"), { kind: "same_as_customer" });
 });
 
 test("clé d'idempotence stable par demande, identique à chaque tentative", () => {
@@ -244,25 +246,6 @@ test("identité d'expéditeur incomplète (profil désactivé, adresse invalide,
   }
 });
 
-test("régime exigeant l'accusé (STANDARD_14_DAYS, MIXED) + contact marchand absent : échec explicite, aucun envoi", async () => {
-  for (const regime of ["STANDARD_14_DAYS", "MIXED"]) {
-    const { provider, sent } = fakeProvider();
-    const h = harness({ claim: claimFor(RA, { merchantContactEmail: null, merchantWithdrawalRegime: regime }), provider });
-    const outcome = await sendWithdrawalAcknowledgementViaMerchantMailer(WID, h.deps);
-    assert.deepEqual(outcome, { attempted: true, ok: false, error: "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME" });
-    assert.equal(sent.length, 0);
-  }
-});
-
-test("régime non exigeant + contact absent : envoi au client SANS copie (cc null), la copie n'est pas enregistrée", async () => {
-  const { provider, sent } = fakeProvider();
-  const h = harness({ claim: claimFor(RA, { merchantContactEmail: null, merchantWithdrawalRegime: "EXEMPT" }), provider });
-  const outcome = await sendWithdrawalAcknowledgementViaMerchantMailer(WID, h.deps);
-  assert.equal(outcome.attempted && outcome.ok, true);
-  assert.equal(sent[0].cc, null);
-  assert.equal(h.recorded[0].cc, null);
-});
-
 test("copie identique à l'adresse du client : un seul destinataire (cc null)", async () => {
   const { provider, sent } = fakeProvider();
   const h = harness({ claim: claimFor(RA, { merchantContactEmail: "CLIENT@example.test" }), provider });
@@ -289,18 +272,20 @@ test("demande non revendicable (déjà en cours, terminée, ou sans canal) : rie
   assert.deepEqual(h.resolvedFor, []);
 });
 
-test("revendication perdue (recordResult => false) : pas d'exception, le résultat réel de l'envoi est tout de même rapporté", async () => {
+test("revendication perdue (recordResult => false) : pas d'exception, l'acceptation SMTP est rapportée MAIS marquée non persistée", async () => {
   const { provider } = fakeProvider();
   const h = harness({ claim: claimFor(RA), provider, recordOk: false });
   const outcome = await sendWithdrawalAcknowledgementViaMerchantMailer(WID, h.deps);
   assert.equal(outcome.attempted && outcome.ok, true);
+  assert.equal((outcome as { resultPersisted?: boolean }).resultPersisted, false);
 });
 
 test("ensemble fermé de codes propres : chaque code est reconnu par la normalisation (jamais réécrit en UNKNOWN_PROVIDER_ERROR)", async () => {
   assert.deepEqual([...ACK_MERCHANT_ERROR_CODES].sort(), [
+    "ACK_COPY_RECIPIENT_INVALID",
+    "ACK_COPY_RECIPIENT_MISSING",
     "ACK_DISPATCH_UNKNOWN_ERROR",
     "ACK_RECIPIENT_ADDRESS_INVALID",
-    "MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME",
     "MERCHANT_MAILER_SENDER_UNRESOLVED",
     "MERCHANT_MAILER_UNAVAILABLE",
   ]);
@@ -445,7 +430,7 @@ test("dépendances réelles : RPC v2 nommées, paramètres exacts, ligne NULL = 
   assert.equal(claim?.restaurantId, RA);
   assert.equal(claim?.merchantName, "");
   assert.equal(claim?.profileEmailEnabled, true);
-  assert.deepEqual(rpcCalls[0], { name: "claim_withdrawal_acknowledgement_send_v2", args: { p_withdrawal_request_id: WID, p_stale_after_seconds: 120 } });
+  assert.deepEqual(rpcCalls[0], { name: "claim_withdrawal_acknowledgement_send_v2", args: { p_withdrawal_request_id: WID } }, "aucune péremption : v2 ne reprend jamais un `sending`");
 
   nextClaim = [{ ...claimRow, id: null }];
   assert.equal(await deps.claim(WID), null);
@@ -461,7 +446,7 @@ test("dépendances réelles : RPC v2 nommées, paramètres exacts, ligne NULL = 
   nextRecord = { data: false, error: null };
   assert.equal(await deps.recordResult({ withdrawalRequestId: WID, ok: false, to: "t", cc: null, messageId: null, contentVersion: "v", error: "X", sender: null }), false);
   nextRecord = { data: null, error: { message: "boom" } };
-  assert.equal(await deps.recordResult({ withdrawalRequestId: WID, ok: false, to: "t", cc: null, messageId: null, contentVersion: "v", error: "X", sender: null }), false);
+  await assert.rejects(() => deps.recordResult({ withdrawalRequestId: WID, ok: false, to: "t", cc: null, messageId: null, contentVersion: "v", error: "X", sender: null }), /RECORD_RPC_FAILED: boom/);
 });
 
 // --------------------------------------------------------------------
@@ -469,6 +454,7 @@ test("dépendances réelles : RPC v2 nommées, paramètres exacts, ligne NULL = 
 // --------------------------------------------------------------------
 test("reportedAcknowledgementStatus : jamais `sent` sans envoi confirmé ; sinon l'état enregistré", () => {
   assert.equal(reportedAcknowledgementStatus("pending", { attempted: true, ok: true, messageId: "m" }), "sent");
+  assert.equal(reportedAcknowledgementStatus("pending", { attempted: true, ok: true, messageId: "m", resultPersisted: false }), "unconfirmed");
   assert.equal(reportedAcknowledgementStatus("pending", { attempted: true, ok: false, error: "X" }), "failed");
   assert.equal(reportedAcknowledgementStatus("pending", null), "pending");
   assert.equal(reportedAcknowledgementStatus("pending", { attempted: false, reason: "already_claimed_elsewhere" }), "pending");

@@ -26,6 +26,9 @@ order by plus_ancienne;
 -- 2. Les établissements concernés ont-ils une messagerie prête, et quel est le
 --    destinataire de la copie (profil légal) ? Une ligne par établissement ayant au
 --    moins une demande sans accusé. `copie_vers` est la SEULE source de la copie.
+--    `copie_etat` : ABSENTE ou INVALIDE => le code REFUSE l'envoi (échec explicite
+--    ACK_COPY_RECIPIENT_MISSING / ACK_COPY_RECIPIENT_INVALID), pour tout régime : à
+--    corriger dans le profil légal AVANT d'ouvrir l'interrupteur.
 select r.name                                                    as etablissement,
        wr.restaurant_id,
        coalesce(c.enabled, false)                                as coffre_active,
@@ -35,6 +38,10 @@ select r.name                                                    as etablissemen
        np.sender_email                                           as expediteur,
        np.reply_to                                               as repondre_a,
        mlp.customer_service_email                                as copie_vers,
+       case when mlp.customer_service_email is null or btrim(mlp.customer_service_email) = '' then 'ABSENTE'
+            when btrim(mlp.customer_service_email) ~ '^[^[:space:][:cntrl:]@<>",;:\\()\[\]'']+@[^[:space:][:cntrl:]@<>",;:\\()\[\]'']+\.[A-Za-z]{2,}$' then 'OK'
+            else 'INVALIDE' end
+                                                                 as copie_etat,
        mcp.withdrawal_regime                                     as regime,
        count(*)                                                  as demandes_sans_accuse
 from public.withdrawal_requests wr
@@ -64,6 +71,9 @@ order by r.name;
 --    de copie actuellement configurée, régime, messagerie. Ex. motif '%lait cru%'.
 select r.id as restaurant_id, r.name,
        mlp.customer_service_email as copie_vers,
+       case when mlp.customer_service_email is null or btrim(mlp.customer_service_email) = '' then 'ABSENTE'
+            when btrim(mlp.customer_service_email) ~ '^[^[:space:][:cntrl:]@<>",;:\\()\[\]'']+@[^[:space:][:cntrl:]@<>",;:\\()\[\]'']+\.[A-Za-z]{2,}$' then 'OK'
+            else 'INVALIDE' end as copie_etat,
        mcp.withdrawal_regime      as regime,
        np.sender_email            as expediteur,
        coalesce(c.enabled, false) as coffre_active
@@ -74,5 +84,19 @@ left join public.merchant_notification_profile np on np.restaurant_id = r.id
 left join public.merchant_email_provider_config c on c.restaurant_id = r.id
 where r.name ilike '%lait cru%';   -- <== motif à adapter ; aucune adresse n'est codée en dur
 
--- 5. État de l'interrupteur (après application du lot SQL uniquement).
+-- 5. Accusés `sending` (issue AMBIGUË) : message peut-être parti, résultat non enregistré, ou
+--    processus disparu avant l'envoi. Le canal marchand ne les reprend JAMAIS. Avant toute
+--    décision, chercher dans le dossier « Envoyés » de la messagerie du commerçant le
+--    Message-ID `message_id_recherche` (canal marchand : dérivé de l'identifiant de la demande).
+select r.name                                                     as etablissement,
+       wr.id                                                      as demande,
+       wr.acknowledgement_claimed_at                              as revendiquee_le,
+       now() - wr.acknowledgement_claimed_at                      as depuis,
+       'scanym-withdrawal-ack-' || wr.id || '@mail.scanym.com'    as message_id_recherche
+from public.withdrawal_requests wr
+join public.restaurants r on r.id = wr.restaurant_id
+where wr.acknowledgement_status = 'sending'
+order by wr.acknowledgement_claimed_at;
+
+-- 6. État de l'interrupteur (après application du lot SQL uniquement).
 -- select enabled, updated_at, note from public.scanym_ack_merchant_mailer_activation;

@@ -199,11 +199,47 @@ make_request() {
   psql -X -A -q -t -d "$DB" -c "select ${RET:-withdrawal_request_id} from public.submit_withdrawal_request_by_capability('$ord'::uuid, '$cap'::uuid, 'a2b2c2d2e2f2a2b2c2d2e2f2a2b2c2d2e2f2a2b2c2d2e2f2a2b2c2d2e2f2a2b2'::text, 'Jean', 'Dupont', 'email', '$addr', jsonb_build_array(jsonb_build_object('order_item_id', '$oi', 'quantity', 1)), gen_random_uuid());" 2>"$ERR"
 }
 status_of() { sql "select acknowledgement_status from public.withdrawal_requests where id = '$1';"; }
+fp_rows() { sql "select md5(coalesce(string_agg(w::text, ',' order by w.id::text), '')) from public.withdrawal_requests w;"; }
+
+# ---------------------------------------------------------------------------
+# DÉFAUT PRÉEXISTANT (GAP-01, v1) : finalisation des baux. `record_withdrawal_acknowledgement_result`
+# met à jour SANS condition d'état ni identité de bail (`where id = ...`), et `claim_..._send` reprend
+# tout `sending` périmé. Sonde, quatre observations :
+#   a. un résultat « ok » sur une ligne unavailable_no_channel la fabrique en `sent` ;
+#   b. deux résultats « ok » successifs (processus périmé + processus repreneur) : l'identifiant de
+#      message et l'horodatage de la PREMIÈRE preuve sont écrasés par le second ;
+#   c. bail périmé : deux revendications successives de la même demande (deux envois possibles) ;
+#   d. un résultat tardif « échec » sur une ligne `sent` : refusé seulement par la contrainte
+#      `withdrawal_requests_ack_sent_requires_timestamp` (garde-fou de table, pas de la fonction).
+# Sortie : "<a>|<message id final de b>|<nb revendications de c>|<d>". Appelée AVANT le lot
+# (état parent) puis APRÈS (candidat).
+# ---------------------------------------------------------------------------
+lease_probe() {
+  local n1="$1" n2="$2" n3="$3" r1 r2 r3 obs_a obs_b obs_d claims c1 c2
+  r1=$(make_request "$RA" "$n1" "probe.a@example.com") || { echo "probe-setup-failed"; return; }
+  r2=$(make_request "$RA" "$n2" "probe.b@example.com") || { echo "probe-setup-failed"; return; }
+  r3=$(make_request "$RA" "$n3" "probe.c@example.com") || { echo "probe-setup-failed"; return; }
+  sql "select public.record_withdrawal_acknowledgement_result('$r1', true, 'probe.a@example.com', null, '<p>', 'v', null);" >/dev/null
+  obs_a=$(status_of "$r1")
+  sql "update public.withdrawal_requests set acknowledgement_status = 'sending', acknowledgement_claimed_at = now() where id = '$r2';" >/dev/null
+  sql "select public.record_withdrawal_acknowledgement_result('$r2', true, 'probe.b@example.com', null, '<m1>', 'v', null);" >/dev/null
+  sql "select public.record_withdrawal_acknowledgement_result('$r2', true, 'probe.b@example.com', null, '<m2>', 'v', null);" >/dev/null
+  obs_b=$(sql "select acknowledgement_message_id from public.withdrawal_requests where id = '$r2';")
+  psql -X -A -q -t -d "$DB" -c "select public.record_withdrawal_acknowledgement_result('$r2', false, 'probe.b@example.com', null, null, 'v', 'LATE');" >/dev/null 2>&1 || true
+  obs_d=$(status_of "$r2")
+  sql "update public.withdrawal_requests set acknowledgement_status = 'pending' where id = '$r3';" >/dev/null
+  c1=$(sql "select id from public.claim_withdrawal_acknowledgement_send('$r3', 120);")
+  sql "update public.withdrawal_requests set acknowledgement_claimed_at = now() - interval '10 minutes' where id = '$r3';" >/dev/null
+  c2=$(sql "select id from public.claim_withdrawal_acknowledgement_send('$r3', 120);")
+  claims=0; [ -n "$c1" ] && claims=$((claims+1)); [ -n "$c2" ] && claims=$((claims+1))
+  echo "$obs_a|$obs_b|$claims|$obs_d"
+}
 
 log "=== [3] AVANT le lot : la plateforme est indisponible -> unavailable_no_channel (état réel du terrain) ==="
 assert_eq "garde de publication CGV = false (canal plateforme non vérifié)" "f" "$(sql "select public._scanym_has_operational_durable_ack_channel();")"
 OLD_A=$(make_request "$RA" 1 "ancien.client.a@example.com") || fatal "demande historique A : $(head -3 "$ERR")"
 OLD_B=$(make_request "$RB" 2 "ancien.client.b@example.com") || fatal "demande historique B : $(head -3 "$ERR")"
+PARENT_OBS=$(lease_probe 101 102 103)
 assert_eq "demande historique A = unavailable_no_channel" "unavailable_no_channel" "$(status_of "$OLD_A")"
 assert_eq "demande historique B = unavailable_no_channel" "unavailable_no_channel" "$(status_of "$OLD_B")"
 
@@ -219,10 +255,18 @@ assert_eq "garde de publication CGV INCHANGÉE (false)" "f" "$(sql "select publi
 assert_eq "demandes historiques INCHANGÉES (A)" "unavailable_no_channel" "$(status_of "$OLD_A")"
 assert_eq "demandes historiques INCHANGÉES (B)" "unavailable_no_channel" "$(status_of "$OLD_B")"
 
+log "=== [4b] DÉFAUT PRÉEXISTANT de finalisation des baux (GAP-01 v1) : reproduit sur le parent ET sur le candidat ==="
+CAND_OBS=$(lease_probe 104 105 106)
+# Le lot ne touche pas les fonctions v1 : le défaut est identique des deux côtés (il n'est ni introduit ni corrigé ici).
+assert_eq "PARENT (avant le lot) : défaut présent (fabrique sent | écrase la 1re preuve (<m2>) | 2 revendications | échec tardif bloqué seulement par la contrainte)" "sent|<m2>|2|sent" "$PARENT_OBS"
+assert_eq "CANDIDAT (après le lot) : défaut identique, fonctions v1 inchangées" "sent|<m2>|2|sent" "$CAND_OBS"
+assert_eq "le canal marchand (v2) n'a PAS ce défaut : écriture tardive refusée sur une ligne non-sending" "f" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$OLD_A', true, 'ancien.client.a@example.com', null, '<x>', 'v', null, 's@x.example', 'merchant_smtp');")"
+assert_eq "...et la ligne reste unavailable_no_channel" "unavailable_no_channel" "$(status_of "$OLD_A")"
+
 log "=== [5] Interrupteur FERMÉ : comportement d'avant (contrôle négatif) ==="
 CLOSED_A=$(make_request "$RA" 3 "client.a1@example.com") || fatal "demande A (fermé) : $(head -3 "$ERR")"
 assert_eq "interrupteur fermé : A reste unavailable_no_channel malgré une messagerie prête" "unavailable_no_channel" "$(status_of "$CLOSED_A")"
-assert_eq "interrupteur fermé : claim v2 ne revendique rien" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$CLOSED_A', 120);")"
+assert_eq "interrupteur fermé : claim v2 ne revendique rien" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$CLOSED_A');")"
 assert_eq "interrupteur fermé : statut toujours unavailable_no_channel" "unavailable_no_channel" "$(status_of "$CLOSED_A")"
 
 log "=== [6] Interrupteur OUVERT (par l'opérateur, dans ce test seulement) ==="
@@ -241,15 +285,15 @@ assert_eq "demande historique A NON modifiée (aucun backfill)" "unavailable_no_
 assert_eq "demande fermée A NON modifiée" "unavailable_no_channel" "$(status_of "$CLOSED_A")"
 
 log "=== [7] Revendication v2 : isolation entre commerçants, aucun renvoi automatique ==="
-assert_eq "B : claim v2 ne revendique rien (unavailable_no_channel)" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_B', 120);")"
-assert_eq "historique A : claim v2 ne revendique rien (pas de renvoi automatique)" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$OLD_A', 120);")"
-assert_eq "historique B : claim v2 ne revendique rien" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$OLD_B', 120);")"
-CLAIM=$(sql "select restaurant_id || '|' || sender_email || '|' || coalesce(reply_to,'') || '|' || merchant_contact_email || '|' || profile_email_enabled || '|' || merchant_withdrawal_regime from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A', 120);")
+assert_eq "B : claim v2 ne revendique rien (unavailable_no_channel)" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_B');")"
+assert_eq "historique A : claim v2 ne revendique rien (pas de renvoi automatique)" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$OLD_A');")"
+assert_eq "historique B : claim v2 ne revendique rien" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$OLD_B');")"
+CLAIM=$(sql "select restaurant_id || '|' || sender_email || '|' || coalesce(reply_to,'') || '|' || merchant_contact_email || '|' || profile_email_enabled || '|' || merchant_withdrawal_regime from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A');")
 assert_eq "claim A : identité de A UNIQUEMENT (restaurant, expéditeur, reply-to, copie, régime)" "$RA|boutique@commerce-a.example|reponse@commerce-a.example|contact@commerce-a.example|true|STANDARD_14_DAYS" "$CLAIM"
 case "$CLAIM" in *commerce-b*) fail "le claim de A contient une donnée de B : $CLAIM";; *) pass "aucune donnée de B dans le claim de A";; esac
 assert_eq "statut après claim = sending" "sending" "$(status_of "$NEW_A")"
 assert_eq "canal posé à la revendication = merchant_smtp" "merchant_smtp" "$(sql "select acknowledgement_transport from public.withdrawal_requests where id = '$NEW_A';")"
-assert_eq "second claim immédiat (fenêtre fraîche) = rien -- pas de doublon" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A', 120);")"
+assert_eq "second claim immédiat (fenêtre fraîche) = rien -- pas de doublon" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A');")"
 
 log "=== [8] Enregistrement v2 : statut fidèle ==="
 assert_eq "record v2 avec un canal invalide -> false, rien modifié" "f" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$NEW_A', true, 'client.a2@example.com', 'contact@commerce-a.example', '<m@x>', 'gap-01-ack-v1', null, 'boutique@commerce-a.example', 'telepathie');")"
@@ -260,32 +304,47 @@ assert_eq "copie enregistrée après succès" "contact@commerce-a.example" "$(sq
 assert_eq "expéditeur réel enregistré (preuve)" "boutique@commerce-a.example" "$(sql "select acknowledgement_sender from public.withdrawal_requests where id = '$NEW_A';")"
 assert_eq "enregistrement tardif/doublon sur une ligne déjà sent -> false" "f" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$NEW_A', false, 'client.a2@example.com', null, null, 'gap-01-ack-v1', 'PROVIDER_TIMEOUT', 'boutique@commerce-a.example', 'merchant_smtp');")"
 assert_eq "un résultat tardif n'a pas dégradé sent" "sent" "$(status_of "$NEW_A")"
-assert_eq "claim après sent = rien -- pas de renvoi automatique" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A', 120);")"
+assert_eq "claim après sent = rien -- pas de renvoi automatique" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$NEW_A');")"
 
 FAIL_A=$(make_request "$RA" 6 "client.a3@example.com") || fatal "demande A (échec) : $(head -3 "$ERR")"
-sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_A', 120);" >/dev/null
+sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_A');" >/dev/null
 assert_eq "record v2 échec avec texte serveur brut -> true" "t" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$FAIL_A', false, 'client.a3@example.com', 'contact@commerce-a.example', null, 'gap-01-ack-v1', '535 5.7.8 password=hunter2 rejected', 'boutique@commerce-a.example', 'merchant_smtp');")"
 assert_eq "statut = failed" "failed" "$(status_of "$FAIL_A")"
 assert_eq "texte serveur NON conservé : classe fermée UNKNOWN_PROVIDER_ERROR" "UNKNOWN_PROVIDER_ERROR" "$(sql "select acknowledgement_last_error from public.withdrawal_requests where id = '$FAIL_A';")"
 assert_eq "échec : aucune copie enregistrée (le back-office ne dira pas « copie envoyée »)" "" "$(sql "select coalesce(acknowledgement_cc, '') from public.withdrawal_requests where id = '$FAIL_A';")"
 assert_eq "échec : pas de message id" "" "$(sql "select coalesce(acknowledgement_message_id, '') from public.withdrawal_requests where id = '$FAIL_A';")"
-assert_eq "failed n'est jamais revendiqué automatiquement" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_A', 120);")"
+assert_eq "failed n'est jamais revendiqué automatiquement" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_A');")"
 assert_eq "la demande reste enregistrée (ligne présente) malgré l'échec" "1" "$(sql "select count(*) from public.withdrawal_requests where id = '$FAIL_A';")"
 
 FAIL_B=$(make_request "$RA" 7 "client.a4@example.com") || fatal "demande A (code propre) : $(head -3 "$ERR")"
-sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_B', 120);" >/dev/null
+sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$FAIL_B');" >/dev/null
 sql "select public.record_withdrawal_acknowledgement_result_v2('$FAIL_B', false, 'client.a4@example.com', null, null, 'gap-01-ack-v1', 'PROVIDER_AUTHENTICATION_FAILED', 'boutique@commerce-a.example', 'merchant_smtp');" >/dev/null
 assert_eq "classe normalisée conservée telle quelle" "PROVIDER_AUTHENTICATION_FAILED" "$(sql "select acknowledgement_last_error from public.withdrawal_requests where id = '$FAIL_B';")"
 
-log "=== [9] Reprise d'une revendication périmée (crash) -- seule voie de reprise ==="
-STALE=$(make_request "$RA" 8 "client.a5@example.com") || fatal "demande A (périmée) : $(head -3 "$ERR")"
-sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$STALE', 120);" >/dev/null
+log "=== [9] Un sending n'est JAMAIS repris (SMTP non idempotent : issue ambiguë traitée par un humain) ==="
+STALE=$(make_request "$RA" 8 "client.a5@example.com") || fatal "demande A (ambiguë) : $(head -3 "$ERR")"
+sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$STALE');" >/dev/null
 sql "update public.withdrawal_requests set acknowledgement_claimed_at = now() - interval '10 minutes' where id = '$STALE';" >/dev/null
-assert_eq "sending périmé -> revendicable à nouveau" "$STALE" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$STALE', 120);")"
-assert_eq "compteur de tentatives = 2" "2" "$(sql "select acknowledgement_send_attempts from public.withdrawal_requests where id = '$STALE';")"
+assert_eq "sending périmé (10 min) -> NON revendiqué (aucun risque de doublon)" "" "$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$STALE');")"
+assert_eq "sending périmé : le statut reste visible (sending)" "sending" "$(status_of "$STALE")"
+assert_eq "sending périmé : compteur de tentatives inchangé (1)" "1" "$(sql "select acknowledgement_send_attempts from public.withdrawal_requests where id = '$STALE';")"
+assert_eq "sending périmé : le même processus peut encore écrire son résultat (écriture tardive, conditionnelle)" "t" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$STALE', true, 'client.a5@example.com', 'contact@commerce-a.example', '<late@x>', 'gap-01-ack-v1', null, 'boutique@commerce-a.example', 'merchant_smtp');")"
+assert_eq "après écriture tardive : sent" "sent" "$(status_of "$STALE")"
+CONC=$(make_request "$RA" 10 "client.a6@example.com") || fatal "demande A (concurrence) : $(head -3 "$ERR")"
+C1=$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$CONC');")
+C2=$(sql "select id from public.claim_withdrawal_acknowledgement_send_v2('$CONC');")
+assert_eq "concurrence : le premier claim obtient la ligne" "$CONC" "$C1"
+assert_eq "concurrence : le second claim n'obtient RIEN" "" "$C2"
+LEG=$(make_request "$RA" 11 "client.a7@example.com") || fatal "demande A (sending hérité) : $(head -3 "$ERR")"
+sql "update public.withdrawal_requests set acknowledgement_status = 'sending', acknowledgement_transport = 'platform_smtp', acknowledgement_claimed_at = now() where id = '$LEG';" >/dev/null
+assert_eq "sending posé par le canal HISTORIQUE : v2 ne l'enregistre pas (canal différent)" "f" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$LEG', true, 'client.a7@example.com', null, '<x>', 'gap-01-ack-v1', null, 'boutique@commerce-a.example', 'merchant_smtp');")"
+assert_eq "sending historique inchangé" "sending" "$(status_of "$LEG")"
+sql "update public.withdrawal_requests set acknowledgement_status = 'sending', acknowledgement_transport = null where id = '$LEG';" >/dev/null
+assert_eq "sending sans canal : v2 ne l'enregistre pas non plus" "f" "$(sql "select public.record_withdrawal_acknowledgement_result_v2('$LEG', true, 'client.a7@example.com', null, '<x>', 'gap-01-ack-v1', null, 'boutique@commerce-a.example', 'merchant_smtp');")"
+sql "update public.withdrawal_requests set acknowledgement_status = 'failed' where id = '$LEG';" >/dev/null
 
 log "=== [10] Privilèges ==="
-for fn in "claim_withdrawal_acknowledgement_send_v2(uuid,integer)" "record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)" "scanym_ack_merchant_mailer_enabled()"; do
+for fn in "claim_withdrawal_acknowledgement_send_v2(uuid)" "record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)" "scanym_ack_merchant_mailer_enabled()"; do
   assert_eq "anon ne peut pas exécuter $fn" "f" "$(sql "select has_function_privilege('anon', 'public.$fn', 'EXECUTE');")"
   assert_eq "authenticated ne peut pas exécuter $fn" "f" "$(sql "select has_function_privilege('authenticated', 'public.$fn', 'EXECUTE');")"
   assert_eq "service_role peut exécuter $fn" "t" "$(sql "select has_function_privilege('service_role', 'public.$fn', 'EXECUTE');")"
@@ -302,25 +361,114 @@ PLAT=$(make_request "$RB" 9 "client.b2@example.com") || fatal "demande B (platef
 assert_eq "plateforme saine : pending (statut posé par submit, inchangé par le déclencheur)" "pending" "$(status_of "$PLAT")"
 sql "update public.scanym_ack_transport_health set last_check_ok = false where id = 1;" >/dev/null
 
-log "=== [12] ROLLBACK : garde-fous puis retrait ==="
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; RC=$?
-assert_nonzero_rc "rollback refusé tant que l'interrupteur est OUVERT" "$RC"
-grep -q "SCANYM_ROLLBACK_REFUSED" "$ERR" && pass "refus = SCANYM_ROLLBACK_REFUSED" || fail "refus inattendu : $(head -3 "$ERR")"
-sql "update public.scanym_ack_merchant_mailer_activation set enabled = false where id = 1;" >/dev/null
-psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; RC=$?
-assert_nonzero_rc "rollback refusé tant que des preuves d'envoi existent" "$RC"
-grep -q "SCANYM_ROLLBACK_DATA_LOSS" "$ERR" && pass "refus = SCANYM_ROLLBACK_DATA_LOSS" || fail "refus inattendu : $(head -3 "$ERR")"
+log "=== [11b] Diagnostic en lecture seule : s'exécute sans erreur et signale les copies absentes / invalides ==="
+sql "update public.merchant_legal_profile set customer_service_email = 'pas une adresse' where restaurant_id = '$RB';" >/dev/null
+BEFORE_DIAG=$(fp_rows)
+DIAG_OUT=$(psql -X -A -t -d "$DB" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/DRAFT-diagnostic-withdrawal-ack-backlog-v1-READONLY.sql" 2>"$ERR"); RC=$?
+assert_zero_rc "le diagnostic s'exécute sans erreur" "$RC" "$(head -c 300 "$ERR")"
+echo "$DIAG_OUT" | grep -q "|OK|" && pass "diagnostic : copie OK reconnue" || fail "diagnostic : aucune copie OK"
+echo "$DIAG_OUT" | grep -q "|INVALIDE|" && pass "diagnostic : copie INVALIDE signalée" || fail "diagnostic : copie invalide non signalée"
+assert_eq "le diagnostic n'a modifié AUCUNE ligne" "$BEFORE_DIAG" "$(fp_rows)"
+sql "update public.merchant_legal_profile set customer_service_email = 'contact@commerce-b.example' where restaurant_id = '$RB';" >/dev/null
+
+log "=== [12] ROLLBACK : TOUT est vérifié AVANT la première mutation ==="
+LOT_FNS="'scanym_ack_merchant_mailer_enabled','_scanym_merchant_ack_channel_ready','_scanym_ack_pending_when_merchant_mailer_ready','claim_withdrawal_acknowledgement_send_v2','record_withdrawal_acknowledgement_result_v2'"
+fp() { sql "select md5(
+    coalesce((select string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,'') || p.proowner::text || p.prosecdef::text || coalesce(p.proconfig::text,'') || p.provolatile::text, ',' order by p.oid::regprocedure::text) from pg_proc p where p.proname in ($LOT_FNS)), '')
+    || (to_regclass('public.scanym_ack_merchant_mailer_activation') is not null)::text
+    || (select count(*) from pg_trigger where tgname = 'trg_withdrawal_ack_pending_merchant_mailer' and tgenabled = 'O')::text
+    || (select count(*) from information_schema.columns where table_name = 'withdrawal_requests' and column_name in ('acknowledgement_sender','acknowledgement_transport'))::text
+    || (select count(*) from public.withdrawal_requests)::text
+    || (select coalesce(string_agg(id::text || acknowledgement_status, ',' order by id::text), '') from public.withdrawal_requests));"; }
+
+# try_rollback <libellé> <motif attendu dans l'erreur> : le retrait DOIT être refusé et RIEN ne doit avoir changé.
+try_rollback() {
+  local label="$1" pattern="$2" before after
+  before=$(fp)
+  psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; local rc=$?
+  after=$(fp)
+  if [ "$rc" != "0" ] && grep -q "$pattern" "$ERR"; then pass "rollback refusé — $label ($pattern)"; else fail "rollback — $label : rc=$rc, erreur='$(head -c 200 "$ERR")'"; fi
+  if [ "$before" = "$after" ]; then pass "rollback refusé — $label : AUCUNE mutation (empreinte inchangée)"; else fail "rollback — $label : l'état a CHANGÉ malgré le refus"; fi
+}
+# drift <libellé> <motif> <SQL de dérive> <SQL de restauration>
+drift() {
+  local label="$1" pattern="$2" apply="$3" restore="$4"
+  if ! psql -X -d "$DB" -v ON_ERROR_STOP=1 -c "$apply" >/dev/null 2>"$ERR"; then fail "dérive '$label' non appliquée : $(head -c 200 "$ERR")"; return; fi
+  try_rollback "$label" "$pattern"
+  psql -X -d "$DB" -v ON_ERROR_STOP=1 -c "$restore" >/dev/null 2>"$ERR" || fail "restauration '$label' : $(head -c 200 "$ERR")"
+}
+
 BEFORE_COUNT=$(sql "select count(*) from public.withdrawal_requests;")
+try_rollback "interrupteur OUVERT" "SCANYM_ROLLBACK_REFUSED: l'interrupteur est OUVERT"
+sql "update public.scanym_ack_merchant_mailer_activation set enabled = false where id = 1;" >/dev/null
+try_rollback "des preuves d'envoi existent" "SCANYM_ROLLBACK_DATA_LOSS"
 sql "update public.withdrawal_requests set acknowledgement_sender = null, acknowledgement_transport = null;" >/dev/null
-apply_file "DRAFT-lot-withdrawal-ack-merchant-mailer-v1-ROLLBACK.sql" || fail "rollback : $(head -10 "$ERR")"
+try_rollback "accusés pending/sending en vol" "SCANYM_ROLLBACK_REFUSED: des accusés sont pending/sending"
+# Purge de préparation (harnais uniquement) : plus aucun accusé en vol.
+sql "update public.withdrawal_requests set acknowledgement_status = 'failed' where acknowledgement_status in ('pending','sending');" >/dev/null
+
+ORIG_OWNER=$(sql "select r.rolname from pg_class c join pg_roles r on r.oid = c.relowner where c.oid = 'public.withdrawal_requests'::regclass;")
+psql -X -d "$DB" -c "create role ackmm_other nologin;" >/dev/null 2>&1 || true
+
+# --- Corps : chaque fonction modifiée d'un seul caractère (casse) -> refus ---
+for spec in "scanym_ack_merchant_mailer_enabled()|select coalesce|SELECT coalesce" \
+            "_scanym_merchant_ack_channel_ready(uuid)|select exists|SELECT exists" \
+            "_scanym_ack_pending_when_merchant_mailer_ready()|if new.acknowledgement_status|IF new.acknowledgement_status" \
+            "claim_withdrawal_acknowledgement_send_v2(uuid)|with claimed as|WITH claimed as" \
+            "record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)|with updated as|WITH updated as"; do
+  sig="${spec%%|*}"; rest="${spec#*|}"; from="${rest%%|*}"; to="${rest#*|}"
+  ORIGDEF=$(sql "select pg_get_functiondef('public.$sig'::regprocedure);")
+  MUT=$(printf '%s' "$ORIGDEF" | sed "0,/$from/{s/$from/$to/}")
+  [ "$MUT" != "$ORIGDEF" ] || { fail "dérive de corps ${sig%%(*} : motif '$from' introuvable"; continue; }
+  drift "corps modifié (${sig%%(*})" "corps différent de celui du lot" "$MUT" "$ORIGDEF"
+done
+
+# --- Propriétaire, droits, attributs ---
+drift "propriétaire (claim_v2)" "propriétaire différent" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) owner to ackmm_other;" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) owner to \"$ORIG_OWNER\";"
+drift "droit EXECUTE donné à authenticated (claim_v2)" "droits d'exécution dérivés" "grant execute on function public.claim_withdrawal_acknowledgement_send_v2(uuid) to authenticated;" "revoke execute on function public.claim_withdrawal_acknowledgement_send_v2(uuid) from authenticated;"
+drift "droit EXECUTE donné à anon (enabled)" "droits d'exécution dérivés" "grant execute on function public.scanym_ack_merchant_mailer_enabled() to anon;" "revoke execute on function public.scanym_ack_merchant_mailer_enabled() from anon;"
+drift "droit EXECUTE retiré à service_role (record_v2)" "droits d'exécution dérivés" "revoke execute on function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) from service_role;" "grant execute on function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) to service_role;"
+drift "droit EXECUTE donné à service_role sur une fonction interne (ready)" "droits d'exécution dérivés" "grant execute on function public._scanym_merchant_ack_channel_ready(uuid) to service_role;" "revoke execute on function public._scanym_merchant_ack_channel_ready(uuid) from service_role;"
+drift "droit EXECUTE donné à PUBLIC (trigger fn)" "droits d'exécution dérivés" "grant execute on function public._scanym_ack_pending_when_merchant_mailer_ready() to public;" "revoke execute on function public._scanym_ack_pending_when_merchant_mailer_ready() from public;"
+drift "SECURITY INVOKER (record_v2)" "SECURITY DEFINER / search_path dérivés" "alter function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) security invoker;" "alter function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) security definer;"
+drift "search_path réinitialisé (claim_v2)" "SECURITY DEFINER / search_path dérivés" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) reset search_path;" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) set search_path = '';"
+drift "volatilité (enabled : stable -> volatile)" "langage / volatilité / attributs dérivés" "alter function public.scanym_ack_merchant_mailer_enabled() volatile;" "alter function public.scanym_ack_merchant_mailer_enabled() stable;"
+drift "fonction renommée (signature absente)" "absente" "alter function public._scanym_merchant_ack_channel_ready(uuid) rename to _renamed_ready;" "alter function public._renamed_ready(uuid) rename to _scanym_merchant_ack_channel_ready;"
+
+# --- Déclencheur, table, colonnes, dépendances ---
+drift "déclencheur désactivé" "déclencheur dérivé" "alter table public.withdrawal_requests disable trigger trg_withdrawal_ack_pending_merchant_mailer;" "alter table public.withdrawal_requests enable trigger trg_withdrawal_ack_pending_merchant_mailer;"
+drift "second déclencheur sur la fonction du lot" "autre déclencheur utilise la fonction" "create trigger trg_ackmm_extra before update on public.withdrawal_requests for each row execute function public._scanym_ack_pending_when_merchant_mailer_ready();" "drop trigger trg_ackmm_extra on public.withdrawal_requests;"
+drift "policy ajoutée sur la table de l'interrupteur" "table de l'interrupteur dérivée" "create policy ackmm_p on public.scanym_ack_merchant_mailer_activation for select using (true);" "drop policy ackmm_p on public.scanym_ack_merchant_mailer_activation;"
+drift "droit SELECT donné à authenticated sur la table de l'interrupteur" "table de l'interrupteur dérivée" "grant select on public.scanym_ack_merchant_mailer_activation to authenticated;" "revoke select on public.scanym_ack_merchant_mailer_activation from authenticated;"
+drift "vue dépendant d'une colonne de preuve" "dépendent de la colonne" "create view public.ackmm_v as select acknowledgement_sender from public.withdrawal_requests;" "drop view public.ackmm_v;"
+drift "index sur une colonne de preuve" "dépendent de la colonne" "create index ackmm_idx on public.withdrawal_requests (acknowledgement_transport);" "drop index public.ackmm_idx;"
+drift "autre fonction qui nomme une fonction du lot" "référencent des objets du lot" "create function public.ackmm_user() returns boolean language sql as \$\$ select public.scanym_ack_merchant_mailer_enabled() \$\$;" "drop function public.ackmm_user();"
+drift "contrainte de canal modifiée" "contrainte withdrawal_requests_ack_transport_check absente ou dérivée" "alter table public.withdrawal_requests drop constraint withdrawal_requests_ack_transport_check, add constraint withdrawal_requests_ack_transport_check check (acknowledgement_transport is null or acknowledgement_transport in ('platform_smtp','merchant_smtp','autre'));" "alter table public.withdrawal_requests drop constraint withdrawal_requests_ack_transport_check, add constraint withdrawal_requests_ack_transport_check check (acknowledgement_transport is null or acknowledgement_transport in ('platform_smtp','merchant_smtp'));"
+drift "type d'une colonne de preuve modifié" "colonne acknowledgement_sender dérivée" "alter table public.withdrawal_requests alter column acknowledgement_sender type varchar(500);" "alter table public.withdrawal_requests alter column acknowledgement_sender type text;"
+drift "GAP-01 : claim v1 absente" "fonctions GAP-01 ne sont pas présentes" "alter function public.claim_withdrawal_acknowledgement_send(uuid,integer) rename to _claim_v1_renamed;" "alter function public._claim_v1_renamed(uuid,integer) rename to claim_withdrawal_acknowledgement_send;"
+
+# --- Nominal : corps stockés avec des fins de ligne CRLF (copie Windows du lot) -> ACCEPTÉ ---
+for sig in "scanym_ack_merchant_mailer_enabled()" "_scanym_merchant_ack_channel_ready(uuid)" "_scanym_ack_pending_when_merchant_mailer_ready()" "claim_withdrawal_acknowledgement_send_v2(uuid)" "record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)"; do
+  DEF=$(sql "select pg_get_functiondef('public.$sig'::regprocedure);")
+  printf '%s;\n' "$DEF" | sed 's/$/\r/' | psql -X -d "$DB" -v ON_ERROR_STOP=1 -f - >/dev/null 2>"$ERR" || fail "conversion CRLF de $sig : $(head -c 200 "$ERR")"
+done
+assert_eq "corps stockés en CRLF (preuve que le test CRLF est réel)" "5" "$(sql "select count(*) from pg_proc where proname in ($LOT_FNS) and prosrc like E'%\r%';")"
+
+apply_file "DRAFT-lot-withdrawal-ack-merchant-mailer-v1-ROLLBACK.sql" && pass "rollback nominal accepté (corps CRLF normalisés)" || fail "rollback nominal : $(head -c 300 "$ERR")"
 assert_eq "rollback : table de l'interrupteur supprimée" "" "$(sql "select to_regclass('public.scanym_ack_merchant_mailer_activation');")"
-assert_eq "rollback : claim v2 supprimée" "" "$(sql "select to_regprocedure('public.claim_withdrawal_acknowledgement_send_v2(uuid,integer)');")"
+assert_eq "rollback : claim v2 supprimée" "" "$(sql "select to_regprocedure('public.claim_withdrawal_acknowledgement_send_v2(uuid)');")"
+assert_eq "rollback : toutes les fonctions du lot supprimées" "0" "$(sql "select count(*) from pg_proc where proname in ($LOT_FNS);")"
 assert_eq "rollback : déclencheur supprimé" "0" "$(sql "select count(*) from pg_trigger where tgname = 'trg_withdrawal_ack_pending_merchant_mailer';")"
 assert_eq "rollback : colonnes de preuve supprimées" "0" "$(sql "select count(*) from information_schema.columns where table_name = 'withdrawal_requests' and column_name in ('acknowledgement_sender','acknowledgement_transport');")"
 assert_eq "rollback : aucune demande supprimée" "$BEFORE_COUNT" "$(sql "select count(*) from public.withdrawal_requests;")"
+assert_eq "rollback : aucune demande remise en pending/sending (pas de réouverture de l'arriéré)" "0" "$(sql "select count(*) from public.withdrawal_requests where acknowledgement_status in ('pending','sending');")"
 assert_eq "rollback : GAP-01 intact (claim v1 présente)" "t" "$(sql "select to_regprocedure('public.claim_withdrawal_acknowledgement_send(uuid,integer)') is not null;")"
 assert_eq "rollback : garde CGV inchangée" "f" "$(sql "select public._scanym_has_operational_durable_ack_channel();")"
+psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$SUPABASE_DIR/DRAFT-lot-withdrawal-ack-merchant-mailer-v1-ROLLBACK.sql" >/dev/null 2>"$ERR"; RC=$?
+assert_nonzero_rc "second rollback (déjà retiré) refusé" "$RC"
+grep -q "SCANYM_ROLLBACK_NOT_APPLICABLE" "$ERR" && pass "second rollback = SCANYM_ROLLBACK_NOT_APPLICABLE" || fail "second rollback : $(head -c 200 "$ERR")"
 apply_file "DRAFT-lot-withdrawal-ack-merchant-mailer-v1.sql" && pass "ré-application après rollback" || fail "ré-application : $(head -10 "$ERR")"
+psql -X -d "$DB" -c "drop role if exists ackmm_other;" >/dev/null 2>&1 || true
 
 echo
 log "=== BILAN : $PASS_COUNT PASS, $FAIL_COUNT FAIL ==="

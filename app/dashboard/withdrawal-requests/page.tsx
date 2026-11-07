@@ -44,7 +44,7 @@ import { useRestaurantContextGuard } from "@/lib/restaurant-context-guard";
 
 const ACK_STATUS_LABEL: Record<string, string> = {
   pending: "Accusé en attente d'envoi",
-  sending: "Accusé en cours d'envoi",
+  sending: "Accusé en cours d'envoi ou résultat non confirmé",
   sent: "Accusé envoyé",
   failed: "Échec d'envoi de l'accusé",
   unavailable_no_channel: "Canal d'accusé indisponible",
@@ -63,7 +63,8 @@ const ACK_ERROR_HINT: Record<string, string> = {
   INVALID_RECIPIENT: "adresse refusée par le serveur de messagerie",
   MERCHANT_MAILER_UNAVAILABLE: "messagerie non configurée ou suspendue — onglet E-mails",
   MERCHANT_MAILER_SENDER_UNRESOLVED: "identité d'expéditeur incomplète — onglet E-mails",
-  MERCHANT_CONTACT_EMAIL_MISSING_FOR_APPLICABLE_REGIME: "e-mail de contact absent du profil légal",
+  ACK_COPY_RECIPIENT_MISSING: "e-mail de contact absent du profil légal — la copie est obligatoire, aucun accusé n'a été envoyé",
+  ACK_COPY_RECIPIENT_INVALID: "e-mail de contact du profil légal invalide — corrigez-le, aucun accusé n'a été envoyé",
   ACK_RECIPIENT_ADDRESS_INVALID: "adresse e-mail du client invalide",
   ACK_DISPATCH_UNKNOWN_ERROR: "erreur technique inattendue lors de l'envoi",
 };
@@ -221,6 +222,13 @@ export default function WithdrawalRequestsPage() {
                     </span>
                     {row.acknowledgement_status === "sent" && row.acknowledgement_cc && (
                       <span className="text-stone-500">Copie envoyée à : {row.acknowledgement_cc}</span>
+                    )}
+                    {row.acknowledgement_status === "sending" && (
+                      <span className="text-amber-900">
+                        Si cet état dure : vérifiez le dossier « Envoyés » de la messagerie (identifiant du message :
+                        {" "}scanym-withdrawal-ack-{row.id}@mail.scanym.com) avant tout nouvel envoi ; un accusé
+                        n&apos;est jamais renvoyé automatiquement.
+                      </span>
                     )}
                     {row.acknowledgement_status === "failed" && row.acknowledgement_last_error && (
                       <span className="text-red-800">
