@@ -29,9 +29,13 @@
 --     PUBLIC / anon / authenticated ; service_role seulement là où prévu), CORPS (SHA-256 après
 --     normalisation STRICTE CRLF -> LF : un CR isolé ou toute autre différence est une dérive) ;
 --     aucun homonyme (surcharge) dans aucun schéma ;
+--   * aucune fonction / procédure TIERCE à corps texte ne nomme une colonne de preuve (PostgreSQL
+--     n'enregistre pas cette dépendance : la fonction survivrait, cassée) ;
 --   * le déclencheur est exactement celui du lot (BEFORE INSERT, ligne, activé, sans WHEN) ;
 --   * aucun autre objet ne dépend de ces fonctions (vues, index, déclencheurs, règles) et aucune
 --     autre fonction ne les nomme (recherche insensible à la casse) ;
+--   * aucune fonction ou procédure TIERCE à corps texte ne nomme une colonne de preuve (PostgreSQL
+--     n'enregistre pas cette dépendance : la fonction survivrait, cassée) ;
 --   * les fonctions GAP-01 sont toujours présentes ;
 --   * APRÈS les suppressions, vérification que seuls les objets du lot ont disparu : tout objet tiers
 --     recensé avant (contraintes, index, statistiques, déclencheurs, policies, règles, colonnes de
@@ -311,6 +315,20 @@ begin
             and (p.prosrc ~* '(scanym_ack_merchant_mailer_enabled|_scanym_merchant_ack_channel_ready|_scanym_ack_pending_when_merchant_mailer_ready|claim_withdrawal_acknowledgement_send_v2|record_withdrawal_acknowledgement_result_v2|scanym_ack_merchant_mailer_activation)'));
   if v_n > 0 then
     raise exception 'SCANYM_ROLLBACK_REFUSED: % autre(s) fonction(s) référencent des objets du lot.', v_n;
+  end if;
+
+  -- 6b. Aucune fonction / procédure TIERCE ne lit une colonne de preuve. Pour une fonction à corps texte
+  -- (LANGUAGE sql 'select …', plpgsql…), PostgreSQL n'enregistre AUCUNE dépendance : après DROP COLUMN la
+  -- fonction resterait présente mais deviendrait inutilisable (« column does not exist » à l'appel).
+  -- Recherche sur le nom de colonne, insensible à la casse ; volontairement prudente : une fonction qui
+  -- nomme une colonne homonyme d'une autre table bloque aussi, à examiner par un humain avant retrait.
+  -- (Les fonctions SQL-standard BEGIN ATOMIC, elles, sont couvertes par le contrôle de pg_depend.)
+  v_n := (select count(*) from pg_catalog.pg_proc p
+           join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+          where n.nspname not in ('pg_catalog', 'information_schema') and p.oid <> all (v_fn_oids)
+            and p.prosrc ~* '\m(acknowledgement_sender|acknowledgement_transport)\M');
+  if v_n > 0 then
+    raise exception 'SCANYM_ROLLBACK_REFUSED: % fonction(s) tierce(s) lisent une colonne de preuve (corps texte sans dépendance enregistrée) -- elles deviendraient inutilisables.', v_n;
   end if;
 
   -- 7. GAP-01 intact (le retrait ne doit pas le laisser orphelin).

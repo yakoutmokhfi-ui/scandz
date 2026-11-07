@@ -378,11 +378,11 @@ LOT_FNS="'scanym_ack_merchant_mailer_enabled','_scanym_merchant_ack_channel_read
 # table de l'interrupteur (contraintes, index, statistiques, déclencheurs, policies, droits de colonne,
 # colonnes). fp [base] : base par défaut = $DB.
 fp() {
-  local d="${1:-$DB}"
-  psql -X -A -q -t -d "$d" -c "select encode(sha256(convert_to(
+  local d="${1:-$DB}" out rc
+  out=$(psql -X -A -q -t -v ON_ERROR_STOP=1 -d "$d" -c "select encode(sha256(convert_to(
     coalesce((select string_agg(to_jsonb(p)::text, ',' order by p.oid::regprocedure::text) from pg_proc p where p.proname in ($LOT_FNS)), '')
     || (to_regclass('public.scanym_ack_merchant_mailer_activation') is not null)::text
-    || coalesce((select string_agg(pg_get_triggerdef(t.oid) || t.tgenabled, ',' order by t.tgname) from pg_trigger t where t.tgrelid = 'public.withdrawal_requests'::regclass and not t.tgisinternal), '')
+    || coalesce((select string_agg(pg_get_triggerdef(t.oid) || t.tgenabled::text, ',' order by t.tgname) from pg_trigger t where t.tgrelid = 'public.withdrawal_requests'::regclass and not t.tgisinternal), '')
     || coalesce((select string_agg(c.conname || pg_get_constraintdef(c.oid) || c.convalidated::text, ',' order by c.conname) from pg_constraint c where c.conrelid = 'public.withdrawal_requests'::regclass), '')
     || coalesce((select string_agg(pg_get_indexdef(i.indexrelid), ',' order by i.indexrelid::regclass::text) from pg_index i where i.indrelid = 'public.withdrawal_requests'::regclass), '')
     || coalesce((select string_agg(s.stxname || s.stxkeys::text, ',' order by s.stxname) from pg_statistic_ext s where s.stxrelid = 'public.withdrawal_requests'::regclass), '')
@@ -392,22 +392,44 @@ fp() {
     || coalesce((select string_agg(pg_get_indexdef(i.indexrelid), ',' order by i.indexrelid::regclass::text) from pg_index i where i.indrelid = to_regclass('public.scanym_ack_merchant_mailer_activation')), '')
     || coalesce((select string_agg(a.attname || ':' || a.atttypid::text || ':' || coalesce(a.attacl::text, ''), ',' order by a.attnum) from pg_attribute a where a.attrelid = to_regclass('public.scanym_ack_merchant_mailer_activation') and a.attnum > 0 and not a.attisdropped), '')
     || (select count(*) from public.withdrawal_requests)::text
-    || (select coalesce(string_agg(id::text || acknowledgement_status, ',' order by id::text), '') from public.withdrawal_requests), 'UTF8')), 'hex');"
+    || (select coalesce(string_agg(id::text || acknowledgement_status, ',' order by id::text), '') from public.withdrawal_requests), 'UTF8')), 'hex');" 2>&1); rc=$?
+  # R3 : une empreinte en ERREUR (ou vide / non hexadécimale) ne doit JAMAIS valoir « aucune mutation » :
+  # on renvoie un échec explicite, que l'appelant traite comme un ÉCHEC du test.
+  if [ "$rc" != "0" ] || ! [[ "$out" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "FP_ERROR[rc=$rc]: $(printf '%s' "$out" | head -c 200 | tr '\n' ' ')"
+    return 1
+  fi
+  printf '%s' "$out"
 }
 
+# attempt_rollback <fichier SQL> <motif> : exécute le retrait sur une COPIE isolée de la base
+# (CREATE DATABASE ... TEMPLATE) et positionne ATT_REFUSED (0/1), ATT_STATE (unchanged | changed | fp_error),
+# ATT_RC, ATT_ERR. Un retrait qui serait (à tort) accepté ne détruit pas les essais suivants.
+attempt_rollback() {
+  local file="$1" pattern="$2" cp="${DB}_cp" before after
+  ATT_REFUSED=0; ATT_STATE="fp_error"; ATT_RC=""; ATT_ERR=""
+  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
+  psql -X -q -d postgres -c "create database \"$cp\" template \"$DB\";" >/dev/null 2>"$ERR" || { ATT_ERR="copie isolée impossible : $(head -c 200 "$ERR")"; return; }
+  before=$(fp "$cp"); local rb=$?
+  psql -X -d "$cp" -v ON_ERROR_STOP=1 -f "$file" >/dev/null 2>"$ERR"; ATT_RC=$?
+  ATT_ERR="$(head -c 200 "$ERR")"
+  after=$(fp "$cp"); local ra=$?
+  if [ "$ATT_RC" != "0" ] && grep -q "$pattern" "$ERR"; then ATT_REFUSED=1; fi
+  if [ "$rb" != "0" ] || [ "$ra" != "0" ]; then ATT_STATE="fp_error"; ATT_ERR="$ATT_ERR | avant: $before | après: $after"
+  elif [ "$before" = "$after" ]; then ATT_STATE="unchanged"; else ATT_STATE="changed"; fi
+  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
+}
 # try_rollback <libellé> <motif attendu dans l'erreur> : le retrait DOIT être refusé et RIEN ne doit avoir changé.
-# Chaque essai s'exécute sur une COPIE isolée de la base (CREATE DATABASE ... TEMPLATE) : un retrait qui serait
-# (à tort) accepté ne détruit pas l'état des essais suivants, et l'échec est constaté proprement.
+# Une empreinte impossible à calculer (avant OU après) est un ÉCHEC, jamais un « aucune mutation ».
 try_rollback() {
-  local label="$1" pattern="$2" before after cp="${DB}_cp"
-  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
-  psql -X -q -d postgres -c "create database \"$cp\" template \"$DB\";" >/dev/null 2>"$ERR" || { fail "copie isolée impossible ($label) : $(head -c 200 "$ERR")"; return; }
-  before=$(fp "$cp")
-  psql -X -d "$cp" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; local rc=$?
-  after=$(fp "$cp")
-  if [ "$rc" != "0" ] && grep -q "$pattern" "$ERR"; then pass "rollback refusé — $label ($pattern)"; else fail "rollback — $label : rc=$rc, erreur='$(head -c 200 "$ERR")'"; fi
-  if [ "$before" = "$after" ]; then pass "rollback refusé — $label : AUCUNE mutation (empreinte inchangée)"; else fail "rollback — $label : l'état a CHANGÉ malgré le refus"; fi
-  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
+  local label="$1" pattern="$2"
+  attempt_rollback "$ROLLBACK_SQL" "$pattern"
+  if [ "$ATT_REFUSED" = "1" ]; then pass "rollback refusé — $label ($pattern)"; else fail "rollback — $label : rc=$ATT_RC, erreur='$ATT_ERR'"; fi
+  case "$ATT_STATE" in
+    unchanged) pass "rollback refusé — $label : AUCUNE mutation (empreinte inchangée)";;
+    changed)   fail "rollback — $label : l'état a CHANGÉ malgré le refus";;
+    *)         fail "rollback — $label : empreinte d'état IMPOSSIBLE à calculer ($ATT_ERR) -- « aucune mutation » NON démontrée";;
+  esac
 }
 # drift <libellé> <motif> <SQL de dérive> <SQL de restauration>
 drift() {
@@ -425,6 +447,28 @@ sql "update public.withdrawal_requests set acknowledgement_sender = null, acknow
 try_rollback "accusés pending/sending en vol" "SCANYM_ROLLBACK_REFUSED: des accusés sont pending/sending"
 # Purge de préparation (harnais uniquement) : plus aucun accusé en vol.
 sql "update public.withdrawal_requests set acknowledgement_status = 'failed' where acknowledgement_status in ('pending','sending');" >/dev/null
+
+# --- R3-2 : CONTRÔLES NÉGATIFS du harnais lui-même (il doit détecter un faux « aucune mutation ») ---
+# (a) un « retrait » qui REFUSE (bon motif) mais a PERSISTÉ une modification couverte par l'empreinte -> doit être vu « changed »
+MUT_SQL="/tmp/scanym-ackmm-mut-$$.sql"
+cat > "$MUT_SQL" <<'SQL'
+alter table public.withdrawal_requests add constraint ackmm_ctrl_chk check (true);
+do $$ begin raise exception 'SCANYM_ROLLBACK_REFUSED: contrôle négatif'; end $$;
+SQL
+attempt_rollback "$MUT_SQL" "SCANYM_ROLLBACK_REFUSED"
+assert_eq "R3-2 contrôle négatif : une mutation persistée malgré le refus est DÉTECTÉE (état changed)" "changed" "$ATT_STATE"
+# (b) une empreinte IMPOSSIBLE à calculer (avant/après) ne doit jamais valoir « unchanged »
+cat > "$MUT_SQL" <<'SQL'
+alter table public.withdrawal_requests rename column acknowledgement_status to ackmm_renamed_status;
+do $$ begin raise exception 'SCANYM_ROLLBACK_REFUSED: contrôle négatif'; end $$;
+SQL
+attempt_rollback "$MUT_SQL" "SCANYM_ROLLBACK_REFUSED"
+assert_eq "R3-2 contrôle négatif : mutation persistée + empreinte en ERREUR -> fp_error (jamais unchanged)" "fp_error" "$ATT_STATE"
+rm -f "$MUT_SQL"
+FP_BAD=$(fp "base_inexistante_$$"); FP_BAD_RC=$?
+assert_eq "R3-2 fp sur une base inexistante échoue (rc=1)" "1" "$FP_BAD_RC"
+case "$FP_BAD" in FP_ERROR*) pass "R3-2 fp signale FP_ERROR au lieu d'une chaîne vide";; *) fail "R3-2 fp n'a pas signalé l'erreur : '$FP_BAD'";; esac
+assert_eq "R3-2 fp nominal : 64 caractères hexadécimaux" "64" "$(fp | wc -c | tr -d ' ')"
 
 ORIG_OWNER=$(sql "select r.rolname from pg_class c join pg_roles r on r.oid = c.relowner where c.oid = 'public.withdrawal_requests'::regclass;")
 psql -X -d "$DB" -c "create role ackmm_other nologin;" >/dev/null 2>&1 || true
@@ -493,6 +537,11 @@ drift "R2-2 COST modifié (enabled)" "coût / attributs dérivés" "alter functi
 drift "R2-2 ROWS modifié (claim_v2)" "coût / attributs dérivés" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) rows 5;" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) rows 1000;"
 # (d) fonction tierce qui nomme un objet du lot en MAJUSCULES (identifiant non quoté = même objet)
 drift "R2-2 fonction tierce référençant le lot en MAJUSCULES" "référencent des objets du lot" "create function public.ackmm_upper() returns boolean language sql as \$\$ select PUBLIC.SCANYM_ACK_MERCHANT_MAILER_ENABLED() \$\$;" "drop function public.ackmm_upper();"
+# --- R3-1 : fonctions TIERCES qui LISENT une colonne de preuve sans dépendance enregistrée (corps en texte) ---
+drift "R3-1 fonction SQL tierce lisant acknowledgement_sender (corps texte)" "fonction(s) tierce(s) lisent une colonne de preuve" "create function public.ackmm_reader_sql() returns text language sql as 'select acknowledgement_sender from public.withdrawal_requests limit 1';" "drop function public.ackmm_reader_sql();"
+drift "R3-1 fonction plpgsql tierce lisant acknowledgement_transport" "fonction(s) tierce(s) lisent une colonne de preuve" "create function public.ackmm_reader_plpgsql() returns text language plpgsql as \$\$ declare v text; begin select w.acknowledgement_transport into v from public.withdrawal_requests w limit 1; return v; end \$\$;" "drop function public.ackmm_reader_plpgsql();"
+drift "R3-1 procédure tierce nommant une colonne de preuve en MAJUSCULES" "fonction(s) tierce(s) lisent une colonne de preuve" "create procedure public.ackmm_reader_proc() language sql as 'select ACKNOWLEDGEMENT_SENDER from public.withdrawal_requests';" "drop procedure public.ackmm_reader_proc();"
+drift "R3-1 fonction SQL-standard (BEGIN ATOMIC) lisant une colonne de preuve" "dépendent des colonnes de preuve" "create function public.ackmm_reader_atomic() returns text language sql begin atomic select acknowledgement_sender from public.withdrawal_requests limit 1; end;" "drop function public.ackmm_reader_atomic();"
 drift "GAP-01 : claim v1 absente" "fonctions GAP-01 ne sont pas présentes" "alter function public.claim_withdrawal_acknowledgement_send(uuid,integer) rename to _claim_v1_renamed;" "alter function public._claim_v1_renamed(uuid,integer) rename to claim_withdrawal_acknowledgement_send;"
 
 # --- Objets TIERS ajoutés après l'installation, SANS rapport avec les colonnes de preuve : ne doivent NI bloquer NI être supprimés ---

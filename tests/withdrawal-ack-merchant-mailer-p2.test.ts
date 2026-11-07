@@ -304,6 +304,26 @@ test("R2-1/R2-2 : le rollback n'utilise plus MD5, exclut NOTRE contrainte par OI
   assert.match(sql, /lock table public\.scanym_ack_merchant_mailer_activation in access exclusive mode/i);
 });
 
+test("R3 : le rollback refuse les fonctions tierces à corps texte qui lisent une colonne de preuve (sans dépendance enregistrée)", () => {
+  const sql = readRepo(ROLLBACK).replace(/--.*$/gm, "");
+  const scan = sql.indexOf("acknowledgement_sender|acknowledgement_transport");
+  assert.ok(scan > 0, "recherche du nom des colonnes de preuve dans pg_proc.prosrc");
+  assert.match(sql.slice(scan - 400, scan + 100), /prosrc ~\*/, "insensible à la casse");
+  assert.ok(scan < sql.search(/\bdrop (trigger|function|table)\b/i), "avant la première mutation");
+  assert.match(sql, /p\.oid <> all \(v_fn_oids\)/, "les fonctions du lot sont exclues");
+});
+
+test("R3 : le harnais SQL ne peut plus produire un faux « aucune mutation » (empreinte en erreur = échec, contrôles négatifs)", () => {
+  const h = readRepo("supabase/tests/withdrawal-ack-merchant-mailer-v1-check.sh");
+  assert.match(h, /\^\[0-9a-f\]\{64\}\$/, "l'empreinte doit être 64 caractères hexadécimaux");
+  assert.match(h, /FP_ERROR/);
+  assert.match(h, /fp_error/);
+  assert.match(h, /tgenabled::text/, "le « char » est converti en text (l'ancienne empreinte levait « operator is not unique »)");
+  assert.match(h, /contrôle négatif : une mutation persistée malgré le refus est DÉTECTÉE/);
+  assert.match(h, /mutation persistée \+ empreinte en ERREUR -> fp_error/);
+  assert.equal(/before=\$\(fp "\$cp"\)\n\s*psql/.test(h), false);
+});
+
 test("P2-2/P2-3 : le lot ne reprend plus un `sending` (aucun paramètre de péremption) et lie l'enregistrement au canal marchand", () => {
   const lot = readRepo(LOT).replace(/\/\*[\s\S]*?\*\//g, "").replace(/--.*$/gm, "");
   const claim = lot.slice(lot.indexOf("create function public.claim_withdrawal_acknowledgement_send_v2"), lot.indexOf("create function public.record_withdrawal_acknowledgement_result_v2"));
