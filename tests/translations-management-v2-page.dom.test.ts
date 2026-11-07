@@ -728,3 +728,54 @@ test("[209-J] dépasser la limite serveur du corps : message clair et enregistre
   assert.equal((buttons.filter((b) => b.textContent === "Valider")[2] as HTMLButtonElement).disabled, true);
   assert.equal((buttons.filter((b) => b.textContent === "Valider")[0] as HTMLButtonElement).disabled, false, "les autres champs restent éditables");
 });
+
+// AUD212-01 -- « masqué par la recherche » ≠ « non renseigné »
+async function searchFor(container: Element, q: string) {
+  await (React as any).act(async () => {
+    setValue(container.querySelector("[data-translations-search]")!, q);
+  });
+  await flush(40);
+}
+const unsetFields = (c: Element) =>
+  [...c.querySelectorAll("[data-translation-order-help-unset]")].map((n) => n.getAttribute("data-translation-order-help-unset"));
+const filteredFields = (c: Element) =>
+  [...c.querySelectorAll("[data-translation-order-help-filtered]")].map((n) => n.getAttribute("data-translation-order-help-filtered"));
+
+test("[209-K] recherche « bouton » avec les trois sources configurées : titre et corps sont MASQUÉS, jamais « non renseignés »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  assert.deepEqual(unsetFields(container), [], "rien d'absent sans recherche");
+  await searchFor(container, "bouton");
+  assert.equal(helpFields(container).length, 1, "seul le champ bouton correspond");
+  assert.deepEqual(unsetFields(container), [], "AUD212-01 : aucune fausse absence");
+  assert.deepEqual(filteredFields(container).sort(), ["order_help_body", "order_help_title"]);
+  assert.match(textOf(helpCard(container)!), /masqué par la recherche ou le statut choisis \(le texte existe\)/);
+  assert.doesNotMatch(textOf(helpCard(container)!), /non renseigné/);
+  const shortcut = container.querySelector("[data-translations-order-help-hidden]");
+  assert.ok(shortcut, "message de masquage partiel");
+  assert.match(textOf(shortcut), /Certains de ces textes sont masqués par la recherche ou le statut/);
+  await click(container.querySelector("[data-translations-order-help-show]"));
+  assert.equal(helpFields(container).length, 3, "un clic ramène les trois champs");
+  assert.equal(container.querySelector("[data-translations-order-help-hidden]"), null);
+  assert.deepEqual(filteredFields(container), []);
+});
+
+test("[209-L] recherche « titre » : bouton et corps masqués (existent), pas absents", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = helpRows();
+  const container = await mount(t);
+  await searchFor(container, "titre de la fenêtre");
+  assert.equal(helpFields(container).length, 1);
+  assert.deepEqual(unsetFields(container), []);
+  assert.deepEqual(filteredFields(container).sort(), ["order_help_body", "order_help_button_label"]);
+});
+
+test("[209-M] titre RÉELLEMENT absent + recherche « bouton » : le titre reste « non renseigné », le corps est « masqué »", async (t) => {
+  cleanHelp(t);
+  (globalThis as any).__helpTexts = [helpRows()[0], helpRows()[2]];
+  const container = await mount(t);
+  await searchFor(container, "bouton");
+  assert.deepEqual(unsetFields(container), ["order_help_title"], "vraie absence conservée");
+  assert.deepEqual(filteredFields(container), ["order_help_body"], "le corps existe, il est masqué");
+});

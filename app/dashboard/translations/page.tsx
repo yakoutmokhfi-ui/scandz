@@ -468,7 +468,13 @@ export default function TranslationsPage() {
     };
   }, [orderHelpRows, targetLang]);
   const orderHelpHiddenByFilters = isOrderHelpHiddenByContextFilter(allRows, filters);
-  const orderHelpVisible = filteredRows.some((row) => row.entityType === "order_help");
+  /** AUD212-01 -- « tous les champs configurés sont affichés » se juge sur
+   *  les sources NON filtrées : un seul champ visible ne suffit pas. */
+  const visibleOrderHelpFields = new Set(
+    filteredRows.filter((row) => row.entityType === "order_help").map((row) => row.field)
+  );
+  const orderHelpFullyVisible =
+    orderHelpRows.length > 0 && orderHelpRows.every((row) => visibleOrderHelpFields.has(row.field));
 
   /** Affiche l'aide : lève les filtres catalogue ET la recherche (ce que
    *  le commerçant tape ne doit pas la masquer non plus) puis y défile.
@@ -1244,17 +1250,17 @@ export default function TranslationsPage() {
                   </span>{" "}
                   dans la langue choisie.
                 </p>
-                {(orderHelpHiddenByFilters || !orderHelpVisible) && (
+                {(orderHelpHiddenByFilters || !orderHelpFullyVisible) && (
                   <p
                     data-translations-order-help-hidden=""
                     className="mt-1 text-xs font-semibold text-amber-800"
                   >
                     {orderHelpHiddenByFilters
                       ? "Ces textes sont masqués par les filtres catalogue actifs (catégorie, sous-catégorie, tag ou disponibilité)."
-                      : "Ces textes sont masqués par la recherche ou le statut choisis."}
+                      : "Certains de ces textes sont masqués par la recherche ou le statut choisis."}
                   </p>
                 )}
-                {(orderHelpHiddenByFilters || !orderHelpVisible) && (
+                {(orderHelpHiddenByFilters || !orderHelpFullyVisible) && (
                   <button
                     type="button"
                     data-translations-order-help-show=""
@@ -1322,9 +1328,36 @@ export default function TranslationsPage() {
                       }
                     />
                   ))}
+                  {/* AUD212-01 -- « masqué » (la source existe, la recherche ou le
+                      statut l'écarte) n'est JAMAIS présenté comme « non renseigné »
+                      (la source n'existe pas) : seule la liste NON filtrée tranche. */}
                   {head.entityType === "order_help" &&
                     (TRANSLATABLE_FIELDS.order_help as readonly string[])
-                      .filter((field) => !group.rows.some((row) => row.field === field))
+                      .filter(
+                        (field) =>
+                          orderHelpRows.some((row) => row.field === field) &&
+                          !group.rows.some((row) => row.field === field)
+                      )
+                      .map((field) => (
+                        <p
+                          key={field}
+                          data-translation-order-help-filtered={field}
+                          className="mt-4 border-t border-stone-100 pt-3 text-xs text-amber-800"
+                        >
+                          <span className="font-semibold">{FIELD_LABELS[field]}</span> : masqué par la
+                          recherche ou le statut choisis (le texte existe).{" "}
+                          <button
+                            type="button"
+                            onClick={showOrderHelp}
+                            className="font-semibold underline"
+                          >
+                            Afficher les trois champs
+                          </button>
+                        </p>
+                      ))}
+                  {head.entityType === "order_help" &&
+                    (TRANSLATABLE_FIELDS.order_help as readonly string[])
+                      .filter((field) => !orderHelpRows.some((row) => row.field === field))
                       .map((field) => (
                         <p
                           key={field}
