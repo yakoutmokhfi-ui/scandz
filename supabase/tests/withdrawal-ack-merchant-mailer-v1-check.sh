@@ -373,22 +373,41 @@ sql "update public.merchant_legal_profile set customer_service_email = 'contact@
 
 log "=== [12] ROLLBACK : TOUT est vérifié AVANT la première mutation ==="
 LOT_FNS="'scanym_ack_merchant_mailer_enabled','_scanym_merchant_ack_channel_ready','_scanym_ack_pending_when_merchant_mailer_ready','claim_withdrawal_acknowledgement_send_v2','record_withdrawal_acknowledgement_result_v2'"
-fp() { sql "select md5(
-    coalesce((select string_agg(p.oid::regprocedure::text || md5(p.prosrc) || coalesce(p.proacl::text,'') || p.proowner::text || p.prosecdef::text || coalesce(p.proconfig::text,'') || p.provolatile::text, ',' order by p.oid::regprocedure::text) from pg_proc p where p.proname in ($LOT_FNS)), '')
+# Empreinte d'état (SHA-256) : lignes de withdrawal_requests, lignes COMPLÈTES pg_proc des fonctions du lot
+# (corps, ACL, propriétaire, attributs, coût...), déclencheur, ET objets de withdrawal_requests et de la
+# table de l'interrupteur (contraintes, index, statistiques, déclencheurs, policies, droits de colonne,
+# colonnes). fp [base] : base par défaut = $DB.
+fp() {
+  local d="${1:-$DB}"
+  psql -X -A -q -t -d "$d" -c "select encode(sha256(convert_to(
+    coalesce((select string_agg(to_jsonb(p)::text, ',' order by p.oid::regprocedure::text) from pg_proc p where p.proname in ($LOT_FNS)), '')
     || (to_regclass('public.scanym_ack_merchant_mailer_activation') is not null)::text
-    || (select count(*) from pg_trigger where tgname = 'trg_withdrawal_ack_pending_merchant_mailer' and tgenabled = 'O')::text
-    || (select count(*) from information_schema.columns where table_name = 'withdrawal_requests' and column_name in ('acknowledgement_sender','acknowledgement_transport'))::text
+    || coalesce((select string_agg(pg_get_triggerdef(t.oid) || t.tgenabled, ',' order by t.tgname) from pg_trigger t where t.tgrelid = 'public.withdrawal_requests'::regclass and not t.tgisinternal), '')
+    || coalesce((select string_agg(c.conname || pg_get_constraintdef(c.oid) || c.convalidated::text, ',' order by c.conname) from pg_constraint c where c.conrelid = 'public.withdrawal_requests'::regclass), '')
+    || coalesce((select string_agg(pg_get_indexdef(i.indexrelid), ',' order by i.indexrelid::regclass::text) from pg_index i where i.indrelid = 'public.withdrawal_requests'::regclass), '')
+    || coalesce((select string_agg(s.stxname || s.stxkeys::text, ',' order by s.stxname) from pg_statistic_ext s where s.stxrelid = 'public.withdrawal_requests'::regclass), '')
+    || coalesce((select string_agg(p.polname, ',' order by p.polname) from pg_policy p where p.polrelid = 'public.withdrawal_requests'::regclass), '')
+    || coalesce((select string_agg(a.attname || ':' || a.atttypid::text || ':' || coalesce(a.attacl::text, ''), ',' order by a.attnum) from pg_attribute a where a.attrelid = 'public.withdrawal_requests'::regclass and a.attnum > 0 and not a.attisdropped), '')
+    || coalesce((select string_agg(c.conname || pg_get_constraintdef(c.oid), ',' order by c.conname) from pg_constraint c where c.conrelid = to_regclass('public.scanym_ack_merchant_mailer_activation')), '')
+    || coalesce((select string_agg(pg_get_indexdef(i.indexrelid), ',' order by i.indexrelid::regclass::text) from pg_index i where i.indrelid = to_regclass('public.scanym_ack_merchant_mailer_activation')), '')
+    || coalesce((select string_agg(a.attname || ':' || a.atttypid::text || ':' || coalesce(a.attacl::text, ''), ',' order by a.attnum) from pg_attribute a where a.attrelid = to_regclass('public.scanym_ack_merchant_mailer_activation') and a.attnum > 0 and not a.attisdropped), '')
     || (select count(*) from public.withdrawal_requests)::text
-    || (select coalesce(string_agg(id::text || acknowledgement_status, ',' order by id::text), '') from public.withdrawal_requests));"; }
+    || (select coalesce(string_agg(id::text || acknowledgement_status, ',' order by id::text), '') from public.withdrawal_requests), 'UTF8')), 'hex');"
+}
 
 # try_rollback <libellé> <motif attendu dans l'erreur> : le retrait DOIT être refusé et RIEN ne doit avoir changé.
+# Chaque essai s'exécute sur une COPIE isolée de la base (CREATE DATABASE ... TEMPLATE) : un retrait qui serait
+# (à tort) accepté ne détruit pas l'état des essais suivants, et l'échec est constaté proprement.
 try_rollback() {
-  local label="$1" pattern="$2" before after
-  before=$(fp)
-  psql -X -d "$DB" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; local rc=$?
-  after=$(fp)
+  local label="$1" pattern="$2" before after cp="${DB}_cp"
+  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
+  psql -X -q -d postgres -c "create database \"$cp\" template \"$DB\";" >/dev/null 2>"$ERR" || { fail "copie isolée impossible ($label) : $(head -c 200 "$ERR")"; return; }
+  before=$(fp "$cp")
+  psql -X -d "$cp" -v ON_ERROR_STOP=1 -f "$ROLLBACK_SQL" >/dev/null 2>"$ERR"; local rc=$?
+  after=$(fp "$cp")
   if [ "$rc" != "0" ] && grep -q "$pattern" "$ERR"; then pass "rollback refusé — $label ($pattern)"; else fail "rollback — $label : rc=$rc, erreur='$(head -c 200 "$ERR")'"; fi
   if [ "$before" = "$after" ]; then pass "rollback refusé — $label : AUCUNE mutation (empreinte inchangée)"; else fail "rollback — $label : l'état a CHANGÉ malgré le refus"; fi
+  psql -X -q -d postgres -c "drop database if exists \"$cp\";" >/dev/null 2>&1
 }
 # drift <libellé> <motif> <SQL de dérive> <SQL de restauration>
 drift() {
@@ -432,7 +451,7 @@ drift "droit EXECUTE donné à service_role sur une fonction interne (ready)" "d
 drift "droit EXECUTE donné à PUBLIC (trigger fn)" "droits d'exécution dérivés" "grant execute on function public._scanym_ack_pending_when_merchant_mailer_ready() to public;" "revoke execute on function public._scanym_ack_pending_when_merchant_mailer_ready() from public;"
 drift "SECURITY INVOKER (record_v2)" "SECURITY DEFINER / search_path dérivés" "alter function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) security invoker;" "alter function public.record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text) security definer;"
 drift "search_path réinitialisé (claim_v2)" "SECURITY DEFINER / search_path dérivés" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) reset search_path;" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) set search_path = '';"
-drift "volatilité (enabled : stable -> volatile)" "langage / volatilité / attributs dérivés" "alter function public.scanym_ack_merchant_mailer_enabled() volatile;" "alter function public.scanym_ack_merchant_mailer_enabled() stable;"
+drift "volatilité (enabled : stable -> volatile)" "langage / volatilité / coût / attributs dérivés" "alter function public.scanym_ack_merchant_mailer_enabled() volatile;" "alter function public.scanym_ack_merchant_mailer_enabled() stable;"
 drift "fonction renommée (signature absente)" "absente" "alter function public._scanym_merchant_ack_channel_ready(uuid) rename to _renamed_ready;" "alter function public._renamed_ready(uuid) rename to _scanym_merchant_ack_channel_ready;"
 
 # --- Déclencheur, table, colonnes, dépendances ---
@@ -440,12 +459,54 @@ drift "déclencheur désactivé" "déclencheur dérivé" "alter table public.wit
 drift "second déclencheur sur la fonction du lot" "autre déclencheur utilise la fonction" "create trigger trg_ackmm_extra before update on public.withdrawal_requests for each row execute function public._scanym_ack_pending_when_merchant_mailer_ready();" "drop trigger trg_ackmm_extra on public.withdrawal_requests;"
 drift "policy ajoutée sur la table de l'interrupteur" "table de l'interrupteur dérivée" "create policy ackmm_p on public.scanym_ack_merchant_mailer_activation for select using (true);" "drop policy ackmm_p on public.scanym_ack_merchant_mailer_activation;"
 drift "droit SELECT donné à authenticated sur la table de l'interrupteur" "table de l'interrupteur dérivée" "grant select on public.scanym_ack_merchant_mailer_activation to authenticated;" "revoke select on public.scanym_ack_merchant_mailer_activation from authenticated;"
-drift "vue dépendant d'une colonne de preuve" "dépendent de la colonne" "create view public.ackmm_v as select acknowledgement_sender from public.withdrawal_requests;" "drop view public.ackmm_v;"
-drift "index sur une colonne de preuve" "dépendent de la colonne" "create index ackmm_idx on public.withdrawal_requests (acknowledgement_transport);" "drop index public.ackmm_idx;"
+drift "vue dépendant d'une colonne de preuve" "dépendent des colonnes de preuve" "create view public.ackmm_v as select acknowledgement_sender from public.withdrawal_requests;" "drop view public.ackmm_v;"
+drift "index sur une colonne de preuve" "un index porte sur une colonne de preuve" "create index ackmm_idx on public.withdrawal_requests (acknowledgement_transport);" "drop index public.ackmm_idx;"
 drift "autre fonction qui nomme une fonction du lot" "référencent des objets du lot" "create function public.ackmm_user() returns boolean language sql as \$\$ select public.scanym_ack_merchant_mailer_enabled() \$\$;" "drop function public.ackmm_user();"
 drift "contrainte de canal modifiée" "contrainte withdrawal_requests_ack_transport_check absente ou dérivée" "alter table public.withdrawal_requests drop constraint withdrawal_requests_ack_transport_check, add constraint withdrawal_requests_ack_transport_check check (acknowledgement_transport is null or acknowledgement_transport in ('platform_smtp','merchant_smtp','autre'));" "alter table public.withdrawal_requests drop constraint withdrawal_requests_ack_transport_check, add constraint withdrawal_requests_ack_transport_check check (acknowledgement_transport is null or acknowledgement_transport in ('platform_smtp','merchant_smtp'));"
 drift "type d'une colonne de preuve modifié" "colonne acknowledgement_sender dérivée" "alter table public.withdrawal_requests alter column acknowledgement_sender type varchar(500);" "alter table public.withdrawal_requests alter column acknowledgement_sender type text;"
+# --- R2-1 : objets ajoutés APRÈS l'installation, que DROP COLUMN supprimerait EN SILENCE ---
+drift "R2-1 CHECK ajouté sur acknowledgement_sender" "contrainte tierce" "alter table public.withdrawal_requests add constraint ackmm_sender_chk check (acknowledgement_sender is null or length(acknowledgement_sender) > 3);" "alter table public.withdrawal_requests drop constraint ackmm_sender_chk;"
+drift "R2-1 CHECK composite (sender + statut)" "contrainte tierce" "alter table public.withdrawal_requests add constraint ackmm_combo_chk check (acknowledgement_sender is null or acknowledgement_status is not null);" "alter table public.withdrawal_requests drop constraint ackmm_combo_chk;"
+drift "R2-1 second CHECK sur acknowledgement_transport" "contrainte tierce" "alter table public.withdrawal_requests add constraint ackmm_transport_chk2 check (acknowledgement_transport is null or acknowledgement_transport <> 'x');" "alter table public.withdrawal_requests drop constraint ackmm_transport_chk2;"
+drift "R2-1 UNIQUE sur acknowledgement_sender" "contrainte tierce" "alter table public.withdrawal_requests add constraint ackmm_sender_uq unique (acknowledgement_sender);" "alter table public.withdrawal_requests drop constraint ackmm_sender_uq;"
+drift "R2-1 statistique étendue sur les colonnes de preuve" "statistique étendue" "create statistics ackmm_stat on acknowledgement_sender, acknowledgement_transport from public.withdrawal_requests;" "drop statistics ackmm_stat;"
+drift "R2-1 droit de colonne (GRANT SELECT (acknowledgement_sender))" "droit de colonne" "grant select (acknowledgement_sender) on public.withdrawal_requests to authenticated;" "revoke select (acknowledgement_sender) on public.withdrawal_requests from authenticated;"
+drift "R2-1 déclencheur UPDATE OF acknowledgement_transport (fonction tierce)" "déclencheur UPDATE OF" "create function public.ackmm_noop() returns trigger language plpgsql as \$\$ begin return new; end \$\$; create trigger ackmm_upd_of before update of acknowledgement_transport on public.withdrawal_requests for each row execute function public.ackmm_noop();" "drop trigger ackmm_upd_of on public.withdrawal_requests; drop function public.ackmm_noop();"
+drift "R2-1 table enfant (héritage) de withdrawal_requests" "tables enfants" "create table public.ackmm_child () inherits (public.withdrawal_requests);" "drop table public.ackmm_child;"
+drift "R2-1 CHECK ajouté sur la table de l'interrupteur" "table de l'interrupteur dérivée" "alter table public.scanym_ack_merchant_mailer_activation add constraint ackmm_note_chk check (note is null or length(note) < 500);" "alter table public.scanym_ack_merchant_mailer_activation drop constraint ackmm_note_chk;"
+drift "R2-1 colonne ajoutée à la table de l'interrupteur" "table de l'interrupteur dérivée" "alter table public.scanym_ack_merchant_mailer_activation add column ackmm_extra text;" "alter table public.scanym_ack_merchant_mailer_activation drop column ackmm_extra;"
+drift "R2-1 index ajouté sur la table de l'interrupteur" "table de l'interrupteur dérivée" "create index ackmm_act_idx on public.scanym_ack_merchant_mailer_activation (enabled);" "drop index public.ackmm_act_idx;"
+drift "R2-1 déclencheur sur la table de l'interrupteur" "table de l'interrupteur dérivée" "create function public.ackmm_noop2() returns trigger language plpgsql as \$\$ begin return new; end \$\$; create trigger ackmm_act_trg before update on public.scanym_ack_merchant_mailer_activation for each row execute function public.ackmm_noop2();" "drop trigger ackmm_act_trg on public.scanym_ack_merchant_mailer_activation; drop function public.ackmm_noop2();"
+drift "R2-1 vue sur la table de l'interrupteur" "table de l'interrupteur dérivée" "create view public.ackmm_act_v as select id from public.scanym_ack_merchant_mailer_activation;" "drop view public.ackmm_act_v;"
+
+# --- R2-2 : empreintes des fonctions ---
+# (a) un CR ISOLÉ (pas une fin de ligne CRLF) : l'ancienne normalisation supprimait TOUS les CR et l'acceptait.
+LONE_CR_ORIG=$(sql "select pg_get_functiondef('public.scanym_ack_merchant_mailer_enabled()'::regprocedure);")
+LONE_CR_MUT=$(printf '%s' "$LONE_CR_ORIG" | sed "0,/select coalesce/{s/select coalesce/select \rcoalesce/}")
+[ "$LONE_CR_MUT" != "$LONE_CR_ORIG" ] || fail "R2-2 CR isolé : motif introuvable"
+drift "R2-2 corps avec un CR isolé (pas CRLF)" "corps différent de celui du lot" "$LONE_CR_MUT" "$LONE_CR_ORIG"
+# (b) surcharge homonyme d'une fonction du lot
+drift "R2-2 surcharge homonyme (claim_v2 avec un paramètre de plus)" "homonyme" "create function public.claim_withdrawal_acknowledgement_send_v2(uuid, integer) returns boolean language sql as \$\$ select true \$\$;" "drop function public.claim_withdrawal_acknowledgement_send_v2(uuid, integer);"
+drift "R2-2 homonyme dans un autre schéma" "homonyme" "create schema ackmm_s; create function ackmm_s.scanym_ack_merchant_mailer_enabled() returns boolean language sql as \$\$ select false \$\$;" "drop schema ackmm_s cascade;"
+# (c) attributs pg_proc que l'ancienne empreinte ne comparait pas
+drift "R2-2 COST modifié (enabled)" "coût / attributs dérivés" "alter function public.scanym_ack_merchant_mailer_enabled() cost 5000;" "alter function public.scanym_ack_merchant_mailer_enabled() cost 100;"
+drift "R2-2 ROWS modifié (claim_v2)" "coût / attributs dérivés" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) rows 5;" "alter function public.claim_withdrawal_acknowledgement_send_v2(uuid) rows 1000;"
+# (d) fonction tierce qui nomme un objet du lot en MAJUSCULES (identifiant non quoté = même objet)
+drift "R2-2 fonction tierce référençant le lot en MAJUSCULES" "référencent des objets du lot" "create function public.ackmm_upper() returns boolean language sql as \$\$ select PUBLIC.SCANYM_ACK_MERCHANT_MAILER_ENABLED() \$\$;" "drop function public.ackmm_upper();"
 drift "GAP-01 : claim v1 absente" "fonctions GAP-01 ne sont pas présentes" "alter function public.claim_withdrawal_acknowledgement_send(uuid,integer) rename to _claim_v1_renamed;" "alter function public._claim_v1_renamed(uuid,integer) rename to claim_withdrawal_acknowledgement_send;"
+
+# --- Objets TIERS ajoutés après l'installation, SANS rapport avec les colonnes de preuve : ne doivent NI bloquer NI être supprimés ---
+psql -X -d "$DB" -v ON_ERROR_STOP=1 -q >/dev/null 2>"$ERR" <<'SQL' || fail "objets tiers non liés : $(head -c 300 "$ERR")"
+alter table public.withdrawal_requests add constraint ackmm_unrel_chk check (true);
+create index ackmm_unrel_idx on public.withdrawal_requests (restaurant_id);
+create statistics ackmm_unrel_stat on restaurant_id, order_id from public.withdrawal_requests;
+create function public.ackmm_noop3() returns trigger language plpgsql as $$ begin return new; end $$;
+create trigger ackmm_unrel_trg before delete on public.withdrawal_requests for each row execute function public.ackmm_noop3();
+create policy ackmm_unrel_pol on public.withdrawal_requests for select using (false);
+grant select (restaurant_id) on public.withdrawal_requests to authenticated;
+SQL
+UNREL_BEFORE=$(sql "select (select count(*) from pg_constraint where conname = 'ackmm_unrel_chk') || '/' || (select count(*) from pg_class where relname = 'ackmm_unrel_idx') || '/' || (select count(*) from pg_statistic_ext where stxname = 'ackmm_unrel_stat') || '/' || (select count(*) from pg_trigger where tgname = 'ackmm_unrel_trg') || '/' || (select count(*) from pg_policy where polname = 'ackmm_unrel_pol') || '/' || (select count(*) from pg_attribute where attrelid = 'public.withdrawal_requests'::regclass and attname = 'restaurant_id' and attacl is not null);")
+assert_eq "6 objets tiers non liés présents avant le rollback nominal" "1/1/1/1/1/1" "$UNREL_BEFORE"
 
 # --- Nominal : corps stockés avec des fins de ligne CRLF (copie Windows du lot) -> ACCEPTÉ ---
 for sig in "scanym_ack_merchant_mailer_enabled()" "_scanym_merchant_ack_channel_ready(uuid)" "_scanym_ack_pending_when_merchant_mailer_ready()" "claim_withdrawal_acknowledgement_send_v2(uuid)" "record_withdrawal_acknowledgement_result_v2(uuid,boolean,text,text,text,text,text,text,text)"; do
@@ -460,6 +521,7 @@ assert_eq "rollback : claim v2 supprimée" "" "$(sql "select to_regprocedure('pu
 assert_eq "rollback : toutes les fonctions du lot supprimées" "0" "$(sql "select count(*) from pg_proc where proname in ($LOT_FNS);")"
 assert_eq "rollback : déclencheur supprimé" "0" "$(sql "select count(*) from pg_trigger where tgname = 'trg_withdrawal_ack_pending_merchant_mailer';")"
 assert_eq "rollback : colonnes de preuve supprimées" "0" "$(sql "select count(*) from information_schema.columns where table_name = 'withdrawal_requests' and column_name in ('acknowledgement_sender','acknowledgement_transport');")"
+assert_eq "R2-1 rollback nominal : les 6 objets tiers non liés (contrainte, index, statistique, déclencheur, policy, droit de colonne) sont INTACTS" "$UNREL_BEFORE" "$(sql "select (select count(*) from pg_constraint where conname = 'ackmm_unrel_chk') || '/' || (select count(*) from pg_class where relname = 'ackmm_unrel_idx') || '/' || (select count(*) from pg_statistic_ext where stxname = 'ackmm_unrel_stat') || '/' || (select count(*) from pg_trigger where tgname = 'ackmm_unrel_trg') || '/' || (select count(*) from pg_policy where polname = 'ackmm_unrel_pol') || '/' || (select count(*) from pg_attribute where attrelid = 'public.withdrawal_requests'::regclass and attname = 'restaurant_id' and attacl is not null);")"
 assert_eq "rollback : aucune demande supprimée" "$BEFORE_COUNT" "$(sql "select count(*) from public.withdrawal_requests;")"
 assert_eq "rollback : aucune demande remise en pending/sending (pas de réouverture de l'arriéré)" "0" "$(sql "select count(*) from public.withdrawal_requests where acknowledgement_status in ('pending','sending');")"
 assert_eq "rollback : GAP-01 intact (claim v1 présente)" "t" "$(sql "select to_regprocedure('public.claim_withdrawal_acknowledgement_send(uuid,integer)') is not null;")"

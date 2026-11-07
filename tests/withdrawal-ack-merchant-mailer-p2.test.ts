@@ -242,7 +242,7 @@ const { createHash } = await import("node:crypto");
 const readRepo = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const LOT = "supabase/DRAFT-lot-withdrawal-ack-merchant-mailer-v1.sql";
 const ROLLBACK = "supabase/DRAFT-lot-withdrawal-ack-merchant-mailer-v1-ROLLBACK.sql";
-const md5LF = (body: string) => createHash("md5").update(body.replace(/\r/g, "")).digest("hex");
+const sha256LF = (body: string) => createHash("sha256").update(body.replace(/\r\n/g, "\n"), "utf8").digest("hex");
 
 function lotFunctionBodies(sql: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -251,7 +251,7 @@ function lotFunctionBodies(sql: string): Record<string, string> {
   return out;
 }
 
-test("P2-3 : les empreintes MD5 du rollback sont celles des corps du lot, en LF comme en CRLF (copie Windows)", () => {
+test("P2-3/R2-2 : les empreintes SHA-256 du rollback sont celles des corps du lot, en LF comme en CRLF (copie Windows), normalisation STRICTE", () => {
   const rollback = readRepo(ROLLBACK);
   const lot = readRepo(LOT);
   const bodies = lotFunctionBodies(lot);
@@ -264,10 +264,12 @@ test("P2-3 : les empreintes MD5 du rollback sont celles des corps du lot, en LF 
   ]);
   const crlfBodies = lotFunctionBodies(lot.replace(/\r?\n/g, "\r\n"));
   for (const [name, body] of Object.entries(bodies)) {
-    const digest = md5LF(body);
+    const digest = sha256LF(body);
     assert.ok(rollback.includes(`'${digest}'`), `empreinte de ${name} (${digest}) absente du rollback : recalculer après toute modification du lot`);
-    assert.equal(md5LF(crlfBodies[name]), digest, `${name} : la normalisation CRLF -> LF donne la même empreinte`);
-    assert.notEqual(createHash("md5").update(crlfBodies[name]).digest("hex"), digest, "sans normalisation, CRLF donnerait une autre empreinte (le test est réel)");
+    assert.equal(sha256LF(crlfBodies[name]), digest, `${name} : la normalisation CRLF -> LF donne la même empreinte`);
+    assert.notEqual(createHash("sha256").update(crlfBodies[name], "utf8").digest("hex"), digest, "sans normalisation, CRLF donnerait une autre empreinte (le test est réel)");
+    // R2-2 : normalisation STRICTE -- un CR isolé n'est PAS une fin de ligne et change l'empreinte.
+    assert.notEqual(sha256LF(body.replace(/\n/, " \r")), digest, `${name} : un CR isolé doit changer l'empreinte`);
   }
 });
 
@@ -281,11 +283,25 @@ test("P2-3 : rollback — verrou puis TOUS les contrôles avant la première mut
   assert.equal(/drop (trigger|function|table|column|constraint) if exists/i.test(sql), false, "pas de IF EXISTS : un objet manquant annule la transaction");
   for (const needle of [
     "pg_get_function_identity_arguments", "pg_get_function_result", "prosecdef", "proconfig", "proowner", "proacl",
-    "aclexplode", "md5", "replace(v_p.prosrc, E'\\r'", "pg_depend", "tgtype", "tgenabled", "relrowsecurity",
+    "aclexplode", "sha256", "replace(v_p.prosrc, E'\\r\\n', E'\\n')", "pg_depend", "tgtype", "tgenabled", "relrowsecurity",
+    "_ackmm_rb_snapshot", "procost", "prorows", "prosupport", "prosqlbody", "attacl", "stxkeys", "tgattr", "pg_inherits", "~*",
     "SCANYM_ROLLBACK_DATA_LOSS", "SCANYM_ROLLBACK_NOT_APPLICABLE", "pending', 'sending",
   ]) {
     assert.ok(sql.includes(needle), `contrôle attendu dans le rollback : ${needle}`);
   }
+});
+
+test("R2-1/R2-2 : le rollback n'utilise plus MD5, exclut NOTRE contrainte par OID, et contrôle les objets tiers avant ET après", () => {
+  const raw = readRepo(ROLLBACK);
+  const sql = raw.replace(/--.*$/gm, "");
+  assert.equal(/\bmd5\b/i.test(sql), false, "plus d'empreinte MD5 (collisions)");
+  assert.equal(/replace\(v_p\.prosrc, E'\\r'/.test(sql), false, "plus de suppression de TOUS les CR");
+  assert.match(sql, /d\.objid = v_cons/, "la seule dépendance tolérée est NOTRE contrainte, identifiée par son OID");
+  assert.equal(/classid <> 'pg_catalog\.pg_constraint'::regclass/.test(sql), false, "plus d'exclusion de TOUTES les contraintes du scan des dépendances");
+  const firstDrop = sql.search(/\bdrop (trigger|function|table)\b/i);
+  assert.ok(sql.indexOf("insert into _ackmm_rb_snapshot") > 0 && sql.indexOf("insert into _ackmm_rb_snapshot") < firstDrop, "inventaire des objets tiers AVANT la première suppression");
+  assert.ok(sql.lastIndexOf("_ackmm_rb_snapshot") > firstDrop, "inventaire relu APRÈS les suppressions (annulation si un objet tiers a disparu)");
+  assert.match(sql, /lock table public\.scanym_ack_merchant_mailer_activation in access exclusive mode/i);
 });
 
 test("P2-2/P2-3 : le lot ne reprend plus un `sending` (aucun paramètre de péremption) et lie l'enregistrement au canal marchand", () => {
