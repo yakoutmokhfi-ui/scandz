@@ -86,7 +86,7 @@ export interface WithdrawalReceipt {
    * jamais "envoyé" par défaut (voir le rapport de lot, section
    * ACCUSÉ DE RÉCEPTION).
    */
-  acknowledgementStatus: "pending" | "unavailable_no_channel" | "sent" | "failed";
+  acknowledgementStatus: "pending" | "unavailable_no_channel" | "sending" | "sent" | "failed";
   /** Vrai quand un rejeu a retourné la déclaration déjà enregistrée. */
   replayed: boolean;
 }

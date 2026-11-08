@@ -804,8 +804,10 @@ export interface AckDependencies {
 
 export type SendAckOutcome =
   | { attempted: false; reason: "no_channel" | "already_claimed_elsewhere" }
-  | { attempted: true; ok: true; messageId: string }
-  | { attempted: true; ok: false; error: string };
+  // `resultPersisted === false` : le résultat réel de l'envoi n'a PAS pu être écrit en base
+  // (canal marchand uniquement ; absent = persisté ou non vérifié par l'ancien canal).
+  | { attempted: true; ok: true; messageId: string; resultPersisted?: boolean }
+  | { attempted: true; ok: false; error: string; resultPersisted?: boolean };
 
 /**
  * GAP-01 remédiation (issue #11) -- même périmètre régime que le gate

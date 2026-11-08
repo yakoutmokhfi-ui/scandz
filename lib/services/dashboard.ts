@@ -207,7 +207,7 @@ async function attachVacuumPackingFlags(orders: DashboardOrder[]): Promise<Dashb
 export async function getWithdrawalRequests(restaurantId: string): Promise<WithdrawalRequestRow[]> {
   const { data, error } = await supabase
     .from("withdrawal_requests")
-    .select("id, status, requested_at, acknowledgement_status, acknowledgement_cc, declaration_snapshot")
+    .select("id, status, requested_at, acknowledgement_status, acknowledgement_cc, acknowledgement_last_error, declaration_snapshot")
     .eq("restaurant_id", restaurantId)
     .order("requested_at", { ascending: false })
     .limit(200);

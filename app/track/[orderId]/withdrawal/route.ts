@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import {
   submitWithdrawalRequest,
@@ -6,7 +6,13 @@ import {
   WithdrawalRejectedError,
   WithdrawalUnavailableError,
 } from "@/lib/server/withdrawal-service";
-import { tryDispatchWithdrawalAcknowledgement } from "@/lib/server/withdrawal-ack-service";
+import {
+  reportedAcknowledgementStatus,
+  tryDispatchWithdrawalAcknowledgement,
+  waitForAckOutcome,
+  type ReportedAckStatus,
+} from "@/lib/server/withdrawal-ack-service";
+import { isSafeSmtpAddress } from "@/lib/server/withdrawal-ack-merchant-mailer";
 import {
   TRACKING_SESSION_COOKIE_NAME,
   verifyTrackingSessionToken,
@@ -46,6 +52,16 @@ import { isPlausibleUuid } from "@/lib/tracking/uuid";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// L'envoi de l'accusé (session SMTP bornée à 60 s) se poursuit après la réponse
+// via `after` ; cette borne couvre la requête ET cette suite.
+export const maxDuration = 90;
+
+/**
+ * Temps maximal pendant lequel la réponse attend le RÉSULTAT RÉEL de l'envoi de
+ * l'accusé. Au-delà, la réponse part avec l'état connu (`pending`) et l'envoi
+ * continue en arrière-plan ; le back-office montrera l'état final.
+ */
+const ACK_RESPONSE_WAIT_MS = 8_000;
 
 function jsonError(status: number, code: string) {
   return NextResponse.json({ ok: false, code }, { status });
@@ -108,7 +124,9 @@ export async function POST(request: NextRequest) {
   if (!firstName || !lastName) {
     return jsonError(400, "WITHDRAWAL_IDENTITY_REQUIRED");
   }
-  if (!acknowledgementAddress.includes("@")) {
+  // Adresse utilisée telle quelle dans des commandes SMTP : pas d'espace, de chevron
+  // ni de caractère de contrôle (CR/LF) -- voir isSafeSmtpAddress.
+  if (!isSafeSmtpAddress(acknowledgementAddress)) {
     return jsonError(400, "WITHDRAWAL_ACK_ADDRESS_INVALID");
   }
 
@@ -141,23 +159,35 @@ export async function POST(request: NextRequest) {
       clientRequestId,
     });
 
-    // GAP-01 — BEST-EFFORT, NON BLOQUANT : la déclaration de
-    // rétractation est déjà enregistrée avec succès ci-dessus ; un
-    // échec d'envoi de l'accusé (canal absent, panne SMTP,
-    // ré-attribution concurrente) ne doit JAMAIS transformer cette
-    // réponse en erreur -- il est seulement journalisé dans
-    // withdrawal_requests via record_withdrawal_acknowledgement_result
-    // (voir lib/server/ack-mailer.ts). `void` : ne bloque jamais la
-    // réponse HTTP sur l'envoi réel de l'e-mail.
+    // GAP-01 — BEST-EFFORT, NON BLOQUANT : la déclaration est déjà enregistrée
+    // ci-dessus ; un échec d'envoi de l'accusé (canal absent, panne SMTP,
+    // ré-attribution concurrente) ne transforme JAMAIS cette réponse en erreur --
+    // il est consigné dans withdrawal_requests (record_withdrawal_
+    // acknowledgement_result*).
+    //
+    // `after` garde la fonction vivante jusqu'à la fin de l'envoi (un `void` nu
+    // peut être gelé par la plateforme dès la réponse envoyée, laissant la
+    // demande à `sending`). La réponse n'attend que ACK_RESPONSE_WAIT_MS le
+    // résultat réel, pour dire la vérité : `sent` / `failed` si connu, `unconfirmed` si le
+    // message est accepté mais le résultat n'a pas pu être écrit, sinon l'état enregistré
+    // (`pending` / `unavailable_no_channel`).
+    let acknowledgementStatus: ReportedAckStatus = receipt.acknowledgementStatus;
     if (!receipt.replayed) {
-      void tryDispatchWithdrawalAcknowledgement(receipt.withdrawalRequestId);
+      const dispatch = tryDispatchWithdrawalAcknowledgement(receipt.withdrawalRequestId);
+      try {
+        after(() => dispatch.then(() => undefined));
+      } catch {
+        // Hors contexte de requête Next (tests unitaires) : l'envoi suit son cours.
+      }
+      const outcome = await waitForAckOutcome(dispatch, ACK_RESPONSE_WAIT_MS);
+      acknowledgementStatus = reportedAcknowledgementStatus(acknowledgementStatus, outcome);
     }
 
     return NextResponse.json({
       ok: true,
       withdrawalRequestId: receipt.withdrawalRequestId,
       requestedAt: receipt.requestedAt,
-      acknowledgementStatus: receipt.acknowledgementStatus,
+      acknowledgementStatus,
       replayed: receipt.replayed,
     });
   } catch (err) {

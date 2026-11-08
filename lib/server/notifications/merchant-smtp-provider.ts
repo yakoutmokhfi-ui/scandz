@@ -99,7 +99,7 @@ export async function resolveMerchantSmtpProvider(
       const result = await transport.send({
         config: { ...config, from: message.from },
         to: message.to,
-        cc: null,
+        cc: message.cc ?? null,
         fromName: message.fromName,
         subject: message.subject,
         text: message.text,
