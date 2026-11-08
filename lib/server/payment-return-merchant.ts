@@ -1,6 +1,6 @@
 import "server-only";
 import { getOrderPaymentContext } from "@/lib/server/payment-service";
-import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
+import { getPublicSupabaseClient } from "@/lib/server/supabase-public";
 import { publicMenuUrlForSlug } from "@/lib/public-menu-url";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
 
@@ -14,7 +14,9 @@ export async function getPaymentReturnMerchantPath(input: {
   try {
     const { restaurantId } = await getOrderPaymentContext(input);
     if (!isPlausibleUuid(restaurantId)) return null;
-    const { data, error } = await getServiceRoleSupabaseClient()
+    // service_role peut exécuter la RPC de possession sans avoir SELECT sur
+    // restaurants. Le slug publié se lit avec anon, comme la vitrine, sous RLS.
+    const { data, error } = await getPublicSupabaseClient()
       .from("restaurants").select("slug").eq("id", restaurantId).single();
     if (error || !data || typeof data.slug !== "string") return null;
     return publicMenuUrlForSlug(data.slug);
