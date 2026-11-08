@@ -689,7 +689,10 @@ test("[NO-HARDCODE-3] chaque clé i18n ajoutée par le lot existe dans LES TROIS
   ];
   for (const key of added) {
     const occurrences = (i18n.match(new RegExp(`^\\s{2}${key}:`, "gm")) ?? []).length;
-    assert.equal(occurrences, 3, `${key} doit être défini dans fr, en et ar (vu ${occurrences})`);
+    // fr, en, ar ; le néerlandais (nl) peut en plus porter la clé (issue #211 : e-mail de confirmation en nl) —
+    // jamais moins que les trois langues d'origine, jamais de doublon dans un même dictionnaire.
+    const expected = key === "confirmWithdrawalCta" ? 4 : 3;
+    assert.equal(occurrences, expected, `${key} doit être défini dans fr, en et ar${expected === 4 ? " et nl" : ""} (vu ${occurrences})`);
   }
   // Un libellé par emplacement et par événement, dans les 3 langues.
   for (const key of COMMUNICATION_TEXT_KEYS) {

@@ -178,13 +178,13 @@ test("[172-MAIL-1] sans créneau ni éligibilité : e-mail identique à un rendu
   const withNulls = renderOrderReceivedEmail({ ...baseInput, fulfillmentDate: null, fulfillmentSlot: "  ", withdrawalEligible: false });
   assert.deepEqual(withNulls, before);
   assert.equal(before.text.includes("Créneau"), false);
-  assert.equal(before.text.includes(translate("fr", "withdrawalEntryAction")), false);
+  assert.equal(before.text.includes(translate("fr", "confirmWithdrawalCta")), false);
 });
 
-test("[172-MAIL-2] éligible à la rétractation : second lien explicite, MÊME cible que le suivi, libellé existant, FR/EN/AR", () => {
+test("[172-MAIL-2] éligible à la rétractation : action SÉPARÉE « Demander une rétractation » (#211), MÊME cible que le suivi, FR/EN/AR", () => {
   for (const locale of ["fr", "en", "ar"] as const) {
-    const label = translate(locale, "withdrawalEntryAction");
-    assert.notEqual(label, "withdrawalEntryAction", `libellé ${locale} présent`);
+    const label = translate(locale, "confirmWithdrawalCta");
+    assert.notEqual(label, "confirmWithdrawalCta", `libellé ${locale} présent`);
     const mail = renderOrderReceivedEmail({ ...baseInput, locale, withdrawalEligible: true });
     assert.ok(mail.text.includes(`${label}: ${TRACKING_URL}`), `texte ${locale}`);
     assert.ok(mail.html.includes(`<a href="${TRACKING_URL}">${label}</a>`), `html ${locale}`);
@@ -275,7 +275,7 @@ test("[172-WORKER-1] snapshot avec créneau + éligibilité : l'e-mail contient 
   assert.equal(provider.sent.length, 1);
   const mail = provider.sent[0]!;
   assert.ok(mail.text.includes("Créneau de retrait : "));
-  assert.ok(mail.text.includes(`${translate("fr", "withdrawalEntryAction")}: ${TRACKING_URL}`));
+  assert.ok(mail.text.includes(`${translate("fr", "confirmWithdrawalCta")}: ${TRACKING_URL}`));
   assert.equal(mail.text.includes(LEGACY_TOKEN), false);
   assert.equal(completed.length, 1);
   assert.equal(completed[0]!.p_result, "success");
@@ -288,7 +288,7 @@ test("[172-WORKER-2] snapshot SANS créneau (état de `main`) et non éligible :
   await processPendingNotifications(provider);
   const mail = provider.sent[0]!;
   assert.equal(mail.text.includes("Créneau"), false);
-  assert.equal(mail.text.includes(translate("fr", "withdrawalEntryAction")), false);
+  assert.equal(mail.text.includes(translate("fr", "confirmWithdrawalCta")), false);
   assert.ok(mail.text.includes(`: ${TRACKING_URL}`), "le lien de suivi réutilisable reste présent");
 });
 
