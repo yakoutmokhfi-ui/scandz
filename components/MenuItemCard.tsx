@@ -94,7 +94,7 @@ export default function MenuItemCard({
   const soldOutBadge = soldOut ? (
     <span
       data-sold-out-badge=""
-      className="inline-block w-fit rounded-full border border-stone-400 bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-800"
+      className="inline-block w-fit rounded-full border border-[#F3B6B6] bg-[#FDECEC] px-3 py-1 text-sm font-semibold text-[#9B2C2C]"
     >
       {t("soldOutBadge")}
     </span>
