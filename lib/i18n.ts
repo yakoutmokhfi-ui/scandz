@@ -43,6 +43,15 @@ export function dirOf(
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  invPdfTitle: "Facture PDF A4",
+  invPdfDownload: "Télécharger",
+  invPdfPrint: "Ouvrir / imprimer",
+  invPdfResend: "Renvoyer par e-mail",
+  invPdfResendConfirm: "Renvoyer la même facture au destinataire enregistré ? Un précédent envoi peut déjà avoir été reçu.",
+  invPdfAccepted: "Facture acceptée par le serveur de messagerie. La réception reste à confirmer.",
+  invPdfUnconfirmed: "Envoi non confirmé. Vérifiez avant de demander un nouvel envoi.",
+  invPdfUnavailable: "Facture indisponible : vérifiez l’activation et les données de facturation.",
+
   cartRestoreAdjusted: "Certains articles ou options ne sont plus disponibles et ont été retirés de votre panier.",
   cartRestoreDismiss: "Fermer",
   enlargePhoto: "Agrandir la photo de {name}",
@@ -1662,6 +1671,15 @@ const fr: Dict = {
 };
 
 const en: Dict = {
+  invPdfTitle: "A4 PDF invoice",
+  invPdfDownload: "Download",
+  invPdfPrint: "Open / print",
+  invPdfResend: "Resend by email",
+  invPdfResendConfirm: "Resend the same invoice to the saved recipient? An earlier message may already have been received.",
+  invPdfAccepted: "Invoice accepted by the mail server. Delivery is not confirmed.",
+  invPdfUnconfirmed: "Sending is unconfirmed. Check before requesting another send.",
+  invPdfUnavailable: "Invoice unavailable: check activation and billing details.",
+
   cartRestoreAdjusted: "Some items or options are no longer available and have been removed from your cart.",
   cartRestoreDismiss: "Dismiss",
   enlargePhoto: "Enlarge the photo of {name}",
@@ -3117,6 +3135,15 @@ const en: Dict = {
 
 // Arabe littéraire (arabe standard moderne).
 const ar: Dict = {
+  invPdfTitle: "فاتورة PDF بحجم A4",
+  invPdfDownload: "تنزيل",
+  invPdfPrint: "فتح / طباعة",
+  invPdfResend: "إعادة الإرسال بالبريد",
+  invPdfResendConfirm: "هل تريد إعادة إرسال الفاتورة نفسها إلى المستلم المسجل؟ ربما وصلت رسالة سابقة بالفعل.",
+  invPdfAccepted: "قبل خادم البريد الفاتورة. لم يتم تأكيد وصولها إلى المستلم.",
+  invPdfUnconfirmed: "لم يتم تأكيد الإرسال. تحقق قبل طلب إرسال آخر.",
+  invPdfUnavailable: "الفاتورة غير متاحة: تحقق من التفعيل وبيانات الفوترة.",
+
   cartRestoreAdjusted: "بعض المنتجات أو الخيارات لم تعد متاحة وتمت إزالتها من سلتك.",
   cartRestoreDismiss: "إغلاق",
   enlargePhoto: "تكبير صورة {name}",
@@ -4606,6 +4633,15 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  invPdfTitle: "A4 PDF-factuur",
+  invPdfDownload: "Downloaden",
+  invPdfPrint: "Openen / afdrukken",
+  invPdfResend: "Opnieuw e-mailen",
+  invPdfResendConfirm: "Dezelfde factuur opnieuw naar de opgeslagen ontvanger sturen? Een eerder bericht kan al ontvangen zijn.",
+  invPdfAccepted: "Factuur geaccepteerd door de mailserver. Ontvangst is niet bevestigd.",
+  invPdfUnconfirmed: "Verzending niet bevestigd. Controleer dit voordat u opnieuw verzendt.",
+  invPdfUnavailable: "Factuur niet beschikbaar: controleer de activering en factuurgegevens.",
+
   dsWithdrawals: "Herroepingsverzoeken",
   cartRestoreAdjusted: "Sommige artikelen of opties zijn niet meer beschikbaar en zijn uit je winkelmand verwijderd.",
   cartRestoreDismiss: "Sluiten",

@@ -32,6 +32,12 @@ export { PUBLIC_SLUG_ALIASES };
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Invoice generation uses an embedded Unicode font in both Node runtimes.
+  serverExternalPackages: ["pdfkit"],
+  outputFileTracingIncludes: {
+    "/api/dashboard/invoices": ["./assets/invoices/**/*"],
+    "/api/internal/invoices/send": ["./assets/invoices/**/*"],
+  },
   async rewrites() {
     return PUBLIC_SLUG_ALIASES.map((slug) => ({
       source: `/${slug}`,

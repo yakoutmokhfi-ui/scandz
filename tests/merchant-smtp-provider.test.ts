@@ -148,3 +148,13 @@ test("A196-07 : chiffré d'un AUTRE établissement => secret illisible, aucun en
   assert.equal(updates[0]!.patch.enabled, false);
   assert.equal(updates[0]!.patch.last_error_class, "PROVIDER_CONFIGURATION_ERROR");
 });
+
+test("facture PDF : les octets de la pièce jointe traversent le fournisseur marchand sans altération", async () => {
+  const { client } = fakeClient(vaultRow());
+  const t = fakeTransport({ ok: true, messageId: "PDF-SYNTHETIC" });
+  const provider = await resolveMerchantSmtpProvider(R1, { client, transport: t.transport, now: () => NOW });
+  const attachments = [{ filename: "FAC-DEMO-2026-000001.pdf", content: Buffer.from("%PDF-synthetic") }];
+  await provider!.send({ ...MESSAGE, attachments });
+  assert.deepEqual(t.sent[0].attachments, attachments);
+  assert.equal(t.sent[0].to, MESSAGE.to);
+});

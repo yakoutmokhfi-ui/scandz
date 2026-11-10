@@ -912,3 +912,9 @@ export function computeOrderFiscalSummary(
         : "tax-summary-disabled",
   };
 }
+
+/** Invoice presentation uses the existing exact allocation (including ties by item id). */
+export function getInvoiceProductFiscalLines(order: DashboardOrder): OrderCommercialProductLine[] | null {
+  const groups = buildProductRateGroups(order);
+  return groups ? allocateProductLineNet(order, groups) : null;
+}

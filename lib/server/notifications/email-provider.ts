@@ -27,6 +27,8 @@ export interface EmailMessage {
   subject: string;
   html: string;
   text: string;
+  /** Private PDF invoice, never a public URL. Optional for existing messages. */
+  attachments?: Array<{ filename: string; content: Buffer }>;
   /**
    * v1.2 — N1A-IDEMPOTENCY-KEY-CONTRACT-01. Clé d'idempotence STABLE
    * côté frontière prestataire, identifiant l'ÉVÉNEMENT DE
