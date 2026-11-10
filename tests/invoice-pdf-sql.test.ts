@@ -63,7 +63,8 @@ async function issue(db: PGlite) {
 const LIVE_STATE = `select md5(concat_ws('|',
  (select coalesce(jsonb_agg(to_jsonb(p) order by p.oid::regprocedure::text),'[]') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'invoice_pdf%')::text,
  (select coalesce(jsonb_agg(jsonb_build_array(c.relname,c.relowner,c.relacl::text,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relreplident::text,obj_description(c.oid,'pg_class')) order by c.relname),'[]') from pg_class c where c.relname like 'invoice_pdf%' and c.relkind='r')::text,
- (select coalesce(jsonb_agg(jsonb_build_array(c.relname,a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl::text,col_description(c.oid,a.attnum)) order by c.relname,a.attnum),'[]') from pg_class c join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped where c.relname like 'invoice_pdf%' and c.relkind='r')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(c.relname,a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl::text,col_description(c.oid,a.attnum),a.attidentity::text,a.attgenerated::text,a.attcollation,a.attstorage::text,a.attstattarget,a.attoptions::text,a.attislocal,a.attinhcount,a.atthasdef) order by c.relname,a.attnum),'[]') from pg_class c join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped where c.relname like 'invoice_pdf%' and c.relkind='r')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(c.relname,d.adnum,pg_get_expr(d.adbin,d.adrelid)) order by c.relname,d.adnum),'[]') from pg_attrdef d join pg_class c on c.oid=d.adrelid where c.relname like 'invoice_pdf%')::text,
  (select coalesce(jsonb_agg(jsonb_build_array(k.conrelid::regclass::text,k.conname,pg_get_constraintdef(k.oid),k.convalidated) order by k.conrelid::regclass::text,k.conname),'[]') from pg_constraint k where k.conrelid::regclass::text like 'invoice_pdf%')::text,
  (select coalesce(jsonb_agg(pg_get_indexdef(i.indexrelid) order by i.indexrelid::regclass::text),'[]') from pg_index i where i.indrelid::regclass::text like 'invoice_pdf%')::text,
  (select coalesce(jsonb_agg(jsonb_build_array(t.tgrelid::regclass::text,pg_get_triggerdef(t.oid),t.tgenabled::text) order by t.tgrelid::regclass::text,t.tgname),'[]') from pg_trigger t where not t.tgisinternal and t.tgrelid::regclass::text like 'invoice_pdf%')::text,
@@ -396,6 +397,10 @@ for (const [label, sql] of Object.entries({
   replicaIdentity: "alter table invoice_pdf_documents replica identity full",
   thirdPartyRule: "create rule audit_rule as on delete to invoice_pdf_blocked do instead nothing",
   dependentView: "create view public.audit_view as select * from public.invoice_pdf_settings",
+  columnDefault: "alter table invoice_pdf_settings alter column next_number set default 42",
+  columnStatisticsTarget: "alter table invoice_pdf_settings alter column legal_footer set statistics 77",
+  columnStorage: "alter table invoice_pdf_settings alter column legal_footer set storage external",
+  columnOptions: "alter table invoice_pdf_settings alter column legal_footer set (n_distinct = 5)",
 }))
   test("SQL rollback refuses third-party/attribute drift without mutation: " + label, async () => {
     const db = await setup();
@@ -449,6 +454,23 @@ test("helper negative control: a disabled trigger (invisible to the stored manif
     await db.close();
   }
 });
+for (const [label, sql] of Object.entries({
+  columnDefault: "alter table invoice_pdf_settings alter column next_number set default 42",
+  columnStatisticsTarget: "alter table invoice_pdf_settings alter column legal_footer set statistics 77",
+  columnStorage: "alter table invoice_pdf_settings alter column legal_footer set storage external",
+  columnOptions: "alter table invoice_pdf_settings alter column legal_footer set (n_distinct = 5)",
+}))
+  test("helper negative control: a persisted column property change is detected: " + label, async () => {
+    const db = await setup();
+    try {
+      await assert.rejects(
+        rejectsWithoutMutation(db, "begin; " + sql + "; commit; select 1/0", "division by zero"),
+        /state changed/,
+      );
+    } finally {
+      await db.close();
+    }
+  });
 test("helper negative control: a statement that succeeds, or fails with another error, is not accepted as a clean rejection", async () => {
   const db = await setup();
   try {

@@ -239,7 +239,7 @@ language sql stable security definer set search_path=pg_catalog,public as $fn$
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in
     ('invoice_pdf_source','invoice_pdf_issue','invoice_pdf_store','invoice_pdf_claim_delivery','invoice_pdf_finish_delivery','invoice_pdf_candidates','invoice_pdf_block','invoice_pdf_fingerprint','invoice_pdf_guard_document','invoice_pdf_activation_boundary')),
   'relations',(select jsonb_agg(jsonb_build_object('name',c.relname,'owner',c.relowner,'acl',c.relacl,'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity,
-    'columns',(select jsonb_agg(jsonb_build_array(a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl,pg_get_expr(ad.adbin,ad.adrelid)) order by a.attnum)
+    'columns',(select jsonb_agg(jsonb_build_array(a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl,pg_get_expr(ad.adbin,ad.adrelid),a.attidentity::text,a.attgenerated::text,a.attcollation,a.attstorage::text,a.attstattarget,a.attoptions::text,a.atthasdef) order by a.attnum)
       from pg_attribute a left join pg_attrdef ad on ad.adrelid=a.attrelid and ad.adnum=a.attnum where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped),
     'constraints',(select jsonb_agg(jsonb_build_array(conname,pg_get_constraintdef(oid)) order by conname) from pg_constraint where conrelid=c.oid),
     'indexes',(select jsonb_agg(pg_get_indexdef(indexrelid) order by indexrelid::regclass::text) from pg_index where indrelid=c.oid),
