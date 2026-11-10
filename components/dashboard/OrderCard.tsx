@@ -291,10 +291,15 @@ export default function OrderCard({
         ))}
       </div>
 
-      {(order.customer_name || order.customer_phone || order.delivery_address || order.customer_note) && (
+      {(order.customer_name || order.customer_phone || order.customer_email || order.delivery_address || order.customer_note) && (
         <div className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
           {order.customer_name && <p>{order.customer_name}</p>}
           {order.customer_phone && <p>{order.customer_phone}</p>}
+          {order.customer_email && (
+            <p className="break-words">
+              {t("fieldEmail")} : <bdi>{order.customer_email}</bdi>
+            </p>
+          )}
           {order.delivery_address && <p>{order.delivery_address}</p>}
           {order.customer_note && <p className="mt-1 italic">Note : {order.customer_note}</p>}
         </div>
