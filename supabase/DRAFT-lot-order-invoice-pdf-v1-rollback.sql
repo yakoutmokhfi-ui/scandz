@@ -9,14 +9,14 @@ do $$ begin
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in
     ('invoice_pdf_source','invoice_pdf_issue','invoice_pdf_store','invoice_pdf_claim_delivery','invoice_pdf_finish_delivery','invoice_pdf_candidates','invoice_pdf_block','invoice_pdf_fingerprint','invoice_pdf_guard_document','invoice_pdf_activation_boundary')),
   'relations',(select jsonb_agg(jsonb_build_object('name',c.relname,'owner',c.relowner,'acl',c.relacl,'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity,
-    'columns',(select jsonb_agg(jsonb_build_array(a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl,pg_get_expr(ad.adbin,ad.adrelid),a.attidentity::text,a.attgenerated::text,a.attcollation,a.attstorage::text,a.attstattarget,a.attoptions::text,a.atthasdef) order by a.attnum)
+    'columns',(select jsonb_agg(jsonb_build_array(a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl,pg_get_expr(ad.adbin,ad.adrelid),a.attidentity::text,a.attgenerated::text,a.attcollation,a.attstorage::text,a.attstattarget,a.attoptions::text,a.atthasdef,a.attcompression::text,a.attndims,a.attalign::text,a.attfdwoptions::text) order by a.attnum)
       from pg_attribute a left join pg_attrdef ad on ad.adrelid=a.attrelid and ad.adnum=a.attnum where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped),
     'constraints',(select jsonb_agg(jsonb_build_array(conname,pg_get_constraintdef(oid)) order by conname) from pg_constraint where conrelid=c.oid),
     'indexes',(select jsonb_agg(pg_get_indexdef(indexrelid) order by indexrelid::regclass::text) from pg_index where indrelid=c.oid),
     'triggers',(select jsonb_agg(jsonb_build_array(pg_get_triggerdef(oid),tgenabled::text) order by tgname) from pg_trigger where tgrelid=c.oid and not tgisinternal),
     'statistics',(select jsonb_agg(jsonb_build_array(stxname,pg_get_statisticsobjdef(oid)) order by stxname) from pg_statistic_ext where stxrelid=c.oid),
     'rules',(select jsonb_agg(rulename order by rulename) from pg_rewrite where ev_class=c.oid),
-    'storage',jsonb_build_array(c.reloptions::text,c.relreplident::text,obj_description(c.oid,'pg_class')),
+    'storage',jsonb_build_array(c.reloptions::text,c.relreplident::text,obj_description(c.oid,'pg_class'),c.relpersistence::text,c.reltablespace,c.relam),
     'column_comments',(select jsonb_agg(jsonb_build_array(a.attname,col_description(c.oid,a.attnum)) order by a.attnum) from pg_attribute a where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped),
     'policies',(select jsonb_agg(jsonb_build_array(polname,polcmd,polroles,pg_get_expr(polqual,polrelid),pg_get_expr(polwithcheck,polrelid)) order by polname) from pg_policy where polrelid=c.oid)) order by c.relname)
     from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in
