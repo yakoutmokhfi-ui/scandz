@@ -8,6 +8,7 @@ import { formatPrice } from "@/lib/whatsapp";
 import { computeOrderFiscalSummary } from "@/lib/order-fiscal-summary";
 import { isOrderPaymentOperational, orderPaymentBadge } from "@/lib/order-payment-operability";
 import { formatOrderSchedule, orderScheduleLabelKey } from "@/lib/order-schedule-display";
+import InvoiceActions from "@/components/dashboard/InvoiceActions";
 
 /** Libellés dans la langue réglée par le gérant, comme le ticket. */
 export const STATUS_KEY: Record<OrderStatus, string> = {
@@ -303,6 +304,10 @@ export default function OrderCard({
           {order.delivery_address && <p>{order.delivery_address}</p>}
           {order.customer_note && <p className="mt-1 italic">Note : {order.customer_note}</p>}
         </div>
+      )}
+
+      {order.order_invoice_request && order.payment_status === "paid" && (
+        <InvoiceActions key={`${order.restaurant_id}:${order.id}`} orderId={order.id} lang={lang} />
       )}
 
       {/*

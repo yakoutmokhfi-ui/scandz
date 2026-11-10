@@ -210,6 +210,7 @@ export interface SmtpSendInput {
   html: string;
   replyTo?: string | null;
   messageId?: string | null;
+  attachments?: Array<{ filename: string; content: Buffer }>;
 }
 
 /**
@@ -672,6 +673,12 @@ export function buildSmtpMimeMessage(input: SmtpSendInput): string {
   const encodedSubject = Buffer.from(smtpHeaderValue(input.subject, "subject"), "utf8").toString("base64");
   const fromName = smtpHeaderValue(input.fromName?.trim() || "Scanym", "from-name");
   const encodedFromName = Buffer.from(fromName, "utf8").toString("base64");
+  const attachments = input.attachments ?? [];
+  if (attachments.length > 1 || attachments.some(a => !/^[A-Za-z0-9_-]+\.pdf$/.test(a.filename)
+    || !Buffer.isBuffer(a.content) || a.content.length > 2_000_000 || a.content.subarray(0, 5).toString() !== "%PDF-")) {
+    throw new Error("SMTP_INVALID_ATTACHMENT");
+  }
+  const mixed = `${boundary}-mixed`;
   const headers = [
     `From: =?UTF-8?B?${encodedFromName}?= <${smtpHeaderValue(input.config.from, "from")}>`,
     `To: ${smtpHeaderValue(input.to, "to")}`,
@@ -680,7 +687,7 @@ export function buildSmtpMimeMessage(input: SmtpSendInput): string {
     ...(input.messageId ? [`Message-ID: ${smtpHeaderValue(input.messageId, "message-id")}`] : []),
     `Subject: =?UTF-8?B?${encodedSubject}?=`,
     `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    attachments.length ? `Content-Type: multipart/mixed; boundary="${mixed}"` : `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].join(CRLF);
   const body = [
     `--${boundary}`,
@@ -693,7 +700,16 @@ export function buildSmtpMimeMessage(input: SmtpSendInput): string {
     input.html,
     `--${boundary}--`,
   ].join(CRLF);
-  return `${headers}${CRLF}${CRLF}${body}`;
+  if (!attachments.length) return `${headers}${CRLF}${CRLF}${body}`;
+  const parts = [
+    `--${mixed}`, `Content-Type: multipart/alternative; boundary="${boundary}"`, "", body,
+    ...attachments.flatMap(a => [
+      `--${mixed}`, `Content-Type: application/pdf; name="${a.filename}"`, "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${a.filename}"`, "",
+      a.content.toString("base64").match(/.{1,76}/g)!.join(CRLF),
+    ]), `--${mixed}--`,
+  ].join(CRLF);
+  return `${headers}${CRLF}${CRLF}${parts}`;
 }
 
 /**

@@ -105,6 +105,7 @@ export async function resolveMerchantSmtpProvider(
         text: message.text,
         html: message.html,
         replyTo: message.replyTo,
+        ...(message.attachments ? { attachments: message.attachments } : {}),
         messageId: `<${message.idempotencyKey.replace(/[^a-zA-Z0-9.-]/g, "-")}@mail.scanym.com>`,
       });
       if (result.ok) {
