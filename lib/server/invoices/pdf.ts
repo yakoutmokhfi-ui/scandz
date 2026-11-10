@@ -1,9 +1,21 @@
 import "server-only";
 import PDFDocument from "pdfkit";
 import path from "node:path";
-import { validateInvoiceSource } from "@/lib/server/invoices/model";
+import { validateInvoiceSource, type InvoiceSource } from "@/lib/server/invoices/model";
 
 /** No URLs, tracking capability or mutable catalogue data enter this renderer. */
+/** Lines of the "FACTURER À" block. A company buyer's identifier is the SIRET captured at checkout. */
+export function buyerLines(s: InvoiceSource): string[] {
+  return [
+    s.buyer.name,
+    s.buyer.address,
+    s.buyer.email,
+    s.buyer.vat ? `TVA : ${s.buyer.vat}` : null,
+    s.buyer.registration
+      ? `${s.buyer.company ? "SIRET" : "Immatriculation"} : ${s.buyer.registration}`
+      : null,
+  ].filter((v): v is string => Boolean(v));
+}
 export async function renderInvoicePdf(
   input: unknown,
   number: string,
@@ -83,17 +95,7 @@ export async function renderInvoicePdf(
     );
     text("FACTURER À", 11);
     text(
-      [
-        s.buyer.name,
-        s.buyer.address,
-        s.buyer.email,
-        s.buyer.vat ? `TVA : ${s.buyer.vat}` : null,
-        s.buyer.registration
-          ? `Immatriculation : ${s.buyer.registration}`
-          : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      buyerLines(s).join("\n"),
     );
     const cols = [44, 267, 310, 388, 447];
     const head = () => {

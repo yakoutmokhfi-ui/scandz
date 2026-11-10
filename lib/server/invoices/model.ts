@@ -1,3 +1,4 @@
+import "server-only";
 import type { DashboardOrder } from "@/lib/dashboard-types";
 import {
   computeOrderFiscalSummary,

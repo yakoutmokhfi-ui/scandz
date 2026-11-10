@@ -523,6 +523,13 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
   // porte d'activation fermée par défaut). Aucun paiement, aucun Stuart,
   // aucun statut de commande touché. Deux entrées EXACTES ajoutées à cette
   // liste FERMÉE, jamais une correspondance large).
+  // + 2 routes FACTURES PDF A4 v1 (également ULTÉRIEURES et SANS RAPPORT
+  // avec PAYMENT P3-A1 : /api/dashboard/invoices -- téléchargement,
+  // impression et renvoi par le commerçant authentifié, scopé à son
+  // établissement ; /api/internal/invoices/send -- Cron d'envoi, secret
+  // Bearer dédié, porte d'activation fermée par défaut. Aucun paiement,
+  // aucun Stuart, aucun statut de commande touché. Deux entrées EXACTES
+  // ajoutées à cette liste FERMÉE, jamais une correspondance large).
   assert.deepEqual(routeFiles, [
     "app/api/admin/gap-01-ack-health-check/route.ts",
     "app/api/checkout/invoice-request/route.ts",
@@ -530,8 +537,10 @@ test("archi: app/api/ contient EXACTEMENT les routes de CUSTOMER TRACKING EXPERI
     "app/api/dashboard/catalogue/product-photo/retry-cleanup/route.ts",
     "app/api/dashboard/catalogue/product-photo/route.ts",
     "app/api/dashboard/email-provider/route.ts",
+    "app/api/dashboard/invoices/route.ts",
     "app/api/dashboard/legal-cgv/activate/route.ts",
     "app/api/dashboard/legal-cgv/publish/route.ts",
+    "app/api/internal/invoices/send/route.ts",
     "app/api/internal/notifications/send/route.ts",
     "app/api/internal/payments/monetico/recover/route.ts",
     "app/api/internal/stuart/sandbox-readiness/route.ts",

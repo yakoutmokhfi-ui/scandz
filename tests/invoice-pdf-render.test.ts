@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderInvoicePdf } from "../lib/server/invoices/pdf.ts";
+import { renderInvoicePdf, buyerLines } from "../lib/server/invoices/pdf.ts";
 import { invoiceFixture } from "./helpers/invoice-pdf-fixture.ts";
 function pages(pdf: Buffer) {
   return Number(
@@ -48,4 +48,13 @@ test("reject malformed invoice number before rendering", async () => {
     renderInvoicePdf(invoiceFixture(), "../evil.pdf", "2026-11-10T12:06:00Z"),
     /INVOICE_ID_INVALID/,
   );
+});
+test("FACTURER À : le SIRET d'un client entreprise est affiché, libellé SIRET", () => {
+  const s = invoiceFixture();
+  s.buyer = { ...s.buyer, name: "Société cliente SARL", company: true, vat: "FR00000000000", registration: "12345678900012" };
+  const lines = buyerLines(s);
+  assert.ok(lines.includes("SIRET : 12345678900012"));
+  assert.ok(lines.includes("TVA : FR00000000000"));
+  const p = invoiceFixture();
+  assert.equal(buyerLines(p).some((l) => l.startsWith("SIRET") || l.startsWith("Immatriculation")), false, "particulier sans identifiant : rien d'inventé");
 });

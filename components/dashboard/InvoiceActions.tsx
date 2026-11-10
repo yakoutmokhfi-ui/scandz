@@ -35,10 +35,10 @@ export default function InvoiceActions({
     setBusy(true);
     setMessage("");
     try {
-      const { supabase } = await import("@/lib/supabase");
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) throw new Error();
-      const auth = { Authorization: `Bearer ${data.session.access_token}` };
+      const { getSession } = await import("@/lib/services/auth");
+      const session = await getSession();
+      if (!session) throw new Error();
+      const auth = { Authorization: `Bearer ${session.access_token}` };
       let response: Response;
       if (action === "resend") {
         // Preserve this key after an uncertain HTTP result, so retry cannot submit twice.
