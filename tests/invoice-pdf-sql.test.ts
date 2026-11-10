@@ -57,14 +57,31 @@ async function issue(db: PGlite) {
     )
   ).rows[0];
 }
+// Independent live snapshot of the catalogue state of every invoice object. It deliberately does NOT use the
+// stored manifest nor invoice_pdf_fingerprint(): both are themselves drift targets. A query error is a test
+// failure (never an empty "unchanged" value).
+const LIVE_STATE = `select md5(concat_ws('|',
+ (select coalesce(jsonb_agg(to_jsonb(p) order by p.oid::regprocedure::text),'[]') from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(c.relname,c.relowner,c.relacl::text,c.relrowsecurity,c.relforcerowsecurity,c.reloptions::text,c.relreplident::text,obj_description(c.oid,'pg_class')) order by c.relname),'[]') from pg_class c where c.relname like 'invoice_pdf%' and c.relkind='r')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(c.relname,a.attname,a.atttypid,a.atttypmod,a.attnotnull,a.attacl::text,col_description(c.oid,a.attnum)) order by c.relname,a.attnum),'[]') from pg_class c join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped where c.relname like 'invoice_pdf%' and c.relkind='r')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(k.conrelid::regclass::text,k.conname,pg_get_constraintdef(k.oid),k.convalidated) order by k.conrelid::regclass::text,k.conname),'[]') from pg_constraint k where k.conrelid::regclass::text like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(pg_get_indexdef(i.indexrelid) order by i.indexrelid::regclass::text),'[]') from pg_index i where i.indrelid::regclass::text like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(t.tgrelid::regclass::text,pg_get_triggerdef(t.oid),t.tgenabled::text) order by t.tgrelid::regclass::text,t.tgname),'[]') from pg_trigger t where not t.tgisinternal and t.tgrelid::regclass::text like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(s.stxrelid::regclass::text,s.stxname,pg_get_statisticsobjdef(s.oid)) order by s.stxname),'[]') from pg_statistic_ext s where s.stxrelid::regclass::text like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(r.ev_class::regclass::text,r.rulename) order by r.rulename),'[]') from pg_rewrite r where r.ev_class::regclass::text like 'invoice_pdf%')::text,
+ (select coalesce(jsonb_agg(jsonb_build_array(o.polrelid::regclass::text,o.polname,o.polcmd::text,pg_get_expr(o.polqual,o.polrelid),pg_get_expr(o.polwithcheck,o.polrelid)) order by o.polname),'[]') from pg_policy o where o.polrelid::regclass::text like 'invoice_pdf%')::text,
+ (select count(*) from pg_class where relname like 'invoice_pdf%')::text
+)) s`;
+async function liveState(db: PGlite): Promise<string> {
+  const state = (await db.query<{ s: string }>(LIVE_STATE)).rows[0]?.s;
+  assert.match(state ?? "", /^[0-9a-f]{32}$/, "live state fingerprint must be computable");
+  return state;
+}
 async function rejectsWithoutMutation(db: PGlite, sql: string, marker: string) {
-  const before = await db.query(`select fingerprint from invoice_pdf_manifest`);
+  const before = await liveState(db);
   await assert.rejects(db.exec(sql), new RegExp(marker));
   await db.exec("rollback");
-  assert.deepEqual(
-    await db.query(`select fingerprint from invoice_pdf_manifest`),
-    before,
-  );
+  assert.equal(await liveState(db), before, "state changed although the statement was rejected");
 }
 
 test("SQL installation: gates absent/closed; all mutations service-only; source excludes private payment material", async () => {
@@ -360,6 +377,84 @@ test("SQL CRLF installation and LF rollback agree on stored definitions", async 
     await db.exec(ddl);
     await db.exec(install.replace(/\r?\n/g, "\r\n"));
     await db.exec(rollback);
+  } finally {
+    await db.close();
+  }
+});
+
+for (const [label, sql] of Object.entries({
+  archiveGuardDisabled: "alter table invoice_pdf_documents disable trigger invoice_pdf_archive_guard",
+  activationGuardDisabled: "alter table invoice_pdf_settings disable trigger invoice_pdf_activation_guard",
+  archiveGuardReplica: "alter table invoice_pdf_documents enable replica trigger invoice_pdf_archive_guard",
+  archiveGuardAlways: "alter table invoice_pdf_documents enable always trigger invoice_pdf_archive_guard",
+  thirdPartyStatistic:
+    "create statistics public.audit_external_stat (dependencies) on enabled, next_number from public.invoice_pdf_settings",
+  thirdPartyStatisticDocuments:
+    "create statistics public.audit_external_stat2 (ndistinct) on sequence_number, restaurant_id from public.invoice_pdf_documents",
+  tableComment: "comment on table invoice_pdf_documents is 'third-party note'",
+  columnComment: "comment on column invoice_pdf_settings.enabled is 'third-party note'",
+  replicaIdentity: "alter table invoice_pdf_documents replica identity full",
+  thirdPartyRule: "create rule audit_rule as on delete to invoice_pdf_blocked do instead nothing",
+  dependentView: "create view public.audit_view as select * from public.invoice_pdf_settings",
+}))
+  test("SQL rollback refuses third-party/attribute drift without mutation: " + label, async () => {
+    const db = await setup();
+    try {
+      await db.exec(sql);
+      await rejectsWithoutMutation(db, rollback, "ROLLBACK_(DRIFT|DEPENDENCY)");
+      assert.ok((await db.query<{ t: string }>("select to_regclass('invoice_pdf_documents') t")).rows[0].t);
+    } finally {
+      await db.close();
+    }
+  });
+test("SQL rollback keeps an unrelated third-party object on an unrelated table and succeeds nominally", async () => {
+  const db = await setup();
+  try {
+    await db.exec("create table audit_unrelated(a int, b int); create statistics audit_unrelated_stat on a, b from audit_unrelated");
+    await db.exec(rollback);
+    assert.equal((await db.query("select 1 from pg_statistic_ext where stxname='audit_unrelated_stat'")).rows.length, 1);
+    assert.equal((await db.query<{ t: string | null }>("select to_regclass('invoice_pdf_documents')::text t")).rows[0].t, null);
+  } finally {
+    await db.close();
+  }
+});
+// Negative controls of the "no mutation" helper itself: it must FAIL when a change persists.
+test("helper negative control: a persisted change followed by an exception is detected", async () => {
+  const db = await setup();
+  try {
+    await assert.rejects(
+      rejectsWithoutMutation(
+        db,
+        "alter table invoice_pdf_documents add constraint neg_ctl check(sequence_number>0); commit; select 1/0",
+        "division by zero",
+      ),
+      /state changed/,
+    );
+  } finally {
+    await db.close();
+  }
+});
+test("helper negative control: a disabled trigger (invisible to the stored manifest) is detected", async () => {
+  const db = await setup();
+  try {
+    await assert.rejects(
+      rejectsWithoutMutation(
+        db,
+        "alter table invoice_pdf_documents disable trigger invoice_pdf_archive_guard; commit; select 1/0",
+        "division by zero",
+      ),
+      /state changed/,
+    );
+  } finally {
+    await db.close();
+  }
+});
+test("helper negative control: a statement that succeeds, or fails with another error, is not accepted as a clean rejection", async () => {
+  const db = await setup();
+  try {
+    await assert.rejects(rejectsWithoutMutation(db, "select 1", "ROLLBACK_DRIFT"));
+    await assert.rejects(rejectsWithoutMutation(db, "select 1/0", "ROLLBACK_DRIFT"));
+    assert.match(await liveState(db), /^[0-9a-f]{32}$/);
   } finally {
     await db.close();
   }

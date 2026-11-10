@@ -233,7 +233,7 @@ alter table public.invoice_pdf_manifest enable row level security;
 revoke all on public.invoice_pdf_manifest from public,anon,authenticated,service_role;
 create function public.invoice_pdf_fingerprint() returns text
 language sql stable security definer set search_path=pg_catalog,public as $fn$
- select md5(jsonb_build_object(
+ select encode(sha256(convert_to(jsonb_build_object(
   'functions',(select jsonb_agg(jsonb_build_object('identity',p.oid::regprocedure::text,'definition',pg_get_functiondef(p.oid),
     'owner',p.proowner,'acl',p.proacl,'comment',obj_description(p.oid,'pg_proc')) order by p.oid::regprocedure::text)
     from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in
@@ -243,11 +243,15 @@ language sql stable security definer set search_path=pg_catalog,public as $fn$
       from pg_attribute a left join pg_attrdef ad on ad.adrelid=a.attrelid and ad.adnum=a.attnum where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped),
     'constraints',(select jsonb_agg(jsonb_build_array(conname,pg_get_constraintdef(oid)) order by conname) from pg_constraint where conrelid=c.oid),
     'indexes',(select jsonb_agg(pg_get_indexdef(indexrelid) order by indexrelid::regclass::text) from pg_index where indrelid=c.oid),
-    'triggers',(select jsonb_agg(pg_get_triggerdef(oid) order by tgname) from pg_trigger where tgrelid=c.oid and not tgisinternal),
+    'triggers',(select jsonb_agg(jsonb_build_array(pg_get_triggerdef(oid),tgenabled::text) order by tgname) from pg_trigger where tgrelid=c.oid and not tgisinternal),
+    'statistics',(select jsonb_agg(jsonb_build_array(stxname,pg_get_statisticsobjdef(oid)) order by stxname) from pg_statistic_ext where stxrelid=c.oid),
+    'rules',(select jsonb_agg(rulename order by rulename) from pg_rewrite where ev_class=c.oid),
+    'storage',jsonb_build_array(c.reloptions::text,c.relreplident::text,obj_description(c.oid,'pg_class')),
+    'column_comments',(select jsonb_agg(jsonb_build_array(a.attname,col_description(c.oid,a.attnum)) order by a.attnum) from pg_attribute a where a.attrelid=c.oid and a.attnum>0 and not a.attisdropped),
     'policies',(select jsonb_agg(jsonb_build_array(polname,polcmd,polroles,pg_get_expr(polqual,polrelid),pg_get_expr(polwithcheck,polrelid)) order by polname) from pg_policy where polrelid=c.oid)) order by c.relname)
     from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in
       ('invoice_pdf_settings','invoice_pdf_documents','invoice_pdf_deliveries','invoice_pdf_blocked','invoice_pdf_manifest'))
- )::text)
+ )::text,'UTF8')),'hex')
 $fn$;
 
 revoke all on function public.invoice_pdf_source(uuid), public.invoice_pdf_issue(uuid,jsonb), public.invoice_pdf_store(uuid,text),
