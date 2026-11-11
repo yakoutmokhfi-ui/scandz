@@ -1,4 +1,5 @@
 import "server-only";
+import { renderCgvWordDraft } from "@/lib/legal/cgv-word-draft";
 import { asUserSupabaseClientFactory } from "@/lib/server/supabase-as-user";
 import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
 import {
@@ -11,6 +12,11 @@ import {
 } from "@/lib/legal/render";
 
 /**
+ * Word draft extension: optional wordDraftId identifies stored untrusted JSON,
+ * never browser HTML. Node revalidates it against the resolved template and
+ * fingerprint before the unchanged service-role persistence boundary.
+ *
+ * Historical context:
  * SELLER LEGAL PROFILE + CGV ENGINE v1.1/v1.2 — AUDIT REMEDIATION
  * (Catimini). v1.1 closed Blocker 1 (CGV-V1-PUBLISH-AUTHORITY-01) and
  * Blocker 2 (CGV-V1-PROD-ACL-01) — both CONFIRMED CLOSED and not
@@ -130,7 +136,7 @@ export class LegalCgvPublishServerError extends Error {
   }
 }
 
-interface PublicationContextRow {
+export interface PublicationContextRow {
   restaurant_id: string;
   seller_name: string | null;
   template_id: string;
@@ -280,7 +286,8 @@ function classifyPersistError(error: { code?: string; message?: string } | null)
  */
 export async function publishMerchantCgvVersionServerAuthoritative(
   accessToken: string,
-  restaurantId: string
+  restaurantId: string,
+  wordDraftId?: string
 ): Promise<PublishedCgvVersionRow> {
   const asUser = asUserSupabaseClientFactory.create(accessToken);
 
@@ -295,12 +302,42 @@ export async function publishMerchantCgvVersionServerAuthoritative(
     throw new LegalCgvPublishServerError("unavailable", "empty_context_row");
   }
 
-  // Rendu -- TOUJOURS ici (Node, serveur), jamais dans le navigateur.
-  // Le même moteur (lib/legal/render.ts) que l'aperçu du tableau de
-  // bord marchand, jamais une seconde implémentation divergente.
   let renderedContent: string;
-  try {
-    renderedContent = renderCgv({
+  try { renderedContent = renderPublicationContext(ctx); }
+  catch (e) { throw new LegalCgvPublishServerError("template_unresolved", null, e); }
+  if (wordDraftId) {
+    const { data, error } = await asUser.rpc("get_merchant_cgv_word_draft", { p_restaurant_id: restaurantId, p_draft_id: wordDraftId });
+    if (error) throw classifyResolveError(error);
+    const draft = Array.isArray(data) ? data[0] : data;
+    if (!draft || draft.id !== wordDraftId || draft.restaurant_id !== restaurantId || draft.base_fingerprint !== ctx.context_fingerprint) throw new LegalCgvPublishServerError("stale_context");
+    try { renderedContent = renderCgvWordDraft(renderedContent, draft.document); }
+    catch (e) { throw new LegalCgvPublishServerError("template_unresolved", null, e); }
+  }
+
+  const admin = getServiceRoleSupabaseClient();
+  const { data: versionData, error: persistError } = await admin.rpc("persist_merchant_cgv_version", {
+    p_restaurant_id: restaurantId,
+    p_template_id: ctx.template_id,
+    p_rendered_content: renderedContent,
+    // v1.2 — both opaque, server-derived from step 1 above, never
+    // touched by the browser at any point in this request's lifetime.
+    p_expected_context_fingerprint: ctx.context_fingerprint,
+    p_acting_user_id: ctx.acting_user_id,
+  });
+  if (persistError) {
+    throw classifyPersistError(persistError);
+  }
+  const row = Array.isArray(versionData) ? versionData[0] : versionData;
+  if (!row) {
+    throw new LegalCgvPublishServerError("unavailable", "empty_version_row");
+  }
+
+  return row as PublishedCgvVersionRow;
+}
+
+/** Shared authoritative baseline for validation and ordinary publication. */
+export function renderPublicationContext(ctx: PublicationContextRow): string {
+  return renderCgv({
       sellerName: ctx.seller_name || "—",
       template: ctx.controlled_sections,
       legal: {
@@ -335,31 +372,4 @@ export async function publishMerchantCgvVersionServerAuthoritative(
       locale: ctx.locale,
       presentationVariant: ctx.presentation_variant,
     });
-  } catch (e) {
-    // Cohérent avec le garde-fou SQL (cgv_completeness_errors) : un
-    // régime de rétractation non résolu par le gabarit (MIXED, ou tout
-    // état incohérent) échoue fermé ici aussi, jamais une publication
-    // avec une clause manquante silencieusement omise.
-    throw new LegalCgvPublishServerError("template_unresolved", e instanceof Error ? e.message : null, e);
-  }
-
-  const admin = getServiceRoleSupabaseClient();
-  const { data: versionData, error: persistError } = await admin.rpc("persist_merchant_cgv_version", {
-    p_restaurant_id: restaurantId,
-    p_template_id: ctx.template_id,
-    p_rendered_content: renderedContent,
-    // v1.2 — both opaque, server-derived from step 1 above, never
-    // touched by the browser at any point in this request's lifetime.
-    p_expected_context_fingerprint: ctx.context_fingerprint,
-    p_acting_user_id: ctx.acting_user_id,
-  });
-  if (persistError) {
-    throw classifyPersistError(persistError);
-  }
-  const row = Array.isArray(versionData) ? versionData[0] : versionData;
-  if (!row) {
-    throw new LegalCgvPublishServerError("unavailable", "empty_version_row");
-  }
-
-  return row as PublishedCgvVersionRow;
 }

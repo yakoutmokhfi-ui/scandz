@@ -7,6 +7,11 @@ import {
 import { invalidatePublicLegalPage } from "@/lib/server/legal-cgv-activate-service";
 
 /**
+ * Word draft extension: the request may additionally identify wordDraftId.
+ * It never supplies rendered HTML; the selected saved JSON is revalidated
+ * and rendered by the server before the existing persistence checks.
+ *
+ * Historical context:
  * SELLER LEGAL PROFILE + CGV ENGINE v1.1/v1.2 — AUDIT REMEDIATION
  * (Catimini). v1.2 adds one new retriable outcome, "stale_context"
  * (CGV-V11-PUBLISH-CONTEXT-RACE-01) — the request body/response shape
@@ -107,9 +112,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ outcome: "auth" }, { status: 401 });
   }
 
-  let body: { restaurantId?: unknown };
+  let body: { restaurantId?: unknown; wordDraftId?: unknown };
   try {
-    body = (await request.json()) as { restaurantId?: unknown };
+    body = (await request.json()) as { restaurantId?: unknown; wordDraftId?: unknown };
   } catch {
     return NextResponse.json({ outcome: "unavailable" }, { status: 400 });
   }
@@ -118,8 +123,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ outcome: "invalid_field", field: "restaurantId" }, { status: 400 });
   }
 
+  if (body.wordDraftId !== undefined && (typeof body.wordDraftId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.wordDraftId))) return NextResponse.json({ outcome: "invalid_field" }, { status: 400 });
   try {
-    const version = await publishMerchantCgvVersionServerAuthoritative(accessToken, body.restaurantId);
+    const version = await publishMerchantCgvVersionServerAuthoritative(accessToken, body.restaurantId, body.wordDraftId as string | undefined);
     // W2-6 — best-effort : un échec d'invalidation ne doit jamais
     // transformer une publication RÉUSSIE (déjà persistée par
     // publishMerchantCgvVersionServerAuthoritative) en réponse

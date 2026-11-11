@@ -172,11 +172,12 @@ export async function getMerchantCgvProfile(restaurantId) {
 }
 export async function updateMerchantLegalProfile() {}
 export async function updateMerchantCgvProfile() {}
-export async function publishMerchantCgvVersion() {}
+export async function publishMerchantCgvVersion(params) { return globalThis.__wordPublishHandler?.(params); }
 export async function activateMerchantCgv() {}
 `;
 
 const mocks: Record<string, string> = {
+  "@/lib/services/cgv-word-draft": `export async function getCgvWordDraft(id, file) { return globalThis.__wordDraftHandler ? globalThis.__wordDraftHandler(id,file) : null; }`,
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/dashboard": MOCK_DASHBOARD,
@@ -399,6 +400,61 @@ test("CGV DOCX import — W1-04: B's own import shows ONLY B's content, never an
 
   root.unmount();
   container.remove();
+});
+
+
+function button(c: HTMLElement, id: string) { const b=c.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement; assert.ok(b,id);return b; }
+function resetWord() { delete (globalThis as any).__wordDraftHandler;delete (globalThis as any).__wordPublishHandler; }
+
+test("WORD-PUB-01: import -> save -> preview -> publish selected draft -> reload keeps Word", async () => {
+ (globalThis as any).__cgvFallback["resto-a"].status="CGV_READY";
+ let stored:any=null; let publishes:any[]=[];
+ (globalThis as any).__wordDraftHandler=async(id:string,file:any)=> { if(file)stored={id:"word-a",html:"<p>SAVED-WORD-A</p>",stale:false,published:false};return stored; };
+ (globalThis as any).__wordPublishHandler=async(params:any)=>{publishes.push(params);stored.published=true;};
+ let view=render();
+ try {
+  await waitFor(()=>view.container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);
+  const deferred=makeDeferred<ArrayBuffer>();triggerImport(view.container,new ControlledFile(deferred));deferred.resolve(markerDocx("IMPORT-A"));
+  await waitFor(()=>docxReview(view.container)!==null);
+  assert.equal(button(view.container,"legal-cgv-publish").disabled,true);assert.equal(button(view.container,"legal-cgv-activate").disabled,true);
+  button(view.container,"legal-cgv-word-save").click();
+  await waitFor(()=>view.container.textContent!.includes("SAVED-WORD-A"));
+  assert.equal(button(view.container,"legal-cgv-publish").disabled,false);assert.equal(button(view.container,"legal-cgv-activate").disabled,true);
+  button(view.container,"legal-cgv-publish").click();await waitFor(()=>publishes.length===1 && !button(view.container,"legal-cgv-activate").disabled);
+  assert.deepEqual(publishes,[{restaurantId:"resto-a",wordDraftId:"word-a"}]);
+  view.root.unmount();view.container.remove();view=render();
+  await waitFor(()=>view.container.textContent!.includes("SAVED-WORD-A"));
+ } finally {view.root.unmount();view.container.remove();resetWord();(globalThis as any).__cgvFallback["resto-a"].status="CGV_DRAFT";}
+});
+
+test("WORD-PUB-02: save failure blocks old publication until explicit discard",async()=>{
+ (globalThis as any).__wordDraftHandler=async(_id:string,file:any)=>{if(file)throw Error("write failed");return null;};
+ const {container,root}=render();try{
+ await waitFor(()=>container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);
+ const d=makeDeferred<ArrayBuffer>();triggerImport(container,new ControlledFile(d));d.resolve(markerDocx("FAILED-IMPORT"));await waitFor(()=>docxReview(container)!==null);
+ button(container,"legal-cgv-word-save").click();await waitFor(()=>container.textContent!.includes("Brouillon non enregistré"));
+ assert.equal(button(container,"legal-cgv-publish").disabled,true);
+ button(container,"legal-cgv-word-discard").click();await waitFor(()=>!button(container,"legal-cgv-publish").disabled);
+ }finally{root.unmount();container.remove();resetWord();}
+});
+
+test("WORD-PUB-03: stale saved draft blocks publication and activation",async()=>{
+ (globalThis as any).__cgvFallback["resto-a"].status="CGV_READY";
+ (globalThis as any).__wordDraftHandler=async()=>({id:"old-draft",html:null,stale:true,published:false});
+ const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-word-status"]')!==null);assert.equal(button(container,"legal-cgv-publish").disabled,true);assert.equal(button(container,"legal-cgv-activate").disabled,true);}finally{root.unmount();container.remove();resetWord();(globalThis as any).__cgvFallback["resto-a"].status="CGV_DRAFT";}
+});
+
+test("WORD-PUB-04: late save for A never appears under B",async()=>{
+ const late=makeDeferred<any>();(globalThis as any).__wordDraftHandler=async(id:string,file:any)=>file?late.promise:null;
+ const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);const d=makeDeferred<ArrayBuffer>();triggerImport(container,new ControlledFile(d));d.resolve(markerDocx("IMPORT-A"));await waitFor(()=>docxReview(container)!==null);button(container,"legal-cgv-word-save").click();switchTo(container,"resto-b");await waitFor(()=>container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);late.resolve({id:"word-a",html:"<p>PRIVATE-A</p>",stale:false,published:false});await flush(40);assert.ok(!container.textContent!.includes("PRIVATE-A"));assert.equal(container.querySelector('[data-testid="legal-cgv-word-status"]'),null);}finally{root.unmount();container.remove();resetWord();}
+});
+
+test("WORD-PUB-05: read failure cannot offer old text for activation",async()=>{
+ (globalThis as any).__wordDraftHandler=async()=>{throw Error("read failure");};const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-page-error"]')!==null);assert.equal(container.querySelector('[data-testid="legal-cgv-publish"]'),null);assert.equal(container.querySelector('[data-testid="legal-cgv-activate"]'),null);}finally{root.unmount();container.remove();resetWord();}
+});
+
+test("WORD-PUB-06: two file reads in one establishment cannot restore the older import",async()=>{
+ const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);const old=makeDeferred<ArrayBuffer>(),latest=makeDeferred<ArrayBuffer>();triggerImport(container,new ControlledFile(old));triggerImport(container,new ControlledFile(latest));latest.resolve(markerDocx("LATEST-READ"));await waitFor(()=>container.textContent!.includes("LATEST-READ"));old.resolve(markerDocx("OLD-READ"));await flush(40);assert.ok(container.textContent!.includes("LATEST-READ"));assert.ok(!container.textContent!.includes("OLD-READ"));}finally{root.unmount();container.remove();resetWord();}
 });
 
 after(async () => {

@@ -278,6 +278,7 @@ export async function activateMerchantCgv(restaurantId) {
 `;
 
 const mocks: Record<string, string> = {
+  "@/lib/services/cgv-word-draft": `export async function getCgvWordDraft() { return null; }`,
   "next/navigation": MOCK_NAV,
   "@/lib/services/auth": MOCK_AUTH,
   "@/lib/services/dashboard": MOCK_DASHBOARD,

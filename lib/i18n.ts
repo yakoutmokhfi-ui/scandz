@@ -43,6 +43,15 @@ export function dirOf(
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  legalCgvWordSave: "Enregistrer le Word comme brouillon",
+  legalCgvWordSaved: "Brouillon Word enregistré. Vérifiez l’aperçu, puis publiez cette version.",
+  legalCgvWordPublished: "Le texte du brouillon Word correspond à la dernière version publiée.",
+  legalCgvWordSaveFailed: "Brouillon non enregistré. Conservez toutes les rubriques, leurs titres et leur ordre, ainsi que le bloc de garanties inchangé. Réexportez le Word si les réglages ont changé.",
+  legalCgvWordMustSave: "Un import est en attente : enregistrez-le comme brouillon ou abandonnez-le avant de publier ou d’activer.",
+  legalCgvWordMustPublish: "Publiez le brouillon Word avant d’activer les CGV.",
+  legalCgvWordStale: "Les réglages ou le modèle ont changé depuis ce brouillon. Réexportez et réimportez le document avant de publier.",
+  legalCgvWordDiscard: "Abandonner cet import non enregistré",
+
   invPdfTitle: "Facture PDF A4",
   invPdfDownload: "Télécharger",
   invPdfPrint: "Ouvrir / imprimer",
@@ -210,11 +219,11 @@ const fr: Dict = {
   legalCgvSectionPreparation: "Délai de préparation",
   legalCgvSectionWithdrawal: "Régime de rétractation",
   legalCgvSectionPreview: "Aperçu des CGV",
-  legalCgvSectionDocxRoundtrip: "Export / import Word (relecture)",
+  legalCgvSectionDocxRoundtrip: "Export / import Word",
   legalCgvDocxExport: "Télécharger en Word (.docx)",
   legalCgvDocxExportUnavailable: "Terminez d'abord l'aperçu des CGV ci-dessus pour pouvoir exporter en Word.",
   legalCgvDocxImport: "Importer un .docx modifié",
-  legalCgvDocxImportHint: "Ceci ne publie rien : le contenu importé est affiché pour relecture uniquement. La publication reste gouvernée par la section 7 ci-dessous.",
+  legalCgvDocxImportHint: "Importez, relisez les différences, puis enregistrez le Word comme brouillon. Vérifiez l’aperçu avant de publier en section 7. Les titres, l’ordre des rubriques et le bloc de garanties doivent être conservés.",
   legalCgvDocxImportReading: "Lecture du document importé…",
   legalCgvDocxImportFailed: "Le document importé n'a pas pu être lu en toute sécurité.",
   legalCgvDocxDiffNoChanges: "Aucune différence significative entre les CGV actuelles et le document importé.",
@@ -1671,6 +1680,15 @@ const fr: Dict = {
 };
 
 const en: Dict = {
+  legalCgvWordSave: "Save Word as a draft",
+  legalCgvWordSaved: "Word draft saved. Check the preview, then publish this version.",
+  legalCgvWordPublished: "The Word draft matches the latest published version.",
+  legalCgvWordSaveFailed: "Draft not saved. Keep every section, heading and section order, and leave the guarantee block unchanged. Export again if settings have changed.",
+  legalCgvWordMustSave: "An import is pending: save it as a draft or discard it before publishing or activating.",
+  legalCgvWordMustPublish: "Publish the Word draft before activating the terms.",
+  legalCgvWordStale: "Settings or the template have changed. Export and import the document again before publishing.",
+  legalCgvWordDiscard: "Discard this unsaved import",
+
   invPdfTitle: "A4 PDF invoice",
   invPdfDownload: "Download",
   invPdfPrint: "Open / print",
@@ -1831,11 +1849,11 @@ const en: Dict = {
   legalCgvSectionPreparation: "Preparation time",
   legalCgvSectionWithdrawal: "Withdrawal regime",
   legalCgvSectionPreview: "CGV preview",
-  legalCgvSectionDocxRoundtrip: "Word export / import (review)",
+  legalCgvSectionDocxRoundtrip: "Word export / import",
   legalCgvDocxExport: "Download as Word (.docx)",
   legalCgvDocxExportUnavailable: "Finish the CGV preview above before exporting to Word.",
   legalCgvDocxImport: "Import an edited .docx",
-  legalCgvDocxImportHint: "This does not publish anything: the imported content is shown for review only. Publication is still governed by section 7 below.",
+  legalCgvDocxImportHint: "Import, review the changes and save Word as a draft. Check the preview before publishing in section 7. Keep headings, section order and the guarantee block unchanged.",
   legalCgvDocxImportReading: "Reading the imported document…",
   legalCgvDocxImportFailed: "The imported document could not be read safely.",
   legalCgvDocxDiffNoChanges: "No meaningful difference between the current CGV and the imported document.",
@@ -3135,6 +3153,15 @@ const en: Dict = {
 
 // Arabe littéraire (arabe standard moderne).
 const ar: Dict = {
+  legalCgvWordSave: "حفظ ملف Word كمسودة",
+  legalCgvWordSaved: "تم حفظ المسودة. راجع المعاينة ثم انشر هذه النسخة.",
+  legalCgvWordPublished: "المسودة تطابق آخر نسخة منشورة.",
+  legalCgvWordSaveFailed: "لم تُحفظ المسودة. احتفظ بجميع الأقسام وعناوينها وترتيبها وبنص الضمان دون تغيير. أعد التصدير إذا تغيرت الإعدادات.",
+  legalCgvWordMustSave: "يوجد استيراد معلق. احفظه كمسودة أو ألغِه قبل النشر أو التفعيل.",
+  legalCgvWordMustPublish: "انشر مسودة Word قبل تفعيل الشروط.",
+  legalCgvWordStale: "تغيرت الإعدادات أو القالب. أعد تصدير المستند واستيراده قبل النشر.",
+  legalCgvWordDiscard: "إلغاء هذا الاستيراد غير المحفوظ",
+
   invPdfTitle: "فاتورة PDF بحجم A4",
   invPdfDownload: "تنزيل",
   invPdfPrint: "فتح / طباعة",
@@ -3295,11 +3322,11 @@ const ar: Dict = {
   legalCgvSectionPreparation: "مدة التحضير",
   legalCgvSectionWithdrawal: "نظام حق التراجع",
   legalCgvSectionPreview: "معاينة الشروط والأحكام",
-  legalCgvSectionDocxRoundtrip: "تصدير / استيراد Word (للمراجعة)",
+  legalCgvSectionDocxRoundtrip: "تصدير / استيراد Word",
   legalCgvDocxExport: "تنزيل بصيغة Word (.docx)",
   legalCgvDocxExportUnavailable: "أكمل أولاً معاينة الشروط والأحكام أعلاه لتتمكن من التصدير إلى Word.",
   legalCgvDocxImport: "استيراد ملف .docx معدَّل",
-  legalCgvDocxImportHint: "هذا لا ينشر أي شيء: المحتوى المستورد يُعرض للمراجعة فقط. يبقى النشر خاضعًا للقسم 7 أدناه.",
+  legalCgvDocxImportHint: "استورد الملف وراجع الفروق واحفظه كمسودة. راجع المعاينة ثم انشر في القسم 7. احتفظ بالعناوين وترتيب الأقسام ونص الضمان.",
   legalCgvDocxImportReading: "جارٍ قراءة المستند المستورد…",
   legalCgvDocxImportFailed: "تعذّرت قراءة المستند المستورد بأمان.",
   legalCgvDocxDiffNoChanges: "لا يوجد فرق ذو دلالة بين الشروط والأحكام الحالية والمستند المستورد.",
@@ -4633,6 +4660,17 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  legalCgvSectionDocxRoundtrip: "Word exporteren / importeren",
+  legalCgvDocxImportHint: "Importeer, controleer de verschillen en sla Word als concept op. Controleer het voorbeeld voordat u in sectie 7 publiceert. Behoud de koppen, hoofdstukvolgorde en het garantieblok.",
+  legalCgvWordSave: "Word als concept opslaan",
+  legalCgvWordSaved: "Word-concept opgeslagen. Controleer het voorbeeld en publiceer deze versie.",
+  legalCgvWordPublished: "Het Word-concept komt overeen met de laatst gepubliceerde versie.",
+  legalCgvWordSaveFailed: "Concept niet opgeslagen. Behoud alle hoofdstukken, koppen en hun volgorde en wijzig het garantieblok niet. Exporteer opnieuw na gewijzigde instellingen.",
+  legalCgvWordMustSave: "Een import wacht: sla deze op als concept of verwijder deze voordat u publiceert of activeert.",
+  legalCgvWordMustPublish: "Publiceer het Word-concept voordat u de voorwaarden activeert.",
+  legalCgvWordStale: "Instellingen of sjabloon zijn gewijzigd. Exporteer en importeer het document opnieuw voordat u publiceert.",
+  legalCgvWordDiscard: "Deze niet-opgeslagen import verwijderen",
+
   invPdfTitle: "A4 PDF-factuur",
   invPdfDownload: "Downloaden",
   invPdfPrint: "Openen / afdrukken",
