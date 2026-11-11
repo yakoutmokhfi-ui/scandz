@@ -1,3 +1,5 @@
+import {readCgvChannelActualState as catalog} from './helpers/cgv-channel-catalog-snapshot.ts';
+import {isSafeSmtpAddress} from '../lib/server/withdrawal-ack-merchant-mailer.ts';
 import {test,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -45,7 +47,7 @@ async function fixture(apply=true){
 const resolve=`select * from resolve_cgv_publication_context('${A}')`;
 const persist=`select * from persist_merchant_cgv_version('${A}','${A}','L. 217-1 à L. 217-32 vices cachés trente jours',md5('context'),'${U}')`;
 async function refused(db:PGlite,sql:string,re:RegExp){await assert.rejects(()=>db.exec(sql),re);await db.exec('rollback');}
-async function catalog(db:PGlite){return (await db.query(`select jsonb_build_object('functions',(select jsonb_agg(to_jsonb(p) order by p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'),'relations',(select jsonb_agg(to_jsonb(c)-'reltuples'-'relpages'-'relallvisible'-'relfrozenxid'-'relminmxid' order by c.oid) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'),'constraints',(select jsonb_agg(to_jsonb(c) order by c.oid) from pg_constraint c),'defaults',(select jsonb_agg(to_jsonb(d) order by d.oid) from pg_attrdef d),'comments',(select jsonb_agg(to_jsonb(d) order by d.classoid,d.objoid,d.objsubid) from pg_description d),'dependencies',(select jsonb_agg(to_jsonb(d) order by d.classid,d.objid,d.objsubid,d.refclassid,d.refobjid,d.refobjsubid,d.deptype) from pg_depend d)) as state`)).rows;}
+
 test('RED witness: production predecessor blocks merchant-ready shop at resolve and persist',async()=>{const db=await fixture(false);await refused(db,resolve,/WITHDRAWAL_RUNTIME_NOT_READY/);await refused(db,persist,/WITHDRAWAL_RUNTIME_NOT_READY/);});
 test('Merchant channel permits resolve/persist for its shop without changing legacy global guard',async()=>{const db=await fixture();assert.equal((await db.query<any>(resolve)).rows.length,1);await db.exec(persist);assert.equal((await db.query<any>('select count(*)::int as n from merchant_cgv_version')).rows[0].n,1);assert.equal((await db.query<any>('select _scanym_has_online_withdrawal_runtime() as ready')).rows[0].ready,false);assert.equal((await db.query<any>(`select _scanym_has_online_withdrawal_runtime_for_restaurant('${B}') as ready`)).rows[0].ready,false);});
 for(const [name,mutation] of [
@@ -75,3 +77,52 @@ for(const [name,mutation] of [
  ['consumer',"create function third_party() returns boolean language plpgsql as $$begin return public._scanym_has_online_withdrawal_runtime_for_restaurant(null);end$$"],
 ] as const)test(`Rollback refuses ${name} without catalog mutation`,async()=>{const db=await fixture();await db.exec(mutation);const before=await catalog(db);await refused(db,rollback,/SCANYM_ROLLBACK_DRIFT/);assert.deepEqual(await catalog(db),before);});
 test('Install refuses modified predecessor without mutation',async()=>{const db=await fixture(false);await db.exec('alter function resolve_cgv_publication_context(uuid) security invoker');const before=await catalog(db);await refused(db,install,/SCANYM_PREDECESSOR_DRIFT/);assert.deepEqual(await catalog(db),before);});
+
+// R2: guard and worker must agree on the exact addresses used by dispatch.
+
+for(const address of ['a,b@example.com','a;b@example.com','a:b@example.com','a\\b@example.com','a(b)@example.com','a[b]@example.com',"a'b@example.com",'a"b@example.com','a<z>@example.com']){
+ test(`R2 unsafe copy/sender ${JSON.stringify(address)} is refused like the worker`,async()=>{
+  assert.equal(isSafeSmtpAddress(address),false);
+  for(const [table,col] of [['merchant_legal_profile','customer_service_email'],['merchant_notification_profile','sender_email']]){
+   const db=await fixture();await db.query(`update ${table} set ${col}=$1 where restaurant_id=$2`,[address,A]);
+   await refused(db,resolve,/WITHDRAWAL_RUNTIME_NOT_READY/);await refused(db,persist,/WITHDRAWAL_RUNTIME_NOT_READY/);
+  }
+ });
+}
+test('R2 merchant selected: ready platform never bypasses a broken merchant channel',async()=>{const db=await fixture();await db.exec(`update channel_flags set platform=true;update merchant_email_provider_config set enabled=false where restaurant_id='${A}'`);await refused(db,resolve,/WITHDRAWAL_RUNTIME_NOT_READY/);await refused(db,persist,/WITHDRAWAL_RUNTIME_NOT_READY/);});
+for(const [name,ddl] of [['all tables','create publication third_party_pub for all tables'],['schema','create publication third_party_pub for tables in schema public']] as const){
+ test(`R2 rollback refuses publication ${name} without mutation`,async()=>{const db=await fixture();await db.exec(ddl);const before=await catalog(db);await refused(db,rollback,/SCANYM_ROLLBACK_DRIFT/);assert.deepEqual(await catalog(db),before);});
+}
+test('R2 oracle detects committed column mutation even after the expected error',async()=>{const db=await fixture();const before=await catalog(db);await db.exec('begin;alter table cgv_merchant_channel_guard_manifest alter column expected set statistics 500;commit;');await assert.rejects(()=>db.exec("do $$begin raise exception 'SCANYM_ROLLBACK_DRIFT';end$$"),/SCANYM_ROLLBACK_DRIFT/);assert.notDeepEqual(await catalog(db),before);});
+test('R2 differential corpus agrees with real worker including trim, controls, Unicode and UTF16 limit',async()=>{
+ const db=await fixture();
+ const cases=['valid+tag@example.test',' contact@example.test\t','\ufeffcontact@example.test\ufeff','a\u0085b@example.test','a\u2003b@example.test','é@example.test','🚀@example.test','a'.repeat(241)+'@example.test','a'.repeat(242)+'@example.test','🚀'.repeat(124)+'@ex.test','🚀'.repeat(121)+'@ex.test','a@example.x','a@example.12','a@b@example.test',''];
+ for(let i=1;i<128;i++)cases.push(`a${String.fromCharCode(i)}b@example.test`);
+ for(const address of cases){
+  const expected=isSafeSmtpAddress(address.trim());
+  for(const [table,col] of [['merchant_legal_profile','customer_service_email'],['merchant_notification_profile','sender_email']]){
+   await db.query(`update ${table} set ${col}=$1 where restaurant_id=$2`,[address,A]);
+   const ready=(await db.query<{ready:boolean}>(`select public._scanym_has_online_withdrawal_runtime_for_restaurant($1) as ready`,[A])).rows[0].ready;
+   assert.equal(ready,expected,`${table} worker mismatch for ${JSON.stringify(address)}`);
+   await db.query(`update ${table} set ${col}='contact@example.test' where restaurant_id=$1`,[A]);
+  }
+ }
+});
+test('R2 channel matrix follows dispatcher for every switch/platform/merchant combination',async()=>{
+ const db=await fixture();
+ for(const selected of [false,true])for(const platform of [false,true])for(const ready of [false,true]){
+  await db.query('update channel_flags set switch=$1,platform=$2',[selected,platform]);
+  await db.query('update merchant_email_provider_config set enabled=$1 where restaurant_id=$2',[ready,A]);
+  const actual=(await db.query<{ready:boolean}>(`select public._scanym_has_online_withdrawal_runtime_for_restaurant($1) as ready`,[A])).rows[0].ready;
+  assert.equal(actual,selected?ready:platform,JSON.stringify({selected,platform,ready}));
+ }
+});
+test('Existing v7 form placeholder block is reproduced unchanged on predecessor and candidate',async()=>{
+ const lot=readFileSync('supabase/DRAFT-lot-seller-legal-profile-cgv-engine-v2-5.sql','utf8');
+ const match=lot.match(/"withdrawal_model_form_text":\s*("(?:[^"\\]|\\.)*")/);
+ assert.ok(match);const form=JSON.parse(match[1]);assert.ok(form.includes('à compléter'));
+ for(const apply of [false,true]){
+  const db=await fixture(apply);await db.exec('update channel_flags set platform=true');
+  await refused(db,persist.replace('L. 217-1 à L. 217-32 vices cachés trente jours',`L. 217-1 à L. 217-32 vices cachés trente jours ${form.replaceAll("'","''")}`),/PLACEHOLDER_TEXT_DETECTED/);
+ }
+});

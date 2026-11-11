@@ -14,6 +14,7 @@ do $rollback$ declare actual jsonb; saved public.cgv_merchant_channel_guard_mani
  'defaults',(select jsonb_agg(to_jsonb(a) order by a.adnum) from pg_attrdef a where a.adrelid=c.oid),
  'indexes',(select to_jsonb(i) from pg_index i where i.indexrelid=c.oid),
  'dependencies',(select jsonb_agg(to_jsonb(d) order by d.classid,d.objid,d.objsubid,d.refclassid,d.refobjid,d.refobjsubid,d.deptype) from pg_depend d where (d.classid='pg_class'::regclass and d.objid=c.oid) or (d.refclassid='pg_class'::regclass and d.refobjid=c.oid)),
+ 'publicationMembership',(select jsonb_agg(to_jsonb(t) order by t.pubname) from pg_publication_tables t join pg_namespace n on n.oid=c.relnamespace where t.schemaname=n.nspname and t.tablename=c.relname),
  'comments',(select jsonb_agg(to_jsonb(d) order by d.objsubid) from pg_description d where d.classoid='pg_class'::regclass and d.objoid=c.oid),
  'policies',(select jsonb_agg(to_jsonb(p) order by p.oid) from pg_policy p where p.polrelid=c.oid),
  'triggers',(select jsonb_agg(to_jsonb(t) order by t.oid) from pg_trigger t where t.tgrelid=c.oid)
