@@ -29,6 +29,7 @@ import {
 } from "@/lib/legal/render";
 import CommercialTermsField, { isCustomCommercialTerms } from "@/components/dashboard/CommercialTermsField";
 import { parseCgvDocumentModel } from "@/lib/legal/cgv-document-model";
+import { getCgvWordDraft, type CgvWordDraftView } from "@/lib/services/cgv-word-draft";
 import { buildCgvDocx } from "@/lib/docx/docx-writer";
 import { readDocxDocument, DocxReadError } from "@/lib/docx/docx-reader";
 import { diffCgvDocxImport, CgvDocxDiffError, type CgvDocxDiffResult } from "@/lib/legal/cgv-docx-diff";
@@ -161,6 +162,8 @@ export default function LegalCgvPage() {
   });
   const [confirmRestore, setConfirmRestore] = useState<"cancellation" | "substitution" | null>(null);
 
+  // Historical W1 review state below. Word publication now uses the separate
+  // server-validated immutable draft path (cgv-word-draft service).
   // CGV W1 -- DOCX EXPORT / IMPORT ROUND-TRIP. Purely client-side,
   // purely in-memory review state -- nothing here is ever persisted
   // (see the file-header comment above this component for why). A
@@ -182,6 +185,12 @@ export default function LegalCgvPage() {
    * `handleSelectRestaurant` below -- the diff is only ever rendered
    * when `docxReviewRestaurantId === restaurantId` (see the JSX). */
   const [docxReviewRestaurantId, setDocxReviewRestaurantId] = useState<string | null>(null);
+  const [wordDraft, setWordDraft] = useState<(CgvWordDraftView & { restaurantId: string }) | null>(null);
+  const [wordFile, setWordFile] = useState<File | null>(null);
+  const [wordReviewBaseline, setWordReviewBaseline] = useState<string | null>(null);
+  const [wordDraftReadError, setWordDraftReadError] = useState(false);
+  const [wordPending, setWordPending] = useState(false);
+  const docxReadGeneration = useRef(0);
   const docxFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const t = (k: string, p?: Record<string, string | number>) => translate(uiLang, k, p);
@@ -199,12 +208,17 @@ export default function LegalCgvPage() {
     // légales précédentes cessent d'être affichables à l'instant même
     // du changement, sans attendre aucune réponse réseau.
     setLegalLoadedRestaurantId(null);
+    setWordDraft(null);
     setPageError(null);
     try {
-      const [legalRow, cgvRow, templateRow] = await Promise.all([
+      const [legalRow, cgvRow, templateRow, draftRow] = await Promise.all([
         getMerchantLegalProfile(id),
         getMerchantCgvProfile(id),
         supabase.rpc("get_applicable_cgv_template", { p_restaurant_id: id }),
+        getCgvWordDraft(id).then(
+          draft => ({ draft, error: false }),
+          () => ({ draft: null, error: true })
+        ),
       ]);
       if (!token.isCurrent()) return;
 
@@ -246,6 +260,8 @@ export default function LegalCgvPage() {
       // Commit ATOMIQUE : valeurs et provenance posées dans la même
       // passe de rendu -- elles ne peuvent jamais se contredire.
       setLegal(legalRow ?? {});
+      setWordDraft(draftRow.draft ? { ...draftRow.draft, restaurantId: id } : null);
+      setWordDraftReadError(draftRow.error);
       setCgv(cgvRow);
       setTemplate(tpl?.id ? { id: tpl.id, ...tpl.controlled_sections } : null);
       // STANDARD COMMERCIAL TERMS UX v1 -- rechargement (y compris
@@ -301,6 +317,10 @@ export default function LegalCgvPage() {
       // without this reset -- this reset's job is only to make the
       // CURRENTLY DISPLAYED state disappear immediately, synchronously,
       // never waiting for that in-flight promise to resolve.
+      setWordDraft(null);
+      setWordDraftReadError(false);
+      setWordFile(null);
+      setWordPending(false);
       setDocxImportBusy(false);
       setDocxImportErrorMessage(null);
       setDocxDiffResult(null);
@@ -544,7 +564,7 @@ export default function LegalCgvPage() {
   /** Conservé pour l'aperçu à l'écran (section 6) -- ne porte que le
    *  HTML rendu, jamais la raison d'échec (voir buildPreviewResult). */
   function buildPreview(): string | null {
-    return buildPreviewResult().html;
+    return wordDraft?.restaurantId === restaurantId && !wordDraft.stale ? wordDraft.html : buildPreviewResult().html;
   }
 
   function previewFailureMessage(reason: PreviewFailureReason): string {
@@ -624,7 +644,12 @@ export default function LegalCgvPage() {
    * already works for the other three mutations.
    */
   async function importCgvDocxFile(file: File) {
-    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
+    const operation = beginLegalCgvOperation();
+    const targetRestaurantId = operation.targetRestaurantId;
+    const generation = ++docxReadGeneration.current;
+    const isOperationCurrent = () => operation.isOperationCurrent() && docxReadGeneration.current === generation;
+    setWordPending(true);
+    setWordFile(null);
     setDocxImportBusy(true);
     setDocxImportErrorMessage(null);
     setDocxDiffResult(null);
@@ -641,11 +666,13 @@ export default function LegalCgvPage() {
       // toute analyse structurelle du contenu.
       if (!isOperationCurrent()) return;
       const imported = readDocxDocument(buffer);
-      const currentModel = parseCgvDocumentModel(previewForDiff.html);
+      const currentModel = parseCgvDocumentModel(wordDraft?.restaurantId === restaurantId && wordDraft.html ? wordDraft.html : previewForDiff.html);
       const diff = diffCgvDocxImport(currentModel, imported);
       // Garde 2 -- après le pipeline complet lecture+diff, AVANT tout
       // affichage du résultat.
       if (!isOperationCurrent()) return;
+      setWordReviewBaseline(previewForDiff.html);
+      setWordFile(file);
       setDocxDiffResult(diff);
       setDocxReviewRestaurantId(targetRestaurantId);
     } catch (e) {
@@ -696,7 +723,23 @@ export default function LegalCgvPage() {
    * explicite. W2-3 -- l'échec d'aperçu affiche désormais la raison
    * précise (buildPreviewResult) plutôt que le seul "profil incomplet".
    */
+  async function saveWordDraft() {
+    if (!wordFile || saving || wordDraftReadError || docxImportBusy || docxReviewRestaurantId !== restaurantId) return;
+    const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
+    setSaving(true);
+    try {
+      const draft = await getCgvWordDraft(targetRestaurantId, wordFile, wordReviewBaseline ?? undefined);
+      if (!isOperationCurrent()) return;
+      if (!draft) throw new Error("empty_draft");
+      setWordDraft({ ...draft, restaurantId: targetRestaurantId });
+      setWordPending(false); setWordFile(null); setDocxDiffResult(null);
+      setActionMessage(t("legalCgvWordSaved"));
+    } catch { if (isOperationCurrent()) setActionMessage(t("legalCgvWordSaveFailed")); }
+    finally { if (isOperationCurrent()) setSaving(false); }
+  }
+
   async function publish() {
+    if (wordDraftReadError || wordPending || docxImportBusy || wordDraft?.stale) { setActionMessage(t("legalCgvWordMustSave")); return; }
     if (!template) {
       setActionMessage(t("legalCgvNoTemplate"));
       return;
@@ -710,7 +753,7 @@ export default function LegalCgvPage() {
     setSaving(true);
     setActionMessage(null);
     try {
-      await publishMerchantCgvVersion({ restaurantId: targetRestaurantId });
+      await publishMerchantCgvVersion({ restaurantId: targetRestaurantId, ...(wordDraft?.restaurantId === targetRestaurantId ? { wordDraftId: wordDraft.id } : {}) });
       // Garde 1 -- après la mutation, AVANT toute relecture.
       if (!isOperationCurrent()) return;
       await load(targetRestaurantId);
@@ -743,6 +786,7 @@ export default function LegalCgvPage() {
    * de plus à faire ici pour W2-6, uniquement consommer le résultat.
    */
   async function activate() {
+    if (wordDraftReadError || wordPending || docxImportBusy || (wordDraft?.restaurantId === restaurantId && !wordDraft.published)) { setActionMessage(t("legalCgvWordMustPublish")); return; }
     const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
@@ -1048,7 +1092,7 @@ export default function LegalCgvPage() {
                 // client verra. Aucun contenu n'est modifié ici.
                 <div
                   className="cgv-document max-h-96 overflow-y-auto rounded-lg border p-3 text-sm"
-                  dangerouslySetInnerHTML={{ __html: previewResult.html }}
+                  dangerouslySetInnerHTML={{ __html: buildPreview() ?? previewResult.html }}
                 />
               ) : (
                 // W2-3 -- message distinct selon la raison réelle de
@@ -1083,7 +1127,7 @@ export default function LegalCgvPage() {
                   type="button"
                   data-testid="legal-cgv-docx-export"
                   disabled={previewResult.reason !== null}
-                  onClick={() => previewResult.reason === null && exportCgvDocx(previewResult.html)}
+                  onClick={() => previewResult.reason === null && exportCgvDocx(buildPreview() ?? previewResult.html)}
                   className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
                 >
                   {t("legalCgvDocxExport")}
@@ -1097,7 +1141,7 @@ export default function LegalCgvPage() {
                       accept=".docx"
                       data-testid="legal-cgv-docx-import-input"
                       className="hidden"
-                      disabled={docxImportBusy}
+                      disabled={docxImportBusy || saving}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) void importCgvDocxFile(file);
@@ -1106,6 +1150,15 @@ export default function LegalCgvPage() {
                   </label>
                 )}
               </div>
+              {wordDraftReadError && <p data-testid="legal-cgv-word-load-error" role="alert" className="text-sm text-red-700">{t("legalCgvWordLoadFailed")}</p>}
+              {wordDraft?.restaurantId === restaurantId && (
+                <p data-testid="legal-cgv-word-status" className="text-sm text-stone-700">{t(wordDraft.stale ? "legalCgvWordStale" : wordDraft.published ? "legalCgvWordPublished" : "legalCgvWordSaved")}</p>
+              )}
+              {wordPending && <p className="text-sm text-amber-800">{t("legalCgvWordMustSave")}</p>}
+              {wordFile && docxReviewRestaurantId === restaurantId && canEdit && (
+                <button type="button" data-testid="legal-cgv-word-save" disabled={saving || wordDraftReadError || docxImportBusy} onClick={saveWordDraft} className="rounded-xl bg-stone-900 px-4 py-2 font-bold text-white disabled:opacity-50">{t("legalCgvWordSave")}</button>
+              )}
+              {wordPending && <button type="button" data-testid="legal-cgv-word-discard" disabled={saving} onClick={() => { docxReadGeneration.current += 1; setDocxImportBusy(false); setWordPending(false); setWordFile(null); setDocxDiffResult(null); setDocxImportErrorMessage(null); }}>{t("legalCgvWordDiscard")}</button>}
               {previewResult.reason !== null && (
                 <p className="text-xs text-stone-500">{t("legalCgvDocxExportUnavailable")}</p>
               )}
@@ -1232,11 +1285,11 @@ export default function LegalCgvPage() {
                       get_applicable_cgv_template" (templateRow.error,
                       voir load()) : dans les deux cas, publier n'a pas
                       de sens tant qu'aucun modèle n'est en mémoire. */}
-                  <button data-testid="legal-cgv-publish" disabled={saving || cgv.completeness_errors.length > 0 || !template} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                  <button data-testid="legal-cgv-publish" disabled={saving || wordDraftReadError || wordPending || docxImportBusy || !!wordDraft?.stale || cgv.completeness_errors.length > 0 || !template} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                     {t("legalCgvPublish")}
                   </button>
                   {cgv.status !== "CGV_ACTIVE" && (
-                    <button data-testid="legal-cgv-activate" disabled={saving || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                    <button data-testid="legal-cgv-activate" disabled={saving || wordDraftReadError || wordPending || docxImportBusy || !!(wordDraft?.restaurantId === restaurantId && !wordDraft.published) || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                       {t("legalCgvActivate")}
                     </button>
                   )}

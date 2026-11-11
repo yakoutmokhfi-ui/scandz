@@ -163,7 +163,7 @@ export class PublishCgvError extends Error {
  */
 const PUBLISH_ROUTE = "/api/dashboard/legal-cgv/publish";
 
-export async function publishMerchantCgvVersion(params: { restaurantId: string }): Promise<MerchantCgvVersion> {
+export async function publishMerchantCgvVersion(params: { restaurantId: string; wordDraftId?: string }): Promise<MerchantCgvVersion> {
   const session = await getSession();
   const accessToken = session?.access_token;
   if (!accessToken) {
@@ -178,7 +178,7 @@ export async function publishMerchantCgvVersion(params: { restaurantId: string }
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ restaurantId: params.restaurantId }),
+      body: JSON.stringify({ restaurantId: params.restaurantId, ...(params.wordDraftId ? { wordDraftId: params.wordDraftId } : {}) }),
     });
   } catch {
     throw new PublishCgvError("unavailable");
