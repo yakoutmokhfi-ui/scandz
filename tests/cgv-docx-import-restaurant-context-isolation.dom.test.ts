@@ -170,7 +170,7 @@ export async function getMerchantCgvProfile(restaurantId) {
   const fallback = (globalThis).__cgvFallback?.[restaurantId];
   return fallback ?? null;
 }
-export async function updateMerchantLegalProfile() {}
+export async function updateMerchantLegalProfile(params) { return globalThis.__saveLegalHandler?.(params); }
 export async function updateMerchantCgvProfile() {}
 export async function publishMerchantCgvVersion(params) { return globalThis.__wordPublishHandler?.(params); }
 export async function activateMerchantCgv() {}
@@ -450,11 +450,32 @@ test("WORD-PUB-04: late save for A never appears under B",async()=>{
 });
 
 test("WORD-PUB-05: read failure cannot offer old text for activation",async()=>{
- (globalThis as any).__wordDraftHandler=async()=>{throw Error("read failure");};const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-page-error"]')!==null);assert.equal(container.querySelector('[data-testid="legal-cgv-publish"]'),null);assert.equal(container.querySelector('[data-testid="legal-cgv-activate"]'),null);}finally{root.unmount();container.remove();resetWord();}
+ (globalThis as any).__wordDraftHandler=async()=>{throw Error("read failure");};const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-word-load-error"]')!==null);assert.equal(button(container,"legal-cgv-publish").disabled,true);assert.equal(button(container,"legal-cgv-save-legal").disabled,false);assert.equal(container.querySelector('[data-testid="legal-cgv-page-error"]'),null);}finally{root.unmount();container.remove();resetWord();}
 });
 
 test("WORD-PUB-06: two file reads in one establishment cannot restore the older import",async()=>{
  const {container,root}=render();try{await waitFor(()=>container.querySelector('[data-testid="legal-cgv-docx-import-input"]')!==null);const old=makeDeferred<ArrayBuffer>(),latest=makeDeferred<ArrayBuffer>();triggerImport(container,new ControlledFile(old));triggerImport(container,new ControlledFile(latest));latest.resolve(markerDocx("LATEST-READ"));await waitFor(()=>container.textContent!.includes("LATEST-READ"));old.resolve(markerDocx("OLD-READ"));await flush(40);assert.ok(container.textContent!.includes("LATEST-READ"));assert.ok(!container.textContent!.includes("OLD-READ"));}finally{root.unmount();container.remove();resetWord();}
+});
+
+
+test("R2-P1 incomplete address and failed draft read keep editable forms and allow recovery",async()=>{
+ const legal=(globalThis as any).__legalFallback["resto-a"],cgv=(globalThis as any).__cgvFallback["resto-a"];
+ const previous={...legal},errors=cgv.completeness_errors;
+ delete legal.address_line1;cgv.completeness_errors=["address_line1"];
+ let saved:any=null;
+ (globalThis as any).__wordDraftHandler=async()=>{if(!legal.address_line1)throw Error("CGV_INCOMPLETE");return null;};
+ (globalThis as any).__saveLegalHandler=async(p:any)=>{saved=p;legal.address_line1=p.addressLine1;cgv.completeness_errors=[];};
+ const {container,root}=render();try{
+  await waitFor(()=>container.querySelector('[data-testid="legal-cgv-save-legal"]')!==null);
+  assert.equal(button(container,"legal-cgv-save-legal").disabled,false);
+  assert.equal(button(container,"legal-cgv-save-cgv").disabled,false);
+  assert.equal(button(container,"legal-cgv-publish").disabled,true);
+  const input=Array.from(container.querySelectorAll('input')).find(el=>el.placeholder.startsWith('Adresse'))!;assert.ok(input);assert.equal(input.disabled,false);
+  const key=Object.keys(input).find(k=>k.startsWith('__reactProps$'))!;
+  (input as any)[key].onChange({target:{value:"1 rue Complete"}});await flush();
+  button(container,"legal-cgv-save-legal").click();await waitFor(()=>saved!==null && !button(container,"legal-cgv-publish").disabled);
+  assert.equal(saved.addressLine1,"1 rue Complete");assert.equal(container.querySelector('[data-testid="legal-cgv-word-load-error"]'),null);
+ }finally{root.unmount();container.remove();resetWord();delete (globalThis as any).__saveLegalHandler;(globalThis as any).__legalFallback["resto-a"]=previous;cgv.completeness_errors=errors;}
 });
 
 after(async () => {

@@ -188,6 +188,7 @@ export default function LegalCgvPage() {
   const [wordDraft, setWordDraft] = useState<(CgvWordDraftView & { restaurantId: string }) | null>(null);
   const [wordFile, setWordFile] = useState<File | null>(null);
   const [wordReviewBaseline, setWordReviewBaseline] = useState<string | null>(null);
+  const [wordDraftReadError, setWordDraftReadError] = useState(false);
   const [wordPending, setWordPending] = useState(false);
   const docxReadGeneration = useRef(0);
   const docxFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -214,7 +215,10 @@ export default function LegalCgvPage() {
         getMerchantLegalProfile(id),
         getMerchantCgvProfile(id),
         supabase.rpc("get_applicable_cgv_template", { p_restaurant_id: id }),
-        getCgvWordDraft(id),
+        getCgvWordDraft(id).then(
+          draft => ({ draft, error: false }),
+          () => ({ draft: null, error: true })
+        ),
       ]);
       if (!token.isCurrent()) return;
 
@@ -256,7 +260,8 @@ export default function LegalCgvPage() {
       // Commit ATOMIQUE : valeurs et provenance posées dans la même
       // passe de rendu -- elles ne peuvent jamais se contredire.
       setLegal(legalRow ?? {});
-      setWordDraft(draftRow ? { ...draftRow, restaurantId: id } : null);
+      setWordDraft(draftRow.draft ? { ...draftRow.draft, restaurantId: id } : null);
+      setWordDraftReadError(draftRow.error);
       setCgv(cgvRow);
       setTemplate(tpl?.id ? { id: tpl.id, ...tpl.controlled_sections } : null);
       // STANDARD COMMERCIAL TERMS UX v1 -- rechargement (y compris
@@ -313,6 +318,7 @@ export default function LegalCgvPage() {
       // CURRENTLY DISPLAYED state disappear immediately, synchronously,
       // never waiting for that in-flight promise to resolve.
       setWordDraft(null);
+      setWordDraftReadError(false);
       setWordFile(null);
       setWordPending(false);
       setDocxImportBusy(false);
@@ -718,7 +724,7 @@ export default function LegalCgvPage() {
    * précise (buildPreviewResult) plutôt que le seul "profil incomplet".
    */
   async function saveWordDraft() {
-    if (!wordFile || saving || docxImportBusy || docxReviewRestaurantId !== restaurantId) return;
+    if (!wordFile || saving || wordDraftReadError || docxImportBusy || docxReviewRestaurantId !== restaurantId) return;
     const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     try {
@@ -733,7 +739,7 @@ export default function LegalCgvPage() {
   }
 
   async function publish() {
-    if (wordPending || docxImportBusy || wordDraft?.stale) { setActionMessage(t("legalCgvWordMustSave")); return; }
+    if (wordDraftReadError || wordPending || docxImportBusy || wordDraft?.stale) { setActionMessage(t("legalCgvWordMustSave")); return; }
     if (!template) {
       setActionMessage(t("legalCgvNoTemplate"));
       return;
@@ -780,7 +786,7 @@ export default function LegalCgvPage() {
    * de plus à faire ici pour W2-6, uniquement consommer le résultat.
    */
   async function activate() {
-    if (wordPending || docxImportBusy || (wordDraft?.restaurantId === restaurantId && !wordDraft.published)) { setActionMessage(t("legalCgvWordMustPublish")); return; }
+    if (wordDraftReadError || wordPending || docxImportBusy || (wordDraft?.restaurantId === restaurantId && !wordDraft.published)) { setActionMessage(t("legalCgvWordMustPublish")); return; }
     const { targetRestaurantId, isOperationCurrent } = beginLegalCgvOperation();
     setSaving(true);
     setActionMessage(null);
@@ -1144,12 +1150,13 @@ export default function LegalCgvPage() {
                   </label>
                 )}
               </div>
+              {wordDraftReadError && <p data-testid="legal-cgv-word-load-error" role="alert" className="text-sm text-red-700">{t("legalCgvWordLoadFailed")}</p>}
               {wordDraft?.restaurantId === restaurantId && (
                 <p data-testid="legal-cgv-word-status" className="text-sm text-stone-700">{t(wordDraft.stale ? "legalCgvWordStale" : wordDraft.published ? "legalCgvWordPublished" : "legalCgvWordSaved")}</p>
               )}
               {wordPending && <p className="text-sm text-amber-800">{t("legalCgvWordMustSave")}</p>}
               {wordFile && docxReviewRestaurantId === restaurantId && canEdit && (
-                <button type="button" data-testid="legal-cgv-word-save" disabled={saving || docxImportBusy} onClick={saveWordDraft} className="rounded-xl bg-stone-900 px-4 py-2 font-bold text-white disabled:opacity-50">{t("legalCgvWordSave")}</button>
+                <button type="button" data-testid="legal-cgv-word-save" disabled={saving || wordDraftReadError || docxImportBusy} onClick={saveWordDraft} className="rounded-xl bg-stone-900 px-4 py-2 font-bold text-white disabled:opacity-50">{t("legalCgvWordSave")}</button>
               )}
               {wordPending && <button type="button" data-testid="legal-cgv-word-discard" disabled={saving} onClick={() => { docxReadGeneration.current += 1; setDocxImportBusy(false); setWordPending(false); setWordFile(null); setDocxDiffResult(null); setDocxImportErrorMessage(null); }}>{t("legalCgvWordDiscard")}</button>}
               {previewResult.reason !== null && (
@@ -1278,11 +1285,11 @@ export default function LegalCgvPage() {
                       get_applicable_cgv_template" (templateRow.error,
                       voir load()) : dans les deux cas, publier n'a pas
                       de sens tant qu'aucun modèle n'est en mémoire. */}
-                  <button data-testid="legal-cgv-publish" disabled={saving || wordPending || docxImportBusy || !!wordDraft?.stale || cgv.completeness_errors.length > 0 || !template} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                  <button data-testid="legal-cgv-publish" disabled={saving || wordDraftReadError || wordPending || docxImportBusy || !!wordDraft?.stale || cgv.completeness_errors.length > 0 || !template} onClick={publish} className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                     {t("legalCgvPublish")}
                   </button>
                   {cgv.status !== "CGV_ACTIVE" && (
-                    <button data-testid="legal-cgv-activate" disabled={saving || wordPending || docxImportBusy || !!(wordDraft?.restaurantId === restaurantId && !wordDraft.published) || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+                    <button data-testid="legal-cgv-activate" disabled={saving || wordDraftReadError || wordPending || docxImportBusy || !!(wordDraft?.restaurantId === restaurantId && !wordDraft.published) || cgv.status !== "CGV_READY"} onClick={activate} className="rounded-xl bg-[#25D366] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                       {t("legalCgvActivate")}
                     </button>
                   )}

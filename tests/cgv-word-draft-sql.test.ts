@@ -1,6 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { readCgvWordActualState, assertCgvWordActualStateUnchanged } from "./helpers/cgv-word-catalog-snapshot.ts";
 import { PGlite } from "@electric-sql/pglite";
 const install = readFileSync("supabase/DRAFT-lot-cgv-word-draft-v1.sql","utf8");
 const rollback = readFileSync("supabase/DRAFT-lot-cgv-word-draft-v1-rollback.sql","utf8");
@@ -10,7 +11,7 @@ after(async () => { if(shared) await shared.close(); });
 async function fixture() {
  if(!shared) { shared = new PGlite(); await shared.exec('create role anon;create role authenticated;create role service_role;'); }
  const db=shared;
- await db.exec('rollback;drop schema if exists public cascade;create schema public;drop schema if exists auth cascade;create schema auth;');
+ await db.exec('rollback;drop publication if exists third_party_pub;drop schema if exists public cascade;create schema public;drop schema if exists auth cascade;create schema auth;');
  await db.exec(`
  create function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.uid',true),'')::uuid$$;
  create table restaurants(id uuid primary key);create table merchant_legal_profile(restaurant_id uuid);
@@ -61,5 +62,21 @@ for(const [name,mutation] of [
  ['policy',`create policy third_party on merchant_cgv_word_draft using(true)`],
  ['third-party function',`create function external_consumer() returns bigint language plpgsql as $$begin return (select count(*) from public.merchant_cgv_word_draft);end$$`],
  ['third-party procedure',`create procedure external_consumer() language plpgsql as $$begin perform public.get_merchant_cgv_word_draft(null,null);end$$`],
+ ['extended statistics',`create statistics third_party_stats on created_by,created_at from merchant_cgv_word_draft`],
+ ['owned sequence',`create sequence third_party_seq owned by merchant_cgv_word_draft.created_by`],
+ ['publication membership',`create publication third_party_pub for table merchant_cgv_word_draft`],
+ ['column comment',`comment on column merchant_cgv_word_draft.created_by is 'third-party metadata'`],
  ['manifest constraint',`alter table cgv_word_draft_install_manifest add constraint third_party check(snapshot is not null)`],
-] as const) test(`Rollback refuses drift: ${name}`,async()=>{const db=await fixture();try{await db.exec(mutation);const before=(await db.query('select snapshot from cgv_word_draft_install_manifest')).rows;await refused(db,rollback,/SCANYM_ROLLBACK_DRIFT/);assert.deepEqual((await db.query('select snapshot from cgv_word_draft_install_manifest')).rows,before);assert.ok((await db.query<{x:string}>(`select to_regclass('merchant_cgv_word_draft') as x`)).rows[0].x);}finally{/* isolated schema reset by next fixture; one WASM engine per file */}});
+] as const) test(`Rollback refuses drift: ${name}`,async()=>{const db=await fixture();try{await db.exec(mutation);const before=await readCgvWordActualState(db);await refused(db,rollback,/SCANYM_ROLLBACK_DRIFT/);await assertCgvWordActualStateUnchanged(db,before);assert.ok((await db.query<{x:string}>(`select to_regclass('merchant_cgv_word_draft') as x`)).rows[0].x);}finally{/* isolated schema reset by next fixture; one WASM engine per file */}});
+
+
+test("R2-P3 independent oracle detects a committed DEFAULT followed by the expected error",async()=>{
+ const db=await fixture();const before=await readCgvWordActualState(db);
+ const stored=(await db.query('select snapshot from cgv_word_draft_install_manifest')).rows;
+ const faulty=`begin;alter table public.merchant_cgv_word_draft alter column created_at set default (now()+interval '1 day');commit;do $$begin raise exception 'SCANYM_ROLLBACK_DRIFT';end$$;`;
+ await refused(db,faulty,/SCANYM_ROLLBACK_DRIFT/);
+ // The old assertions still pass despite the persisted mutation.
+ assert.deepEqual((await db.query('select snapshot from cgv_word_draft_install_manifest')).rows,stored);
+ assert.ok((await db.query<{x:string}>("select to_regclass('merchant_cgv_word_draft') as x")).rows[0].x);
+ await assert.rejects(()=>assertCgvWordActualStateUnchanged(db,before),/actual catalog\/data: defaults/);
+});

@@ -69,6 +69,9 @@ revoke all on public.cgv_word_draft_install_manifest from public,anon,authentica
 
 insert into public.cgv_word_draft_install_manifest(identity,snapshot) select true,jsonb_build_object(
  'relations',(select jsonb_agg(jsonb_build_object('catalog',to_jsonb(c)-'reltuples'-'relpages'-'relallvisible'-'relfrozenxid'-'relminmxid',
+   'descriptions',(select jsonb_agg(to_jsonb(d) order by d.objsubid) from pg_description d where d.classoid='pg_class'::regclass and d.objoid=c.oid),
+   'dependencies',(select jsonb_agg(to_jsonb(d) order by d.classid,d.objid,d.objsubid,d.refclassid,d.refobjid,d.refobjsubid,d.deptype) from pg_depend d where (d.refclassid='pg_class'::regclass and d.refobjid=c.oid) or (d.classid='pg_class'::regclass and d.objid=c.oid)),
+   'publicationMembership',(select jsonb_agg(to_jsonb(t) order by t.pubname) from pg_publication_tables t join pg_namespace ns on ns.oid=c.relnamespace where t.schemaname=ns.nspname and t.tablename=c.relname),
    'columns',(select jsonb_agg(to_jsonb(a) order by a.attnum) from pg_attribute a where a.attrelid=c.oid and a.attnum>0),
    'constraints',(select jsonb_agg(jsonb_build_object('catalog',to_jsonb(k),'def',pg_get_constraintdef(k.oid)) order by k.conname) from pg_constraint k where k.conrelid=c.oid),
    'index',(select to_jsonb(ix) from pg_index ix where ix.indexrelid=c.oid),

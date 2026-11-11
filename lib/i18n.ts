@@ -43,6 +43,7 @@ export function dirOf(
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  legalCgvWordLoadFailed: "Le brouillon Word n’a pas pu être chargé. Vous pouvez compléter et enregistrer vos réglages. Publication et activation restent bloquées jusqu’à une lecture réussie.",
   legalCgvWordSave: "Enregistrer le Word comme brouillon",
   legalCgvWordSaved: "Brouillon Word enregistré. Vérifiez l’aperçu, puis publiez cette version.",
   legalCgvWordPublished: "Le texte du brouillon Word correspond à la dernière version publiée.",
@@ -1680,6 +1681,7 @@ const fr: Dict = {
 };
 
 const en: Dict = {
+  legalCgvWordLoadFailed: "The Word draft could not be loaded. You can complete and save your settings. Publishing and activation remain blocked until it loads successfully.",
   legalCgvWordSave: "Save Word as a draft",
   legalCgvWordSaved: "Word draft saved. Check the preview, then publish this version.",
   legalCgvWordPublished: "The Word draft matches the latest published version.",
@@ -3153,6 +3155,7 @@ const en: Dict = {
 
 // Arabe littéraire (arabe standard moderne).
 const ar: Dict = {
+  legalCgvWordLoadFailed: "تعذر تحميل مسودة Word. يمكنك إكمال الإعدادات وحفظها. يبقى النشر والتفعيل محظورين حتى نجاح التحميل.",
   legalCgvWordSave: "حفظ ملف Word كمسودة",
   legalCgvWordSaved: "تم حفظ المسودة. راجع المعاينة ثم انشر هذه النسخة.",
   legalCgvWordPublished: "المسودة تطابق آخر نسخة منشورة.",
@@ -4660,6 +4663,7 @@ const ar: Dict = {
  * clé).
  */
 const nl: Dict = {
+  legalCgvWordLoadFailed: "Het Word-concept kon niet worden geladen. U kunt de instellingen aanvullen en opslaan. Publicatie en activering blijven geblokkeerd totdat het laden lukt.",
   legalCgvSectionDocxRoundtrip: "Word exporteren / importeren",
   legalCgvDocxImportHint: "Importeer, controleer de verschillen en sla Word als concept op. Controleer het voorbeeld voordat u in sectie 7 publiceert. Behoud de koppen, hoofdstukvolgorde en het garantieblok.",
   legalCgvWordSave: "Word als concept opslaan",

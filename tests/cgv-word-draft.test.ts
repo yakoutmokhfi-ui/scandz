@@ -88,3 +88,15 @@ test("Word HTTP permission errors are explicit and sanitized",async t=>{
 });
 
 test("Review-to-save settings drift rejects before draft insertion",async t=>{let calls=0;mock(t,async()=>{calls++;return{data:ctx};});await assert.rejects(()=>cgvWordDraft("token","r1",new ArrayBuffer(0),"wrong-review-hash"),/stale_context/);assert.equal(calls,1);});
+
+
+test("R2-P1 empty draft read does not require a publishable legal profile", async t => {
+  const calls: string[] = [];
+  mock(t, async (name: string) => { calls.push(name); return name === "get_merchant_cgv_word_draft" ? { data: null } : { error: { code: "P0001", message: "CGV_INCOMPLETE: address_line1" } }; });
+  assert.equal(await cgvWordDraft("token", "r1"), null);
+  assert.deepEqual(calls, ["get_merchant_cgv_word_draft"]);
+});
+test("R2-P1 existing draft with incomplete profile is stale without hiding profile fields", async t => {
+  mock(t, async (name: string) => name === "get_merchant_cgv_word_draft" ? { data: row() } : { error: { code: "P0001", message: "CGV_INCOMPLETE: address_line1" } });
+  assert.deepEqual(await cgvWordDraft("token", "r1"), { id: "draft-a", html: null, stale: true, published: false });
+});
