@@ -416,6 +416,10 @@ function installBackend(
       // tenant-safe, une fois par montage), pas des appels inattendus.
       case "get_restaurant_public_communication_texts":
         return { data: [], error: null };
+      // #197/#203 : lecture publique de l'aide traduisible, sans texte
+      // personnalisé dans cette fixture. Les RPC inconnues restent refusées.
+      case "get_restaurant_public_order_help_texts":
+        return { data: [], error: null };
       // CSDJ-2 / #158 -- lecture PUBLIQUE des dates et créneaux du checkout
       // (get_checkout_fulfillment_schedule, CSDJ-1, tenant-safe), faite par
       // MenuView dès qu'un mode retrait/livraison est choisi et le panier
