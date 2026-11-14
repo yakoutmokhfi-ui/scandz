@@ -8,6 +8,7 @@ import { resolveMerchantSmtpProvider } from "@/lib/server/notifications/merchant
 import { isRealEmailSendActivated } from "@/lib/server/notifications/real-email-activation-gate";
 import type { EmailProvider } from "@/lib/server/notifications/email-provider";
 import type { RunBudget } from "@/lib/server/notifications/run-budget";
+import { loadInvoiceBranding, type InvoiceBranding } from "@/lib/server/invoices/branding";
 import { SMTP_SESSION_TOTAL_TIMEOUT_MS } from "@/lib/server/ack-mailer";
 
 export const invoicePdfEnabled = () =>
@@ -25,6 +26,7 @@ export interface InvoiceDocument {
 export interface InvoiceDeps {
   client?: SupabaseClient;
   render?: typeof renderInvoicePdf;
+  branding?: (restaurantId: string, client: SupabaseClient) => Promise<InvoiceBranding>;
   provider?: (restaurantId: string) => Promise<EmailProvider | null>;
 }
 class InvoiceSourceRejected extends Error {
@@ -98,6 +100,7 @@ export async function prepareInvoice(
       d.source,
       d.invoice_number,
       d.issued_at,
+      await (deps.branding ?? loadInvoiceBranding)(d.restaurant_id, client),
     );
     const stored = await client.rpc("invoice_pdf_store", {
       p_invoice_id: d.id,
@@ -172,37 +175,7 @@ export async function sendInvoice(
   return accepted ? "accepted" : "failed";
 }
 
-export async function runInvoiceWorker(
-  budget: RunBudget,
-  deps: InvoiceDeps = {},
-) {
-  if (!invoicePdfEnabled() || !isRealEmailSendActivated())
-    return { status: "disabled" };
-  if (budget.remainingMs() < SMTP_SESSION_TOTAL_TIMEOUT_MS + 10000)
-    return { status: "deferred" };
-  const client = deps.client ?? getServiceRoleSupabaseClient();
-  const candidates = await client.rpc("invoice_pdf_candidates");
-  if (candidates.error) return { status: "unavailable" };
-  const counts: Record<string, number> = {};
-  for (const row of (candidates.data ?? []).slice(0, 2)) {
-    if (budget.remainingMs() < SMTP_SESSION_TOTAL_TIMEOUT_MS + 10000) break;
-    try {
-      const d = await prepareInvoice(row.order_id, { ...deps, client });
-      const result = await sendInvoice(d, d.id, { ...deps, client }, budget);
-      counts[result] = (counts[result] ?? 0) + 1;
-    } catch (error) {
-      counts.blocked = (counts.blocked ?? 0) + 1;
-      if (error instanceof InvoiceSourceRejected) {
-        try {
-          await client.rpc("invoice_pdf_block", {
-            p_order_id: row.order_id,
-            p_expected_source: error.source,
-          });
-        } catch {
-          /* next run may retry */
-        }
-      }
-    }
-  }
-  return { status: "processed", counts };
+/** Legacy entry point deliberately inert: generation and sending require a merchant click. */
+export async function runInvoiceWorker(_budget: RunBudget, _deps: InvoiceDeps = {}) {
+  return { status: "manual_only" };
 }

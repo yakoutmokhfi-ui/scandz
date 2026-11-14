@@ -1,3 +1,5 @@
+> Évolution manuelle : voir [manual-invoice-merchant-template.md](manual-invoice-merchant-template.md). La description ci-dessous conserve l’historique de #225 ; le cron de factures et l’envoi automatique décrits ici ne sont plus actifs dans le nouveau code.
+
 # Facture PDF A4 v1 — développement, non activé
 
 ## Périmètre

@@ -17,7 +17,7 @@ test("invoice cron authenticates before inspecting gates", async () => {
       401,
     );
 });
-test("invoice generation disabled by default, no SQL or SMTP needed", async () => {
+test("legacy invoice cron is inert, no SQL or SMTP needed", async () => {
   process.env.CRON_SECRET = "synthetic-cron";
   delete process.env.INVOICE_PDF_ENABLED;
   const response = await GET(
@@ -26,13 +26,13 @@ test("invoice generation disabled by default, no SQL or SMTP needed", async () =
     }),
   );
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "disabled" });
+  assert.deepEqual(await response.json(), { status: "manual_only" });
 });
-test("independent two-minute invoice cron; existing notification/Monetico cadence untouched", () => {
+test("invoice cron removed; existing notification/Monetico cadence untouched", () => {
   const crons = JSON.parse(readFileSync("vercel.json", "utf8")).crons;
   assert.equal(
-    crons.find((c: any) => c.path === "/api/internal/invoices/send").schedule,
-    "*/2 * * * *",
+    crons.some((c: any) => c.path === "/api/internal/invoices/send"),
+    false,
   );
   assert.equal(
     crons.find((c: any) => c.path === "/api/internal/notifications/send")
@@ -44,4 +44,16 @@ test("independent two-minute invoice cron; existing notification/Monetico cadenc
       .schedule,
     "*/5 * * * *",
   );
+});
+
+test("legacy cron remains inert even when invoice/mail gates are enabled", async () => {
+  process.env.CRON_SECRET = "synthetic-cron";
+  process.env.INVOICE_PDF_ENABLED = "true";
+  process.env.NOTIFICATION_EMAIL_LIVE_ACTIVATION_ENABLED = "true";
+  const r = await GET(
+    new NextRequest("http://localhost/api/internal/invoices/send", {
+      headers: { authorization: "Bearer synthetic-cron" },
+    }),
+  );
+  assert.deepEqual(await r.json(), { status: "manual_only" });
 });

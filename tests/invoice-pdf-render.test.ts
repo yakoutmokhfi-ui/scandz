@@ -51,10 +51,44 @@ test("reject malformed invoice number before rendering", async () => {
 });
 test("FACTURER À : le SIRET d'un client entreprise est affiché, libellé SIRET", () => {
   const s = invoiceFixture();
-  s.buyer = { ...s.buyer, name: "Société cliente SARL", company: true, vat: "FR00000000000", registration: "12345678900012" };
+  s.buyer = {
+    ...s.buyer,
+    name: "Société cliente SARL",
+    company: true,
+    vat: "FR00000000000",
+    registration: "12345678900012",
+  };
   const lines = buyerLines(s);
   assert.ok(lines.includes("SIRET : 12345678900012"));
   assert.ok(lines.includes("TVA : FR00000000000"));
   const p = invoiceFixture();
-  assert.equal(buyerLines(p).some((l) => l.startsWith("SIRET") || l.startsWith("Immatriculation")), false, "particulier sans identifiant : rien d'inventé");
+  assert.equal(
+    buyerLines(p).some(
+      (l) => l.startsWith("SIRET") || l.startsWith("Immatriculation"),
+    ),
+    false,
+    "particulier sans identifiant : rien d'inventé",
+  );
+});
+
+test("merchant raster logo is embedded, while invalid logo falls back to merchant name", async () => {
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwl8AAAAASUVORK5CYII=",
+    "base64",
+  );
+  const pdf = await renderInvoicePdf(
+    invoiceFixture(),
+    "FAC-DEMO-2026-000003",
+    "2026-11-14T10:00:00Z",
+    { logo: png, phone: "+33 1 23 45 67 89" },
+  );
+  assert.ok(/\/Subtype \/Image/.test(pdf.toString("latin1")), "configured logo must be embedded");
+  assert.equal(pages(pdf), 1);
+  const fallback = await renderInvoicePdf(
+    invoiceFixture(),
+    "FAC-DEMO-2026-000004",
+    "2026-11-14T10:00:00Z",
+    { logo: Buffer.from("not an image"), phone: null },
+  );
+  assert.equal(pages(fallback), 1);
 });
