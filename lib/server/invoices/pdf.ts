@@ -1,7 +1,11 @@
 import "server-only";
 import PDFDocument from "pdfkit";
 import path from "node:path";
-import { validateInvoiceSource, type InvoiceSource } from "@/lib/server/invoices/model";
+import type { InvoiceBranding } from "@/lib/server/invoices/branding";
+import {
+  validateInvoiceSource,
+  type InvoiceSource,
+} from "@/lib/server/invoices/model";
 
 /** No URLs, tracking capability or mutable catalogue data enter this renderer. */
 /** Lines of the "FACTURER À" block. A company buyer's identifier is the SIRET captured at checkout. */
@@ -20,6 +24,7 @@ export async function renderInvoicePdf(
   input: unknown,
   number: string,
   issuedAt: string,
+  branding: InvoiceBranding = { logo: null, phone: null },
 ): Promise<Buffer> {
   const { source: s, fiscal, lines } = validateInvoiceSource(input);
   if (
@@ -45,133 +50,197 @@ export async function renderInvoicePdf(
     doc.on("error", reject);
   });
   doc.font(path.join(process.cwd(), "assets/invoices/DejaVuSans.ttf"));
-  const width = 507;
+  const x = 44,
+    w = 507,
+    bottom = 748,
+    grey = "#e4e4e4",
+    ink = "#171717";
   const eur = (n: number, digits = 2) =>
     new Intl.NumberFormat("fr-FR", {
       minimumFractionDigits: 2,
       maximumFractionDigits: digits,
     })
       .format(n)
-      .replace(/[\u202f\u00a0]/g, " ") + " EUR";
+      .replace(/[\u202f\u00a0]/g, " ") + " €";
   const date = (d: string) =>
     new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris" }).format(
       new Date(d),
     );
-  const text = (v: string, size = 10) => {
-    doc.fillColor("#292524").fontSize(size).text(v, 44, doc.y, { width });
-    doc.moveDown(0.4);
+  const text = (v: string, px: number, py: number, width: number, size = 9) => {
+    doc.fillColor(ink).fontSize(size).text(v, px, py, { width, lineGap: 3 });
   };
-  const space = (h: number) => {
-    if (doc.y + h > 755) {
-      doc.addPage();
-      doc.y = 44;
-    }
+  const height = (v: string, width: number, size = 9) => {
+    doc.fontSize(size);
+    return doc.heightOfString(v, { width, lineGap: 3 });
+  };
+  const rect = (
+    px: number,
+    py: number,
+    width: number,
+    h: number,
+    fill?: string,
+  ) => {
+    doc.save();
+    if (fill) doc.rect(px, py, width, h).fill(fill);
+    doc.rect(px, py, width, h).lineWidth(0.5).strokeColor("#aaa").stroke();
+    doc.restore();
+  };
+  let y = 44;
+  const page = () => {
+    doc.addPage();
+    y = 60;
+    text(`${s.seller.name} - Facture ${number} (suite)`, x, 36, w, 9);
+  };
+  const ensure = (h: number) => {
+    if (y + h > bottom) page();
   };
   try {
-    doc.rect(44, 44, 507, 4).fill("#A4631A");
-    doc.y = 65;
-    text(s.seller.name, 21);
-    text("FACTURE ACQUITTÉE", 14);
-    text(
-      `${number}  |  Émise le ${date(issuedAt)}  |  Commande SC-${s.order.order_number}`,
+    let logoHeight = 0;
+    if (branding.logo && branding.logo.length <= 512000) {
+      try {
+        const image = (
+          doc as unknown as {
+            openImage(b: Buffer): { width: number; height: number };
+          }
+        ).openImage(branding.logo);
+        if (
+          image.width <= 2000 &&
+          image.height <= 2000 &&
+          image.width > 0 &&
+          image.height > 0
+        ) {
+          doc.image(branding.logo, x + 10, y + 10, { fit: [86, 86] });
+          logoHeight = 96;
+        }
+      } catch {
+        /* Missing or unsupported logo: use the merchant name. */
+      }
+    }
+    if (!logoHeight) {
+      text(s.seller.name, x + 10, y + 12, 265, 17);
+      logoHeight = height(s.seller.name, 265, 17) + 22;
+    }
+    const contact = [
+      s.seller.address,
+      branding.phone ? `Tél. : ${branding.phone}` : null,
+      s.seller.email,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const contactHeight = height(contact, 265);
+    const headerHeight = Math.max(156, logoHeight + contactHeight + 20);
+    text(contact, x + 10, y + logoHeight + 8, 265);
+    text("FACTURE", x + 300, y + 10, 197, 23);
+    const identity = [
+      `N° : ${number}`,
+      `Émise le : ${date(issuedAt)}`,
+      `Commande : SC-${s.order.order_number}`,
+      `Commande du : ${date(s.order.created_at)}`,
+      `Acquittée le : ${date(s.payment.paidAt)}`,
+    ].join("\n");
+    text(identity, x + 300, y + 50, 197, 9);
+    rect(x, y, 290, headerHeight);
+    rect(x + 290, y, 217, headerHeight);
+    y += headerHeight + 14;
+    const seller = [
+      s.seller.name,
+      s.seller.legalForm,
+      `Immatriculation : ${s.seller.registration}`,
+      `TVA : ${s.seller.vat}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const buyer = buyerLines(s).join("\n");
+    const blockHeight = Math.max(
+      110,
+      Math.max(height(seller, 235), height(buyer, 235)) + 40,
     );
-    text(
-      `Commande du ${date(s.order.created_at)} - Paiement ${s.payment.method} confirmé le ${date(s.payment.paidAt)}`,
-      9,
-    );
-    doc.moveDown();
-    text("VENDEUR", 11);
-    text(
-      [
-        s.seller.name,
-        s.seller.legalForm,
-        s.seller.address,
-        `Immatriculation : ${s.seller.registration}`,
-        `TVA : ${s.seller.vat}`,
-        s.seller.email,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-    text("FACTURER À", 11);
-    text(
-      buyerLines(s).join("\n"),
-    );
-    const cols = [44, 267, 310, 388, 447];
-    const head = () => {
-      doc.fillColor("#F5F5F4").rect(44, doc.y, width, 24).fill();
-      const y = doc.y + 6;
-      ["Désignation", "Qté", "P.U. HT*", "TVA", "Total TTC"].forEach((v, i) =>
-        doc
-          .fillColor("#292524")
-          .fontSize(9)
-          .text(v, cols[i], y, { width: i === 0 ? 215 : 78, lineBreak: false }),
+    ensure(blockHeight + 14);
+    rect(x, y, 253.5, blockHeight);
+    rect(x + 253.5, y, 253.5, blockHeight, "#f5f5f5");
+    text("ÉMETTEUR", x + 9, y + 9, 235, 9);
+    text("FACTURÉ À", x + 263, y + 9, 235, 9);
+    text(seller, x + 9, y + 31, 235);
+    text(buyer, x + 263, y + 31, 235);
+    y += blockHeight + 14;
+    const cols = [44, 254, 287, 365, 417, 551];
+    const tableHead = () => {
+      rect(x, y, w, 24, grey);
+      ["Désignation", "Qté", "PU HT*", "TVA %", "Total HT"].forEach((v, i) =>
+        text(v, cols[i] + 5, y + 6, cols[i + 1] - cols[i] - 10, 8),
       );
-      doc.y = y + 24;
+      y += 24;
     };
-    space(50);
-    head();
+    ensure(60);
+    tableHead();
     for (const item of s.order.order_items) {
       const line = lines.find((l) => l.itemId === item.id)!;
       const label =
         item.item_name + (item.option_name ? `\n${item.option_name}` : "");
-      doc.fontSize(9);
-      const h = Math.max(30, doc.heightOfString(label, { width: 210 }) + 12);
-      if (doc.y + h > 735) {
-        doc.addPage();
-        doc.y = 44;
-        head();
-      }
-      const y = doc.y;
-      doc.fillColor("#292524").text(label, cols[0], y, { width: 210 });
-      [
+      const values = [
+        label,
         String(item.quantity),
         eur(line.unitNet, 8),
-        `${line.rate} %`,
-        eur(line.gross),
-      ].forEach((v, i) => {
-        const area = (cols[i + 2] ?? 551) - cols[i + 1] - 4;
-        doc.fontSize(9);
-        const measured = doc.widthOfString(v);
-        // Keep large amounts / precise unit prices inside their own column.
-        doc.fontSize(Math.min(9, (9 * (area - 1)) / Math.max(1, measured)));
-        doc.text(v, cols[i + 1], y, { width: area, lineBreak: false });
-      });
-      doc
-        .moveTo(44, y + h - 5)
-        .lineTo(551, y + h - 5)
-        .strokeColor("#E7E5E4")
-        .stroke();
-      doc.y = y + h;
-    }
-    space(210 + fiscal.rates.length * 18);
-    doc.moveDown();
-    text(`Sous-total produits TTC : ${eur(Number(s.order.subtotal))}`);
-    text(`Livraison TTC : ${eur(fiscal.deliveryFee)}`);
-    text(`Total HT : ${eur(fiscal.totalNet)}`, 11);
-    for (const rate of fiscal.rates)
-      text(
-        `TVA ${rate.rate} % : base HT ${eur(rate.net)} - TVA ${eur(rate.tax)}`,
-        9,
+        String(line.rate).replace(".", ","),
+        eur(line.net),
+      ];
+      const rowHeight = Math.max(
+        28,
+        ...values.map((v, i) => height(v, cols[i + 1] - cols[i] - 10, 8) + 12),
       );
-    text(`TOTAL TTC : ${eur(fiscal.totalGross)}`, 16);
-    text("Reste à payer : 0,00 EUR", 11);
-    text(
-      "* Prix unitaire HT arrondi à 8 décimales maximum ; totaux calculés selon les arrondis des groupes de TVA.",
-      8,
-    );
-    space(doc.heightOfString(s.footer, { width }) + 30);
-    text(s.footer, 8);
+      if (y + rowHeight > bottom) {
+        page();
+        tableHead();
+      }
+      values.forEach((v, i) =>
+        text(v, cols[i] + 5, y + 6, cols[i + 1] - cols[i] - 10, 8),
+      );
+      doc
+        .save()
+        .moveTo(x, y + rowHeight)
+        .lineTo(x + w, y + rowHeight)
+        .strokeColor("#ddd")
+        .lineWidth(0.4)
+        .stroke()
+        .restore();
+      y += rowHeight;
+    }
+    const totals: [string, string][] = [
+      ["Sous-total produits TTC", eur(Number(s.order.subtotal))],
+      ["Livraison TTC", eur(fiscal.deliveryFee)],
+      ["Total HT", eur(fiscal.totalNet)],
+      ...fiscal.rates.map(
+        (r) =>
+          [
+            `TVA ${String(r.rate).replace(".", ",")} % (base ${eur(r.net)})`,
+            eur(r.tax),
+          ] as [string, string],
+      ),
+      ["TOTAL TTC", eur(fiscal.totalGross)],
+      ["Reste à payer", eur(0)],
+    ];
+    y += 12;
+    ensure(totals.length * 28 + 12);
+    for (const [label, value] of totals) {
+      const h = Math.max(25, height(label, 170, 8) + 12);
+      ensure(h);
+      rect(294, y, 257, h, label === "TOTAL TTC" ? grey : undefined);
+      text(label, 301, y + 6, 170, 8);
+      text(value, 476, y + 6, 70, 8);
+      y += h;
+    }
+    const note =
+      "* Prix unitaire HT présenté jusqu’à 8 décimales ; totaux calculés selon les arrondis des groupes de TVA. La livraison est incluse dans les bases HT et TVA ci-dessus.";
+    y += 15;
+    ensure(height(note, w, 7) + 12);
+    text(note, x, y, w, 7);
+    y += height(note, w, 7) + 12;
+    ensure(height(s.footer, w, 8) + 18);
+    text(s.footer, x, y, w, 8);
     const pages = doc.bufferedPageRange();
     for (let i = 0; i < pages.count; i++) {
       doc.switchToPage(i);
-      doc
-        .fontSize(8)
-        .fillColor("#78716C")
-        .text(`${number} - ${i + 1}/${pages.count}`, 44, 770, {
-          width,
-          lineBreak: false,
-        });
+      text(`${number} - ${i + 1}/${pages.count}`, x, 779, w, 7);
     }
     doc.end();
   } catch (error) {

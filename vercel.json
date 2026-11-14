@@ -7,10 +7,6 @@
     {
       "path": "/api/internal/notifications/send",
       "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/internal/invoices/send",
-      "schedule": "*/2 * * * *"
     }
   ]
 }

@@ -237,24 +237,27 @@ test("default-off platform gate touches no database or provider", async () => {
     const d = db();
     assert.deepEqual(
       await runInvoiceWorker(budget(100000), { client: d.client }),
-      { status: "disabled" },
+      { status: "manual_only" },
     );
     assert.deepEqual(d.calls, []);
   } finally {
     process.env.INVOICE_PDF_ENABLED = "true";
   }
 });
-test("worker automatic request id is the invoice identity across executions", async () => {
-  const d = db({ duplicate: true });
-  await runInvoiceWorker(budget(100000), {
+test("worker is inert with all gates open: no generation, numbering or email", async () => {
+  const d = db();
+  let sent = 0;
+  const result = await runInvoiceWorker(budget(100000), {
     client: d.client,
     provider: async () => ({
       name: "fake",
       send: async () => {
-        throw Error("not called");
+        sent++;
+        return { ok: true, providerMessageId: "x" };
       },
     }),
   });
-  const claim = d.calls.find((c) => c[0] === "invoice_pdf_claim_delivery");
-  assert.equal(claim[1].p_request_id, doc().id);
+  assert.deepEqual(result, { status: "manual_only" });
+  assert.deepEqual(d.calls, []);
+  assert.equal(sent, 0);
 });

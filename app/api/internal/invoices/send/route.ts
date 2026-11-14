@@ -1,12 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import {
-  invoicePdfEnabled,
-  runInvoiceWorker,
-} from "@/lib/server/invoices/service";
-import { isRealEmailSendActivated } from "@/lib/server/notifications/real-email-activation-gate";
-import { isMerchantSmtpEncryptionConfigured } from "@/lib/server/merchant-email-provider";
-import { createRunBudget } from "@/lib/server/notifications/run-budget";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -26,15 +19,6 @@ export async function GET(request: NextRequest) {
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
-  if (
-    !invoicePdfEnabled() ||
-    !isRealEmailSendActivated() ||
-    !isMerchantSmtpEncryptionConfigured()
-  )
-    return NextResponse.json({ status: "disabled" });
-  try {
-    return NextResponse.json(await runInvoiceWorker(createRunBudget(130000)));
-  } catch {
-    return NextResponse.json({ status: "unavailable" }, { status: 503 });
-  }
+  // Keep this authenticated legacy endpoint inert, including old scheduled deployments.
+  return NextResponse.json({ status: "manual_only" }, { headers: { "Cache-Control": "no-store" } });
 }

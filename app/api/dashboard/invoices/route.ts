@@ -7,6 +7,8 @@ import {
   prepareInvoice,
   sendInvoice,
 } from "@/lib/server/invoices/service";
+import { getServiceRoleSupabaseClient } from "@/lib/server/supabase-admin";
+import { validateInvoiceSource } from "@/lib/server/invoices/model";
 import { isPlausibleUuid } from "@/lib/tracking/uuid";
 
 export const runtime = "nodejs";
@@ -65,6 +67,32 @@ export async function GET(request: NextRequest) {
     const order = await authorize(request, id);
     if (!order) return error(403, "INVOICE_FORBIDDEN");
     const d = await findInvoice(id);
+    if (d && d.restaurant_id !== order.restaurant_id)
+      return error(403, "INVOICE_FORBIDDEN");
+    if (request.nextUrl.searchParams.get("view") === "status") {
+      if (!d || !d.pdf_base64)
+        return NextResponse.json({ generated: false }, { headers });
+      invoiceBytes(d);
+      const { source } = validateInvoiceSource(d.source);
+      const last = await getServiceRoleSupabaseClient()
+        .from("invoice_pdf_deliveries")
+        .select("state,created_at,completed_at")
+        .eq("invoice_id", d.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (last.error) return error(503, "INVOICE_UNAVAILABLE");
+      return NextResponse.json(
+        {
+          generated: true,
+          invoiceNumber: d.invoice_number,
+          issuedAt: d.issued_at,
+          recipient: source.buyer.email,
+          lastDelivery: last.data,
+        },
+        { headers },
+      );
+    }
     if (!d || !d.pdf_base64) return error(404, "INVOICE_NOT_READY");
     if (d.restaurant_id !== order.restaurant_id)
       return error(403, "INVOICE_FORBIDDEN");
@@ -83,17 +111,22 @@ export async function POST(request: NextRequest) {
     if (
       !body ||
       !isPlausibleUuid(body.orderId) ||
-      !["prepare", "resend"].includes(body.action) ||
-      (body.action === "resend" && !isPlausibleUuid(body.requestId))
+      !["prepare", "send", "resend"].includes(body.action) ||
+      (body.action !== "prepare" && !isPlausibleUuid(body.requestId))
     )
       return error(400, "INVOICE_INVALID_REQUEST");
     const order = await authorize(
       request,
       body.orderId,
-      body.action === "resend",
+      body.action !== "prepare",
     );
     if (!order) return error(403, "INVOICE_FORBIDDEN");
-    const d = await prepareInvoice(order.id);
+    // Sending never creates a numbered document: the merchant must generate/review first.
+    const d =
+      body.action === "prepare"
+        ? await prepareInvoice(order.id)
+        : await findInvoice(order.id);
+    if (!d || !d.pdf_base64) return error(409, "INVOICE_NOT_READY");
     if (d.restaurant_id !== order.restaurant_id)
       return error(403, "INVOICE_FORBIDDEN");
     if (body.action === "prepare") return pdfResponse(d);
